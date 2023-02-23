@@ -104,9 +104,7 @@ Large language models (LLMs) are getting really powerful and have reached a poin
 
 ## Docs
 
-```
 While the API is simple enough and designed to be self-documentating we are currently working on a docs page
-```
 
 ## Reach out
 
