@@ -1,0 +1,10 @@
+{
+  "name": "mindsjs-examples",
+  "type": "module",
+  "private": true,
+  "description": "MindsJS example apps",
+  "main": "index.js",
+  "dependencies": {
+    "minds": "file:.."
+  }
+}
