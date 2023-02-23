@@ -1,47 +1,12 @@
-# MindsJS - Making AI Easy to use
+# Minds - Build AI powered workflows easily
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/minds?style=for-the-badge&color=#32CD32)](https://www.npmjs.com/package/@dosco/minds)
 
+A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI** and **Cohere**.
 
-MindsJS is a JS library (Typescript) that makes it easy to build your app with large language models (LLMs) like **OpenAI** and **Cohere**.
+Build features like context specific chat, question answering, etc in minutes. Define Javascript functions that AIs can use. For example the AI can lookup your database, call an API or search the web while answering a business question.
 
-Build features like context specific chat, question answering, etc in minutes. You can even define Javascript functions as actions for the AI to use. For example the AI can lookup your database, call an API or search the web while answering a business question.
-
-Don't believe us try out the examples :smiley:
-
-```console
-npm i @dosco/minds
-```
-
-## AI Smart Assistant
-
-Build an AI powered assistant that maintains context as you converse with it asking if various questions.
-
-```js
-import { Cohere, OpenAI, Memory, GenerateText, AssistantPrompt } from 'minds';
-
-// const ai = new Cohere(process.env.COHERE_APIKEY)
-const ai = new OpenAI(process.env.OPENAI_APIKEY);
-
-const prompt = new AssistantPrompt();
-const gen = new GenerateText(ai);
-
-await gen.generate(`How far is the sun from the moon?`, prompt);
-await gen.generate(`And from mars?`, prompt);
-await gen.generate(`Will it ever end?`, prompt);
-```
-
-```console
-❯ node chat-assistant.js
-AI: How far is the sun from the moon?
-> The sun is about 384,400 kilometers away from the moon.
-
-AI: And from mars?
-> The sun is about 384,400 kilometers away from Mars as well.
-
-AI: will it ever end?
-> The sun will eventually end, but not for billions of years.
-```
+We totally believe that AI will soon replace your entire app backend. We truly live in amazing times. Try out some of our example :)
 
 ## AI Powered Business Workflows
 
@@ -82,7 +47,43 @@ await gen.generate(query, prompt);
 ```
 
 ```console
-> No, we don't have the product the email refers to in stock.
+> No, we dont have the Macbook Pro M2 With 96GB RAM in stock.
+```
+
+## AI Smart Assistant
+
+Build an AI powered assistant that maintains context as you converse with it asking if various questions.
+
+```javascript
+import {
+  Cohere,
+  OpenAI,
+  Memory,
+  GenerateText,
+  AssistantPrompt,
+} from '@dosco/minds';
+
+// const ai = new Cohere(process.env.COHERE_APIKEY)
+const ai = new OpenAI(process.env.OPENAI_APIKEY);
+
+const prompt = new AssistantPrompt();
+const gen = new GenerateText(ai);
+
+await gen.generate(`How far is the sun from the moon?`, prompt);
+await gen.generate(`And from mars?`, prompt);
+await gen.generate(`Will it ever end?`, prompt);
+```
+
+```console
+❯ node chat-assistant.js
+AI: How far is the sun from the moon?
+> The sun is about 384,400 kilometers away from the moon.
+
+AI: And from mars?
+> The sun is about 384,400 kilometers away from Mars as well.
+
+AI: will it ever end?
+> The sun will eventually end, but not for billions of years.
 ```
 
 ## Example Apps
@@ -100,7 +101,7 @@ node chat-assistant.js
 
 ## About
 
-Large language models (LLMs) are getting really powerful and have reached a point where they can work as the back for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. 
+Large language models (LLMs) are getting really powerful and have reached a point where they can work as the back for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there.
 
 ## Docs
 
@@ -108,8 +109,6 @@ While the API is simple enough and designed to be self-documentating we are curr
 
 ## Reach out
 
-We're happy to help you leverage GraphJin reach out if you have questions
+We're happy to help you leverage Minds reach out if you have questions
 
 [twitter/dosco](https://twitter.com/dosco)
-
-[discord/graphjin](https://discord.gg/6pSWCTZ) (Chat)

@@ -1,4 +1,10 @@
-import { Cohere, OpenAI, Memory, GenerateText, AssistantPrompt } from 'minds';
+import {
+  Cohere,
+  OpenAI,
+  Memory,
+  GenerateText,
+  AssistantPrompt,
+} from '@dosco/minds';
 import { createInterface } from 'readline';
 
 /*

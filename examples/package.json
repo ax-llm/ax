@@ -5,6 +5,6 @@
   "description": "MindsJS example apps",
   "main": "index.js",
   "dependencies": {
-    "minds": "file:.."
+    "@dosco/minds": "file:.."
   }
 }

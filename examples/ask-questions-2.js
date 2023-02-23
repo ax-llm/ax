@@ -4,7 +4,7 @@ import {
   Memory,
   GenerateText,
   QuestionAnswerPrompt,
-} from 'minds';
+} from '@dosco/minds';
 
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)

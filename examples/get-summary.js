@@ -1,4 +1,10 @@
-import { Cohere, OpenAI, Memory, GenerateText, SummarizePrompt } from 'minds';
+import {
+  Cohere,
+  OpenAI,
+  Memory,
+  GenerateText,
+  SummarizePrompt,
+} from '@dosco/minds';
 
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)
