@@ -1,16 +1,23 @@
 # MindsJS - Making AI Easy to use
 
+[![NPM Package](https://img.shields.io/npm/v/@dosco/minds?style=for-the-badge&color=#32CD32)](https://www.npmjs.com/package/@dosco/minds)
+
+
 MindsJS is a JS library (Typescript) that makes it easy to build your app with large language models (LLMs) like **OpenAI** and **Cohere**.
 
 Build features like context specific chat, question answering, etc in minutes. You can even define Javascript functions as actions for the AI to use. For example the AI can lookup your database, call an API or search the web while answering a business question.
 
-Don't believe us try out the examples :)
+Don't believe us try out the examples :smiley:
+
+```console
+npm i @dosco/minds
+```
 
 ## AI Smart Assistant
 
 Build an AI powered assistant that maintains context as you converse with it asking if various questions.
 
-```javascript
+```js
 import { Cohere, OpenAI, Memory, GenerateText, AssistantPrompt } from 'minds';
 
 // const ai = new Cohere(process.env.COHERE_APIKEY)
@@ -42,7 +49,7 @@ Build business or personal workflows where the AI calls your APIs to fetch data 
 
 For example we can build a workflow to automate replying to customers support emails.
 
-```javascript
+```js
 // Fake search action to simulate a product database search
 const productSearch = (_text) => {
   return `
@@ -74,8 +81,8 @@ Email: ${email}`;
 await gen.generate(query, prompt);
 ```
 
-```terminal
-> No, we do not have the product the email refers to in stock.
+```console
+> No, we don't have the product the email refers to in stock.
 ```
 
 ## Example Apps
@@ -90,3 +97,21 @@ cd examples
 npm i
 node chat-assistant.js
 ```
+
+## About
+
+Large language models (LLMs) are getting really powerful and have reached a point where they can work as the back for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. 
+
+## Docs
+
+```
+While the API is simple enough and designed to be self-documentating we are currently working on a docs page
+```
+
+## Reach out
+
+We're happy to help you leverage GraphJin reach out if you have questions
+
+[twitter/dosco](https://twitter.com/dosco)
+
+[discord/graphjin](https://discord.gg/6pSWCTZ) (Chat)
