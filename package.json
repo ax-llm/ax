@@ -1,12 +1,15 @@
 {
-  "name": "minds",
+  "name": "@dosco/minds",
   "version": "1.0.0",
   "description": "making it easy to use ai",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
   "module": "build/module/index.js",
-  "repository": "https://github.com/dosco/minds",
-  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dosco/minds.git"
+  },
+  "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
     "build": "run-p build:*",
@@ -102,5 +105,13 @@
     "exclude": [
       "**/*.spec.js"
     ]
-  }
+  },
+  "bugs": {
+    "url": "https://github.com/dosco/minds/issues"
+  },
+  "homepage": "https://github.com/dosco/minds#readme",
+  "directories": {
+    "example": "examples"
+  },
+  "author": "Vikram <https://twitter.com/dosco>"
 }
