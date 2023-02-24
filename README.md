@@ -1,12 +1,17 @@
 # Minds - Build AI powered workflows easily
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/minds?style=for-the-badge&color=#32CD32)](https://www.npmjs.com/package/@dosco/minds)
+[![Discord Chat](https://dcbadge.vercel.app/api/server/2WsGjtk4?style=for-the-badge&logo=appveyor)](https://discord.gg/2WsGjtk4)
 
 A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI** and **Cohere**.
 
 Build features like context specific chat, question answering, etc in minutes. Define Javascript functions that AIs can use. For example the AI can lookup your database, call an API or search the web while answering a business question.
 
-We totally believe that AI will soon replace your entire app backend. We truly live in amazing times. Try out some of our example :)
+We totally believe that AI will soon replace your entire app backend. We truly live in amazing times. Please join our Discord so we can help you build your idea.
+
+```console
+npm i @dosco/minds
+```
 
 ## AI Powered Business Workflows
 
@@ -88,10 +93,12 @@ AI: will it ever end?
 
 ## Example Apps
 
-- ask-questions-1.js : AI uses Google search to find the correct answer
-- ask-questions-2.js : AI powered customer support email handling
-- chat-assistant.js : AI chat bot capable of intellegent conversations.
-- get-summary.js : AI to generate a shprt summary of a large block of text"
+| Example            | Description                                             |
+| ------------------ | ------------------------------------------------------- |
+| ask-questions-1.js | AI uses Google search to find the correct answer        |
+| ask-questions-2.js | AI powered customer support email handling              |
+| chat-assistant.js  | AI chat bot capable of intellegent conversations        |
+| get-summary.js     | AI to generate a shprt summary of a large block of text |
 
 ```terminal
 cd examples
@@ -99,13 +106,58 @@ npm i
 node chat-assistant.js
 ```
 
-## About
+## Why use Minds?
 
 Large language models (LLMs) are getting really powerful and have reached a point where they can work as the back for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there.
 
 ## Docs
 
-While the API is simple enough and designed to be self-documentating we are currently working on a docs page
+### 1. Pick an AI to work with
+
+```js
+// Use Cohere AI
+const ai = new Cohere(process.env.COHERE_APIKEY);
+
+// Use OpenAI
+const ai = new OpenAI(process.env.OPENAI_APIKEY);
+```
+
+### 2. Pick a memory for storing context (optional)
+
+```js
+// Can be sub classed to build you own memory backends
+// like one that uses redis or a database
+const mem = new Memory();
+```
+
+### 3. Pick a prompt based on your usecase
+
+```js
+// For building conversational chat based AI workflows
+const prompt = new AssistantPrompt();
+
+// For building question answer workflows where the
+// AI can search the web, or lookup your database to
+// answer questions
+const prompt = new QuestionAnswerPrompt(actions);
+```
+
+### 4. Engage the AI
+
+```js
+// Use this for all text generation tasks
+const gen = new GenerateText(ai, mem);
+
+// Query the AI
+const res = await gen.generate(
+  `Do we have the product the email referes to in stock? 
+  Email: I'm looking for a Macbook Pro M2 With 96GB RAM.`,
+  prompt
+);
+
+// Get the response
+console.log('>', res.value);
+```
 
 ## Reach out
 
