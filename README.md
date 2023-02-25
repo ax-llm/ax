@@ -99,7 +99,7 @@ AI: will it ever end?
 | ask-questions-1.js | AI uses Google search to find the correct answer        |
 | ask-questions-2.js | AI powered customer support email handling              |
 | chat-assistant.js  | AI chat bot capable of intellegent conversations        |
-| get-summary.js     | AI to generate a shprt summary of a large block of text |
+| get-summary.js     | AI to generate a short summary of a large block of text |
 
 ```terminal
 cd examples
@@ -109,9 +109,9 @@ node chat-assistant.js
 
 ## Why use Minds?
 
-Large language models (LLMs) are getting really powerful and have reached a point where they can work as the back for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there.
+Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there.
 
-## Docs
+## How to use this library?
 
 ### 1. Pick an AI to work with
 
@@ -158,6 +158,52 @@ const res = await gen.generate(
 
 // Get the response
 console.log('>', res.value);
+```
+
+## What are actions?
+
+Actions are functions that you define and the API can then call these functions to fetch data it needs to come up with the final answer. All you have to do is pass a list of actions to a prompt that supports actions like the `QuestionAnswerPrompt`.
+
+Embeddings are also supported. If you use a function with two arguments then the embeddings for the `text` (first argument) will be passedi in the second argument. Embeddings can be used with a vector search engine to find similiar things. For example to fetch similiar text paragraphs when coming up with a correct answer.
+
+```js
+// Action without embeddings
+const productSearch(text) {
+  return result
+}
+
+// Action with embeddings
+const productSearch(text, embeds) {
+  return result
+}
+```
+
+You must specify a name and a clear description matching what the action does. The action itself is a function on the action object that you define.
+
+```js
+const actions = [
+  {
+    name: 'Product Search',
+    description: 'Used to search up a products information by its name',
+    action: productSearch,
+  },
+  {
+    name: 'Math Solver',
+    description: 'Used to solve math problems',
+    action: wolframAlphaSearch,
+  },
+  {
+    name: 'Javascript Compiler',
+    description: 'Used to compile and execute Javascript code',
+    action: javascriptCompile,
+  },
+];
+```
+
+Finally pass the action list to the prompt.
+
+```js
+const prompt = new QuestionAnswerPrompt(actions);
 ```
 
 ## Reach out
