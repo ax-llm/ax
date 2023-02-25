@@ -1,8 +1,14 @@
 import axios, { AxiosResponse } from 'axios';
-import { AIService, GenerateResponse, PromptMetadata } from '../text';
+import {
+  AIService,
+  GenerateResponse,
+  EmbedResponse,
+  PromptMetadata,
+} from '../text';
 
 const enum CohereAPI {
   Generate = 'generate',
+  Embed = 'embed',
 }
 
 /**
@@ -88,6 +94,19 @@ type CohereGenerateResponse = {
   generations: CohereGeneration[];
 };
 
+type CohereEmbedRequest = {
+  texts: string[];
+  model: CohereGenerateModels | string;
+  truncate: string;
+};
+
+type CohereEmbedResponse = {
+  id: string;
+  texts: string[];
+  model: string;
+  embeddings: number[];
+};
+
 const generateData = (
   prompt: string,
   stopSequences: string[],
@@ -138,29 +157,59 @@ export class Cohere implements AIService {
     return 'Cohere';
   }
 
-  generate(prompt: string, md?: PromptMetadata): Promise<GenerateResponse> {
+  generate(
+    prompt: string,
+    md?: PromptMetadata,
+    sessionID?: string
+  ): Promise<GenerateResponse> {
     const text = prompt.trim();
     const stopSeq = md?.stopSequences || [];
     const opts = this.generateOptions;
 
-    const res = this.apiCall(
+    const res = this.apiCall<CohereGenerateRequest, CohereGenerateResponse>(
       CohereAPI.Generate,
       generateData(text, stopSeq, opts)
     );
 
-    return res.then(({ data }) => ({
-      id: data.id,
+    return res.then(({ data: { id, generations: gens } }) => ({
+      id: id,
+      sessionID: sessionID,
       query: prompt,
-      value: data.generations[0].text.trim(),
-      values: data.generations.length > 1 ? data.generations : [],
+      values: gens,
+    }));
+  }
+
+  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+    if (texts.length > 96) {
+      throw new Error('Cohere limits embeddings input to 96 strings');
+    }
+
+    const overLimit = texts.filter((v) => v.length > 512);
+    if (overLimit.length !== 0) {
+      throw new Error('Cohere limits embeddings input to 512 characters');
+    }
+
+    const { model } = this.generateOptions;
+    const req = { texts, model, truncate: 'NONE' };
+    const res = this.apiCall<CohereEmbedRequest, CohereEmbedResponse>(
+      CohereAPI.Embed,
+      req
+    );
+
+    return res.then(({ data: { id, embeddings } }) => ({
+      id: id,
+      sessionID,
+      texts,
+      model,
+      embeddings,
     }));
   }
 
   /** @ignore */
-  private apiCall(
+  private apiCall<T1, T2>(
     api: CohereAPI,
-    data: CohereGenerateRequest
-  ): Promise<AxiosResponse<CohereGenerateResponse, any>> {
+    data: T1
+  ): Promise<AxiosResponse<T2, any>> {
     const headers = {
       Authorization: `BEARER ${this.apiKey}`,
       'Cohere-Version': '2022-12-06',

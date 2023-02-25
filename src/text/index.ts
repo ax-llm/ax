@@ -3,9 +3,17 @@ export * from './generate';
 
 export type GenerateResponse = {
   id: string;
+  sessionID?: string;
   query: string;
-  value: string;
   values: { id: string; text: string }[];
+};
+
+export type EmbedResponse = {
+  id: string;
+  sessionID?: string;
+  texts: string[];
+  model: string;
+  embeddings: number[];
 };
 
 export interface AIMemory {
@@ -14,10 +22,15 @@ export interface AIMemory {
   peek(sessionID?: string): Readonly<string[]>;
 }
 
+export type Embeddings = {
+  model: string;
+  embeddings: number[];
+};
+
 export type PromptAction = {
   readonly name: string;
   readonly description: string;
-  action(text: string): string;
+  action(text: string, embeds?: Embeddings): string;
 };
 
 export type PromptMetadata = {
@@ -42,6 +55,7 @@ export interface AIService {
     md?: PromptMetadata,
     sessionID?: string
   ): Promise<GenerateResponse>;
+  embed(texts: string[], sessionID?: string): Promise<EmbedResponse>;
 }
 
 /*

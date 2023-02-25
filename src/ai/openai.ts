@@ -1,8 +1,14 @@
 import axios, { AxiosResponse } from 'axios';
-import { AIService, GenerateResponse, PromptMetadata } from '../text';
+import {
+  AIService,
+  GenerateResponse,
+  EmbedResponse,
+  PromptMetadata,
+} from '../text';
 
 const enum OpenAIAPI {
   Generate = 'completions',
+  Embed = 'embeddings',
 }
 
 /**
@@ -11,17 +17,10 @@ const enum OpenAIAPI {
  */
 export const enum OpenAIGenerateModels {
   GPT3TextDavinci003 = 'text-davinci-003',
-  GPT3TextDavinci002 = 'text-davinci-002',
   GPT3TextCurie001 = 'text-curie-001',
   GPT3TextBabbage001 = 'text-babbage-001',
   GPT3TextAda001 = 'text-ada-001',
   GPT3TextDavinci001 = 'text-davinci-001',
-  GPT3DavinciInstructBeta = 'davinci-instruct-beta',
-  GPT3Davinci = 'davinci',
-  GPT3CurieInstructBeta = 'curie-instruct-beta',
-  GPT3Curie = 'curie',
-  GPT3Ada = 'ada',
-  GPT3Babbage = 'babbage',
 }
 
 /**
@@ -35,11 +34,21 @@ export const enum OpenAIGenerateCodeModels {
 }
 
 /**
+ * OpenAI: Models for use in embeddings
+ * @export
+ */
+export const enum OpenAIEmbedModels {
+  GPT3TextEmbeddingAda002 = 'text-embedding-ada-002',
+  GPT3TextSimilarityDavinci001 = 'text-similarity-davinci-001',
+}
+
+/**
  * OpenAI: Model options for text generation
  * @export
  */
 export type OpenAIGenerateOptions = {
   model: OpenAIGenerateModels | OpenAIGenerateCodeModels | string;
+  embedModel: OpenAIEmbedModels | string;
   suffix: string | null;
   maxTokens: number;
   temperature: number;
@@ -61,6 +70,7 @@ export type OpenAIGenerateOptions = {
  */
 export const OpenAIDefaultGenerateOptions = (): OpenAIGenerateOptions => ({
   model: OpenAIGenerateModels.GPT3TextDavinci003,
+  embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   suffix: null,
   maxTokens: 300,
   temperature: 0.45,
@@ -130,6 +140,20 @@ type OpenAIGenerateResponse = {
   usage: OpenAIUsage;
 };
 
+type OpenAIEmbedRequest = {
+  input: string[];
+  model: string;
+  user?: string;
+};
+
+type OpenAIEmbedResponse = {
+  model: string;
+  data: {
+    embeddings: number[];
+    index: number;
+  };
+};
+
 const generateData = (
   prompt: string,
   stopSequences: string[],
@@ -194,32 +218,59 @@ export class OpenAI implements AIService {
     return 'OpenAI';
   }
 
-  generate(prompt: string, md?: PromptMetadata): Promise<GenerateResponse> {
+  generate(
+    prompt: string,
+    md?: PromptMetadata,
+    sessionID?: string
+  ): Promise<GenerateResponse> {
     const text = prompt.trim();
     const stopSeq = md?.stopSequences || [];
     const opts = this.generateOptions;
 
-    const res = this.apiCall(
+    const res = this.apiCall<OpenAIGenerateRequest, OpenAIGenerateResponse>(
       OpenAIAPI.Generate,
       generateData(text, stopSeq, opts)
     );
 
-    return res.then(({ data }) => ({
-      id: data.id.toString(),
+    return res.then(({ data: { id, choices: c } }) => ({
+      id: id.toString(),
+      sessionID: sessionID,
       query: prompt,
-      value: data.choices[0].text.trim(),
-      values:
-        data.choices.length > 1
-          ? data.choices.map((v) => ({ id: v.index.toString(), text: v.text }))
-          : [],
+      values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+    }));
+  }
+
+  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+    if (texts.length > 96) {
+      throw new Error('OpenAI limits embeddings input to 96 strings');
+    }
+
+    const overLimit = texts.filter((v) => v.length > 512);
+    if (overLimit.length !== 0) {
+      throw new Error('OpenAI limits embeddings input to 512 characters');
+    }
+
+    const { embedModel } = this.generateOptions;
+    const req = { input: texts, model: embedModel };
+    const res = this.apiCall<OpenAIEmbedRequest, OpenAIEmbedResponse>(
+      OpenAIAPI.Embed,
+      req
+    );
+
+    return res.then(({ data }) => ({
+      id: '',
+      sessionID,
+      texts,
+      model: data.model,
+      embeddings: data.data.embeddings,
     }));
   }
 
   /** @ignore */
-  private apiCall(
+  private apiCall<T1, T2>(
     api: OpenAIAPI,
-    data: OpenAIGenerateRequest
-  ): Promise<AxiosResponse<OpenAIGenerateResponse, any>> {
+    data: T1
+  ): Promise<AxiosResponse<T2, any>> {
     const headers = {
       Authorization: `Bearer ${this.apiKey}`,
     };

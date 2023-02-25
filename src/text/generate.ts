@@ -60,16 +60,16 @@ export class GenerateText {
       let done = false;
 
       if (this.debug) {
-        log(`< ${res.value}`, 'red');
+        log(`< ${res.values[0].text.trim()}`, 'red');
       }
 
       if (prompt.actions) {
-        done = this.processAction(res, prompt, sessionID);
+        done = await this.processAction(res, prompt, sessionID);
       } else {
-        done = this.processSeq(q, res, prompt, sessionID);
+        done = await this.processSeq(q, res, prompt, sessionID);
       }
 
-      if (res.value === '') {
+      if (res.values.length === 0) {
         throw new Error('empty response from ai');
       }
 
@@ -88,16 +88,17 @@ export class GenerateText {
     sessionID?: string
   ): boolean {
     const md = prompt.metadata();
-    const val = [md?.queryPrefix, query, md?.responsePrefix, res.value];
-    this.mem.add(val.join(''), sessionID);
+    const val = res.values[0].text.trim();
+    const mval = [md?.queryPrefix, query, md?.responsePrefix, val];
+    this.mem.add(mval.join(''), sessionID);
     return true;
   }
 
-  private processAction(
+  private async processAction(
     res: GenerateResponse,
     prompt: AIPrompt,
     sessionID?: string
-  ): boolean {
+  ): Promise<boolean> {
     const md = prompt.metadata();
     const actions = prompt.actions();
 
@@ -115,19 +116,19 @@ export class GenerateText {
     let actVal: string;
     let v: string[] | null;
 
-    const val = res.value;
+    const val = res.values[0].text.trim();
 
     if ((v = md.finalValue.exec(val)) !== null) {
       const mval = [md?.responsePrefix, val];
       this.mem.add(mval.join(''), sessionID);
-      res.value = v[1].trim();
+      res.values[0].text = v[1].trim();
       return true;
     }
 
-    if ((v = md.actionName.exec(res.value)) !== null) {
+    if ((v = md.actionName.exec(val)) !== null) {
       actKey = v[1].trim();
     }
-    if ((v = md.actionValue.exec(res.value)) !== null) {
+    if ((v = md.actionValue.exec(val)) !== null) {
       actVal = v[1].trim();
     }
 
@@ -136,12 +137,16 @@ export class GenerateText {
       throw new Error(`invalid action found: ${actKey}`);
     }
 
-    const actionResult = act.action(actVal);
+    const actRes =
+      act.action.length === 2
+        ? act.action(actVal, await this.ai.embed([actVal], sessionID))
+        : act.action(actVal);
+
     if (this.debug) {
-      log(`> ${actKey}(${actVal}): ${actionResult}`, 'cyan');
+      log(`> ${actKey}(${actVal}): ${actRes}`, 'cyan');
     }
 
-    const mval = [md?.responsePrefix, val, md?.queryPrefix, actionResult];
+    const mval = [md?.responsePrefix, val, md?.queryPrefix, actRes];
     this.mem.add(mval.join(''), sessionID);
     return false;
   }

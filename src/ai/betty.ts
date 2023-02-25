@@ -1,4 +1,9 @@
-import { AIService, GenerateResponse, PromptMetadata } from '../text';
+import {
+  AIService,
+  GenerateResponse,
+  EmbedResponse,
+  PromptMetadata,
+} from '../text';
 
 /**
  * Betty: Fake AI Service for writing tests
@@ -28,16 +33,31 @@ export class Betty implements AIService {
       this.sdata.set(sessionID, [...this.answers]);
     }
     const answers = sessionID ? this.sdata.get(sessionID) : this.data;
-    const ans = answers.shift();
+    const text = answers.shift();
     this.index++;
 
     const res = {
       id: this.index.toString(),
+      sessionID: sessionID,
       query: prompt,
-      value: ans.trim(),
-      values: [],
+      values: [{ id: '0', text }],
     };
 
+    return new Promise((resolve, _) => {
+      setTimeout(() => {
+        resolve(res);
+      }, 300);
+    });
+  }
+
+  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+    const res = {
+      id: '',
+      sessionID: sessionID,
+      texts: texts,
+      model: '',
+      embeddings: [1, 2, 3, 4],
+    };
     return new Promise((resolve, _) => {
       setTimeout(() => {
         resolve(res);
