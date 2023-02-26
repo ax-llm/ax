@@ -41,7 +41,7 @@ rl.on('line', async function (line) {
       return;
     default:
       const res = await gen.generate(line, prompt);
-      console.log(`> ${res.value}\n`);
+      console.log(`> ${res.value()}\n`);
       break;
   }
   rl.prompt();

@@ -41,6 +41,7 @@ export class Betty implements AIService {
       sessionID: sessionID,
       query: prompt,
       values: [{ id: '0', text }],
+      value: () => res.values[0].text,
     };
 
     return new Promise((resolve, _) => {

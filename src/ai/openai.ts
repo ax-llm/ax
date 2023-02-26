@@ -237,6 +237,9 @@ export class OpenAI implements AIService {
       sessionID: sessionID,
       query: prompt,
       values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+      value() {
+        return this.values[0].text;
+      },
     }));
   }
 

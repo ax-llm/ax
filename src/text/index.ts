@@ -6,6 +6,7 @@ export type GenerateResponse = {
   sessionID?: string;
   query: string;
   values: { id: string; text: string }[];
+  value(): string;
 };
 
 export type EmbedResponse = {

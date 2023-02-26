@@ -40,4 +40,4 @@ const res = await gen.generate(
   prompt
 );
 
-console.log('>', res.value);
+console.log('>', res.value());

@@ -24,13 +24,13 @@ For example we can build a workflow to automate replying to customers support em
 // Fake search action to simulate a product database search
 const productSearch = (_text) => {
   return `
-  Name: Macbook Pro M2
-  Details: Ram 32GB
-  In Stock: True
+   name: Macbook Pro M2
+  details: Ram 32GB
+  stock_count: 4341
   --
-  Name: Macbook Pro M2
-  Details: Ram 96GB
-  In Stock: False`;
+  name: Macbook Pro M2
+  details: Ram 96GB
+  stock_count: 2`;
 };
 
 const actions = [
@@ -53,7 +53,7 @@ await gen.generate(query, prompt);
 ```
 
 ```console
-> No, we dont have the Macbook Pro M2 With 96GB RAM in stock.
+>  Yes, we have two Macbook Pro's M2 with 96GB RAM in stock.
 ```
 
 ## AI Smart Assistant
@@ -94,12 +94,13 @@ AI: will it ever end?
 
 ## Example Apps
 
-| Example            | Description                                             |
-| ------------------ | ------------------------------------------------------- |
-| ask-questions-1.js | AI uses Google search to find the correct answer        |
-| ask-questions-2.js | AI powered customer support email handling              |
-| chat-assistant.js  | AI chat bot capable of intellegent conversations        |
-| get-summary.js     | AI to generate a short summary of a large block of text |
+| Example             | Description                                             |
+| ------------------- | ------------------------------------------------------- |
+| ask-questions.js    | AI uses Google search to find the correct answer        |
+| customer-support.js | AI powered customer support email handling              |
+| chat-assistant.js   | AI chat bot capable of intellegent conversations        |
+| get-summary.js      | AI to generate a short summary of a large block of text |
+| ai-vs-ai.js         | OpenAI has a friendly chat with Cohere                  |
 
 ```terminal
 cd examples

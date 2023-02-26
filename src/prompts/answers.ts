@@ -1,35 +1,32 @@
 import { AIService, AIPrompt, PromptMetadata, PromptAction } from '../text';
 
-const actionNames = (tools: PromptAction[]) =>
-  tools.map((v) => v.name).join(', ');
+const promptHeader = (actions: PromptAction[], context?: string) => {
+  const actn = actions.map((v) => v.name).join(', ');
+  const actd = actions.map((v) => `${v.name}: ${v.description}`).join('\n');
 
-const actionDescriptions = (tools: PromptAction[]) =>
-  tools.map((v) => `${v.name}: ${v.description}`).join('\n');
-
-const promptHeader = (
-  actions: PromptAction[]
-) => `Answer the following questions using the actions listed below:
+  return `
+Answer the following questions using the actions listed below:
+${context ? `\nAnd use the following context:\n${context}` : null}
 
 Actions:
-
-${actionDescriptions(actions)}
+${actd}
 
 Format:
-
 Question: The input question you must answer.
 Thought: Always consider what to do.
-Action Name: The action to take, choose from [${actionNames(actions)}].
+Action: The action to take, choose from [${actn}].
 Action Input: The input required for the action.
 Observation: The output of the action.
 
 Thought: I now have additional information.
 Repeat the previous four steps as necessary.
 
-Thought: I have enough information to answer the original question.
+Thought: I have the final answer
 Final Answer: The answer to the original question.
 
-Let's get started!
+Start!
 `;
+};
 
 /**
  * A prompt used for question answering
@@ -40,21 +37,21 @@ Let's get started!
  */
 export class QuestionAnswerPrompt implements AIPrompt {
   private acts: PromptAction[];
-  private ph: string;
+  private context?: string;
 
   private _metadata: PromptMetadata = {
     stopSequences: ['Question:', 'Observation:'],
     queryPrefix: '\nObservation: ',
     responsePrefix: '\nThought: ',
 
-    actionName: /^Action Name:\s{0,}\n?(.+)$/m,
+    actionName: /^Action:\s{0,}\n?(.+)$/m,
     actionValue: /^Action Input:\s{0,}\n?(.+)$/m,
     finalValue: /^Final Answer:((.|\n)*)/m,
   };
 
-  constructor(actions: PromptAction[] = []) {
+  constructor(actions: PromptAction[] = [], context?: string) {
     this.acts = [...actions];
-    this.ph = promptHeader(actions);
+    this.context = context;
   }
 
   metadata(): Readonly<PromptMetadata> {
@@ -67,9 +64,11 @@ export class QuestionAnswerPrompt implements AIPrompt {
 
   create(query: string, history: () => string, _ai: AIService): string {
     return `
-${this.ph}
+${promptHeader(this.acts, this.context)}
 
 Question: ${query}
-${history()}`;
+${history()}
+${this._metadata.responsePrefix}
+`;
   }
 }

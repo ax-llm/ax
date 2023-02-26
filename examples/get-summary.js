@@ -20,4 +20,4 @@ The technological singularity—or simply the singularity[1]—is a hypothetical
 `;
 
 const res = await gen.generate(query, prompt);
-console.log('>', res.value);
+console.log('>', res.value());

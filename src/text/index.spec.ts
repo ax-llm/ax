@@ -22,7 +22,7 @@ test('contextEnabledConversationWithAI', async (t) => {
   ];
 
   const exp = humanQuerys
-    .map((v, i) => `\nHuman: ${v}\nAssistant: ${aiResponses[i]}`)
+    .map((v, i) => `\nHuman: ${v}\nAI: ${aiResponses[i]}`)
     .map((_, i, a) => a.slice(0, i + 1));
 
   const ai = new Betty(aiResponses);
@@ -53,7 +53,7 @@ test('multiSessionChatWithAI', async (t) => {
   ];
 
   const exp = humanQuerys
-    .map((v, i) => `\nHuman: ${v}\nAssistant: ${aiResponses[i]}`)
+    .map((v, i) => `\nHuman: ${v}\nAI: ${aiResponses[i]}`)
     .map((_, i, a) => a.slice(0, i + 1));
 
   const ai = new Betty(aiResponses);
@@ -88,7 +88,7 @@ test('findAnswersWithAI', async (t) => {
   ];
 
   const interactions = [
-    'I should look up who the biggest tech company in in Mountain View, CA\nAction Name: Google Search\nAction Input: "biggest tech company in Mountain View"',
+    'I should look up who the biggest tech company in in Mountain View, CA\nAction: Google Search\nAction Input: "biggest tech company in Mountain View"',
     `\nObservation: ${googleSearch('"biggest tech company in Mountain View"')}`,
     'I now know who the biggest tech company in Mountain View\nFinal Answer: Google',
   ];
@@ -135,7 +135,7 @@ test('usingEmbeddingsFindAnswersWithAI', async (t) => {
     'Pluto is the coldest planet since its the last planet in our solar system';
 
   const interactions = [
-    'I should look up some information about the plabet Mars, CA\nAction Name: Science Search\nAction Input: "Coldest planet in our solar system"',
+    'I should look up some information about the plabet Mars, CA\nAction: Science Search\nAction Input: "Coldest planet in our solar system"',
     `\nObservation: Pluto is the last planet in our solar system`,
     `I now know who the coldest planet\nFinal Answer: ${finalAnswer}`,
   ];

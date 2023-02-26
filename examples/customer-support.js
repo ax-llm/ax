@@ -6,6 +6,8 @@ import {
   QuestionAnswerPrompt,
 } from '@dosco/minds';
 
+import chalk from 'chalk';
+
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)
   : new OpenAI(process.env.OPENAI_APIKEY);
@@ -13,13 +15,13 @@ const ai = process.env.COHERE_APIKEY
 // Fake search action to simulate a product database search
 const productSearch = (_text) => {
   return `
-  Name: Macbook Pro M2
-  Details: Ram 32GB
-  In Stock: True
-  --
-  Name: Macbook Pro M2
-  Details: Ram 96GB
-  In Stock: False`;
+  We only have the following products currently in stock:
+  1. name: Macbook Pro M2, details: Ram 32GB, stock_count: 4341
+  2. name: Macbook Pro M2, details: Ram 96GB, stock_count: 2`;
+};
+
+const calculator = (text) => {
+  return parser.evaluate(text);
 };
 
 // List of actions available to the AI
@@ -31,15 +33,14 @@ const actions = [
   },
 ];
 
+const context = 'This question related to customer support';
+
 const mem = new Memory();
-const prompt = new QuestionAnswerPrompt(actions);
+const prompt = new QuestionAnswerPrompt(actions, context);
 const gen = new GenerateText(ai, mem);
 gen.setDebug(true);
 
-const res = await gen.generate(
-  `Do we have the product the email referes to in stock? 
-  Email: I'm looking for a Macbook Pro M2 With 96GB RAM.`,
-  prompt
-);
+const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
-console.log('>', res.value);
+const res = await gen.generate(customerQuery, prompt);
+console.log(chalk.green('Answer for customer:', res.value()));
