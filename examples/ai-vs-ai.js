@@ -9,18 +9,6 @@ import {
 import chalk from 'chalk';
 import { createInterface } from 'readline';
 
-/*
-❯ node chat-assistant.js
-AI: How far is the sun from the moon?
-> The sun is about 384,400 kilometers away from the moon.
-
-AI: And from mars?
-> The sun is about 384,400 kilometers away from Mars as well.
-
-AI: will it ever end?
-> The sun will eventually end, but not for billions of years.
-*/
-
 const mem1 = new Memory();
 const mem2 = new Memory();
 
