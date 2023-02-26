@@ -1,8 +1,10 @@
-# Minds - Build AI powered workflows easily
+# Minds - Build AI Powered Workflows!
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/minds?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/minds)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/2WsGjtk4?style=for-the-badge)](https://discord.gg/2WsGjtk4)
+
+<img align="right" width="300" height="300" style="padding: 5px" src="https://i.imgur.com/02KP6OU.png">
 
 A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI** and **Cohere**.
 
@@ -216,3 +218,10 @@ We're happy to help you leverage Minds reach out if you have questions
 ## Prompt Engineering
 
 There is a bit of magic to getting an LLM (AI) to do your bidding. For fans of boarding school going wizards it's sort of like learning spells that trigger patterns deep inside the latent space of the model. This is the new and exciting field of [Prompt Engineering](https://42papers.com/c/llm-prompting-6343) and this library is how we turn these spells into code to help make building with AI a more democratic endevour. Join us we're just getting started.
+
+## Featured AI Art
+
+MidJourney Art by [AmitDeshmukh](https://twitter.com/AmitDeshmukh)
+
+> Prompt: kids walking on a dirt road through a futuristic village, field of daisies on both sides, futuristic clothing, some traditional homes, cumulus clouds, bright mid morning sunlight, birds and drone
+
