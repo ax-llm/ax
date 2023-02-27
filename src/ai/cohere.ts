@@ -1,4 +1,3 @@
-import axios, { AxiosResponse } from 'axios';
 import {
   AIService,
   GenerateResponse,
@@ -6,7 +5,15 @@ import {
   PromptMetadata,
 } from '../text';
 
-const enum CohereAPI {
+import { API, apiCall } from './util';
+
+type CohereAPI = API & {
+  headers: { 'Cohere-Version': string };
+};
+
+const apiURL = 'https://api.cohere.ai/';
+
+const enum apiTypes {
   Generate = 'generate',
   Embed = 'embed',
 }
@@ -35,23 +42,23 @@ export const enum CohereReturnLikelihoods {
  * Cohere: Model options for text generation
  * @export
  */
-export type CohereGenerateOptions = {
+export type CohereTextOptions = {
   model: CohereGenerateModels | string;
   maxTokens: number;
   temperature: number;
   topK: number;
   topP: number;
-  frequencyPenalty: number;
-  presencePenalty: number;
-  stopSequences: string[];
-  returnLikelihoods: CohereReturnLikelihoods;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  stopSequences?: string[];
+  returnLikelihoods?: CohereReturnLikelihoods;
 };
 
 /**
  * Cohere: Default Model options for text generation
  * @export
  */
-export const CohereDefaultGenerateOptions = (): CohereGenerateOptions => ({
+export const CohereDefaultTextOptions = (): CohereTextOptions => ({
   model: CohereGenerateModels.CommandXLargeNightly,
   maxTokens: 300,
   temperature: 0.45,
@@ -59,16 +66,14 @@ export const CohereDefaultGenerateOptions = (): CohereGenerateOptions => ({
   topP: 1,
   frequencyPenalty: 0,
   presencePenalty: 0,
-  stopSequences: [],
-  returnLikelihoods: CohereReturnLikelihoods.NONE,
 });
 
 /**
  * Cohere: Default model options for more creative text generation
  * @export
  */
-export const CohereCreativeGenerateOptions = (): CohereGenerateOptions => ({
-  ...CohereDefaultGenerateOptions(),
+export const CohereCreativeTextOptions = (): CohereTextOptions => ({
+  ...CohereDefaultTextOptions(),
   temperature: 0.9,
 });
 
@@ -79,19 +84,17 @@ type CohereGenerateRequest = {
   temperature: number;
   k: number;
   p: number;
-  frequency_penalty: number;
-  presence_penalty: number;
-  end_sequences: string[];
-  stop_sequences: string[];
-  return_likelihoods: CohereReturnLikelihoods;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  end_sequences?: string[];
+  stop_sequences?: string[];
+  return_likelihoods?: CohereReturnLikelihoods;
 };
-
-type CohereGeneration = { id: string; text: string };
 
 type CohereGenerateResponse = {
   id: string;
   prompt: string;
-  generations: CohereGeneration[];
+  generations: { id: string; text: string }[];
 };
 
 type CohereEmbedRequest = {
@@ -107,10 +110,10 @@ type CohereEmbedResponse = {
   embeddings: number[];
 };
 
-const generateData = (
+const generateReq = (
   prompt: string,
-  stopSequences: string[],
-  opt: Readonly<CohereGenerateOptions>
+  stopSequences: string[] = [],
+  opt: Readonly<CohereTextOptions>
 ): CohereGenerateRequest => ({
   prompt: prompt,
   model: opt.model,
@@ -130,7 +133,7 @@ const generateData = (
  * @export
  */
 export type CohereOptions = {
-  generateOptions?: CohereGenerateOptions;
+  TextOptions?: CohereTextOptions;
 };
 
 /**
@@ -139,8 +142,7 @@ export type CohereOptions = {
  */
 export class Cohere implements AIService {
   private apiKey: string;
-  private generateOptions: CohereGenerateOptions =
-    CohereDefaultGenerateOptions();
+  private TextOptions: CohereTextOptions = CohereDefaultTextOptions();
 
   constructor(apiKey: string, options?: Readonly<CohereOptions>) {
     if (apiKey === '') {
@@ -148,8 +150,8 @@ export class Cohere implements AIService {
     }
     this.apiKey = apiKey;
 
-    if (options?.generateOptions) {
-      this.generateOptions = options.generateOptions;
+    if (options?.TextOptions) {
+      this.TextOptions = options.TextOptions;
     }
   }
 
@@ -162,13 +164,20 @@ export class Cohere implements AIService {
     md?: PromptMetadata,
     sessionID?: string
   ): Promise<GenerateResponse> {
-    const text = prompt.trim();
-    const stopSeq = md?.stopSequences || [];
-    const opts = this.generateOptions;
+    prompt = prompt.trim();
 
-    const res = this.apiCall<CohereGenerateRequest, CohereGenerateResponse>(
-      CohereAPI.Generate,
-      generateData(text, stopSeq, opts)
+    const res = apiCall<
+      CohereAPI,
+      CohereGenerateRequest,
+      CohereGenerateResponse
+    >(
+      {
+        key: this.apiKey,
+        name: apiTypes.Generate,
+        url: apiURL,
+        headers: { 'Cohere-Version': '2022-12-06' },
+      },
+      generateReq(prompt, md?.stopSequences, this.TextOptions)
     );
 
     return res.then(({ data: { id, generations: gens } }) => ({
@@ -192,36 +201,22 @@ export class Cohere implements AIService {
       throw new Error('Cohere limits embeddings input to 512 characters');
     }
 
-    const { model } = this.generateOptions;
-    const req = { texts, model, truncate: 'NONE' };
-    const res = this.apiCall<CohereEmbedRequest, CohereEmbedResponse>(
-      CohereAPI.Embed,
-      req
+    const res = apiCall<CohereAPI, CohereEmbedRequest, CohereEmbedResponse>(
+      {
+        key: this.apiKey,
+        name: apiTypes.Embed,
+        url: apiURL,
+        headers: { 'Cohere-Version': '2022-12-06' },
+      },
+      { texts, model: this.TextOptions.model, truncate: 'NONE' }
     );
 
     return res.then(({ data: { id, embeddings } }) => ({
       id: id,
       sessionID,
       texts,
-      model,
+      model: this.TextOptions.model,
       embeddings,
     }));
-  }
-
-  /** @ignore */
-  private apiCall<T1, T2>(
-    api: CohereAPI,
-    data: T1
-  ): Promise<AxiosResponse<T2, any>> {
-    const headers = {
-      Authorization: `BEARER ${this.apiKey}`,
-      'Cohere-Version': '2022-12-06',
-    };
-
-    const options = {
-      headers,
-    };
-
-    return axios.post(`https://api.cohere.ai/${api}`, data, options);
   }
 }

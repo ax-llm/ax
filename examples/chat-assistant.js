@@ -1,6 +1,7 @@
 import {
   Cohere,
   OpenAI,
+  AlephAlpha,
   Memory,
   GenerateText,
   AssistantPrompt,
@@ -19,14 +20,20 @@ AI: will it ever end?
 > The sun will eventually end, but not for billions of years.
 */
 
-const ai = process.env.COHERE_APIKEY
-  ? new Cohere(process.env.COHERE_APIKEY)
-  : new OpenAI(process.env.OPENAI_APIKEY);
+let ai;
+
+if (process.env.COHERE_APIKEY) {
+  ai = new Cohere(process.env.COHERE_APIKEY);
+} else if (process.env.ALEPHALPHA_APIKEY) {
+  ai = new AlephAlpha(process.env.ALEPHALPHA_APIKEY);
+} else {
+  ai = new OpenAI(process.env.OPENAI_APIKEY);
+}
 
 const mem = new Memory();
 const prompt = new AssistantPrompt();
 const gen = new GenerateText(ai, mem);
-// gen.setDebug(true)
+gen.setDebug(true);
 
 const rl = createInterface(process.stdin, process.stdout);
 rl.setPrompt('AI: ');

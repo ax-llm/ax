@@ -1,4 +1,3 @@
-import axios, { AxiosResponse } from 'axios';
 import {
   AIService,
   GenerateResponse,
@@ -6,7 +5,15 @@ import {
   PromptMetadata,
 } from '../text';
 
-const enum OpenAIAPI {
+import { API, apiCall } from './util';
+
+type OpenAIAPI = API & {
+  headers: { 'OpenAI-Organization': string };
+};
+
+const apiURL = 'https://api.openai.com/v1/';
+
+const enum apiType {
   Generate = 'completions',
   Embed = 'embeddings',
 }
@@ -46,20 +53,20 @@ export const enum OpenAIEmbedModels {
  * OpenAI: Model options for text generation
  * @export
  */
-export type OpenAIGenerateOptions = {
+export type OpenAITextOptions = {
   model: OpenAIGenerateModels | OpenAIGenerateCodeModels | string;
   embedModel: OpenAIEmbedModels | string;
   suffix: string | null;
   maxTokens: number;
   temperature: number;
   topP: number;
-  n: number;
-  stream: boolean;
+  n?: number;
+  stream?: boolean;
   logprobs?: number;
-  echo: boolean;
-  presencePenalty: number;
-  frequencyPenalty: number;
-  bestOf: number;
+  echo?: boolean;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  bestOf?: number;
   logitBias?: Map<string, number>;
   user?: string;
 };
@@ -68,27 +75,21 @@ export type OpenAIGenerateOptions = {
  * OpenAI: Default Model options for text generation
  * @export
  */
-export const OpenAIDefaultGenerateOptions = (): OpenAIGenerateOptions => ({
+export const OpenAIDefaultTextOptions = (): OpenAITextOptions => ({
   model: OpenAIGenerateModels.GPT3TextDavinci003,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   suffix: null,
   maxTokens: 300,
   temperature: 0.45,
   topP: 1,
-  n: 1,
-  stream: false,
-  echo: false,
-  presencePenalty: 0,
-  frequencyPenalty: 0,
-  bestOf: 1,
 });
 
 /**
  * OpenAI: Default model options for more creative text generation
  * @export
  */
-export const OpenAICreativeGenerateOptions = (): OpenAIGenerateOptions => ({
-  ...OpenAIDefaultGenerateOptions(),
+export const OpenAICreativeTextOptions = (): OpenAITextOptions => ({
+  ...OpenAIDefaultTextOptions(),
   temperature: 0.9,
 });
 
@@ -154,10 +155,10 @@ type OpenAIEmbedResponse = {
   };
 };
 
-const generateData = (
+const generateReq = (
   prompt: string,
-  stopSequences: string[],
-  opt: Readonly<OpenAIGenerateOptions>
+  stopSequences: string[] = [],
+  opt: Readonly<OpenAITextOptions>
 ): OpenAIGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -189,7 +190,7 @@ const generateData = (
  * @export
  */
 export type OpenAIOptions = {
-  generateOptions?: OpenAIGenerateOptions;
+  TextOptions?: OpenAITextOptions;
 };
 
 /**
@@ -200,8 +201,7 @@ export class OpenAI implements AIService {
   private apiKey: string;
   private orgID?: string;
 
-  private generateOptions: OpenAIGenerateOptions =
-    OpenAIDefaultGenerateOptions();
+  private TextOptions: OpenAITextOptions = OpenAIDefaultTextOptions();
 
   constructor(apiKey: string, options?: Readonly<OpenAIOptions>) {
     if (apiKey === '') {
@@ -209,8 +209,8 @@ export class OpenAI implements AIService {
     }
     this.apiKey = apiKey;
 
-    if (options?.generateOptions) {
-      this.generateOptions = options.generateOptions;
+    if (options?.TextOptions) {
+      this.TextOptions = options.TextOptions;
     }
   }
 
@@ -223,13 +223,21 @@ export class OpenAI implements AIService {
     md?: PromptMetadata,
     sessionID?: string
   ): Promise<GenerateResponse> {
-    const text = prompt.trim();
-    const stopSeq = md?.stopSequences || [];
-    const opts = this.generateOptions;
-
-    const res = this.apiCall<OpenAIGenerateRequest, OpenAIGenerateResponse>(
-      OpenAIAPI.Generate,
-      generateData(text, stopSeq, opts)
+    prompt = prompt.trim();
+    const res = apiCall<
+      OpenAIAPI,
+      OpenAIGenerateRequest,
+      OpenAIGenerateResponse
+    >(
+      {
+        key: this.apiKey,
+        name: apiType.Generate,
+        url: apiURL,
+        headers: {
+          'OpenAI-Organization': this.orgID,
+        },
+      },
+      generateReq(prompt, md?.stopSequences, this.TextOptions)
     );
 
     return res.then(({ data: { id, choices: c } }) => ({
@@ -253,11 +261,17 @@ export class OpenAI implements AIService {
       throw new Error('OpenAI limits embeddings input to 512 characters');
     }
 
-    const { embedModel } = this.generateOptions;
-    const req = { input: texts, model: embedModel };
-    const res = this.apiCall<OpenAIEmbedRequest, OpenAIEmbedResponse>(
-      OpenAIAPI.Embed,
-      req
+    const embedReq = { input: texts, model: this.TextOptions.embedModel };
+    const res = apiCall<OpenAIAPI, OpenAIEmbedRequest, OpenAIEmbedResponse>(
+      {
+        key: this.apiKey,
+        name: apiType.Embed,
+        url: apiURL,
+        headers: {
+          'OpenAI-Organization': this.orgID,
+        },
+      },
+      embedReq
     );
 
     return res.then(({ data }) => ({
@@ -267,25 +281,5 @@ export class OpenAI implements AIService {
       model: data.model,
       embeddings: data.data.embeddings,
     }));
-  }
-
-  /** @ignore */
-  private apiCall<T1, T2>(
-    api: OpenAIAPI,
-    data: T1
-  ): Promise<AxiosResponse<T2, any>> {
-    const headers = {
-      Authorization: `Bearer ${this.apiKey}`,
-    };
-
-    if (this.orgID) {
-      headers['OpenAI-Organization'] = this.orgID;
-    }
-
-    const options = {
-      headers,
-    };
-
-    return axios.post(`https://api.openai.com/v1/${api}`, data, options);
   }
 }

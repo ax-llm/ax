@@ -4,9 +4,9 @@
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/2WsGjtk4?style=for-the-badge)](https://discord.gg/2WsGjtk4)
 
-<img align="right" width="300" height="300" style="padding: 5px" src="https://i.imgur.com/02KP6OU.png">
+<img align="right" width="300" height="300" style="padding: 0px" src="https://i.imgur.com/02KP6OU.png">
 
-A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI** and **Cohere**.
+A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI**, **Cohere** and **AlephAlpha**.
 
 This library handles all the **complex prompt engineering** so you can focus on building amazing things like context power chat, question answering, natural language search in minutes. Define Javascript functions that AIs can use. For example the AI can lookup your database, call an API or search the web while answering a business question.
 
@@ -65,6 +65,7 @@ Build an AI powered assistant that maintains context as you converse with it ask
 ```javascript
 import {
   Cohere,
+  AlephAlpha,
   OpenAI,
   Memory,
   GenerateText,
@@ -72,6 +73,8 @@ import {
 } from '@dosco/minds';
 
 // const ai = new Cohere(process.env.COHERE_APIKEY)
+// const ai = new AlephAlpha(process.env.AALPHA_APIKEY)
+
 const ai = new OpenAI(process.env.OPENAI_APIKEY);
 
 const prompt = new AssistantPrompt();
@@ -224,4 +227,3 @@ There is a bit of magic to getting an LLM (AI) to do your bidding. For fans of b
 MidJourney Art by [AmitDeshmukh](https://twitter.com/AmitDeshmukh)
 
 > Prompt: kids walking on a dirt road through a futuristic village, field of daisies on both sides, futuristic clothing, some traditional homes, cumulus clouds, bright mid morning sunlight, birds and drone
-
