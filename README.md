@@ -23,16 +23,13 @@ Build business or personal workflows where the AI calls your APIs to fetch data 
 For example we can build a workflow to automate replying to customers support emails.
 
 ```js
-// Fake search action to simulate a product database search
-const productSearch = (_text) => {
-  return `
-   name: Macbook Pro M2
-  details: Ram 32GB
-  stock_count: 4341
-  --
-  name: Macbook Pro M2
-  details: Ram 96GB
-  stock_count: 2`;
+const productDB = [
+  { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
+  { name: 'Macbook Pro', description: 'M2, 96GB', in_stock: 2 },
+];
+
+const productSearch = (text) => {
+  return JSON.stringify(productDB.filter((v) => text.includes(v.name)));
 };
 
 const actions = [
@@ -46,16 +43,14 @@ const actions = [
 const prompt = new QuestionAnswerPrompt(actions);
 const gen = new GenerateText(ai);
 
-// Business query to automate customer support emails
-const query = `
-Do we have the product the email referes to in stock?
-Email: ${email}`;
+// Customer support email
+const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
 await gen.generate(query, prompt);
 ```
 
 ```console
->  Yes, we have two Macbook Pro's M2 with 96GB RAM in stock.
+>  Answer for customer: We have 2 Macbook Pro's M2 with 96GB RAM and 0 iPads in stock.
 ```
 
 ## AI Smart Assistant
