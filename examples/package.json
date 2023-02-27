@@ -5,8 +5,7 @@
   "description": "MindsJS example apps",
   "main": "index.js",
   "dependencies": {
-    "@dosco/minds": "file:..",
+    "@dosco/minds": "^1.1.0",
     "chalk": "^5.2.0",
-    "expr-eval": "^2.0.2"
   }
 }

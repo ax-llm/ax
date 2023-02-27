@@ -5,8 +5,7 @@ const promptHeader = (actions: PromptAction[], context?: string) => {
   const actd = actions.map((v) => `${v.name}: ${v.description}`).join('\n');
 
   return `
-Answer the following questions using the actions listed below:
-${context ? `\nAnd use the following context:\n${context}` : null}
+Answer the following question using the actions below. Think step-by-step.
 
 Actions:
 ${actd}
@@ -24,8 +23,9 @@ Repeat the previous four steps as necessary.
 Thought: I have the final answer
 Final Answer: The answer to the original question.
 
-Start!
-`;
+${context ? `\nContext:"""\n${context}\n"""` : ''}
+
+Start!`;
 };
 
 /**

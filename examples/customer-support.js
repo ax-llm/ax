@@ -12,16 +12,13 @@ const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)
   : new OpenAI(process.env.OPENAI_APIKEY);
 
-// Fake search action to simulate a product database search
-const productSearch = (_text) => {
-  return `
-  We only have the following products currently in stock:
-  1. name: Macbook Pro M2, details: Ram 32GB, stock_count: 4341
-  2. name: Macbook Pro M2, details: Ram 96GB, stock_count: 2`;
-};
+const productDB = [
+  { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
+  { name: 'Macbook Pro', description: 'M2, 96GB', in_stock: 2 },
+];
 
-const calculator = (text) => {
-  return parser.evaluate(text);
+const productSearch = (text) => {
+  return JSON.stringify(productDB.filter((v) => text.includes(v.name)));
 };
 
 // List of actions available to the AI

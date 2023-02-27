@@ -82,7 +82,7 @@ export type AlephAlphaTextOptions = {
  * @export
  */
 export const AlephAlphaDefaultTextOptions = (): AlephAlphaTextOptions => ({
-  model: AlephAlphaGenerateModels.LuminousSupremeControl,
+  model: AlephAlphaGenerateModels.LuminousSupreme,
   representation: AlephAlphaEmbedRepresentation.Document,
   disableOptimizations: true,
   maxTokens: 300,
@@ -99,6 +99,7 @@ export const AlephAlphaDefaultTextOptions = (): AlephAlphaTextOptions => ({
  */
 export const AlephAlphaCreativeTextOptions = (): AlephAlphaTextOptions => ({
   ...AlephAlphaDefaultTextOptions(),
+  model: AlephAlphaGenerateModels.LuminousSupreme,
   temperature: 0.9,
 });
 
