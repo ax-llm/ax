@@ -16,7 +16,7 @@ We totally believe that AI will soon replace your entire app backend. We truly l
 npm i @dosco/minds
 ```
 
-## AI Powered Business Workflows
+## Answer Customer Product Questions
 
 Build business or personal workflows where the AI calls your APIs to fetch data and use that data to solve problems or answer your questions.
 
@@ -51,6 +51,41 @@ await gen.generate(query, prompt);
 
 ```console
 >  Answer for customer: We have 2 Macbook Pro's M2 with 96GB RAM and 0 iPads in stock.
+```
+
+## Extract Details From Business Messages
+
+Inbound messages and emails from customers are a core part of all business workflows. AI makes it easy to extract valuable details and classify messages so you can build workflows
+that make your processes more efficient.
+
+```js
+const entities = [
+  { name: BusinessInfo.ProductName },
+  { name: BusinessInfo.IssueDescription },
+  { name: BusinessInfo.IssueSummary },
+  { name: BusinessInfo.PaymentMethod, classes: ['Cash', 'Credit Card'] },
+];
+
+const prompt = new ExtractInfoPrompt(entities);
+const gen = new GenerateText(ai);
+
+const customerMessage = `
+I am writing to report an issue with my recent order #12345. I received the package yesterday, but unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly. When I tried to turn it on, the screen remained blank, and I couldn't get it to respond to any of the buttons.
+
+Jane Doe`;
+
+const res = await gen.generate(customerMessage, prompt);
+```
+
+```console
+Extracted Details From Customer Message:
+{
+  'Product Name' => [ 'XYZ Smartwatch' ],
+  'Issue Description' => [ 'Screen remained blank and unable to respond to any buttons' ],
+  'Issue Summary' => [ 'Product is not functioning properly' ],
+  'Payment method' => [ 'Cash' ]
+}
+
 ```
 
 ## AI Smart Assistant
@@ -94,13 +129,14 @@ AI: will it ever end?
 
 ## Example Apps
 
-| Example             | Description                                             |
-| ------------------- | ------------------------------------------------------- |
-| ask-questions.js    | AI uses Google search to find the correct answer        |
-| customer-support.js | AI powered customer support email handling              |
-| chat-assistant.js   | AI chat bot capable of intellegent conversations        |
-| get-summary.js      | AI to generate a short summary of a large block of text |
-| ai-vs-ai.js         | OpenAI has a friendly chat with Cohere                  |
+| Example             | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| ask-questions.js    | AI uses Google search to find the correct answer               |
+| product-search.js   | Customers can as product related questions in natural language |
+| customer-support.js | Extract valuable details from customer communications          |
+| chat-assistant.js   | AI chat bot capable of intellegent conversations               |
+| get-summary.js      | AI to generate a short summary of a large block of text        |
+| ai-vs-ai.js         | OpenAI has a friendly chat with Cohere                         |
 
 ```terminal
 cd examples
@@ -189,14 +225,9 @@ const actions = [
     action: productSearch,
   },
   {
-    name: 'Math Solver',
-    description: 'Used to solve math problems',
+    name: 'Customer Issues Search',
+    description: 'Used to search the customer support database for solutions',
     action: wolframAlphaSearch,
-  },
-  {
-    name: 'Javascript Compiler',
-    description: 'Used to compile and execute Javascript code',
-    action: javascriptCompile,
   },
 ];
 ```
