@@ -3,41 +3,41 @@ import {
   OpenAI,
   Memory,
   GenerateText,
-  QuestionAnswerPrompt,
+  ExtractInfoPrompt,
+  BusinessInfo,
 } from '@dosco/minds';
-
-import chalk from 'chalk';
 
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)
   : new OpenAI(process.env.OPENAI_APIKEY);
 
-const productDB = [
-  { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
-  { name: 'Macbook Pro', description: 'M2, 96GB', in_stock: 2 },
+const entities = [
+  { name: BusinessInfo.ProductName },
+  { name: BusinessInfo.IssueDescription },
+  { name: BusinessInfo.IssueSummary },
+  { name: BusinessInfo.PaymentMethod, classes: ['Cash', 'Credit Card'] },
 ];
-
-const productSearch = (text) => {
-  return JSON.stringify(productDB.filter((v) => text.includes(v.name)));
-};
-
-// List of actions available to the AI
-const actions = [
-  {
-    name: 'Product Search',
-    description: 'Used to search up a products information by its name',
-    action: productSearch,
-  },
-];
-
-const context = 'This question related to customer support';
 
 const mem = new Memory();
-const prompt = new QuestionAnswerPrompt(actions, context);
+const prompt = new ExtractInfoPrompt(entities);
 const gen = new GenerateText(ai, mem);
-gen.setDebug(true);
 
-const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
+const customerMessage = `
+Hello Support Team,
 
-const res = await gen.generate(customerQuery, prompt);
-console.log(chalk.green('Answer for customer:', res.value()));
+I am writing to report an issue with my recent order #12345. I received the package yesterday, but unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly. When I tried to turn it on, the screen remained blank, and I couldn't get it to respond to any of the buttons.
+
+I have already tried resetting the device multiple times, but the issue persists. I believe there may be a defect with the product, and I would like to request a replacement or refund. Please let me know what steps I should take to proceed with the return or exchange process. I have attached a copy of the order confirmation and shipping confirmation for your reference.
+
+Thank you for your attention to this matter.
+
+Best regards,
+John Doe.
+  `;
+
+const res = await gen.generate(customerMessage, prompt);
+
+console.log(
+  `Customer Message:\n${customerMessage}\n\nExtracted Details From Customer Message:\n`,
+  res.value()
+);

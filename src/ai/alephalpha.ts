@@ -1,6 +1,6 @@
 import {
   AIService,
-  GenerateResponse,
+  AIGenerateResponse,
   EmbedResponse,
   PromptMetadata,
 } from '../text';
@@ -18,7 +18,7 @@ const enum apiTypes {
  * AlephAlpha: Models for text generation
  * @export
  */
-export const enum AlephAlphaGenerateModels {
+export const enum AlephAlphaGenerateModel {
   LuminousSupremeControl = 'luminous-supreme-control',
   LuminousSupreme = 'luminous-supreme',
   LuminousExtended = 'luminous-extended',
@@ -40,7 +40,7 @@ export const enum AlephaAlphaGenerateHosting {
  * @export
  */
 export type AlephAlphaTextOptions = {
-  model: AlephAlphaGenerateModels | string;
+  model: AlephAlphaGenerateModel | string;
   hosting?: AlephaAlphaGenerateHosting;
   maxTokens: number;
   minTokens?: number;
@@ -82,7 +82,7 @@ export type AlephAlphaTextOptions = {
  * @export
  */
 export const AlephAlphaDefaultTextOptions = (): AlephAlphaTextOptions => ({
-  model: AlephAlphaGenerateModels.LuminousSupreme,
+  model: AlephAlphaGenerateModel.LuminousSupreme,
   representation: AlephAlphaEmbedRepresentation.Document,
   disableOptimizations: true,
   maxTokens: 300,
@@ -99,12 +99,12 @@ export const AlephAlphaDefaultTextOptions = (): AlephAlphaTextOptions => ({
  */
 export const AlephAlphaCreativeTextOptions = (): AlephAlphaTextOptions => ({
   ...AlephAlphaDefaultTextOptions(),
-  model: AlephAlphaGenerateModels.LuminousSupreme,
+  model: AlephAlphaGenerateModel.LuminousSupreme,
   temperature: 0.9,
 });
 
 type AlephAlphaGenerateRequest = {
-  model: AlephAlphaGenerateModels | string;
+  model: AlephAlphaGenerateModel | string;
   hosting?: AlephaAlphaGenerateHosting;
   prompt: string;
   maximum_tokens: number;
@@ -140,7 +140,7 @@ type AlephAlphaGenerateRequest = {
   control_log_additive?: boolean;
 };
 
-type AlephAlphaGenerateResponse = {
+type AlephAlphaAIGenerateResponse = {
   model_version: string;
   completions: [
     {
@@ -155,7 +155,7 @@ type AlephAlphaGenerateResponse = {
 };
 
 type AlephAlphaEmbedRequest = {
-  model: AlephAlphaGenerateModels | string;
+  model: AlephAlphaGenerateModel | string;
   hosting?: AlephaAlphaGenerateHosting;
   prompt: string;
   representation: AlephAlphaEmbedRepresentation;
@@ -264,13 +264,13 @@ export class AlephAlpha implements AIService {
     prompt: string,
     md?: PromptMetadata,
     sessionID?: string
-  ): Promise<GenerateResponse> {
+  ): Promise<AIGenerateResponse> {
     const text = prompt.trim();
 
     const res = apiCall<
       API,
       AlephAlphaGenerateRequest,
-      AlephAlphaGenerateResponse
+      AlephAlphaAIGenerateResponse
     >(
       {
         key: this.apiKey,
@@ -280,7 +280,7 @@ export class AlephAlpha implements AIService {
       generateReq(text, md?.stopSequences, this.TextOptions)
     );
 
-    return res.then(({ data: { completions } }) => ({
+    return res.then(({ completions }) => ({
       id: '',
       sessionID: sessionID,
       query: prompt,
@@ -310,7 +310,7 @@ export class AlephAlpha implements AIService {
       embedReq(texts[0], this.TextOptions)
     );
 
-    return res.then(({ data: { model_version, embedding } }) => ({
+    return res.then(({ model_version, embedding }) => ({
       id: '',
       sessionID,
       texts,

@@ -1,4 +1,10 @@
-import { AIService, AIMemory, AIPrompt, GenerateResponse } from './index';
+import {
+  AIService,
+  AIMemory,
+  AIPrompt,
+  GenerateResponse,
+  AIGenerateResponse,
+} from './index';
 import { Memory } from './memory';
 import { log } from './util';
 
@@ -63,7 +69,7 @@ export class GenerateText {
         log(`< ${res.values[0].text.trim()}`, 'red');
       }
 
-      if (prompt.actions) {
+      if (md.actions) {
         done = await this.processAction(res, prompt, sessionID);
       } else {
         done = await this.processSeq(q, res, prompt, sessionID);
@@ -73,9 +79,14 @@ export class GenerateText {
         throw new Error('empty response from ai');
       }
 
-      if (done) {
-        return res;
+      if (!done) {
+        continue;
       }
+
+      const { keyValueResponse: kvRes } = md;
+      const value = kvRes ? () => stringToMap(<string>res.value()) : res.value;
+
+      return { ...res, value };
     }
 
     throw new Error(`query uses over max number of steps: ${this.maxSteps}`);
@@ -83,7 +94,7 @@ export class GenerateText {
 
   private processSeq(
     query: string,
-    res: GenerateResponse,
+    res: AIGenerateResponse,
     prompt: AIPrompt,
     sessionID?: string
   ): boolean {
@@ -95,12 +106,11 @@ export class GenerateText {
   }
 
   private async processAction(
-    res: GenerateResponse,
+    res: AIGenerateResponse,
     prompt: AIPrompt,
     sessionID?: string
   ): Promise<boolean> {
-    const md = prompt.metadata();
-    const actions = prompt.actions();
+    const { actions, ...md } = prompt.metadata();
 
     if (!md.actionName) {
       throw new Error('actionName parameter not set');
@@ -151,3 +161,18 @@ export class GenerateText {
     return false;
   }
 }
+
+const stringToMap = (text: string): Map<string, string[]> => {
+  const vm = new Map<string, string[]>();
+  const re = /([a-zA-Z ]+):\s{0,}\n?(((?!N\/A).)+)$/gm;
+
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    // This is necessary to avoid infinite loops with zero-width matches
+    if (m.index === re.lastIndex) {
+      re.lastIndex++;
+    }
+    vm.set(m[1], m[2].split(','));
+  }
+  return vm;
+};

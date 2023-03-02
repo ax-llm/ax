@@ -1,6 +1,6 @@
 import {
   AIService,
-  GenerateResponse,
+  AIGenerateResponse,
   EmbedResponse,
   PromptMetadata,
 } from '../text';
@@ -8,7 +8,7 @@ import {
 import { API, apiCall } from './util';
 
 type OpenAIAPI = API & {
-  headers: { 'OpenAI-Organization': string };
+  headers: { 'OpenAI-Organization'?: string };
 };
 
 const apiURL = 'https://api.openai.com/v1/';
@@ -22,7 +22,7 @@ const enum apiType {
  * OpenAI: Models for text generation
  * @export
  */
-export const enum OpenAIGenerateModels {
+export const enum OpenAIGenerateModel {
   GPT3TextDavinci003 = 'text-davinci-003',
   GPT3TextCurie001 = 'text-curie-001',
   GPT3TextBabbage001 = 'text-babbage-001',
@@ -34,7 +34,7 @@ export const enum OpenAIGenerateModels {
  * OpenAI: Models for code generation
  * @export
  */
-export const enum OpenAIGenerateCodeModels {
+export const enum OpenAIGenerateCodeModel {
   CodexCodeDavinci002 = 'code-davinci-002',
   CodexCodeCushman001 = 'code-cushman-001',
   CodexCodeDavinci001 = 'code-davinci-001',
@@ -54,7 +54,7 @@ export const enum OpenAIEmbedModels {
  * @export
  */
 export type OpenAITextOptions = {
-  model: OpenAIGenerateModels | OpenAIGenerateCodeModels | string;
+  model: OpenAIGenerateModel | OpenAIGenerateCodeModel | string;
   embedModel: OpenAIEmbedModels | string;
   suffix: string | null;
   maxTokens: number;
@@ -76,7 +76,7 @@ export type OpenAITextOptions = {
  * @export
  */
 export const OpenAIDefaultTextOptions = (): OpenAITextOptions => ({
-  model: OpenAIGenerateModels.GPT3TextDavinci003,
+  model: OpenAIGenerateModel.GPT3TextDavinci003,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   suffix: null,
   maxTokens: 300,
@@ -222,25 +222,18 @@ export class OpenAI implements AIService {
     prompt: string,
     md?: PromptMetadata,
     sessionID?: string
-  ): Promise<GenerateResponse> {
+  ): Promise<AIGenerateResponse> {
     prompt = prompt.trim();
     const res = apiCall<
       OpenAIAPI,
       OpenAIGenerateRequest,
       OpenAIGenerateResponse
     >(
-      {
-        key: this.apiKey,
-        name: apiType.Generate,
-        url: apiURL,
-        headers: {
-          'OpenAI-Organization': this.orgID,
-        },
-      },
+      this.createAPI(apiType.Generate),
       generateReq(prompt, md?.stopSequences, this.TextOptions)
     );
 
-    return res.then(({ data: { id, choices: c } }) => ({
+    return res.then(({ id, choices: c }) => ({
       id: id.toString(),
       sessionID: sessionID,
       query: prompt,
@@ -263,23 +256,27 @@ export class OpenAI implements AIService {
 
     const embedReq = { input: texts, model: this.TextOptions.embedModel };
     const res = apiCall<OpenAIAPI, OpenAIEmbedRequest, OpenAIEmbedResponse>(
-      {
-        key: this.apiKey,
-        name: apiType.Embed,
-        url: apiURL,
-        headers: {
-          'OpenAI-Organization': this.orgID,
-        },
-      },
+      this.createAPI(apiType.Embed),
       embedReq
     );
 
-    return res.then(({ data }) => ({
+    return res.then((data) => ({
       id: '',
       sessionID,
       texts,
       model: data.model,
       embeddings: data.data.embeddings,
     }));
+  }
+
+  private createAPI(name: apiType): OpenAIAPI {
+    return {
+      url: apiURL,
+      key: this.apiKey,
+      name,
+      headers: {
+        ...(this.orgID ? { 'OpenAI-Organization': this.orgID } : null),
+      },
+    };
   }
 }

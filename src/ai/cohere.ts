@@ -1,6 +1,6 @@
 import {
   AIService,
-  GenerateResponse,
+  AIGenerateResponse,
   EmbedResponse,
   PromptMetadata,
 } from '../text';
@@ -22,7 +22,7 @@ const enum apiTypes {
  * Cohere: Models for text generation
  * @export
  */
-export const enum CohereGenerateModels {
+export const enum CohereGenerateModel {
   CommandXLargeNightly = 'command-xlarge-nightly',
   XLarge = 'xlarge',
   Medium = 'medium',
@@ -43,7 +43,7 @@ export const enum CohereReturnLikelihoods {
  * @export
  */
 export type CohereTextOptions = {
-  model: CohereGenerateModels | string;
+  model: CohereGenerateModel | string;
   maxTokens: number;
   temperature: number;
   topK: number;
@@ -59,7 +59,7 @@ export type CohereTextOptions = {
  * @export
  */
 export const CohereDefaultTextOptions = (): CohereTextOptions => ({
-  model: CohereGenerateModels.CommandXLargeNightly,
+  model: CohereGenerateModel.CommandXLargeNightly,
   maxTokens: 300,
   temperature: 0.45,
   topK: 0,
@@ -79,7 +79,7 @@ export const CohereCreativeTextOptions = (): CohereTextOptions => ({
 
 type CohereGenerateRequest = {
   prompt: string;
-  model: CohereGenerateModels | string;
+  model: CohereGenerateModel | string;
   max_tokens: number;
   temperature: number;
   k: number;
@@ -91,7 +91,7 @@ type CohereGenerateRequest = {
   return_likelihoods?: CohereReturnLikelihoods;
 };
 
-type CohereGenerateResponse = {
+type CohereAIGenerateResponse = {
   id: string;
   prompt: string;
   generations: { id: string; text: string }[];
@@ -99,7 +99,7 @@ type CohereGenerateResponse = {
 
 type CohereEmbedRequest = {
   texts: string[];
-  model: CohereGenerateModels | string;
+  model: CohereGenerateModel | string;
   truncate: string;
 };
 
@@ -163,13 +163,13 @@ export class Cohere implements AIService {
     prompt: string,
     md?: PromptMetadata,
     sessionID?: string
-  ): Promise<GenerateResponse> {
+  ): Promise<AIGenerateResponse> {
     prompt = prompt.trim();
 
     const res = apiCall<
       CohereAPI,
       CohereGenerateRequest,
-      CohereGenerateResponse
+      CohereAIGenerateResponse
     >(
       {
         key: this.apiKey,
@@ -180,7 +180,7 @@ export class Cohere implements AIService {
       generateReq(prompt, md?.stopSequences, this.TextOptions)
     );
 
-    return res.then(({ data: { id, generations: gens } }) => ({
+    return res.then(({ id, generations: gens }) => ({
       id: id,
       sessionID: sessionID,
       query: prompt,
@@ -211,7 +211,7 @@ export class Cohere implements AIService {
       { texts, model: this.TextOptions.model, truncate: 'NONE' }
     );
 
-    return res.then(({ data: { id, embeddings } }) => ({
+    return res.then(({ id, embeddings }) => ({
       id: id,
       sessionID,
       texts,

@@ -6,6 +6,10 @@ export type GenerateResponse = {
   sessionID?: string;
   query: string;
   values: { id: string; text: string }[];
+  value(): string | Map<string, string[]>;
+};
+
+export type AIGenerateResponse = GenerateResponse & {
   value(): string;
 };
 
@@ -35,17 +39,18 @@ export type PromptAction = {
 };
 
 export type PromptMetadata = {
-  readonly stopSequences: string[];
-  readonly queryPrefix?: string;
-  readonly responsePrefix?: string;
-  readonly actionName?: RegExp;
-  readonly actionValue?: RegExp;
-  readonly finalValue?: RegExp;
+  stopSequences: string[];
+  queryPrefix?: string;
+  responsePrefix?: string;
+  actions?: PromptAction[];
+  actionName?: RegExp;
+  actionValue?: RegExp;
+  finalValue?: RegExp;
+  keyValueResponse?: boolean;
 };
 
 export interface AIPrompt {
   metadata(): Readonly<PromptMetadata>;
-  actions?(): ReadonlyArray<PromptAction>;
   create(query: string, history: () => string, ai: AIService): string;
 }
 
@@ -53,9 +58,9 @@ export interface AIService {
   name(): string;
   generate(
     prompt: string,
-    md?: PromptMetadata,
+    md?: Readonly<PromptMetadata>,
     sessionID?: string
-  ): Promise<GenerateResponse>;
+  ): Promise<AIGenerateResponse>;
   embed(texts: string[], sessionID?: string): Promise<EmbedResponse>;
 }
 

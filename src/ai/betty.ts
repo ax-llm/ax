@@ -1,6 +1,6 @@
 import {
   AIService,
-  GenerateResponse,
+  AIGenerateResponse,
   EmbedResponse,
   PromptMetadata,
 } from '../text';
@@ -28,7 +28,7 @@ export class Betty implements AIService {
     prompt: string,
     _md?: PromptMetadata,
     sessionID?: string
-  ): Promise<GenerateResponse> {
+  ): Promise<AIGenerateResponse> {
     if (sessionID && !this.sdata.has(sessionID)) {
       this.sdata.set(sessionID, [...this.answers]);
     }

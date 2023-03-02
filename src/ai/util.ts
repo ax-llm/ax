@@ -1,4 +1,4 @@
-import axios, { AxiosResponse } from 'axios';
+import superagent from 'superagent';
 
 export type API = {
   key: string;
@@ -9,14 +9,20 @@ export type API = {
 
 export const apiCall = <APIType extends API, Request, Response>(
   api: APIType,
-  data: Request
-): Promise<AxiosResponse<Response, any>> => {
+  json: Request
+): Promise<Response> => {
   const headers = {
     Authorization: `Bearer ${api.key}`,
     ...api.headers,
   };
 
-  return axios.post(new URL(api.name, api.url).href, data, {
-    headers,
+  return new Promise(function (resolve) {
+    return superagent
+      .post(new URL(api.name, api.url).href)
+      .send(json)
+      .set(headers)
+      .type('json')
+      .accept('json')
+      .then(({ body: data }) => resolve(data));
   });
 };

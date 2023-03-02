@@ -1,12 +1,14 @@
 import test from 'ava';
 
-import { Embeddings } from '.';
-import { GenerateText } from '.';
-import { Memory } from '.';
+import { Embeddings, GenerateText, Memory } from '.';
 
-import { Betty } from '../ai/betty';
-import { AssistantPrompt } from '../prompts/chats';
-import { QuestionAnswerPrompt } from '../prompts/answers';
+import { Betty } from '../ai';
+import {
+  AssistantPrompt,
+  QuestionAnswerPrompt,
+  ExtractInfoPrompt,
+  BusinessInfo,
+} from '../prompts';
 
 test('contextEnabledConversationWithAI', async (t) => {
   const humanQuerys = [
@@ -168,3 +170,37 @@ const scienceSearch = (_text: string, embed: Embeddings): string => {
   }
   return 'Pluto is the last planet in our solar system';
 };
+
+test('extractInfoWithAI', async (t) => {
+  const entities = [
+    { name: BusinessInfo.ProductName },
+    { name: BusinessInfo.Priority, classes: ['High', 'Medium', 'Low'] },
+  ];
+
+  const interactions = [
+    'Product Name: XYZ Smartwatch\nPriority: \nMedium\nRandom: N/A',
+  ];
+
+  const ai = new Betty(interactions);
+  const prompt = new ExtractInfoPrompt(entities);
+  const gen = new GenerateText(ai);
+  // gen.setDebug(true);
+
+  const res = await gen.generate(
+    'I am writing to report an issue with my recent order #12345. I received the package yesterday, but unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly.',
+    prompt
+  );
+
+  const exp = new Map([
+    ['Product Name', ['XYZ Smartwatch']],
+    ['Priority', ['Medium']],
+  ]);
+
+  const got = <Map<string, string[]>>res.value();
+
+  t.is(exp.size, got.size);
+  for (const [key, value] of exp) {
+    t.true(got.has(key));
+    t.deepEqual(value, got.get(key));
+  }
+});

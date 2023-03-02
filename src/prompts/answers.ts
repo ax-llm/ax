@@ -36,7 +36,6 @@ Start!`;
  * @export
  */
 export class QuestionAnswerPrompt implements AIPrompt {
-  private acts: PromptAction[];
   private context?: string;
 
   private _metadata: PromptMetadata = {
@@ -50,7 +49,7 @@ export class QuestionAnswerPrompt implements AIPrompt {
   };
 
   constructor(actions: PromptAction[] = [], context?: string) {
-    this.acts = [...actions];
+    this._metadata.actions = [...actions];
     this.context = context;
   }
 
@@ -58,13 +57,10 @@ export class QuestionAnswerPrompt implements AIPrompt {
     return this._metadata;
   }
 
-  actions(): ReadonlyArray<PromptAction> {
-    return this.acts;
-  }
-
   create(query: string, history: () => string, _ai: AIService): string {
+    const { actions } = this._metadata;
     return `
-${promptHeader(this.acts, this.context)}
+${promptHeader(actions, this.context)}
 
 Question: ${query}
 ${history()}
