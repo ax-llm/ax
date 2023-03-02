@@ -70,7 +70,10 @@ const prompt = new ExtractInfoPrompt(entities);
 const gen = new GenerateText(ai);
 
 const customerMessage = `
-I am writing to report an issue with my recent order #12345. I received the package yesterday, but unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly. When I tried to turn it on, the screen remained blank, and I couldn't get it to respond to any of the buttons.
+I am writing to report an issue with my recent order #12345. I received the package yesterday, but 
+unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly. 
+When I tried to turn it on, the screen remained blank, and I couldn't get it to respond to any of 
+the buttons.
 
 Jane Doe`;
 
@@ -143,6 +146,13 @@ cd examples
 npm i
 node chat-assistant.js
 ```
+
+## Project Guidelines
+
+- Sensible Defaults
+- Simple and small API
+- Minimal to zero dependencies
+- Focus on useful real-world workflows
 
 ## Why use Minds?
 
