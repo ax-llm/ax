@@ -2,7 +2,7 @@
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/minds?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/minds)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
-[![Discord Chat](https://dcbadge.vercel.app/api/server/2WsGjtk4?style=for-the-badge)](https://discord.gg/2WsGjtk4)
+[![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
 <img align="right" width="300" height="300" style="padding: 0px" src="https://i.imgur.com/02KP6OU.png">
 
