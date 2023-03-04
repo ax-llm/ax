@@ -25,7 +25,7 @@ export type ProductInfo = {
  * A prompt used for extracting information from customer support interactions
  * @export
  */
-export class EmailPrompt implements AIPrompt {
+export class MessagePrompt implements AIPrompt {
   private messageInfo: MessageInfo;
   private receiver: string = '';
   private product: string = '';

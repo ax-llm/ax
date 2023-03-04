@@ -117,7 +117,7 @@ const to = {
   company: 'Blue Yonder Inc.',
 };
 
-const prompt = new EmailPrompt({ type: MessageType.Text }, product, to);
+const prompt = new MessagePrompt({ type: MessageType.Text }, product, to);
 const gen = new GenerateText(ai);
 
 const context = `
