@@ -15,6 +15,7 @@ const apiURL = 'https://api.openai.com/v1/';
 
 const enum apiType {
   Generate = 'completions',
+  ChatGenerate = 'chat/completions',
   Embed = 'embeddings',
 }
 
@@ -23,6 +24,7 @@ const enum apiType {
  * @export
  */
 export const enum OpenAIGenerateModel {
+  GPT3Turbo = 'gpt-3.5-turbo',
   GPT3TextDavinci003 = 'text-davinci-003',
   GPT3TextCurie001 = 'text-curie-001',
   GPT3TextBabbage001 = 'text-babbage-001',
@@ -90,7 +92,18 @@ export const OpenAIDefaultTextOptions = (): OpenAITextOptions => ({
  */
 export const OpenAICreativeTextOptions = (): OpenAITextOptions => ({
   ...OpenAIDefaultTextOptions(),
+  model: OpenAIGenerateModel.GPT3Turbo,
   temperature: 0.9,
+});
+
+/**
+ * OpenAI: Default model options for more fast text generation
+ * @export
+ */
+export const OpenAIFastTextOptions = (): OpenAITextOptions => ({
+  ...OpenAIDefaultTextOptions(),
+  model: OpenAIGenerateModel.GPT3Turbo,
+  temperature: 0.45,
 });
 
 type OpenAIGenerateRequest = {
@@ -119,13 +132,6 @@ type OpenAILogprob = {
   text_offset: number[];
 };
 
-type OpenAICompletion = {
-  text: string;
-  index: number;
-  finish_reason: string;
-  log_probs: OpenAILogprob;
-};
-
 type OpenAIUsage = {
   prompt_tokens: number;
   completion_tokens: number;
@@ -137,7 +143,43 @@ type OpenAIGenerateResponse = {
   object: string;
   created: number;
   model: string;
-  choices: OpenAICompletion[];
+  choices: {
+    text: string;
+    index: number;
+    finish_reason: string;
+    log_probs: OpenAILogprob;
+  }[];
+  usage: OpenAIUsage;
+};
+
+type OpenAIChatGenerateRequest = {
+  model: string;
+  messages: string[];
+  max_tokens: number;
+  temperature: number;
+  top_p: number;
+  n: number;
+  stream: boolean;
+  stop: string[];
+  presence_penalty: number;
+  frequency_penalty: number;
+  logit_bias?: Map<string, number>;
+  user?: string;
+};
+
+type OpenAIChatGenerateResponse = {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: {
+    index: number;
+    message: {
+      role: string;
+      content: string;
+    };
+    finish_reason: string;
+  }[];
   usage: OpenAIUsage;
 };
 
@@ -185,12 +227,38 @@ const generateReq = (
   };
 };
 
+const generateChatReq = (
+  prompt: string,
+  stopSequences: string[] = [],
+  opt: Readonly<OpenAITextOptions>
+): OpenAIChatGenerateRequest => {
+  if (stopSequences.length > 4) {
+    throw new Error(
+      'OpenAI supports prompts with max 4 items in stopSequences'
+    );
+  }
+  return {
+    model: opt.model,
+    messages: [prompt],
+    max_tokens: opt.maxTokens,
+    temperature: opt.temperature,
+    top_p: opt.topP,
+    n: opt.n,
+    stream: opt.stream,
+    stop: stopSequences,
+    presence_penalty: opt.presencePenalty,
+    frequency_penalty: opt.frequencyPenalty,
+    logit_bias: opt.logitBias,
+    user: opt.user,
+  };
+};
+
 /**
  * OpenAI: Various options that can be set on the AI Service
  * @export
  */
 export type OpenAIOptions = {
-  TextOptions?: OpenAITextOptions;
+  textOptions?: OpenAITextOptions;
 };
 
 /**
@@ -201,7 +269,7 @@ export class OpenAI implements AIService {
   private apiKey: string;
   private orgID?: string;
 
-  private TextOptions: OpenAITextOptions = OpenAIDefaultTextOptions();
+  private textOptions: OpenAITextOptions = OpenAIDefaultTextOptions();
 
   constructor(apiKey: string, options?: Readonly<OpenAIOptions>) {
     if (apiKey === '') {
@@ -209,8 +277,8 @@ export class OpenAI implements AIService {
     }
     this.apiKey = apiKey;
 
-    if (options?.TextOptions) {
-      this.TextOptions = options.TextOptions;
+    if (options?.textOptions) {
+      this.textOptions = options.textOptions;
     }
   }
 
@@ -224,13 +292,25 @@ export class OpenAI implements AIService {
     sessionID?: string
   ): Promise<AIGenerateResponse> {
     prompt = prompt.trim();
+    if (this.textOptions.model === OpenAIGenerateModel.GPT3Turbo) {
+      return this.generateChat(prompt, md, sessionID);
+    } else {
+      return this.generateDefault(prompt, md, sessionID);
+    }
+  }
+
+  private generateDefault(
+    prompt: string,
+    md?: PromptMetadata,
+    sessionID?: string
+  ): Promise<AIGenerateResponse> {
     const res = apiCall<
       OpenAIAPI,
       OpenAIGenerateRequest,
       OpenAIGenerateResponse
     >(
       this.createAPI(apiType.Generate),
-      generateReq(prompt, md?.stopSequences, this.TextOptions)
+      generateReq(prompt, md?.stopSequences, this.textOptions)
     );
 
     return res.then(({ id, choices: c }) => ({
@@ -238,6 +318,34 @@ export class OpenAI implements AIService {
       sessionID: sessionID,
       query: prompt,
       values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+      value() {
+        return this.values[0].text;
+      },
+    }));
+  }
+
+  private generateChat(
+    prompt: string,
+    md?: PromptMetadata,
+    sessionID?: string
+  ): Promise<AIGenerateResponse> {
+    const res = apiCall<
+      OpenAIAPI,
+      OpenAIChatGenerateRequest,
+      OpenAIChatGenerateResponse
+    >(
+      this.createAPI(apiType.ChatGenerate),
+      generateChatReq(prompt, md?.stopSequences, this.textOptions)
+    );
+
+    return res.then(({ id, choices: c }) => ({
+      id: id.toString(),
+      sessionID: sessionID,
+      query: prompt,
+      values: c.map((v) => ({
+        id: v.index.toString(),
+        text: v.message.content,
+      })),
       value() {
         return this.values[0].text;
       },
@@ -254,7 +362,7 @@ export class OpenAI implements AIService {
       throw new Error('OpenAI limits embeddings input to 512 characters');
     }
 
-    const embedReq = { input: texts, model: this.TextOptions.embedModel };
+    const embedReq = { input: texts, model: this.textOptions.embedModel };
     const res = apiCall<OpenAIAPI, OpenAIEmbedRequest, OpenAIEmbedResponse>(
       this.createAPI(apiType.Embed),
       embedReq

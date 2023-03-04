@@ -16,11 +16,21 @@ We totally believe that AI will soon replace your entire app backend. We truly l
 npm i @dosco/minds
 ```
 
+## Example Workflows
+
+| Example             | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| ask-questions.js    | AI uses Google search to find the correct answer               |
+| product-search.js   | Customers can as product related questions in natural language |
+| customer-support.js | Extract valuable details from customer communications          |
+| marketing.js        | Use AI to generate short effective marketing sms messages      |
+| chat-assistant.js   | AI chat bot capable of intellegent conversations               |
+| get-summary.js      | AI to generate a short summary of a large block of text        |
+| ai-vs-ai.js         | OpenAI has a friendly chat with Cohere                         |
+
 ## Answer Customer Product Questions
 
-Build business or personal workflows where the AI calls your APIs to fetch data and use that data to solve problems or answer your questions.
-
-For example we can build a workflow to automate replying to customers support emails.
+Build business or personal workflows where the AI calls your APIs to fetch data and use that data to solve problems or help customers find answers.
 
 ```js
 const productDB = [
@@ -91,6 +101,39 @@ Extracted Details From Customer Message:
 
 ```
 
+## Promotional Messaging
+
+Use AI to generate effective promotional content for emails, sms or other channels.
+
+```js
+const product = {
+  name: 'Acme Toilet Cleaning',
+  description: '24/7 Commercial and residential restroom cleaning services',
+};
+
+const to = {
+  name: 'Jerry Doe',
+  title: 'Head of facilities and operations',
+  company: 'Blue Yonder Inc.',
+};
+
+const prompt = new EmailPrompt({ type: MessageType.Text }, product, to);
+const gen = new GenerateText(ai);
+
+const context = `
+1. Under 160 characters
+2. Prompts recipients to book an call
+3. Employs emojis and friendly language
+`;
+
+const res = await gen.generate(context, prompt);
+console.log(res.value());
+```
+
+```console
+Hey Jerry! 🤗 Acme Toilet Cleaning is offering 24/7 commercial and residential restroom cleaning services. Let us take care of your restroom needs so you don't have to. 🚽 Book a call today and let's get started! 📞
+```
+
 ## AI Smart Assistant
 
 Build an AI powered assistant that maintains context as you converse with it asking if various questions.
@@ -129,17 +172,6 @@ AI: And from mars?
 AI: will it ever end?
 > The sun will eventually end, but not for billions of years.
 ```
-
-## Example Apps
-
-| Example             | Description                                                    |
-| ------------------- | -------------------------------------------------------------- |
-| ask-questions.js    | AI uses Google search to find the correct answer               |
-| product-search.js   | Customers can as product related questions in natural language |
-| customer-support.js | Extract valuable details from customer communications          |
-| chat-assistant.js   | AI chat bot capable of intellegent conversations               |
-| get-summary.js      | AI to generate a short summary of a large block of text        |
-| ai-vs-ai.js         | OpenAI has a friendly chat with Cohere                         |
 
 ```terminal
 cd examples
@@ -250,7 +282,7 @@ const prompt = new QuestionAnswerPrompt(actions);
 
 ## Reach out
 
-We're happy to help you leverage Minds reach out if you have questions
+We're happy to help reach out if you have questions or join the Discord
 
 [twitter/dosco](https://twitter.com/dosco)
 

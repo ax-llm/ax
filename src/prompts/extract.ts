@@ -28,6 +28,7 @@ export enum BusinessInfo {
   CustomerEmail = 'Senders Email',
   CustomerPhone = 'Senders Phone',
   ContactInformation = 'Sender Contact Information',
+  IssueClass = 'Issue Class',
   IssueDescription = 'Issue Description',
   IssueSummary = 'Issue Summary',
   ErrorMessage = 'Error Message',
