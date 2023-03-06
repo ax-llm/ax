@@ -1,6 +1,7 @@
 import {
   Cohere,
   OpenAI,
+  OpenAICreativeOptions,
   AlephAlpha,
   Memory,
   GenerateText,
@@ -27,7 +28,7 @@ if (process.env.COHERE_APIKEY) {
 } else if (process.env.ALEPHALPHA_APIKEY) {
   ai = new AlephAlpha(process.env.ALEPHALPHA_APIKEY);
 } else {
-  ai = new OpenAI(process.env.OPENAI_APIKEY);
+  ai = new OpenAI(process.env.OPENAI_APIKEY, OpenAICreativeOptions());
 }
 
 const mem = new Memory();

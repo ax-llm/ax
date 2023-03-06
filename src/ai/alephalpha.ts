@@ -39,7 +39,7 @@ export const enum AlephaAlphaGenerateHosting {
  * AlephAlpha: Model options for text generation
  * @export
  */
-export type AlephAlphaTextOptions = {
+export type AlephAlphaOptions = {
   model: AlephAlphaGenerateModel | string;
   hosting?: AlephaAlphaGenerateHosting;
   maxTokens: number;
@@ -81,7 +81,7 @@ export type AlephAlphaTextOptions = {
  * AlephAlpha: Default Model options for text generation
  * @export
  */
-export const AlephAlphaDefaultTextOptions = (): AlephAlphaTextOptions => ({
+export const AlephAlphaDefaultOptions = (): AlephAlphaOptions => ({
   model: AlephAlphaGenerateModel.LuminousSupreme,
   representation: AlephAlphaEmbedRepresentation.Document,
   disableOptimizations: true,
@@ -97,8 +97,8 @@ export const AlephAlphaDefaultTextOptions = (): AlephAlphaTextOptions => ({
  * AlephAlpha: Default model options for more creative text generation
  * @export
  */
-export const AlephAlphaCreativeTextOptions = (): AlephAlphaTextOptions => ({
-  ...AlephAlphaDefaultTextOptions(),
+export const AlephAlphaCreativeOptions = (): AlephAlphaOptions => ({
+  ...AlephAlphaDefaultOptions(),
   model: AlephAlphaGenerateModel.LuminousSupreme,
   temperature: 0.9,
 });
@@ -173,7 +173,7 @@ type AlephAlphaEmbedResponse = {
 const generateReq = (
   prompt: string,
   stopSequences: string[] = [],
-  opt: Readonly<AlephAlphaTextOptions>
+  opt: Readonly<AlephAlphaOptions>
 ): AlephAlphaGenerateRequest => ({
   model: opt.model,
   hosting: opt.hosting,
@@ -217,7 +217,7 @@ const generateReq = (
 
 const embedReq = (
   prompt: string,
-  opt: Readonly<AlephAlphaTextOptions>
+  opt: Readonly<AlephAlphaOptions>
 ): AlephAlphaEmbedRequest => ({
   model: opt.model,
   hosting: opt.hosting,
@@ -230,30 +230,22 @@ const embedReq = (
 });
 
 /**
- * AlephAlpha: Various options that can be set on the AI Service
- * @export
- */
-export type AlephAlphaOptions = {
-  TextOptions?: AlephAlphaTextOptions;
-};
-
-/**
  * AlephAlpha: AI Service
  * @export
  */
 export class AlephAlpha implements AIService {
   private apiKey: string;
-  private TextOptions: AlephAlphaTextOptions = AlephAlphaDefaultTextOptions();
+  private options: AlephAlphaOptions;
 
-  constructor(apiKey: string, options?: Readonly<AlephAlphaOptions>) {
+  constructor(
+    apiKey: string,
+    options: Readonly<AlephAlphaOptions> = AlephAlphaDefaultOptions()
+  ) {
     if (apiKey === '') {
       throw new Error('AlephAlpha API key not set');
     }
     this.apiKey = apiKey;
-
-    if (options?.TextOptions) {
-      this.TextOptions = options.TextOptions;
-    }
+    this.options = options;
   }
 
   name(): string {
@@ -277,7 +269,7 @@ export class AlephAlpha implements AIService {
         name: apiTypes.Generate,
         url: apiURL,
       },
-      generateReq(text, md?.stopSequences, this.TextOptions)
+      generateReq(text, md?.stopSequences, this.options)
     );
 
     return res.then(({ completions }) => ({
@@ -307,7 +299,7 @@ export class AlephAlpha implements AIService {
         name: apiTypes.Embed,
         url: apiURL,
       },
-      embedReq(texts[0], this.TextOptions)
+      embedReq(texts[0], this.options)
     );
 
     return res.then(({ model_version, embedding }) => ({

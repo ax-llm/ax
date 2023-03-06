@@ -42,7 +42,7 @@ export const enum CohereReturnLikelihoods {
  * Cohere: Model options for text generation
  * @export
  */
-export type CohereTextOptions = {
+export type CohereOptions = {
   model: CohereGenerateModel | string;
   maxTokens: number;
   temperature: number;
@@ -58,7 +58,7 @@ export type CohereTextOptions = {
  * Cohere: Default Model options for text generation
  * @export
  */
-export const CohereDefaultTextOptions = (): CohereTextOptions => ({
+export const CohereDefaultOptions = (): CohereOptions => ({
   model: CohereGenerateModel.CommandXLargeNightly,
   maxTokens: 300,
   temperature: 0.45,
@@ -72,8 +72,8 @@ export const CohereDefaultTextOptions = (): CohereTextOptions => ({
  * Cohere: Default model options for more creative text generation
  * @export
  */
-export const CohereCreativeTextOptions = (): CohereTextOptions => ({
-  ...CohereDefaultTextOptions(),
+export const CohereCreativeOptions = (): CohereOptions => ({
+  ...CohereDefaultOptions(),
   temperature: 0.9,
 });
 
@@ -113,7 +113,7 @@ type CohereEmbedResponse = {
 const generateReq = (
   prompt: string,
   stopSequences: string[] = [],
-  opt: Readonly<CohereTextOptions>
+  opt: Readonly<CohereOptions>
 ): CohereGenerateRequest => ({
   prompt: prompt,
   model: opt.model,
@@ -129,30 +129,22 @@ const generateReq = (
 });
 
 /**
- * Cohere: Various options that can be set on the AI Service
- * @export
- */
-export type CohereOptions = {
-  TextOptions?: CohereTextOptions;
-};
-
-/**
  * Cohere: AI Service
  * @export
  */
 export class Cohere implements AIService {
   private apiKey: string;
-  private TextOptions: CohereTextOptions = CohereDefaultTextOptions();
+  private options: CohereOptions;
 
-  constructor(apiKey: string, options?: Readonly<CohereOptions>) {
+  constructor(
+    apiKey: string,
+    options: Readonly<CohereOptions> = CohereDefaultOptions()
+  ) {
     if (apiKey === '') {
       throw new Error('Cohere API key not set');
     }
     this.apiKey = apiKey;
-
-    if (options?.TextOptions) {
-      this.TextOptions = options.TextOptions;
-    }
+    this.options = options;
   }
 
   name(): string {
@@ -177,7 +169,7 @@ export class Cohere implements AIService {
         url: apiURL,
         headers: { 'Cohere-Version': '2022-12-06' },
       },
-      generateReq(prompt, md?.stopSequences, this.TextOptions)
+      generateReq(prompt, md?.stopSequences, this.options)
     );
 
     return res.then(({ id, generations: gens }) => ({
@@ -208,14 +200,14 @@ export class Cohere implements AIService {
         url: apiURL,
         headers: { 'Cohere-Version': '2022-12-06' },
       },
-      { texts, model: this.TextOptions.model, truncate: 'NONE' }
+      { texts, model: this.options.model, truncate: 'NONE' }
     );
 
     return res.then(({ id, embeddings }) => ({
       id: id,
       sessionID,
       texts,
-      model: this.TextOptions.model,
+      model: this.options.model,
       embeddings,
     }));
   }

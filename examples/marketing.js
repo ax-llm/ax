@@ -1,7 +1,7 @@
 import {
   Cohere,
   OpenAI,
-  OpenAICreativeTextOptions,
+  OpenAICreativeOptions,
   GenerateText,
   MessagePrompt,
   MessageType,
@@ -9,7 +9,7 @@ import {
 
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)
-  : new OpenAI(process.env.OPENAI_APIKEY, OpenAICreativeTextOptions());
+  : new OpenAI(process.env.OPENAI_APIKEY, OpenAICreativeOptions());
 
 const product = {
   name: 'Acme Toilet Cleaning',

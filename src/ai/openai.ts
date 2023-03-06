@@ -55,7 +55,7 @@ export const enum OpenAIEmbedModels {
  * OpenAI: Model options for text generation
  * @export
  */
-export type OpenAITextOptions = {
+export type OpenAIOptions = {
   model: OpenAIGenerateModel | OpenAIGenerateCodeModel | string;
   embedModel: OpenAIEmbedModels | string;
   suffix: string | null;
@@ -77,7 +77,7 @@ export type OpenAITextOptions = {
  * OpenAI: Default Model options for text generation
  * @export
  */
-export const OpenAIDefaultTextOptions = (): OpenAITextOptions => ({
+export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   model: OpenAIGenerateModel.GPT3TextDavinci003,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   suffix: null,
@@ -90,8 +90,8 @@ export const OpenAIDefaultTextOptions = (): OpenAITextOptions => ({
  * OpenAI: Default model options for more creative text generation
  * @export
  */
-export const OpenAICreativeTextOptions = (): OpenAITextOptions => ({
-  ...OpenAIDefaultTextOptions(),
+export const OpenAICreativeOptions = (): OpenAIOptions => ({
+  ...OpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT3Turbo,
   temperature: 0.9,
 });
@@ -100,8 +100,8 @@ export const OpenAICreativeTextOptions = (): OpenAITextOptions => ({
  * OpenAI: Default model options for more fast text generation
  * @export
  */
-export const OpenAIFastTextOptions = (): OpenAITextOptions => ({
-  ...OpenAIDefaultTextOptions(),
+export const OpenAIFastOptions = (): OpenAIOptions => ({
+  ...OpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT3Turbo,
   temperature: 0.45,
 });
@@ -154,7 +154,7 @@ type OpenAIGenerateResponse = {
 
 type OpenAIChatGenerateRequest = {
   model: string;
-  messages: string[];
+  messages: { role: string; content: string }[];
   max_tokens: number;
   temperature: number;
   top_p: number;
@@ -200,7 +200,7 @@ type OpenAIEmbedResponse = {
 const generateReq = (
   prompt: string,
   stopSequences: string[] = [],
-  opt: Readonly<OpenAITextOptions>
+  opt: Readonly<OpenAIOptions>
 ): OpenAIGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -230,7 +230,7 @@ const generateReq = (
 const generateChatReq = (
   prompt: string,
   stopSequences: string[] = [],
-  opt: Readonly<OpenAITextOptions>
+  opt: Readonly<OpenAIOptions>
 ): OpenAIChatGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -239,7 +239,7 @@ const generateChatReq = (
   }
   return {
     model: opt.model,
-    messages: [prompt],
+    messages: [{ role: 'user', content: prompt }],
     max_tokens: opt.maxTokens,
     temperature: opt.temperature,
     top_p: opt.topP,
@@ -254,32 +254,23 @@ const generateChatReq = (
 };
 
 /**
- * OpenAI: Various options that can be set on the AI Service
- * @export
- */
-export type OpenAIOptions = {
-  textOptions?: OpenAITextOptions;
-};
-
-/**
  * OpenAI: AI Service
  * @export
  */
 export class OpenAI implements AIService {
   private apiKey: string;
   private orgID?: string;
+  private options: OpenAIOptions;
 
-  private textOptions: OpenAITextOptions = OpenAIDefaultTextOptions();
-
-  constructor(apiKey: string, options?: Readonly<OpenAIOptions>) {
+  constructor(
+    apiKey: string,
+    options: Readonly<OpenAIOptions> = OpenAIDefaultOptions()
+  ) {
     if (apiKey === '') {
       throw new Error('OpenAPI API key not set');
     }
     this.apiKey = apiKey;
-
-    if (options?.textOptions) {
-      this.textOptions = options.textOptions;
-    }
+    this.options = options;
   }
 
   name(): string {
@@ -292,7 +283,7 @@ export class OpenAI implements AIService {
     sessionID?: string
   ): Promise<AIGenerateResponse> {
     prompt = prompt.trim();
-    if (this.textOptions.model === OpenAIGenerateModel.GPT3Turbo) {
+    if (this.options.model === OpenAIGenerateModel.GPT3Turbo) {
       return this.generateChat(prompt, md, sessionID);
     } else {
       return this.generateDefault(prompt, md, sessionID);
@@ -310,7 +301,7 @@ export class OpenAI implements AIService {
       OpenAIGenerateResponse
     >(
       this.createAPI(apiType.Generate),
-      generateReq(prompt, md?.stopSequences, this.textOptions)
+      generateReq(prompt, md?.stopSequences, this.options)
     );
 
     return res.then(({ id, choices: c }) => ({
@@ -335,7 +326,7 @@ export class OpenAI implements AIService {
       OpenAIChatGenerateResponse
     >(
       this.createAPI(apiType.ChatGenerate),
-      generateChatReq(prompt, md?.stopSequences, this.textOptions)
+      generateChatReq(prompt, md?.stopSequences, this.options)
     );
 
     return res.then(({ id, choices: c }) => ({
@@ -362,7 +353,7 @@ export class OpenAI implements AIService {
       throw new Error('OpenAI limits embeddings input to 512 characters');
     }
 
-    const embedReq = { input: texts, model: this.textOptions.embedModel };
+    const embedReq = { input: texts, model: this.options.embedModel };
     const res = apiCall<OpenAIAPI, OpenAIEmbedRequest, OpenAIEmbedResponse>(
       this.createAPI(apiType.Embed),
       embedReq
