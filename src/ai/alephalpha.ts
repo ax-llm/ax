@@ -128,7 +128,7 @@ type AlephAlphaGenerateRequest = {
   n?: number;
   logit_bias?: Map<string, number>;
   log_probs?: number;
-  stop_sequences: string[];
+  stop_sequences?: string[];
   tokens?: boolean;
   raw_completion?: boolean;
   disable_optimizations?: boolean;
@@ -172,8 +172,8 @@ type AlephAlphaEmbedResponse = {
 
 const generateReq = (
   prompt: string,
-  stopSequences: string[] = [],
-  opt: Readonly<AlephAlphaOptions>
+  opt: Readonly<AlephAlphaOptions>,
+  stopSequences: string[]
 ): AlephAlphaGenerateRequest => ({
   model: opt.model,
   hosting: opt.hosting,
@@ -269,7 +269,7 @@ export class AlephAlpha implements AIService {
         name: apiTypes.Generate,
         url: apiURL,
       },
-      generateReq(text, md?.stopSequences, this.options)
+      generateReq(text, this.options, md?.stopSequences)
     );
 
     return res.then(({ completions }) => ({

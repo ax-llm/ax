@@ -117,7 +117,7 @@ type OpenAIGenerateRequest = {
   stream: boolean;
   logprobs: number;
   echo: boolean;
-  stop: string[];
+  stop?: string[];
   presence_penalty: number;
   frequency_penalty: number;
   best_of: number;
@@ -160,7 +160,7 @@ type OpenAIChatGenerateRequest = {
   top_p: number;
   n: number;
   stream: boolean;
-  stop: string[];
+  stop?: string[];
   presence_penalty: number;
   frequency_penalty: number;
   logit_bias?: Map<string, number>;
@@ -199,8 +199,8 @@ type OpenAIEmbedResponse = {
 
 const generateReq = (
   prompt: string,
-  stopSequences: string[] = [],
-  opt: Readonly<OpenAIOptions>
+  opt: Readonly<OpenAIOptions>,
+  stopSequences?: string[]
 ): OpenAIGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -229,8 +229,8 @@ const generateReq = (
 
 const generateChatReq = (
   prompt: string,
-  stopSequences: string[] = [],
-  opt: Readonly<OpenAIOptions>
+  opt: Readonly<OpenAIOptions>,
+  stopSequences?: string[]
 ): OpenAIChatGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -301,7 +301,7 @@ export class OpenAI implements AIService {
       OpenAIGenerateResponse
     >(
       this.createAPI(apiType.Generate),
-      generateReq(prompt, md?.stopSequences, this.options)
+      generateReq(prompt, this.options, md?.stopSequences)
     );
 
     return res.then(({ id, choices: c }) => ({
@@ -326,7 +326,7 @@ export class OpenAI implements AIService {
       OpenAIChatGenerateResponse
     >(
       this.createAPI(apiType.ChatGenerate),
-      generateChatReq(prompt, md?.stopSequences, this.options)
+      generateChatReq(prompt, this.options, md?.stopSequences)
     );
 
     return res.then(({ id, choices: c }) => ({

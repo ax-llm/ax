@@ -112,8 +112,8 @@ type CohereEmbedResponse = {
 
 const generateReq = (
   prompt: string,
-  stopSequences: string[] = [],
-  opt: Readonly<CohereOptions>
+  opt: Readonly<CohereOptions>,
+  stopSequences?: string[]
 ): CohereGenerateRequest => ({
   prompt: prompt,
   model: opt.model,
@@ -169,7 +169,7 @@ export class Cohere implements AIService {
         url: apiURL,
         headers: { 'Cohere-Version': '2022-12-06' },
       },
-      generateReq(prompt, md?.stopSequences, this.options)
+      generateReq(prompt, this.options, md?.stopSequences)
     );
 
     return res.then(({ id, generations: gens }) => ({
