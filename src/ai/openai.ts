@@ -2,10 +2,11 @@ import {
   AIService,
   AIGenerateResponse,
   EmbedResponse,
+  AudioResponse,
   PromptMetadata,
 } from '../text';
 
-import { API, apiCall } from './util';
+import { API, apiCall, apiCallWithUpload } from './util';
 
 type OpenAIAPI = API & {
   headers: { 'OpenAI-Organization'?: string };
@@ -17,6 +18,7 @@ const enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
   Embed = 'embeddings',
+  Transcribe = 'audio/transcriptions',
 }
 
 /**
@@ -52,12 +54,21 @@ export const enum OpenAIEmbedModels {
 }
 
 /**
+ * OpenAI: Models for for audio transcription
+ * @export
+ */
+export const enum OpenAIAudioModel {
+  Whisper1 = 'whisper-1',
+}
+
+/**
  * OpenAI: Model options for text generation
  * @export
  */
 export type OpenAIOptions = {
   model: OpenAIGenerateModel | OpenAIGenerateCodeModel | string;
   embedModel: OpenAIEmbedModels | string;
+  audioModel: OpenAIAudioModel;
   suffix: string | null;
   maxTokens: number;
   temperature: number;
@@ -80,6 +91,7 @@ export type OpenAIOptions = {
 export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   model: OpenAIGenerateModel.GPT3TextDavinci003,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
+  audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
   maxTokens: 300,
   temperature: 0.45,
@@ -197,6 +209,24 @@ type OpenAIEmbedResponse = {
   };
 };
 
+type OpenAIAudioRequest = {
+  model: string;
+  prompt?: string;
+  response_format: 'verbose_json';
+  temperature?: number;
+  language?: string;
+};
+
+type OpenAIAudioResponse = {
+  duration: number;
+  segments: {
+    id: number;
+    start: number;
+    end: number;
+    text: string;
+  }[];
+};
+
 const generateReq = (
   prompt: string,
   opt: Readonly<OpenAIOptions>,
@@ -250,6 +280,20 @@ const generateChatReq = (
     frequency_penalty: opt.frequencyPenalty,
     logit_bias: opt.logitBias,
     user: opt.user,
+  };
+};
+
+const generateAudioReq = (
+  opt: Readonly<OpenAIOptions>,
+  prompt?: string,
+  language?: string
+): OpenAIAudioRequest => {
+  return {
+    model: opt.audioModel,
+    prompt: prompt,
+    temperature: opt.temperature,
+    language: language,
+    response_format: 'verbose_json',
   };
 };
 
@@ -365,6 +409,34 @@ export class OpenAI implements AIService {
       texts,
       model: data.model,
       embeddings: data.data.embeddings,
+    }));
+  }
+
+  transcribe(
+    file: string,
+    prompt?: string,
+    language?: string,
+    sessionID?: string
+  ): Promise<AudioResponse> {
+    const res = apiCallWithUpload<
+      OpenAIAPI,
+      OpenAIAudioRequest,
+      OpenAIAudioResponse
+    >(
+      this.createAPI(apiType.Transcribe),
+      generateAudioReq(this.options, prompt, language),
+      file
+    );
+
+    return res.then((data) => ({
+      duration: data.duration,
+      segments: data.segments.map((v) => ({
+        id: v.id,
+        start: v.start,
+        end: v.end,
+        text: v.text,
+      })),
+      sessionID,
     }));
   }
 

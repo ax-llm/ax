@@ -18,15 +18,16 @@ npm i @dosco/minds
 
 ## Example Workflows
 
-| Example             | Description                                                    |
-| ------------------- | -------------------------------------------------------------- |
-| ask-questions.js    | AI uses Google search to find the correct answer               |
-| product-search.js   | Customers can as product related questions in natural language |
-| customer-support.js | Extract valuable details from customer communications          |
-| marketing.js        | Use AI to generate short effective marketing sms messages      |
-| chat-assistant.js   | AI chat bot capable of intellegent conversations               |
-| get-summary.js      | AI to generate a short summary of a large block of text        |
-| ai-vs-ai.js         | OpenAI has a friendly chat with Cohere                         |
+| Example               | Description                                                    |
+| --------------------- | -------------------------------------------------------------- |
+| ask-questions.js      | AI uses Google search to find the correct answer               |
+| product-search.js     | Customers can as product related questions in natural language |
+| customer-support.js   | Extract valuable details from customer communications          |
+| marketing.js          | Use AI to generate short effective marketing sms messages      |
+| transcribe-podcast.js | Transcribe multiple podcast channels into text                 |
+| chat-assistant.js     | AI chat bot capable of intellegent conversations               |
+| get-summary.js        | AI to generate a short summary of a large block of text        |
+| ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                         |
 
 ## Answer Customer Product Questions
 

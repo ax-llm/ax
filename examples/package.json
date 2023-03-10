@@ -5,7 +5,8 @@
   "description": "MindsJS example apps",
   "main": "index.js",
   "dependencies": {
-    "@dosco/minds": "^1.4.1",
+    "@dosco/minds": "^1.5.0",
+    "@supercharge/promise-pool": "^2.4.0",
     "chalk": "^5.2.0"
   }
 }

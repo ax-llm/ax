@@ -21,6 +21,16 @@ export type EmbedResponse = {
   embeddings: number[];
 };
 
+export type AudioResponse = {
+  duration: number;
+  segments: {
+    id: number;
+    start: number;
+    end: number;
+    text: string;
+  }[];
+};
+
 export interface AIMemory {
   add(text: string, sessionID?: string): void;
   history(sessionID?: string): string;
