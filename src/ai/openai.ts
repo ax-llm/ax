@@ -14,7 +14,7 @@ type OpenAIAPI = API & {
 
 const apiURL = 'https://api.openai.com/v1/';
 
-const enum apiType {
+enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
   Embed = 'embeddings',
@@ -25,7 +25,7 @@ const enum apiType {
  * OpenAI: Models for text generation
  * @export
  */
-export const enum OpenAIGenerateModel {
+export enum OpenAIGenerateModel {
   GPT4 = 'gpt-4',
   GPT3Turbo = 'gpt-3.5-turbo',
   GPT3TextDavinci003 = 'text-davinci-003',
@@ -39,7 +39,7 @@ export const enum OpenAIGenerateModel {
  * OpenAI: Models for code generation
  * @export
  */
-export const enum OpenAIGenerateCodeModel {
+export enum OpenAIGenerateCodeModel {
   CodexCodeDavinci002 = 'code-davinci-002',
   CodexCodeCushman001 = 'code-cushman-001',
   CodexCodeDavinci001 = 'code-davinci-001',
@@ -49,7 +49,7 @@ export const enum OpenAIGenerateCodeModel {
  * OpenAI: Models for use in embeddings
  * @export
  */
-export const enum OpenAIEmbedModels {
+export enum OpenAIEmbedModels {
   GPT3TextEmbeddingAda002 = 'text-embedding-ada-002',
   GPT3TextSimilarityDavinci001 = 'text-similarity-davinci-001',
 }
@@ -58,7 +58,7 @@ export const enum OpenAIEmbedModels {
  * OpenAI: Models for for audio transcription
  * @export
  */
-export const enum OpenAIAudioModel {
+export enum OpenAIAudioModel {
   Whisper1 = 'whisper-1',
 }
 
@@ -233,7 +233,7 @@ const generateReq = (
   opt: Readonly<OpenAIOptions>,
   stopSequences?: string[]
 ): OpenAIGenerateRequest => {
-  if (stopSequences.length > 4) {
+  if (stopSequences?.length > 4) {
     throw new Error(
       'OpenAI supports prompts with max 4 items in stopSequences'
     );
@@ -263,7 +263,7 @@ const generateChatReq = (
   opt: Readonly<OpenAIOptions>,
   stopSequences?: string[]
 ): OpenAIChatGenerateRequest => {
-  if (stopSequences.length > 4) {
+  if (stopSequences?.length > 4) {
     throw new Error(
       'OpenAI supports prompts with max 4 items in stopSequences'
     );

@@ -22,7 +22,7 @@ const enum apiTypes {
  * Cohere: Models for text generation
  * @export
  */
-export const enum CohereGenerateModel {
+export enum CohereGenerateModel {
   CommandXLargeNightly = 'command-xlarge-nightly',
   XLarge = 'xlarge',
   Medium = 'medium',
@@ -32,7 +32,7 @@ export const enum CohereGenerateModel {
  * Cohere: Specify how and if the token likelihoods are returned with the response.
  * @export
  */
-export const enum CohereReturnLikelihoods {
+export enum CohereReturnLikelihoods {
   GENERATION = 'GENERATION',
   ALL = 'ALL',
   NONE = 'NONE',

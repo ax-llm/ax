@@ -18,20 +18,20 @@ const enum apiTypes {
  * AlephAlpha: Models for text generation
  * @export
  */
-export const enum AlephAlphaGenerateModel {
+export enum AlephAlphaGenerateModel {
   LuminousSupremeControl = 'luminous-supreme-control',
   LuminousSupreme = 'luminous-supreme',
   LuminousExtended = 'luminous-extended',
   LuminousBase = 'luminous-base',
 }
 
-export const enum AlephAlphaEmbedRepresentation {
+export enum AlephAlphaEmbedRepresentation {
   Symmetric = 'symmetric',
   Document = 'document',
   Query = 'query',
 }
 
-export const enum AlephaAlphaGenerateHosting {
+export enum AlephaAlphaGenerateHosting {
   MaxPrivacy = 'aleph-alpha',
 }
 
