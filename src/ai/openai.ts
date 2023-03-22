@@ -328,7 +328,11 @@ export class OpenAI implements AIService {
     sessionID?: string
   ): Promise<AIGenerateResponse> {
     prompt = prompt.trim();
-    if (this.options.model === OpenAIGenerateModel.GPT3Turbo) {
+    if (
+      [OpenAIGenerateModel.GPT3Turbo, OpenAIGenerateModel.GPT4].includes(
+        this.options.model as OpenAIGenerateModel
+      )
+    ) {
       return this.generateChat(prompt, md, sessionID);
     } else {
       return this.generateDefault(prompt, md, sessionID);
