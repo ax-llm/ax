@@ -26,6 +26,7 @@ const enum apiType {
  * @export
  */
 export const enum OpenAIGenerateModel {
+  GPT4 = 'gpt-4',
   GPT3Turbo = 'gpt-3.5-turbo',
   GPT3TextDavinci003 = 'text-davinci-003',
   GPT3TextCurie001 = 'text-curie-001',
@@ -66,8 +67,8 @@ export const enum OpenAIAudioModel {
  * @export
  */
 export type OpenAIOptions = {
-  model: OpenAIGenerateModel | OpenAIGenerateCodeModel | string;
-  embedModel: OpenAIEmbedModels | string;
+  model: OpenAIGenerateModel | OpenAIGenerateCodeModel;
+  embedModel: OpenAIEmbedModels;
   audioModel: OpenAIAudioModel;
   suffix: string | null;
   maxTokens: number;
