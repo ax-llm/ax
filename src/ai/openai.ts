@@ -27,12 +27,9 @@ enum apiType {
  */
 export enum OpenAIGenerateModel {
   GPT4 = 'gpt-4',
+  GPT432K = 'gpt-4-32k',
   GPT3Turbo = 'gpt-3.5-turbo',
   GPT3TextDavinci003 = 'text-davinci-003',
-  GPT3TextCurie001 = 'text-curie-001',
-  GPT3TextBabbage001 = 'text-babbage-001',
-  GPT3TextAda001 = 'text-ada-001',
-  GPT3TextDavinci001 = 'text-davinci-001',
 }
 
 /**
@@ -67,7 +64,7 @@ export enum OpenAIAudioModel {
  * @export
  */
 export type OpenAIOptions = {
-  model: OpenAIGenerateModel | OpenAIGenerateCodeModel;
+  model: OpenAIGenerateModel;
   embedModel: OpenAIEmbedModels;
   audioModel: OpenAIAudioModel;
   suffix: string | null;
@@ -90,7 +87,7 @@ export type OpenAIOptions = {
  * @export
  */
 export const OpenAIDefaultOptions = (): OpenAIOptions => ({
-  model: OpenAIGenerateModel.GPT3TextDavinci003,
+  model: OpenAIGenerateModel.GPT3Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
