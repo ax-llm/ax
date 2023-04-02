@@ -21,7 +21,7 @@ npm i @dosco/minds
 | Example               | Description                                                    |
 | --------------------- | -------------------------------------------------------------- |
 | ask-questions.js      | AI uses Google search to find the correct answer               |
-| product-search.js     | Customers can as product related questions in natural language |
+| product-search.js     | Customers can ask product related questions in natural language |
 | customer-support.js   | Extract valuable details from customer communications          |
 | marketing.js          | Use AI to generate short effective marketing sms messages      |
 | transcribe-podcast.js | Transcribe multiple podcast channels into text                 |
