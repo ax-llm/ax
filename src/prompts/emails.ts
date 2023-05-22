@@ -1,4 +1,4 @@
-import { AIService, AIPrompt, PromptMetadata } from '../text';
+import { AIPrompt } from '../text';
 
 export enum MessageType {
   Email = 'promotion email',
@@ -25,12 +25,13 @@ export type ProductInfo = {
  * A prompt used for extracting information from customer support interactions
  * @export
  */
-export class MessagePrompt implements AIPrompt {
+export class MessagePrompt extends AIPrompt<string> {
   private messageInfo: MessageInfo;
   private receiver: string = '';
   private product: string = '';
 
   constructor(mi: MessageInfo, pi: ProductInfo, ri: MessageReceiver) {
+    super({ stopSequences: ['Text:'] });
     for (var k in ri) {
       this.receiver += `${k}: ${ri[k]}\n`;
     }
@@ -42,14 +43,9 @@ export class MessagePrompt implements AIPrompt {
     this.messageInfo = mi;
   }
 
-  metadata(): Readonly<PromptMetadata> {
-    return {
-      stopSequences: ['Text:'],
-    };
-  }
-
-  create(query: string, _history: () => string, _ai: AIService): string {
+  create(query: string, system: string): string {
     return `
+${system}
 Using the below information to write an effective ${this.messageInfo.type}.
 
 Product information:

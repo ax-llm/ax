@@ -2,7 +2,6 @@ import {
   Cohere,
   OpenAI,
   Memory,
-  GenerateText,
   ExtractInfoPrompt,
   BusinessInfo,
 } from '@dosco/minds';
@@ -20,7 +19,6 @@ const entities = [
 
 const mem = new Memory();
 const prompt = new ExtractInfoPrompt(entities);
-const gen = new GenerateText(ai, mem);
 
 const customerMessage = `
 Hello Support Team,
@@ -35,7 +33,7 @@ Best regards,
 John Doe.
   `;
 
-const res = await gen.generate(customerMessage, prompt);
+const res = await prompt.generate(ai, customerMessage, { mem });
 
 console.log(
   `Customer Message:\n${customerMessage}\n\nExtracted Details From Customer Message:\n`,

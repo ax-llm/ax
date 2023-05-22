@@ -2,7 +2,6 @@ import {
   Cohere,
   OpenAI,
   OpenAICreativeOptions,
-  GenerateText,
   MessagePrompt,
   MessageType,
 } from '@dosco/minds';
@@ -23,7 +22,6 @@ const to = {
 };
 
 const prompt = new MessagePrompt({ type: MessageType.Text }, product, to);
-const gen = new GenerateText(ai);
 
 const context = `
 1. Under 160 characters
@@ -31,5 +29,5 @@ const context = `
 3. Employs emojis and friendly language
 `;
 
-const res = await gen.generate(context, prompt);
+const res = await prompt.generate(ai, context);
 console.log(res.value());

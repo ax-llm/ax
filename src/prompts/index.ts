@@ -3,3 +3,4 @@ export * from './chats';
 export * from './summarize';
 export * from './extract';
 export * from './emails';
+export * from './zprompt';

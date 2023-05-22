@@ -1,8 +1,8 @@
 import {
   AIService,
-  AIGenerateResponse,
+  AIGenerateTextResponse,
   EmbedResponse,
-  PromptMetadata,
+  PromptConfig,
 } from '../text';
 
 import { API, apiCall } from './util';
@@ -91,7 +91,7 @@ type CohereGenerateRequest = {
   return_likelihoods?: CohereReturnLikelihoods;
 };
 
-type CohereAIGenerateResponse = {
+type CohereAIGenerateTextResponse = {
   id: string;
   prompt: string;
   generations: { id: string; text: string }[];
@@ -153,15 +153,15 @@ export class Cohere implements AIService {
 
   generate(
     prompt: string,
-    md?: PromptMetadata,
+    md?: PromptConfig,
     sessionID?: string
-  ): Promise<AIGenerateResponse> {
+  ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
 
     const res = apiCall<
       CohereAPI,
       CohereGenerateRequest,
-      CohereAIGenerateResponse
+      CohereAIGenerateTextResponse
     >(
       {
         key: this.apiKey,

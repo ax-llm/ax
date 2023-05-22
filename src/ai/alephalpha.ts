@@ -1,8 +1,8 @@
 import {
   AIService,
-  AIGenerateResponse,
+  AIGenerateTextResponse,
   EmbedResponse,
-  PromptMetadata,
+  PromptConfig,
 } from '../text';
 
 import { API, apiCall } from './util';
@@ -140,7 +140,7 @@ type AlephAlphaGenerateRequest = {
   control_log_additive?: boolean;
 };
 
-type AlephAlphaAIGenerateResponse = {
+type AlephAlphaAIGenerateTextResponse = {
   model_version: string;
   completions: [
     {
@@ -254,15 +254,15 @@ export class AlephAlpha implements AIService {
 
   generate(
     prompt: string,
-    md?: PromptMetadata,
+    md?: PromptConfig,
     sessionID?: string
-  ): Promise<AIGenerateResponse> {
+  ): Promise<AIGenerateTextResponse<string>> {
     const text = prompt.trim();
 
     const res = apiCall<
       API,
       AlephAlphaGenerateRequest,
-      AlephAlphaAIGenerateResponse
+      AlephAlphaAIGenerateTextResponse
     >(
       {
         key: this.apiKey,

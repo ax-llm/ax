@@ -1,6 +1,7 @@
 import test from 'ava';
+import { z } from 'zod';
 
-import { Embeddings, GenerateText, Memory } from '.';
+import { Embeddings, Memory } from '.';
 
 import { Betty } from '../ai';
 import {
@@ -8,6 +9,7 @@ import {
   QuestionAnswerPrompt,
   ExtractInfoPrompt,
   BusinessInfo,
+  ZPrompt,
 } from '../prompts';
 
 test('contextEnabledConversationWithAI', async (t) => {
@@ -30,13 +32,12 @@ test('contextEnabledConversationWithAI', async (t) => {
   const ai = new Betty(aiResponses);
   const mem = new Memory();
   const prompt = new AssistantPrompt();
-  const gen = new GenerateText(ai, mem);
 
   for (let i = 0; i < humanQuerys.length; i++) {
     const q = humanQuerys[i];
-    const res = await gen.generate(q, prompt);
+    const res = await prompt.generate(ai, q, { mem });
 
-    t.is(res.values[0].text, aiResponses[i]);
+    t.is(res.value(), aiResponses[i]);
     t.deepEqual(mem.peek(), exp[i]);
   }
 });
@@ -61,17 +62,16 @@ test('multiSessionChatWithAI', async (t) => {
   const ai = new Betty(aiResponses);
   const mem = new Memory();
   const prompt = new AssistantPrompt();
-  const gen = new GenerateText(ai, mem);
 
   for (let i = 0; i < humanQuerys.length; i++) {
     const q = humanQuerys[i];
-    const res1 = await gen.generate(q, prompt, '1');
-    const res2 = await gen.generate(q, prompt, '2');
-    const res3 = await gen.generate(q, prompt, '3');
+    const res1 = await prompt.generate(ai, q, { sessionID: '1', mem });
+    const res2 = await prompt.generate(ai, q, { sessionID: '2', mem });
+    const res3 = await prompt.generate(ai, q, { sessionID: '3', mem });
 
-    t.is(res1.values[0].text, aiResponses[i]);
-    t.is(res2.values[0].text, aiResponses[i]);
-    t.is(res3.values[0].text, aiResponses[i]);
+    t.is(res1.value(), aiResponses[i]);
+    t.is(res2.value(), aiResponses[i]);
+    t.is(res3.value(), aiResponses[i]);
 
     t.deepEqual(mem.peek('1'), exp[i]);
     t.deepEqual(mem.peek('2'), exp[i]);
@@ -106,14 +106,14 @@ test('findAnswersWithAI', async (t) => {
   const ai = new Betty(aiResponses);
   const mem = new Memory();
   const prompt = new QuestionAnswerPrompt(actions);
-  const gen = new GenerateText(ai, mem);
-  // gen.setDebug(true);
+  prompt.setDebug(true);
 
-  const res = await gen.generate(
+  const res = await prompt.generate(
+    ai,
     'What are the biggest tech company in Mountain View, CA?',
-    prompt
+    { mem }
   );
-  t.is(res.values[0].text, 'Google');
+  t.is(res.value(), 'Google');
   t.deepEqual(mem.peek().join(''), exp.pop().join(''));
 });
 
@@ -153,14 +153,14 @@ test('usingEmbeddingsFindAnswersWithAI', async (t) => {
   const ai = new Betty(aiResponses);
   const mem = new Memory();
   const prompt = new QuestionAnswerPrompt(actions);
-  const gen = new GenerateText(ai, mem);
-  // gen.setDebug(true);
+  // prompt.setDebug(true);
 
-  const res = await gen.generate(
+  const res = await prompt.generate(
+    ai,
     'What is the coldest planet in our galexy?',
-    prompt
+    { mem }
   );
-  t.is(res.values[0].text, finalAnswer);
+  t.is(res.value(), finalAnswer);
   t.deepEqual(mem.peek().join(''), exp.pop().join(''));
 });
 
@@ -183,12 +183,11 @@ test('extractInfoWithAI', async (t) => {
 
   const ai = new Betty(interactions);
   const prompt = new ExtractInfoPrompt(entities);
-  const gen = new GenerateText(ai);
-  // gen.setDebug(true);
+  // prompt.setDebug(true);
 
-  const res = await gen.generate(
-    'I am writing to report an issue with my recent order #12345. I received the package yesterday, but unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly.',
-    prompt
+  const res = await prompt.generate(
+    ai,
+    'I am writing to report an issue with my recent order #12345. I received the package yesterday, but unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly.'
   );
 
   const exp = new Map([
@@ -203,4 +202,55 @@ test('extractInfoWithAI', async (t) => {
     t.true(got.has(key));
     t.deepEqual(value, got.get(key));
   }
+});
+
+test('getStructuredDataFromAI', async (t) => {
+  const interactions = [
+    `{
+    "name": "Sneakers",
+    "pitch": "A team of security experts and hackers led by Martin Bishop is blackmailed by government agents into stealing a valuable, top-secret decoding device.",
+    "genre": "Comedy, Crime, Drama",
+    "actors": [
+      {
+        "name": "Robert Redford",
+        "role": "Martin Bishop"
+      },
+      {
+        "name": "Sidney Poitier",
+        "role": "Donald Crease"
+      },
+      {
+        "name": "Dan Aykroyd",
+        "role": "Mother"
+      }
+    ],
+    "budgetInUSD": 35000000,
+    "success": true
+  }`,
+  ];
+
+  const Oracle = z.object({
+    name: z.string(),
+    pitch: z.string(),
+    genre: z.string(),
+    actors: z.array(z.object({ name: z.string(), role: z.string() })).max(3),
+    budgetInUSD: z.number(),
+    success: z.boolean(),
+  });
+
+  type Oracle = z.infer<typeof Oracle>;
+
+  const ai = new Betty(interactions);
+  const prompt = new ZPrompt<Oracle>(Oracle);
+  prompt.setDebug(true);
+
+  const res = await prompt.generate(
+    ai,
+    'Give me details on the movie Sneakers'
+  );
+
+  const movie = res.value();
+  t.is(movie.name, 'Sneakers');
+  t.is(movie.budgetInUSD, 35000000);
+  t.is(movie.actors[0].role, 'Martin Bishop');
 });

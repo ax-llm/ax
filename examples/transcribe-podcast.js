@@ -8,19 +8,28 @@ import fs from 'fs';
 
 // Initialize OpenAI
 const ai = new OpenAI(process.env.OPENAI_APIKEY, OpenAIFastOptions());
-const audioFiles = process.argv.slice(2);
+const args = process.argv.slice(2);
+const audioPath = args[0];
+const audioFiles = fs
+  .readdirSync(args[0])
+  .filter((v) => v.endsWith('.mp3'))
+  .map((v) => path.join(audioPath, v));
 
 const toTime = (sec) => new Date(sec * 1000).toISOString().slice(11, 19);
-const toName = (file) => path.parse(file).name;
+const toKeyAndIndex = (file) => {
+  const v = path.parse(file).name.match(/^([^-]+)/);
+  return { key: v[1], index: v[3] };
+};
 
 // Function to handle the transcription task
 const transcribe = async (v) => {
+  let segments;
   try {
-    const { segments } = await ai.transcribe(v);
+    ({ segments } = await ai.transcribe(v));
   } catch (e) {
-    console.error(e);
+    throw new Error(e);
   }
-  const key = toName(v);
+  const { key, index } = toKeyAndIndex(v);
 
   return segments.map(({ start, end, text }) => ({
     start: toTime(start),
@@ -48,4 +57,4 @@ const output = results
   .join('\n');
 
 // Finally save the final resulting text to a file
-fs.writeFileSync('transcript.txt', output);
+fs.writeFileSync(path.join(audioPath, 'transcript.txt'), output);

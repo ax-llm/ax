@@ -16,6 +16,13 @@ We totally believe that AI will soon replace your entire app backend. We truly l
 npm i @dosco/minds
 ```
 
+## Why use Minds
+
+- Sensible Defaults
+- Simpler and smaller than the alternatives
+- Minimal to zero dependencies
+- Focus on useful real-world workflows
+
 ## Example Workflows
 
 | Example               | Description                                                    |
@@ -52,12 +59,11 @@ const actions = [
 ];
 
 const prompt = new QuestionAnswerPrompt(actions);
-const gen = new GenerateText(ai);
 
 // Customer support email
 const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
-await gen.generate(query, prompt);
+await prompt.generate(ai, query);
 ```
 
 ```console
@@ -78,7 +84,6 @@ const entities = [
 ];
 
 const prompt = new ExtractInfoPrompt(entities);
-const gen = new GenerateText(ai);
 
 const customerMessage = `
 I am writing to report an issue with my recent order #12345. I received the package yesterday, but 
@@ -88,7 +93,7 @@ the buttons.
 
 Jane Doe`;
 
-const res = await gen.generate(customerMessage, prompt);
+const res = await prompt.generate(ai, customerMessage);
 ```
 
 ```console
@@ -119,7 +124,6 @@ const to = {
 };
 
 const prompt = new MessagePrompt({ type: MessageType.Text }, product, to);
-const gen = new GenerateText(ai);
 
 const context = `
 1. Under 160 characters
@@ -127,7 +131,7 @@ const context = `
 3. Employs emojis and friendly language
 `;
 
-const res = await gen.generate(context, prompt);
+const res = await prompt.generate(ai, context);
 console.log(res.value());
 ```
 
@@ -145,7 +149,6 @@ import {
   AlephAlpha,
   OpenAI,
   Memory,
-  GenerateText,
   AssistantPrompt,
 } from '@dosco/minds';
 
@@ -155,11 +158,10 @@ import {
 const ai = new OpenAI(process.env.OPENAI_APIKEY);
 
 const prompt = new AssistantPrompt();
-const gen = new GenerateText(ai);
 
-await gen.generate(`How far is the sun from the moon?`, prompt);
-await gen.generate(`And from mars?`, prompt);
-await gen.generate(`Will it ever end?`, prompt);
+await prompt.generate(ai, `How far is the sun from the moon?`);
+await prompt.generate(ai, `And from mars?`);
+await prompt.generate(ai, `Will it ever end?`);
 ```
 
 ```console
@@ -179,13 +181,6 @@ cd examples
 npm i
 node chat-assistant.js
 ```
-
-## Project Guidelines
-
-- Sensible Defaults
-- Simple and small API
-- Minimal to zero dependencies
-- Focus on useful real-world workflows
 
 ## Why use Minds?
 
@@ -217,6 +212,11 @@ const mem = new Memory();
 // For building conversational chat based AI workflows
 const prompt = new AssistantPrompt();
 
+// For building prompts that return structed data and can
+// can search the web, or lookup your database to
+// answer questions
+const prompt = new ZPrompt(zodSchema, actions);
+
 // For building question answer workflows where the
 // AI can search the web, or lookup your database to
 // answer questions
@@ -226,18 +226,28 @@ const prompt = new QuestionAnswerPrompt(actions);
 ### 4. Engage the AI
 
 ```js
-// Use this for all text generation tasks
-const gen = new GenerateText(ai, mem);
-
 // Query the AI
-const res = await gen.generate(
+const res = await prompt.generate(
+  ai,
   `Do we have the product the email referes to in stock? 
-  Email: I'm looking for a Macbook Pro M2 With 96GB RAM.`,
-  prompt
+  Email: I'm looking for a Macbook Pro M2 With 96GB RAM.`
 );
 
 // Get the response
-console.log('>', res.value);
+console.log('>', res.value());
+```
+
+```console
+{
+  "data": [
+    {
+      "name": "Macbook Pro",
+      "units": 2,
+      "desc": "M2, 96GB RAM"
+    }
+  ],
+  "response": "We have 2 Macbook Pro M2 96GB RAM in stock."
+}
 ```
 
 ## What are actions?
@@ -279,6 +289,25 @@ Finally pass the action list to the prompt.
 
 ```js
 const prompt = new QuestionAnswerPrompt(actions);
+```
+
+Or use the `ZPrompt` to get the response as a JS object
+
+```js
+const CustomerResponse = z.object({
+  data: z
+    .array(
+      z.object({
+        name: z.string().describe('product name'),
+        units: z.number().describe('units in stock'),
+        desc: z.string().max(15).describe('product description'),
+      })
+    )
+    .describe('inventory information'),
+  response: z.string().max(50).describe('customer response'),
+});
+
+const prompt = new ZPrompt(CustomerResponse, actions);
 ```
 
 ## Reach out

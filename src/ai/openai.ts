@@ -1,9 +1,9 @@
 import {
   AIService,
-  AIGenerateResponse,
+  AIGenerateTextResponse,
   EmbedResponse,
   AudioResponse,
-  PromptMetadata,
+  PromptConfig,
 } from '../text';
 
 import { API, apiCall, apiCallWithUpload } from './util';
@@ -148,7 +148,7 @@ type OpenAIUsage = {
   total_tokens: number;
 };
 
-type OpenAIGenerateResponse = {
+type OpenAIGenerateTextResponse = {
   id: string;
   object: string;
   created: number;
@@ -321,9 +321,9 @@ export class OpenAI implements AIService {
 
   generate(
     prompt: string,
-    md?: PromptMetadata,
+    md?: PromptConfig,
     sessionID?: string
-  ): Promise<AIGenerateResponse> {
+  ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
     if (
       [OpenAIGenerateModel.GPT3Turbo, OpenAIGenerateModel.GPT4].includes(
@@ -338,13 +338,13 @@ export class OpenAI implements AIService {
 
   private generateDefault(
     prompt: string,
-    md?: PromptMetadata,
+    md?: PromptConfig,
     sessionID?: string
-  ): Promise<AIGenerateResponse> {
+  ): Promise<AIGenerateTextResponse<string>> {
     const res = apiCall<
       OpenAIAPI,
       OpenAIGenerateRequest,
-      OpenAIGenerateResponse
+      OpenAIGenerateTextResponse
     >(
       this.createAPI(apiType.Generate),
       generateReq(prompt, this.options, md?.stopSequences)
@@ -363,9 +363,9 @@ export class OpenAI implements AIService {
 
   private generateChat(
     prompt: string,
-    md?: PromptMetadata,
+    md?: PromptConfig,
     sessionID?: string
-  ): Promise<AIGenerateResponse> {
+  ): Promise<AIGenerateTextResponse<string>> {
     const res = apiCall<
       OpenAIAPI,
       OpenAIChatGenerateRequest,

@@ -1,10 +1,5 @@
-import {
-  Cohere,
-  OpenAI,
-  Memory,
-  GenerateText,
-  QuestionAnswerPrompt,
-} from '@dosco/minds';
+import { z } from 'zod';
+import { Cohere, OpenAI, ZPrompt, QuestionAnswerPrompt } from '@dosco/minds';
 
 import chalk from 'chalk';
 
@@ -30,14 +25,26 @@ const actions = [
   },
 ];
 
-const context = 'This question related to customer support';
-
-const mem = new Memory();
-const prompt = new QuestionAnswerPrompt(actions, context);
-const gen = new GenerateText(ai, mem);
-gen.setDebug(true);
+// const context = 'This question related to customer support';
 
 const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
-const res = await gen.generate(customerQuery, prompt);
-console.log(chalk.green('Answer for customer:', res.value()));
+const CustomerResponse = z.object({
+  data: z
+    .array(
+      z.object({
+        name: z.string().describe('product name'),
+        units: z.number().describe('units in stock'),
+        desc: z.string().max(15).describe('product description'),
+      })
+    )
+    .describe('inventory information'),
+  response: z.string().max(50).describe('customer response'),
+});
+
+// const prompt = new QuestionAnswerPrompt(actions);
+const prompt = new ZPrompt(CustomerResponse, actions);
+prompt.setDebug(true);
+
+const res = await prompt.generate(ai, customerQuery);
+console.log(chalk.green('Result:\n', res.value()));

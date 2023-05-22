@@ -1,4 +1,4 @@
-import { AIService, AIPrompt, PromptMetadata } from '../text';
+import { AIPrompt } from '../text';
 import flow from 'lodash/fp/flow';
 import uniqBy from 'lodash/fp/uniqBy';
 import reject from 'lodash/fp/reject';
@@ -50,10 +50,15 @@ type ExtractEntity = {
  * A prompt used for extracting information from customer support interactions
  * @export
  */
-export class ExtractInfoPrompt implements AIPrompt {
+export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
   private entityValue: string;
 
   constructor(entities: ExtractEntity[]) {
+    super({
+      stopSequences: ['Text:'],
+      responseConfig: { keyValue: true },
+    });
+
     if (isEmpty(entities)) {
       throw new Error(`No info defined to extract`);
     }
@@ -69,15 +74,9 @@ export class ExtractInfoPrompt implements AIPrompt {
     )(entities);
   }
 
-  metadata(): Readonly<PromptMetadata> {
-    return {
-      stopSequences: ['Text:'],
-      keyValueResponse: true,
-    };
-  }
-
-  create(query: string, _history: () => string, _ai: AIService): string {
+  create(query: string, system: string): string {
     return `
+${system}
 Extract the following entities mentioned in the text below. Use N/A if entity is not found::
 ${this.entityValue}
 

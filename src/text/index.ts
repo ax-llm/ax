@@ -1,16 +1,14 @@
-export * from './memory';
-export * from './generate';
+import { z } from 'zod';
 
-export type GenerateResponse = {
+export * from './memory';
+export * from './text';
+
+export type AIGenerateTextResponse<T> = {
   id: string;
   sessionID?: string;
   query: string;
   values: { id: string; text: string }[];
-  value(): string | Map<string, string[]>;
-};
-
-export type AIGenerateResponse = GenerateResponse & {
-  value(): string;
+  value(): T;
 };
 
 export type EmbedResponse = {
@@ -48,29 +46,28 @@ export type PromptAction = {
   action(text: string, embeds?: Embeddings): string;
 };
 
-export type PromptMetadata = {
+export type PromptActionConfig = {};
+
+export type PromptResponseConfig = {
+  keyValue?: boolean;
+  schema?: z.ZodType;
+};
+
+export type PromptConfig = {
   stopSequences: string[];
   queryPrefix?: string;
   responsePrefix?: string;
   actions?: PromptAction[];
-  actionName?: RegExp;
-  actionValue?: RegExp;
-  finalValue?: RegExp;
-  keyValueResponse?: boolean;
+  responseConfig?: PromptResponseConfig;
 };
-
-export interface AIPrompt {
-  metadata(): Readonly<PromptMetadata>;
-  create(query: string, history: () => string, ai: AIService): string;
-}
 
 export interface AIService {
   name(): string;
   generate(
     prompt: string,
-    md?: Readonly<PromptMetadata>,
+    md?: Readonly<PromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateResponse>;
+  ): Promise<AIGenerateTextResponse<string>>;
   embed(texts: string[], sessionID?: string): Promise<EmbedResponse>;
 }
 

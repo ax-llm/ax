@@ -1,10 +1,4 @@
-import {
-  Cohere,
-  OpenAI,
-  Memory,
-  GenerateText,
-  QuestionAnswerPrompt,
-} from '@dosco/minds';
+import { Cohere, OpenAI, Memory, QuestionAnswerPrompt } from '@dosco/minds';
 
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)
@@ -30,14 +24,12 @@ const actions = [
   },
 ];
 
-const mem = new Memory();
 const prompt = new QuestionAnswerPrompt(actions);
-const gen = new GenerateText(ai, mem);
-gen.setDebug(true);
+prompt.setDebug(true);
 
-const res = await gen.generate(
-  'What are the name of the biggest tech company in Mountain View, CA?',
-  prompt
+const res = await prompt.generate(
+  ai,
+  'What are the name of the biggest tech company in Mountain View, CA?'
 );
 
 console.log('>', res.value());

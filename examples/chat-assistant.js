@@ -4,7 +4,6 @@ import {
   OpenAICreativeOptions,
   AlephAlpha,
   Memory,
-  GenerateText,
   AssistantPrompt,
 } from '@dosco/minds';
 import { createInterface } from 'readline';
@@ -33,8 +32,7 @@ if (process.env.COHERE_APIKEY) {
 
 const mem = new Memory();
 const prompt = new AssistantPrompt();
-const gen = new GenerateText(ai, mem);
-gen.setDebug(true);
+prompt.setDebug(true);
 
 const rl = createInterface(process.stdin, process.stdout);
 rl.setPrompt('AI: ');
@@ -48,7 +46,7 @@ rl.on('line', async function (line) {
       rl.close();
       return;
     default:
-      const res = await gen.generate(line, prompt);
+      const res = await prompt.generate(ai, line, { mem });
       console.log(`> ${res.value()}\n`);
       break;
   }
