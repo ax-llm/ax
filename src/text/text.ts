@@ -2,13 +2,13 @@ import { z } from 'zod';
 import zodToJsonSchema from 'zod-to-json-schema';
 
 import {
+  Memory,
   AIService,
   AIMemory,
   PromptConfig,
   AIGenerateTextResponse,
 } from './index';
 
-import { Memory } from './memory';
 import { log } from './util';
 import { processAction, buildActionsPrompt } from './actions';
 
@@ -142,7 +142,7 @@ export class AIPrompt<T> {
     const { schema } = conf.responseConfig || {};
 
     const h = () => mem.history(sessionID);
-    const sprompt: string = schema ? buildSchemaPrompt(schema) : '';
+    const sprompt: string = buildSchemaPrompt(schema);
 
     const p = this.create(query, sprompt, h, ai);
     if (debug) {
@@ -189,6 +189,9 @@ const stringToObject = <T>(text: string, schema: z.ZodType): T => {
 };
 
 const buildSchemaPrompt = (schema: z.ZodType): string => {
+  if (!schema) {
+    return '';
+  }
   const jsonSchema = JSON.stringify(zodToJsonSchema(schema, 'schema'));
   return `JSON SCHEMA:"""\n${jsonSchema}\n"""\n`;
 };

@@ -1,5 +1,9 @@
 import superagent from 'superagent';
 
+/**
+ * Util: API details
+ * @export
+ */
 export type API = {
   key: string;
   name: string;

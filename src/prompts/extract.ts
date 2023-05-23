@@ -41,7 +41,11 @@ export enum BusinessInfo {
   Priority = 'Priority',
 }
 
-type ExtractEntity = {
+/**
+ * Values to extract
+ * @export
+ */
+export type ExtractEntity = {
   name: BusinessInfo | string;
   classes?: string[];
 };

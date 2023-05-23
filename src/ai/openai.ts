@@ -8,13 +8,21 @@ import {
 
 import { API, apiCall, apiCallWithUpload } from './util';
 
-type OpenAIAPI = API & {
+/**
+ * OpenAI: API call details
+ * @export
+ */
+export type OpenAIAPI = API & {
   headers: { 'OpenAI-Organization'?: string };
 };
 
 const apiURL = 'https://api.openai.com/v1/';
 
-enum apiType {
+/**
+ * OpenAI: API types
+ * @export
+ */
+export enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
   Embed = 'embeddings',
