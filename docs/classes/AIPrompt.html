@@ -36,7 +36,7 @@
 <li><a href="MessagePrompt.html" class="tsd-signature-type" data-tsd-kind="Class">MessagePrompt</a></li>
 <li><a href="ZPrompt.html" class="tsd-signature-type" data-tsd-kind="Class">ZPrompt</a></li></ul></li></ul></section><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L24">text/text.ts:24</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L25">text/text.ts:25</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-index-accordion" open><summary class="tsd-accordion-summary tsd-index-summary">
@@ -58,6 +58,7 @@
 <a href="AIPrompt.html#_generateDefault" class="tsd-index-link tsd-kind-method tsd-parent-kind-class tsd-is-private"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg><span>_generate<wbr/>Default</span></a>
 <a href="AIPrompt.html#_generateWithActions" class="tsd-index-link tsd-kind-method tsd-parent-kind-class tsd-is-private"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg><span>_generate<wbr/>With<wbr/>Actions</span></a>
 <a href="AIPrompt.html#create" class="tsd-index-link tsd-kind-method tsd-parent-kind-class"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg><span>create</span></a>
+<a href="AIPrompt.html#fixSyntax" class="tsd-index-link tsd-kind-method tsd-parent-kind-class tsd-is-private"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg><span>fix<wbr/>Syntax</span></a>
 <a href="AIPrompt.html#generate" class="tsd-index-link tsd-kind-method tsd-parent-kind-class"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg><span>generate</span></a>
 <a href="AIPrompt.html#setDebug" class="tsd-index-link tsd-kind-method tsd-parent-kind-class"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg><span>set<wbr/>Debug</span></a>
 <a href="AIPrompt.html#setMaxSteps" class="tsd-index-link tsd-kind-method tsd-parent-kind-class"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg><span>set<wbr/>Max<wbr/>Steps</span></a>
@@ -81,24 +82,24 @@
 <h5>conf: <a href="../types/PromptConfig.html" class="tsd-signature-type" data-tsd-kind="Type alias">PromptConfig</a></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="AIPrompt.html" class="tsd-signature-type" data-tsd-kind="Class">AIPrompt</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type" data-tsd-kind="Type parameter">T</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L29">text/text.ts:29</a></li></ul></aside></li></ul></section></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L30">text/text.ts:30</a></li></ul></aside></li></ul></section></section>
 <section class="tsd-panel-group tsd-member-group">
 <h2>Properties</h2>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class tsd-is-private"><a id="conf" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagPrivate">Private</code> <span>conf</span><a href="#conf" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">conf<span class="tsd-signature-symbol">:</span> <a href="../types/PromptConfig.html" class="tsd-signature-type" data-tsd-kind="Type alias">PromptConfig</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L25">text/text.ts:25</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L26">text/text.ts:26</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class tsd-is-private"><a id="debug" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagPrivate">Private</code> <span>debug</span><a href="#debug" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">debug<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol"> = false</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L27">text/text.ts:27</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L28">text/text.ts:28</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class tsd-is-private"><a id="maxSteps" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagPrivate">Private</code> <span>max<wbr/>Steps</span><a href="#maxSteps" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <div class="tsd-signature">max<wbr/>Steps<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol"> = 20</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L26">text/text.ts:26</a></li></ul></aside></section></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L27">text/text.ts:27</a></li></ul></aside></section></section>
 <section class="tsd-panel-group tsd-member-group">
 <h2>Methods</h2>
 <section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class tsd-is-private"><a id="_generate" class="tsd-anchor"></a>
@@ -119,11 +120,11 @@
 <h5><code class="tsd-tag ts-flagOptional">Optional</code> sessionID: <span class="tsd-signature-type">string</span></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type" data-tsd-kind="Type parameter">T</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L61">text/text.ts:61</a></li></ul></aside></li></ul></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L62">text/text.ts:62</a></li></ul></aside></li></ul></section>
 <section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class tsd-is-private"><a id="_generateDefault" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagPrivate">Private</code> <span>_generate<wbr/>Default</span><a href="#_generateDefault" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class tsd-is-private">
-<li class="tsd-signature tsd-anchor-link" id="_generateDefault._generateDefault-1">_generate<wbr/>Default<span class="tsd-signature-symbol">(</span>ai<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIService.html" class="tsd-signature-type" data-tsd-kind="Interface">AIService</a>, mem<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIMemory.html" class="tsd-signature-type" data-tsd-kind="Interface">AIMemory</a>, query<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">string</span>, sessionID<span class="tsd-signature-symbol">?: </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><a href="#_generateDefault._generateDefault-1" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></li>
+<li class="tsd-signature tsd-anchor-link" id="_generateDefault._generateDefault-1">_generate<wbr/>Default<span class="tsd-signature-symbol">(</span>ai<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIService.html" class="tsd-signature-type" data-tsd-kind="Interface">AIService</a>, mem<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIMemory.html" class="tsd-signature-type" data-tsd-kind="Interface">AIMemory</a>, query<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">string</span>, usage<span class="tsd-signature-symbol">: </span><a href="../types/AITokenUsage.html" class="tsd-signature-type" data-tsd-kind="Type alias">AITokenUsage</a>, sessionID<span class="tsd-signature-symbol">?: </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><a href="#_generateDefault._generateDefault-1" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></li>
 <li class="tsd-description">
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -135,14 +136,16 @@
 <li>
 <h5>query: <span class="tsd-signature-type">string</span></h5></li>
 <li>
+<h5>usage: <a href="../types/AITokenUsage.html" class="tsd-signature-type" data-tsd-kind="Type alias">AITokenUsage</a></h5></li>
+<li>
 <h5><code class="tsd-tag ts-flagOptional">Optional</code> sessionID: <span class="tsd-signature-type">string</span></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L135">text/text.ts:135</a></li></ul></aside></li></ul></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L161">text/text.ts:161</a></li></ul></aside></li></ul></section>
 <section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class tsd-is-private"><a id="_generateWithActions" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagPrivate">Private</code> <span>_generate<wbr/>With<wbr/>Actions</span><a href="#_generateWithActions" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class tsd-is-private">
-<li class="tsd-signature tsd-anchor-link" id="_generateWithActions._generateWithActions-1">_generate<wbr/>With<wbr/>Actions<span class="tsd-signature-symbol">(</span>ai<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIService.html" class="tsd-signature-type" data-tsd-kind="Interface">AIService</a>, mem<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIMemory.html" class="tsd-signature-type" data-tsd-kind="Interface">AIMemory</a>, query<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">string</span>, sessionID<span class="tsd-signature-symbol">?: </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><a href="#_generateWithActions._generateWithActions-1" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></li>
+<li class="tsd-signature tsd-anchor-link" id="_generateWithActions._generateWithActions-1">_generate<wbr/>With<wbr/>Actions<span class="tsd-signature-symbol">(</span>ai<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIService.html" class="tsd-signature-type" data-tsd-kind="Interface">AIService</a>, mem<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIMemory.html" class="tsd-signature-type" data-tsd-kind="Interface">AIMemory</a>, query<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">string</span>, usage<span class="tsd-signature-symbol">: </span><a href="../types/AITokenUsage.html" class="tsd-signature-type" data-tsd-kind="Type alias">AITokenUsage</a>, sessionID<span class="tsd-signature-symbol">?: </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><a href="#_generateWithActions._generateWithActions-1" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></li>
 <li class="tsd-description">
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -154,10 +157,12 @@
 <li>
 <h5>query: <span class="tsd-signature-type">string</span></h5></li>
 <li>
+<h5>usage: <a href="../types/AITokenUsage.html" class="tsd-signature-type" data-tsd-kind="Type alias">AITokenUsage</a></h5></li>
+<li>
 <h5><code class="tsd-tag ts-flagOptional">Optional</code> sessionID: <span class="tsd-signature-type">string</span></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L90">text/text.ts:90</a></li></ul></aside></li></ul></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L108">text/text.ts:108</a></li></ul></aside></li></ul></section>
 <section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class"><a id="create" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><span>create</span><a href="#create" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
@@ -182,7 +187,28 @@
 <h5>_ai: <a href="../interfaces/AIService.html" class="tsd-signature-type" data-tsd-kind="Interface">AIService</a></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L41">text/text.ts:41</a></li></ul></aside></li></ul></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L42">text/text.ts:42</a></li></ul></aside></li></ul></section>
+<section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class tsd-is-private"><a id="fixSyntax" class="tsd-anchor"></a>
+<h3 class="tsd-anchor-link"><code class="tsd-tag ts-flagPrivate">Private</code> <span>fix<wbr/>Syntax</span><a href="#fixSyntax" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
+<ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class tsd-is-private">
+<li class="tsd-signature tsd-anchor-link" id="fixSyntax.fixSyntax-1">fix<wbr/>Syntax<span class="tsd-signature-symbol">(</span>ai<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIService.html" class="tsd-signature-type" data-tsd-kind="Interface">AIService</a>, mem<span class="tsd-signature-symbol">: </span><a href="../interfaces/AIMemory.html" class="tsd-signature-type" data-tsd-kind="Interface">AIMemory</a>, error<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Error</span>, value<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">string</span>, usage<span class="tsd-signature-symbol">: </span><a href="../types/AITokenUsage.html" class="tsd-signature-type" data-tsd-kind="Type alias">AITokenUsage</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><a href="#fixSyntax.fixSyntax-1" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></li>
+<li class="tsd-description">
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li>
+<h5>ai: <a href="../interfaces/AIService.html" class="tsd-signature-type" data-tsd-kind="Interface">AIService</a></h5></li>
+<li>
+<h5>mem: <a href="../interfaces/AIMemory.html" class="tsd-signature-type" data-tsd-kind="Interface">AIMemory</a></h5></li>
+<li>
+<h5>error: <span class="tsd-signature-type">Error</span></h5></li>
+<li>
+<h5>value: <span class="tsd-signature-type">string</span></h5></li>
+<li>
+<h5>usage: <a href="../types/AITokenUsage.html" class="tsd-signature-type" data-tsd-kind="Type alias">AITokenUsage</a></h5></li></ul></div>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L193">text/text.ts:193</a></li></ul></aside></li></ul></section>
 <section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class"><a id="generate" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><span>generate</span><a href="#generate" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
@@ -199,7 +225,7 @@
 <h5>__namedParameters: <a href="../types/Options.html" class="tsd-signature-type" data-tsd-kind="Type alias">Options</a><span class="tsd-signature-symbol"> = {}</span></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/AIGenerateTextResponse.html" class="tsd-signature-type" data-tsd-kind="Type alias">AIGenerateTextResponse</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type" data-tsd-kind="Type parameter">T</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L50">text/text.ts:50</a></li></ul></aside></li></ul></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L51">text/text.ts:51</a></li></ul></aside></li></ul></section>
 <section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class"><a id="setDebug" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><span>set<wbr/>Debug</span><a href="#setDebug" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
@@ -212,7 +238,7 @@
 <h5>debug: <span class="tsd-signature-type">boolean</span></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L37">text/text.ts:37</a></li></ul></aside></li></ul></section>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L38">text/text.ts:38</a></li></ul></aside></li></ul></section>
 <section class="tsd-panel tsd-member tsd-kind-method tsd-parent-kind-class"><a id="setMaxSteps" class="tsd-anchor"></a>
 <h3 class="tsd-anchor-link"><span>set<wbr/>Max<wbr/>Steps</span><a href="#setMaxSteps" aria-label="Permalink" class="tsd-anchor-icon"><svg class="icon icon-tabler icon-tabler-link" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-anchor-a"></use><use href="#icon-anchor-b"></use><use href="#icon-anchor-c"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
@@ -225,7 +251,7 @@
 <h5>maxSteps: <span class="tsd-signature-type">number</span></h5></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/dosco/minds/blob/c97395d/src/text/text.ts#L33">text/text.ts:33</a></li></ul></aside></li></ul></section></section></div>
+<li>Defined in <a href="https://github.com/dosco/minds/blob/591b534/src/text/text.ts#L34">text/text.ts:34</a></li></ul></aside></li></ul></section></section></div>
 <div class="col-4 col-menu menu-sticky-wrap menu-highlight">
 <div class="tsd-navigation settings">
 <details class="tsd-index-accordion"><summary class="tsd-accordion-summary">
@@ -259,6 +285,7 @@
 <li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><a href="AIPrompt.html#_generateDefault" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg>_generate<wbr/>Default</a></li>
 <li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><a href="AIPrompt.html#_generateWithActions" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg>_generate<wbr/>With<wbr/>Actions</a></li>
 <li class="tsd-kind-method tsd-parent-kind-class"><a href="AIPrompt.html#create" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg>create</a></li>
+<li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><a href="AIPrompt.html#fixSyntax" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg>fix<wbr/>Syntax</a></li>
 <li class="tsd-kind-method tsd-parent-kind-class"><a href="AIPrompt.html#generate" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg>generate</a></li>
 <li class="tsd-kind-method tsd-parent-kind-class"><a href="AIPrompt.html#setDebug" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg>set<wbr/>Debug</a></li>
 <li class="tsd-kind-method tsd-parent-kind-class"><a href="AIPrompt.html#setMaxSteps" class="tsd-index-link"><svg class="tsd-kind-icon" width="24" height="24" viewBox="0 0 24 24"><use href="#icon-2048-path"></use><use href="#icon-2048-text"></use></svg>set<wbr/>Max<wbr/>Steps</a></li></ul></li></ul></nav></div></div>

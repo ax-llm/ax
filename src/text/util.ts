@@ -1,3 +1,5 @@
+import { AITokenUsage } from './index';
+
 export function log(msg: string, color: string) {
   // @ts-ignore
   if (typeof window === 'undefined') {
@@ -15,3 +17,9 @@ export function log(msg: string, color: string) {
     console.log(`%c${msg}`, { color });
   }
 }
+
+export const addUsage = (u1: AITokenUsage, u2?: AITokenUsage) => {
+  u1.promptTokens += u2?.promptTokens || 0;
+  u1.completionTokens += u2?.completionTokens || 0;
+  u1.totalTokens += u2?.totalTokens || 0;
+};

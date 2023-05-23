@@ -48,3 +48,4 @@ prompt.setDebug(true);
 
 const res = await prompt.generate(ai, customerQuery);
 console.log(chalk.green('Result:\n', res.value()));
+console.log(chalk.green('Tokens Used:\n', res.usage.totalTokens));

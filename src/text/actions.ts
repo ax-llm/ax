@@ -1,12 +1,13 @@
 import {
   AIService,
   AIMemory,
+  AITokenUsage,
   PromptConfig,
   PromptAction,
   AIGenerateTextResponse,
 } from './index';
 
-import { log } from './util';
+import { log, addUsage } from './util';
 
 const actionNameRe = /(^|\s)Action:\s{0,}\n?([^\.\n]+)/m;
 const actionValueRe = /^Action Input:\s{0,}\n?(.+)$/ms;
@@ -19,7 +20,11 @@ export const processAction = async (
   ai: AIService,
   mem: AIMemory,
   res: AIGenerateTextResponse<string>,
-  { sessionID, debug = false }: { sessionID?: string; debug: boolean }
+  {
+    usage,
+    sessionID,
+    debug = false,
+  }: { usage: AITokenUsage; sessionID?: string; debug: boolean }
 ): Promise<boolean> => {
   const { actions } = conf;
 
@@ -48,10 +53,15 @@ export const processAction = async (
     throw new Error(`invalid action found: "${actKey}", response: "${val}"`);
   }
 
-  const actRes =
-    act.action.length === 2
-      ? act.action(actVal, await ai.embed([actVal], sessionID))
-      : act.action(actVal);
+  let actRes;
+
+  if (act.action.length === 2) {
+    const emRes = await ai.embed([actVal], sessionID);
+    actRes = act.action(actVal, emRes);
+    addUsage(usage, emRes.usage);
+  } else {
+    actRes = act.action(actVal);
+  }
 
   if (debug) {
     log(`> ${actKey}(${actVal}): ${actRes}`, 'cyan');

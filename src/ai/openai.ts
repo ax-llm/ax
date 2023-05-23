@@ -213,6 +213,7 @@ type OpenAIEmbedResponse = {
     embeddings: number[];
     index: number;
   };
+  usage: OpenAIUsage;
 };
 
 type OpenAIAudioRequest = {
@@ -358,11 +359,16 @@ export class OpenAI implements AIService {
       generateReq(prompt, this.options, md?.stopSequences)
     );
 
-    return res.then(({ id, choices: c }) => ({
+    return res.then(({ id, choices: c, usage: u }) => ({
       id: id.toString(),
       sessionID: sessionID,
       query: prompt,
       values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+      usage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
+      },
       value() {
         return this.values[0].text;
       },
@@ -383,7 +389,7 @@ export class OpenAI implements AIService {
       generateChatReq(prompt, this.options, md?.stopSequences)
     );
 
-    return res.then(({ id, choices: c }) => ({
+    return res.then(({ id, choices: c, usage: u }) => ({
       id: id.toString(),
       sessionID: sessionID,
       query: prompt,
@@ -391,6 +397,11 @@ export class OpenAI implements AIService {
         id: v.index.toString(),
         text: v.message.content,
       })),
+      usage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
+      },
       value() {
         return this.values[0].text;
       },
@@ -413,12 +424,17 @@ export class OpenAI implements AIService {
       embedReq
     );
 
-    return res.then((data) => ({
+    return res.then(({ model, data, usage: u }) => ({
       id: '',
       sessionID,
       texts,
-      model: data.model,
-      embeddings: data.data.embeddings,
+      model,
+      embeddings: data.embeddings,
+      usage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
+      },
     }));
   }
 

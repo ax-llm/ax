@@ -7,9 +7,10 @@ import {
   AIMemory,
   PromptConfig,
   AIGenerateTextResponse,
+  AITokenUsage,
 } from './index';
 
-import { log } from './util';
+import { log, addUsage } from './util';
 import { processAction, buildActionsPrompt } from './actions';
 
 export type Options = {
@@ -68,12 +69,18 @@ export class AIPrompt<T> {
     const { responseConfig, actions } = conf;
     const { keyValue, schema } = responseConfig || {};
 
+    const usage: AITokenUsage = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+    };
+
     let res: AIGenerateTextResponse<string>;
 
     if (actions?.length > 0) {
-      res = await this._generateWithActions(ai, mem, query, sessionID);
+      res = await this._generateWithActions(ai, mem, query, usage, sessionID);
     } else {
-      res = await this._generateDefault(ai, mem, query, sessionID);
+      res = await this._generateDefault(ai, mem, query, usage, sessionID);
     }
 
     let fvalue: string | Map<string, string[]> | z.infer<typeof schema>;
@@ -89,9 +96,9 @@ export class AIPrompt<T> {
         } else {
           fvalue = value;
         }
-        return { ...res, value: () => fvalue };
+        return { ...res, usage, value: () => fvalue };
       } catch (e) {
-        value = await this.fixSyntax(ai, mem, e, value);
+        value = await this.fixSyntax(ai, mem, e, value, usage);
         error = e;
       }
     }
@@ -102,6 +109,7 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
+    usage: AITokenUsage,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const { debug, conf } = this;
@@ -135,7 +143,13 @@ export class AIPrompt<T> {
         throw new Error('empty response from ai');
       }
 
-      done = await processAction(conf, ai, mem, res, { sessionID, debug });
+      addUsage(usage, res.usage);
+
+      done = await processAction(conf, ai, mem, res, {
+        usage,
+        sessionID,
+        debug,
+      });
       if (done) {
         return res;
       }
@@ -148,6 +162,7 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
+    usage: AITokenUsage,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const { debug, conf } = this;
@@ -168,6 +183,8 @@ export class AIPrompt<T> {
       log(`< ${rval}`, 'red');
     }
 
+    addUsage(usage, res.usage);
+
     const mval = [this.conf.queryPrefix, query, this.conf.responsePrefix, rval];
     mem.add(mval.join(''), sessionID);
     return res;
@@ -177,7 +194,8 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     error: Error,
-    value: string
+    value: string,
+    usage: AITokenUsage
   ): Promise<string> {
     const { debug, conf } = this;
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
@@ -189,6 +207,7 @@ export class AIPrompt<T> {
       log(`< ${rval}`, 'red');
     }
 
+    addUsage(usage, res.usage);
     return rval;
   }
 }

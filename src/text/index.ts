@@ -3,11 +3,18 @@ import { z } from 'zod';
 export * from './memory';
 export * from './text';
 
+export type AITokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
 export type AIGenerateTextResponse<T> = {
   id: string;
   sessionID?: string;
   query: string;
   values: { id: string; text: string }[];
+  usage?: AITokenUsage;
   value(): T;
 };
 
@@ -16,6 +23,11 @@ export type EmbedResponse = {
   sessionID?: string;
   texts: string[];
   model: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
   embeddings: number[];
 };
 
