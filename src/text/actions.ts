@@ -45,7 +45,7 @@ export const processAction = async (
 
   const act = actions.find((v) => v.name === actKey);
   if (!act) {
-    throw new Error(`invalid action found: "${actKey}"`);
+    throw new Error(`invalid action found: "${actKey}", response: "${val}"`);
   }
 
   const actRes =
@@ -75,23 +75,23 @@ export const buildActionsPrompt = (
   }
 
   return `
-  Think step-by-step using the actions below.
-  
-  Actions Available:
-  ${actd}
-  
-  Format:
-  Thought: Always consider what to do.
-  Action: The action to take, choose from [${actn}].
-  Action Input: The input required for the action.
-  Observation: The output of the action.
-  
-  Thought: I now have additional information.
-  Repeat the previous four steps as necessary.
-  
-  Thought: I have the final answer.
-  Final Answer: The answer to the original question.
-  ${faf}
-  
-  Start!\n\n`;
+Think step-by-step using the actions below.
+
+Actions Available:
+${actd}
+
+Format:
+Thought: Always consider what to do.
+Action: The action to take, choose from [${actn}].
+Action Input: The input required for the action.
+Observation: The output of the action.
+
+Thought: I now have additional information.
+Repeat the previous four steps as necessary.
+
+Thought: I have the final answer.
+Final Answer: The answer to the original question.
+${faf}
+
+Start!\n`;
 };

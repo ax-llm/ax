@@ -76,15 +76,26 @@ export class AIPrompt<T> {
       res = await this._generateDefault(ai, mem, query, sessionID);
     }
 
-    let value: string | Map<string, string[]> | z.infer<typeof schema>;
-    if (keyValue) {
-      value = stringToMap(res.value());
-    } else if (schema) {
-      value = stringToObject<T>(res.value(), schema);
-    } else {
-      value = res.value();
+    let fvalue: string | Map<string, string[]> | z.infer<typeof schema>;
+    let value = res.value();
+    let error: Error;
+
+    for (let i = 0; i < 3; i++) {
+      try {
+        if (keyValue) {
+          fvalue = stringToMap(value);
+        } else if (schema) {
+          fvalue = stringToObject<T>(value, schema);
+        } else {
+          fvalue = value;
+        }
+        return { ...res, value: () => fvalue };
+      } catch (e) {
+        value = await this.fixSyntax(ai, mem, e, value);
+        error = e;
+      }
     }
-    return { ...res, value: () => value };
+    throw new Error(`invalid response syntax: ${error.message}`);
   }
 
   private async _generateWithActions(
@@ -105,6 +116,8 @@ export class AIPrompt<T> {
       buildSchemaPrompt(schema)
     );
 
+    let done = false;
+
     for (let i = 0; i < this.maxSteps; i++) {
       const p = this.create(query, sprompt, h, ai);
       if (debug) {
@@ -112,18 +125,17 @@ export class AIPrompt<T> {
       }
 
       const res = await ai.generate(p, conf, sessionID);
-      let done = false;
+      const rval = res.value().trim();
 
       if (debug) {
-        log(`< ${res.value().trim()}`, 'red');
+        log(`< ${rval}`, 'red');
       }
 
-      done = await processAction(conf, ai, mem, res, { sessionID, debug });
-
-      if (res.values.length === 0) {
+      if (rval.length === 0) {
         throw new Error('empty response from ai');
       }
 
+      done = await processAction(conf, ai, mem, res, { sessionID, debug });
       if (done) {
         return res;
       }
@@ -150,15 +162,34 @@ export class AIPrompt<T> {
     }
 
     const res = await ai.generate(p, conf, sessionID);
+    const rval = res.value().trim();
 
     if (debug) {
-      log(`< ${res.value().trim()}`, 'red');
+      log(`< ${rval}`, 'red');
     }
 
-    const val = res.values[0].text.trim();
-    const mval = [this.conf.queryPrefix, query, this.conf.responsePrefix, val];
+    const mval = [this.conf.queryPrefix, query, this.conf.responsePrefix, rval];
     mem.add(mval.join(''), sessionID);
     return res;
+  }
+
+  private async fixSyntax(
+    ai: AIService,
+    mem: AIMemory,
+    error: Error,
+    value: string
+  ): Promise<string> {
+    const { debug, conf } = this;
+    const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
+    const res = await ai.generate(p, conf);
+    const rval = res.value().trim();
+
+    if (debug) {
+      log(`Syntax Error: ${error.message}`, 'red');
+      log(`< ${rval}`, 'red');
+    }
+
+    return rval;
   }
 }
 
@@ -188,14 +219,6 @@ const stringToObject = <T>(text: string, schema: z.ZodType): T => {
   return obj;
 };
 
-const buildSchemaPrompt = (schema: z.ZodType): string => {
-  if (!schema) {
-    return '';
-  }
-  const jsonSchema = JSON.stringify(zodToJsonSchema(schema, 'schema'));
-  return `JSON SCHEMA:"""\n${jsonSchema}\n"""\n`;
-};
-
 const stringToMap = (text: string): Map<string, string[]> => {
   const vm = new Map<string, string[]>();
   const re = /([a-zA-Z ]+):\s{0,}\n?(((?!N\/A).)+)$/gm;
@@ -208,5 +231,16 @@ const stringToMap = (text: string): Map<string, string[]> => {
     }
     vm.set(m[1], m[2].split(','));
   }
+  if (vm.size === 0) {
+    throw new Error('Expected format is a list of key: value');
+  }
   return vm;
+};
+
+const buildSchemaPrompt = (schema: z.ZodType): string => {
+  if (!schema) {
+    return '';
+  }
+  const jsonSchema = JSON.stringify(zodToJsonSchema(schema, 'schema'));
+  return `JSON SCHEMA:"""\n${jsonSchema}\n"""\n`;
 };

@@ -39,7 +39,7 @@ const CustomerResponse = z.object({
       })
     )
     .describe('inventory information'),
-  response: z.string().max(50).describe('customer response'),
+  response: z.string().max(150).describe('customer response'),
 });
 
 // const prompt = new QuestionAnswerPrompt(actions);
