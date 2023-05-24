@@ -6,7 +6,7 @@ import { AIService, AIPrompt, PromptAction } from '../text';
  * @export
  */
 export class ZPrompt<Z> extends AIPrompt<Z> {
-  constructor(schema: z.ZodType, actions?: PromptAction[]) {
+  constructor(schema: z.ZodType<Z>, actions?: PromptAction[]) {
     super({
       actions,
       stopSequences: [],

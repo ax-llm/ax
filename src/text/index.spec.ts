@@ -238,10 +238,10 @@ test('getStructuredDataFromAI', async (t) => {
     success: z.boolean(),
   });
 
-  type Oracle = z.infer<typeof Oracle>;
+  type Oracle1 = z.infer<typeof Oracle>;
 
   const ai = new Betty(interactions);
-  const prompt = new ZPrompt<Oracle>(Oracle);
+  const prompt = new ZPrompt<Oracle1>(Oracle);
   prompt.setDebug(true);
 
   const res = await prompt.generate(
