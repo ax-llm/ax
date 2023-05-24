@@ -90,7 +90,7 @@ test('findAnswersWithAI', async (t) => {
   ];
 
   const interactions = [
-    'I should look up who the biggest tech company in in Mountain View, CA\nAction: Google Search\nAction Input: "biggest tech company in Mountain View"',
+    'Thought: I should look up who the biggest tech company in in Mountain View, CA\nAction: Google Search\nAction Input: "biggest tech company in Mountain View"',
     `\nObservation: ${googleSearch('"biggest tech company in Mountain View"')}`,
     'I now know who the biggest tech company in Mountain View\nFinal Answer: Google',
   ];
@@ -99,9 +99,7 @@ test('findAnswersWithAI', async (t) => {
     (v) => !v.startsWith('\nObservation:')
   );
 
-  const exp = interactions
-    .map((v) => (v.startsWith('\nObservation:') ? v : `\nThought: ${v}`))
-    .map((_, i, a) => a.slice(0, i + 1));
+  const exp = interactions.map((_, i, a) => a.slice(0, i + 1));
 
   const ai = new Betty(aiResponses);
   const mem = new Memory();
@@ -137,7 +135,7 @@ test('usingEmbeddingsFindAnswersWithAI', async (t) => {
     'Pluto is the coldest planet since its the last planet in our solar system';
 
   const interactions = [
-    'I should look up some information about the plabet Mars, CA\nAction: Science Search\nAction Input: "Coldest planet in our solar system"',
+    'Thought: I should look up some information about the plabet Mars, CA\nAction: Science Search\nAction Input: "Coldest planet in our solar system"',
     `\nObservation: Pluto is the last planet in our solar system`,
     `I now know who the coldest planet\nFinal Answer: ${finalAnswer}`,
   ];
@@ -146,9 +144,7 @@ test('usingEmbeddingsFindAnswersWithAI', async (t) => {
     (v) => !v.startsWith('\nObservation:')
   );
 
-  const exp = interactions
-    .map((v) => (v.startsWith('\nObservation:') ? v : `\nThought: ${v}`))
-    .map((_, i, a) => a.slice(0, i + 1));
+  const exp = interactions.map((_, i, a) => a.slice(0, i + 1));
 
   const ai = new Betty(aiResponses);
   const mem = new Memory();

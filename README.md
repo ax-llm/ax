@@ -176,7 +176,7 @@ AI: will it ever end?
 > The sun will eventually end, but not for billions of years.
 ```
 
-```terminal
+```shell
 cd examples
 npm i
 node chat-assistant.js

@@ -7,8 +7,9 @@ import {
   AIMemory,
   PromptConfig,
   AIGenerateTextResponse,
-  AITokenUsage,
 } from './index';
+
+import { AIGenerateTextExtraOptions } from './types';
 
 import { log, addUsage } from './util';
 import { processAction, buildActionsPrompt } from './actions';
@@ -69,18 +70,27 @@ export class AIPrompt<T> {
     const { responseConfig, actions } = conf;
     const { keyValue, schema } = responseConfig || {};
 
-    const usage: AITokenUsage = {
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
+    const extraOptions = {
+      usage: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      },
+      usageEmbed: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      },
+      sessionID,
+      debug: this.debug,
     };
 
     let res: AIGenerateTextResponse<string>;
 
     if (actions?.length > 0) {
-      res = await this._generateWithActions(ai, mem, query, usage, sessionID);
+      res = await this._generateWithActions(ai, mem, query, extraOptions);
     } else {
-      res = await this._generateDefault(ai, mem, query, usage, sessionID);
+      res = await this._generateDefault(ai, mem, query, extraOptions);
     }
 
     let fvalue: string | Map<string, string[]> | z.infer<typeof schema>;
@@ -96,9 +106,15 @@ export class AIPrompt<T> {
         } else {
           fvalue = value;
         }
-        return { ...res, usage, value: () => fvalue };
+
+        return {
+          ...res,
+          usage: extraOptions.usage,
+          usageEmbed: extraOptions.usageEmbed,
+          value: () => fvalue,
+        };
       } catch (e) {
-        value = await this.fixSyntax(ai, mem, e, value, usage);
+        value = await this.fixSyntax(ai, mem, e, value, extraOptions);
         error = e;
       }
     }
@@ -109,10 +125,9 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    usage: AITokenUsage,
-    sessionID?: string
+    { usage, usageEmbed, sessionID, debug }: AIGenerateTextExtraOptions
   ): Promise<AIGenerateTextResponse<string>> {
-    const { debug, conf } = this;
+    const { conf } = this;
     const { actions } = conf;
     const { schema } = conf.responseConfig || {};
 
@@ -127,7 +142,13 @@ export class AIPrompt<T> {
     let done = false;
 
     for (let i = 0; i < this.maxSteps; i++) {
-      const p = this.create(query, sprompt, h, ai);
+      let p = this.create(query, sprompt, h, ai);
+
+      // remove leading spaces to improve prompt readability
+      if (this.debug) {
+        p = p.replace(/^[ \t]+/gm, '');
+      }
+
       if (debug) {
         log(`> ${p}`, 'white');
       }
@@ -147,6 +168,7 @@ export class AIPrompt<T> {
 
       done = await processAction(conf, ai, mem, res, {
         usage,
+        usageEmbed,
         sessionID,
         debug,
       });
@@ -162,16 +184,21 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    usage: AITokenUsage,
-    sessionID?: string
+    { usage, sessionID, debug }: AIGenerateTextExtraOptions
   ): Promise<AIGenerateTextResponse<string>> {
-    const { debug, conf } = this;
+    const { conf } = this;
     const { schema } = conf.responseConfig || {};
 
     const h = () => mem.history(sessionID);
     const sprompt: string = buildSchemaPrompt(schema);
 
-    const p = this.create(query, sprompt, h, ai);
+    let p = this.create(query, sprompt, h, ai);
+
+    // remove leading spaces to improve prompt readability
+    if (this.debug) {
+      p = p.replace(/^[ \t]+/gm, '');
+    }
+
     if (debug) {
       log(`> ${p}`, 'white');
     }
@@ -195,11 +222,11 @@ export class AIPrompt<T> {
     mem: AIMemory,
     error: Error,
     value: string,
-    usage: AITokenUsage
+    { usage, sessionID, debug }: AIGenerateTextExtraOptions
   ): Promise<string> {
-    const { debug, conf } = this;
+    const { conf } = this;
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
-    const res = await ai.generate(p, conf);
+    const res = await ai.generate(p, conf, sessionID);
     const rval = res.value().trim();
 
     if (debug) {

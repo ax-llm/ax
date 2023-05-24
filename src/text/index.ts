@@ -15,6 +15,7 @@ export type AIGenerateTextResponse<T> = {
   query: string;
   values: { id: string; text: string }[];
   usage?: AITokenUsage;
+  usageEmbed?: AITokenUsage;
   value(): T;
 };
 

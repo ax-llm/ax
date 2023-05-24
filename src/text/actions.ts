@@ -1,30 +1,27 @@
 import {
   AIService,
   AIMemory,
-  AITokenUsage,
   PromptConfig,
   PromptAction,
   AIGenerateTextResponse,
 } from './index';
 
+import { AIGenerateTextExtraOptions } from './types';
+
 import { log, addUsage } from './util';
 
-const actionNameRe = /(^|\s)Action:\s{0,}\n?([^\.\n]+)/m;
-const actionValueRe = /^Action Input:\s{0,}\n?(.+)$/ms;
-const finalValueRe = /^Final Answer:\s{0,}\n?(.+)$/ms;
+const actionNameRe = /Action:\s{0,}\n?([^\.\n]+)/m;
+const actionValueRe = /Action Input:\s{0,}\n?(.+)$/ms;
+const finalValueRe = /Final Answer:\s{0,}\n?(.+)$/ms;
 const queryPrefix = '\nObservation: ';
-const responsePrefix = '\nThought: ';
+const responsePrefix = '';
 
 export const processAction = async (
   conf: PromptConfig,
   ai: AIService,
   mem: AIMemory,
   res: AIGenerateTextResponse<string>,
-  {
-    usage,
-    sessionID,
-    debug = false,
-  }: { usage: AITokenUsage; sessionID?: string; debug: boolean }
+  { usageEmbed, sessionID, debug = false }: AIGenerateTextExtraOptions
 ): Promise<boolean> => {
   const { actions } = conf;
 
@@ -42,7 +39,7 @@ export const processAction = async (
   }
 
   if ((v = actionNameRe.exec(val)) !== null) {
-    actKey = v[2].trim();
+    actKey = v[1].trim();
   }
   if ((v = actionValueRe.exec(val)) !== null) {
     actVal = v[1].trim();
@@ -58,7 +55,7 @@ export const processAction = async (
   if (act.action.length === 2) {
     const emRes = await ai.embed([actVal], sessionID);
     actRes = act.action(actVal, emRes);
-    addUsage(usage, emRes.usage);
+    addUsage(usageEmbed, emRes.usage);
   } else {
     actRes = act.action(actVal);
   }

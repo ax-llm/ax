@@ -22,7 +22,7 @@ const apiURL = 'https://api.openai.com/v1/';
  * OpenAI: API types
  * @export
  */
-export enum apiType {
+const enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
   Embed = 'embeddings',

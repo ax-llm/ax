@@ -40,6 +40,11 @@ export class Betty implements AIService {
       id: this.index.toString(),
       sessionID: sessionID,
       query: prompt,
+      usage: {
+        promptTokens: prompt.length,
+        totalTokens: prompt.length + text.length,
+        completionTokens: text.length,
+      },
       values: [{ id: '0', text }],
       value: () => res.values[0].text,
     };
@@ -52,12 +57,18 @@ export class Betty implements AIService {
   }
 
   embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+    const embeddings = [1, 2, 3, 4];
     const res = {
       id: '',
       sessionID: sessionID,
       texts: texts,
       model: '',
-      embeddings: [1, 2, 3, 4],
+      usage: {
+        promptTokens: texts.length,
+        totalTokens: texts.length + embeddings.length,
+        completionTokens: embeddings.length,
+      },
+      embeddings,
     };
     return new Promise((resolve, _) => {
       setTimeout(() => {
