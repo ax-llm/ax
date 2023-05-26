@@ -5,7 +5,7 @@ import {
   PromptConfig,
 } from '../text';
 
-import { API, apiCall } from './util';
+import { API, apiCall } from './util.js';
 
 type CohereAPI = API & {
   headers: { 'Cohere-Version': string };

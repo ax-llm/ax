@@ -3,9 +3,9 @@ import {
   AIGenerateTextResponse,
   EmbedResponse,
   PromptConfig,
-} from '../text';
+} from '../text/index.js';
 
-import { API, apiCall } from './util';
+import { API, apiCall } from './util.js';
 
 const apiURL = 'https://api.aleph-alpha.com/';
 

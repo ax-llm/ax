@@ -1,4 +1,4 @@
-import { AIMemory } from "./index";
+import { AIMemory } from './index.js';
 
 /**
  * A memory class to store ai interactions
@@ -22,7 +22,7 @@ export class Memory implements AIMemory {
   }
 
   history(sessionID?: string): string {
-    return this.get(sessionID).reduce((a, v) => a + v, "");
+    return this.get(sessionID).reduce((a, v) => a + v, '');
   }
 
   peek(sessionID?: string): Readonly<string[]> {

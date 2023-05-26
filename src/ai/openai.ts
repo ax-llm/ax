@@ -4,9 +4,9 @@ import {
   EmbedResponse,
   AudioResponse,
   PromptConfig,
-} from '../text';
+} from '../text/index.js';
 
-import { API, apiCall, apiCallWithUpload } from './util';
+import { API, apiCall, apiCallWithUpload } from './util.js';
 
 /**
  * OpenAI: API call details

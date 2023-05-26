@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Cohere, OpenAI, ZPrompt, QuestionAnswerPrompt } from '@dosco/minds';
+import { Cohere, OpenAI, ZPrompt } from '@dosco/minds';
 
 import chalk from 'chalk';
 

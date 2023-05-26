@@ -1,5 +1,5 @@
 import { z, ZodType } from 'zod';
-import zodToJsonSchema from 'zod-to-json-schema';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import {
   Memory,
@@ -7,12 +7,12 @@ import {
   AIMemory,
   PromptConfig,
   AIGenerateTextResponse,
-} from './index';
+} from './index.js';
 
-import { AIGenerateTextExtraOptions } from './types';
+import { AIGenerateTextExtraOptions } from './types.js';
 
-import { log, addUsage } from './util';
-import { processAction, buildActionsPrompt } from './actions';
+import { log, addUsage } from './util.js';
+import { processAction, buildActionsPrompt } from './actions.js';
 
 export type Options = {
   sessionID?: string;

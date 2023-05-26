@@ -1,5 +1,5 @@
-import { z } from "zod";
-import { AIService, AIPrompt, PromptAction } from "../text";
+import { z } from 'zod';
+import { AIService, AIPrompt, PromptAction } from '../text/index.js';
 
 /**
  * A prompt that uses zod defintions to define the expected output

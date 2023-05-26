@@ -4,11 +4,11 @@ import {
   PromptConfig,
   PromptAction,
   AIGenerateTextResponse,
-} from './index';
+} from './index.js';
 
-import { AIGenerateTextExtraOptions } from './types';
+import { AIGenerateTextExtraOptions } from './types.js';
 
-import { log, addUsage } from './util';
+import { log, addUsage } from './util.js';
 
 const actionNameRe = /Action:\s{0,}\n?([^\.\n]+)/m;
 const actionValueRe = /Action Input:\s{0,}\n?(.+)$/ms;

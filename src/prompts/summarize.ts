@@ -1,4 +1,4 @@
-import { AIPrompt } from '../text';
+import { AIPrompt } from '../text/index.js';
 
 /**
  * A prompt to summarize a block of text

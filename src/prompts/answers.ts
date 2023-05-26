@@ -1,4 +1,4 @@
-import { AIPrompt, PromptAction } from '../text';
+import { AIPrompt, PromptAction } from '../text/index.js';
 
 /**
  * A prompt used for question answering

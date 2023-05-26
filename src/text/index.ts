@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-export * from './memory';
-export * from './text';
+export * from './memory.js';
+export * from './text.js';
 
 export type AITokenUsage = {
   promptTokens: number;
