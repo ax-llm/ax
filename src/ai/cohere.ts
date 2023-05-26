@@ -178,7 +178,7 @@ export class Cohere implements AIService {
       query: prompt,
       values: gens,
       value() {
-        return this.values[0].text;
+        return (this as any).values[0].text;
       },
     }));
   }

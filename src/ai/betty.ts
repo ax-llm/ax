@@ -26,14 +26,14 @@ export class Betty implements AIService {
 
   generate(
     prompt: string,
-    _md?: PromptConfig,
+    _md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     if (sessionID && !this.sdata.has(sessionID)) {
       this.sdata.set(sessionID, [...this.answers]);
     }
     const answers = sessionID ? this.sdata.get(sessionID) : this.data;
-    const text = answers.shift();
+    const text = answers?.shift() || '';
     this.index++;
 
     const res = {
@@ -42,11 +42,18 @@ export class Betty implements AIService {
       query: prompt,
       usage: {
         promptTokens: prompt.length,
-        totalTokens: prompt.length + text.length,
-        completionTokens: text.length,
+        totalTokens: prompt.length + (text?.length || 0),
+        completionTokens: text?.length || 0,
+      },
+      embedUsage: {
+        promptTokens: 0,
+        totalTokens: 0,
+        completionTokens: 0,
       },
       values: [{ id: '0', text }],
-      value: () => res.values[0].text,
+      value() {
+        return this.values[0].text;
+      },
     };
 
     return new Promise((resolve, _) => {

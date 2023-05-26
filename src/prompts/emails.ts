@@ -1,8 +1,8 @@
-import { AIPrompt } from '../text';
+import { AIPrompt, PromptConfig } from "../text";
 
 export enum MessageType {
-  Email = 'promotion email',
-  Text = 'SMS promotion',
+  Email = "promotion email",
+  Text = "SMS promotion",
 }
 
 export type MessageReceiver = {
@@ -27,17 +27,20 @@ export type ProductInfo = {
  */
 export class MessagePrompt extends AIPrompt<string> {
   private messageInfo: MessageInfo;
-  private receiver: string = '';
-  private product: string = '';
+  private receiver: string = "";
+  private product: string = "";
 
   constructor(mi: MessageInfo, pi: ProductInfo, ri: MessageReceiver) {
-    super({ stopSequences: ['Text:'] });
-    for (var k in ri) {
-      this.receiver += `${k}: ${ri[k]}\n`;
+    super({ stopSequences: ["Text:"] } as PromptConfig);
+
+    let k1: keyof MessageReceiver;
+    for (k1 in ri) {
+      this.receiver += `${k1}: ${ri[k1]}\n`;
     }
 
-    for (var k in pi) {
-      this.product += `${k}: ${pi[k]}\n`;
+    let k2: keyof ProductInfo;
+    for (k2 in pi) {
+      this.product += `${k2}: ${pi[k2]}\n`;
     }
 
     this.messageInfo = mi;

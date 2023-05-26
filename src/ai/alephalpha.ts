@@ -254,7 +254,7 @@ export class AlephAlpha implements AIService {
 
   generate(
     prompt: string,
-    md?: PromptConfig,
+    md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const text = prompt.trim();
@@ -269,7 +269,7 @@ export class AlephAlpha implements AIService {
         name: apiTypes.Generate,
         url: apiURL,
       },
-      generateReq(text, this.options, md?.stopSequences)
+      generateReq(text, this.options, md.stopSequences)
     );
 
     return res.then(({ completions }) => ({
@@ -278,7 +278,7 @@ export class AlephAlpha implements AIService {
       query: prompt,
       values: completions.map((v) => ({ id: '', text: v.completion.trim() })),
       value() {
-        return this.values[0].text;
+        return (this as any).values[0].text;
       },
     }));
   }

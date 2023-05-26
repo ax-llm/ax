@@ -1,4 +1,4 @@
-import { AIMemory } from './index';
+import { AIMemory } from "./index";
 
 /**
  * A memory class to store ai interactions
@@ -6,7 +6,7 @@ import { AIMemory } from './index';
  */
 export class Memory implements AIMemory {
   private data: string[] = [];
-  private sdata: Map<string, string[]>;
+  private sdata = new Map<string, string[]>();
   private limit: number;
 
   constructor(limit: number = 50) {
@@ -22,7 +22,7 @@ export class Memory implements AIMemory {
   }
 
   history(sessionID?: string): string {
-    return this.get(sessionID).reduce((a, v) => a + v, '');
+    return this.get(sessionID).reduce((a, v) => a + v, "");
   }
 
   peek(sessionID?: string): Readonly<string[]> {
@@ -34,14 +34,10 @@ export class Memory implements AIMemory {
       return this.data;
     }
 
-    if (!this.sdata) {
-      this.sdata = new Map();
-    }
-
     if (!this.sdata.has(sessionID)) {
       this.sdata.set(sessionID, []);
     }
 
-    return this.sdata.get(sessionID);
+    return this.sdata.get(sessionID) || [];
   }
 }

@@ -1,4 +1,4 @@
-import { AIPrompt } from '../text';
+import { AIPrompt, PromptConfig } from "../text";
 
 /**
  * A prompt for conversational chat based assistant
@@ -9,10 +9,10 @@ export class AssistantPrompt extends AIPrompt<string> {
 
   constructor(context?: string) {
     super({
-      stopSequences: ['Human:', 'AI:'],
-      queryPrefix: '\nHuman: ',
-      responsePrefix: '\nAI: ',
-    });
+      stopSequences: ["Human:", "AI:"],
+      queryPrefix: "\nHuman: ",
+      responsePrefix: "\nAI: ",
+    } as PromptConfig);
     this.context = context;
   }
 
@@ -20,7 +20,7 @@ export class AssistantPrompt extends AIPrompt<string> {
     return `
 ${system}
 The following is a conversation with an AI assistant. The assistant is helpful, creative, clever, and very friendly.
-${this.context ? `\nUse the following context:\n${this.context}` : ''}
+${this.context ? `\nUse the following context:\n${this.context}` : ""}
 
 ${history()}
 Human: ${query}

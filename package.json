@@ -54,7 +54,9 @@
   "devDependencies": {
     "@ava/typescript": "^3.0.1",
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
+    "@types/lodash": "^4.14.195",
     "@types/node": "^18.13.0",
+    "@types/superagent": "^4.1.18",
     "@typescript-eslint/eslint-plugin": "^5.52.0",
     "@typescript-eslint/parser": "^5.52.0",
     "ava": "^5.2.0",

@@ -1,12 +1,12 @@
-import { z } from 'zod';
-import { AIService, AIPrompt, PromptAction } from '../text';
+import { z } from "zod";
+import { AIService, AIPrompt, PromptAction } from "../text";
 
 /**
  * A prompt that uses zod defintions to define the expected output
  * @export
  */
 export class ZPrompt<Z> extends AIPrompt<Z> {
-  constructor(schema: z.ZodType<Z>, actions?: PromptAction[]) {
+  constructor(schema: z.ZodType<Z>, actions: PromptAction[] = []) {
     super({
       actions,
       stopSequences: [],

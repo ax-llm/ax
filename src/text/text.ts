@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z, ZodType } from 'zod';
 import zodToJsonSchema from 'zod-to-json-schema';
 
 import {
@@ -87,15 +87,18 @@ export class AIPrompt<T> {
 
     let res: AIGenerateTextResponse<string>;
 
-    if (actions?.length > 0) {
+    if (actions && actions?.length > 0) {
       res = await this._generateWithActions(ai, mem, query, extraOptions);
     } else {
       res = await this._generateDefault(ai, mem, query, extraOptions);
     }
 
-    let fvalue: string | Map<string, string[]> | z.infer<typeof schema>;
+    let fvalue:
+      | string
+      | Map<string, string[]>
+      | z.infer<ZodType<any, any, any>>;
     let value = res.value();
-    let error: Error;
+    let error: { message: string } | null = null;
 
     for (let i = 0; i < 3; i++) {
       try {
@@ -113,12 +116,12 @@ export class AIPrompt<T> {
           usageEmbed: extraOptions.usageEmbed,
           value: () => fvalue,
         };
-      } catch (e) {
+      } catch (e: any) {
         value = await this.fixSyntax(ai, mem, e, value, extraOptions);
         error = e;
       }
     }
-    throw new Error(`invalid response syntax: ${error.message}`);
+    throw new Error(`invalid response syntax: ${error?.message}`);
   }
 
   private async _generateWithActions(
@@ -135,7 +138,7 @@ export class AIPrompt<T> {
     const h = () => mem.history(sessionID);
 
     const sprompt: string = buildActionsPrompt(
-      actions,
+      actions || [],
       buildSchemaPrompt(schema)
     );
 
@@ -244,7 +247,7 @@ const stringToObject = <T>(text: string, schema: z.ZodType): T => {
 
   try {
     obj = JSON.parse(text);
-  } catch (e) {
+  } catch (e: any) {
     throw new Error(e);
   }
 
@@ -269,7 +272,7 @@ const stringToMap = (text: string): Map<string, string[]> => {
   const vm = new Map<string, string[]>();
   const re = /([a-zA-Z ]+):\s{0,}\n?(((?!N\/A).)+)$/gm;
 
-  let m: RegExpExecArray;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     // This is necessary to avoid infinite loops with zero-width matches
     if (m.index === re.lastIndex) {
@@ -283,7 +286,7 @@ const stringToMap = (text: string): Map<string, string[]> => {
   return vm;
 };
 
-const buildSchemaPrompt = (schema: z.ZodType): string => {
+const buildSchemaPrompt = (schema?: z.ZodType<any, any, any>): string => {
   if (!schema) {
     return '';
   }

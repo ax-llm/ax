@@ -127,18 +127,18 @@ export const OpenAIFastOptions = (): OpenAIOptions => ({
 type OpenAIGenerateRequest = {
   model: string;
   prompt: string;
-  suffix: string;
+  suffix: string | null;
   max_tokens: number;
   temperature: number;
   top_p: number;
-  n: number;
-  stream: boolean;
-  logprobs: number;
-  echo: boolean;
+  n?: number;
+  stream?: boolean;
+  logprobs?: number;
+  echo?: boolean;
   stop?: string[];
-  presence_penalty: number;
-  frequency_penalty: number;
-  best_of: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  best_of?: number;
   logit_bias?: Map<string, number>;
   user?: string;
 };
@@ -176,11 +176,11 @@ type OpenAIChatGenerateRequest = {
   max_tokens: number;
   temperature: number;
   top_p: number;
-  n: number;
-  stream: boolean;
+  n?: number;
+  stream?: boolean;
   stop?: string[];
-  presence_penalty: number;
-  frequency_penalty: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
   logit_bias?: Map<string, number>;
   user?: string;
 };
@@ -237,9 +237,9 @@ type OpenAIAudioResponse = {
 const generateReq = (
   prompt: string,
   opt: Readonly<OpenAIOptions>,
-  stopSequences?: string[]
+  stopSequences: string[]
 ): OpenAIGenerateRequest => {
-  if (stopSequences?.length > 4) {
+  if (stopSequences.length > 4) {
     throw new Error(
       'OpenAI supports prompts with max 4 items in stopSequences'
     );
@@ -267,9 +267,9 @@ const generateReq = (
 const generateChatReq = (
   prompt: string,
   opt: Readonly<OpenAIOptions>,
-  stopSequences?: string[]
+  stopSequences: string[]
 ): OpenAIChatGenerateRequest => {
-  if (stopSequences?.length > 4) {
+  if (stopSequences.length > 4) {
     throw new Error(
       'OpenAI supports prompts with max 4 items in stopSequences'
     );
@@ -330,7 +330,7 @@ export class OpenAI implements AIService {
 
   generate(
     prompt: string,
-    md?: PromptConfig,
+    md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
@@ -347,7 +347,7 @@ export class OpenAI implements AIService {
 
   private generateDefault(
     prompt: string,
-    md?: PromptConfig,
+    md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const res = apiCall<
@@ -356,7 +356,7 @@ export class OpenAI implements AIService {
       OpenAIGenerateTextResponse
     >(
       this.createAPI(apiType.Generate),
-      generateReq(prompt, this.options, md?.stopSequences)
+      generateReq(prompt, this.options, md.stopSequences)
     );
 
     return res.then(({ id, choices: c, usage: u }) => ({
@@ -370,14 +370,14 @@ export class OpenAI implements AIService {
         totalTokens: u.total_tokens,
       },
       value() {
-        return this.values[0].text;
+        return (this as any).values[0].text;
       },
     }));
   }
 
   private generateChat(
     prompt: string,
-    md?: PromptConfig,
+    md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const res = apiCall<
@@ -386,7 +386,7 @@ export class OpenAI implements AIService {
       OpenAIChatGenerateResponse
     >(
       this.createAPI(apiType.ChatGenerate),
-      generateChatReq(prompt, this.options, md?.stopSequences)
+      generateChatReq(prompt, this.options, md.stopSequences)
     );
 
     return res.then(({ id, choices: c, usage: u }) => ({
@@ -403,7 +403,7 @@ export class OpenAI implements AIService {
         totalTokens: u.total_tokens,
       },
       value() {
-        return this.values[0].text;
+        return (this as any).values[0].text;
       },
     }));
   }

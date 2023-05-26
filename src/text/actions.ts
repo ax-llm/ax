@@ -24,9 +24,8 @@ export const processAction = async (
   { usageEmbed, sessionID, debug = false }: AIGenerateTextExtraOptions
 ): Promise<boolean> => {
   const { actions } = conf;
-
-  let actKey: string;
-  let actVal: string;
+  let actKey: string = '';
+  let actVal: string = '';
   let v: string[] | null;
 
   const val = res.value().trim();
@@ -45,7 +44,7 @@ export const processAction = async (
     actVal = v[1].trim();
   }
 
-  const act = actions.find((v) => v.name === actKey);
+  const act = actions?.find((v) => v.name === actKey);
   if (!act) {
     throw new Error(`invalid action found: "${actKey}", response: "${val}"`);
   }
@@ -78,7 +77,7 @@ export const buildActionsPrompt = (
   let faf: string = ``;
 
   if (finalAnswerFormat && finalAnswerFormat.length > 0) {
-    faf = `Final Answer Format: ${finalAnswerFormat}`;
+    faf = `JSON must follow this ${finalAnswerFormat}`;
   }
 
   return `
@@ -97,8 +96,7 @@ Thought: I now have additional information.
 Repeat the previous four steps as necessary.
 
 Thought: I have the final answer.
-Final Answer: The answer to the original question.
-${faf}
+Final Answer: The answer to the original question. ${faf}
 
 Start!\n`;
 };

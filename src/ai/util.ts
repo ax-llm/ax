@@ -11,7 +11,7 @@ export type API = {
   headers?: any;
 };
 
-export const apiCall = <APIType extends API, Request, Response>(
+export const apiCall = <APIType extends API, Request extends object, Response>(
   api: APIType,
   json: Request
 ): Promise<Response> => {
@@ -42,22 +42,24 @@ export const apiCallWithUpload = <APIType extends API, Request, Response>(
     ...api.headers,
   };
 
+  if (!file) {
+    throw new Error('File is required');
+  }
+
   return new Promise(function (resolve) {
-    if (file) {
-      let sa = superagent
-        .post(new URL(api.name, api.url).href)
-        .retry(3)
-        .attach('file', file)
-        .set(headers);
+    let sa = superagent
+      .post(new URL(api.name, api.url).href)
+      .retry(3)
+      .attach('file', file)
+      .set(headers);
 
-      let k: keyof Request;
-      for (k in json) {
-        if (json[k]) {
-          sa = sa.field(k, json[k]);
-        }
+    let k: keyof Request;
+    for (k in json) {
+      if (json[k]) {
+        sa = sa.field(k, json[k] as any);
       }
-
-      return sa.then(({ body: data }) => resolve(data));
     }
+
+    return sa.then(({ body: data }) => resolve(data));
   });
 };
