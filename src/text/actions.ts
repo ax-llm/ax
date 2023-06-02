@@ -4,11 +4,12 @@ import {
   PromptConfig,
   PromptAction,
   AIGenerateTextResponse,
+  AITokenUsage,
 } from './index.js';
 
 import { AIGenerateTextExtraOptions } from './types.js';
 
-import { log, addUsage } from './util.js';
+import { log } from './util.js';
 
 const actionNameRe = /Action:\s{0,}\n?([^\.\n]+)/m;
 const actionValueRe = /Action Input:\s{0,}\n?(.+)$/ms;
@@ -21,8 +22,8 @@ export const processAction = async (
   ai: AIService,
   mem: AIMemory,
   res: AIGenerateTextResponse<string>,
-  { usageEmbed, sessionID, debug = false }: AIGenerateTextExtraOptions
-): Promise<boolean> => {
+  { sessionID, debug = false }: AIGenerateTextExtraOptions
+): Promise<{ done: boolean; usage: AITokenUsage[] }> => {
   const { actions } = conf;
   let actKey: string = '';
   let actVal: string = '';
@@ -34,7 +35,7 @@ export const processAction = async (
     const mval = [responsePrefix, val];
     mem.add(mval.join(''), sessionID);
     res.values[0].text = v[1].trim();
-    return true;
+    return { done: true, usage: [] };
   }
 
   if ((v = actionNameRe.exec(val)) !== null) {
@@ -52,11 +53,16 @@ export const processAction = async (
   let actRes;
 
   if (act.action.length === 2) {
-    const emRes = await ai.embed([actVal], sessionID);
-    actRes = act.action(actVal, emRes);
-    addUsage(usageEmbed, emRes.usage);
+    const { embeddings, usage: embedUsage } = await ai.embed(
+      [actVal],
+      sessionID
+    );
+    actRes = await act.action(actVal, {
+      model: embedUsage.model.id,
+      embeddings,
+    });
   } else {
-    actRes = act.action(actVal);
+    actRes = await act.action(actVal);
   }
 
   if (debug) {
@@ -65,7 +71,8 @@ export const processAction = async (
 
   const mval = [responsePrefix, val, queryPrefix, actRes];
   mem.add(mval.join(''), sessionID);
-  return false;
+
+  return { done: false, usage: res.usage };
 };
 
 export const buildActionsPrompt = (

@@ -3,10 +3,22 @@ import { z } from 'zod';
 export * from './memory.js';
 export * from './text.js';
 
+export type TextModelInfo = {
+  id: string;
+  currency: string;
+  promptTokenCostPer1K: number;
+  completionTokenCostPer1K: number;
+  maxTokens: number;
+  oneTPM: number;
+};
+
 export type AITokenUsage = {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
+  model: TextModelInfo;
+  stats?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 };
 
 export type AIGenerateTextResponse<T> = {
@@ -14,8 +26,7 @@ export type AIGenerateTextResponse<T> = {
   sessionID?: string;
   query: string;
   values: { id: string; text: string }[];
-  usage?: AITokenUsage;
-  usageEmbed?: AITokenUsage;
+  usage: AITokenUsage[];
   value(): T;
 };
 
@@ -23,12 +34,7 @@ export type EmbedResponse = {
   id: string;
   sessionID?: string;
   texts: string[];
-  model: string;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
+  usage: AITokenUsage;
   embeddings: number[];
 };
 
@@ -56,7 +62,7 @@ export type Embeddings = {
 export type PromptAction = {
   readonly name: string;
   readonly description: string;
-  action(text: string, embeds?: Embeddings): string;
+  action(text: string, embeds?: Embeddings): Promise<string>;
 };
 
 export type PromptActionConfig = {};

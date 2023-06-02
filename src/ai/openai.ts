@@ -1,4 +1,5 @@
 import {
+  TextModelInfo,
   AIService,
   AIGenerateTextResponse,
   EmbedResponse,
@@ -36,18 +37,13 @@ const enum apiType {
 export enum OpenAIGenerateModel {
   GPT4 = 'gpt-4',
   GPT432K = 'gpt-4-32k',
-  GPT3Turbo = 'gpt-3.5-turbo',
-  GPT3TextDavinci003 = 'text-davinci-003',
-}
-
-/**
- * OpenAI: Models for code generation
- * @export
- */
-export enum OpenAIGenerateCodeModel {
-  CodexCodeDavinci002 = 'code-davinci-002',
-  CodexCodeCushman001 = 'code-cushman-001',
-  CodexCodeDavinci001 = 'code-davinci-001',
+  GPT35Turbo = 'gpt-3.5-turbo',
+  GPT35TextDavinci003 = 'text-davinci-003',
+  GPT35TextDavinci002 = 'text-davinci-002',
+  GPT35CodeDavinci002 = 'code-davinci-002',
+  GPT3TextCurie001 = 'text-curie-001',
+  GPT3TextBabbage001 = 'text-babbage-001',
+  GPT3TextAda001 = 'text-ada-001',
 }
 
 /**
@@ -56,7 +52,6 @@ export enum OpenAIGenerateCodeModel {
  */
 export enum OpenAIEmbedModels {
   GPT3TextEmbeddingAda002 = 'text-embedding-ada-002',
-  GPT3TextSimilarityDavinci001 = 'text-similarity-davinci-001',
 }
 
 /**
@@ -66,6 +61,89 @@ export enum OpenAIEmbedModels {
 export enum OpenAIAudioModel {
   Whisper1 = 'whisper-1',
 }
+
+const modelInfo: TextModelInfo[] = [
+  {
+    id: OpenAIGenerateModel.GPT4,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.03,
+    completionTokenCostPer1K: 0.06,
+    maxTokens: 8192,
+    oneTPM: 1,
+  },
+  {
+    id: OpenAIGenerateModel.GPT432K,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.06,
+    completionTokenCostPer1K: 0.12,
+    maxTokens: 32768,
+    oneTPM: 1,
+  },
+  {
+    id: OpenAIGenerateModel.GPT35Turbo,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.002,
+    completionTokenCostPer1K: 0.002,
+    maxTokens: 4096,
+    oneTPM: 1,
+  },
+  {
+    id: OpenAIGenerateModel.GPT35TextDavinci003,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.02,
+    completionTokenCostPer1K: 0.02,
+    maxTokens: 4097,
+    oneTPM: 1,
+  },
+  {
+    id: OpenAIGenerateModel.GPT35TextDavinci002,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.02,
+    completionTokenCostPer1K: 0.02,
+    maxTokens: 4097,
+    oneTPM: 1,
+  },
+  {
+    id: OpenAIGenerateModel.GPT35CodeDavinci002,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.02,
+    completionTokenCostPer1K: 0.02,
+    maxTokens: 8001,
+    oneTPM: 1,
+  },
+  {
+    id: OpenAIGenerateModel.GPT3TextCurie001,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.002,
+    completionTokenCostPer1K: 0.002,
+    maxTokens: 2049,
+    oneTPM: 25,
+  },
+  {
+    id: OpenAIGenerateModel.GPT3TextBabbage001,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.0005,
+    completionTokenCostPer1K: 0.0005,
+    maxTokens: 2049,
+    oneTPM: 100,
+  },
+  {
+    id: OpenAIGenerateModel.GPT3TextAda001,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.0004,
+    completionTokenCostPer1K: 0.0004,
+    maxTokens: 2049,
+    oneTPM: 200,
+  },
+  {
+    id: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.0004,
+    completionTokenCostPer1K: 0.0004,
+    maxTokens: 8191,
+    oneTPM: 200,
+  },
+];
 
 /**
  * OpenAI: Model options for text generation
@@ -95,7 +173,7 @@ export type OpenAIOptions = {
  * @export
  */
 export const OpenAIDefaultOptions = (): OpenAIOptions => ({
-  model: OpenAIGenerateModel.GPT3Turbo,
+  model: OpenAIGenerateModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
@@ -110,7 +188,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
  */
 export const OpenAICreativeOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
-  model: OpenAIGenerateModel.GPT3Turbo,
+  model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.9,
 });
 
@@ -120,7 +198,7 @@ export const OpenAICreativeOptions = (): OpenAIOptions => ({
  */
 export const OpenAIFastOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
-  model: OpenAIGenerateModel.GPT3Turbo,
+  model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.45,
 });
 
@@ -335,7 +413,7 @@ export class OpenAI implements AIService {
   ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
     if (
-      [OpenAIGenerateModel.GPT3Turbo, OpenAIGenerateModel.GPT4].includes(
+      [OpenAIGenerateModel.GPT35Turbo, OpenAIGenerateModel.GPT4].includes(
         this.options.model as OpenAIGenerateModel
       )
     ) {
@@ -350,6 +428,13 @@ export class OpenAI implements AIService {
     md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
+    const model = modelInfo.find((v) => v.id === this.options.model);
+    if (!model) {
+      throw new Error(
+        `OpenAI model information not found: ${this.options.model}`
+      );
+    }
+
     const res = apiCall<
       OpenAIAPI,
       OpenAIGenerateRequest,
@@ -364,11 +449,14 @@ export class OpenAI implements AIService {
       sessionID: sessionID,
       query: prompt,
       values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
-      usage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
-      },
+      usage: [
+        {
+          model,
+          promptTokens: u.prompt_tokens,
+          completionTokens: u.completion_tokens,
+          totalTokens: u.total_tokens,
+        },
+      ],
       value() {
         return (this as any).values[0].text;
       },
@@ -380,6 +468,13 @@ export class OpenAI implements AIService {
     md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
+    const model = modelInfo.find((v) => v.id === this.options.model);
+    if (!model) {
+      throw new Error(
+        `OpenAI model information not found: ${this.options.model}`
+      );
+    }
+
     const res = apiCall<
       OpenAIAPI,
       OpenAIChatGenerateRequest,
@@ -397,11 +492,16 @@ export class OpenAI implements AIService {
         id: v.index.toString(),
         text: v.message.content,
       })),
-      usage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
-      },
+      usage: [
+        {
+          model,
+          stats: {
+            promptTokens: u.prompt_tokens,
+            completionTokens: u.completion_tokens,
+            totalTokens: u.total_tokens,
+          },
+        },
+      ],
       value() {
         return (this as any).values[0].text;
       },
@@ -418,22 +518,31 @@ export class OpenAI implements AIService {
       throw new Error('OpenAI limits embeddings input to 512 characters');
     }
 
+    const model = modelInfo.find((v) => v.id === this.options.embedModel);
+    if (!model) {
+      throw new Error(
+        `OpenAI model information not found: ${this.options.embedModel}`
+      );
+    }
+
     const embedReq = { input: texts, model: this.options.embedModel };
     const res = apiCall<OpenAIAPI, OpenAIEmbedRequest, OpenAIEmbedResponse>(
       this.createAPI(apiType.Embed),
       embedReq
     );
 
-    return res.then(({ model, data, usage: u }) => ({
+    return res.then(({ data, usage: u }) => ({
       id: '',
       sessionID,
       texts,
-      model,
       embeddings: data.embeddings,
       usage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
+        model,
+        stats: {
+          promptTokens: u.prompt_tokens,
+          completionTokens: u.completion_tokens,
+          totalTokens: u.total_tokens,
+        },
       },
     }));
   }

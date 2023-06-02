@@ -79,6 +79,14 @@ test('multiSessionChatWithAI', async (t) => {
   }
 });
 
+const googleSearch = (text: string): Promise<string> => {
+  let value = '';
+  if (text === `"biggest tech company in Mountain View"`) {
+    value = `The largest company in Mountain View is unsurprisingly Google, founded way back in 1998. It has around 100,000 employees globally.`;
+  }
+  return new Promise((res) => res(value));
+};
+
 test('findAnswersWithAI', async (t) => {
   const actions = [
     {
@@ -91,7 +99,9 @@ test('findAnswersWithAI', async (t) => {
 
   const interactions = [
     'Thought: I should look up who the biggest tech company in in Mountain View, CA\nAction: Google Search\nAction Input: "biggest tech company in Mountain View"',
-    `\nObservation: ${googleSearch('"biggest tech company in Mountain View"')}`,
+    `\nObservation: ${await googleSearch(
+      '"biggest tech company in Mountain View"'
+    )}`,
     'I now know who the biggest tech company in Mountain View\nFinal Answer: Google',
   ];
 
@@ -114,13 +124,6 @@ test('findAnswersWithAI', async (t) => {
   t.is(res.value(), 'Google');
   t.deepEqual(mem.peek().join(''), exp.pop()?.join(''));
 });
-
-const googleSearch = (text: string): string => {
-  if (text === `"biggest tech company in Mountain View"`) {
-    return `The largest company in Mountain View is unsurprisingly Google, founded way back in 1998. It has around 100,000 employees globally.`;
-  }
-  return '';
-};
 
 test('usingEmbeddingsFindAnswersWithAI', async (t) => {
   const actions = [
@@ -160,11 +163,13 @@ test('usingEmbeddingsFindAnswersWithAI', async (t) => {
   t.deepEqual(mem.peek().join(''), exp.pop()?.join(''));
 });
 
-const scienceSearch = (_text: string, embed: Embeddings): string => {
+const scienceSearch = (_text: string, embed: Embeddings): Promise<string> => {
   if (embed.embeddings.length === 0) {
     throw new Error('No embeddings returned');
   }
-  return 'Pluto is the last planet in our solar system';
+  return new Promise((res) =>
+    res('Pluto is the last planet in our solar system')
+  );
 };
 
 test('extractInfoWithAI', async (t) => {

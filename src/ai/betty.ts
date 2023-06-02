@@ -1,10 +1,29 @@
 import {
+  TextModelInfo,
   AIService,
   AIGenerateTextResponse,
   EmbedResponse,
   PromptConfig,
 } from '../text';
 
+const models: TextModelInfo[] = [
+  {
+    id: 'betty-fake-completion-model',
+    currency: 'usd',
+    promptTokenCostPer1K: 0.03,
+    completionTokenCostPer1K: 0.06,
+    maxTokens: 1024,
+    oneTPM: 1,
+  },
+  {
+    id: 'betty-fake-embed-model',
+    currency: 'usd',
+    promptTokenCostPer1K: 0.003,
+    completionTokenCostPer1K: 0.006,
+    maxTokens: 8192,
+    oneTPM: 1,
+  },
+];
 /**
  * Betty: Fake AI Service for writing tests
  * @export
@@ -40,16 +59,16 @@ export class Betty implements AIService {
       id: this.index.toString(),
       sessionID: sessionID,
       query: prompt,
-      usage: {
-        promptTokens: prompt.length,
-        totalTokens: prompt.length + (text?.length || 0),
-        completionTokens: text?.length || 0,
-      },
-      embedUsage: {
-        promptTokens: 0,
-        totalTokens: 0,
-        completionTokens: 0,
-      },
+      usage: [
+        {
+          model: models[0],
+          stats: {
+            promptTokens: prompt.length,
+            totalTokens: prompt.length + (text?.length || 0),
+            completionTokens: text?.length || 0,
+          },
+        },
+      ],
       values: [{ id: '0', text }],
       value() {
         return this.values[0].text;
@@ -69,11 +88,13 @@ export class Betty implements AIService {
       id: '',
       sessionID: sessionID,
       texts: texts,
-      model: '',
       usage: {
-        promptTokens: texts.length,
-        totalTokens: texts.length + embeddings.length,
-        completionTokens: embeddings.length,
+        model: models[1],
+        stats: {
+          promptTokens: texts.length,
+          totalTokens: texts.length + embeddings.length,
+          completionTokens: embeddings.length,
+        },
       },
       embeddings,
     };

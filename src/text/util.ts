@@ -1,6 +1,6 @@
 import { AITokenUsage } from './index';
 
-export function log(msg: string, color: string) {
+export function log(msg: string, color: string): null {
   // @ts-ignore
   if (typeof window === 'undefined') {
     if (color === 'red') {
@@ -16,10 +16,45 @@ export function log(msg: string, color: string) {
   } else {
     console.log(`%c${msg}`, { color });
   }
+  return null;
 }
 
-export const addUsage = (u1: AITokenUsage, u2?: AITokenUsage) => {
-  u1.promptTokens += u2?.promptTokens || 0;
-  u1.completionTokens += u2?.completionTokens || 0;
-  u1.totalTokens += u2?.totalTokens || 0;
+export const addUsage = (
+  usage: AITokenUsage[],
+  uList: AITokenUsage[]
+): AITokenUsage[] => {
+  uList.forEach((u) => {
+    usage = _addUsage(usage, u);
+  });
+  return usage;
+};
+
+export const _addUsage = (
+  usage: AITokenUsage[],
+  u: AITokenUsage
+): AITokenUsage[] => {
+  const index = usage.findIndex((v) => v.model.id === u.model.id);
+  if (index === -1) {
+    return [...usage, u];
+  }
+
+  if (u.stats) {
+    const u1 = usage[index];
+    const s = u1.stats;
+    const stats = s
+      ? {
+          promptTokens: s.promptTokens + u.stats.promptTokens,
+          completionTokens: s.completionTokens + u.stats.completionTokens,
+          totalTokens: s.totalTokens + u.stats.totalTokens,
+        }
+      : u.stats;
+
+    return [
+      ...usage.slice(0, index),
+      { ...u, stats },
+      ...usage.slice(index + 1),
+    ];
+  }
+
+  return [...usage];
 };

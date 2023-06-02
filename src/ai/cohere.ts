@@ -1,4 +1,5 @@
 import {
+  TextModelInfo,
   AIService,
   AIGenerateTextResponse,
   EmbedResponse,
@@ -29,6 +30,16 @@ export enum CohereGenerateModel {
 }
 
 /**
+ * Cohere: Models for use in embeddings
+ * @export
+ */
+export enum CohereEmbedModel {
+  EmbedEnglishLightV20 = 'embed-english-light-v2.0',
+  EmbedEnglishV20 = 'embed-english-v2.0',
+  EmbedMultiLingualV20 = 'embed-multilingual-v2.0',
+}
+
+/**
  * Cohere: Specify how and if the token likelihoods are returned with the response.
  * @export
  */
@@ -38,12 +49,64 @@ export enum CohereReturnLikelihoods {
   NONE = 'NONE',
 }
 
+const modelInfo: TextModelInfo[] = [
+  {
+    id: CohereGenerateModel.CommandXLargeNightly,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.015,
+    completionTokenCostPer1K: 0.015,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+  {
+    id: CohereGenerateModel.XLarge,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.015,
+    completionTokenCostPer1K: 0.015,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+  {
+    id: CohereGenerateModel.Medium,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.015,
+    completionTokenCostPer1K: 0.015,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+  {
+    id: CohereEmbedModel.EmbedEnglishLightV20,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.0004,
+    completionTokenCostPer1K: 0.0004,
+    maxTokens: 4096,
+    oneTPM: 1,
+  },
+  {
+    id: CohereEmbedModel.EmbedEnglishV20,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.0004,
+    completionTokenCostPer1K: 0.0004,
+    maxTokens: 4096,
+    oneTPM: 1,
+  },
+  {
+    id: CohereEmbedModel.EmbedMultiLingualV20,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.0004,
+    completionTokenCostPer1K: 0.0004,
+    maxTokens: 4096,
+    oneTPM: 1,
+  },
+];
+
 /**
  * Cohere: Model options for text generation
  * @export
  */
 export type CohereOptions = {
-  model: CohereGenerateModel | string;
+  model: CohereGenerateModel;
+  embedModel: CohereEmbedModel;
   maxTokens: number;
   temperature: number;
   topK: number;
@@ -60,6 +123,7 @@ export type CohereOptions = {
  */
 export const CohereDefaultOptions = (): CohereOptions => ({
   model: CohereGenerateModel.CommandXLargeNightly,
+  embedModel: CohereEmbedModel.EmbedEnglishLightV20,
   maxTokens: 300,
   temperature: 0.45,
   topK: 0,
@@ -156,8 +220,14 @@ export class Cohere implements AIService {
     md?: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
-    prompt = prompt.trim();
+    const model = modelInfo.find((v) => v.id === this.options.model);
+    if (!model) {
+      throw new Error(
+        `Cohere model information not found: ${this.options.model}`
+      );
+    }
 
+    prompt = prompt.trim();
     const res = apiCall<
       CohereAPI,
       CohereGenerateRequest,
@@ -177,6 +247,7 @@ export class Cohere implements AIService {
       sessionID: sessionID,
       query: prompt,
       values: gens,
+      usage: [{ model }],
       value() {
         return (this as any).values[0].text;
       },
@@ -193,6 +264,13 @@ export class Cohere implements AIService {
       throw new Error('Cohere limits embeddings input to 512 characters');
     }
 
+    const model = modelInfo.find((v) => v.id === this.options.embedModel);
+    if (!model) {
+      throw new Error(
+        `Cohere model information not found: ${this.options.embedModel}`
+      );
+    }
+
     const res = apiCall<CohereAPI, CohereEmbedRequest, CohereEmbedResponse>(
       {
         key: this.apiKey,
@@ -200,14 +278,16 @@ export class Cohere implements AIService {
         url: apiURL,
         headers: { 'Cohere-Version': '2022-12-06' },
       },
-      { texts, model: this.options.model, truncate: 'NONE' }
+      { texts, model: this.options.embedModel, truncate: 'NONE' }
     );
 
     return res.then(({ id, embeddings }) => ({
       id: id,
       sessionID,
       texts,
-      model: this.options.model,
+      usage: {
+        model,
+      },
       embeddings,
     }));
   }

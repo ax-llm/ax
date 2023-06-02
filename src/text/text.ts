@@ -2,6 +2,7 @@ import { z, ZodType } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import {
+  AITokenUsage,
   Memory,
   AIService,
   AIMemory,
@@ -10,9 +11,8 @@ import {
 } from './index.js';
 
 import { AIGenerateTextExtraOptions } from './types.js';
-
-import { log, addUsage } from './util.js';
 import { processAction, buildActionsPrompt } from './actions.js';
+import { log, addUsage } from './util.js';
 
 export type Options = {
   sessionID?: string;
@@ -71,16 +71,6 @@ export class AIPrompt<T> {
     const { keyValue, schema } = responseConfig || {};
 
     const extraOptions = {
-      usage: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-      },
-      usageEmbed: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-      },
       sessionID,
       debug: this.debug,
     };
@@ -97,7 +87,9 @@ export class AIPrompt<T> {
       | string
       | Map<string, string[]>
       | z.infer<ZodType<any, any, any>>;
+
     let value = res.value();
+    let totalUsage = res.usage;
     let error: { message: string } | null = null;
 
     for (let i = 0; i < 3; i++) {
@@ -112,13 +104,20 @@ export class AIPrompt<T> {
 
         return {
           ...res,
-          usage: extraOptions.usage,
-          usageEmbed: extraOptions.usageEmbed,
+          usage: totalUsage,
           value: () => fvalue,
         };
       } catch (e: any) {
-        value = await this.fixSyntax(ai, mem, e, value, extraOptions);
+        const { fixedValue, usage } = await this.fixSyntax(
+          ai,
+          mem,
+          e,
+          value,
+          extraOptions
+        );
+        value = fixedValue;
         error = e;
+        totalUsage = addUsage(totalUsage, usage);
       }
     }
     throw new Error(`invalid response syntax: ${error?.message}`);
@@ -128,7 +127,7 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    { usage, usageEmbed, sessionID, debug }: AIGenerateTextExtraOptions
+    { sessionID, debug }: AIGenerateTextExtraOptions
   ): Promise<AIGenerateTextResponse<string>> {
     const { conf } = this;
     const { actions } = conf;
@@ -142,7 +141,7 @@ export class AIPrompt<T> {
       buildSchemaPrompt(schema)
     );
 
-    let done = false;
+    let usage: AITokenUsage[] = [];
 
     for (let i = 0; i < this.maxSteps; i++) {
       let p = this.create(query, sprompt, h, ai);
@@ -166,17 +165,22 @@ export class AIPrompt<T> {
       if (rval.length === 0) {
         throw new Error('empty response from ai');
       }
+      usage = addUsage(usage, res.usage);
 
-      addUsage(usage, res.usage);
+      const { done, usage: actionUsage } = await processAction(
+        conf,
+        ai,
+        mem,
+        res,
+        {
+          sessionID,
+          debug,
+        }
+      );
 
-      done = await processAction(conf, ai, mem, res, {
-        usage,
-        usageEmbed,
-        sessionID,
-        debug,
-      });
+      usage = addUsage(usage, actionUsage);
       if (done) {
-        return res;
+        return { ...res, usage };
       }
     }
 
@@ -187,7 +191,7 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    { usage, sessionID, debug }: AIGenerateTextExtraOptions
+    { sessionID, debug }: AIGenerateTextExtraOptions
   ): Promise<AIGenerateTextResponse<string>> {
     const { conf } = this;
     const { schema } = conf.responseConfig || {};
@@ -213,8 +217,6 @@ export class AIPrompt<T> {
       log(`< ${rval}`, 'red');
     }
 
-    addUsage(usage, res.usage);
-
     const mval = [this.conf.queryPrefix, query, this.conf.responsePrefix, rval];
     mem.add(mval.join(''), sessionID);
     return res;
@@ -225,20 +227,19 @@ export class AIPrompt<T> {
     mem: AIMemory,
     error: Error,
     value: string,
-    { usage, sessionID, debug }: AIGenerateTextExtraOptions
-  ): Promise<string> {
+    { sessionID, debug }: AIGenerateTextExtraOptions
+  ): Promise<{ fixedValue: string; usage: AITokenUsage[] }> {
     const { conf } = this;
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
     const res = await ai.generate(p, conf, sessionID);
-    const rval = res.value().trim();
+    const fixedValue = res.value().trim();
 
     if (debug) {
       log(`Syntax Error: ${error.message}`, 'red');
-      log(`< ${rval}`, 'red');
+      log(`< ${fixedValue}`, 'red');
     }
 
-    addUsage(usage, res.usage);
-    return rval;
+    return { fixedValue, usage: res.usage };
   }
 }
 

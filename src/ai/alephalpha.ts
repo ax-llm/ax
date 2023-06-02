@@ -1,4 +1,5 @@
 import {
+  TextModelInfo,
   AIService,
   AIGenerateTextResponse,
   EmbedResponse,
@@ -25,6 +26,14 @@ export enum AlephAlphaGenerateModel {
   LuminousBase = 'luminous-base',
 }
 
+/**
+ * AlephAlpha: Models for use in embeddings
+ * @export
+ */
+export enum AlephAlphaEmbedModel {
+  LuminousExplore = 'luminous-explore',
+}
+
 export enum AlephAlphaEmbedRepresentation {
   Symmetric = 'symmetric',
   Document = 'document',
@@ -35,12 +44,56 @@ export enum AlephaAlphaGenerateHosting {
   MaxPrivacy = 'aleph-alpha',
 }
 
+const modelInfo: TextModelInfo[] = [
+  {
+    id: AlephAlphaGenerateModel.LuminousSupremeControl,
+    currency: 'eur',
+    promptTokenCostPer1K: 0.04375,
+    completionTokenCostPer1K: 0.04375,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+  {
+    id: AlephAlphaGenerateModel.LuminousSupreme,
+    currency: 'eur',
+    promptTokenCostPer1K: 0.035,
+    completionTokenCostPer1K: 0.035,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+  {
+    id: AlephAlphaGenerateModel.LuminousExtended,
+    currency: 'eur',
+    promptTokenCostPer1K: 0.009,
+    completionTokenCostPer1K: 0.009,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+  {
+    id: AlephAlphaGenerateModel.LuminousBase,
+    currency: 'eur',
+    promptTokenCostPer1K: 0.006,
+    completionTokenCostPer1K: 0.006,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+  {
+    id: AlephAlphaEmbedModel.LuminousExplore,
+    currency: 'eur',
+    promptTokenCostPer1K: 0.015,
+    completionTokenCostPer1K: 0.015,
+    maxTokens: 2048,
+    oneTPM: 1,
+  },
+];
+
 /**
  * AlephAlpha: Model options for text generation
  * @export
  */
 export type AlephAlphaOptions = {
-  model: AlephAlphaGenerateModel | string;
+  model: AlephAlphaGenerateModel;
+  embedModel: AlephAlphaEmbedModel;
   hosting?: AlephaAlphaGenerateHosting;
   maxTokens: number;
   minTokens?: number;
@@ -83,6 +136,7 @@ export type AlephAlphaOptions = {
  */
 export const AlephAlphaDefaultOptions = (): AlephAlphaOptions => ({
   model: AlephAlphaGenerateModel.LuminousSupreme,
+  embedModel: AlephAlphaEmbedModel.LuminousExplore,
   representation: AlephAlphaEmbedRepresentation.Document,
   disableOptimizations: true,
   maxTokens: 300,
@@ -219,7 +273,7 @@ const embedReq = (
   prompt: string,
   opt: Readonly<AlephAlphaOptions>
 ): AlephAlphaEmbedRequest => ({
-  model: opt.model,
+  model: opt.embedModel,
   hosting: opt.hosting,
   prompt: prompt,
   representation: opt.representation,
@@ -257,8 +311,14 @@ export class AlephAlpha implements AIService {
     md: PromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
-    const text = prompt.trim();
+    const model = modelInfo.find((v) => v.id === this.options.model);
+    if (!model) {
+      throw new Error(
+        `Cohere model information not found: ${this.options.model}`
+      );
+    }
 
+    const text = prompt.trim();
     const res = apiCall<
       API,
       AlephAlphaGenerateRequest,
@@ -277,6 +337,7 @@ export class AlephAlpha implements AIService {
       sessionID: sessionID,
       query: prompt,
       values: completions.map((v) => ({ id: '', text: v.completion.trim() })),
+      usage: [{ model }],
       value() {
         return (this as any).values[0].text;
       },
@@ -293,6 +354,13 @@ export class AlephAlpha implements AIService {
       throw new Error('AlephAlpha limits embeddings input to 512 characters');
     }
 
+    const model = modelInfo.find((v) => v.id === this.options.embedModel);
+    if (!model) {
+      throw new Error(
+        `Cohere model information not found: ${this.options.embedModel}`
+      );
+    }
+
     const res = apiCall<API, AlephAlphaEmbedRequest, AlephAlphaEmbedResponse>(
       {
         key: this.apiKey,
@@ -302,11 +370,11 @@ export class AlephAlpha implements AIService {
       embedReq(texts[0], this.options)
     );
 
-    return res.then(({ model_version, embedding }) => ({
+    return res.then(({ embedding }) => ({
       id: '',
       sessionID,
       texts,
-      model: model_version,
+      usage: { model },
       embeddings: embedding,
     }));
   }
