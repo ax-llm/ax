@@ -5,9 +5,9 @@ import superagent from 'superagent';
  * @export
  */
 export type API = {
-  key: string;
   name: string;
   url: string;
+  key?: string;
   headers?: any;
 };
 
@@ -16,9 +16,11 @@ export const apiCall = <APIType extends API, Request extends object, Response>(
   json: Request
 ): Promise<Response> => {
   const headers = {
-    Authorization: `Bearer ${api.key}`,
     ...api.headers,
   };
+  if (api.key) {
+    headers.Authorization = `Bearer ${api.key}`;
+  }
 
   return new Promise(function (resolve) {
     return superagent

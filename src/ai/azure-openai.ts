@@ -1,162 +1,39 @@
 import {
-  TextModelInfo,
   AIService,
   AIGenerateTextResponse,
   EmbedResponse,
-  AudioResponse,
   PromptConfig,
 } from '../text/index.js';
 
-import { API, apiCall, apiCallWithUpload } from './util.js';
+import { OpenAIGenerateModel, OpenAIEmbedModels, modelInfo } from './openai.js';
+
+import { API, apiCall } from './util.js';
 
 /**
- * OpenAI: API call details
- * @export
- */
-export type OpenAIAPI = API & {
-  headers: { 'OpenAI-Organization'?: string };
-};
-
-const apiURL = 'https://api.openai.com/v1/';
-
-/**
- * OpenAI: API types
+ * AzureOpenAI: API types
  * @export
  */
 const enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
   Embed = 'embeddings',
-  Transcribe = 'audio/transcriptions',
 }
 
 /**
- * OpenAI: Models for text generation
+ * AzureOpenAI: API call details
  * @export
  */
-export enum OpenAIGenerateModel {
-  GPT4 = 'gpt-4',
-  GPT432K = 'gpt-4-32k',
-  GPT35Turbo = 'gpt-3.5-turbo',
-  GPT35TextDavinci003 = 'text-davinci-003',
-  GPT35TextDavinci002 = 'text-davinci-002',
-  GPT35CodeDavinci002 = 'code-davinci-002',
-  GPT3TextCurie001 = 'text-curie-001',
-  GPT3TextBabbage001 = 'text-babbage-001',
-  GPT3TextAda001 = 'text-ada-001',
-}
+export type AzureOpenAIAPI = API & {
+  headers: { 'api-key'?: string };
+};
 
 /**
- * OpenAI: Models for use in embeddings
+ * AzureOpenAI: Model options for text generation
  * @export
  */
-export enum OpenAIEmbedModels {
-  GPT3TextEmbeddingAda002 = 'text-embedding-ada-002',
-}
-
-/**
- * OpenAI: Models for for audio transcription
- * @export
- */
-export enum OpenAIAudioModel {
-  Whisper1 = 'whisper-1',
-}
-
-/**
- * OpenAI: Model information
- * @export
- */
-export const modelInfo: TextModelInfo[] = [
-  {
-    id: OpenAIGenerateModel.GPT4,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.03,
-    completionTokenCostPer1K: 0.06,
-    maxTokens: 8192,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT432K,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.06,
-    completionTokenCostPer1K: 0.12,
-    maxTokens: 32768,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT35Turbo,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.002,
-    completionTokenCostPer1K: 0.002,
-    maxTokens: 4096,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT35TextDavinci003,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.02,
-    completionTokenCostPer1K: 0.02,
-    maxTokens: 4097,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT35TextDavinci002,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.02,
-    completionTokenCostPer1K: 0.02,
-    maxTokens: 4097,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT35CodeDavinci002,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.1,
-    completionTokenCostPer1K: 0.1,
-    maxTokens: 8001,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT3TextCurie001,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.002,
-    completionTokenCostPer1K: 0.002,
-    maxTokens: 2049,
-    oneTPM: 25,
-  },
-  {
-    id: OpenAIGenerateModel.GPT3TextBabbage001,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.0005,
-    completionTokenCostPer1K: 0.0005,
-    maxTokens: 2049,
-    oneTPM: 100,
-  },
-  {
-    id: OpenAIGenerateModel.GPT3TextAda001,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.0004,
-    completionTokenCostPer1K: 0.0004,
-    maxTokens: 2049,
-    oneTPM: 200,
-  },
-  {
-    id: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.0004,
-    completionTokenCostPer1K: 0.0004,
-    maxTokens: 8191,
-    oneTPM: 200,
-  },
-];
-
-/**
- * OpenAI: Model options for text generation
- * @export
- */
-export type OpenAIOptions = {
+export type AzureOpenAIOptions = {
   model: OpenAIGenerateModel;
   embedModel: OpenAIEmbedModels;
-  audioModel: OpenAIAudioModel;
   suffix: string | null;
   maxTokens: number;
   temperature: number;
@@ -173,13 +50,12 @@ export type OpenAIOptions = {
 };
 
 /**
- * OpenAI: Default Model options for text generation
+ * AzureOpenAI: Default Model options for text generation
  * @export
  */
-export const OpenAIDefaultOptions = (): OpenAIOptions => ({
+export const AzureOpenAIDefaultOptions = (): AzureOpenAIOptions => ({
   model: OpenAIGenerateModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
-  audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
   maxTokens: 300,
   temperature: 0.45,
@@ -187,26 +63,26 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
 });
 
 /**
- * OpenAI: Default model options for more creative text generation
+ * AzureOpenAI: Default model options for more creative text generation
  * @export
  */
-export const OpenAICreativeOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+export const AzureOpenAICreativeOptions = (): AzureOpenAIOptions => ({
+  ...AzureOpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.9,
 });
 
 /**
- * OpenAI: Default model options for more fast text generation
+ * AzureOpenAI: Default model options for more fast text generation
  * @export
  */
-export const OpenAIFastOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+export const AzureOpenAIFastOptions = (): AzureOpenAIOptions => ({
+  ...AzureOpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.45,
 });
 
-type OpenAIGenerateRequest = {
+type AzureOpenAIGenerateRequest = {
   model: string;
   prompt: string;
   suffix: string | null;
@@ -225,20 +101,20 @@ type OpenAIGenerateRequest = {
   user?: string;
 };
 
-type OpenAILogprob = {
+type AzureOpenAILogprob = {
   tokens: string[];
   token_logprobs: number[];
   top_logprobs: Map<string, number>;
   text_offset: number[];
 };
 
-type OpenAIUsage = {
+type AzureOpenAIUsage = {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
 };
 
-type OpenAIGenerateTextResponse = {
+type AzureOpenAIGenerateTextResponse = {
   id: string;
   object: string;
   created: number;
@@ -247,12 +123,12 @@ type OpenAIGenerateTextResponse = {
     text: string;
     index: number;
     finish_reason: string;
-    log_probs: OpenAILogprob;
+    log_probs: AzureOpenAILogprob;
   }[];
-  usage: OpenAIUsage;
+  usage: AzureOpenAIUsage;
 };
 
-type OpenAIChatGenerateRequest = {
+type AzureOpenAIChatGenerateRequest = {
   model: string;
   messages: { role: string; content: string }[];
   max_tokens: number;
@@ -267,7 +143,7 @@ type OpenAIChatGenerateRequest = {
   user?: string;
 };
 
-type OpenAIChatGenerateResponse = {
+type AzureOpenAIChatGenerateResponse = {
   id: string;
   object: string;
   created: number;
@@ -280,54 +156,36 @@ type OpenAIChatGenerateResponse = {
     };
     finish_reason: string;
   }[];
-  usage: OpenAIUsage;
+  usage: AzureOpenAIUsage;
 };
 
-type OpenAIEmbedRequest = {
+type AzureOpenAIEmbedRequest = {
   input: string[];
   model: string;
   user?: string;
 };
 
-type OpenAIEmbedResponse = {
+type AzureOpenAIEmbedResponse = {
   model: string;
   data: {
     embeddings: number[];
     index: number;
   };
-  usage: OpenAIUsage;
-};
-
-type OpenAIAudioRequest = {
-  model: string;
-  prompt?: string;
-  response_format: 'verbose_json';
-  temperature?: number;
-  language?: string;
-};
-
-type OpenAIAudioResponse = {
-  duration: number;
-  segments: {
-    id: number;
-    start: number;
-    end: number;
-    text: string;
-  }[];
+  usage: AzureOpenAIUsage;
 };
 
 const generateReq = (
   prompt: string,
-  opt: Readonly<OpenAIOptions>,
+  opt: Readonly<AzureOpenAIOptions>,
   stopSequences: string[]
-): OpenAIGenerateRequest => {
+): AzureOpenAIGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
-      'OpenAI supports prompts with max 4 items in stopSequences'
+      'AzureOpenAI supports prompts with max 4 items in stopSequences'
     );
   }
   return {
-    model: opt.model,
+    model: opt.model.replace('.', ''),
     prompt: prompt,
     suffix: opt.suffix,
     max_tokens: opt.maxTokens,
@@ -348,12 +206,12 @@ const generateReq = (
 
 const generateChatReq = (
   prompt: string,
-  opt: Readonly<OpenAIOptions>,
+  opt: Readonly<AzureOpenAIOptions>,
   stopSequences: string[]
-): OpenAIChatGenerateRequest => {
+): AzureOpenAIChatGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
-      'OpenAI supports prompts with max 4 items in stopSequences'
+      'AzureOpenAI supports prompts with max 4 items in stopSequences'
     );
   }
   return {
@@ -372,42 +230,35 @@ const generateChatReq = (
   };
 };
 
-const generateAudioReq = (
-  opt: Readonly<OpenAIOptions>,
-  prompt?: string,
-  language?: string
-): OpenAIAudioRequest => {
-  return {
-    model: opt.audioModel,
-    prompt: prompt,
-    temperature: opt.temperature,
-    language: language,
-    response_format: 'verbose_json',
-  };
-};
-
 /**
- * OpenAI: AI Service
+ * AzureOpenAI: AI Service
  * @export
  */
-export class OpenAI implements AIService {
+export class AzureOpenAI implements AIService {
   private apiKey: string;
-  private orgID?: string;
-  private options: OpenAIOptions;
+  private apiURL: string;
+  private options: AzureOpenAIOptions;
 
   constructor(
     apiKey: string,
-    options: Readonly<OpenAIOptions> = OpenAIDefaultOptions()
+    host: string,
+    deploymentName: string,
+    options: Readonly<AzureOpenAIOptions> = AzureOpenAIDefaultOptions()
   ) {
     if (apiKey === '') {
-      throw new Error('OpenAPI API key not set');
+      throw new Error('Azure OpenAPI API key not set');
     }
     this.apiKey = apiKey;
     this.options = options;
+
+    if (!host.includes('://')) {
+      host = `https://${host}.openai.azure.com/`;
+    }
+    this.apiURL = new URL(`/openai/deployments/${deploymentName}`, host).href;
   }
 
   name(): string {
-    return 'OpenAI';
+    return 'AzureOpenAI';
   }
 
   generate(
@@ -435,14 +286,14 @@ export class OpenAI implements AIService {
     const model = modelInfo.find((v) => v.id === this.options.model);
     if (!model) {
       throw new Error(
-        `OpenAI model information not found: ${this.options.model}`
+        `AzureOpenAI model information not found: ${this.options.model}`
       );
     }
 
     const res = apiCall<
-      OpenAIAPI,
-      OpenAIGenerateRequest,
-      OpenAIGenerateTextResponse
+      AzureOpenAIAPI,
+      AzureOpenAIGenerateRequest,
+      AzureOpenAIGenerateTextResponse
     >(
       this.createAPI(apiType.Generate),
       generateReq(prompt, this.options, md.stopSequences)
@@ -475,14 +326,14 @@ export class OpenAI implements AIService {
     const model = modelInfo.find((v) => v.id === this.options.model);
     if (!model) {
       throw new Error(
-        `OpenAI model information not found: ${this.options.model}`
+        `AzureOpenAI model information not found: ${this.options.model}`
       );
     }
 
     const res = apiCall<
-      OpenAIAPI,
-      OpenAIChatGenerateRequest,
-      OpenAIChatGenerateResponse
+      AzureOpenAIAPI,
+      AzureOpenAIChatGenerateRequest,
+      AzureOpenAIChatGenerateResponse
     >(
       this.createAPI(apiType.ChatGenerate),
       generateChatReq(prompt, this.options, md.stopSequences)
@@ -514,26 +365,27 @@ export class OpenAI implements AIService {
 
   embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
     if (texts.length > 96) {
-      throw new Error('OpenAI limits embeddings input to 96 strings');
+      throw new Error('AzureOpenAI limits embeddings input to 96 strings');
     }
 
     const overLimit = texts.filter((v) => v.length > 512);
     if (overLimit.length !== 0) {
-      throw new Error('OpenAI limits embeddings input to 512 characters');
+      throw new Error('AzureOpenAI limits embeddings input to 512 characters');
     }
 
     const model = modelInfo.find((v) => v.id === this.options.embedModel);
     if (!model) {
       throw new Error(
-        `OpenAI model information not found: ${this.options.embedModel}`
+        `AzureOpenAI model information not found: ${this.options.embedModel}`
       );
     }
 
     const embedReq = { input: texts, model: this.options.embedModel };
-    const res = apiCall<OpenAIAPI, OpenAIEmbedRequest, OpenAIEmbedResponse>(
-      this.createAPI(apiType.Embed),
-      embedReq
-    );
+    const res = apiCall<
+      AzureOpenAIAPI,
+      AzureOpenAIEmbedRequest,
+      AzureOpenAIEmbedResponse
+    >(this.createAPI(apiType.Embed), embedReq);
 
     return res.then(({ data, usage: u }) => ({
       id: '',
@@ -551,41 +403,12 @@ export class OpenAI implements AIService {
     }));
   }
 
-  transcribe(
-    file: string,
-    prompt?: string,
-    language?: string,
-    sessionID?: string
-  ): Promise<AudioResponse> {
-    const res = apiCallWithUpload<
-      OpenAIAPI,
-      OpenAIAudioRequest,
-      OpenAIAudioResponse
-    >(
-      this.createAPI(apiType.Transcribe),
-      generateAudioReq(this.options, prompt, language),
-      file
-    );
-
-    return res.then((data) => ({
-      duration: data.duration,
-      segments: data.segments.map((v) => ({
-        id: v.id,
-        start: v.start,
-        end: v.end,
-        text: v.text,
-      })),
-      sessionID,
-    }));
-  }
-
-  private createAPI(name: apiType): OpenAIAPI {
+  private createAPI(name: apiType): AzureOpenAIAPI {
     return {
-      url: apiURL,
-      key: this.apiKey,
+      url: this.apiURL,
       name,
       headers: {
-        ...(this.orgID ? { 'OpenAI-Organization': this.orgID } : null),
+        'api-key': this.apiKey,
       },
     };
   }

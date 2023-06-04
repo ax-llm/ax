@@ -1,6 +1,6 @@
 {
   "name": "@dosco/minds",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "type": "module",
   "description": "making it easy to use ai",
   "main": "build/main/index.js",

@@ -6,7 +6,7 @@
 
 <img align="right" width="300" height="300" style="padding: 0px" src="https://i.imgur.com/02KP6OU.png">
 
-A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI**, **Cohere** and **AlephAlpha**.
+A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI**, **Azure OpenAI**, **Cohere** and **AlephAlpha**.
 
 This library handles all the **complex prompt engineering** so you can focus on building amazing things like context power chat, question answering, natural language search in minutes. Define Javascript functions that AIs can use. For example the AI can lookup your database, call an API or search the web while answering a business question.
 
@@ -22,6 +22,7 @@ npm i @dosco/minds
 - Simpler and smaller than the alternatives
 - Minimal to zero dependencies
 - Focus on useful real-world workflows
+- Single interface: OpenAI, Azure OpenAI, Cohere and more
 
 ## Example Workflows
 
