@@ -37,6 +37,16 @@ npm i @dosco/minds
 | get-summary.js        | AI to generate a short summary of a large block of text        |
 | ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                         |
 
+## AI's Supported
+
+| AI           | Models                                                    |
+| ------------ | --------------------------------------------------------- |
+| OpenAI       | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada, Whisper |
+| Cohere       | Command XLarge, XLarge, Medium, Light                     |
+| Azure OpenAI | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada          |
+| Google AI    | Text Bison, Chat Bison, Gecko                             |
+| AlephaAlpha  | Luminous: Control, Supreme, Extended, Base                |
+
 ## Answer Customer Product Questions
 
 Build business or personal workflows where the AI calls your APIs to fetch data and use that data to solve problems or help customers find answers.

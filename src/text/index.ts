@@ -6,6 +6,7 @@ export * from './text.js';
 export type TextModelInfo = {
   id: string;
   currency: string;
+  characterIsToken?: boolean;
   promptTokenCostPer1K: number;
   completionTokenCostPer1K: number;
   maxTokens: number;

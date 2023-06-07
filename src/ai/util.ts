@@ -5,8 +5,8 @@ import superagent from 'superagent';
  * @export
  */
 export type API = {
-  name: string;
   url: string;
+  name?: string;
   key?: string;
   headers?: any;
 };
@@ -24,7 +24,7 @@ export const apiCall = <APIType extends API, Request extends object, Response>(
 
   return new Promise(function (resolve) {
     return superagent
-      .post(new URL(api.name, api.url).href)
+      .post(api.name ? new URL(api.name, api.url).href : api.url)
       .send(json)
       .set(headers)
       .type('json')
@@ -50,7 +50,7 @@ export const apiCallWithUpload = <APIType extends API, Request, Response>(
 
   return new Promise(function (resolve) {
     let sa = superagent
-      .post(new URL(api.name, api.url).href)
+      .post(api.name ? new URL(api.name, api.url).href : api.url)
       .retry(3)
       .attach('file', file)
       .set(headers);
