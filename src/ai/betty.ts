@@ -1,10 +1,10 @@
 import {
-  TextModelInfo,
-  AIService,
   AIGenerateTextResponse,
+  AIPromptConfig,
+  AIService,
   EmbedResponse,
-  PromptConfig,
-} from '../text';
+  TextModelInfo,
+} from '../text/types.js';
 
 const models: TextModelInfo[] = [
   {
@@ -32,9 +32,9 @@ export class Betty implements AIService {
   private answers: string[];
   private data: string[];
   private sdata: Map<string, string[]> = new Map();
-  private index: number = 0;
+  private index = 0;
 
-  constructor(answers: string[]) {
+  constructor(answers: readonly string[]) {
     this.answers = [...answers];
     this.data = [...answers];
   }
@@ -45,19 +45,21 @@ export class Betty implements AIService {
 
   generate(
     prompt: string,
-    _md: PromptConfig,
+    _md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     if (sessionID && !this.sdata.has(sessionID)) {
       this.sdata.set(sessionID, [...this.answers]);
     }
     const answers = sessionID ? this.sdata.get(sessionID) : this.data;
+
     const text = answers?.shift() || '';
+
     this.index++;
 
     const res = {
       id: this.index.toString(),
-      sessionID: sessionID,
+      sessionID,
       query: prompt,
       usage: [
         {
@@ -82,12 +84,12 @@ export class Betty implements AIService {
     });
   }
 
-  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
     const embeddings = [1, 2, 3, 4];
     const res = {
       id: '',
-      sessionID: sessionID,
-      texts: texts,
+      sessionID,
+      texts,
       usage: {
         model: models[1],
         stats: {

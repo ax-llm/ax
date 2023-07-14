@@ -3,8 +3,9 @@
   "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/master/cspell.schema.json",
   "language": "en",
   "words": [
-    "minds",
-    "mindsjs",
+    "llm",
+    "llm-client",
+    "llim_client",
     "cimg",
     "circleci",
     "codecov",

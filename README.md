@@ -1,27 +1,29 @@
-# Minds - Build AI Powered Workflows!
+# LLM Client - The best library to work with LLMs
 
-[![NPM Package](https://img.shields.io/npm/v/@dosco/minds?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/minds)
+[![NPM Package](https://img.shields.io/npm/v/@dosco/llm-client?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/llm-client)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
-<img align="right" width="300" height="300" style="padding: 0px" src="https://i.imgur.com/02KP6OU.png">
+# 🦙 🔥 ❤️ 🖖🏼
 
-A JS library (Typescript) that makes it easy to build your workflows and app backends with large language models (LLMs) like **OpenAI**, **Azure OpenAI**, **Cohere** and **AlephAlpha**.
+<!-- <img align="right" width="300" height="300" style="padding: 0px" src="https://i.imgur.com/02KP6OU.png"> -->
 
-This library handles all the **complex prompt engineering** so you can focus on building amazing things like context power chat, question answering, natural language search in minutes. Define Javascript functions that AIs can use. For example the AI can lookup your database, call an API or search the web while answering a business question.
+A JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure OpenAI**, **Cohere** and **AlephAlpha** and more.
 
-We totally believe that AI will soon replace your entire app backend. We truly live in amazing times. Please join our Discord so we can help you build your idea.
+This library handles all the **complexity** so you can focus on building useful things like question answering, ai bots, business workflows in minutes. You an easily define Javascript functions that the LLM can call. For example lookup your database, an api call to Trello, Notion, Airtable, Twilio or search the web while answering a business question.
+
+We believe that LLMs will soon replace your entire app backend. We truly live in amazing times. Please join our Discord so we can build together.
 
 ```console
-npm i @dosco/minds
+npm i @dosco/llm-client
 ```
 
-## Why use Minds
+## Why use LLM Client
 
 - Sensible Defaults
 - Simpler and smaller than the alternatives
 - Minimal to zero dependencies
-- Focus on useful real-world workflows
+- Focus on useful real-world usecases
 - Single interface: OpenAI, Azure OpenAI, Cohere and more
 
 ## Example Workflows
@@ -30,6 +32,7 @@ npm i @dosco/minds
 | --------------------- | -------------------------------------------------------------- |
 | ask-questions.js      | AI uses Google search to find the correct answer               |
 | product-search.js     | Customers can as product related questions in natural language |
+| food-search.js        | Multiple APIs are used to lookup the best eating options       |
 | customer-support.js   | Extract valuable details from customer communications          |
 | marketing.js          | Use AI to generate short effective marketing sms messages      |
 | transcribe-podcast.js | Transcribe multiple podcast channels into text                 |
@@ -47,7 +50,7 @@ npm i @dosco/minds
 | Google AI    | Text Bison, Chat Bison, Gecko                             |
 | AlephaAlpha  | Luminous: Control, Supreme, Extended, Base                |
 
-## Answer Customer Product Questions
+## Answer Questions
 
 Build business or personal workflows where the AI calls your APIs to fetch data and use that data to solve problems or help customers find answers.
 
@@ -55,36 +58,74 @@ Build business or personal workflows where the AI calls your APIs to fetch data 
 const productDB = [
   { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
   { name: 'Macbook Pro', description: 'M2, 96GB', in_stock: 2 },
+  { name: 'iPad M1', description: 'M1, 8GB', in_stock: 0 },
 ];
 
-const productSearch = (text) => {
-  return JSON.stringify(productDB.filter((v) => text.includes(v.name)));
+const inventorySearch = ({ name, count }) => {
+  return JSON.stringify(
+    productDB.filter((v) => name.includes(v.name) && v.in_stock >= count)
+  );
 };
 
-const actions = [
+// List of functions available to the AI and the schema of the functions inputs
+const functions = [
   {
-    name: 'Product Search',
-    description: 'Used to search up a products information by its name',
-    action: productSearch,
+    name: 'inventorySearch',
+    description: 'Used to search up a products inventory by its name',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'name of the product',
+        },
+        count: {
+          type: 'number',
+          description: 'number of products to search for',
+        },
+      },
+      required: ['name', 'count'],
+    },
+    func: inventorySearch,
   },
 ];
 
-const prompt = new QuestionAnswerPrompt(actions);
-
-// Customer support email
 const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
-await prompt.generate(ai, query);
+// The response you expect, define its schema
+const responseSchema = {
+  type: 'object',
+  properties: {
+    data: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          units: { type: 'number' },
+          desc: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
+// Setup the prompt with the response schema and functions
+const prompt = new SPrompt(responseSchema, functions);
+prompt.setDebug(true);
+
+// Execute the prompt and get the response
+const res = await prompt.generate(ai, customerQuery);
+console.log(res.value());
 ```
 
 ```console
 >  Answer for customer: We have 2 Macbook Pro's M2 with 96GB RAM and 0 iPads in stock.
 ```
 
-## Extract Details From Business Messages
+## Extract Details From Messages
 
-Inbound messages and emails from customers are a core part of all business workflows. AI makes it easy to extract valuable details and classify messages so you can build workflows
-that make your processes more efficient.
+Extracting information from text is one of the most useful thing LLMs can do. You can either use the more specialized `ExtractInfoPrompt` which should work even with simplier LLMs or use the `SPrompt` with or without functions and the `responseSchema` to do the same.
 
 ```js
 const entities = [
@@ -107,93 +148,31 @@ Jane Doe`;
 const res = await prompt.generate(ai, customerMessage);
 ```
 
-```console
 Extracted Details From Customer Message:
+
+```console
 {
   'Product Name' => [ 'XYZ Smartwatch' ],
   'Issue Description' => [ 'Screen remained blank and unable to respond to any buttons' ],
   'Issue Summary' => [ 'Product is not functioning properly' ],
   'Payment method' => [ 'Cash' ]
 }
-
 ```
 
-## Promotional Messaging
-
-Use AI to generate effective promotional content for emails, sms or other channels.
-
-```js
-const product = {
-  name: 'Acme Toilet Cleaning',
-  description: '24/7 Commercial and residential restroom cleaning services',
-};
-
-const to = {
-  name: 'Jerry Doe',
-  title: 'Head of facilities and operations',
-  company: 'Blue Yonder Inc.',
-};
-
-const prompt = new MessagePrompt({ type: MessageType.Text }, product, to);
-
-const context = `
-1. Under 160 characters
-2. Prompts recipients to book an call
-3. Employs emojis and friendly language
-`;
-
-const res = await prompt.generate(ai, context);
-console.log(res.value());
-```
-
-```console
-Hey Jerry! 🤗 Acme Toilet Cleaning is offering 24/7 commercial and residential restroom cleaning services. Let us take care of your restroom needs so you don't have to. 🚽 Book a call today and let's get started! 📞
-```
-
-## AI Smart Assistant
-
-Build an AI powered assistant that maintains context as you converse with it asking if various questions.
+## LLM Client API Example
 
 ```javascript
-import {
-  Cohere,
-  AlephAlpha,
-  OpenAI,
-  Memory,
-  AssistantPrompt,
-} from '@dosco/minds';
+import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
 
 // const ai = new Cohere(process.env.COHERE_APIKEY)
-// const ai = new AlephAlpha(process.env.AALPHA_APIKEY)
-
 const ai = new OpenAI(process.env.OPENAI_APIKEY);
+const prompt = new AIPrompt();
+const memory = new AIMemory();
 
-const prompt = new AssistantPrompt();
-
-await prompt.generate(ai, `How far is the sun from the moon?`);
-await prompt.generate(ai, `And from mars?`);
-await prompt.generate(ai, `Will it ever end?`);
+await prompt.generate(ai, `What is your name?`, { memory });
 ```
 
-```console
-❯ node chat-assistant.js
-AI: How far is the sun from the moon?
-> The sun is about 384,400 kilometers away from the moon.
-
-AI: And from mars?
-> The sun is about 384,400 kilometers away from Mars as well.
-
-AI: will it ever end?
-> The sun will eventually end, but not for billions of years.
-```
-
-```shell
-cd examples
-npm i
-node chat-assistant.js
-```
-
-## Why use Minds?
+## Why use LLM Client?
 
 Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there.
 
@@ -213,25 +192,19 @@ const ai = new OpenAI(process.env.OPENAI_APIKEY);
 
 ```js
 // Can be sub classed to build you own memory backends
-// like one that uses redis or a database
-const mem = new Memory();
+// like one that uses redis or a database (not required)
+const memory = new Memory();
 ```
 
 ### 3. Pick a prompt based on your usecase
 
 ```js
-// For building conversational chat based AI workflows
-const prompt = new AssistantPrompt();
+// Base prompt to extend for your own usecases
+const prompt = new AIPrompt();
 
-// For building prompts that return structed data and can
-// can search the web, or lookup your database to
-// answer questions
-const prompt = new ZPrompt(zodSchema, actions);
-
-// For building question answer workflows where the
-// AI can search the web, or lookup your database to
-// answer questions
-const prompt = new QuestionAnswerPrompt(actions);
+// Or A prompt (extended from AIPrompt) to handle
+// api calling and structured responses
+const prompt = new SPrompt(responseSchema, functions);
 ```
 
 ### 4. Engage the AI
@@ -261,64 +234,74 @@ console.log('>', res.value());
 }
 ```
 
-## What are actions?
+## What is Function (API) Calling?
 
-Actions are functions that you define and the API can then call these functions to fetch data it needs to come up with the final answer. All you have to do is pass a list of actions to a prompt that supports actions like the `QuestionAnswerPrompt`.
+API calls in large language models like GPT-4 are really useful. It's like allowing these models to talk with other computer programs and services. This means they can do more than just create text. For example, they can use an API call to get new data or work with another program to do a job. This makes them much more flexible and useful in many different situations.
 
-Embeddings are also supported. If you use a function with two arguments then the embeddings for the `text` (first argument) will be passedi in the second argument. Embeddings can be used with a vector search engine to find similiar things. For example to fetch similiar text paragraphs when coming up with a correct answer.
+For example:
 
-```js
-// Action without embeddings
-const productSearch(text) {
-  return result
-}
+**Weather App:** Let's say you're using a chatbot (powered by a language model like GPT-4) and you ask, "What's the weather like today?" The chatbot doesn't know the current weather, but it can use an API call to ask a weather service for this information. Then, it can understand the response and tell you, "It's going to be sunny and 75 degrees today."
 
-// Action with embeddings
-const productSearch(text, embeds) {
-  return result
-}
-```
+**Music Recommendation:** Imagine you ask a smart assistant (also powered by a language model) to recommend a new song you might like. The assistant could use an API call to ask a music streaming service (like Spotify) for suggestions based on your past listens. Then it could tell you, "You might enjoy the new song by your favorite artist."
 
-You must specify a name and a clear description matching what the action does. The action itself is a function on the action object that you define.
+**Restaurant Lookup:** If you ask a chatbot, "Find me a good Italian restaurant nearby," it could use an API call to ask a service like Yelp or Google Maps to find Italian restaurants in your area. Then, it can share the results with you.
 
 ```js
-const actions = [
+const inventorySearch = ({ name, count }) => {
+  return JSON.stringify(
+    productDB.filter((v) => name.includes(v.name) && v.in_stock >= count)
+  );
+};
+
+const functions = [
   {
-    name: 'Product Search',
-    description: 'Used to search up a products information by its name',
-    action: productSearch,
-  },
-  {
-    name: 'Customer Issues Search',
-    description: 'Used to search the customer support database for solutions',
-    action: wolframAlphaSearch,
+    // function name
+    name: 'inventorySearch',
+    // description
+    description: 'Used to search up a products inventory by its name',
+    // json schema defining the function input
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'name of the product',
+        },
+        count: {
+          type: 'number',
+          description: 'number of products to search for',
+        },
+      },
+      required: ['name', 'count'],
+    },
+    // the js function to call
+    func: inventorySearch,
   },
 ];
 ```
 
-Finally pass the action list to the prompt.
+Finally pass the functions list to the prompt.
 
 ```js
-const prompt = new QuestionAnswerPrompt(actions);
-```
+// json schema defining the final response object
+const responseSchema = {
+  type: 'object',
+  properties: {
+    data: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          units: { type: 'number' },
+          desc: { type: 'string' },
+        },
+      },
+    },
+  },
+};
 
-Or use the `ZPrompt` to get the response as a JS object
-
-```js
-const CustomerResponse = z.object({
-  data: z
-    .array(
-      z.object({
-        name: z.string().describe('product name'),
-        units: z.number().describe('units in stock'),
-        desc: z.string().max(15).describe('product description'),
-      })
-    )
-    .describe('inventory information'),
-  response: z.string().max(50).describe('customer response'),
-});
-
-const prompt = new ZPrompt(CustomerResponse, actions);
+const prompt = new SPrompt(responseSchema, functions);
 ```
 
 ## Reach out
@@ -326,13 +309,3 @@ const prompt = new ZPrompt(CustomerResponse, actions);
 We're happy to help reach out if you have questions or join the Discord
 
 [twitter/dosco](https://twitter.com/dosco)
-
-## Prompt Engineering
-
-There is a bit of magic to getting an LLM (AI) to do your bidding. For fans of boarding school going wizards it's sort of like learning spells that trigger patterns deep inside the latent space of the model. This is the new and exciting field of [Prompt Engineering](https://42papers.com/c/llm-prompting-6343) and this library is how we turn these spells into code to help make building with AI a more democratic endevour. Join us we're just getting started.
-
-## Featured AI Art
-
-MidJourney Art by [AmitDeshmukh](https://twitter.com/AmitDeshmukh)
-
-> Prompt: kids walking on a dirt road through a futuristic village, field of daisies on both sides, futuristic clothing, some traditional homes, cumulus clouds, bright mid morning sunlight, birds and drone

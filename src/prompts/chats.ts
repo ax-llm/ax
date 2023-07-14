@@ -1,4 +1,5 @@
-import { AIPrompt, PromptConfig } from '../text/index.js';
+import { AIPrompt } from '../text/text.js';
+import { PromptConfig } from '../text/types.js';
 
 /**
  * A prompt for conversational chat based assistant
@@ -12,11 +13,11 @@ export class AssistantPrompt extends AIPrompt<string> {
       stopSequences: ['Human:', 'AI:'],
       queryPrefix: '\nHuman: ',
       responsePrefix: '\nAI: ',
-    } as PromptConfig);
+    } as PromptConfig<string>);
     this.context = context;
   }
 
-  create(query: string, system: string, history: () => string): string {
+  override create(query: string, system: string, history: () => string): string {
     return `
 ${system}
 The following is a conversation with an AI assistant. The assistant is helpful, creative, clever, and very friendly.

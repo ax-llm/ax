@@ -1,4 +1,4 @@
-import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/minds';
+import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
 
 import chalk from 'chalk';
 import { createInterface } from 'readline';

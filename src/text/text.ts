@@ -1,22 +1,18 @@
-import { z, ZodType } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-
+import { buildFunctionsPrompt, processFunction } from './functions.js';
+import { Memory } from './memory.js';
 import {
-  AITokenUsage,
-  Memory,
-  AIService,
-  AIMemory,
-  PromptConfig,
+  AIGenerateTextExtraOptions,
   AIGenerateTextResponse,
-} from './index.js';
-
-import { AIGenerateTextExtraOptions } from './types.js';
-import { processAction, buildActionsPrompt } from './actions.js';
-import { log, addUsage } from './util.js';
+  AIMemory,
+  AIService,
+  AITokenUsage,
+  PromptConfig,
+} from './types.js';
+import { addUsage, log, stringToObject } from './util.js';
 
 export type Options = {
   sessionID?: string;
-  mem?: AIMemory;
+  memory?: AIMemory;
 };
 
 /**
@@ -24,11 +20,15 @@ export type Options = {
  * @export
  */
 export class AIPrompt<T> {
-  private conf: PromptConfig;
+  private conf: PromptConfig<T>;
   private maxSteps = 20;
   private debug = false;
 
-  constructor(conf: PromptConfig) {
+  constructor(
+    conf: Readonly<PromptConfig<T>> = {
+      stopSequences: [],
+    }
+  ) {
     this.conf = conf;
   }
 
@@ -41,21 +41,26 @@ export class AIPrompt<T> {
   }
 
   create(
-    _query: string,
-    _system: string,
-    _history: () => string,
+    query: string,
+    system: string,
+    history: () => string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: AIService
   ): string {
-    return '';
+    return `
+    ${system}
+    ${history()}
+    ${query}
+    `;
   }
 
   generate(
     ai: AIService,
     query: string,
-    { sessionID, mem }: Options = {}
+    { sessionID, memory }: Options = {}
   ): Promise<AIGenerateTextResponse<T>> {
     return new Promise((resolve) => {
-      const res = this._generate(ai, mem || new Memory(), query, sessionID);
+      const res = this._generate(ai, memory || new Memory(), query, sessionID);
       resolve(res);
     });
   }
@@ -67,7 +72,7 @@ export class AIPrompt<T> {
     sessionID?: string
   ): Promise<AIGenerateTextResponse<T>> {
     const { conf } = this;
-    const { responseConfig, actions } = conf;
+    const { responseConfig, functions } = conf;
     const { keyValue, schema } = responseConfig || {};
 
     const extraOptions = {
@@ -77,20 +82,17 @@ export class AIPrompt<T> {
 
     let res: AIGenerateTextResponse<string>;
 
-    if (actions && actions?.length > 0) {
-      res = await this._generateWithActions(ai, mem, query, extraOptions);
+    if (functions && functions?.length > 0) {
+      res = await this._generateWithFunctions(ai, mem, query, extraOptions);
     } else {
       res = await this._generateDefault(ai, mem, query, extraOptions);
     }
 
-    let fvalue:
-      | string
-      | Map<string, string[]>
-      | z.infer<ZodType<any, any, any>>;
+    let fvalue: string | Map<string, string[]> | T;
 
     let value = res.value();
     let totalUsage = res.usage;
-    let error: { message: string } | null = null;
+    let error: Error | undefined;
 
     for (let i = 0; i < 3; i++) {
       try {
@@ -105,51 +107,53 @@ export class AIPrompt<T> {
         return {
           ...res,
           usage: totalUsage,
-          value: () => fvalue,
+          value: () => fvalue as T,
         };
-      } catch (e: any) {
+      } catch (e: unknown) {
+        error = e as Error;
         const { fixedValue, usage } = await this.fixSyntax(
           ai,
           mem,
-          e,
+          error,
           value,
           extraOptions
         );
         value = fixedValue;
-        error = e;
         totalUsage = addUsage(totalUsage, usage);
       }
     }
     throw new Error(`invalid response syntax: ${error?.message}`);
   }
 
-  private async _generateWithActions(
+  private async _generateWithFunctions(
     ai: AIService,
     mem: AIMemory,
     query: string,
-    { sessionID, debug }: AIGenerateTextExtraOptions
+    { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
   ): Promise<AIGenerateTextResponse<string>> {
     const { conf } = this;
-    const { actions } = conf;
-    const { schema } = conf.responseConfig || {};
 
     conf.stopSequences = [...conf.stopSequences, 'Observation:'];
     const h = () => mem.history(sessionID);
 
-    const sprompt: string = buildActionsPrompt(
-      actions || [],
-      buildSchemaPrompt(schema)
-    );
+    const functions = conf.responseConfig?.schema
+      ? [
+          ...(conf.functions ?? []),
+          {
+            name: 'finalResult',
+            description: 'function for the final result',
+            inputSchema: conf.responseConfig.schema ?? {},
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            func: (args: any) => args,
+          },
+        ]
+      : conf.functions ?? [];
 
+    const sprompt: string = buildFunctionsPrompt(functions);
     let usage: AITokenUsage[] = [];
 
     for (let i = 0; i < this.maxSteps; i++) {
-      let p = this.create(query, sprompt, h, ai);
-
-      // remove leading spaces to improve prompt readability
-      if (this.debug) {
-        p = p.replace(/^[ \t]+/gm, '');
-      }
+      const p = this.create(query, sprompt, h, ai);
 
       if (debug) {
         log(`> ${p}`, 'white');
@@ -167,9 +171,8 @@ export class AIPrompt<T> {
       }
       usage = addUsage(usage, res.usage);
 
-      const { done, usage: actionUsage } = await processAction(
-        conf,
-        ai,
+      const { done, usage: actionUsage } = await processFunction(
+        functions,
         mem,
         res,
         {
@@ -191,20 +194,15 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    { sessionID, debug }: AIGenerateTextExtraOptions
+    { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
   ): Promise<AIGenerateTextResponse<string>> {
     const { conf } = this;
     const { schema } = conf.responseConfig || {};
 
     const h = () => mem.history(sessionID);
-    const sprompt: string = buildSchemaPrompt(schema);
+    const sprompt: string = schema ? JSON.stringify(schema, null, '\t') : '';
 
-    let p = this.create(query, sprompt, h, ai);
-
-    // remove leading spaces to improve prompt readability
-    if (this.debug) {
-      p = p.replace(/^[ \t]+/gm, '');
-    }
+    const p = this.create(query, sprompt, h, ai);
 
     if (debug) {
       log(`> ${p}`, 'white');
@@ -225,9 +223,9 @@ export class AIPrompt<T> {
   private async fixSyntax(
     ai: AIService,
     mem: AIMemory,
-    error: Error,
+    error: Readonly<Error>,
     value: string,
-    { sessionID, debug }: AIGenerateTextExtraOptions
+    { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
   ): Promise<{ fixedValue: string; usage: AITokenUsage[] }> {
     const { conf } = this;
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
@@ -242,32 +240,6 @@ export class AIPrompt<T> {
     return { fixedValue, usage: res.usage };
   }
 }
-
-const stringToObject = <T>(text: string, schema: z.ZodType): T => {
-  let obj: any;
-
-  try {
-    obj = JSON.parse(text);
-  } catch (e: any) {
-    throw new Error(e);
-  }
-
-  if (obj.schema) {
-    obj = obj.schema;
-  }
-
-  if (obj.error) {
-    throw new Error(obj.error);
-  }
-
-  try {
-    schema.parse(obj);
-  } catch (error: any) {
-    throw new Error(error);
-  }
-
-  return obj;
-};
 
 const stringToMap = (text: string): Map<string, string[]> => {
   const vm = new Map<string, string[]>();
@@ -285,12 +257,4 @@ const stringToMap = (text: string): Map<string, string[]> => {
     throw new Error('Expected format is a list of key: value');
   }
   return vm;
-};
-
-const buildSchemaPrompt = (schema?: z.ZodType<any, any, any>): string => {
-  if (!schema) {
-    return '';
-  }
-  const jsonSchema = JSON.stringify(zodToJsonSchema(schema, 'schema'));
-  return `JSON SCHEMA:"""\n${jsonSchema}\n"""\n`;
 };

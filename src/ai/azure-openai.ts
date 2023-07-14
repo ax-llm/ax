@@ -1,18 +1,18 @@
-import {
-  AIService,
-  AIGenerateTextResponse,
-  EmbedResponse,
-  PromptConfig,
-} from '../text/index.js';
 
-import { OpenAIGenerateModel, OpenAIEmbedModels, modelInfo } from './openai.js';
-
+import { modelInfo, OpenAIEmbedModels, OpenAIGenerateModel } from './openai.js';
 import { API, apiCall } from './util.js';
+import {
+  AIGenerateTextResponse,
+  AIPromptConfig,
+  AIService,
+  EmbedResponse,
+} from '../text/types.js';
 
 /**
  * AzureOpenAI: API types
  * @export
  */
+// eslint-disable-next-line @typescript-eslint/naming-convention
 const enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
@@ -186,7 +186,7 @@ const generateReq = (
   }
   return {
     model: opt.model.replace('.', ''),
-    prompt: prompt,
+    prompt,
     suffix: opt.suffix,
     max_tokens: opt.maxTokens,
     temperature: opt.temperature,
@@ -263,7 +263,7 @@ export class AzureOpenAI implements AIService {
 
   generate(
     prompt: string,
-    md: PromptConfig,
+    md: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
@@ -273,14 +273,14 @@ export class AzureOpenAI implements AIService {
       )
     ) {
       return this.generateChat(prompt, md, sessionID);
-    } else {
+    } 
       return this.generateDefault(prompt, md, sessionID);
-    }
+    
   }
 
   private generateDefault(
     prompt: string,
-    md: PromptConfig,
+    md: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -301,7 +301,7 @@ export class AzureOpenAI implements AIService {
 
     return res.then(({ id, choices: c, usage: u }) => ({
       id: id.toString(),
-      sessionID: sessionID,
+      sessionID,
       query: prompt,
       values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
       usage: [
@@ -313,14 +313,14 @@ export class AzureOpenAI implements AIService {
         },
       ],
       value() {
-        return (this as any).values[0].text;
+        return (this as { values: { text: string }[] }).values[0].text;
       },
     }));
   }
 
   private generateChat(
     prompt: string,
-    md: PromptConfig,
+    md: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -341,7 +341,7 @@ export class AzureOpenAI implements AIService {
 
     return res.then(({ id, choices: c, usage: u }) => ({
       id: id.toString(),
-      sessionID: sessionID,
+      sessionID,
       query: prompt,
       values: c.map((v) => ({
         id: v.index.toString(),
@@ -358,7 +358,7 @@ export class AzureOpenAI implements AIService {
         },
       ],
       value() {
-        return (this as any).values[0].text;
+        return (this as { values: { text: string }[] }).values[0].text;
       },
     }));
   }

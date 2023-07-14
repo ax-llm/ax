@@ -1,5 +1,4 @@
-import { z } from 'zod';
-import { Cohere, OpenAI, ZPrompt } from '@dosco/minds';
+import { Cohere, OpenAI, SPrompt } from '@dosco/llm-client';
 
 import chalk from 'chalk';
 
@@ -10,40 +9,58 @@ const ai = process.env.COHERE_APIKEY
 const productDB = [
   { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
   { name: 'Macbook Pro', description: 'M2, 96GB', in_stock: 2 },
+  { name: 'iPad M1', description: 'M1, 8GB', in_stock: 0 },
 ];
 
-const productSearch = (text, embeddings) => {
-  return JSON.stringify(productDB.filter((v) => text.includes(v.name)));
+const inventorySearch = ({ name, count }) => {
+  return JSON.stringify(
+    productDB.filter((v) => name.includes(v.name) && v.in_stock >= count)
+  );
 };
 
-// List of actions available to the AI
-const actions = [
+// List of functions available to the AI
+const functions = [
   {
-    name: 'Product Search',
-    description: 'Used to search up a products information by its name',
-    action: productSearch,
+    name: 'inventorySearch',
+    description: 'Used to search up a products inventory by its name',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'name of the product',
+        },
+        count: {
+          type: 'number',
+          description: 'number of products to search for',
+        },
+      },
+      required: ['name', 'count'],
+    },
+    func: inventorySearch,
   },
 ];
 
-// const context = 'This question related to customer support';
-
 const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
-const CustomerResponse = z.object({
-  data: z
-    .array(
-      z.object({
-        name: z.string().describe('product name'),
-        units: z.number().describe('units in stock'),
-        desc: z.string().max(15).describe('product description'),
-      })
-    )
-    .describe('inventory information'),
-  response: z.string().max(150).describe('customer response'),
-});
+const responseSchema = {
+  type: 'object',
+  properties: {
+    data: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          units: { type: 'number' },
+          desc: { type: 'string' },
+        },
+      },
+    },
+  },
+};
 
-// const prompt = new QuestionAnswerPrompt(actions);
-const prompt = new ZPrompt(CustomerResponse, actions);
+const prompt = new SPrompt(responseSchema, functions);
 prompt.setDebug(true);
 
 const res = await prompt.generate(ai, customerQuery);

@@ -1,4 +1,7 @@
-import { AIPrompt, PromptConfig } from '../text/index.js';
+/* eslint-disable guard-for-in */
+/* eslint-disable no-restricted-syntax */
+import { AIPrompt } from '../text/text.js';
+import { PromptConfig } from '../text/types.js';
 
 export enum MessageType {
   Email = 'promotion email',
@@ -27,11 +30,11 @@ export type ProductInfo = {
  */
 export class MessagePrompt extends AIPrompt<string> {
   private messageInfo: MessageInfo;
-  private receiver: string = '';
-  private product: string = '';
+  private receiver = '';
+  private product = '';
 
   constructor(mi: MessageInfo, pi: ProductInfo, ri: MessageReceiver) {
-    super({ stopSequences: ['Text:'] } as PromptConfig);
+    super({ stopSequences: ['Text:'] } as PromptConfig<string>);
 
     let k1: keyof MessageReceiver;
     for (k1 in ri) {
@@ -46,7 +49,7 @@ export class MessagePrompt extends AIPrompt<string> {
     this.messageInfo = mi;
   }
 
-  create(query: string, system: string): string {
+  override create(query: string, system: string): string {
     return `
 ${system}
 Using the below information to write an effective ${this.messageInfo.type}.

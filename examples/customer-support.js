@@ -4,7 +4,7 @@ import {
   Memory,
   ExtractInfoPrompt,
   BusinessInfo,
-} from '@dosco/minds';
+} from '@dosco/llm-client';
 
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)

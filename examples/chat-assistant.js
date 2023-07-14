@@ -5,7 +5,7 @@ import {
   AlephAlpha,
   Memory,
   AssistantPrompt,
-} from '@dosco/minds';
+} from '@dosco/llm-client';
 import { createInterface } from 'readline';
 
 /*

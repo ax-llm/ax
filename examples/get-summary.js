@@ -1,4 +1,4 @@
-import { Cohere, OpenAI, Memory, SummarizePrompt } from '@dosco/minds';
+import { Cohere, OpenAI, Memory, SummarizePrompt } from '@dosco/llm-client';
 
 const ai = process.env.COHERE_APIKEY
   ? new Cohere(process.env.COHERE_APIKEY)

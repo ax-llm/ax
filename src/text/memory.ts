@@ -1,4 +1,4 @@
-import { AIMemory } from './index.js';
+import { AIMemory } from "./types.js";
 
 /**
  * A memory class to store ai interactions
@@ -9,7 +9,7 @@ export class Memory implements AIMemory {
   private sdata = new Map<string, string[]>();
   private limit: number;
 
-  constructor(limit: number = 50) {
+  constructor(limit = 50) {
     if (limit <= 0) {
       throw Error("argument 'last' must be greater than 0");
     }
@@ -18,6 +18,7 @@ export class Memory implements AIMemory {
 
   add(text: string, sessionID?: string): void {
     const d = this.get(sessionID);
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     d.push(text) > this.limit ? d.shift() : null;
   }
 

@@ -1,12 +1,12 @@
-import { AIPrompt } from '../text/index.js';
-
 import flow from 'lodash/fp/flow.js';
-import uniqBy from 'lodash/fp/uniqBy.js';
+import isEmpty from 'lodash/fp/isEmpty.js';
+import join from 'lodash/fp/join.js';
+import map from 'lodash/fp/map.js';
 import reject from 'lodash/fp/reject.js';
 import uniq from 'lodash/fp/uniq.js';
-import map from 'lodash/fp/map.js';
-import join from 'lodash/fp/join.js';
-import isEmpty from 'lodash/fp/isEmpty.js';
+import uniqBy from 'lodash/fp/uniqBy.js';
+
+import { AIPrompt } from '../text/text.js';
 
 export enum BusinessInfo {
   // Product stuff
@@ -58,7 +58,7 @@ export type ExtractEntity = {
 export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
   private entityValue: string;
 
-  constructor(entities: ExtractEntity[]) {
+  constructor(entities: readonly ExtractEntity[]) {
     super({
       stopSequences: ['Text:'],
       responseConfig: { keyValue: true },
@@ -70,7 +70,7 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
 
     // unique names and classes
     this.entityValue = flow(
-      reject((v: ExtractEntity) => v.name === 'Text'),
+      reject((v: Readonly<ExtractEntity>) => v.name === 'Text'),
       map((v) => ({ ...v, name: v.name?.trim().replace(/[^a-zA-Z ]+/, '') })),
       uniqBy((v) => v.name),
       map((v) => (v.classes ? [v.name, uniq(v.classes).join(',')] : [v.name])),
@@ -79,7 +79,7 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
     )(entities);
   }
 
-  create(query: string, system: string): string {
+  override create(query: string, system: string): string {
     return `
 ${system}
 Extract the following entities mentioned in the text below. Use N/A if entity is not found::

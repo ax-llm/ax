@@ -1,13 +1,13 @@
-import {
-  TextModelInfo,
-  AIService,
-  AIGenerateTextResponse,
-  EmbedResponse,
-  AudioResponse,
-  PromptConfig,
-} from '../text/index.js';
-
 import { API, apiCall, apiCallWithUpload } from './util.js';
+import {
+  AIGenerateTextResponse,
+  AIPromptConfig,
+  AIService,
+  AudioResponse,
+  EmbedResponse,
+  TextModelInfo,
+} from '../text/types.js';
+
 
 /**
  * OpenAI: API call details
@@ -23,6 +23,7 @@ const apiURL = 'https://api.openai.com/v1/';
  * OpenAI: API types
  * @export
  */
+// eslint-disable-next-line @typescript-eslint/naming-convention
 const enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
@@ -35,9 +36,10 @@ const enum apiType {
  * @export
  */
 export enum OpenAIGenerateModel {
-  GPT4 = 'gpt-4',
+  GPT4 = 'gpt-4-0613',
   GPT432K = 'gpt-4-32k',
-  GPT35Turbo = 'gpt-3.5-turbo',
+  GPT35Turbo = 'gpt-3.5-turbo-0613',
+  GPT35Turbo16K = 'gpt-3.5-turbo-16k',
   GPT35TextDavinci003 = 'text-davinci-003',
   GPT35TextDavinci002 = 'text-davinci-002',
   GPT35CodeDavinci002 = 'code-davinci-002',
@@ -89,6 +91,14 @@ export const modelInfo: TextModelInfo[] = [
     promptTokenCostPer1K: 0.002,
     completionTokenCostPer1K: 0.002,
     maxTokens: 4096,
+    oneTPM: 1,
+  },
+  {
+    id: OpenAIGenerateModel.GPT35Turbo16K,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.003,
+    completionTokenCostPer1K: 0.004,
+    maxTokens: 16384,
     oneTPM: 1,
   },
   {
@@ -182,7 +192,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
   maxTokens: 300,
-  temperature: 0.45,
+  temperature: 0,
   topP: 1,
 });
 
@@ -284,7 +294,7 @@ type OpenAIChatGenerateResponse = {
 };
 
 type OpenAIEmbedRequest = {
-  input: string[];
+  input: readonly string[];
   model: string;
   user?: string;
 };
@@ -328,7 +338,7 @@ const generateReq = (
   }
   return {
     model: opt.model,
-    prompt: prompt,
+    prompt,
     suffix: opt.suffix,
     max_tokens: opt.maxTokens,
     temperature: opt.temperature,
@@ -376,15 +386,13 @@ const generateAudioReq = (
   opt: Readonly<OpenAIOptions>,
   prompt?: string,
   language?: string
-): OpenAIAudioRequest => {
-  return {
+): OpenAIAudioRequest => ({
     model: opt.audioModel,
-    prompt: prompt,
+    prompt,
     temperature: opt.temperature,
-    language: language,
+    language,
     response_format: 'verbose_json',
-  };
-};
+  });
 
 /**
  * OpenAI: AI Service
@@ -412,24 +420,26 @@ export class OpenAI implements AIService {
 
   generate(
     prompt: string,
-    md: PromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
     if (
-      [OpenAIGenerateModel.GPT35Turbo, OpenAIGenerateModel.GPT4].includes(
-        this.options.model as OpenAIGenerateModel
-      )
+      [
+        OpenAIGenerateModel.GPT35Turbo,
+        OpenAIGenerateModel.GPT35Turbo16K,
+        OpenAIGenerateModel.GPT4,
+      ].includes(this.options.model as OpenAIGenerateModel)
     ) {
       return this.generateChat(prompt, md, sessionID);
-    } else {
+    } 
       return this.generateDefault(prompt, md, sessionID);
-    }
+    
   }
 
   private generateDefault(
     prompt: string,
-    md: PromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -450,7 +460,7 @@ export class OpenAI implements AIService {
 
     return res.then(({ id, choices: c, usage: u }) => ({
       id: id.toString(),
-      sessionID: sessionID,
+      sessionID,
       query: prompt,
       values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
       usage: [
@@ -462,14 +472,14 @@ export class OpenAI implements AIService {
         },
       ],
       value() {
-        return (this as any).values[0].text;
+        return (this as { values: { text: string }[] }).values[0].text;
       },
     }));
   }
 
   private generateChat(
     prompt: string,
-    md: PromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -490,7 +500,7 @@ export class OpenAI implements AIService {
 
     return res.then(({ id, choices: c, usage: u }) => ({
       id: id.toString(),
-      sessionID: sessionID,
+      sessionID,
       query: prompt,
       values: c.map((v) => ({
         id: v.index.toString(),
@@ -507,12 +517,12 @@ export class OpenAI implements AIService {
         },
       ],
       value() {
-        return (this as any).values[0].text;
+        return (this as { values: { text: string }[] }).values[0].text;
       },
     }));
   }
 
-  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
     if (texts.length > 96) {
       throw new Error('OpenAI limits embeddings input to 96 strings');
     }

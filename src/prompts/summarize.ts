@@ -1,4 +1,4 @@
-import { AIPrompt } from '../text/index.js';
+import { AIPrompt } from '../text/text.js';
 
 /**
  * A prompt to summarize a block of text
@@ -9,7 +9,7 @@ export class SummarizePrompt extends AIPrompt<string> {
     super({ stopSequences: ['---'] });
   }
 
-  create(query: string, system: string): string {
+  override create(query: string, system: string): string {
     return `
 ${system}
 The killer whale or orca (Orcinus orca) is a toothed whale belonging to the oceanic dolphin family, of which it is the largest member"

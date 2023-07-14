@@ -1,16 +1,12 @@
+import { JSONSchemaType } from 'ajv';
 import test from 'ava';
-import { z } from 'zod';
 
-import { Embeddings, Memory } from './index.js';
+import { Betty } from '../ai/betty.js';
+import { AssistantPrompt } from '../prompts/chats.js';
+import { BusinessInfo, ExtractInfoPrompt } from '../prompts/extract.js';
+import { PromptFunction, SPrompt } from '../prompts/sprompt.js';
 
-import { Betty } from '../ai/index.js';
-import {
-  AssistantPrompt,
-  QuestionAnswerPrompt,
-  ExtractInfoPrompt,
-  BusinessInfo,
-  ZPrompt,
-} from '../prompts/index.js';
+import { Memory } from './memory.js';
 
 test('contextEnabledConversationWithAI', async (t) => {
   const humanQuerys = [
@@ -30,15 +26,15 @@ test('contextEnabledConversationWithAI', async (t) => {
     .map((_, i, a) => a.slice(0, i + 1));
 
   const ai = new Betty(aiResponses);
-  const mem = new Memory();
+  const memory = new Memory();
   const prompt = new AssistantPrompt();
 
   for (let i = 0; i < humanQuerys.length; i++) {
     const q = humanQuerys[i];
-    const res = await prompt.generate(ai, q, { mem });
+    const res = await prompt.generate(ai, q, { memory });
 
     t.is(res.value(), aiResponses[i]);
-    t.deepEqual(mem.peek(), exp[i]);
+    t.deepEqual(memory.peek(), exp[i]);
   }
 });
 
@@ -60,117 +56,89 @@ test('multiSessionChatWithAI', async (t) => {
     .map((_, i, a) => a.slice(0, i + 1));
 
   const ai = new Betty(aiResponses);
-  const mem = new Memory();
+  const memory = new Memory();
   const prompt = new AssistantPrompt();
 
   for (let i = 0; i < humanQuerys.length; i++) {
     const q = humanQuerys[i];
-    const res1 = await prompt.generate(ai, q, { sessionID: '1', mem });
-    const res2 = await prompt.generate(ai, q, { sessionID: '2', mem });
-    const res3 = await prompt.generate(ai, q, { sessionID: '3', mem });
+    const res1 = await prompt.generate(ai, q, { sessionID: '1', memory });
+    const res2 = await prompt.generate(ai, q, { sessionID: '2', memory });
+    const res3 = await prompt.generate(ai, q, { sessionID: '3', memory });
 
     t.is(res1.value(), aiResponses[i]);
     t.is(res2.value(), aiResponses[i]);
     t.is(res3.value(), aiResponses[i]);
 
-    t.deepEqual(mem.peek('1'), exp[i]);
-    t.deepEqual(mem.peek('2'), exp[i]);
-    t.deepEqual(mem.peek('3'), exp[i]);
+    t.deepEqual(memory.peek('1'), exp[i]);
+    t.deepEqual(memory.peek('2'), exp[i]);
+    t.deepEqual(memory.peek('3'), exp[i]);
   }
 });
 
-const googleSearch = (text: string): Promise<string> => {
-  let value = '';
-  if (text === `"biggest tech company in Mountain View"`) {
-    value = `The largest company in Mountain View is unsurprisingly Google, founded way back in 1998. It has around 100,000 employees globally.`;
-  }
+const googleSearch = ({
+  text,
+}: Readonly<{ text: string }>): Promise<string> => {
+  const value = `Question: ${text}\nAnserr:The largest company in Mountain View is unsurprisingly Google, founded way back in 1998. It has around 100,000 employees globally.`;
   return new Promise((res) => res(value));
 };
 
 test('findAnswersWithAI', async (t) => {
-  const actions = [
+  const functions: PromptFunction[] = [
     {
-      name: 'Google Search',
+      name: 'googleSearch',
       description:
         'useful for when you need to answer questions about current events',
-      action: googleSearch,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          text: {
+            description: 'The text to search for',
+            type: 'string',
+            nullable: false,
+          },
+        },
+        required: ['text'],
+      },
+      func: googleSearch as (args: unknown) => Promise<string>,
     },
   ];
 
-  const interactions = [
-    'Thought: I should look up who the biggest tech company in in Mountain View, CA\nAction: Google Search\nAction Input: "biggest tech company in Mountain View"',
-    `\nObservation: ${await googleSearch(
-      '"biggest tech company in Mountain View"'
-    )}`,
-    'I now know who the biggest tech company in Mountain View\nFinal Answer: Google',
-  ];
-
-  const aiResponses = interactions.filter(
-    (v) => !v.startsWith('\nObservation:')
-  );
-
-  const exp = interactions.map((_, i, a) => a.slice(0, i + 1));
-
-  const ai = new Betty(aiResponses);
-  const mem = new Memory();
-  const prompt = new QuestionAnswerPrompt(actions);
-  prompt.setDebug(true);
-
-  const res = await prompt.generate(
-    ai,
-    'What are the biggest tech company in Mountain View, CA?',
-    { mem }
-  );
-  t.is(res.value(), 'Google');
-  t.deepEqual(mem.peek().join(''), exp.pop()?.join(''));
-});
-
-test('usingEmbeddingsFindAnswersWithAI', async (t) => {
-  const actions = [
-    {
-      name: 'Science Search',
-      description: 'useful for when you need to answers to science questions',
-      action: scienceSearch,
+  const responseSchema: JSONSchemaType<{ companyName: string }> = {
+    type: 'object',
+    properties: {
+      companyName: {
+        description: 'The name of the company',
+        type: 'string',
+      },
     },
-  ];
-
-  const finalAnswer =
-    'Pluto is the coldest planet since its the last planet in our solar system';
+    required: ['companyName'],
+  };
 
   const interactions = [
-    'Thought: I should look up some information about the plabet Mars, CA\nAction: Science Search\nAction Input: "Coldest planet in our solar system"',
-    `\nObservation: Pluto is the last planet in our solar system`,
-    `I now know who the coldest planet\nFinal Answer: ${finalAnswer}`,
+    `Thought: Search for answer`,
+    `Function Call: googleSearch({ text: "What are the biggest tech company in Mountain View, CA?" })`,
+    `Observation: Google is the biggest company in Mountain View, CA.`,
+    `Thought: I have the final answer.`,
+    `Function Call: finalResult({ "companyName": "Google" })`,
   ];
 
-  const aiResponses = interactions.filter(
-    (v) => !v.startsWith('\nObservation:')
+  const ai = new Betty(interactions);
+  const memory = new Memory();
+  const prompt = new SPrompt<{ companyName: string }>(
+    responseSchema,
+    functions
   );
-
-  const exp = interactions.map((_, i, a) => a.slice(0, i + 1));
-
-  const ai = new Betty(aiResponses);
-  const mem = new Memory();
-  const prompt = new QuestionAnswerPrompt(actions);
   // prompt.setDebug(true);
 
   const res = await prompt.generate(
     ai,
-    'What is the coldest planet in our galexy?',
-    { mem }
+    'What are the biggest tech company in Mountain View, CA?',
+    { memory }
   );
-  t.is(res.value(), finalAnswer);
-  t.deepEqual(mem.peek().join(''), exp.pop()?.join(''));
-});
 
-const scienceSearch = (_text: string, embed: Embeddings): Promise<string> => {
-  if (embed.embeddings.length === 0) {
-    throw new Error('No embeddings returned');
-  }
-  return new Promise((res) =>
-    res('Pluto is the last planet in our solar system')
-  );
-};
+  const answer = res.value();
+  t.is(answer.companyName, 'Google');
+});
 
 test('extractInfoWithAI', async (t) => {
   const entities = [
@@ -199,6 +167,7 @@ test('extractInfoWithAI', async (t) => {
   const got = <Map<string, string[]>>res.value();
 
   t.is(exp.size, got.size);
+
   for (const [key, value] of exp) {
     t.true(got.has(key));
     t.deepEqual(value, got.get(key));
@@ -230,19 +199,39 @@ test('getStructuredDataFromAI', async (t) => {
   }`,
   ];
 
-  const Oracle = z.object({
-    name: z.string(),
-    pitch: z.string(),
-    genre: z.string(),
-    actors: z.array(z.object({ name: z.string(), role: z.string() })).max(3),
-    budgetInUSD: z.number(),
-    success: z.boolean(),
-  });
+  interface Oracle {
+    name: string;
+    pitch: string;
+    genre: string;
+    actors: { name: string; role: string }[];
+    budgetInUSD: number;
+    success: boolean;
+  }
 
-  type Oracle1 = z.infer<typeof Oracle>;
+  const oracle: JSONSchemaType<Oracle> = {
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      pitch: { type: 'string' },
+      genre: { type: 'string' },
+      actors: {
+        type: 'array',
+        maxItems: 3,
+        items: {
+          type: 'object',
+          properties: { name: { type: 'string' }, role: { type: 'string' } },
+          required: ['name', 'role'],
+        },
+      },
+      budgetInUSD: { type: 'number' },
+      success: { type: 'boolean' },
+    },
+    required: ['name', 'pitch', 'genre', 'actors', 'budgetInUSD', 'success'],
+    additionalProperties: false,
+  };
 
   const ai = new Betty(interactions);
-  const prompt = new ZPrompt<Oracle1>(Oracle);
+  const prompt = new SPrompt<Oracle>(oracle);
   prompt.setDebug(true);
 
   const res = await prompt.generate(

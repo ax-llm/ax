@@ -1,11 +1,11 @@
 {
-  "name": "mindsjs-examples",
+  "name": "llm-client-examples",
   "type": "module",
   "private": true,
-  "description": "MindsJS example apps",
+  "description": "llm-client example apps",
   "main": "index.js",
   "dependencies": {
-    "@dosco/minds": "^1.5.0",
+    "@dosco/llm-client": "file:../.",
     "@supercharge/promise-pool": "^2.4.0",
     "chalk": "^5.2.0",
     "zod": "^3.21.4"

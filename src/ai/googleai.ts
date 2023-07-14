@@ -1,12 +1,12 @@
-import {
-  TextModelInfo,
-  AIService,
-  AIGenerateTextResponse,
-  EmbedResponse,
-  PromptConfig,
-} from '../text/index.js';
-
 import { API, apiCall } from './util.js';
+import {
+  AIGenerateTextResponse,
+  AIPromptConfig,
+  AIService,
+  EmbedResponse,
+  TextModelInfo,
+} from '../text/types.js';
+
 
 /**
  * GoogleAI: API call details
@@ -188,7 +188,7 @@ const generateReq = (
     );
   }
   return {
-    instances: [{ prompt: prompt }],
+    instances: [{ prompt }],
     parameters: {
       maxOutputTokens: opt.maxTokens,
       temperature: opt.temperature,
@@ -251,7 +251,7 @@ export class GoogleAI implements AIService {
 
   generate(
     prompt: string,
-    md: PromptConfig,
+    md: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
@@ -261,14 +261,14 @@ export class GoogleAI implements AIService {
       )
     ) {
       return this.generateChat(prompt, md, sessionID);
-    } else {
+    } 
       return this.generateDefault(prompt, md, sessionID);
-    }
+    
   }
 
   private generateDefault(
     prompt: string,
-    md: PromptConfig,
+    md: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -295,7 +295,7 @@ export class GoogleAI implements AIService {
 
       return {
         id: '',
-        sessionID: sessionID,
+        sessionID,
         query: prompt,
         values,
         usage: [
@@ -307,7 +307,7 @@ export class GoogleAI implements AIService {
           },
         ],
         value() {
-          return (this as any).values[0].text;
+          return (this as { values: { text: string }[] }).values[0].text;
         },
       };
     });
@@ -315,7 +315,7 @@ export class GoogleAI implements AIService {
 
   private generateChat(
     prompt: string,
-    md: PromptConfig,
+    md: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -348,7 +348,7 @@ export class GoogleAI implements AIService {
 
       return {
         id: '',
-        sessionID: sessionID,
+        sessionID,
         query: prompt,
         values,
         usage: [
@@ -362,7 +362,7 @@ export class GoogleAI implements AIService {
           },
         ],
         value() {
-          return (this as any).values[0].text;
+          return (this as { values: { text: string }[] }).values[0].text;
         },
       };
     });

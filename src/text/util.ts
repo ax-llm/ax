@@ -1,6 +1,12 @@
-import { AITokenUsage } from './index';
+import Ajv, { JSONSchemaType } from 'ajv';
+import JSON5 from 'json5';
+
+import { AITokenUsage } from './types.js';
+
+const ajv = new Ajv();
 
 export function log(msg: string, color: string): null {
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
   if (typeof window === 'undefined') {
     if (color === 'red') {
@@ -19,19 +25,9 @@ export function log(msg: string, color: string): null {
   return null;
 }
 
-export const addUsage = (
-  usage: AITokenUsage[],
-  uList: AITokenUsage[]
-): AITokenUsage[] => {
-  uList.forEach((u) => {
-    usage = _addUsage(usage, u);
-  });
-  return usage;
-};
-
 export const _addUsage = (
-  usage: AITokenUsage[],
-  u: AITokenUsage
+  usage: readonly AITokenUsage[],
+  u: Readonly<AITokenUsage>
 ): AITokenUsage[] => {
   const index = usage.findIndex((v) => v.model.id === u.model.id);
   if (index === -1) {
@@ -57,4 +53,21 @@ export const _addUsage = (
   }
 
   return [...usage];
+};
+
+export const addUsage = (
+  usage: readonly AITokenUsage[],
+  uList: readonly AITokenUsage[]
+): AITokenUsage[] => {
+  let newUsage = [...usage];
+  uList.forEach((u) => {
+    newUsage = _addUsage(newUsage, u);
+  });
+  return newUsage as AITokenUsage[];
+};
+
+export const stringToObject = <T>(text: string, schema: unknown): T => {
+  const obj = JSON5.parse<T>(text);
+  ajv.validate(schema as JSONSchemaType<T>, obj);
+  return obj as T;
 };

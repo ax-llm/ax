@@ -1,7 +1,7 @@
 // Transcribe and combine multiple channels of a podcast into
 // a single timestamped text file with speaker names
 
-import { OpenAI, OpenAIFastOptions } from '@dosco/minds';
+import { OpenAI, OpenAIFastOptions } from '@dosco/llm-client';
 import { PromisePool } from '@supercharge/promise-pool';
 import path from 'path';
 import fs from 'fs';

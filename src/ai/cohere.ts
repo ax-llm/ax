@@ -1,12 +1,12 @@
-import {
-  TextModelInfo,
-  AIService,
-  AIGenerateTextResponse,
-  EmbedResponse,
-  PromptConfig,
-} from '../text';
-
 import { API, apiCall } from './util.js';
+import {
+  AIGenerateTextResponse,
+  AIPromptConfig,
+  AIService,
+  EmbedResponse,
+  TextModelInfo,
+} from '../text/types.js';
+
 
 type CohereAPI = API & {
   headers: { 'Cohere-Version': string };
@@ -14,6 +14,7 @@ type CohereAPI = API & {
 
 const apiURL = 'https://api.cohere.ai/';
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 const enum apiTypes {
   Generate = 'generate',
   Embed = 'embed',
@@ -24,9 +25,9 @@ const enum apiTypes {
  * @export
  */
 export enum CohereGenerateModel {
-  CommandXLargeNightly = 'command-xlarge-nightly',
-  XLarge = 'xlarge',
-  Medium = 'medium',
+  Command = 'command',
+  CommandXLarge = 'command-xlarge',
+  CommandLight = 'command-light',
 }
 
 /**
@@ -51,27 +52,27 @@ export enum CohereReturnLikelihoods {
 
 const modelInfo: TextModelInfo[] = [
   {
-    id: CohereGenerateModel.CommandXLargeNightly,
+    id: CohereGenerateModel.Command,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
-    maxTokens: 2048,
+    maxTokens: 4096,
     oneTPM: 1,
   },
   {
-    id: CohereGenerateModel.XLarge,
+    id: CohereGenerateModel.CommandXLarge,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
-    maxTokens: 2048,
+    maxTokens: 4096,
     oneTPM: 1,
   },
   {
-    id: CohereGenerateModel.Medium,
+    id: CohereGenerateModel.CommandLight,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
-    maxTokens: 2048,
+    maxTokens: 4096,
     oneTPM: 1,
   },
   {
@@ -122,10 +123,10 @@ export type CohereOptions = {
  * @export
  */
 export const CohereDefaultOptions = (): CohereOptions => ({
-  model: CohereGenerateModel.CommandXLargeNightly,
+  model: CohereGenerateModel.Command,
   embedModel: CohereEmbedModel.EmbedEnglishLightV20,
-  maxTokens: 300,
-  temperature: 0.45,
+  maxTokens: 500,
+  temperature: 0,
   topK: 0,
   topP: 1,
   frequencyPenalty: 0,
@@ -179,7 +180,7 @@ const generateReq = (
   opt: Readonly<CohereOptions>,
   stopSequences?: string[]
 ): CohereGenerateRequest => ({
-  prompt: prompt,
+  prompt,
   model: opt.model,
   max_tokens: opt.maxTokens,
   temperature: opt.temperature,
@@ -217,7 +218,7 @@ export class Cohere implements AIService {
 
   generate(
     prompt: string,
-    md?: PromptConfig,
+    md?: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -243,13 +244,13 @@ export class Cohere implements AIService {
     );
 
     return res.then(({ id, generations: gens }) => ({
-      id: id,
-      sessionID: sessionID,
+      id,
+      sessionID,
       query: prompt,
       values: gens,
       usage: [{ model }],
       value() {
-        return (this as any).values[0].text;
+        return (this as { values: { text: string }[] }).values[0].text;
       },
     }));
   }
@@ -282,7 +283,7 @@ export class Cohere implements AIService {
     );
 
     return res.then(({ id, embeddings }) => ({
-      id: id,
+      id,
       sessionID,
       texts,
       usage: {

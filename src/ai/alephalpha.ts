@@ -1,15 +1,16 @@
-import {
-  TextModelInfo,
-  AIService,
-  AIGenerateTextResponse,
-  EmbedResponse,
-  PromptConfig,
-} from '../text/index.js';
-
 import { API, apiCall } from './util.js';
+import {
+  AIGenerateTextResponse,
+  AIPromptConfig,
+  AIService,
+  EmbedResponse,
+  TextModelInfo,
+} from '../text/types.js';
+
 
 const apiURL = 'https://api.aleph-alpha.com/';
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 const enum apiTypes {
   Generate = 'complete',
   Embed = 'semantic_embed',
@@ -143,7 +144,7 @@ export const AlephAlphaDefaultOptions = (): AlephAlphaOptions => ({
   temperature: 0.45,
   topK: 0,
   topP: 1,
-  //frequencyPenalty: 0.40
+  // frequencyPenalty: 0.40
   // presencePenalty: 0.40
 });
 
@@ -231,7 +232,7 @@ const generateReq = (
 ): AlephAlphaGenerateRequest => ({
   model: opt.model,
   hosting: opt.hosting,
-  prompt: prompt,
+  prompt,
   maximum_tokens: opt.maxTokens,
   minimum_tokens: opt.minTokens,
   echo: opt.echo,
@@ -275,7 +276,7 @@ const embedReq = (
 ): AlephAlphaEmbedRequest => ({
   model: opt.embedModel,
   hosting: opt.hosting,
-  prompt: prompt,
+  prompt,
   representation: opt.representation,
   compress_to_size: opt.compressToSize,
   normalize: opt.normalize,
@@ -308,7 +309,7 @@ export class AlephAlpha implements AIService {
 
   generate(
     prompt: string,
-    md: PromptConfig,
+    md: AIPromptConfig,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -334,12 +335,12 @@ export class AlephAlpha implements AIService {
 
     return res.then(({ completions }) => ({
       id: '',
-      sessionID: sessionID,
+      sessionID,
       query: prompt,
       values: completions.map((v) => ({ id: '', text: v.completion.trim() })),
       usage: [{ model }],
       value() {
-        return (this as any).values[0].text;
+        return (this as { values: { text: string }[] }).values[0].text;
       },
     }));
   }
