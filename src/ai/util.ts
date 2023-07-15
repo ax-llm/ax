@@ -31,7 +31,7 @@ export const apiCall = <APIType extends API, Request extends object, Response>(
       .retry(0)
       .then(({ body: data }) => resolve(data))
       .catch(({ message, response: { header, status, body } }) => {
-        reject({ message, status, header, body });
+        reject({ message, status, header, body, request: json });
       })
   );
 };

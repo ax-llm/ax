@@ -1,4 +1,10 @@
-import { SPrompt } from '@dosco/llm-client';
+import {
+  AnthropicDefaultOptions,
+  SPrompt,
+  TogetherChatModel,
+  TogetherDefaultOptions,
+  TogetherLanguageModel,
+} from '@dosco/llm-client';
 import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
 
 import chalk from 'chalk';
