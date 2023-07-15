@@ -191,7 +191,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
-  maxTokens: 300,
+  maxTokens: 1000,
   temperature: 0,
   topP: 1,
 });

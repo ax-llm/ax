@@ -6,7 +6,7 @@
 
 # 🦙 🔥 ❤️ 🖖🏼
 
-A **production ready** JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure-OpenAI**, **GoogleAI**, **Cohere**, **Together Compute** and **AlephAlpha** and more.
+A **production ready** JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure-OpenAI**, **GoogleAI**, **Cohere**, **Anthropic**, **Together Compute** and **AlephAlpha** and more.
 
 This library handles all the **complexity** so you can focus on building useful things like question answering, ai bots, business workflows in minutes. You an easily define Javascript functions that the LLM can call. For example lookup your database, an api call to Trello, Notion, Airtable, Twilio or search the web while answering a business question.
 
@@ -46,6 +46,7 @@ npm i @dosco/llm-client
 | ------------ | --------------------------------------------------------- |
 | OpenAI       | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada, Whisper |
 | Cohere       | Command XLarge, XLarge, Medium, Light                     |
+| Anthropic    | Claude Instant, Claude 2                                  |
 | Azure OpenAI | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada          |
 | Google AI    | Text Bison, Chat Bison, Gecko                             |
 | Together     | RedPajama, GPT-NeoXT, Vicuna, MPT, Alpaca, etc            |

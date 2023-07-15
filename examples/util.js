@@ -1,4 +1,4 @@
-import { Together, Cohere, OpenAI } from '@dosco/llm-client';
+import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
 
 export const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
@@ -7,6 +7,8 @@ export const InitAI = () => {
     return new OpenAI(process.env.OPENAI_APIKEY);
   } else if (process.env.TOGETHER_APIKEY) {
     return new Together(process.env.TOGETHER_APIKEY);
+  } else if (process.env.ANTHROPIC_APIKEY) {
+    return new Anthropic(process.env.ANTHROPIC_APIKEY);
   }
   throw new Error('No LLM API key found');
 };

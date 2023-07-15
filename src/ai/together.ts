@@ -119,23 +119,21 @@ export type TogetherOptions = {
   model: TogetherChatModel | TogetherLanguageModel | TogetherCodeModel | string;
   maxTokens: number;
   temperature: number;
-  topK: number;
   topP: number;
-  repetitionPenalty: number;
+  topK?: number;
+  repetitionPenalty?: number;
   stopSequences?: string[];
+  stream?: boolean;
 };
 
 export const TogetherDefaultOptions = (): TogetherOptions => ({
   model: TogetherChatModel.TogetherComputerRedPajamaInciteChat3BV1,
-  maxTokens: 500,
-  temperature: 0.7,
-  topK: 50,
-  topP: 0.7,
-  repetitionPenalty: 1,
+  maxTokens: 1000,
+  temperature: 0,
+  topP: 1,
 });
 
 type TogetherGenerateRequest = {
-  stream_tokens: boolean;
   model: TogetherChatModel | TogetherLanguageModel | TogetherCodeModel | string;
   prompt: string;
   max_tokens: number;
@@ -145,6 +143,7 @@ type TogetherGenerateRequest = {
   repetition_penalty?: number;
   logprobs?: number;
   stop?: readonly string[];
+  stream_tokens?: boolean;
 };
 
 type TogetherAIGenerateTextResponse = {
@@ -168,7 +167,7 @@ const generateReq = (
   opt: Readonly<TogetherOptions>,
   stopSequences?: readonly string[]
 ): TogetherGenerateRequest => ({
-  stream_tokens: false,
+  stream_tokens: opt.stream,
   model: opt.model,
   prompt,
   max_tokens: opt.maxTokens,
