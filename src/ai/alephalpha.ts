@@ -1,4 +1,3 @@
-import { API, apiCall } from './util.js';
 import {
   AIGenerateTextResponse,
   AIPromptConfig,
@@ -7,10 +6,10 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from './util.js';
 
 const apiURL = 'https://api.aleph-alpha.com/';
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 const enum apiTypes {
   Generate = 'complete',
   Embed = 'semantic_embed',
@@ -183,7 +182,7 @@ type AlephAlphaGenerateRequest = {
   n?: number;
   logit_bias?: Map<string, number>;
   log_probs?: number;
-  stop_sequences?: string[];
+  stop_sequences?: readonly string[];
   tokens?: boolean;
   raw_completion?: boolean;
   disable_optimizations?: boolean;
@@ -228,7 +227,7 @@ type AlephAlphaEmbedResponse = {
 const generateReq = (
   prompt: string,
   opt: Readonly<AlephAlphaOptions>,
-  stopSequences: string[]
+  stopSequences: readonly string[]
 ): AlephAlphaGenerateRequest => ({
   model: opt.model,
   hosting: opt.hosting,
@@ -309,7 +308,7 @@ export class AlephAlpha implements AIService {
 
   generate(
     prompt: string,
-    md: AIPromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -345,7 +344,7 @@ export class AlephAlpha implements AIService {
     }));
   }
 
-  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
     if (texts.length > 1) {
       throw new Error('AlephAlpha limits embeddings input to 1 string');
     }

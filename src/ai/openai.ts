@@ -1,4 +1,3 @@
-import { API, apiCall, apiCallWithUpload } from './util.js';
 import {
   AIGenerateTextResponse,
   AIPromptConfig,
@@ -8,6 +7,7 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall, apiCallWithUpload } from './util.js';
 
 /**
  * OpenAI: API call details
@@ -23,7 +23,7 @@ const apiURL = 'https://api.openai.com/v1/';
  * OpenAI: API types
  * @export
  */
-// eslint-disable-next-line @typescript-eslint/naming-convention
+
 const enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
@@ -227,7 +227,7 @@ type OpenAIGenerateRequest = {
   stream?: boolean;
   logprobs?: number;
   echo?: boolean;
-  stop?: string[];
+  stop?: readonly string[];
   presence_penalty?: number;
   frequency_penalty?: number;
   best_of?: number;
@@ -270,7 +270,7 @@ type OpenAIChatGenerateRequest = {
   top_p: number;
   n?: number;
   stream?: boolean;
-  stop?: string[];
+  stop?: readonly string[];
   presence_penalty?: number;
   frequency_penalty?: number;
   logit_bias?: Map<string, number>;
@@ -329,7 +329,7 @@ type OpenAIAudioResponse = {
 const generateReq = (
   prompt: string,
   opt: Readonly<OpenAIOptions>,
-  stopSequences: string[]
+  stopSequences: readonly string[]
 ): OpenAIGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -359,7 +359,7 @@ const generateReq = (
 const generateChatReq = (
   prompt: string,
   opt: Readonly<OpenAIOptions>,
-  stopSequences: string[]
+  stopSequences: readonly string[]
 ): OpenAIChatGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -387,12 +387,12 @@ const generateAudioReq = (
   prompt?: string,
   language?: string
 ): OpenAIAudioRequest => ({
-    model: opt.audioModel,
-    prompt,
-    temperature: opt.temperature,
-    language,
-    response_format: 'verbose_json',
-  });
+  model: opt.audioModel,
+  prompt,
+  temperature: opt.temperature,
+  language,
+  response_format: 'verbose_json',
+});
 
 /**
  * OpenAI: AI Service
@@ -432,9 +432,8 @@ export class OpenAI implements AIService {
       ].includes(this.options.model as OpenAIGenerateModel)
     ) {
       return this.generateChat(prompt, md, sessionID);
-    } 
-      return this.generateDefault(prompt, md, sessionID);
-    
+    }
+    return this.generateDefault(prompt, md, sessionID);
   }
 
   private generateDefault(

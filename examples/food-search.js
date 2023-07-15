@@ -1,19 +1,8 @@
-import {
-  Cohere,
-  OpenAI,
-  OpenAIDefaultOptions,
-  // OpenAIGenerateModel,
-  SPrompt,
-} from '@dosco/llm-client';
+import { SPrompt } from '@dosco/llm-client';
+import { InitAI } from './util';
 import chalk from 'chalk';
 
-const opt = OpenAIDefaultOptions();
-// opt.model = OpenAIGenerateModel.GPT4;
-opt.temperature = 0;
-
-const ai = process.env.COHERE_APIKEY
-  ? new Cohere(process.env.COHERE_APIKEY)
-  : new OpenAI(process.env.OPENAI_APIKEY, opt);
+const ai = InitAI();
 
 const choice = Math.round(Math.random());
 

@@ -1,4 +1,3 @@
-import { API, apiCall } from './util.js';
 import {
   AIGenerateTextResponse,
   AIPromptConfig,
@@ -7,6 +6,7 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from './util.js';
 
 type CohereAPI = API & {
   headers: { 'Cohere-Version': string };
@@ -14,7 +14,6 @@ type CohereAPI = API & {
 
 const apiURL = 'https://api.cohere.ai/';
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 const enum apiTypes {
   Generate = 'generate',
   Embed = 'embed',
@@ -151,7 +150,7 @@ type CohereGenerateRequest = {
   p: number;
   frequency_penalty?: number;
   presence_penalty?: number;
-  end_sequences?: string[];
+  end_sequences?: readonly string[];
   stop_sequences?: string[];
   return_likelihoods?: CohereReturnLikelihoods;
 };
@@ -163,7 +162,7 @@ type CohereAIGenerateTextResponse = {
 };
 
 type CohereEmbedRequest = {
-  texts: string[];
+  texts: readonly string[];
   model: CohereGenerateModel | string;
   truncate: string;
 };
@@ -178,7 +177,7 @@ type CohereEmbedResponse = {
 const generateReq = (
   prompt: string,
   opt: Readonly<CohereOptions>,
-  stopSequences?: string[]
+  stopSequences?: readonly string[]
 ): CohereGenerateRequest => ({
   prompt,
   model: opt.model,
@@ -218,7 +217,7 @@ export class Cohere implements AIService {
 
   generate(
     prompt: string,
-    md?: AIPromptConfig,
+    md?: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -255,7 +254,7 @@ export class Cohere implements AIService {
     }));
   }
 
-  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
     if (texts.length > 96) {
       throw new Error('Cohere limits embeddings input to 96 strings');
     }

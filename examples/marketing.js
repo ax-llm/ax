@@ -1,14 +1,7 @@
-import {
-  Cohere,
-  OpenAI,
-  OpenAICreativeOptions,
-  MessagePrompt,
-  MessageType,
-} from '@dosco/llm-client';
+import { MessageType } from '@dosco/llm-client';
+import { InitAI } from './util';
 
-const ai = process.env.COHERE_APIKEY
-  ? new Cohere(process.env.COHERE_APIKEY)
-  : new OpenAI(process.env.OPENAI_APIKEY, OpenAICreativeOptions());
+const ai = InitAI();
 
 const product = {
   name: 'Acme Toilet Cleaning',

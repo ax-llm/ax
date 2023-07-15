@@ -1,11 +1,5 @@
-import {
-  Cohere,
-  OpenAI,
-  OpenAICreativeOptions,
-  AlephAlpha,
-  Memory,
-  AssistantPrompt,
-} from '@dosco/llm-client';
+import { Memory, AssistantPrompt } from '@dosco/llm-client';
+import { InitAI } from './util';
 import { createInterface } from 'readline';
 
 /*
@@ -20,15 +14,7 @@ AI: will it ever end?
 > The sun will eventually end, but not for billions of years.
 */
 
-let ai;
-
-if (process.env.COHERE_APIKEY) {
-  ai = new Cohere(process.env.COHERE_APIKEY);
-} else if (process.env.ALEPHALPHA_APIKEY) {
-  ai = new AlephAlpha(process.env.ALEPHALPHA_APIKEY);
-} else {
-  ai = new OpenAI(process.env.OPENAI_APIKEY, OpenAICreativeOptions());
-}
+const ai = InitAI();
 
 const mem = new Memory();
 const prompt = new AssistantPrompt();

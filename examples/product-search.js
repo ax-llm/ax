@@ -1,10 +1,9 @@
-import { Cohere, OpenAI, SPrompt } from '@dosco/llm-client';
+import { SPrompt } from '@dosco/llm-client';
+import { InitAI } from './util';
 
 import chalk from 'chalk';
 
-const ai = process.env.COHERE_APIKEY
-  ? new Cohere(process.env.COHERE_APIKEY)
-  : new OpenAI(process.env.OPENAI_APIKEY);
+const ai = InitAI();
 
 const productDB = [
   { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },

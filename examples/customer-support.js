@@ -1,14 +1,7 @@
-import {
-  Cohere,
-  OpenAI,
-  Memory,
-  ExtractInfoPrompt,
-  BusinessInfo,
-} from '@dosco/llm-client';
+import { Memory, ExtractInfoPrompt, BusinessInfo } from '@dosco/llm-client';
+import { InitAI } from './util';
 
-const ai = process.env.COHERE_APIKEY
-  ? new Cohere(process.env.COHERE_APIKEY)
-  : new OpenAI(process.env.OPENAI_APIKEY);
+const ai = InitAI();
 
 const entities = [
   { name: BusinessInfo.ProductName },

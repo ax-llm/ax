@@ -21,15 +21,19 @@ export const apiCall = <APIType extends API, Request extends object, Response>(
     Authorization: api.key ? `Bearer ${api.key}` : undefined,
   };
 
-  // eslint-disable-next-line no-promise-executor-return
-  return new Promise((resolve) => superagent
+  return new Promise((resolve, reject) =>
+    superagent
       .post(api.name ? new URL(api.name, api.url).href : api.url)
       .send(json)
       .set(headers)
       .type('json')
       .accept('json')
-      .retry(3)
-      .then(({ body: data }) => resolve(data)));
+      .retry(0)
+      .then(({ body: data }) => resolve(data))
+      .catch(({ message, response: { header, status, body } }) => {
+        reject({ message, status, header, body });
+      })
+  );
 };
 
 export const apiCallWithUpload = <APIType extends API, Request, Response>(
@@ -54,7 +58,7 @@ export const apiCallWithUpload = <APIType extends API, Request, Response>(
       .set(headers);
 
     let k: keyof Request;
-    // eslint-disable-next-line no-restricted-syntax
+
     for (k in json) {
       if (json[k]) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,7 +66,6 @@ export const apiCallWithUpload = <APIType extends API, Request, Response>(
       }
     }
 
-    // eslint-disable-next-line no-promise-executor-return
     return sa.then(({ body: data }) => resolve(data));
   });
 };

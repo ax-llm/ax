@@ -5,9 +5,8 @@
   "description": "llm-client example apps",
   "main": "index.js",
   "dependencies": {
-    "@dosco/llm-client": "file:../.",
+    "@dosco/llm-client": "3.0.1",
     "@supercharge/promise-pool": "^2.4.0",
-    "chalk": "^5.2.0",
-    "zod": "^3.21.4"
+    "chalk": "^5.2.0"
   }
 }

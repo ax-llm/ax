@@ -8,7 +8,7 @@
 
 <!-- <img align="right" width="300" height="300" style="padding: 0px" src="https://i.imgur.com/02KP6OU.png"> -->
 
-A JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure OpenAI**, **Cohere** and **AlephAlpha** and more.
+A **production ready** JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure OpenAI**, **Cohere** and **AlephAlpha** and more.
 
 This library handles all the **complexity** so you can focus on building useful things like question answering, ai bots, business workflows in minutes. You an easily define Javascript functions that the LLM can call. For example lookup your database, an api call to Trello, Notion, Airtable, Twilio or search the web while answering a business question.
 
@@ -25,6 +25,8 @@ npm i @dosco/llm-client
 - Minimal to zero dependencies
 - Focus on useful real-world usecases
 - Single interface: OpenAI, Azure OpenAI, Cohere and more
+- Usage statistics
+- Built in retry and error-correction logic
 
 ## Example Workflows
 
@@ -48,6 +50,7 @@ npm i @dosco/llm-client
 | Cohere       | Command XLarge, XLarge, Medium, Light                     |
 | Azure OpenAI | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada          |
 | Google AI    | Text Bison, Chat Bison, Gecko                             |
+| Together     | RedPajama, GPT-NeoXT, Vicuna, MPT, Alpaca, etc            |
 | AlephaAlpha  | Luminous: Control, Supreme, Extended, Base                |
 
 ## Answer Questions
@@ -101,11 +104,15 @@ const responseSchema = {
       items: {
         type: 'object',
         properties: {
-          name: { type: 'string' },
-          units: { type: 'number' },
-          desc: { type: 'string' },
+          name: { type: 'string', description: 'product name' },
+          units: { type: 'number', description: 'quantity in stock' },
+          desc: { type: 'string', description: 'product description' },
         },
       },
+    },
+    response: {
+      type: 'string',
+      description: 'response message for the sender',
     },
   },
 };
@@ -119,8 +126,47 @@ const res = await prompt.generate(ai, customerQuery);
 console.log(res.value());
 ```
 
-```console
->  Answer for customer: We have 2 Macbook Pro's M2 with 96GB RAM and 0 iPads in stock.
+Response
+
+```json
+{
+  "data": [
+    {
+      "name": "Macbook Pro M2",
+      "units": 5,
+      "desc": "M2, 32GB"
+    },
+    {
+      "name": "iPad",
+      "units": 0
+    }
+  ],
+  "response": "We have 2 Macbook Pro's M2 with 96GB RAM and 0 iPads in stock."
+}
+```
+
+Usage Stats in Response.
+
+The usage stats are useful to be able to compute costs and usage information.
+
+```json
+[
+  {
+    "model": {
+      "id": "gpt-3.5-turbo-0613",
+      "currency": "usd",
+      "promptTokenCostPer1K": 0.002,
+      "completionTokenCostPer1K": 0.002,
+      "maxTokens": 4096,
+      "oneTPM": 1
+    },
+    "stats": {
+      "promptTokens": 1067,
+      "completionTokens": 223,
+      "totalTokens": 1290
+    }
+  }
+]
 ```
 
 ## Extract Details From Messages
@@ -219,19 +265,6 @@ const res = await prompt.generate(
 
 // Get the response
 console.log('>', res.value());
-```
-
-```console
-{
-  "data": [
-    {
-      "name": "Macbook Pro",
-      "units": 2,
-      "desc": "M2, 96GB RAM"
-    }
-  ],
-  "response": "We have 2 Macbook Pro M2 96GB RAM in stock."
-}
 ```
 
 ## What is Function (API) Calling?
