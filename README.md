@@ -4,7 +4,7 @@
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
-# 🦙 🔥 ❤️ 🖖🏼
+# 🌵 🦙 🔥 ❤️ 🖖🏼 
 
 A **production ready** JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure-OpenAI**, **GoogleAI**, **Cohere**, **Anthropic**, **Together Compute** and **AlephAlpha** and more.
 
@@ -52,9 +52,30 @@ npm i @dosco/llm-client
 | Together     | RedPajama, GPT-NeoXT, Vicuna, MPT, Alpaca, etc            |
 | AlephaAlpha  | Luminous: Control, Supreme, Extended, Base                |
 
-## Answer Questions
+## Simple to use
 
-Build business or personal workflows where the AI calls your APIs to fetch data and use that data to solve problems or help customers find answers.
+```javascript
+import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
+
+// const ai = new Cohere(process.env.COHERE_APIKEY)
+// const ai = new Anthropic(process.env.ANTHROPIC_APIKEY)
+// const ai = new OpenAI(process.env.OPENAI_APIKEY);
+// ... and more
+
+const prompt = new AIPrompt();
+const memory = new AIMemory();
+
+const res = await prompt.generate(ai, `What is your name?`, { memory });
+console.log(res.value())
+```
+
+
+## Function (API) Calling with reasoning (CoT)
+
+Use this when you need the LLM to reason about something and call your APIs when going about it to fetch or write data. Build a meeting notes app backed by a task management tool that figures out the decided tasks and creates and assigns the tasks correctly as cards in Trello, Asana or Jira.
+Or a restaurent finding app that uses the weather and google places api to find a place to eat at. 
+
+You can truely build your entire backend with LLMs using this capability. To me this feels like magic. 
 
 ```js
 const productDB = [
@@ -202,19 +223,6 @@ Extracted Details From Customer Message:
   'Issue Summary' => [ 'Product is not functioning properly' ],
   'Payment method' => [ 'Cash' ]
 }
-```
-
-## LLM Client API Example
-
-```javascript
-import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
-
-// const ai = new Cohere(process.env.COHERE_APIKEY)
-const ai = new OpenAI(process.env.OPENAI_APIKEY);
-const prompt = new AIPrompt();
-const memory = new AIMemory();
-
-await prompt.generate(ai, `What is your name?`, { memory });
 ```
 
 ## Why use LLM Client?
