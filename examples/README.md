@@ -30,5 +30,3 @@ Here is a quick overview of the modules you will find in this project:
 8. **get-summary.js:** Employs AI to condense a large block of text into a concise summary, which is useful for quick information absorption.
 
 9. **ai-vs-ai.js:** A fascinating module where OpenAI engages in friendly banter with Cohere, providing unique insight into the interaction between different AI models.
-
-## Conclusion
