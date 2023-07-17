@@ -1,5 +1,4 @@
-import { SPrompt } from '@dosco/llm-client';
-import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
+import { SPrompt, Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
 import chalk from 'chalk';
 
 const InitAI = () => {
@@ -7,8 +6,6 @@ const InitAI = () => {
     return new Cohere(process.env.COHERE_APIKEY);
   } else if (process.env.OPENAI_APIKEY) {
     return new OpenAI(process.env.OPENAI_APIKEY);
-  } else if (process.env.TOGETHER_APIKEY) {
-    return new Together(process.env.TOGETHER_APIKEY);
   } else if (process.env.ANTHROPIC_APIKEY) {
     return new Anthropic(process.env.ANTHROPIC_APIKEY);
   }

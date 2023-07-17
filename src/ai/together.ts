@@ -23,14 +23,15 @@ const enum apiTypes {
  * @export
  */
 export enum TogetherChatModel {
-  TogetherComputerRedPajamaInciteChat3BV1 = 'togethercomputer/RedPajama-INCITE-Chat-3B-v1',
-  TogetherComputerRedPajamaIncite7BChat = 'togethercomputer/RedPajama-INCITE-7B-Chat',
-  TogetherComputerGPTNeoXTChatBase20B = 'togethercomputer/GPT-NeoXT-Chat-Base-20B',
+  RedPajamaInciteChat3BV1 = 'togethercomputer/RedPajama-INCITE-Chat-3B-v1',
+  RedPajamaIncite7BChat = 'togethercomputer/RedPajama-INCITE-7B-Chat',
+  GPTNeoXTChatBase20B = 'togethercomputer/GPT-NeoXT-Chat-Base-20B',
   // LMSysVicuna7BDeltaV11 = 'lmsys/vicuna-7b-delta-v1.1',
   // LMsysVicuna13BDeltaV11 = 'lmsys/vicuna-13b-delta-v1.1',
   // MosaiclMPT7BChat = 'mosaicml/mpt-7b-chat',
-  MosaiclMPT30BChat = 'togethercomputer/mpt-30b-chat',
+  // MosaiclMPT30BChat = 'togethercomputer/mpt-30b-chat',
   // TatsuLabAlpaca7BWdiff = 'tatsu-lab/alpaca-7b-wdiff',
+  Falcon7BInstruct = 'togethercomputer/falcon-7b-instruct',
 }
 
 export enum TogetherLanguageModel {}
@@ -50,7 +51,7 @@ export enum TogetherCodeModel {}
 
 const modelInfo: TextModelInfo[] = [
   {
-    id: TogetherChatModel.TogetherComputerRedPajamaInciteChat3BV1,
+    id: TogetherChatModel.RedPajamaInciteChat3BV1,
     currency: 'usd',
     promptTokenCostPer1K: 0.001,
     completionTokenCostPer1K: 0.001,
@@ -58,7 +59,7 @@ const modelInfo: TextModelInfo[] = [
     oneTPM: 1,
   },
   {
-    id: TogetherChatModel.TogetherComputerRedPajamaIncite7BChat,
+    id: TogetherChatModel.RedPajamaIncite7BChat,
     currency: 'usd',
     promptTokenCostPer1K: 0.001,
     completionTokenCostPer1K: 0.001,
@@ -66,7 +67,7 @@ const modelInfo: TextModelInfo[] = [
     oneTPM: 1,
   },
   {
-    id: TogetherChatModel.TogetherComputerGPTNeoXTChatBase20B,
+    id: TogetherChatModel.GPTNeoXTChatBase20B,
     currency: 'usd',
     promptTokenCostPer1K: 0.003,
     completionTokenCostPer1K: 0.003,
@@ -98,7 +99,7 @@ const modelInfo: TextModelInfo[] = [
   //   oneTPM: 1,
   // },
   {
-    id: TogetherChatModel.MosaiclMPT30BChat,
+    id: TogetherChatModel.Falcon7BInstruct,
     currency: 'usd',
     promptTokenCostPer1K: 0.006,
     completionTokenCostPer1K: 0.006,

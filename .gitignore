@@ -10,3 +10,4 @@ yarn.lock
 *.mp3
 *.txt
 audio
+.env

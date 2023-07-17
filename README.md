@@ -1,10 +1,10 @@
-# LLM Client - The best library to work with LLMs
+# LLMClient - The best library to work with LLMs
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/llm-client?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/llm-client)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
-# 🌵 🦙 🔥 ❤️ 🖖🏼 
+# 🌵 🦙 🔥 ❤️ 🖖🏼
 
 A **production ready** JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure-OpenAI**, **GoogleAI**, **Cohere**, **Anthropic**, **Together Compute** and **AlephAlpha** and more.
 
@@ -66,16 +66,15 @@ const prompt = new AIPrompt();
 const memory = new AIMemory();
 
 const res = await prompt.generate(ai, `What is your name?`, { memory });
-console.log(res.value())
+console.log(res.value());
 ```
-
 
 ## Function (API) Calling with reasoning (CoT)
 
 Use this when you need the LLM to reason about something and call your APIs when going about it to fetch or write data. Build a meeting notes app backed by a task management tool that figures out the decided tasks and creates and assigns the tasks correctly as cards in Trello, Asana or Jira.
-Or a restaurent finding app that uses the weather and google places api to find a place to eat at. 
+Or a restaurent finding app that uses the weather and google places api to find a place to eat at.
 
-You can truely build your entire backend with LLMs using this capability. To me this feels like magic. 
+You can truely build your entire backend with LLMs using this capability. To me this feels like magic.
 
 ```js
 const productDB = [
