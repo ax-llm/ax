@@ -1,5 +1,7 @@
 # LLMClient - The best library to work with LLMs
 
+A production library, supports all major LLMs, focused on function (API) calling and reasoning. Build quickly with LLMs
+
 [![NPM Package](https://img.shields.io/npm/v/@dosco/llm-client?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/llm-client)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
@@ -26,19 +28,21 @@ npm i @dosco/llm-client
 - Usage statistics
 - Built in retry and error-correction logic
 
-## Example Workflows
+## Code Examples (Apps)
 
-| Example               | Description                                                    |
-| --------------------- | -------------------------------------------------------------- |
-| ask-questions.js      | AI uses Google search to find the correct answer               |
-| product-search.js     | Customers can as product related questions in natural language |
-| food-search.js        | Multiple APIs are used to lookup the best eating options       |
-| customer-support.js   | Extract valuable details from customer communications          |
-| marketing.js          | Use AI to generate short effective marketing sms messages      |
-| transcribe-podcast.js | Transcribe multiple podcast channels into text                 |
-| chat-assistant.js     | AI chat bot capable of intellegent conversations               |
-| get-summary.js        | AI to generate a short summary of a large block of text        |
-| ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                         |
+[LLMClient Example Apps](/examples/README.md)
+
+| Example               | Description                                               |
+| --------------------- | --------------------------------------------------------- |
+| meetings.js           | Meeting transcript converted into multiple Trello tasks   |
+| product-search.js     | Call an API to answer product related questions           |
+| food-search.js        | Multiple APIs are used to lookup the best eating options  |
+| customer-support.js   | Extract valuable details from customer communications     |
+| marketing.js          | Use AI to generate short effective marketing sms messages |
+| transcribe-podcast.js | Transcribe multiple podcast channels into text            |
+| chat-assistant.js     | AI chat bot capable of intellegent conversations          |
+| get-summary.js        | AI to generate a short summary of a large block of text   |
+| ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                    |
 
 ## AI's Supported
 
