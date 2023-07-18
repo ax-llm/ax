@@ -1,6 +1,6 @@
 # LLMClient - The best library to work with LLMs
 
-A production library, supports all major LLMs, focused on function (API) calling and reasoning. Build quickly with LLMs
+A production ready library with support for all major LLMs, focused on function (API) calling and reasoning. Build apps quickly with LLMs
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/llm-client?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/llm-client)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -25,8 +25,8 @@ npm i @dosco/llm-client
 - Minimal to zero dependencies
 - Focus on useful real-world usecases
 - Single interface: OpenAI, Azure OpenAI, Cohere and more
-- Usage statistics
 - Built in retry and error-correction logic
+- Usage statistics
 
 ## Code Examples (Apps)
 
