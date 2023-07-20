@@ -80,8 +80,11 @@ console.log(res.value());
 
 ## Function (API) Calling with reasoning (CoT)
 
-Use this when you need the LLM to reason about something and call your APIs when going about it to fetch or write data. Build a meeting notes app backed by a task management tool that figures out the decided tasks and creates and assigns the tasks correctly as cards in Trello, Asana or Jira.
-Or a restaurent finding app that uses the weather and google places api to find a place to eat at.
+Often you need the LLM to reason through a task and fetch and update external data related to this task. This is whre reasoning meets function (API) calling. It's built-in so you get all of the magic automatically. Just define the functions you wish to you, a schema for the response object and thats it.
+
+There are even some useful built-in functions like a `Code Interpreter` that the LLM can use to write and execute JS code.
+
+Build a meeting notes app backed by a task management tool that figures out the decided tasks and creates and assigns the tasks correctly as cards in Trello, Asana or Jira. Or a food finding app that uses the weather and google places api to find a place to eat at.
 
 You can truely build your entire backend with LLMs using this capability. To me this feels like magic.
 
