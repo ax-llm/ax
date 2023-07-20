@@ -8,7 +8,9 @@ cd llm-client/examples
 npm i
 ```
 
-### AI Manager Bot: Generate Trello Tasks from Meeting Notes
+## Advanced Demos
+
+### AI-Manager Bot: Generate Trello Tasks from Meeting Notes
 
 Takes a transcript of a meeting conversation and automagically creates Trello tasks and assigns them to the right people. If people have not volunteered to handle tasks then they are assigned based on skills listed in their Trello Bio. What was previously a complex multiple hour job is done in 5 seconds. Due dates are assigned as well.
 
