@@ -90,10 +90,10 @@ You can truely build your entire backend with LLMs using this capability. To me 
 
 ## Built-in Functions
 
-| Function          | Description                                            |
-| ----------------- | ------------------------------------------------------ |
-| Code Interpreter  | Used by the LLM to execute JS code in a sandboxed env. |
-| Emeddings Adapter | Wrapper to fetch and pass embeddings to your function  |
+| Function           | Description                                            |
+| ------------------ | ------------------------------------------------------ |
+| Code Interpreter   | Used by the LLM to execute JS code in a sandboxed env. |
+| Embeddings Adapter | Wrapper to fetch and pass embeddings to your function  |
 
 ## Example using Custom Functions
 
