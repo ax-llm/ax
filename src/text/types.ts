@@ -1,8 +1,8 @@
 import { JSONSchemaType } from 'ajv';
 
 export type AIGenerateTextExtraOptions = {
-  sessionID?: string;
   debug: boolean;
+  sessionID?: string;
 };
 
 export type TextModelInfo = {
@@ -63,14 +63,26 @@ export type Embeddings = {
   embeddings: number[];
 };
 
-// eslint-disable-next-line functional/no-mixed-types
+export type PromptFunctionExtraOptions = {
+  ai: AIService;
+  debug: boolean;
+  usage: AITokenUsage[];
+  sessionID?: string;
+};
+
+export type PromptFunctionFunc = (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args: any,
+  extra?: Readonly<PromptFunctionExtraOptions>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+) => Promise<any>;
+
 export type PromptFunction = {
   readonly name: string;
   readonly description: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly inputSchema: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  func: (args: any) => Promise<any>;
+  func: PromptFunctionFunc;
 };
 
 export type PromptResponseConfig<T> = {

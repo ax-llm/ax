@@ -93,8 +93,9 @@ export class AIPrompt<T> {
     let value = res.value();
     let totalUsage = res.usage;
     let error: Error | undefined;
+    const retryCount = 3;
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < retryCount; i++) {
       try {
         if (keyValue) {
           fvalue = stringToMap(value);
@@ -111,6 +112,9 @@ export class AIPrompt<T> {
         };
       } catch (e: unknown) {
         error = e as Error;
+        if (i < retryCount - 1) {
+          continue;
+        }
         const { fixedValue, usage } = await this.fixSyntax(
           ai,
           mem,
@@ -169,18 +173,19 @@ export class AIPrompt<T> {
       if (rval.length === 0) {
         throw new Error('empty response from ai');
       }
+      // add usage data from generate call
       usage = addUsage(usage, res.usage);
 
       const { done, usage: actionUsage } = await processFunction(
         functions,
+        ai,
         mem,
         res,
-        {
-          sessionID,
-          debug,
-        }
+        debug,
+        sessionID
       );
 
+      // add usage data from function call
       usage = addUsage(usage, actionUsage);
       if (done) {
         return { ...res, usage };

@@ -25,7 +25,7 @@ export const JSInterpreterFunction = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   func: ({ code }: Readonly<{ code: string }>): Promise<any> => {
     return new Promise((resolve) => {
-      resolve(codeInterpreterJavascript({ code, permissions }));
+      resolve(codeInterpreterJavascript(code, permissions));
     });
   },
 });
@@ -38,14 +38,11 @@ export enum CodeInterpreterPermission {
   PROCESS = 'process',
 }
 
-export const codeInterpreterJavascript = ({
-  code,
-  permissions = [],
-}: Readonly<{
-  code: string;
-  permissions?: readonly CodeInterpreterPermission[];
+export const codeInterpreterJavascript = (
+  code: string,
+  permissions: readonly CodeInterpreterPermission[] = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-}>): any => {
+): any => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const context: { [key: string]: any } = {
     // require: require,

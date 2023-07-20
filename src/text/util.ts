@@ -55,6 +55,18 @@ export const _addUsage = (
   return [...usage];
 };
 
+export const updateUsage = (
+  // eslint-disable-next-line functional/prefer-immutable-types
+  usage: AITokenUsage[],
+  u: Readonly<AITokenUsage>
+) => {
+  usage.forEach((u1, i) => {
+    if (u1.model.id === u.model.id) {
+      usage[i] = u;
+    }
+  });
+};
+
 export const addUsage = (
   usage: readonly AITokenUsage[],
   uList: readonly AITokenUsage[]

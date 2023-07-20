@@ -1,9 +1,10 @@
 import {
-  AIGenerateTextExtraOptions,
   AIGenerateTextResponse,
   AIMemory,
+  AIService,
   AITokenUsage,
   PromptFunction,
+  PromptFunctionExtraOptions,
 } from './types.js';
 import { log, stringToObject } from './util.js';
 
@@ -11,8 +12,9 @@ const functionCallRe = /(\w+)\((.*)\)/s;
 const queryPrefix = '\nObservation: ';
 
 const executeFunction = async (
-  funcInfo: PromptFunction,
-  funcArgJSON: string
+  funcInfo: Readonly<PromptFunction>,
+  funcArgJSON: string,
+  extra: Readonly<PromptFunctionExtraOptions>
 ): Promise<{ value?: string; error?: string }> => {
   let value;
 
@@ -23,15 +25,21 @@ const executeFunction = async (
     return { error: (e as Error).message };
   }
 
-  const res = JSON.stringify(await funcInfo.func(value), null, '\t');
-  return { value: res };
+  const res =
+    (await funcInfo.func.length) === 2
+      ? funcInfo.func(value, extra)
+      : funcInfo.func(value);
+
+  return { value: JSON.stringify(res, null, '\t') };
 };
 
 export const processFunction = async (
   functions: readonly PromptFunction[],
+  ai: AIService,
   mem: AIMemory,
   res: Readonly<AIGenerateTextResponse<string>>,
-  { sessionID, debug = false }: Readonly<AIGenerateTextExtraOptions>
+  debug = false,
+  sessionID?: string
 ): Promise<{ done: boolean; usage: AITokenUsage[] }> => {
   let funcName = '';
   let funcArgs = '';
@@ -53,8 +61,19 @@ export const processFunction = async (
   let funcResult;
   const func = functions.find((v) => v.name === funcName);
 
+  if (!func) {
+    funcResult = `Function ${funcName} not found`;
+  }
+
+  const usage: AITokenUsage[] = [];
+
   if (func) {
-    const result = await executeFunction(func, funcArgs);
+    const result = await executeFunction(func, funcArgs, {
+      ai,
+      debug,
+      usage,
+      sessionID,
+    });
 
     if (result.error) {
       funcResult = `Fix error and repeat action: ${result.error}`;
@@ -64,7 +83,7 @@ export const processFunction = async (
   }
 
   if (!funcResult || funcResult.length === 0) {
-    funcResult = `No data returned by function, fix and repeat`;
+    funcResult = `No data returned by function`;
   }
 
   if (debug) {
@@ -74,7 +93,7 @@ export const processFunction = async (
   const mval = ['\n', val, queryPrefix, funcResult];
   mem.add(mval.join(''), sessionID);
 
-  return { done: false, usage: res.usage };
+  return { done: false, usage };
 };
 
 export const buildFunctionsPrompt = (

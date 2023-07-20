@@ -252,6 +252,6 @@ test('codeInterpreterJavascript', async (t) => {
     const b = 41;
     return a + b;`;
 
-  const ret = codeInterpreterJavascript({ code });
+  const ret = codeInterpreterJavascript(code);
   t.is(ret, 42);
 });

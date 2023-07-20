@@ -88,6 +88,15 @@ Build a meeting notes app backed by a task management tool that figures out the 
 
 You can truely build your entire backend with LLMs using this capability. To me this feels like magic.
 
+## Built-in Functions
+
+| Function          | Description                                            |
+| ----------------- | ------------------------------------------------------ |
+| Code Interpreter  | Used by the LLM to execute JS code in a sandboxed env. |
+| Emeddings Adapter | Wrapper to fetch and pass embeddings to your function  |
+
+## Example using Custom Functions
+
 ```js
 const productDB = [
   { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
