@@ -60,7 +60,7 @@ npm i @dosco/llm-client
 ## Simple to use
 
 ```javascript
-import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
+import { OpenAI, AIMemory, AIPrompt } from '@dosco/llm-client';
 
 // Support for OpenAI, AzureAI, GoogleAI, Cohere, etc...
 const ai = new OpenAI(process.env.OPENAI_APIKEY);
