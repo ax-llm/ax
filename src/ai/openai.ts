@@ -197,6 +197,16 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
 });
 
 /**
+ * OpenAI: Default model options to use the more advanced model
+ * @export
+ */
+export const OpenAIBestModelOptions = (): OpenAIOptions => ({
+  ...OpenAIDefaultOptions(),
+  model: OpenAIGenerateModel.GPT4,
+  temperature: 0.9,
+});
+
+/**
  * OpenAI: Default model options for more creative text generation
  * @export
  */

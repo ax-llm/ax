@@ -1,6 +1,6 @@
-# LLMClient - The best library to work with LLMs
+# LLMClient - Simplify Building with LLMs, Function Calling and Reasoning.
 
-A production ready library with support for all major LLMs, focused on function (API) calling and reasoning. Build apps quickly with LLMs
+A production library, supports all major hosted and open-source LLMs , focused on function (API) calling and reasoning. Build quickly with LLMs
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/llm-client?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/llm-client)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -37,6 +37,7 @@ npm i @dosco/llm-client
 | meetings.js           | Meeting transcript converted into multiple Trello tasks   |
 | product-search.js     | Call an API to answer product related questions           |
 | food-search.js        | Multiple APIs are used to lookup the best eating options  |
+| fibonacci.js          | Use the built-in JS code interpreter to compute fibonacci |
 | customer-support.js   | Extract valuable details from customer communications     |
 | marketing.js          | Use AI to generate short effective marketing sms messages |
 | transcribe-podcast.js | Transcribe multiple podcast channels into text            |
@@ -61,15 +62,19 @@ npm i @dosco/llm-client
 ```javascript
 import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
 
-// const ai = new Cohere(process.env.COHERE_APIKEY)
-// const ai = new Anthropic(process.env.ANTHROPIC_APIKEY)
-// const ai = new OpenAI(process.env.OPENAI_APIKEY);
-// ... and more
+// Support for OpenAI, AzureAI, GoogleAI, Cohere, etc...
+const ai = new OpenAI(process.env.OPENAI_APIKEY);
 
+// Has built-in support for reasoning, function calling, error correction, etc
 const prompt = new AIPrompt();
+
+// Optional state storage memory
 const memory = new AIMemory();
 
+// Execute the prompt
 const res = await prompt.generate(ai, `What is your name?`, { memory });
+
+// Print the result
 console.log(res.value());
 ```
 

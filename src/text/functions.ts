@@ -64,7 +64,7 @@ export const processFunction = async (
   }
 
   if (!funcResult || funcResult.length === 0) {
-    funcResult = `Unknown action, fix and repeat`;
+    funcResult = `No data returned by function, fix and repeat`;
   }
 
   if (debug) {

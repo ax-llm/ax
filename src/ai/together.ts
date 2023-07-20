@@ -128,7 +128,7 @@ export type TogetherOptions = {
 };
 
 export const TogetherDefaultOptions = (): TogetherOptions => ({
-  model: TogetherChatModel.TogetherComputerRedPajamaInciteChat3BV1,
+  model: TogetherChatModel.Falcon7BInstruct,
   maxTokens: 1000,
   temperature: 0,
   topP: 1,

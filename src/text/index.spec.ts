@@ -2,6 +2,7 @@ import { JSONSchemaType } from 'ajv';
 import test from 'ava';
 
 import { Betty } from '../ai/betty.js';
+import { codeInterpreterJavascript } from '../funcs/code.js';
 import { AssistantPrompt } from '../prompts/chats.js';
 import { BusinessInfo, ExtractInfoPrompt } from '../prompts/extract.js';
 import { PromptFunction, SPrompt } from '../prompts/sprompt.js';
@@ -243,4 +244,14 @@ test('getStructuredDataFromAI', async (t) => {
   t.is(movie.name, 'Sneakers');
   t.is(movie.budgetInUSD, 35000000);
   t.is(movie.actors[0].role, 'Martin Bishop');
+});
+
+test('codeInterpreterJavascript', async (t) => {
+  const code = `
+    const a = 1;
+    const b = 41;
+    return a + b;`;
+
+  const ret = codeInterpreterJavascript({ code });
+  t.is(ret, 42);
 });

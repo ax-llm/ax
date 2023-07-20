@@ -70,7 +70,7 @@ export type PromptFunction = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly inputSchema: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  func: (args: unknown) => Promise<any>;
+  func: (args: any) => Promise<any>;
 };
 
 export type PromptResponseConfig<T> = {
