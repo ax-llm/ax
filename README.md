@@ -38,6 +38,7 @@ npm i @dosco/llm-client
 | product-search.js     | Call an API to answer product related questions           |
 | food-search.js        | Multiple APIs are used to lookup the best eating options  |
 | fibonacci.js          | Use the built-in JS code interpreter to compute fibonacci |
+| vector-search.js      | Simple example using vector db and embeddings             |
 | customer-support.js   | Extract valuable details from customer communications     |
 | marketing.js          | Use AI to generate short effective marketing sms messages |
 | transcribe-podcast.js | Transcribe multiple podcast channels into text            |
@@ -93,7 +94,7 @@ You can truely build your entire backend with LLMs using this capability. To me 
 | Function           | Description                                            |
 | ------------------ | ------------------------------------------------------ |
 | Code Interpreter   | Used by the LLM to execute JS code in a sandboxed env. |
-| Embeddings Adapter | Wrapper to fetch and pass embeddings to your function  |
+| Embeddings Adapter | Wrapper to fetch and pass embedding to your function   |
 
 ## Example using Custom Functions
 

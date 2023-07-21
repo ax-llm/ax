@@ -39,7 +39,7 @@ export type EmbedResponse = {
   sessionID?: string;
   texts: readonly string[];
   usage: AITokenUsage;
-  embeddings: readonly number[];
+  embedding: readonly number[];
 };
 
 export type AudioResponse = {
@@ -60,7 +60,7 @@ export interface AIMemory {
 
 export type Embeddings = {
   model: string;
-  embeddings: number[];
+  embedding: number[];
 };
 
 export type PromptFunctionExtraOptions = {
@@ -108,7 +108,10 @@ export interface AIService {
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>>;
-  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse>;
+  embed(
+    text2Embed: readonly string[] | string,
+    sessionID?: string
+  ): Promise<EmbedResponse>;
 }
 
 /*

@@ -4,7 +4,7 @@ import {
   PromptFunctionExtraOptions,
   PromptFunctionFunc,
 } from '../text/types';
-import { updateUsage } from '../text/util';
+import { updateUsage } from '../text/util.js';
 
 export const EmbedAdapter = (
   ai: AIService,
@@ -50,8 +50,8 @@ export const embedAdapter = async (
   extra?: Readonly<PromptFunctionExtraOptions>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> => {
-  const embedRes = await ai.embed([text.trim()], extra?.sessionID);
-  const embeds = embedRes.embeddings;
+  const embedRes = await ai.embed(text.trim(), extra?.sessionID);
+  const embeds = embedRes.embedding;
 
   if (extra) {
     updateUsage(extra.usage, embedRes.usage);

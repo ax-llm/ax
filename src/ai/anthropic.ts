@@ -122,7 +122,7 @@ export class Anthropic implements AIService {
   }
   embed(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _texts: readonly string[],
+    _text2Embed: readonly string[] | string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _sessionID?: string | undefined
   ): Promise<EmbedResponse> {

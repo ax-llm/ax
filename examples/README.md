@@ -88,3 +88,5 @@ OPENAI_KEY=your-openai-auth-key node product-search.js
 9. **ai-vs-ai.js:** A fascinating module where OpenAI engages in friendly banter with Cohere, providing unique insight into the interaction between different AI models.
 
 10. **fibonacci.js** Generates code to compute the Fibonacci series and then uses the built-in JS code interpreter function to execute it.
+
+11. **vector-search.js** Simple example to show how you can use vector search and embedding with this library.

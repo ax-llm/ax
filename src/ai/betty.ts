@@ -84,8 +84,12 @@ export class Betty implements AIService {
     });
   }
 
-  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
-    const embeddings = [1, 2, 3, 4];
+  embed(
+    textToEmbed: readonly string[] | string,
+    sessionID?: string
+  ): Promise<EmbedResponse> {
+    const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
+    const embedding = [1, 2, 3, 4];
     const res = {
       id: '',
       sessionID,
@@ -94,13 +98,13 @@ export class Betty implements AIService {
         model: models[1],
         stats: {
           promptTokens: texts.length,
-          totalTokens: texts.length + embeddings.length,
-          completionTokens: embeddings.length,
+          totalTokens: texts.length + embedding.length,
+          completionTokens: embedding.length,
         },
       },
-      embeddings,
+      embedding,
     };
-    return new Promise((resolve, _) => {
+    return new Promise((resolve) => {
       setTimeout(() => {
         resolve(res);
       }, 300);

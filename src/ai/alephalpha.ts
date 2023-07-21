@@ -344,7 +344,12 @@ export class AlephAlpha implements AIService {
     }));
   }
 
-  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
+  embed(
+    textToEmbed: readonly string[] | string,
+    sessionID?: string
+  ): Promise<EmbedResponse> {
+    const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
+
     if (texts.length > 1) {
       throw new Error('AlephAlpha limits embeddings input to 1 string');
     }
@@ -375,7 +380,7 @@ export class AlephAlpha implements AIService {
       sessionID,
       texts,
       usage: { model },
-      embeddings: embedding,
+      embedding: embedding,
     }));
   }
 }

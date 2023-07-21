@@ -1,4 +1,3 @@
-import { API, apiCall } from './util.js';
 import {
   AIGenerateTextResponse,
   AIPromptConfig,
@@ -7,6 +6,7 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from './util.js';
 
 /**
  * GoogleAI: API call details
@@ -132,7 +132,9 @@ type GoogleAIGenerateTextResponse = {
     content: string;
     safetyAttributes: {
       blocked: false;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       categories: any[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       scores: any[];
     };
   }[];
@@ -160,7 +162,9 @@ type GoogleAIChatGenerateResponse = {
     citationMetadata: { citations: string[] }[];
     safetyAttributes: {
       blocked: false;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       categories: any[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       scores: any[];
     };
   }[];
@@ -180,7 +184,7 @@ type GoogleAIEmbedResponse = {
 const generateReq = (
   prompt: string,
   opt: Readonly<GoogleAIOptions>,
-  stopSequences: string[]
+  stopSequences: readonly string[]
 ): GoogleAIGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -201,7 +205,7 @@ const generateReq = (
 const generateChatReq = (
   prompt: string,
   opt: Readonly<GoogleAIOptions>,
-  stopSequences: string[]
+  stopSequences: readonly string[]
 ): GoogleAIChatGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -249,9 +253,9 @@ export class GoogleAI implements AIService {
     return 'GoogleAI';
   }
 
-  generate(
+  async generate(
     prompt: string,
-    md: AIPromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
@@ -260,15 +264,14 @@ export class GoogleAI implements AIService {
         this.options.model as GoogleAIGenerateModel
       )
     ) {
-      return this.generateChat(prompt, md, sessionID);
-    } 
-      return this.generateDefault(prompt, md, sessionID);
-    
+      return await this.generateChat(prompt, md, sessionID);
+    }
+    return await this.generateDefault(prompt, md, sessionID);
   }
 
-  private generateDefault(
+  private async generateDefault(
     prompt: string,
-    md: AIPromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -278,44 +281,47 @@ export class GoogleAI implements AIService {
       );
     }
 
-    const res = apiCall<
+    const res = await apiCall<
       GoogleAIAPI,
       GoogleAIGenerateRequest,
       GoogleAIGenerateTextResponse
     >(this.createAPI(), generateReq(prompt, this.options, md.stopSequences));
 
-    return res.then(({ predictions }) => {
-      const values = predictions.map((p) => ({ id: '', text: p.content }));
-      const promptTokens = prompt.length;
-      const completionTokens = predictions.reduce(
-        (a, { content: v }) => a + v.length,
-        0
-      );
-      const totalTokens = promptTokens + completionTokens;
+    const { predictions } = res;
 
-      return {
-        id: '',
-        sessionID,
-        query: prompt,
-        values,
-        usage: [
-          {
-            model,
+    const values = predictions.map((p) => ({ id: '', text: p.content }));
+    const promptTokens = prompt.length;
+    const completionTokens = predictions.reduce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (a: any, { content: v }: Readonly<{ content: any }>) => a + v.length,
+      0
+    );
+    const totalTokens = promptTokens + completionTokens;
+
+    return {
+      id: '',
+      sessionID,
+      query: prompt,
+      values,
+      usage: [
+        {
+          model,
+          stats: {
             promptTokens,
             completionTokens,
             totalTokens,
           },
-        ],
-        value() {
-          return (this as { values: { text: string }[] }).values[0].text;
         },
-      };
-    });
+      ],
+      value() {
+        return (this as { values: { text: string }[] }).values[0].text;
+      },
+    };
   }
 
-  private generateChat(
+  private async generateChat(
     prompt: string,
-    md: AIPromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -325,7 +331,7 @@ export class GoogleAI implements AIService {
       );
     }
 
-    const res = apiCall<
+    const res = await apiCall<
       GoogleAIAPI,
       GoogleAIChatGenerateRequest,
       GoogleAIChatGenerateResponse
@@ -334,41 +340,46 @@ export class GoogleAI implements AIService {
       generateChatReq(prompt, this.options, md.stopSequences)
     );
 
-    return res.then(({ predictions }) => {
-      const values = predictions.map((p) => ({
-        id: '',
-        text: p.candidates[0].content,
-      }));
-      const promptTokens = prompt.length;
-      const completionTokens = predictions
-        .map((p) => p.candidates.map((c) => c.content))
-        .flat()
-        .reduce((a, v) => a + v.length, 0);
-      const totalTokens = promptTokens + completionTokens;
+    const { predictions } = res;
 
-      return {
-        id: '',
-        sessionID,
-        query: prompt,
-        values,
-        usage: [
-          {
-            model,
-            stats: {
-              promptTokens,
-              completionTokens,
-              totalTokens,
-            },
+    const values = predictions.map((p) => ({
+      id: '',
+      text: p.candidates[0].content,
+    }));
+    const promptTokens = prompt.length;
+    const completionTokens = predictions
+      .map((p) => p.candidates.map((c) => c.content))
+      .flat()
+      .reduce((a, v) => a + v.length, 0);
+    const totalTokens = promptTokens + completionTokens;
+
+    return {
+      id: '',
+      sessionID,
+      query: prompt,
+      values,
+      usage: [
+        {
+          model,
+          stats: {
+            promptTokens,
+            completionTokens,
+            totalTokens,
           },
-        ],
-        value() {
-          return (this as { values: { text: string }[] }).values[0].text;
         },
-      };
-    });
+      ],
+      value() {
+        return (this as { values: { text: string }[] }).values[0].text;
+      },
+    };
   }
 
-  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+  async embed(
+    textToEmbed: Readonly<string[] | string>,
+    sessionID?: string
+  ): Promise<EmbedResponse> {
+    const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
+
     if (texts.length > 1) {
       throw new Error('GoogleAI limits embeddings input to 1 strings');
     }
@@ -386,30 +397,30 @@ export class GoogleAI implements AIService {
     }
 
     const embedReq = { instances: [{ content: texts.at(0) ?? '' }] };
-    const res = apiCall<
+    const res = await apiCall<
       GoogleAIAPI,
       GoogleAIEmbedRequest,
       GoogleAIEmbedResponse
     >(this.createAPI(), embedReq);
 
-    return res.then(({ predictions }) => {
-      const promptTokens = texts.at(0)?.length ?? 0;
+    const { predictions } = res;
 
-      return {
-        id: '',
-        sessionID,
-        texts,
-        embeddings: predictions.at(0)?.embeddings.values ?? [],
-        usage: {
-          model,
-          stats: {
-            promptTokens,
-            completionTokens: 0,
-            totalTokens: promptTokens,
-          },
+    const promptTokens = texts.at(0)?.length ?? 0;
+
+    return {
+      id: '',
+      sessionID,
+      texts,
+      embedding: predictions.at(0)?.embeddings.values ?? [],
+      usage: {
+        model,
+        stats: {
+          promptTokens,
+          completionTokens: 0,
+          totalTokens: promptTokens,
         },
-      };
-    });
+      },
+    };
   }
 
   private createAPI(): GoogleAIAPI {

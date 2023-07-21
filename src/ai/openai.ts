@@ -312,9 +312,9 @@ type OpenAIEmbedRequest = {
 type OpenAIEmbedResponse = {
   model: string;
   data: {
-    embeddings: number[];
+    embedding: number[];
     index: number;
-  };
+  }[];
   usage: OpenAIUsage;
 };
 
@@ -428,7 +428,7 @@ export class OpenAI implements AIService {
     return 'OpenAI';
   }
 
-  generate(
+  async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
@@ -441,12 +441,12 @@ export class OpenAI implements AIService {
         OpenAIGenerateModel.GPT4,
       ].includes(this.options.model as OpenAIGenerateModel)
     ) {
-      return this.generateChat(prompt, md, sessionID);
+      return await this.generateChat(prompt, md, sessionID);
     }
-    return this.generateDefault(prompt, md, sessionID);
+    return await this.generateDefault(prompt, md, sessionID);
   }
 
-  private generateDefault(
+  private async generateDefault(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
@@ -458,7 +458,7 @@ export class OpenAI implements AIService {
       );
     }
 
-    const res = apiCall<
+    const res = await apiCall<
       OpenAIAPI,
       OpenAIGenerateRequest,
       OpenAIGenerateTextResponse
@@ -467,7 +467,8 @@ export class OpenAI implements AIService {
       generateReq(prompt, this.options, md.stopSequences)
     );
 
-    return res.then(({ id, choices: c, usage: u }) => ({
+    const { id, choices: c, usage: u } = res;
+    return {
       id: id.toString(),
       sessionID,
       query: prompt,
@@ -475,18 +476,20 @@ export class OpenAI implements AIService {
       usage: [
         {
           model,
-          promptTokens: u.prompt_tokens,
-          completionTokens: u.completion_tokens,
-          totalTokens: u.total_tokens,
+          stats: {
+            promptTokens: u.prompt_tokens,
+            completionTokens: u.completion_tokens,
+            totalTokens: u.total_tokens,
+          },
         },
       ],
       value() {
         return (this as { values: { text: string }[] }).values[0].text;
       },
-    }));
+    };
   }
 
-  private generateChat(
+  private async generateChat(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
@@ -498,7 +501,7 @@ export class OpenAI implements AIService {
       );
     }
 
-    const res = apiCall<
+    const res = await apiCall<
       OpenAIAPI,
       OpenAIChatGenerateRequest,
       OpenAIChatGenerateResponse
@@ -507,7 +510,8 @@ export class OpenAI implements AIService {
       generateChatReq(prompt, this.options, md.stopSequences)
     );
 
-    return res.then(({ id, choices: c, usage: u }) => ({
+    const { id, choices: c, usage: u } = res;
+    return {
       id: id.toString(),
       sessionID,
       query: prompt,
@@ -528,10 +532,15 @@ export class OpenAI implements AIService {
       value() {
         return (this as { values: { text: string }[] }).values[0].text;
       },
-    }));
+    };
   }
 
-  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
+  async embed(
+    textToEmbed: readonly string[] | string,
+    sessionID?: string
+  ): Promise<EmbedResponse> {
+    const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
+
     if (texts.length > 96) {
       throw new Error('OpenAI limits embeddings input to 96 strings');
     }
@@ -549,16 +558,19 @@ export class OpenAI implements AIService {
     }
 
     const embedReq = { input: texts, model: this.options.embedModel };
-    const res = apiCall<OpenAIAPI, OpenAIEmbedRequest, OpenAIEmbedResponse>(
-      this.createAPI(apiType.Embed),
-      embedReq
-    );
+    const res = await apiCall<
+      OpenAIAPI,
+      OpenAIEmbedRequest,
+      OpenAIEmbedResponse
+    >(this.createAPI(apiType.Embed), embedReq);
 
-    return res.then(({ data, usage: u }) => ({
+    const { data, usage: u } = res;
+
+    return {
       id: '',
       sessionID,
       texts,
-      embeddings: data.embeddings,
+      embedding: data.at(0)?.embedding || [],
       usage: {
         model,
         stats: {
@@ -567,7 +579,7 @@ export class OpenAI implements AIService {
           totalTokens: u.total_tokens,
         },
       },
-    }));
+    };
   }
 
   transcribe(

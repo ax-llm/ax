@@ -171,7 +171,7 @@ type CohereEmbedResponse = {
   id: string;
   texts: string[];
   model: string;
-  embeddings: number[];
+  embeddings: number[][];
 };
 
 const generateReq = (
@@ -215,7 +215,7 @@ export class Cohere implements AIService {
     return 'Cohere';
   }
 
-  generate(
+  async generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
@@ -228,7 +228,7 @@ export class Cohere implements AIService {
     }
 
     prompt = prompt.trim();
-    const res = apiCall<
+    const res = await apiCall<
       CohereAPI,
       CohereGenerateRequest,
       CohereAIGenerateTextResponse
@@ -242,7 +242,8 @@ export class Cohere implements AIService {
       generateReq(prompt, this.options, md?.stopSequences)
     );
 
-    return res.then(({ id, generations: gens }) => ({
+    const { id, generations: gens } = res;
+    return {
       id,
       sessionID,
       query: prompt,
@@ -251,10 +252,15 @@ export class Cohere implements AIService {
       value() {
         return (this as { values: { text: string }[] }).values[0].text;
       },
-    }));
+    };
   }
 
-  embed(texts: readonly string[], sessionID?: string): Promise<EmbedResponse> {
+  async embed(
+    textToEmbed: readonly string[] | string,
+    sessionID?: string
+  ): Promise<EmbedResponse> {
+    const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
+
     if (texts.length > 96) {
       throw new Error('Cohere limits embeddings input to 96 strings');
     }
@@ -271,7 +277,11 @@ export class Cohere implements AIService {
       );
     }
 
-    const res = apiCall<CohereAPI, CohereEmbedRequest, CohereEmbedResponse>(
+    const res = await apiCall<
+      CohereAPI,
+      CohereEmbedRequest,
+      CohereEmbedResponse
+    >(
       {
         key: this.apiKey,
         name: apiTypes.Embed,
@@ -281,14 +291,15 @@ export class Cohere implements AIService {
       { texts, model: this.options.embedModel, truncate: 'NONE' }
     );
 
-    return res.then(({ id, embeddings }) => ({
+    const { id, embeddings } = res;
+    return {
       id,
       sessionID,
       texts,
       usage: {
         model,
       },
-      embeddings,
-    }));
+      embedding: embeddings.at(0) || [],
+    };
   }
 }

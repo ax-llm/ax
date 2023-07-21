@@ -243,7 +243,7 @@ export class Together implements AIService {
 
   embed(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _texts: readonly string[],
+    _textToEmbed: readonly string[] | string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _sessionID?: string
   ): Promise<EmbedResponse> {

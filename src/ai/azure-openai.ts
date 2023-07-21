@@ -1,6 +1,3 @@
-
-import { modelInfo, OpenAIEmbedModels, OpenAIGenerateModel } from './openai.js';
-import { API, apiCall } from './util.js';
 import {
   AIGenerateTextResponse,
   AIPromptConfig,
@@ -8,11 +5,14 @@ import {
   EmbedResponse,
 } from '../text/types.js';
 
+import { modelInfo, OpenAIEmbedModels, OpenAIGenerateModel } from './openai.js';
+import { API, apiCall } from './util.js';
+
 /**
  * AzureOpenAI: API types
  * @export
  */
-// eslint-disable-next-line @typescript-eslint/naming-convention
+
 const enum apiType {
   Generate = 'completions',
   ChatGenerate = 'chat/completions',
@@ -93,7 +93,7 @@ type AzureOpenAIGenerateRequest = {
   stream?: boolean;
   logprobs?: number;
   echo?: boolean;
-  stop?: string[];
+  stop?: readonly string[];
   presence_penalty?: number;
   frequency_penalty?: number;
   best_of?: number;
@@ -136,7 +136,7 @@ type AzureOpenAIChatGenerateRequest = {
   top_p: number;
   n?: number;
   stream?: boolean;
-  stop?: string[];
+  stop?: readonly string[];
   presence_penalty?: number;
   frequency_penalty?: number;
   logit_bias?: Map<string, number>;
@@ -160,7 +160,7 @@ type AzureOpenAIChatGenerateResponse = {
 };
 
 type AzureOpenAIEmbedRequest = {
-  input: string[];
+  input: readonly string[];
   model: string;
   user?: string;
 };
@@ -168,7 +168,7 @@ type AzureOpenAIEmbedRequest = {
 type AzureOpenAIEmbedResponse = {
   model: string;
   data: {
-    embeddings: number[];
+    embedding: number[];
     index: number;
   };
   usage: AzureOpenAIUsage;
@@ -177,7 +177,7 @@ type AzureOpenAIEmbedResponse = {
 const generateReq = (
   prompt: string,
   opt: Readonly<AzureOpenAIOptions>,
-  stopSequences: string[]
+  stopSequences: readonly string[]
 ): AzureOpenAIGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -207,7 +207,7 @@ const generateReq = (
 const generateChatReq = (
   prompt: string,
   opt: Readonly<AzureOpenAIOptions>,
-  stopSequences: string[]
+  stopSequences: readonly string[]
 ): AzureOpenAIChatGenerateRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
@@ -261,9 +261,9 @@ export class AzureOpenAI implements AIService {
     return 'AzureOpenAI';
   }
 
-  generate(
+  async generate(
     prompt: string,
-    md: AIPromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     prompt = prompt.trim();
@@ -272,15 +272,14 @@ export class AzureOpenAI implements AIService {
         this.options.model as OpenAIGenerateModel
       )
     ) {
-      return this.generateChat(prompt, md, sessionID);
-    } 
-      return this.generateDefault(prompt, md, sessionID);
-    
+      return await this.generateChat(prompt, md, sessionID);
+    }
+    return await this.generateDefault(prompt, md, sessionID);
   }
 
-  private generateDefault(
+  private async generateDefault(
     prompt: string,
-    md: AIPromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -290,7 +289,7 @@ export class AzureOpenAI implements AIService {
       );
     }
 
-    const res = apiCall<
+    const res = await apiCall<
       AzureOpenAIAPI,
       AzureOpenAIGenerateRequest,
       AzureOpenAIGenerateTextResponse
@@ -299,7 +298,8 @@ export class AzureOpenAI implements AIService {
       generateReq(prompt, this.options, md.stopSequences)
     );
 
-    return res.then(({ id, choices: c, usage: u }) => ({
+    const { id, choices: c, usage: u } = res;
+    return {
       id: id.toString(),
       sessionID,
       query: prompt,
@@ -307,20 +307,22 @@ export class AzureOpenAI implements AIService {
       usage: [
         {
           model,
-          promptTokens: u.prompt_tokens,
-          completionTokens: u.completion_tokens,
-          totalTokens: u.total_tokens,
+          stats: {
+            promptTokens: u.prompt_tokens,
+            completionTokens: u.completion_tokens,
+            totalTokens: u.total_tokens,
+          },
         },
       ],
       value() {
         return (this as { values: { text: string }[] }).values[0].text;
       },
-    }));
+    };
   }
 
-  private generateChat(
+  private async generateChat(
     prompt: string,
-    md: AIPromptConfig,
+    md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>> {
     const model = modelInfo.find((v) => v.id === this.options.model);
@@ -330,7 +332,7 @@ export class AzureOpenAI implements AIService {
       );
     }
 
-    const res = apiCall<
+    const res = await apiCall<
       AzureOpenAIAPI,
       AzureOpenAIChatGenerateRequest,
       AzureOpenAIChatGenerateResponse
@@ -339,7 +341,8 @@ export class AzureOpenAI implements AIService {
       generateChatReq(prompt, this.options, md.stopSequences)
     );
 
-    return res.then(({ id, choices: c, usage: u }) => ({
+    const { id, choices: c, usage: u } = res;
+    return {
       id: id.toString(),
       sessionID,
       query: prompt,
@@ -360,10 +363,16 @@ export class AzureOpenAI implements AIService {
       value() {
         return (this as { values: { text: string }[] }).values[0].text;
       },
-    }));
+    };
   }
 
-  embed(texts: string[], sessionID?: string): Promise<EmbedResponse> {
+  async embed(
+    textToEmbed: Readonly<string[] | string>,
+    sessionID?: string
+  ): Promise<EmbedResponse> {
+    const texts: readonly string[] =
+      typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
+
     if (texts.length > 96) {
       throw new Error('AzureOpenAI limits embeddings input to 96 strings');
     }
@@ -381,17 +390,18 @@ export class AzureOpenAI implements AIService {
     }
 
     const embedReq = { input: texts, model: this.options.embedModel };
-    const res = apiCall<
+    const res = await apiCall<
       AzureOpenAIAPI,
       AzureOpenAIEmbedRequest,
       AzureOpenAIEmbedResponse
     >(this.createAPI(apiType.Embed), embedReq);
 
-    return res.then(({ data, usage: u }) => ({
+    const { data, usage: u } = res;
+    return {
       id: '',
       sessionID,
       texts,
-      embeddings: data.embeddings,
+      embedding: data.embedding,
       usage: {
         model,
         stats: {
@@ -400,7 +410,7 @@ export class AzureOpenAI implements AIService {
           totalTokens: u.total_tokens,
         },
       },
-    }));
+    };
   }
 
   private createAPI(name: apiType): AzureOpenAIAPI {

@@ -5,11 +5,12 @@
   "description": "llm-client example apps",
   "main": "index.js",
   "dependencies": {
-    "@dosco/llm-client": "3.0.6",
+    "@dosco/llm-client": "3.0.7",
     "@supercharge/promise-pool": "^2.4.0",
     "chalk": "^5.2.0",
     "chrono-node": "^2.6.4",
     "dotenv": "^16.3.1",
-    "superagent": "^8.0.9"
+    "superagent": "^8.0.9",
+    "vectra": "^0.1.2"
   }
 }
