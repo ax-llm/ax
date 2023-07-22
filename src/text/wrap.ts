@@ -44,9 +44,10 @@ export class AI implements AIService {
   ): Promise<AIGenerateTextResponse<string>> {
     const res = this.rt
       ? await this.rt<Promise<AIGenerateTextResponse<string>>>(
-          this.ai.generate(prompt, md, sessionID)
+          async () => await this.ai.generate(prompt, md, sessionID)
         )
       : await this.ai.generate(prompt, md, sessionID);
+
     this.addUsage(res.usage);
     return res;
   }
@@ -59,8 +60,8 @@ export class AI implements AIService {
       throw new Error('Embed not supported');
     }
     const res = this.rt
-      ? await this.rt<Promise<EmbedResponse>>(
-          this.ai.embed(textToEmbed, sessionID)
+      ? await this.rt<Promise<EmbedResponse>>(async () =>
+          this.ai.embed ? await this.ai.embed(textToEmbed, sessionID) : null
         )
       : await this.ai.embed(textToEmbed, sessionID);
 
@@ -77,10 +78,11 @@ export class AI implements AIService {
     if (!this.ai.transcribe) {
       throw new Error('Transcribe not supported');
     }
-
     return this.rt
-      ? await this.rt<Promise<AudioResponse>>(
-          this.ai.transcribe(file, prompt, language, sessionID)
+      ? this.rt<Promise<AudioResponse>>(async () =>
+          this.ai.transcribe
+            ? await this.ai.transcribe(file, prompt, language, sessionID)
+            : null
         )
       : await this.ai.transcribe(file, prompt, language, sessionID);
   }

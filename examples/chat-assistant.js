@@ -1,7 +1,7 @@
 import { Memory, AssistantPrompt } from '@dosco/llm-client';
 import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
 import { createInterface } from 'readline';
-import { Bottleneck } from 'bottleneck';
+import Bottleneck from 'bottleneck';
 
 const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
@@ -36,10 +36,17 @@ const mem = new Memory();
 const prompt = new AssistantPrompt();
 prompt.setDebug(true);
 
-const rateLimiter = new Bottleneck({
+const bottleneck = new Bottleneck({
   maxConcurrent: 1, // Maximum number of requests running at the same time
   minTime: 200, // Minimum time between each request
 });
+
+let id = 0;
+
+const rateLimiter = (fn) => {
+  id++;
+  return bottleneck.schedule({ id: `${id}` }, fn);
+};
 
 const rl = createInterface(process.stdin, process.stdout);
 rl.setPrompt('AI: ');
