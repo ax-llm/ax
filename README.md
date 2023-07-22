@@ -73,7 +73,11 @@ const prompt = new AIPrompt();
 const memory = new AIMemory();
 
 // Execute the prompt
-const res = await prompt.generate(ai, `What is your name?`, { memory });
+const res = await prompt.generate(ai, `What is your name?`, {
+  memory,
+  // sessionID,
+  // rateLimiter
+});
 
 // Print the result
 console.log(res.value());

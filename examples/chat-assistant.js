@@ -1,6 +1,7 @@
 import { Memory, AssistantPrompt } from '@dosco/llm-client';
 import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
 import { createInterface } from 'readline';
+import { Bottleneck } from 'bottleneck';
 
 const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
@@ -14,6 +15,8 @@ const InitAI = () => {
   }
   throw new Error('No LLM API key found');
 };
+
+// Example of  a chat assistant with memory and an api rate limiter.
 
 /*
 ❯ node chat-assistant.js
@@ -33,6 +36,11 @@ const mem = new Memory();
 const prompt = new AssistantPrompt();
 prompt.setDebug(true);
 
+const rateLimiter = new Bottleneck({
+  maxConcurrent: 1, // Maximum number of requests running at the same time
+  minTime: 200, // Minimum time between each request
+});
+
 const rl = createInterface(process.stdin, process.stdout);
 rl.setPrompt('AI: ');
 rl.prompt();
@@ -45,7 +53,7 @@ rl.on('line', async function (line) {
       rl.close();
       return;
     default:
-      const res = await prompt.generate(ai, line, { mem });
+      const res = await prompt.generate(ai, line, { mem, rateLimiter });
       console.log(`> ${res.value()}\n`);
       break;
   }

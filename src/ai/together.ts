@@ -2,7 +2,6 @@ import {
   AIGenerateTextResponse,
   AIPromptConfig,
   AIService,
-  EmbedResponse,
   TextModelInfo,
 } from '../text/types.js';
 
@@ -239,14 +238,5 @@ export class Together implements AIService {
         return (this as { values: { text: string }[] }).values[0].text;
       },
     }));
-  }
-
-  embed(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _textToEmbed: readonly string[] | string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionID?: string
-  ): Promise<EmbedResponse> {
-    throw new Error('Method not implemented.');
   }
 }

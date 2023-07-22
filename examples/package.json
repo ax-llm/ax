@@ -5,8 +5,9 @@
   "description": "llm-client example apps",
   "main": "index.js",
   "dependencies": {
-    "@dosco/llm-client": "3.0.7",
+    "@dosco/llm-client": "3.0.8",
     "@supercharge/promise-pool": "^2.4.0",
+    "bottleneck": "^2.19.5",
     "chalk": "^5.2.0",
     "chrono-node": "^2.6.4",
     "dotenv": "^16.3.1",

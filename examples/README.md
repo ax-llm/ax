@@ -81,7 +81,7 @@ OPENAI_KEY=your-openai-auth-key node product-search.js
 
 6. **transcribe-podcast.js:** Transcribes multiple podcast channels into text, making podcast content more accessible and searchable.
 
-7. **chat-assistant.js:** A smart AI chatbot module capable of conducting intelligent conversations, ideal for customer service, user interaction, or simply for AI practice.
+7. **chat-assistant.js:** A smart AI chatbot module capable of conducting intelligent conversations, ideal for customer service, user interaction, or simply for AI practice. Uses a rate-limiter to ensure api rate limites and honored.
 
 8. **get-summary.js:** Employs AI to condense a large block of text into a concise summary, which is useful for quick information absorption.
 

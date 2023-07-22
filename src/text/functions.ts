@@ -1,12 +1,11 @@
 import {
   AIGenerateTextResponse,
   AIMemory,
-  AIService,
-  AITokenUsage,
   PromptFunction,
   PromptFunctionExtraOptions,
 } from './types.js';
 import { log, stringToObject } from './util.js';
+import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
 const queryPrefix = '\nObservation: ';
@@ -35,12 +34,12 @@ const executeFunction = async (
 
 export const processFunction = async (
   functions: readonly PromptFunction[],
-  ai: AIService,
+  ai: Readonly<AI>,
   mem: AIMemory,
   res: Readonly<AIGenerateTextResponse<string>>,
   debug = false,
   sessionID?: string
-): Promise<{ done: boolean; usage: AITokenUsage[] }> => {
+): Promise<{ done: boolean }> => {
   let funcName = '';
   let funcArgs = '';
   let v: string[] | null;
@@ -55,7 +54,7 @@ export const processFunction = async (
   if (funcName === 'finalResult') {
     mem.add(val, sessionID);
     res.values[0].text = funcArgs;
-    return { done: true, usage: [] };
+    return { done: true };
   }
 
   let funcResult;
@@ -65,13 +64,10 @@ export const processFunction = async (
     funcResult = `Function ${funcName} not found`;
   }
 
-  const usage: AITokenUsage[] = [];
-
   if (func) {
     const result = await executeFunction(func, funcArgs, {
       ai,
       debug,
-      usage,
       sessionID,
     });
 
@@ -93,7 +89,7 @@ export const processFunction = async (
   const mval = ['\n', val, queryPrefix, funcResult];
   mem.add(mval.join(''), sessionID);
 
-  return { done: false, usage };
+  return { done: false };
 };
 
 export const buildFunctionsPrompt = (

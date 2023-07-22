@@ -2,7 +2,6 @@ import {
   AIGenerateTextResponse,
   AIPromptConfig,
   AIService,
-  EmbedResponse,
   TextModelInfo,
 } from '../text/types.js';
 
@@ -119,14 +118,6 @@ export class Anthropic implements AIService {
     }
     this.apiKey = apiKey;
     this.options = options;
-  }
-  embed(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _text2Embed: readonly string[] | string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionID?: string | undefined
-  ): Promise<EmbedResponse> {
-    throw new Error('Method not implemented.');
   }
 
   name(): string {

@@ -1,5 +1,7 @@
 import { JSONSchemaType } from 'ajv';
 
+import { AI } from './wrap';
+
 export type AIGenerateTextExtraOptions = {
   debug: boolean;
   sessionID?: string;
@@ -30,7 +32,7 @@ export type AIGenerateTextResponse<T> = {
   sessionID?: string;
   query: string;
   values: { id: string; text: string }[];
-  usage: AITokenUsage[];
+  usage: readonly AITokenUsage[];
   value(): T;
 };
 
@@ -64,9 +66,8 @@ export type Embeddings = {
 };
 
 export type PromptFunctionExtraOptions = {
-  ai: AIService;
+  ai: Readonly<AI>;
   debug: boolean;
-  usage: AITokenUsage[];
   sessionID?: string;
 };
 
@@ -108,10 +109,16 @@ export interface AIService {
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<AIGenerateTextResponse<string>>;
-  embed(
+  embed?(
     text2Embed: readonly string[] | string,
     sessionID?: string
   ): Promise<EmbedResponse>;
+  transcribe?(
+    file: string,
+    prompt?: string,
+    language?: string,
+    sessionID?: string
+  ): Promise<AudioResponse>;
 }
 
 /*

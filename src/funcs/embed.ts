@@ -1,13 +1,9 @@
 import { PromptFunction } from '../prompts';
-import {
-  AIService,
-  PromptFunctionExtraOptions,
-  PromptFunctionFunc,
-} from '../text/types';
-import { updateUsage } from '../text/util.js';
+import { PromptFunctionExtraOptions, PromptFunctionFunc } from '../text/types';
+import { AI } from '../text/wrap';
 
 export const EmbedAdapter = (
-  ai: AIService,
+  ai: Readonly<AI>,
   info: Readonly<{
     name: string;
     description: string;
@@ -44,7 +40,7 @@ export const EmbedAdapter = (
 });
 
 export const embedAdapter = async (
-  ai: AIService,
+  ai: Readonly<AI>,
   text: string,
   func: PromptFunctionFunc,
   extra?: Readonly<PromptFunctionExtraOptions>
@@ -52,10 +48,6 @@ export const embedAdapter = async (
 ): Promise<any> => {
   const embedRes = await ai.embed(text.trim(), extra?.sessionID);
   const embeds = embedRes.embedding;
-
-  if (extra) {
-    updateUsage(extra.usage, embedRes.usage);
-  }
 
   return func.length === 2 ? func(embeds, extra) : func(embeds);
 };

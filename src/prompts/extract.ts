@@ -1,11 +1,3 @@
-import flow from 'lodash/fp/flow.js';
-import isEmpty from 'lodash/fp/isEmpty.js';
-import join from 'lodash/fp/join.js';
-import map from 'lodash/fp/map.js';
-import reject from 'lodash/fp/reject.js';
-import uniq from 'lodash/fp/uniq.js';
-import uniqBy from 'lodash/fp/uniqBy.js';
-
 import { AIPrompt } from '../text/text.js';
 
 export enum BusinessInfo {
@@ -64,19 +56,41 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
       responseConfig: { keyValue: true },
     });
 
-    if (isEmpty(entities)) {
+    if (entities.length === 0) {
       throw new Error(`No info defined to extract`);
     }
 
     // unique names and classes
-    this.entityValue = flow(
-      reject((v: Readonly<ExtractEntity>) => v.name === 'Text'),
-      map((v) => ({ ...v, name: v.name?.trim().replace(/[^a-zA-Z ]+/, '') })),
-      uniqBy((v) => v.name),
-      map((v) => (v.classes ? [v.name, uniq(v.classes).join(',')] : [v.name])),
-      map(([n, c]) => `${n}:${c ? ` [${c}]` : ``}`),
-      join('\n')
-    )(entities);
+    this.entityValue = entities
+      // Remove the entity if its name is 'Text'
+      .filter((v: Readonly<ExtractEntity>) => v.name !== 'Text')
+
+      // For each entity, trim any non-alphabetical character from the name
+      .map((v: Readonly<ExtractEntity>) => ({
+        ...v,
+        name: v.name?.trim().replace(/[^a-zA-Z ]+/, ''),
+      }))
+
+      // Remove duplicate entities based on the name
+      .filter(
+        (v: Readonly<ExtractEntity>, i: number, a: readonly ExtractEntity[]) =>
+          a.findIndex((t) => t.name === v.name) === i
+      )
+
+      // For each entity, create an array where the first item is the name and
+      // the second item is a comma-separated list of unique classes (if any)
+      // if classes don't exist, an empty string is used
+      .map((v: Readonly<ExtractEntity>): [string, string] => [
+        v.name || '',
+        v.classes ? Array.from(new Set(v.classes)).join(',') : '',
+      ])
+
+      // Transform the arrays into strings in the format `name: [classes]`
+      // Here, the type [string, string] is assured
+      .map(([n, c]: Readonly<[string, string]>) => `${n}${c ? `: [${c}]` : ``}`)
+
+      // Join all the strings together with line breaks in between
+      .join('\n');
   }
 
   override create(query: string, system: string): string {

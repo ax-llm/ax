@@ -5,14 +5,15 @@ import {
   AIGenerateTextResponse,
   AIMemory,
   AIService,
-  AITokenUsage,
   PromptConfig,
 } from './types.js';
-import { addUsage, log, stringToObject } from './util.js';
+import { log, stringToObject } from './util.js';
+import { AI, RateLimiterFunction } from './wrap.js';
 
 export type Options = {
   sessionID?: string;
   memory?: AIMemory;
+  rateLimiter?: RateLimiterFunction;
 };
 
 /**
@@ -54,19 +55,24 @@ export class AIPrompt<T> {
     `;
   }
 
-  generate(
+  async generate(
     ai: AIService,
     query: string,
-    { sessionID, memory }: Options = {}
+    { sessionID, memory, rateLimiter }: Options = {}
   ): Promise<AIGenerateTextResponse<T>> {
-    return new Promise((resolve) => {
-      const res = this._generate(ai, memory || new Memory(), query, sessionID);
-      resolve(res);
-    });
+    const wai = new AI(ai, rateLimiter);
+    const res = await this._generate(
+      wai,
+      memory || new Memory(),
+      query,
+      sessionID
+    );
+    res.usage = wai.getUsage();
+    return res;
   }
 
   private async _generate(
-    ai: AIService,
+    ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
     sessionID?: string
@@ -91,7 +97,6 @@ export class AIPrompt<T> {
     let fvalue: string | Map<string, string[]> | T;
 
     let value = res.value();
-    let totalUsage = res.usage;
     let error: Error | undefined;
     const retryCount = 3;
 
@@ -107,7 +112,6 @@ export class AIPrompt<T> {
 
         return {
           ...res,
-          usage: totalUsage,
           value: () => fvalue as T,
         };
       } catch (e: unknown) {
@@ -115,7 +119,7 @@ export class AIPrompt<T> {
         if (i < retryCount - 1) {
           continue;
         }
-        const { fixedValue, usage } = await this.fixSyntax(
+        const { fixedValue } = await this.fixSyntax(
           ai,
           mem,
           error,
@@ -123,14 +127,13 @@ export class AIPrompt<T> {
           extraOptions
         );
         value = fixedValue;
-        totalUsage = addUsage(totalUsage, usage);
       }
     }
     throw new Error(`invalid response syntax: ${error?.message}`);
   }
 
   private async _generateWithFunctions(
-    ai: AIService,
+    ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
     { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
@@ -154,7 +157,6 @@ export class AIPrompt<T> {
       : conf.functions ?? [];
 
     const sprompt: string = buildFunctionsPrompt(functions);
-    let usage: AITokenUsage[] = [];
 
     for (let i = 0; i < this.maxSteps; i++) {
       const p = this.create(query, sprompt, h, ai);
@@ -173,10 +175,7 @@ export class AIPrompt<T> {
       if (rval.length === 0) {
         throw new Error('empty response from ai');
       }
-      // add usage data from generate call
-      usage = addUsage(usage, res.usage);
-
-      const { done, usage: actionUsage } = await processFunction(
+      const { done } = await processFunction(
         functions,
         ai,
         mem,
@@ -185,10 +184,8 @@ export class AIPrompt<T> {
         sessionID
       );
 
-      // add usage data from function call
-      usage = addUsage(usage, actionUsage);
       if (done) {
-        return { ...res, usage };
+        return { ...res };
       }
     }
 
@@ -196,7 +193,7 @@ export class AIPrompt<T> {
   }
 
   private async _generateDefault(
-    ai: AIService,
+    ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
     { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
@@ -226,12 +223,12 @@ export class AIPrompt<T> {
   }
 
   private async fixSyntax(
-    ai: AIService,
+    ai: Readonly<AI>,
     mem: AIMemory,
     error: Readonly<Error>,
     value: string,
     { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
-  ): Promise<{ fixedValue: string; usage: AITokenUsage[] }> {
+  ): Promise<{ fixedValue: string }> {
     const { conf } = this;
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
     const res = await ai.generate(p, conf, sessionID);
@@ -242,7 +239,7 @@ export class AIPrompt<T> {
       log(`< ${fixedValue}`, 'red');
     }
 
-    return { fixedValue, usage: res.usage };
+    return { fixedValue };
   }
 }
 

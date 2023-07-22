@@ -1,6 +1,6 @@
 {
   "name": "@dosco/llm-client",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "type": "module",
   "description": "The best library to work with LLMs",
   "main": "build/main/index.js",
@@ -47,7 +47,6 @@
   "dependencies": {
     "ajv": "^8.12.0",
     "json5": "^2.2.3",
-    "lodash": "^4.17.21",
     "superagent": "^8.0.9"
   },
   "devDependencies": {
