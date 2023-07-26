@@ -1,10 +1,11 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
-  AIService,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
   TextModelInfo,
 } from '../text/types.js';
 
+import { BaseAI } from './base.js';
 import { API, apiCall } from './util.js';
 
 type AnthropicAPI = API & {
@@ -105,7 +106,7 @@ const generateReq = (
  * Anthropic: AI Service
  * @export
  */
-export class Anthropic implements AIService {
+export class Anthropic extends BaseAI {
   private apiKey: string;
   private options: AnthropicOptions;
 
@@ -113,6 +114,10 @@ export class Anthropic implements AIService {
     apiKey: string,
     options: Readonly<AnthropicOptions> = AnthropicDefaultOptions()
   ) {
+    super('Anthropic', modelInfo, {
+      model: options.model,
+    });
+
     if (apiKey === '') {
       throw new Error('Anthropic API key not set');
     }
@@ -120,24 +125,23 @@ export class Anthropic implements AIService {
     this.options = options;
   }
 
-  name(): string {
-    return 'Anthropic';
+  getModelConfig(): GenerateTextModelConfig {
+    const { options } = this;
+    return {
+      maxTokens: options.maxTokens,
+      temperature: options.temperature,
+      topP: options.topP,
+      topK: options.topK,
+      stream: options.stream,
+    } as GenerateTextModelConfig;
   }
 
-  generate(
+  async generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `Together model information not found: ${this.options.model}`
-      );
-    }
-
-    prompt = prompt.trim();
-    const res = apiCall<
+  ): Promise<GenerateTextResponse> {
+    const res = await apiCall<
       AnthropicAPI,
       AnthropicGenerateRequest,
       AnthropicAIGenerateTextResponse
@@ -151,16 +155,11 @@ export class Anthropic implements AIService {
       generateReq(prompt, this.options, md?.stopSequences)
     );
 
-    return res.then(({ id, generations: gens }) => ({
-      id,
+    const { id, generations } = res;
+    return {
       sessionID,
-      query: prompt,
-      values: gens,
-      usage: [{ model }],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
-      },
-    }));
+      remoteID: id,
+      results: generations,
+    };
   }
-  // Add more methods as needed...
 }

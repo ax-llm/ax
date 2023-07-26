@@ -1,11 +1,12 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
-  AIService,
   EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
   TextModelInfo,
 } from '../text/types.js';
 
+import { BaseAI } from './base.js';
 import { API, apiCall } from './util.js';
 
 /**
@@ -37,7 +38,7 @@ export enum GoogleAIEmbedModels {
  * GoogleAI: Model information
  * @export
  */
-export const modelInfo: TextModelInfo[] = [
+const modelInfo: TextModelInfo[] = [
   {
     id: GoogleAIGenerateModel.PaLMTextBison,
     currency: 'usd',
@@ -227,7 +228,7 @@ const generateChatReq = (
  * GoogleAI: AI Service
  * @export
  */
-export class GoogleAI implements AIService {
+export class GoogleAI extends BaseAI {
   private apiKey: string;
   private apiURL: string;
   private options: GoogleAIOptions;
@@ -237,8 +238,13 @@ export class GoogleAI implements AIService {
     projectID: string,
     options: Readonly<GoogleAIOptions> = GoogleAIDefaultOptions()
   ) {
+    super('GoogleAI', modelInfo, {
+      model: options.model,
+      embedModel: options.embedModel,
+    });
+
     if (apiKey === '') {
-      throw new Error('OpenAPI API key not set');
+      throw new Error('GoogleAI API key not set');
     }
     this.apiKey = apiKey;
     this.options = options;
@@ -249,16 +255,21 @@ export class GoogleAI implements AIService {
     ).href;
   }
 
-  name(): string {
-    return 'GoogleAI';
+  getModelConfig(): GenerateTextModelConfig {
+    const { options } = this;
+    return {
+      maxTokens: options.maxTokens,
+      temperature: options.temperature,
+      topP: options.topP,
+      topK: options.topK,
+    } as GenerateTextModelConfig;
   }
 
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    prompt = prompt.trim();
+  ): Promise<GenerateTextResponse> {
     if (
       [GoogleAIGenerateModel.PaLMChatBison].includes(
         this.options.model as GoogleAIGenerateModel
@@ -273,14 +284,7 @@ export class GoogleAI implements AIService {
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `GoogleAI model information not found: ${this.options.model}`
-      );
-    }
-
+  ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
       GoogleAIGenerateRequest,
@@ -288,8 +292,6 @@ export class GoogleAI implements AIService {
     >(this.createAPI(), generateReq(prompt, this.options, md.stopSequences));
 
     const { predictions } = res;
-
-    const values = predictions.map((p) => ({ id: '', text: p.content }));
     const promptTokens = prompt.length;
     const completionTokens = predictions.reduce(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -299,22 +301,12 @@ export class GoogleAI implements AIService {
     const totalTokens = promptTokens + completionTokens;
 
     return {
-      id: '',
       sessionID,
-      query: prompt,
-      values,
-      usage: [
-        {
-          model,
-          stats: {
-            promptTokens,
-            completionTokens,
-            totalTokens,
-          },
-        },
-      ],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
+      results: predictions.map((p) => ({ id: '', text: p.content })),
+      modelUsage: {
+        promptTokens,
+        completionTokens,
+        totalTokens,
       },
     };
   }
@@ -323,14 +315,7 @@ export class GoogleAI implements AIService {
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `GoogleAI model information not found: ${this.options.model}`
-      );
-    }
-
+  ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
       GoogleAIChatGenerateRequest,
@@ -341,11 +326,6 @@ export class GoogleAI implements AIService {
     );
 
     const { predictions } = res;
-
-    const values = predictions.map((p) => ({
-      id: '',
-      text: p.candidates[0].content,
-    }));
     const promptTokens = prompt.length;
     const completionTokens = predictions
       .map((p) => p.candidates.map((c) => c.content))
@@ -354,22 +334,15 @@ export class GoogleAI implements AIService {
     const totalTokens = promptTokens + completionTokens;
 
     return {
-      id: '',
       sessionID,
-      query: prompt,
-      values,
-      usage: [
-        {
-          model,
-          stats: {
-            promptTokens,
-            completionTokens,
-            totalTokens,
-          },
-        },
-      ],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
+      results: predictions.map((p) => ({
+        id: '',
+        text: p.candidates[0].content,
+      })),
+      modelUsage: {
+        promptTokens,
+        completionTokens,
+        totalTokens,
       },
     };
   }
@@ -384,14 +357,9 @@ export class GoogleAI implements AIService {
       throw new Error('GoogleAI limits embeddings input to 1 strings');
     }
 
-    const model = modelInfo.find((v) => v.id === this.options.embedModel);
-    if (!model) {
-      throw new Error(
-        `GoogleAI model information not found: ${this.options.embedModel}`
-      );
-    }
-
-    const overLimit = texts.filter((v) => v.length > (model?.maxTokens ?? 512));
+    const overLimit = texts.filter(
+      (v) => v.length > (this.modelInfo?.maxTokens ?? 512)
+    );
     if (overLimit.length !== 0) {
       throw new Error('GoogleAI limits embeddings input to 512 characters');
     }
@@ -404,21 +372,16 @@ export class GoogleAI implements AIService {
     >(this.createAPI(), embedReq);
 
     const { predictions } = res;
-
     const promptTokens = texts.at(0)?.length ?? 0;
 
     return {
-      id: '',
       sessionID,
       texts,
       embedding: predictions.at(0)?.embeddings.values ?? [],
-      usage: {
-        model,
-        stats: {
-          promptTokens,
-          completionTokens: 0,
-          totalTokens: promptTokens,
-        },
+      modelUsage: {
+        promptTokens,
+        completionTokens: 0,
+        totalTokens: promptTokens,
       },
     };
   }

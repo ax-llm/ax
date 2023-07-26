@@ -1,18 +1,21 @@
-import { SPrompt, Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
+import { OpenAI, SPrompt } from '@dosco/llm-client';
 import chalk from 'chalk';
 
-const InitAI = () => {
-  if (process.env.COHERE_APIKEY) {
-    return new Cohere(process.env.COHERE_APIKEY);
-  } else if (process.env.OPENAI_APIKEY) {
-    return new OpenAI(process.env.OPENAI_APIKEY);
-  } else if (process.env.ANTHROPIC_APIKEY) {
-    return new Anthropic(process.env.ANTHROPIC_APIKEY);
-  }
-  throw new Error('No LLM API key found');
-};
+// import { SPrompt, Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
+// import chalk from 'chalk';
 
-const ai = InitAI();
+// const InitAI = () => {
+//   if (process.env.COHERE_APIKEY) {
+//     return new Cohere(process.env.COHERE_APIKEY);
+//   } else if (process.env.OPENAI_APIKEY) {
+//     return new OpenAI(process.env.OPENAI_APIKEY);
+//   } else if (process.env.ANTHROPIC_APIKEY) {
+//     return new Anthropic(process.env.ANTHROPIC_APIKEY);
+//   }
+//   throw new Error('No LLM API key found');
+// };
+
+const ai = new OpenAI(process.env.OPENAI_APIKEY); // InitAI();
 
 const choice = Math.round(Math.random());
 
@@ -172,4 +175,4 @@ const customerQuery =
 
 const res = await prompt.generate(ai, customerQuery);
 console.log(chalk.green('Result:\n', JSON.stringify(res.value(), null, 2)));
-console.log(chalk.green('Tokens Used:\n', JSON.stringify(res.usage, null, 2)));
+console.log(chalk.green('Response:\n', JSON.stringify(res, null, 2)));

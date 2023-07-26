@@ -1,12 +1,14 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
   AIService,
   EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
   TextModelInfo,
+  TranscriptResponse,
 } from '../text/types.js';
 
-const models: TextModelInfo[] = [
+const modelInfo: TextModelInfo[] = [
   {
     id: 'betty-fake-completion-model',
     currency: 'usd',
@@ -39,6 +41,42 @@ export class Betty implements AIService {
     this.data = [...answers];
   }
 
+  getModelInfo(): Readonly<TextModelInfo> | undefined {
+    return modelInfo.at(0);
+  }
+
+  getEmbedModelInfo(): Readonly<TextModelInfo> | undefined {
+    return modelInfo.at(1);
+  }
+
+  getModelConfig(): Readonly<GenerateTextModelConfig> {
+    return {
+      maxTokens: 1024,
+      temperature: 0.7,
+      topP: 1,
+      stream: false,
+      logprobs: 0,
+      echo: false,
+      presencePenalty: 0,
+      frequencyPenalty: 0,
+      bestOf: 1,
+      suffix: null,
+    };
+  }
+
+  transcribe?(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _file: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _prompt?: string | undefined,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _language?: string | undefined,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _sessionID?: string | undefined
+  ): Promise<TranscriptResponse> {
+    throw new Error('Method not implemented.');
+  }
+
   name(): string {
     return 'Betty';
   }
@@ -47,7 +85,7 @@ export class Betty implements AIService {
     prompt: string,
     _md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
+  ): Promise<GenerateTextResponse> {
     if (sessionID && !this.sdata.has(sessionID)) {
       this.sdata.set(sessionID, [...this.answers]);
     }
@@ -58,26 +96,18 @@ export class Betty implements AIService {
     this.index++;
 
     const res = {
-      id: this.index.toString(),
+      remoteID: this.index.toString(),
       sessionID,
-      query: prompt,
-      usage: [
-        {
-          model: models[0],
-          stats: {
-            promptTokens: prompt.length,
-            totalTokens: prompt.length + (text?.length || 0),
-            completionTokens: text?.length || 0,
-          },
-        },
-      ],
-      values: [{ id: '0', text }],
-      value() {
-        return this.values[0].text;
+      modelUsage: {
+        promptTokens: prompt.length,
+        totalTokens: prompt.length + (text?.length || 0),
+        completionTokens: text?.length || 0,
       },
+      results: [{ id: '0', text }],
     };
 
-    return new Promise((resolve, _) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    return new Promise((resolve, _reject) => {
       setTimeout(() => {
         resolve(res);
       }, 300);
@@ -94,13 +124,10 @@ export class Betty implements AIService {
       id: '',
       sessionID,
       texts,
-      usage: {
-        model: models[1],
-        stats: {
-          promptTokens: texts.length,
-          totalTokens: texts.length + embedding.length,
-          completionTokens: embedding.length,
-        },
+      modelUsage: {
+        promptTokens: texts.length,
+        totalTokens: texts.length + embedding.length,
+        completionTokens: embedding.length,
       },
       embedding,
     };

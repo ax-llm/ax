@@ -1,11 +1,16 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
-  AIService,
   EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
 } from '../text/types.js';
 
-import { modelInfo, OpenAIEmbedModels, OpenAIGenerateModel } from './openai.js';
+import { BaseAI } from './base.js';
+import {
+  OpenAIEmbedModels,
+  OpenAIGenerateModel,
+  openAIModelInfo,
+} from './openai.js';
 import { API, apiCall } from './util.js';
 
 /**
@@ -31,21 +36,9 @@ export type AzureOpenAIAPI = API & {
  * AzureOpenAI: Model options for text generation
  * @export
  */
-export type AzureOpenAIOptions = {
+export type AzureOpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
   model: OpenAIGenerateModel;
   embedModel: OpenAIEmbedModels;
-  suffix: string | null;
-  maxTokens: number;
-  temperature: number;
-  topP: number;
-  n?: number;
-  stream?: boolean;
-  logprobs?: number;
-  echo?: boolean;
-  presencePenalty?: number;
-  frequencyPenalty?: number;
-  bestOf?: number;
-  logitBias?: Map<string, number>;
   user?: string;
 };
 
@@ -234,7 +227,7 @@ const generateChatReq = (
  * AzureOpenAI: AI Service
  * @export
  */
-export class AzureOpenAI implements AIService {
+export class AzureOpenAI extends BaseAI {
   private apiKey: string;
   private apiURL: string;
   private options: AzureOpenAIOptions;
@@ -245,6 +238,11 @@ export class AzureOpenAI implements AIService {
     deploymentName: string,
     options: Readonly<AzureOpenAIOptions> = AzureOpenAIDefaultOptions()
   ) {
+    super('Azure OpenAI', openAIModelInfo, {
+      model: options.model,
+      embedModel: options.embedModel,
+    });
+
     if (apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
     }
@@ -257,16 +255,28 @@ export class AzureOpenAI implements AIService {
     this.apiURL = new URL(`/openai/deployments/${deploymentName}`, host).href;
   }
 
-  name(): string {
-    return 'AzureOpenAI';
+  getModelConfig(): GenerateTextModelConfig {
+    const { options } = this;
+    return {
+      maxTokens: options.maxTokens,
+      temperature: options.temperature,
+      topP: options.topP,
+      n: options.n,
+      stream: options.stream,
+      logprobs: options.logprobs,
+      echo: options.echo,
+      presencePenalty: options.presencePenalty,
+      frequencyPenalty: options.frequencyPenalty,
+      bestOf: options.bestOf,
+      logitBias: options.logitBias,
+    } as GenerateTextModelConfig;
   }
 
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    prompt = prompt.trim();
+  ): Promise<GenerateTextResponse> {
     if (
       [OpenAIGenerateModel.GPT35Turbo, OpenAIGenerateModel.GPT4].includes(
         this.options.model as OpenAIGenerateModel
@@ -281,14 +291,7 @@ export class AzureOpenAI implements AIService {
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `AzureOpenAI model information not found: ${this.options.model}`
-      );
-    }
-
+  ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       AzureOpenAIAPI,
       AzureOpenAIGenerateRequest,
@@ -300,22 +303,13 @@ export class AzureOpenAI implements AIService {
 
     const { id, choices: c, usage: u } = res;
     return {
-      id: id.toString(),
       sessionID,
-      query: prompt,
-      values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
-      usage: [
-        {
-          model,
-          stats: {
-            promptTokens: u.prompt_tokens,
-            completionTokens: u.completion_tokens,
-            totalTokens: u.total_tokens,
-          },
-        },
-      ],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
+      remoteID: id.toString(),
+      results: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+      modelUsage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
       },
     };
   }
@@ -324,14 +318,7 @@ export class AzureOpenAI implements AIService {
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `AzureOpenAI model information not found: ${this.options.model}`
-      );
-    }
-
+  ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       AzureOpenAIAPI,
       AzureOpenAIChatGenerateRequest,
@@ -343,25 +330,16 @@ export class AzureOpenAI implements AIService {
 
     const { id, choices: c, usage: u } = res;
     return {
-      id: id.toString(),
       sessionID,
-      query: prompt,
-      values: c.map((v) => ({
+      remoteID: id.toString(),
+      results: c.map((v) => ({
         id: v.index.toString(),
         text: v.message.content,
       })),
-      usage: [
-        {
-          model,
-          stats: {
-            promptTokens: u.prompt_tokens,
-            completionTokens: u.completion_tokens,
-            totalTokens: u.total_tokens,
-          },
-        },
-      ],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
+      modelUsage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
       },
     };
   }
@@ -382,13 +360,6 @@ export class AzureOpenAI implements AIService {
       throw new Error('AzureOpenAI limits embeddings input to 512 characters');
     }
 
-    const model = modelInfo.find((v) => v.id === this.options.embedModel);
-    if (!model) {
-      throw new Error(
-        `AzureOpenAI model information not found: ${this.options.embedModel}`
-      );
-    }
-
     const embedReq = { input: texts, model: this.options.embedModel };
     const res = await apiCall<
       AzureOpenAIAPI,
@@ -398,17 +369,13 @@ export class AzureOpenAI implements AIService {
 
     const { data, usage: u } = res;
     return {
-      id: '',
       sessionID,
       texts,
       embedding: data.embedding,
-      usage: {
-        model,
-        stats: {
-          promptTokens: u.prompt_tokens,
-          completionTokens: u.completion_tokens,
-          totalTokens: u.total_tokens,
-        },
+      modelUsage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
       },
     };
   }

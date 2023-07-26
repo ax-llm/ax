@@ -1,95 +1,88 @@
 import {
-  AIGenerateTextResponse,
-  AIMemory,
+  FunctionExec,
   PromptFunction,
   PromptFunctionExtraOptions,
 } from './types.js';
-import { log, stringToObject } from './util.js';
+import { stringToObject } from './util.js';
 import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
-const queryPrefix = '\nObservation: ';
 
 const executeFunction = async (
   funcInfo: Readonly<PromptFunction>,
   funcArgJSON: string,
   extra: Readonly<PromptFunctionExtraOptions>
-): Promise<{ value?: string; error?: string }> => {
-  let value;
+): Promise<FunctionExec> => {
+  let args;
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value = stringToObject<any>(funcArgJSON, funcInfo.inputSchema);
+    args = stringToObject<any>(funcArgJSON, funcInfo.inputSchema);
   } catch (e) {
-    return { error: (e as Error).message };
+    return {
+      name: funcInfo.name,
+      parsingError: { error: (e as Error).message, data: funcArgJSON },
+    };
   }
 
   const res =
     (await funcInfo.func.length) === 2
-      ? funcInfo.func(value, extra)
-      : funcInfo.func(value);
+      ? funcInfo.func(args, extra)
+      : funcInfo.func(args);
 
-  return { value: JSON.stringify(res, null, '\t') };
+  return {
+    name: funcInfo.name,
+    args,
+    response: JSON.stringify(res, null, '\t'),
+  };
 };
 
 export const processFunction = async (
+  value: string,
   functions: readonly PromptFunction[],
   ai: Readonly<AI>,
-  mem: AIMemory,
-  res: Readonly<AIGenerateTextResponse<string>>,
   debug = false,
   sessionID?: string
-): Promise<{ done: boolean }> => {
+): Promise<FunctionExec> => {
   let funcName = '';
   let funcArgs = '';
   let v: string[] | null;
 
-  const val = res.value();
-
-  if ((v = functionCallRe.exec(val)) !== null) {
+  if ((v = functionCallRe.exec(value)) !== null) {
     funcName = v[1].trim();
     funcArgs = v[2].trim();
   }
 
+  let funcExec: FunctionExec = { name: funcName };
+
   if (funcName === 'finalResult') {
-    mem.add(val, sessionID);
-    res.values[0].text = funcArgs;
-    return { done: true };
+    // mem.add(value, sessionID);
+    funcExec.response = funcArgs;
+    return funcExec;
   }
 
-  let funcResult;
   const func = functions.find((v) => v.name === funcName);
 
-  if (!func) {
-    funcResult = `Function ${funcName} not found`;
-  }
-
   if (func) {
-    const result = await executeFunction(func, funcArgs, {
+    funcExec = await executeFunction(func, funcArgs, {
       ai,
       debug,
       sessionID,
     });
 
-    if (result.error) {
-      funcResult = `Fix error and repeat action: ${result.error}`;
-    } else {
-      funcResult = result.value;
+    if (funcExec.parsingError) {
+      funcExec.response = `Fix error and repeat: ${funcExec.parsingError.error}`;
+    } else if (!funcExec.response || funcExec.response.length === 0) {
+      funcExec.response = `No data returned by function`;
     }
+  } else {
+    funcExec.response = `Function ${funcName} not found`;
   }
 
-  if (!funcResult || funcResult.length === 0) {
-    funcResult = `No data returned by function`;
-  }
-
-  if (debug) {
-    log(`> ${funcName}(${funcArgs}): ${funcResult}`, 'cyan');
-  }
-
-  const mval = ['\n', val, queryPrefix, funcResult];
-  mem.add(mval.join(''), sessionID);
-
-  return { done: false };
+  // if (debug) {
+  //   log(`> ${funcName}(${funcArgs}): ${funcResult}`, 'cyan');
+  // }
+  return funcExec;
 };
 
 export const buildFunctionsPrompt = (

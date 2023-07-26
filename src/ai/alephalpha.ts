@@ -1,11 +1,11 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
-  AIService,
   EmbedResponse,
+  GenerateTextResponse,
   TextModelInfo,
 } from '../text/types.js';
 
+import { BaseAI } from './base.js';
 import { API, apiCall } from './util.js';
 
 const apiURL = 'https://api.aleph-alpha.com/';
@@ -287,7 +287,7 @@ const embedReq = (
  * AlephAlpha: AI Service
  * @export
  */
-export class AlephAlpha implements AIService {
+export class AlephAlpha extends BaseAI {
   private apiKey: string;
   private options: AlephAlphaOptions;
 
@@ -295,6 +295,11 @@ export class AlephAlpha implements AIService {
     apiKey: string,
     options: Readonly<AlephAlphaOptions> = AlephAlphaDefaultOptions()
   ) {
+    super('AlephAlpha', modelInfo, {
+      model: options.model,
+      embedModel: options.embedModel,
+    });
+
     if (apiKey === '') {
       throw new Error('AlephAlpha API key not set');
     }
@@ -302,24 +307,12 @@ export class AlephAlpha implements AIService {
     this.options = options;
   }
 
-  name(): string {
-    return 'AlephAlpha';
-  }
-
-  generate(
+  async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `Cohere model information not found: ${this.options.model}`
-      );
-    }
-
-    const text = prompt.trim();
-    const res = apiCall<
+  ): Promise<GenerateTextResponse> {
+    const res = await apiCall<
       API,
       AlephAlphaGenerateRequest,
       AlephAlphaAIGenerateTextResponse
@@ -329,22 +322,20 @@ export class AlephAlpha implements AIService {
         name: apiTypes.Generate,
         url: apiURL,
       },
-      generateReq(text, this.options, md.stopSequences)
+      generateReq(prompt, this.options, md.stopSequences)
     );
 
-    return res.then(({ completions }) => ({
-      id: '',
+    const { completions } = res;
+    return {
       sessionID,
-      query: prompt,
-      values: completions.map((v) => ({ id: '', text: v.completion.trim() })),
-      usage: [{ model }],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
-      },
-    }));
+      results: completions.map((v) => ({
+        text: v.completion,
+        finishReason: v.finish_reason,
+      })),
+    };
   }
 
-  embed(
+  async embed(
     textToEmbed: readonly string[] | string,
     sessionID?: string
   ): Promise<EmbedResponse> {
@@ -359,14 +350,11 @@ export class AlephAlpha implements AIService {
       throw new Error('AlephAlpha limits embeddings input to 512 characters');
     }
 
-    const model = modelInfo.find((v) => v.id === this.options.embedModel);
-    if (!model) {
-      throw new Error(
-        `Cohere model information not found: ${this.options.embedModel}`
-      );
-    }
-
-    const res = apiCall<API, AlephAlphaEmbedRequest, AlephAlphaEmbedResponse>(
+    const res = await apiCall<
+      API,
+      AlephAlphaEmbedRequest,
+      AlephAlphaEmbedResponse
+    >(
       {
         key: this.apiKey,
         name: apiTypes.Embed,
@@ -375,12 +363,11 @@ export class AlephAlpha implements AIService {
       embedReq(texts[0], this.options)
     );
 
-    return res.then(({ embedding }) => ({
-      id: '',
+    const { embedding } = res;
+    return {
       sessionID,
       texts,
-      usage: { model },
       embedding: embedding,
-    }));
+    };
   }
 }

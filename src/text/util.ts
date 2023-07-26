@@ -1,7 +1,7 @@
+import crypto from 'crypto';
+
 import Ajv, { JSONSchemaType } from 'ajv';
 import JSON5 from 'json5';
-
-import { AITokenUsage } from './types.js';
 
 const ajv = new Ajv();
 
@@ -25,49 +25,19 @@ export function log(msg: string, color: string): null {
   return null;
 }
 
-export const _addUsage = (
-  usage: readonly AITokenUsage[],
-  u: Readonly<AITokenUsage>
-): AITokenUsage[] => {
-  const index = usage.findIndex((v) => v.model.id === u.model.id);
-  if (index === -1) {
-    return [...usage, u];
-  }
-
-  if (u.stats) {
-    const u1 = usage[index];
-    const s = u1.stats;
-    const stats = s
-      ? {
-          promptTokens: s.promptTokens + u.stats.promptTokens,
-          completionTokens: s.completionTokens + u.stats.completionTokens,
-          totalTokens: s.totalTokens + u.stats.totalTokens,
-        }
-      : u.stats;
-
-    return [
-      ...usage.slice(0, index),
-      { ...u, stats },
-      ...usage.slice(index + 1),
-    ];
-  }
-
-  return [...usage];
-};
-
-export const addUsage = (
-  usage: readonly AITokenUsage[],
-  uList: readonly AITokenUsage[]
-): AITokenUsage[] => {
-  let newUsage = [...usage];
-  uList.forEach((u) => {
-    newUsage = _addUsage(newUsage, u);
-  });
-  return newUsage as AITokenUsage[];
-};
-
 export const stringToObject = <T>(text: string, schema: unknown): T => {
   const obj = JSON5.parse<T>(text);
   ajv.validate(schema as JSONSchemaType<T>, obj);
   return obj as T;
 };
+
+export function uuid(): string {
+  return ('1e7' + -1e3 + -4e3 + -8e3 + -1e11).replace(
+    /[018]/g,
+    (c: string): string => {
+      const cryptoObj =
+        crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4));
+      return (Number(c) ^ cryptoObj).toString(16);
+    }
+  );
+}

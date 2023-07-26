@@ -1,11 +1,12 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
-  AIService,
   EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
   TextModelInfo,
 } from '../text/types.js';
 
+import { BaseAI } from './base.js';
 import { API, apiCall } from './util.js';
 
 type CohereAPI = API & {
@@ -115,6 +116,7 @@ export type CohereOptions = {
   presencePenalty?: number;
   stopSequences?: string[];
   returnLikelihoods?: CohereReturnLikelihoods;
+  logitBias?: Map<string, number>;
 };
 
 /**
@@ -153,6 +155,7 @@ type CohereGenerateRequest = {
   end_sequences?: readonly string[];
   stop_sequences?: string[];
   return_likelihoods?: CohereReturnLikelihoods;
+  logit_bias?: Map<string, number>;
 };
 
 type CohereAIGenerateTextResponse = {
@@ -196,7 +199,7 @@ const generateReq = (
  * Cohere: AI Service
  * @export
  */
-export class Cohere implements AIService {
+export class Cohere extends BaseAI {
   private apiKey: string;
   private options: CohereOptions;
 
@@ -204,6 +207,11 @@ export class Cohere implements AIService {
     apiKey: string,
     options: Readonly<CohereOptions> = CohereDefaultOptions()
   ) {
+    super('Cohere', modelInfo, {
+      model: options.model,
+      embedModel: options.embedModel,
+    });
+
     if (apiKey === '') {
       throw new Error('Cohere API key not set');
     }
@@ -211,23 +219,23 @@ export class Cohere implements AIService {
     this.options = options;
   }
 
-  name(): string {
-    return 'Cohere';
+  getModelConfig(): GenerateTextModelConfig {
+    const { options } = this;
+    return {
+      maxTokens: options.maxTokens,
+      temperature: options.temperature,
+      topP: options.topP,
+      presencePenalty: options.presencePenalty,
+      frequencyPenalty: options.frequencyPenalty,
+      logitBias: options.logitBias,
+    } as GenerateTextModelConfig;
   }
 
   async generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `Cohere model information not found: ${this.options.model}`
-      );
-    }
-
-    prompt = prompt.trim();
+  ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       CohereAPI,
       CohereGenerateRequest,
@@ -242,16 +250,11 @@ export class Cohere implements AIService {
       generateReq(prompt, this.options, md?.stopSequences)
     );
 
-    const { id, generations: gens } = res;
+    const { id, generations } = res;
     return {
-      id,
       sessionID,
-      query: prompt,
-      values: gens,
-      usage: [{ model }],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
-      },
+      remoteID: id,
+      results: generations,
     };
   }
 
@@ -270,13 +273,6 @@ export class Cohere implements AIService {
       throw new Error('Cohere limits embeddings input to 512 characters');
     }
 
-    const model = modelInfo.find((v) => v.id === this.options.embedModel);
-    if (!model) {
-      throw new Error(
-        `Cohere model information not found: ${this.options.embedModel}`
-      );
-    }
-
     const res = await apiCall<
       CohereAPI,
       CohereEmbedRequest,
@@ -293,12 +289,9 @@ export class Cohere implements AIService {
 
     const { id, embeddings } = res;
     return {
-      id,
       sessionID,
+      remoteID: id,
       texts,
-      usage: {
-        model,
-      },
       embedding: embeddings.at(0) || [],
     };
   }

@@ -2,7 +2,7 @@ import { JSONSchemaType } from 'ajv';
 
 import { AI } from './wrap';
 
-export type AIGenerateTextExtraOptions = {
+export type GenerateTextExtraOptions = {
   debug: boolean;
   sessionID?: string;
 };
@@ -17,34 +17,80 @@ export type TextModelInfo = {
   oneTPM: number;
 };
 
-export type AITokenUsage = {
-  model: TextModelInfo;
-  stats?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
+export type TokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
+export type GenerateTextModelConfig = {
+  suffix: string | null;
+  maxTokens: number;
+  temperature: number;
+  topP: number;
+  topK?: number;
+  n?: number;
+  stream?: boolean;
+  logprobs?: number;
+  echo?: boolean;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  bestOf?: number;
+  logitBias?: Map<string, number>;
+};
+
+export type FunctionExec = {
+  name: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  response?: any;
+  parsingError?: { error: string; data: string };
+};
+
+export type GenerateTextResponse = {
+  sessionID?: string;
+  remoteID?: string;
+  results: {
+    text: string;
+    id?: string;
+    finishReason?: string;
+  }[];
+  modelUsage?: TokenUsage;
+  embedModelUsage?: TokenUsage;
+};
+
+export type AIGenerateTextResponse = GenerateTextResponse & {
+  modelInfo?: Readonly<TextModelInfo>;
+  modelConfig?: Readonly<GenerateTextModelConfig>;
+  embedModelInfo?: Readonly<TextModelInfo>;
+  requestID: string;
+  prompt: string;
+  functions: FunctionExec[];
+  parsingError?: { error: string; data: string };
+  responseTime?: number;
+  apiErrors?: Error[];
 };
 
 // eslint-disable-next-line functional/no-mixed-types
-export type AIGenerateTextResponse<T> = {
+export type AITextResponse<T> = {
   id: string;
+  prompt: string;
   sessionID?: string;
-  query: string;
-  values: { id: string; text: string }[];
-  usage: readonly AITokenUsage[];
+  responses: AIGenerateTextResponse[];
   value(): T;
 };
 
 export type EmbedResponse = {
-  id: string;
+  remoteID?: string;
   sessionID?: string;
   texts: readonly string[];
-  usage: AITokenUsage;
   embedding: readonly number[];
+  modelUsage?: TokenUsage;
 };
 
-export type AudioResponse = {
+export type TranscriptResponse = {
+  sessionID?: string;
   duration: number;
   segments: {
     id: number;
@@ -104,11 +150,14 @@ export type AIPromptConfig = {
 
 export interface AIService {
   name(): string;
+  getModelInfo(): Readonly<TextModelInfo> | undefined;
+  getEmbedModelInfo(): Readonly<TextModelInfo> | undefined;
+  getModelConfig(): Readonly<GenerateTextModelConfig>;
   generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>>;
+  ): Promise<GenerateTextResponse>;
   embed?(
     text2Embed: readonly string[] | string,
     sessionID?: string
@@ -118,7 +167,7 @@ export interface AIService {
     prompt?: string,
     language?: string,
     sessionID?: string
-  ): Promise<AudioResponse>;
+  ): Promise<TranscriptResponse>;
 }
 
 /*

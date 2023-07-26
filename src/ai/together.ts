@@ -1,10 +1,11 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
-  AIService,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
   TextModelInfo,
 } from '../text/types.js';
 
+import { BaseAI } from './base.js';
 import { API, apiCall } from './util.js';
 
 type TogetherAPI = API & {
@@ -178,7 +179,7 @@ const generateReq = (
   repetition_penalty: opt.repetitionPenalty,
 });
 
-export class Together implements AIService {
+export class Together extends BaseAI {
   private apiKey: string;
   private options: TogetherOptions;
 
@@ -186,6 +187,10 @@ export class Together implements AIService {
     apiKey: string,
     options: Readonly<TogetherOptions> = TogetherDefaultOptions()
   ) {
+    super('Together', modelInfo, {
+      model: options.model as string,
+    });
+
     if (apiKey === '') {
       throw new Error('Together API key not set');
     }
@@ -193,15 +198,22 @@ export class Together implements AIService {
     this.options = options;
   }
 
-  name(): string {
-    return 'Together';
+  getModelConfig(): GenerateTextModelConfig {
+    const { options } = this;
+    return {
+      maxTokens: options.maxTokens,
+      temperature: options.temperature,
+      topP: options.topP,
+      topK: options.topK,
+      stream: options.stream,
+    } as GenerateTextModelConfig;
   }
 
-  generate(
+  async generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
+  ): Promise<GenerateTextResponse> {
     const model = modelInfo.find((v) => v.id === this.options.model);
     if (!model) {
       throw new Error(
@@ -209,8 +221,7 @@ export class Together implements AIService {
       );
     }
 
-    prompt = prompt.trim();
-    const res = apiCall<
+    const res = await apiCall<
       TogetherAPI,
       TogetherGenerateRequest,
       TogetherAIGenerateTextResponse
@@ -228,15 +239,16 @@ export class Together implements AIService {
       generateReq(prompt, this.options, md?.stopSequences)
     );
 
-    return res.then(({ output: { choices } }) => ({
-      id: '',
+    const {
+      output: { choices },
+    } = res;
+
+    return {
       sessionID,
-      query: prompt,
-      values: choices.map((v) => ({ id: '', text: v.text.trim() })),
-      usage: [{ model }],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
-      },
-    }));
+      results: choices.map((v) => ({
+        text: v.text,
+        finishReason: v.finish_reason,
+      })),
+    };
   }
 }

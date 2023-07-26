@@ -1,12 +1,13 @@
 import {
-  AIGenerateTextResponse,
   AIPromptConfig,
-  AIService,
-  AudioResponse,
   EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
   TextModelInfo,
+  TranscriptResponse,
 } from '../text/types.js';
 
+import { BaseAI } from './base.js';
 import { API, apiCall, apiCallWithUpload } from './util.js';
 
 /**
@@ -68,7 +69,7 @@ export enum OpenAIAudioModel {
  * OpenAI: Model information
  * @export
  */
-export const modelInfo: TextModelInfo[] = [
+export const openAIModelInfo: TextModelInfo[] = [
   {
     id: OpenAIGenerateModel.GPT4,
     currency: 'usd',
@@ -163,22 +164,10 @@ export const modelInfo: TextModelInfo[] = [
  * OpenAI: Model options for text generation
  * @export
  */
-export type OpenAIOptions = {
+export type OpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
   model: OpenAIGenerateModel;
   embedModel: OpenAIEmbedModels;
   audioModel: OpenAIAudioModel;
-  suffix: string | null;
-  maxTokens: number;
-  temperature: number;
-  topP: number;
-  n?: number;
-  stream?: boolean;
-  logprobs?: number;
-  echo?: boolean;
-  presencePenalty?: number;
-  frequencyPenalty?: number;
-  bestOf?: number;
-  logitBias?: Map<string, number>;
   user?: string;
 };
 
@@ -408,7 +397,7 @@ const generateAudioReq = (
  * OpenAI: AI Service
  * @export
  */
-export class OpenAI implements AIService {
+export class OpenAI extends BaseAI {
   private apiKey: string;
   private orgID?: string;
   private options: OpenAIOptions;
@@ -417,6 +406,11 @@ export class OpenAI implements AIService {
     apiKey: string,
     options: Readonly<OpenAIOptions> = OpenAIDefaultOptions()
   ) {
+    super('OpenAI', openAIModelInfo, {
+      model: options.model,
+      embedModel: options.embedModel,
+    });
+
     if (apiKey === '') {
       throw new Error('OpenAPI API key not set');
     }
@@ -424,40 +418,42 @@ export class OpenAI implements AIService {
     this.options = options;
   }
 
-  name(): string {
-    return 'OpenAI';
+  getModelConfig(): GenerateTextModelConfig {
+    const { options } = this;
+    return {
+      maxTokens: options.maxTokens,
+      temperature: options.temperature,
+      topP: options.topP,
+      n: options.n,
+      stream: options.stream,
+      logprobs: options.logprobs,
+      echo: options.echo,
+      presencePenalty: options.presencePenalty,
+      frequencyPenalty: options.frequencyPenalty,
+      bestOf: options.bestOf,
+      logitBias: options.logitBias,
+    } as GenerateTextModelConfig;
   }
 
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    prompt = prompt.trim();
-    if (
-      [
-        OpenAIGenerateModel.GPT35Turbo,
-        OpenAIGenerateModel.GPT35Turbo16K,
-        OpenAIGenerateModel.GPT4,
-      ].includes(this.options.model as OpenAIGenerateModel)
-    ) {
-      return await this.generateChat(prompt, md, sessionID);
-    }
-    return await this.generateDefault(prompt, md, sessionID);
+  ): Promise<GenerateTextResponse> {
+    return [
+      OpenAIGenerateModel.GPT35Turbo,
+      OpenAIGenerateModel.GPT35Turbo16K,
+      OpenAIGenerateModel.GPT4,
+    ].includes(this.options.model as OpenAIGenerateModel)
+      ? await this.generateChat(prompt, md, sessionID)
+      : await this.generateDefault(prompt, md, sessionID);
   }
 
   private async generateDefault(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `OpenAI model information not found: ${this.options.model}`
-      );
-    }
-
+  ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       OpenAIAPI,
       OpenAIGenerateRequest,
@@ -469,22 +465,13 @@ export class OpenAI implements AIService {
 
     const { id, choices: c, usage: u } = res;
     return {
-      id: id.toString(),
+      remoteID: id.toString(),
       sessionID,
-      query: prompt,
-      values: c.map((v) => ({ id: v.index.toString(), text: v.text })),
-      usage: [
-        {
-          model,
-          stats: {
-            promptTokens: u.prompt_tokens,
-            completionTokens: u.completion_tokens,
-            totalTokens: u.total_tokens,
-          },
-        },
-      ],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
+      results: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+      modelUsage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
       },
     };
   }
@@ -493,14 +480,7 @@ export class OpenAI implements AIService {
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<string>> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `OpenAI model information not found: ${this.options.model}`
-      );
-    }
-
+  ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       OpenAIAPI,
       OpenAIChatGenerateRequest,
@@ -512,25 +492,16 @@ export class OpenAI implements AIService {
 
     const { id, choices: c, usage: u } = res;
     return {
-      id: id.toString(),
+      remoteID: id.toString(),
       sessionID,
-      query: prompt,
-      values: c.map((v) => ({
+      results: c.map((v) => ({
         id: v.index.toString(),
         text: v.message.content,
       })),
-      usage: [
-        {
-          model,
-          stats: {
-            promptTokens: u.prompt_tokens,
-            completionTokens: u.completion_tokens,
-            totalTokens: u.total_tokens,
-          },
-        },
-      ],
-      value() {
-        return (this as { values: { text: string }[] }).values[0].text;
+      modelUsage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
       },
     };
   }
@@ -550,13 +521,6 @@ export class OpenAI implements AIService {
       throw new Error('OpenAI limits embeddings input to 512 characters');
     }
 
-    const model = modelInfo.find((v) => v.id === this.options.embedModel);
-    if (!model) {
-      throw new Error(
-        `OpenAI model information not found: ${this.options.embedModel}`
-      );
-    }
-
     const embedReq = { input: texts, model: this.options.embedModel };
     const res = await apiCall<
       OpenAIAPI,
@@ -565,30 +529,25 @@ export class OpenAI implements AIService {
     >(this.createAPI(apiType.Embed), embedReq);
 
     const { data, usage: u } = res;
-
     return {
-      id: '',
       sessionID,
       texts,
       embedding: data.at(0)?.embedding || [],
-      usage: {
-        model,
-        stats: {
-          promptTokens: u.prompt_tokens,
-          completionTokens: u.completion_tokens,
-          totalTokens: u.total_tokens,
-        },
+      modelUsage: {
+        promptTokens: u.prompt_tokens,
+        completionTokens: u.completion_tokens,
+        totalTokens: u.total_tokens,
       },
     };
   }
 
-  transcribe(
+  async transcribe(
     file: string,
     prompt?: string,
     language?: string,
     sessionID?: string
-  ): Promise<AudioResponse> {
-    const res = apiCallWithUpload<
+  ): Promise<TranscriptResponse> {
+    const res = await apiCallWithUpload<
       OpenAIAPI,
       OpenAIAudioRequest,
       OpenAIAudioResponse
@@ -598,16 +557,17 @@ export class OpenAI implements AIService {
       file
     );
 
-    return res.then((data) => ({
-      duration: data.duration,
-      segments: data.segments.map((v) => ({
+    const { duration, segments } = res;
+    return {
+      sessionID,
+      duration,
+      segments: segments.map((v) => ({
         id: v.id,
         start: v.start,
         end: v.end,
         text: v.text,
       })),
-      sessionID,
-    }));
+    };
   }
 
   private createAPI(name: apiType): OpenAIAPI {

@@ -1,10 +1,11 @@
 import { buildFunctionsPrompt, processFunction } from './functions.js';
 import { Memory } from './memory.js';
 import {
-  AIGenerateTextExtraOptions,
-  AIGenerateTextResponse,
   AIMemory,
   AIService,
+  AITextResponse,
+  GenerateTextExtraOptions,
+  GenerateTextResponse,
   PromptConfig,
 } from './types.js';
 import { log, stringToObject } from './util.js';
@@ -59,16 +60,23 @@ export class AIPrompt<T> {
     ai: AIService,
     query: string,
     { sessionID, memory, rateLimiter }: Options = {}
-  ): Promise<AIGenerateTextResponse<T>> {
-    const wai = new AI(ai, rateLimiter);
-    const res = await this._generate(
+  ): Promise<AITextResponse<T>> {
+    const wai = new AI(ai, this.debug, rateLimiter);
+    const [, value] = await this._generate(
       wai,
       memory || new Memory(),
       query,
       sessionID
     );
-    res.usage = wai.getUsage();
-    return res;
+    const responses = wai.getResponses();
+
+    return {
+      id: 'test',
+      sessionID,
+      prompt: query,
+      responses,
+      value: () => value,
+    };
   }
 
   private async _generate(
@@ -76,7 +84,7 @@ export class AIPrompt<T> {
     mem: AIMemory,
     query: string,
     sessionID?: string
-  ): Promise<AIGenerateTextResponse<T>> {
+  ): Promise<[GenerateTextResponse, T]> {
     const { conf } = this;
     const { responseConfig, functions } = conf;
     const { keyValue, schema } = responseConfig || {};
@@ -86,21 +94,25 @@ export class AIPrompt<T> {
       debug: this.debug,
     };
 
-    let res: AIGenerateTextResponse<string>;
+    let res: GenerateTextResponse;
+    let value: string;
 
     if (functions && functions?.length > 0) {
-      res = await this._generateWithFunctions(ai, mem, query, extraOptions);
+      [res, value] = await this._generateWithFunctions(
+        ai,
+        mem,
+        query,
+        extraOptions
+      );
     } else {
-      res = await this._generateDefault(ai, mem, query, extraOptions);
+      [res, value] = await this._generateDefault(ai, mem, query, extraOptions);
     }
 
-    let fvalue: string | Map<string, string[]> | T;
-
-    let value = res.value();
-    let error: Error | undefined;
     const retryCount = 3;
 
     for (let i = 0; i < retryCount; i++) {
+      let fvalue: string | Map<string, string[]> | T;
+
       try {
         if (keyValue) {
           fvalue = stringToMap(value);
@@ -110,15 +122,19 @@ export class AIPrompt<T> {
           fvalue = value;
         }
 
-        return {
-          ...res,
-          value: () => fvalue as T,
-        };
+        return [res, fvalue] as [GenerateTextResponse, T];
       } catch (e: unknown) {
-        error = e as Error;
+        const error = e as Error;
+
+        const lastRes = ai.getLastResponse();
+        if (lastRes) {
+          lastRes.parsingError = { error: error.message, data: value };
+        }
+
         if (i < retryCount - 1) {
           continue;
         }
+
         const { fixedValue } = await this.fixSyntax(
           ai,
           mem,
@@ -129,15 +145,16 @@ export class AIPrompt<T> {
         value = fixedValue;
       }
     }
-    throw new Error(`invalid response syntax: ${error?.message}`);
+
+    throw new Error(`unable to fix result syntax`);
   }
 
   private async _generateWithFunctions(
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
-    { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
-  ): Promise<AIGenerateTextResponse<string>> {
+    { sessionID, debug }: Readonly<GenerateTextExtraOptions>
+  ): Promise<[GenerateTextResponse, string]> {
     const { conf } = this;
 
     conf.stopSequences = [...conf.stopSequences, 'Observation:'];
@@ -161,31 +178,32 @@ export class AIPrompt<T> {
     for (let i = 0; i < this.maxSteps; i++) {
       const p = this.create(query, sprompt, h, ai);
 
-      if (debug) {
-        log(`> ${p}`, 'white');
-      }
-
       const res = await ai.generate(p, conf, sessionID);
-      const rval = res.value().trim();
+      const value = res.results.at(0)?.text?.trim() ?? '';
 
-      if (debug) {
-        log(`< ${rval}`, 'red');
+      if (value.length === 0) {
+        throw new Error('empty response from llm');
       }
 
-      if (rval.length === 0) {
-        throw new Error('empty response from ai');
-      }
-      const { done } = await processFunction(
+      const funcExec = await processFunction(
+        value,
         functions,
         ai,
-        mem,
-        res,
         debug,
         sessionID
       );
 
-      if (done) {
-        return { ...res };
+      const mval = ['\n', value, '\nObservation: ', funcExec.response];
+      mem.add(mval.join(''), sessionID);
+
+      const lastRes = ai.getLastResponse();
+      if (lastRes) {
+        lastRes.functions = [...lastRes.functions, funcExec];
+        lastRes.embedModelUsage = res.modelUsage;
+      }
+
+      if (funcExec.name === 'finalResult') {
+        return [res, funcExec.response];
       }
     }
 
@@ -196,8 +214,8 @@ export class AIPrompt<T> {
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
-    { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
-  ): Promise<AIGenerateTextResponse<string>> {
+    { sessionID }: Readonly<GenerateTextExtraOptions>
+  ): Promise<[GenerateTextResponse, string]> {
     const { conf } = this;
     const { schema } = conf.responseConfig || {};
 
@@ -205,21 +223,21 @@ export class AIPrompt<T> {
     const sprompt: string = schema ? JSON.stringify(schema, null, '\t') : '';
 
     const p = this.create(query, sprompt, h, ai);
-
-    if (debug) {
-      log(`> ${p}`, 'white');
-    }
-
     const res = await ai.generate(p, conf, sessionID);
-    const rval = res.value().trim();
+    const value = res.results.at(0)?.text?.trim() ?? '';
 
-    if (debug) {
-      log(`< ${rval}`, 'red');
+    if (value.length === 0) {
+      throw new Error('empty response from ai');
     }
 
-    const mval = [this.conf.queryPrefix, query, this.conf.responsePrefix, rval];
+    const mval = [
+      this.conf.queryPrefix,
+      query,
+      this.conf.responsePrefix,
+      value,
+    ];
     mem.add(mval.join(''), sessionID);
-    return res;
+    return [res, value];
   }
 
   private async fixSyntax(
@@ -227,16 +245,20 @@ export class AIPrompt<T> {
     mem: AIMemory,
     error: Readonly<Error>,
     value: string,
-    { sessionID, debug }: Readonly<AIGenerateTextExtraOptions>
+    { sessionID, debug }: Readonly<GenerateTextExtraOptions>
   ): Promise<{ fixedValue: string }> {
-    const { conf } = this;
-    const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
-    const res = await ai.generate(p, conf, sessionID);
-    const fixedValue = res.value().trim();
-
     if (debug) {
       log(`Syntax Error: ${error.message}`, 'red');
-      log(`< ${fixedValue}`, 'red');
+    }
+
+    const { conf } = this;
+    const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
+
+    const res = await ai.generate(p, conf, sessionID);
+    const fixedValue = res.results.at(0)?.text?.trim() ?? '';
+
+    if (fixedValue.length === 0) {
+      throw new Error('empty response from ai');
     }
 
     return { fixedValue };

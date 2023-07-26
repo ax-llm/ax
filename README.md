@@ -140,22 +140,11 @@ const functions = [
 
 const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
-// The response you expect, define its schema
+// The schema of the final response you expect from this prompt
 const responseSchema = {
   type: 'object',
   properties: {
-    data: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: 'product name' },
-          units: { type: 'number', description: 'quantity in stock' },
-          desc: { type: 'string', description: 'product description' },
-        },
-      },
-    },
-    response: {
+    message: {
       type: 'string',
       description: 'response message for the sender',
     },
