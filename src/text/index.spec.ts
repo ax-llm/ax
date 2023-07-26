@@ -104,7 +104,7 @@ test('findAnswersWithAI', async (t) => {
     },
   ];
 
-  const responseSchema: JSONSchemaType<{ companyName: string }> = {
+  const resultSchema: JSONSchemaType<{ companyName: string }> = {
     type: 'object',
     properties: {
       companyName: {
@@ -125,10 +125,7 @@ test('findAnswersWithAI', async (t) => {
 
   const ai = new Betty(interactions);
   const memory = new Memory();
-  const prompt = new SPrompt<{ companyName: string }>(
-    responseSchema,
-    functions
-  );
+  const prompt = new SPrompt<{ companyName: string }>(resultSchema, functions);
   // prompt.setDebug(true);
 
   const res = await prompt.generate(

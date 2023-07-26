@@ -141,7 +141,7 @@ const functions = [
 const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
 
 // The schema of the final response you expect from this prompt
-const responseSchema = {
+const resultSchema = {
   type: 'object',
   properties: {
     message: {
@@ -152,7 +152,7 @@ const responseSchema = {
 };
 
 // Setup the prompt with the response schema and functions
-const prompt = new SPrompt(responseSchema, functions);
+const prompt = new SPrompt(resultSchema, functions);
 prompt.setDebug(true);
 
 // Execute the prompt and get the response
@@ -205,7 +205,7 @@ The usage stats are useful to be able to compute costs and usage information.
 
 ## Extract Details From Messages
 
-Extracting information from text is one of the most useful thing LLMs can do. You can either use the more specialized `ExtractInfoPrompt` which should work even with simplier LLMs or use the `SPrompt` with or without functions and the `responseSchema` to do the same.
+Extracting information from text is one of the most useful thing LLMs can do. You can either use the more specialized `ExtractInfoPrompt` which should work even with simplier LLMs or use the `SPrompt` with or without functions and the `resultSchema` to do the same.
 
 ```js
 const entities = [
@@ -271,7 +271,7 @@ const prompt = new AIPrompt();
 
 // Or A prompt (extended from AIPrompt) to handle
 // api calling and structured responses
-const prompt = new SPrompt(responseSchema, functions);
+const prompt = new SPrompt(resultSchema, functions);
 ```
 
 ### 4. Engage the AI
@@ -338,7 +338,7 @@ Finally pass the functions list to the prompt.
 
 ```js
 // json schema defining the final response object
-const responseSchema = {
+const resultSchema = {
   type: 'object',
   properties: {
     data: {
@@ -355,7 +355,7 @@ const responseSchema = {
   },
 };
 
-const prompt = new SPrompt(responseSchema, functions);
+const prompt = new SPrompt(resultSchema, functions);
 ```
 
 ## Reach out
