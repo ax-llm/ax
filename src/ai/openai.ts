@@ -467,7 +467,11 @@ export class OpenAI extends BaseAI {
     return {
       remoteID: id.toString(),
       sessionID,
-      results: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+      results: c.map((v) => ({
+        id: v.index.toString(),
+        text: v.text,
+        finishReason: v.finish_reason,
+      })),
       modelUsage: {
         promptTokens: u.prompt_tokens,
         completionTokens: u.completion_tokens,
@@ -497,6 +501,7 @@ export class OpenAI extends BaseAI {
       results: c.map((v) => ({
         id: v.index.toString(),
         text: v.message.content,
+        finishReason: v.finish_reason,
       })),
       modelUsage: {
         promptTokens: u.prompt_tokens,

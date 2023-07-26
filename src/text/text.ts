@@ -198,8 +198,8 @@ export class AIPrompt<T> {
 
       const lastRes = ai.getLastResponse();
       if (lastRes) {
-        lastRes.functions = [...lastRes.functions, funcExec];
-        lastRes.embedModelUsage = res.modelUsage;
+        lastRes.functions = [...(lastRes.functions ?? []), funcExec];
+        lastRes.embedModelUsage = res.embedModelUsage;
       }
 
       if (funcExec.name === 'finalResult') {

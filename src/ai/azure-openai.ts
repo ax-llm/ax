@@ -305,7 +305,11 @@ export class AzureOpenAI extends BaseAI {
     return {
       sessionID,
       remoteID: id.toString(),
-      results: c.map((v) => ({ id: v.index.toString(), text: v.text })),
+      results: c.map((v) => ({
+        id: v.index.toString(),
+        text: v.text,
+        finishReason: v.finish_reason,
+      })),
       modelUsage: {
         promptTokens: u.prompt_tokens,
         completionTokens: u.completion_tokens,
@@ -335,6 +339,7 @@ export class AzureOpenAI extends BaseAI {
       results: c.map((v) => ({
         id: v.index.toString(),
         text: v.message.content,
+        finishReason: v.finish_reason,
       })),
       modelUsage: {
         promptTokens: u.prompt_tokens,

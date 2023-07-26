@@ -1,9 +1,11 @@
 import {
   AIPromptConfig,
   AIService,
+  EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
+  TranscriptResponse,
 } from '../text/types.js';
 
 export class BaseAI implements AIService {
@@ -48,6 +50,28 @@ export class BaseAI implements AIService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _sessionID?: string
   ): Promise<GenerateTextResponse> {
-    throw new Error('generate not implemented');
+    throw new Error('generate not supported');
+  }
+
+  embed(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _text2Embed: readonly string[] | string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _sessionID?: string
+  ): Promise<EmbedResponse> {
+    throw new Error('embed not supported');
+  }
+
+  transcribe(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _file: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _prompt?: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _language?: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _sessionID?: string
+  ): Promise<TranscriptResponse> {
+    throw new Error('transcribe not supported');
   }
 }

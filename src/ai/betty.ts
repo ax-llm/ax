@@ -1,12 +1,12 @@
 import {
   AIPromptConfig,
-  AIService,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
-  TranscriptResponse,
 } from '../text/types.js';
+
+import { BaseAI } from './base.js';
 
 const modelInfo: TextModelInfo[] = [
   {
@@ -30,23 +30,19 @@ const modelInfo: TextModelInfo[] = [
  * Betty: Fake AI Service for writing tests
  * @export
  */
-export class Betty implements AIService {
+export class Betty extends BaseAI {
   private answers: string[];
   private data: string[];
   private sdata: Map<string, string[]> = new Map();
   private index = 0;
 
   constructor(answers: readonly string[]) {
+    super('Betty', modelInfo, {
+      model: 'betty-fake-completion-model',
+      embedModel: 'betty-fake-embed-model',
+    });
     this.answers = [...answers];
     this.data = [...answers];
-  }
-
-  getModelInfo(): Readonly<TextModelInfo> | undefined {
-    return modelInfo.at(0);
-  }
-
-  getEmbedModelInfo(): Readonly<TextModelInfo> | undefined {
-    return modelInfo.at(1);
   }
 
   getModelConfig(): Readonly<GenerateTextModelConfig> {
@@ -62,23 +58,6 @@ export class Betty implements AIService {
       bestOf: 1,
       suffix: null,
     };
-  }
-
-  transcribe?(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _file: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _prompt?: string | undefined,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _language?: string | undefined,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionID?: string | undefined
-  ): Promise<TranscriptResponse> {
-    throw new Error('Method not implemented.');
-  }
-
-  name(): string {
-    return 'Betty';
   }
 
   generate(

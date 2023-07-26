@@ -45,6 +45,7 @@ export type FunctionExec = {
   args?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   response?: any;
+  reasoning?: string[];
   parsingError?: { error: string; data: string };
 };
 
@@ -61,15 +62,16 @@ export type GenerateTextResponse = {
 };
 
 export type AIGenerateTextResponse = GenerateTextResponse & {
+  requestID: string;
+  prompt?: string;
   modelInfo?: Readonly<TextModelInfo>;
   modelConfig?: Readonly<GenerateTextModelConfig>;
+  modelResponseTime?: number;
   embedModelInfo?: Readonly<TextModelInfo>;
-  requestID: string;
-  prompt: string;
-  functions: FunctionExec[];
+  embedModelResponseTime?: number;
+  functions?: FunctionExec[];
   parsingError?: { error: string; data: string };
-  responseTime?: number;
-  apiErrors?: Error[];
+  apiError?: Error;
 };
 
 // eslint-disable-next-line functional/no-mixed-types
@@ -158,11 +160,11 @@ export interface AIService {
     md?: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<GenerateTextResponse>;
-  embed?(
+  embed(
     text2Embed: readonly string[] | string,
     sessionID?: string
   ): Promise<EmbedResponse>;
-  transcribe?(
+  transcribe(
     file: string,
     prompt?: string,
     language?: string,

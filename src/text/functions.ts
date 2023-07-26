@@ -7,6 +7,7 @@ import { stringToObject } from './util.js';
 import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
+const thoughtRe = /Thought:(.*)$/gm;
 
 const executeFunction = async (
   funcInfo: Readonly<PromptFunction>,
@@ -48,12 +49,21 @@ export const processFunction = async (
   let funcArgs = '';
   let v: string[] | null;
 
+  // extract thoughts
+  const tm = value.matchAll(thoughtRe);
+  const reasoning: string[] = [];
+
+  for (const m of tm) {
+    reasoning.push(m[1].trim());
+  }
+
+  // extract function calls
   if ((v = functionCallRe.exec(value)) !== null) {
     funcName = v[1].trim();
     funcArgs = v[2].trim();
   }
 
-  let funcExec: FunctionExec = { name: funcName };
+  let funcExec: FunctionExec = { name: funcName, reasoning };
 
   if (funcName === 'finalResult') {
     // mem.add(value, sessionID);
@@ -63,6 +73,7 @@ export const processFunction = async (
 
   const func = functions.find((v) => v.name === funcName);
 
+  // execute value function calls
   if (func) {
     funcExec = await executeFunction(func, funcArgs, {
       ai,

@@ -70,11 +70,18 @@ export class AI implements AIService {
       log(`> ${prompt}`, 'white');
     }
 
+    let modelResponseTime;
+
+    const fn = async () => {
+      const st = new Date().getTime();
+      const res = await this.ai.generate(prompt, md, sessionID);
+      modelResponseTime = new Date().getTime() - st;
+      return res;
+    };
+
     const res = this.rt
-      ? await this.rt<Promise<AIGenerateTextResponse>>(
-          async () => await this.ai.generate(prompt, md, sessionID)
-        )
-      : await this.ai.generate(prompt, md, sessionID);
+      ? await this.rt<Promise<AIGenerateTextResponse>>(fn)
+      : await fn();
 
     if (this.debug) {
       const value = res.results.at(0)?.text;
@@ -88,6 +95,7 @@ export class AI implements AIService {
       requestID: this.requestID,
       modelInfo: this.ai.getModelInfo(),
       modelConfig: this.ai.getModelConfig(),
+      modelResponseTime,
     });
 
     return res;
@@ -97,19 +105,24 @@ export class AI implements AIService {
     textToEmbed: readonly string[] | string,
     sessionID?: string
   ): Promise<EmbedResponse> {
-    if (!this.ai.embed) {
-      throw new Error('Embed not supported');
-    }
+    let embedModelResponseTime;
+
+    const fn = async () => {
+      const st = new Date().getTime();
+      const res = await this.ai.embed(textToEmbed, sessionID);
+      embedModelResponseTime = new Date().getTime() - st;
+      return res;
+    };
+
     const res = this.rt
-      ? await this.rt<Promise<EmbedResponse>>(async () =>
-          this.ai.embed ? await this.ai.embed(textToEmbed, sessionID) : null
-        )
-      : await this.ai.embed(textToEmbed, sessionID);
+      ? await this.rt<Promise<EmbedResponse>>(async () => fn())
+      : await fn();
 
     const lastRes = this.getLastResponse();
     if (lastRes) {
       lastRes.embedModelInfo = this.ai.getEmbedModelInfo();
       lastRes.embedModelUsage = res.modelUsage;
+      lastRes.embedModelResponseTime = embedModelResponseTime;
     }
 
     return res;
