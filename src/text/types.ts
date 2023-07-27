@@ -121,7 +121,7 @@ export type PromptFunctionExtraOptions = {
 
 export type PromptFunctionFunc = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  args: any,
+  args?: any,
   extra?: Readonly<PromptFunctionExtraOptions>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ) => Promise<any>;
@@ -130,7 +130,7 @@ export type PromptFunction = {
   readonly name: string;
   readonly description: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly inputSchema: any;
+  readonly inputSchema?: any;
   func: PromptFunctionFunc;
 };
 

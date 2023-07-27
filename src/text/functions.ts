@@ -16,6 +16,17 @@ const executeFunction = async (
 ): Promise<FunctionExec> => {
   let args;
 
+  if (funcInfo.inputSchema === undefined) {
+    const res =
+      funcInfo.func.length === 1
+        ? await funcInfo.func(extra)
+        : await funcInfo.func();
+    return {
+      name: funcInfo.name,
+      response: JSON.stringify(res, null, '\t'),
+    };
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args = stringToObject<any>(funcArgJSON, funcInfo.inputSchema);
@@ -27,9 +38,9 @@ const executeFunction = async (
   }
 
   const res =
-    (await funcInfo.func.length) === 2
-      ? funcInfo.func(args, extra)
-      : funcInfo.func(args);
+    funcInfo.func.length === 2
+      ? await funcInfo.func(args, extra)
+      : await funcInfo.func(args);
 
   return {
     name: funcInfo.name,
