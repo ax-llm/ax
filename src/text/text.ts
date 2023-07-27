@@ -1,6 +1,7 @@
 import { buildFunctionsPrompt, processFunction } from './functions.js';
 import { Memory } from './memory.js';
 import {
+  AIGenerateTextTrace,
   AIMemory,
   AIService,
   AITextResponse,
@@ -68,13 +69,13 @@ export class AIPrompt<T> {
       query,
       sessionID
     );
-    const responses = wai.getResponses();
+    const traces = wai.getTraces();
 
     return {
       id: 'test',
       sessionID,
       prompt: query,
-      responses,
+      traces,
       value: () => value,
     };
   }
@@ -126,9 +127,12 @@ export class AIPrompt<T> {
       } catch (e: unknown) {
         const error = e as Error;
 
-        const lastRes = ai.getLastResponse();
-        if (lastRes) {
-          lastRes.parsingError = { error: error.message, data: value };
+        const trace = ai.getTrace() as AIGenerateTextTrace;
+        if (trace && trace.response) {
+          trace.response.parsingError = {
+            error: error.message,
+            data: value,
+          };
         }
 
         if (i < retryCount - 1) {
@@ -196,10 +200,13 @@ export class AIPrompt<T> {
       const mval = ['\n', value, '\nObservation: ', funcExec.response];
       mem.add(mval.join(''), sessionID);
 
-      const lastRes = ai.getLastResponse();
-      if (lastRes) {
-        lastRes.functions = [...(lastRes.functions ?? []), funcExec];
-        lastRes.embedModelUsage = res.embedModelUsage;
+      const trace = ai.getTrace() as AIGenerateTextTrace;
+      if (trace && trace.response) {
+        trace.response.functions = [
+          ...(trace.response.functions ?? []),
+          funcExec,
+        ];
+        trace.response.embedModelUsage = res.embedModelUsage;
       }
 
       if (funcExec.name === 'finalResult') {

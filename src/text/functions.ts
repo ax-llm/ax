@@ -3,7 +3,7 @@ import {
   PromptFunction,
   PromptFunctionExtraOptions,
 } from './types.js';
-import { stringToObject } from './util.js';
+import { log, stringToObject } from './util.js';
 import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
@@ -77,7 +77,6 @@ export const processFunction = async (
   let funcExec: FunctionExec = { name: funcName, reasoning };
 
   if (funcName === 'finalResult') {
-    // mem.add(value, sessionID);
     funcExec.response = funcArgs;
     return funcExec;
   }
@@ -101,9 +100,9 @@ export const processFunction = async (
     funcExec.response = `Function ${funcName} not found`;
   }
 
-  // if (debug) {
-  //   log(`> ${funcName}(${funcArgs}): ${funcResult}`, 'cyan');
-  // }
+  if (debug) {
+    log(`> ${funcName}(${funcArgs}): ${funcExec.response}`, 'cyan');
+  }
   return funcExec;
 };
 

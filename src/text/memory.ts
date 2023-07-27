@@ -1,4 +1,4 @@
-import { AIMemory } from "./types.js";
+import { AIMemory } from './types.js';
 
 /**
  * A memory class to store ai interactions
@@ -18,7 +18,7 @@ export class Memory implements AIMemory {
 
   add(text: string, sessionID?: string): void {
     const d = this.get(sessionID);
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+
     d.push(text) > this.limit ? d.shift() : null;
   }
 
@@ -28,6 +28,14 @@ export class Memory implements AIMemory {
 
   peek(sessionID?: string): Readonly<string[]> {
     return this.get(sessionID);
+  }
+
+  reset(sessionID?: string) {
+    if (!sessionID) {
+      this.data = [];
+    } else {
+      this.sdata.set(sessionID, []);
+    }
   }
 
   private get(sessionID?: string): string[] {

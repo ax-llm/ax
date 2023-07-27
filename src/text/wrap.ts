@@ -1,5 +1,5 @@
 import {
-  AIGenerateTextResponse,
+  AIGenerateTextTrace,
   AIPromptConfig,
   AIService,
   EmbedResponse,
@@ -18,8 +18,8 @@ import { log, uuid } from './util.js';
 export type RateLimiterFunction = <T>(func: unknown) => T;
 
 export class AI implements AIService {
-  private responses: AIGenerateTextResponse[] = [];
-  private requestID: string;
+  private traces: AIGenerateTextTrace[] = [];
+  private traceID: string;
   private ai: AIService;
   private debug = false;
   private rt?: RateLimiterFunction;
@@ -32,11 +32,11 @@ export class AI implements AIService {
     this.ai = ai;
     this.debug = debug;
     this.rt = rateLimiter;
-    this.requestID = uuid();
+    this.traceID = uuid();
   }
 
-  getResponses(): AIGenerateTextResponse[] {
-    return this.responses;
+  getTraces(): AIGenerateTextTrace[] {
+    return this.traces;
   }
 
   getModelInfo(): Readonly<TextModelInfo> | undefined {
@@ -53,12 +53,21 @@ export class AI implements AIService {
     return this.ai.name();
   }
 
-  getLastResponse(): AIGenerateTextResponse | undefined {
-    return this.responses.at(-1);
+  getTrace(): AIGenerateTextTrace | undefined {
+    return this.traces.at(-1);
   }
 
-  private addResponse(response: Readonly<AIGenerateTextResponse>) {
-    this.responses.push(response);
+  private newTrace(prompt: string): AIGenerateTextTrace {
+    const trace = {
+      traceID: this.traceID,
+      request: {
+        prompt,
+        modelInfo: this.ai.getModelInfo(),
+        modelConfig: this.ai.getModelConfig(),
+      },
+    };
+    this.traces.push(trace);
+    return trace;
   }
 
   async generate(
@@ -79,8 +88,10 @@ export class AI implements AIService {
       return res;
     };
 
+    const trace = this.newTrace(prompt);
+
     const res = this.rt
-      ? await this.rt<Promise<AIGenerateTextResponse>>(fn)
+      ? await this.rt<Promise<GenerateTextResponse>>(fn)
       : await fn();
 
     if (this.debug) {
@@ -88,15 +99,12 @@ export class AI implements AIService {
       log(`< ${value}`, 'red');
     }
 
-    this.addResponse({
-      ...res,
-      prompt,
-      functions: [],
-      requestID: this.requestID,
-      modelInfo: this.ai.getModelInfo(),
-      modelConfig: this.ai.getModelConfig(),
-      modelResponseTime,
-    });
+    if (trace) {
+      trace.response = {
+        ...res,
+        modelResponseTime,
+      };
+    }
 
     return res;
   }
@@ -114,15 +122,18 @@ export class AI implements AIService {
       return res;
     };
 
+    const trace = this.getTrace() as AIGenerateTextTrace;
+    if (trace) {
+      trace.request.embedModelInfo = this.ai.getEmbedModelInfo();
+    }
+
     const res = this.rt
       ? await this.rt<Promise<EmbedResponse>>(async () => fn())
       : await fn();
 
-    const lastRes = this.getLastResponse();
-    if (lastRes) {
-      lastRes.embedModelInfo = this.ai.getEmbedModelInfo();
-      lastRes.embedModelUsage = res.modelUsage;
-      lastRes.embedModelResponseTime = embedModelResponseTime;
+    if (trace && trace.response) {
+      trace.response.embedModelResponseTime = embedModelResponseTime;
+      trace.response.embedModelUsage = res.modelUsage;
     }
 
     return res;

@@ -61,17 +61,22 @@ export type GenerateTextResponse = {
   embedModelUsage?: TokenUsage;
 };
 
-export type AIGenerateTextResponse = GenerateTextResponse & {
-  requestID: string;
-  prompt?: string;
-  modelInfo?: Readonly<TextModelInfo>;
-  modelConfig?: Readonly<GenerateTextModelConfig>;
-  modelResponseTime?: number;
-  embedModelInfo?: Readonly<TextModelInfo>;
-  embedModelResponseTime?: number;
-  functions?: FunctionExec[];
-  parsingError?: { error: string; data: string };
-  apiError?: Error;
+export type AIGenerateTextTrace = {
+  traceID: string;
+  sessionID?: string;
+  request: {
+    prompt?: string;
+    modelInfo?: Readonly<TextModelInfo>;
+    modelConfig?: Readonly<GenerateTextModelConfig>;
+    embedModelInfo?: Readonly<TextModelInfo>;
+  };
+  response?: Omit<GenerateTextResponse, 'sessionID'> & {
+    modelResponseTime?: number;
+    embedModelResponseTime?: number;
+    functions?: FunctionExec[];
+    parsingError?: { error: string; data: string };
+    apiError?: Error;
+  };
 };
 
 // eslint-disable-next-line functional/no-mixed-types
@@ -79,7 +84,7 @@ export type AITextResponse<T> = {
   id: string;
   prompt: string;
   sessionID?: string;
-  responses: AIGenerateTextResponse[];
+  traces: AIGenerateTextTrace[];
   value(): T;
 };
 
@@ -106,6 +111,7 @@ export interface AIMemory {
   add(text: string, sessionID?: string): void;
   history(sessionID?: string): string;
   peek(sessionID?: string): Readonly<string[]>;
+  reset(sessionID?: string): void;
 }
 
 export type Embeddings = {
