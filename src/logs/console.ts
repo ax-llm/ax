@@ -67,7 +67,7 @@ export class ConsoleLogger {
 
   public log(traces: readonly AIGenerateTextTrace[]): void {
     traces.forEach((trace, i) => {
-      console.log(chalk.bold.cyan(`\n🔎 Trace ${i + 1}\n` + '_'.repeat(100)));
+      console.log(chalk.bold.cyan(`\n🔎 Trace ${i + 1}\n` + '_'.repeat(50)));
       this.print('Trace ID', trace.traceID, 1);
       this.print('Session ID', trace.sessionID, 1);
 
