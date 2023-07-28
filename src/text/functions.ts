@@ -3,7 +3,7 @@ import {
   PromptFunction,
   PromptFunctionExtraOptions,
 } from './types.js';
-import { log, stringToObject } from './util.js';
+import { stringToObject } from './util.js';
 import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
@@ -23,7 +23,8 @@ const executeFunction = async (
         : await funcInfo.func();
     return {
       name: funcInfo.name,
-      response: JSON.stringify(res, null, '\t'),
+      result: JSON.stringify(res, null, 2),
+      resultValue: res,
     };
   }
 
@@ -45,7 +46,8 @@ const executeFunction = async (
   return {
     name: funcInfo.name,
     args,
-    response: JSON.stringify(res, null, '\t'),
+    result: JSON.stringify(res, null, 2),
+    resultValue: res,
   };
 };
 
@@ -53,7 +55,6 @@ export const processFunction = async (
   value: string,
   functions: readonly PromptFunction[],
   ai: Readonly<AI>,
-  debug = false,
   sessionID?: string
 ): Promise<FunctionExec> => {
   let funcName = '';
@@ -77,7 +78,7 @@ export const processFunction = async (
   let funcExec: FunctionExec = { name: funcName, reasoning };
 
   if (funcName === 'finalResult') {
-    funcExec.response = funcArgs;
+    funcExec.result = funcArgs;
     return funcExec;
   }
 
@@ -87,22 +88,18 @@ export const processFunction = async (
   if (func) {
     funcExec = await executeFunction(func, funcArgs, {
       ai,
-      debug,
       sessionID,
     });
 
     if (funcExec.parsingError) {
-      funcExec.response = `Fix error and repeat: ${funcExec.parsingError.error}`;
-    } else if (!funcExec.response || funcExec.response.length === 0) {
-      funcExec.response = `No data returned by function`;
+      funcExec.result = `Fix error and repeat: ${funcExec.parsingError.error}`;
+    } else if (!funcExec.result || funcExec.result.length === 0) {
+      funcExec.result = `No data returned by function`;
     }
   } else {
-    funcExec.response = `Function ${funcName} not found`;
+    funcExec.result = `Function ${funcName} not found`;
   }
 
-  if (debug) {
-    log(`> ${funcName}(${funcArgs}): ${funcExec.response}`, 'cyan');
-  }
   return funcExec;
 };
 
@@ -115,7 +112,7 @@ export const buildFunctionsPrompt = (
     parameters: v.inputSchema,
   }));
 
-  const functionsJSON = JSON.stringify(funcList, null, '\t');
+  const functionsJSON = JSON.stringify(funcList, null, 2);
 
   return `
 Functions:

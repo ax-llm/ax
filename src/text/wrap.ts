@@ -9,7 +9,7 @@ import {
   TranscriptResponse,
 } from '../text/types.js';
 
-import { log, uuid } from './util.js';
+import { uuid } from './util.js';
 
 /**
  * Type of the rate limiter function
@@ -21,16 +21,10 @@ export class AI implements AIService {
   private traces: AIGenerateTextTrace[] = [];
   private traceID: string;
   private ai: AIService;
-  private debug = false;
   private rt?: RateLimiterFunction;
 
-  constructor(
-    ai: AIService,
-    debug: boolean,
-    rateLimiter?: RateLimiterFunction
-  ) {
+  constructor(ai: AIService, rateLimiter?: RateLimiterFunction) {
     this.ai = ai;
-    this.debug = debug;
     this.rt = rateLimiter;
     this.traceID = uuid();
   }
@@ -75,10 +69,6 @@ export class AI implements AIService {
     md: Readonly<AIPromptConfig>,
     sessionID?: string
   ): Promise<GenerateTextResponse> {
-    if (this.debug) {
-      log(`> ${prompt}`, 'white');
-    }
-
     let modelResponseTime;
 
     const fn = async () => {
@@ -94,14 +84,12 @@ export class AI implements AIService {
       ? await this.rt<Promise<GenerateTextResponse>>(fn)
       : await fn();
 
-    if (this.debug) {
-      const value = res.results.at(0)?.text;
-      log(`< ${value}`, 'red');
-    }
-
     if (trace) {
       trace.response = {
-        ...res,
+        remoteID: res.remoteID,
+        results: res.results,
+        modelUsage: res.modelUsage,
+        embedModelUsage: res.embedModelUsage,
         modelResponseTime,
       };
     }

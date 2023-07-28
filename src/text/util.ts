@@ -5,26 +5,6 @@ import JSON5 from 'json5';
 
 const ajv = new Ajv();
 
-export function log(msg: string, color: string): null {
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
-  if (typeof window === 'undefined') {
-    if (color === 'red') {
-      color = '\x1b[93m';
-    }
-    if (color === 'cyan') {
-      color = '\x1b[96m';
-    }
-    if (color === 'white') {
-      color = '\x1b[37;1m';
-    }
-    console.log(`${color}${msg}\x1b[0m\n`);
-  } else {
-    console.log(`%c${msg}`, { color });
-  }
-  return null;
-}
-
 export const stringToObject = <T>(text: string, schema: unknown): T => {
   const obj = JSON5.parse<T>(text);
   ajv.validate(schema as JSONSchemaType<T>, obj);

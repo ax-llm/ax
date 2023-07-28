@@ -1,5 +1,4 @@
 import { OpenAI, SPrompt } from '@dosco/llm-client';
-import chalk from 'chalk';
 
 // import { SPrompt, Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
 // import chalk from 'chalk';
@@ -174,5 +173,3 @@ const customerQuery =
   "I'm looking for ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
 
 const res = await prompt.generate(ai, customerQuery);
-console.log(chalk.green('Result:\n', JSON.stringify(res.value(), null, 2)));
-console.log(chalk.green('Response:\n', JSON.stringify(res, null, 2)));

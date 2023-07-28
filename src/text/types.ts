@@ -3,7 +3,6 @@ import { JSONSchemaType } from 'ajv';
 import { AI } from './wrap';
 
 export type GenerateTextExtraOptions = {
-  debug: boolean;
   sessionID?: string;
 };
 
@@ -43,8 +42,9 @@ export type FunctionExec = {
   name: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args?: any;
+  result?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  response?: any;
+  resultValue?: any;
   reasoning?: string[];
   parsingError?: { error: string; data: string };
 };
@@ -81,7 +81,6 @@ export type AIGenerateTextTrace = {
 
 // eslint-disable-next-line functional/no-mixed-types
 export type AITextResponse<T> = {
-  id: string;
   prompt: string;
   sessionID?: string;
   traces: AIGenerateTextTrace[];
@@ -121,7 +120,6 @@ export type Embeddings = {
 
 export type PromptFunctionExtraOptions = {
   ai: Readonly<AI>;
-  debug: boolean;
   sessionID?: string;
 };
 
@@ -150,6 +148,8 @@ export type PromptConfig<T> = AIPromptConfig & {
   responsePrefix?: string;
   functions?: PromptFunction[];
   responseConfig?: PromptResponseConfig<T>;
+  debug?: boolean;
+  log?: (traces: readonly AIGenerateTextTrace[]) => void;
 };
 
 export type AIPromptConfig = {

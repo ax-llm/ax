@@ -1,3 +1,5 @@
+import { ConsoleLogger } from '../logs/console.js';
+
 import { buildFunctionsPrompt, processFunction } from './functions.js';
 import { Memory } from './memory.js';
 import {
@@ -9,7 +11,7 @@ import {
   GenerateTextResponse,
   PromptConfig,
 } from './types.js';
-import { log, stringToObject } from './util.js';
+import { stringToObject } from './util.js';
 import { AI, RateLimiterFunction } from './wrap.js';
 
 export type Options = {
@@ -23,6 +25,7 @@ export type Options = {
  * @export
  */
 export class AIPrompt<T> {
+  private consoleLogger = new ConsoleLogger();
   private conf: PromptConfig<T>;
   private maxSteps = 20;
   private debug = false;
@@ -33,6 +36,7 @@ export class AIPrompt<T> {
     }
   ) {
     this.conf = conf;
+    this.debug = conf.debug || false;
   }
 
   setMaxSteps(maxSteps: number) {
@@ -62,7 +66,7 @@ export class AIPrompt<T> {
     query: string,
     { sessionID, memory, rateLimiter }: Options = {}
   ): Promise<AITextResponse<T>> {
-    const wai = new AI(ai, this.debug, rateLimiter);
+    const wai = new AI(ai, rateLimiter);
     const [, value] = await this._generate(
       wai,
       memory || new Memory(),
@@ -71,8 +75,15 @@ export class AIPrompt<T> {
     );
     const traces = wai.getTraces();
 
+    if (this.debug) {
+      this.consoleLogger.log(traces);
+    }
+
+    if (this.conf.log) {
+      this.conf.log(traces);
+    }
+
     return {
-      id: 'test',
       sessionID,
       prompt: query,
       traces,
@@ -92,7 +103,6 @@ export class AIPrompt<T> {
 
     const extraOptions = {
       sessionID,
-      debug: this.debug,
     };
 
     let res: GenerateTextResponse;
@@ -157,7 +167,7 @@ export class AIPrompt<T> {
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
-    { sessionID, debug }: Readonly<GenerateTextExtraOptions>
+    { sessionID }: Readonly<GenerateTextExtraOptions>
   ): Promise<[GenerateTextResponse, string]> {
     const { conf } = this;
 
@@ -189,15 +199,9 @@ export class AIPrompt<T> {
         throw new Error('empty response from llm');
       }
 
-      const funcExec = await processFunction(
-        value,
-        functions,
-        ai,
-        debug,
-        sessionID
-      );
+      const funcExec = await processFunction(value, functions, ai, sessionID);
 
-      const mval = ['\n', value, '\nObservation: ', funcExec.response];
+      const mval = ['\n', value, '\nObservation: ', funcExec.result];
       mem.add(mval.join(''), sessionID);
 
       const trace = ai.getTrace() as AIGenerateTextTrace;
@@ -210,7 +214,7 @@ export class AIPrompt<T> {
       }
 
       if (funcExec.name === 'finalResult') {
-        return [res, funcExec.response];
+        return [res, funcExec.result ?? ''];
       }
     }
 
@@ -227,7 +231,7 @@ export class AIPrompt<T> {
     const { schema } = conf.responseConfig || {};
 
     const h = () => mem.history(sessionID);
-    const sprompt: string = schema ? JSON.stringify(schema, null, '\t') : '';
+    const sprompt: string = schema ? JSON.stringify(schema, null, 2) : '';
 
     const p = this.create(query, sprompt, h, ai);
     const res = await ai.generate(p, conf, sessionID);
@@ -252,12 +256,8 @@ export class AIPrompt<T> {
     mem: AIMemory,
     error: Readonly<Error>,
     value: string,
-    { sessionID, debug }: Readonly<GenerateTextExtraOptions>
+    { sessionID }: Readonly<GenerateTextExtraOptions>
   ): Promise<{ fixedValue: string }> {
-    if (debug) {
-      log(`Syntax Error: ${error.message}`, 'red');
-    }
-
     const { conf } = this;
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
 
