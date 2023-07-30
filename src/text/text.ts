@@ -23,7 +23,7 @@ export type Options = {
  * @export
  */
 export class AIPrompt<T> {
-  private conf: PromptConfig<T>;
+  private conf: Readonly<PromptConfig<T>>;
   private maxSteps = 20;
   private debug = false;
 
@@ -110,8 +110,7 @@ export class AIPrompt<T> {
     query: string,
     sessionID?: string
   ): Promise<[GenerateTextResponse, T]> {
-    const { conf } = this;
-    const { responseConfig, functions } = conf;
+    const { responseConfig, functions } = this.conf;
     const { keyValue, schema } = responseConfig || {};
 
     const extraOptions = {
@@ -180,9 +179,11 @@ export class AIPrompt<T> {
     query: string,
     { sessionID }: Readonly<GenerateTextExtraOptions>
   ): Promise<[GenerateTextResponse, string]> {
-    const { conf } = this;
+    const conf = {
+      ...this.conf,
+      stopSequences: [...this.conf.stopSequences, 'Observation:'],
+    };
 
-    conf.stopSequences = [...conf.stopSequences, 'Observation:'];
     const h = () => mem.history(sessionID);
 
     const functions = conf.responseConfig?.schema
@@ -244,14 +245,13 @@ export class AIPrompt<T> {
     query: string,
     { sessionID }: Readonly<GenerateTextExtraOptions>
   ): Promise<[GenerateTextResponse, string]> {
-    const { conf } = this;
-    const { schema } = conf.responseConfig || {};
+    const { schema } = this.conf.responseConfig || {};
 
     const h = () => mem.history(sessionID);
     const sprompt: string = schema ? JSON.stringify(schema, null, 2) : '';
 
     const p = this.create(query, sprompt, h, ai);
-    const res = await ai.generate(p, conf, sessionID);
+    const res = await ai.generate(p, this.conf, sessionID);
     const value = res.results.at(0)?.text?.trim() ?? '';
 
     if (value.length === 0) {
@@ -275,10 +275,9 @@ export class AIPrompt<T> {
     value: string,
     { sessionID }: Readonly<GenerateTextExtraOptions>
   ): Promise<{ fixedValue: string }> {
-    const { conf } = this;
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
 
-    const res = await ai.generate(p, conf, sessionID);
+    const res = await ai.generate(p, this.conf, sessionID);
     const fixedValue = res.results.at(0)?.text?.trim() ?? '';
 
     if (fixedValue.length === 0) {

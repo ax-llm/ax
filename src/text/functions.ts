@@ -122,13 +122,13 @@ Solve the below task. Think step-by-step using the functions above.
 
 Format:
 Thought: Consider what to do.
-Function Call: functionName({ arguments })
+Function Call: functionName(arguments)
 Observation: Function output
 Thought: I now have additional information.
 Repeat previous four steps as necessary.
 
 Thought: I have the final answer.
-Function Call: finalResult({ arguments })
+Function Call: finalResult(arguments)
 
 Task:`;
 };
