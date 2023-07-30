@@ -73,10 +73,6 @@ export const processFunction = async (
   if ((v = functionCallRe.exec(value)) !== null) {
     funcName = v[1].trim();
     funcArgs = v[2].trim();
-
-    if (!funcArgs.startsWith(`{`)) {
-      funcArgs = `{ ${funcArgs} }`;
-    }
   }
 
   let funcExec: FunctionExec = { name: funcName, reasoning };
@@ -126,13 +122,13 @@ Solve the below task. Think step-by-step using the functions above.
 
 Format:
 Thought: Consider what to do.
-Function Call: functionName(arguments)
+Function Call: functionName({ arguments })
 Observation: Function output
 Thought: I now have additional information.
 Repeat previous four steps as necessary.
 
 Thought: I have the final answer.
-Function Call: finalResult(arguments)
+Function Call: finalResult({ arguments })
 
 Task:`;
 };

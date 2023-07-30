@@ -124,10 +124,10 @@ export type CohereOptions = {
  * @export
  */
 export const CohereDefaultOptions = (): CohereOptions => ({
-  model: CohereGenerateModel.Command,
+  model: CohereGenerateModel.CommandXLarge,
   embedModel: CohereEmbedModel.EmbedEnglishLightV20,
-  maxTokens: 500,
-  temperature: 0,
+  maxTokens: 2000,
+  temperature: 0.2,
   topK: 0,
   topP: 1,
   frequencyPenalty: 0,
@@ -140,7 +140,7 @@ export const CohereDefaultOptions = (): CohereOptions => ({
  */
 export const CohereCreativeOptions = (): CohereOptions => ({
   ...CohereDefaultOptions(),
-  temperature: 0.9,
+  temperature: 0.7,
 });
 
 type CohereGenerateRequest = {
@@ -251,10 +251,11 @@ export class Cohere extends BaseAI {
     );
 
     const { id, generations } = res;
+
     return {
       sessionID,
       remoteID: id,
-      results: generations,
+      results: generations.map((v) => ({ text: v.text })),
     };
   }
 
