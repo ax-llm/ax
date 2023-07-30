@@ -1,3 +1,4 @@
+import { ConsoleLogger } from '../logs/console.js';
 import {
   AIGenerateTextTrace,
   AIPromptConfig,
@@ -18,15 +19,22 @@ import { uuid } from './util.js';
 export type RateLimiterFunction = <T>(func: unknown) => T;
 
 export class AI implements AIService {
+  private consoleLog = new ConsoleLogger();
+  private log?: (traces: Readonly<AIGenerateTextTrace>) => void;
   private traces: AIGenerateTextTrace[] = [];
   private traceID: string;
   private ai: AIService;
   private rt?: RateLimiterFunction;
 
-  constructor(ai: AIService, rateLimiter?: RateLimiterFunction) {
+  constructor(
+    ai: AIService,
+    log?: (traces: Readonly<AIGenerateTextTrace>) => void,
+    rateLimiter?: RateLimiterFunction
+  ) {
     this.ai = ai;
     this.rt = rateLimiter;
     this.traceID = uuid();
+    this.log = log;
   }
 
   getTraces(): AIGenerateTextTrace[] {
@@ -45,6 +53,18 @@ export class AI implements AIService {
 
   name(): string {
     return this.ai.name();
+  }
+
+  logTrace(): void {
+    if (this.log) {
+      this.traces.forEach((trace) => this.log?.(trace));
+    }
+  }
+
+  consoleLogTrace(): void {
+    if (this.traces.length > 0) {
+      this.traces.forEach((trace) => this.consoleLog.log(trace));
+    }
   }
 
   getTrace(): AIGenerateTextTrace | undefined {
@@ -86,10 +106,10 @@ export class AI implements AIService {
 
     if (trace) {
       trace.response = {
-        remoteID: res.remoteID,
-        results: res.results,
-        modelUsage: res.modelUsage,
-        embedModelUsage: res.embedModelUsage,
+        remoteID: res?.remoteID,
+        results: res?.results ?? [],
+        modelUsage: res?.modelUsage,
+        embedModelUsage: res?.embedModelUsage,
         modelResponseTime,
       };
     }

@@ -73,6 +73,10 @@ export const processFunction = async (
   if ((v = functionCallRe.exec(value)) !== null) {
     funcName = v[1].trim();
     funcArgs = v[2].trim();
+
+    if (!funcArgs.startsWith(`{`)) {
+      funcArgs = `{ ${funcArgs} }`;
+    }
   }
 
   let funcExec: FunctionExec = { name: funcName, reasoning };
@@ -125,7 +129,7 @@ Thought: Consider what to do.
 Function Call: functionName(arguments)
 Observation: Function output
 Thought: I now have additional information.
-Repeat the previous four steps as necessary.
+Repeat previous four steps as necessary.
 
 Thought: I have the final answer.
 Function Call: finalResult(arguments)

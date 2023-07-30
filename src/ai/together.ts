@@ -23,6 +23,10 @@ const enum apiTypes {
  * @export
  */
 export enum TogetherChatModel {
+  Llama27BChat = 'togethercomputer/llama-2-7b-chat',
+  Llama213BChat = 'togethercomputer/llama-2-13b-chat',
+  Llama270BChat = 'togethercomputer/llama-2-70b-chat',
+
   RedPajamaInciteChat3BV1 = 'togethercomputer/RedPajama-INCITE-Chat-3B-v1',
   RedPajamaIncite7BChat = 'togethercomputer/RedPajama-INCITE-7B-Chat',
   GPTNeoXTChatBase20B = 'togethercomputer/GPT-NeoXT-Chat-Base-20B',
@@ -34,7 +38,11 @@ export enum TogetherChatModel {
   Falcon7BInstruct = 'togethercomputer/falcon-7b-instruct',
 }
 
-export enum TogetherLanguageModel {}
+export enum TogetherLanguageModel {
+  Llama27B = 'togethercomputer/llama-2-7b',
+  Llama213B = 'togethercomputer/llama-2-13b',
+  Llama270B = 'togethercomputer/llama-2-70b',
+}
 // TogetherComputerRedPajamaInciteInstruct3BV1 = 'togethercomputer/RedPajama-INCITE-Instruct-3B-v1',
 // TogetherComputerRedPajamaIncite7BInstruct = 'togethercomputer/RedPajama-INCITE-7B-Instruct',
 // TogetherComputerGPTJT6BV1 = 'togethercomputer/GPT-JT-6B-v1',
@@ -50,6 +58,54 @@ export enum TogetherCodeModel {}
 // SalesforceCodeGen216B = 'Salesforce/codegen2-16B',
 
 const modelInfo: TextModelInfo[] = [
+  {
+    id: TogetherLanguageModel.Llama27B,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.001,
+    completionTokenCostPer1K: 0.001,
+    maxTokens: 4000,
+    oneTPM: 1,
+  },
+  {
+    id: TogetherChatModel.Llama27BChat,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.001,
+    completionTokenCostPer1K: 0.001,
+    maxTokens: 4000,
+    oneTPM: 1,
+  },
+  {
+    id: TogetherLanguageModel.Llama213B,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.003,
+    completionTokenCostPer1K: 0.003,
+    maxTokens: 4000,
+    oneTPM: 1,
+  },
+  {
+    id: TogetherChatModel.Llama213BChat,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.003,
+    completionTokenCostPer1K: 0.003,
+    maxTokens: 4000,
+    oneTPM: 1,
+  },
+  {
+    id: TogetherLanguageModel.Llama270B,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.015,
+    completionTokenCostPer1K: 0.015,
+    maxTokens: 4000,
+    oneTPM: 1,
+  },
+  {
+    id: TogetherChatModel.Llama270BChat,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.015,
+    completionTokenCostPer1K: 0.015,
+    maxTokens: 4000,
+    oneTPM: 1,
+  },
   {
     id: TogetherChatModel.RedPajamaInciteChat3BV1,
     currency: 'usd',
@@ -128,10 +184,10 @@ export type TogetherOptions = {
 };
 
 export const TogetherDefaultOptions = (): TogetherOptions => ({
-  model: TogetherChatModel.Falcon7BInstruct,
-  maxTokens: 1000,
-  temperature: 0,
-  topP: 1,
+  model: TogetherLanguageModel.Llama270B,
+  maxTokens: 3000,
+  temperature: 0.1,
+  topP: 0.9,
 });
 
 type TogetherGenerateRequest = {

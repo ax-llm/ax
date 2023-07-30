@@ -354,14 +354,14 @@ export class GoogleAI extends BaseAI {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
     if (texts.length > 1) {
-      throw new Error('GoogleAI limits embeddings input to 1 strings');
+      throw { message: 'GoogleAI limits embeddings input to 1 strings' };
     }
 
     const overLimit = texts.filter(
       (v) => v.length > (this.modelInfo?.maxTokens ?? 512)
     );
     if (overLimit.length !== 0) {
-      throw new Error('GoogleAI limits embeddings input to 512 characters');
+      throw { message: 'GoogleAI limits embeddings input to 512 characters' };
     }
 
     const embedReq = { instances: [{ content: texts.at(0) ?? '' }] };

@@ -1,5 +1,3 @@
-import { ConsoleLogger } from '../logs/console.js';
-
 import { buildFunctionsPrompt, processFunction } from './functions.js';
 import { Memory } from './memory.js';
 import {
@@ -25,7 +23,6 @@ export type Options = {
  * @export
  */
 export class AIPrompt<T> {
-  private consoleLogger = new ConsoleLogger();
   private conf: PromptConfig<T>;
   private maxSteps = 20;
   private debug = false;
@@ -66,7 +63,7 @@ export class AIPrompt<T> {
     query: string,
     { sessionID, memory, rateLimiter }: Options = {}
   ): Promise<AITextResponse<T>> {
-    const wai = new AI(ai, rateLimiter);
+    const wai = new AI(ai, this.conf.log, rateLimiter);
     const [, value] = await this._generate(
       wai,
       memory || new Memory(),
@@ -74,14 +71,6 @@ export class AIPrompt<T> {
       sessionID
     );
     const traces = wai.getTraces();
-
-    if (this.debug) {
-      this.consoleLogger.log(traces);
-    }
-
-    if (this.conf.log) {
-      this.conf.log(traces);
-    }
 
     return {
       sessionID,
@@ -92,6 +81,30 @@ export class AIPrompt<T> {
   }
 
   private async _generate(
+    ai: Readonly<AI>,
+    mem: AIMemory,
+    query: string,
+    sessionID?: string
+  ): Promise<[GenerateTextResponse, T]> {
+    try {
+      return await this._generateHandler(ai, mem, query, sessionID);
+    } catch (e: unknown) {
+      const trace = ai.getTrace() as AIGenerateTextTrace;
+      const err = e as Error;
+
+      if (trace && trace.response) {
+        trace.finalError = err.message;
+      }
+      throw new Error(err.message);
+    } finally {
+      if (this.debug) {
+        ai.consoleLogTrace();
+      }
+      ai.logTrace();
+    }
+  }
+
+  private async _generateHandler(
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
@@ -132,11 +145,9 @@ export class AIPrompt<T> {
         } else {
           fvalue = value;
         }
-
         return [res, fvalue] as [GenerateTextResponse, T];
       } catch (e: unknown) {
         const error = e as Error;
-
         const trace = ai.getTrace() as AIGenerateTextTrace;
         if (trace && trace.response) {
           trace.response.parsingError = {
@@ -160,7 +171,7 @@ export class AIPrompt<T> {
       }
     }
 
-    throw new Error(`unable to fix result syntax`);
+    throw { message: `Unable to fix result syntax` };
   }
 
   private async _generateWithFunctions(
@@ -188,6 +199,7 @@ export class AIPrompt<T> {
       : conf.functions ?? [];
 
     const sprompt: string = buildFunctionsPrompt(functions);
+    let previousValue;
 
     for (let i = 0; i < this.maxSteps; i++) {
       const p = this.create(query, sprompt, h, ai);
@@ -195,8 +207,12 @@ export class AIPrompt<T> {
       const res = await ai.generate(p, conf, sessionID);
       const value = res.results.at(0)?.text?.trim() ?? '';
 
+      if (previousValue && value === previousValue) {
+        throw { message: 'Duplicate response received' };
+      }
+
       if (value.length === 0) {
-        throw new Error('empty response from llm');
+        throw { message: 'Empty response received' };
       }
 
       const funcExec = await processFunction(value, functions, ai, sessionID);
@@ -216,9 +232,10 @@ export class AIPrompt<T> {
       if (funcExec.name === 'finalResult') {
         return [res, funcExec.result ?? ''];
       }
+      previousValue = value;
     }
 
-    throw new Error(`query uses over max number of steps: ${this.maxSteps}`);
+    throw { message: `query uses over max number of steps: ${this.maxSteps}` };
   }
 
   private async _generateDefault(
@@ -238,7 +255,7 @@ export class AIPrompt<T> {
     const value = res.results.at(0)?.text?.trim() ?? '';
 
     if (value.length === 0) {
-      throw new Error('empty response from ai');
+      throw { message: 'Empty response received' };
     }
 
     const mval = [
@@ -265,7 +282,7 @@ export class AIPrompt<T> {
     const fixedValue = res.results.at(0)?.text?.trim() ?? '';
 
     if (fixedValue.length === 0) {
-      throw new Error('empty response from ai');
+      throw { message: 'Empty response received' };
     }
 
     return { fixedValue };
@@ -285,7 +302,7 @@ const stringToMap = (text: string): Map<string, string[]> => {
     vm.set(m[1], m[2].split(','));
   }
   if (vm.size === 0) {
-    throw new Error('Expected format is a list of key: value');
+    throw { message: 'Expected format is a list of key: value' };
   }
   return vm;
 };

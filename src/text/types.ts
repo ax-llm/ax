@@ -61,6 +61,16 @@ export type GenerateTextResponse = {
   embedModelUsage?: TokenUsage;
 };
 
+export type APIError = {
+  message: string;
+  status?: number;
+  header?: Record<string, string>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  body?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  request?: any;
+};
+
 export type AIGenerateTextTrace = {
   traceID: string;
   sessionID?: string;
@@ -75,8 +85,9 @@ export type AIGenerateTextTrace = {
     embedModelResponseTime?: number;
     functions?: FunctionExec[];
     parsingError?: { error: string; data: string };
-    apiError?: Error;
+    apiError?: APIError;
   };
+  finalError?: string;
 };
 
 // eslint-disable-next-line functional/no-mixed-types
@@ -149,7 +160,7 @@ export type PromptConfig<T> = AIPromptConfig & {
   functions?: PromptFunction[];
   responseConfig?: PromptResponseConfig<T>;
   debug?: boolean;
-  log?: (traces: readonly AIGenerateTextTrace[]) => void;
+  log?: (traces: Readonly<AIGenerateTextTrace>) => void;
 };
 
 export type AIPromptConfig = {

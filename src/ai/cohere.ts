@@ -265,12 +265,12 @@ export class Cohere extends BaseAI {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
     if (texts.length > 96) {
-      throw new Error('Cohere limits embeddings input to 96 strings');
+      throw { message: 'Cohere limits embeddings input to 96 strings' };
     }
 
     const overLimit = texts.filter((v) => v.length > 512);
     if (overLimit.length !== 0) {
-      throw new Error('Cohere limits embeddings input to 512 characters');
+      throw { message: 'Cohere limits embeddings input to 512 characters' };
     }
 
     const res = await apiCall<

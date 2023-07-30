@@ -1,20 +1,25 @@
-import { OpenAI, SPrompt } from '@dosco/llm-client';
+import {
+  SPrompt,
+  Anthropic,
+  Cohere,
+  OpenAI,
+  Together,
+} from '@dosco/llm-client';
 
-// import { SPrompt, Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
-// import chalk from 'chalk';
+const InitAI = () => {
+  if (process.env.COHERE_APIKEY) {
+    return new Cohere(process.env.COHERE_APIKEY);
+  } else if (process.env.OPENAI_APIKEY) {
+    return new OpenAI(process.env.OPENAI_APIKEY);
+  } else if (process.env.ANTHROPIC_APIKEY) {
+    return new Anthropic(process.env.ANTHROPIC_APIKEY);
+  } else if (process.env.TOGETHER_APIKEY) {
+    return new Together(process.env.TOGETHER_APIKEY);
+  }
+  throw new Error('No LLM API key found');
+};
 
-// const InitAI = () => {
-//   if (process.env.COHERE_APIKEY) {
-//     return new Cohere(process.env.COHERE_APIKEY);
-//   } else if (process.env.OPENAI_APIKEY) {
-//     return new OpenAI(process.env.OPENAI_APIKEY);
-//   } else if (process.env.ANTHROPIC_APIKEY) {
-//     return new Anthropic(process.env.ANTHROPIC_APIKEY);
-//   }
-//   throw new Error('No LLM API key found');
-// };
-
-const ai = new OpenAI(process.env.OPENAI_APIKEY); // InitAI();
+const ai = InitAI();
 
 const choice = Math.round(Math.random());
 
@@ -173,3 +178,4 @@ const customerQuery =
   "I'm looking for ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
 
 const res = await prompt.generate(ai, customerQuery);
+console.log('>', res.value());

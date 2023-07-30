@@ -518,12 +518,12 @@ export class OpenAI extends BaseAI {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
     if (texts.length > 96) {
-      throw new Error('OpenAI limits embeddings input to 96 strings');
+      throw { message: 'OpenAI limits embeddings input to 96 strings' };
     }
 
     const overLimit = texts.filter((v) => v.length > 512);
     if (overLimit.length !== 0) {
-      throw new Error('OpenAI limits embeddings input to 512 characters');
+      throw { message: 'OpenAI limits embeddings input to 512 characters' };
     }
 
     const embedReq = { input: texts, model: this.options.embedModel };
