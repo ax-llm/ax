@@ -88,7 +88,7 @@ const functions = [
   },
   {
     name: 'createTask',
-    description: 'Create a task and assign it to a worker',
+    description: 'Create task',
     inputSchema: {
       type: 'object',
       properties: {
@@ -169,7 +169,7 @@ Manager: Perfect! Let's create a great todo list app, folks. Thank you.
 `;
 
 const promptText = `
-Use the below meeting notes to first find workers by name or if not provided then skill and then create tasks assigned to these worker.
+Use the below meeting notes to first find workers by name or if not provided then skill and then create tasks for these workers.
 
 Meeting Notes:
 ${meetingNotes}
