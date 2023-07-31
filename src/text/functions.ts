@@ -115,20 +115,42 @@ export const buildFunctionsPrompt = (
   const functionsJSON = JSON.stringify(funcList, null, 2);
 
   return `
+Use these provided functions. Stick to these steps without creating custom functions.
+For functions stick to the defined format.
+
 Functions:
 ${functionsJSON}
 
-Solve the below task. Think step-by-step using the functions above.
+Steps:
 
-Format:
-Thought: Consider what to do.
-Function Call: functionName(arguments)
-Observation: Function output
-Thought: I now have additional information.
-Repeat previous four steps as necessary.
+Thought: Plan the approach.
+Function Call: functionName(parameters)
+Result: Function result.
+Thought: Review the outcome and decide next steps using results.
+Repeat steps 2-4 until nearing solution.
+Finally:
 
-Thought: I have the final answer.
-Function Call: finalResult(arguments)
+Thought: Prepare for the final result.
+Function Call: finalResult(parameters)
 
-Task:`;
+Task:
+  `;
+  //   return `
+  // To solve the below task think step-by-step in the format below. Use only below listed functions. Do not create custom functions. Function parameters are in json as per the functions json schema.
+
+  // Functions:
+  // ${functionsJSON}
+
+  // Format:
+  // Thought: Consider what to do.
+  // Function Call: functionName(parameters)
+  // Result: Function result.
+  // Thought: Use the result to solve the task.
+  // Repeat previous four steps as necessary.
+
+  // Thought: Return final result.
+  // Function Call: finalResult(parameters)
+
+  // Task:
+  // `;
 };

@@ -181,8 +181,8 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
   maxTokens: 1000,
-  temperature: 0,
-  topP: 1,
+  temperature: 0.2,
+  topP: 0.9,
 });
 
 /**
@@ -192,7 +192,6 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
 export const OpenAIBestModelOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT4,
-  temperature: 0.9,
 });
 
 /**

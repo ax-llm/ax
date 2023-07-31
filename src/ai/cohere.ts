@@ -9,11 +9,9 @@ import {
 import { BaseAI } from './base.js';
 import { API, apiCall } from './util.js';
 
-type CohereAPI = API & {
-  headers: { 'Cohere-Version': string };
-};
+type CohereAPI = API;
 
-const apiURL = 'https://api.cohere.ai/';
+const apiURL = 'https://api.cohere.ai/v1/';
 
 const enum apiTypes {
   Generate = 'generate',
@@ -26,6 +24,7 @@ const enum apiTypes {
  */
 export enum CohereGenerateModel {
   Command = 'command',
+  CommandNightly = 'command-nightly',
   CommandXLarge = 'command-xlarge',
   CommandLight = 'command-light',
 }
@@ -124,14 +123,12 @@ export type CohereOptions = {
  * @export
  */
 export const CohereDefaultOptions = (): CohereOptions => ({
-  model: CohereGenerateModel.CommandXLarge,
+  model: CohereGenerateModel.CommandNightly,
   embedModel: CohereEmbedModel.EmbedEnglishLightV20,
   maxTokens: 2000,
-  temperature: 0.2,
-  topK: 0,
+  temperature: 0.1,
+  topK: 10,
   topP: 1,
-  frequencyPenalty: 0,
-  presencePenalty: 0,
 });
 
 /**
@@ -245,7 +242,6 @@ export class Cohere extends BaseAI {
         key: this.apiKey,
         name: apiTypes.Generate,
         url: apiURL,
-        headers: { 'Cohere-Version': '2022-12-06' },
       },
       generateReq(prompt, this.options, md?.stopSequences)
     );
@@ -255,7 +251,7 @@ export class Cohere extends BaseAI {
     return {
       sessionID,
       remoteID: id,
-      results: generations.map((v) => ({ text: v.text })),
+      results: generations.map(({ id, text }) => ({ id, text })),
     };
   }
 
@@ -283,7 +279,6 @@ export class Cohere extends BaseAI {
         key: this.apiKey,
         name: apiTypes.Embed,
         url: apiURL,
-        headers: { 'Cohere-Version': '2022-12-06' },
       },
       { texts, model: this.options.embedModel, truncate: 'NONE' }
     );

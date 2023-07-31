@@ -48,13 +48,14 @@ export class AIPrompt<T> {
     query: string,
     system: string,
     history: () => string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _ai: AIService
+    _ai?: AIService,
+    suffix?: string
   ): string {
     return `
     ${system}
     ${history()}
     ${query}
+    ${suffix || ''}
     `;
   }
 
@@ -181,7 +182,7 @@ export class AIPrompt<T> {
   ): Promise<[GenerateTextResponse, string]> {
     const conf = {
       ...this.conf,
-      stopSequences: [...this.conf.stopSequences, 'Observation:'],
+      stopSequences: [...this.conf.stopSequences, 'Result:'],
     };
 
     const h = () => mem.history(sessionID);
@@ -191,7 +192,7 @@ export class AIPrompt<T> {
           ...(conf.functions ?? []),
           {
             name: 'finalResult',
-            description: 'function for the final result',
+            description: 'Use this to return the final result',
             inputSchema: conf.responseConfig.schema ?? {},
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             func: (args: any) => args,
@@ -203,7 +204,7 @@ export class AIPrompt<T> {
     let previousValue;
 
     for (let i = 0; i < this.maxSteps; i++) {
-      const p = this.create(query, sprompt, h, ai);
+      const p = this.create(query, sprompt, h, ai, '\n\nThought: ');
 
       const res = await ai.generate(p, conf, sessionID);
       const value = res.results.at(0)?.text?.trim() ?? '';
@@ -218,7 +219,7 @@ export class AIPrompt<T> {
 
       const funcExec = await processFunction(value, functions, ai, sessionID);
 
-      const mval = ['\n', value, '\nObservation: ', funcExec.result];
+      const mval = ['\n', value, '\nResult: ', funcExec.result];
       mem.add(mval.join(''), sessionID);
 
       const trace = ai.getTrace() as AIGenerateTextTrace;
