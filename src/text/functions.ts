@@ -75,14 +75,20 @@ export const processFunction = async (
     funcArgs = v[2].trim();
   }
 
+  const func = functions.find((v) => v.name === funcName);
+
+  // add {} to object args if missing
+  if (func?.inputSchema?.type === 'object' && !funcArgs.startsWith('{')) {
+    funcArgs = `{${funcArgs}}`;
+  }
+
   let funcExec: FunctionExec = { name: funcName, reasoning };
 
+  // return final result
   if (funcName === 'finalResult') {
     funcExec.result = funcArgs;
     return funcExec;
   }
-
-  const func = functions.find((v) => v.name === funcName);
 
   // execute value function calls
   if (func) {
@@ -124,14 +130,14 @@ ${functionsJSON}
 Steps:
 
 Thought: Plan the approach.
-Function Call: functionName(parameters)
+Function Call: functionName(parameters in json)
 Result: Function result.
 Thought: Review the outcome and decide next steps using results.
 Repeat steps 2-4 until nearing solution.
 Finally:
 
 Thought: Prepare for the final result.
-Function Call: finalResult(parameters)
+Function Call: finalResult(parameters in json)
 
 Task:
   `;

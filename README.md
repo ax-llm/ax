@@ -54,9 +54,9 @@ npm i @dosco/llm-client
 | Anthropic    | Claude Instant, Claude 2                                  | 🟢 100%         |
 | Azure OpenAI | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada          | 🟢 100%         |
 | Google AI    | Text Bison, Chat Bison, Gecko                             | 🟢 100%         |
-| Cohere       | Command XLarge, XLarge, Medium, Light                     | 🟡 60%          |
-| Together     | Llama 2, RedPajama, GPT-NeoXT,etc                         | 🟡 50%          |
-| Hugging Face | Llama 2                                                   | 🟡 50%          |
+| Together     | Llama 2, MPT-Instruct, RedPajama, GPT-NeoXT               | 🟢 90%          |
+| Hugging Face | Llama 2                                                   | 🟡 90%          |
+| Cohere       | Command XLarge, XLarge, Medium, Light                     | 🟡 40%          |
 | AlephaAlpha  | Luminous: Control, Supreme, Extended, Base                | 🔴 N/A          |
 
 ## Simple to use

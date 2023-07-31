@@ -127,8 +127,9 @@ export const CohereDefaultOptions = (): CohereOptions => ({
   embedModel: CohereEmbedModel.EmbedEnglishLightV20,
   maxTokens: 2000,
   temperature: 0.1,
-  topK: 10,
-  topP: 1,
+  topK: 40,
+  topP: 0.9,
+  frequencyPenalty: 0.2,
 });
 
 /**
