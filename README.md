@@ -48,16 +48,18 @@ npm i @dosco/llm-client
 
 ## AI's Supported
 
-| AI           | Models                                                    | Functions + CoT |
-| ------------ | --------------------------------------------------------- | --------------- |
-| OpenAI       | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada, Whisper | 🟢 100%         |
-| Anthropic    | Claude Instant, Claude 2                                  | 🟢 100%         |
-| Azure OpenAI | GPT: 3, 4, 32K, 3.5-Turbo, Davinci, Babbage, Ada          | 🟢 100%         |
-| Google AI    | Text Bison, Chat Bison, Gecko                             | 🟢 100%         |
-| Together     | Llama 2, MPT-Instruct, RedPajama, GPT-NeoXT               | 🟢 90%          |
-| Hugging Face | Llama 2                                                   | 🟡 90%          |
-| Cohere       | Command XLarge, XLarge, Medium, Light                     | 🟡 40%          |
-| AlephaAlpha  | Luminous: Control, Supreme, Extended, Base                | 🔴 N/A          |
+List of LLMs that work out of the box with llm-client and support **function calling and reasoning**. We also support other models like MPT-Instruct, RedPajama for classification, extraction, etc or Babbage, Ada for embeddings and Whisper for audio transcription.
+
+| AI           | Best Model                           | Functions + CoT |
+| ------------ | ------------------------------------ | --------------- |
+| OpenAI       | GPT: 3.5, 3.5-16K, 4, 4-32K          | 🟢 100%         |
+| Anthropic    | Claude Instant, Claude 2             | 🟢 100%         |
+| Azure OpenAI | GPT: 3.5, 3.5-16K, 4, 4-32K          | 🟢 100%         |
+| Google AI    | Text Bison, Chat Bison, Gecko        | 🟢 100%         |
+| Together     | Llama 2                              | 🟢 90%          |
+| Hugging Face | Llama 2                              | 🟡 90%          |
+| Cohere       | Command, Command Nightly             | 🟡 40%          |
+| AlephaAlpha  | Luminous: Control, Supreme, Extended | 🔴 N/A          |
 
 ## Simple to use
 
@@ -406,6 +408,23 @@ ____________________________________________
   Reasoning: I have found some restaurants in San Francisco that have outdoor seating and serve sushi., I need to choose a restaurant based on my preferences.
   Reasoning: <not-set>
 ```
+
+## Troubleshooting
+
+1. **The LLM can't find the right function to use from the ones I've provided**
+   Improve the function naming and description be very clear on what the function does. Also ensure the function parameter's also have good descriptions. The descriptions don't have to be very long but need to be clear.
+
+2. **How do I change the configuration of the LLM used**
+   You can pass a configuration object as the second parameter when creating a new LLM object `const conf = OpenAIDefaultOptions(); const ai = new OpenAI(APIKEY, conf);`
+
+3. **My prompt is too long and is getting cut off for some reason**
+   Increase the max token length `const conf = OpenAIDefaultOptions(); conf.maxTokens = 2000;`
+
+4. **How do I change the model say I want to use GPT4 instead of the default**
+   Change it on the configuration `const conf = OpenAIDefaultOptions(); conf.model = OpenAIGenerateModel.GPT4;` another way is to use another preset instead of the default. `const conf = OpenAIBestModelOptions();`
+
+5. **How do I get debug logs**
+   You have to enable it on the the prompt object `const prompt = new SPrompt(restaurant, funcs); prompt.setDebug(true);` and the logs will be displayed on the console.
 
 ## Reach out
 
