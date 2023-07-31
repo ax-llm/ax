@@ -180,9 +180,14 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
-  maxTokens: 1000,
-  temperature: 0.2,
+  maxTokens: 2500,
+  temperature: 0.1,
   topP: 0.9,
+  frequencyPenalty: 0.5,
+  logitBias: new Map([
+    ['90', 70],
+    ['1298', 70],
+  ]),
 });
 
 /**
@@ -202,6 +207,7 @@ export const OpenAICreativeOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.9,
+  logitBias: undefined,
 });
 
 /**

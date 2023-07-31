@@ -48,14 +48,13 @@ export class AIPrompt<T> {
     query: string,
     system: string,
     history: () => string,
-    _ai?: AIService,
-    suffix?: string
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _ai?: AIService
   ): string {
     return `
-    ${system}
-    ${history()}
-    ${query}
-    ${suffix || ''}
+${system}
+${history()}
+${query}
     `;
   }
 
@@ -204,7 +203,7 @@ export class AIPrompt<T> {
     let previousValue;
 
     for (let i = 0; i < this.maxSteps; i++) {
-      const p = this.create(query, sprompt, h, ai, '\n\nThought: ');
+      const p = this.create(`"""${query}"""\n\nThought: `, sprompt, h, ai);
 
       const res = await ai.generate(p, conf, sessionID);
       const value = res.results.at(0)?.text?.trim() ?? '';

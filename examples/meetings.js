@@ -72,7 +72,7 @@ const createTask = async ({ name, desc, dueDate, idMembers }) => {
 const functions = [
   {
     name: 'findWorker',
-    description: 'Find worker id to assign tasks to by name or skill',
+    description: 'Find worker by name or skill',
     inputSchema: {
       type: 'object',
       properties: {
@@ -131,6 +131,9 @@ const responseSchema = {
         },
       },
     },
+    error: {
+      type: 'string',
+    },
   },
 };
 
@@ -173,7 +176,7 @@ ${meetingNotes}
 `;
 
 const conf = OpenAIDefaultOptions();
-conf.model = OpenAIGenerateModel.GPT4;
+// conf.model = OpenAIGenerateModel.GPT4;
 const ai = new OpenAI(process.env.OPENAI_APIKEY, conf);
 
 const res = await prompt.generate(ai, promptText);

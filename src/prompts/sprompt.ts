@@ -24,14 +24,13 @@ export class SPrompt<S> extends AIPrompt<S> {
     query: string,
     system: string,
     history: () => string,
-    _ai?: AIService,
-    suffix?: string
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _ai?: AIService
   ): string {
     return `
     ${system}
     ${query}
     ${history()}
-    ${suffix || ''}
 `;
   }
 }

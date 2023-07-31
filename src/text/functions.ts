@@ -121,11 +121,10 @@ export const buildFunctionsPrompt = (
   const functionsJSON = JSON.stringify(funcList, null, 2);
 
   return `
-Use these provided functions. Stick to these steps without creating custom functions.
-For functions stick to the defined format.
-
 Functions:
 ${functionsJSON}
+
+Use these provided functions. Stick to these steps without creating custom functions. For functions stick to the defined format.
 
 Steps:
 

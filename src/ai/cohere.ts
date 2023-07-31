@@ -129,7 +129,11 @@ export const CohereDefaultOptions = (): CohereOptions => ({
   temperature: 0.1,
   topK: 40,
   topP: 0.9,
-  frequencyPenalty: 0.2,
+  frequencyPenalty: 0.8,
+  logitBias: new Map([
+    ['98', 9],
+    ['5449', 9],
+  ]),
 });
 
 /**
@@ -139,6 +143,7 @@ export const CohereDefaultOptions = (): CohereOptions => ({
 export const CohereCreativeOptions = (): CohereOptions => ({
   ...CohereDefaultOptions(),
   temperature: 0.7,
+  logitBias: undefined,
 });
 
 type CohereGenerateRequest = {
