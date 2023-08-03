@@ -51,52 +51,46 @@ export enum CohereReturnLikelihoods {
 
 const modelInfo: TextModelInfo[] = [
   {
-    id: CohereGenerateModel.Command,
+    name: CohereGenerateModel.Command,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 4096,
-    oneTPM: 1,
   },
   {
-    id: CohereGenerateModel.CommandXLarge,
+    name: CohereGenerateModel.CommandXLarge,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 4096,
-    oneTPM: 1,
   },
   {
-    id: CohereGenerateModel.CommandLight,
+    name: CohereGenerateModel.CommandLight,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 4096,
-    oneTPM: 1,
   },
   {
-    id: CohereEmbedModel.EmbedEnglishLightV20,
+    name: CohereEmbedModel.EmbedEnglishLightV20,
     currency: 'usd',
     promptTokenCostPer1K: 0.0004,
     completionTokenCostPer1K: 0.0004,
     maxTokens: 4096,
-    oneTPM: 1,
   },
   {
-    id: CohereEmbedModel.EmbedEnglishV20,
+    name: CohereEmbedModel.EmbedEnglishV20,
     currency: 'usd',
     promptTokenCostPer1K: 0.0004,
     completionTokenCostPer1K: 0.0004,
     maxTokens: 4096,
-    oneTPM: 1,
   },
   {
-    id: CohereEmbedModel.EmbedMultiLingualV20,
+    name: CohereEmbedModel.EmbedMultiLingualV20,
     currency: 'usd',
     promptTokenCostPer1K: 0.0004,
     completionTokenCostPer1K: 0.0004,
     maxTokens: 4096,
-    oneTPM: 1,
   },
 ];
 
@@ -237,7 +231,7 @@ export class Cohere extends BaseAI {
   async generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       CohereAPI,
@@ -255,15 +249,15 @@ export class Cohere extends BaseAI {
     const { id, generations } = res;
 
     return {
-      sessionID,
-      remoteID: id,
+      sessionId,
+      remoteId: id,
       results: generations.map(({ id, text }) => ({ id, text })),
     };
   }
 
   async embed(
     textToEmbed: readonly string[] | string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
@@ -291,8 +285,8 @@ export class Cohere extends BaseAI {
 
     const { id, embeddings } = res;
     return {
-      sessionID,
-      remoteID: id,
+      sessionId,
+      remoteId: id,
       texts,
       embedding: embeddings.at(0) || [],
     };

@@ -1,4 +1,8 @@
-import { buildFunctionsPrompt, processFunction } from './functions.js';
+import {
+  finalResultFunc,
+  functionsToJSON,
+  processFunction,
+} from './functions.js';
 import { Memory } from './memory.js';
 import {
   AIGenerateTextTrace,
@@ -13,7 +17,7 @@ import { stringToObject } from './util.js';
 import { AI, RateLimiterFunction } from './wrap.js';
 
 export type Options = {
-  sessionID?: string;
+  sessionId?: string;
   memory?: AIMemory;
   rateLimiter?: RateLimiterFunction;
 };
@@ -44,36 +48,34 @@ export class AIPrompt<T> {
     this.debug = debug;
   }
 
-  create(
-    query: string,
-    system: string,
-    history: () => string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _ai?: AIService
-  ): string {
-    return `
-${system}
-${history()}
-${query}
-    `;
+  functionsSchema(): string {
+    const functions = [...(this.conf.functions ?? [])];
+    if (this.conf.responseConfig?.schema) {
+      functions.push(finalResultFunc(this.conf.responseConfig?.schema));
+    }
+    return functionsToJSON(functions);
+  }
+
+  prompt(query: string, history: () => string): string {
+    return `${query}\n${history()}\n`;
   }
 
   async generate(
     ai: AIService,
     query: string,
-    { sessionID, memory, rateLimiter }: Options = {}
+    { sessionId, memory, rateLimiter }: Options = {}
   ): Promise<AITextResponse<T>> {
     const wai = new AI(ai, this.conf.log, rateLimiter);
     const [, value] = await this._generate(
       wai,
       memory || new Memory(),
       query,
-      sessionID
+      sessionId
     );
     const traces = wai.getTraces();
 
     return {
-      sessionID,
+      sessionId,
       prompt: query,
       traces,
       value: () => value,
@@ -84,10 +86,10 @@ ${query}
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<[GenerateTextResponse, T]> {
     try {
-      return await this._generateHandler(ai, mem, query, sessionID);
+      return await this._generateHandler(ai, mem, query, sessionId);
     } catch (e: unknown) {
       const trace = ai.getTrace() as AIGenerateTextTrace;
       const err = e as Error;
@@ -108,13 +110,13 @@ ${query}
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<[GenerateTextResponse, T]> {
     const { responseConfig, functions } = this.conf;
     const { keyValue, schema } = responseConfig || {};
 
     const extraOptions = {
-      sessionID,
+      sessionId,
     };
 
     let res: GenerateTextResponse;
@@ -177,35 +179,25 @@ ${query}
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
-    { sessionID }: Readonly<GenerateTextExtraOptions>
+    { sessionId }: Readonly<GenerateTextExtraOptions>
   ): Promise<[GenerateTextResponse, string]> {
     const conf = {
       ...this.conf,
       stopSequences: [...this.conf.stopSequences, 'Result:'],
     };
 
-    const h = () => mem.history(sessionID);
+    const h = () => mem.history(sessionId);
+    const functions = conf.functions ?? [];
 
-    const functions = conf.responseConfig?.schema
-      ? [
-          ...(conf.functions ?? []),
-          {
-            name: 'finalResult',
-            description: 'Use this to return the final result',
-            inputSchema: conf.responseConfig.schema ?? {},
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            func: (args: any) => args,
-          },
-        ]
-      : conf.functions ?? [];
+    if (conf.responseConfig?.schema) {
+      functions.push(finalResultFunc(conf.responseConfig.schema));
+    }
 
-    const sprompt: string = buildFunctionsPrompt(functions);
     let previousValue;
 
     for (let i = 0; i < this.maxSteps; i++) {
-      const p = this.create(`"""${query}"""\n\nThought: `, sprompt, h, ai);
-
-      const res = await ai.generate(p, conf, sessionID);
+      const p = this.prompt(query, h);
+      const res = await ai.generate(p, conf, sessionId);
       const value = res.results.at(0)?.text?.trim() ?? '';
 
       if (previousValue && value === previousValue) {
@@ -216,10 +208,10 @@ ${query}
         throw { message: 'Empty response received' };
       }
 
-      const funcExec = await processFunction(value, functions, ai, sessionID);
+      const funcExec = await processFunction(value, functions, ai, sessionId);
 
       const mval = ['\n', value, '\nResult: ', funcExec.result];
-      mem.add(mval.join(''), sessionID);
+      mem.add(mval.join(''), sessionId);
 
       const trace = ai.getTrace() as AIGenerateTextTrace;
       if (trace && trace.response) {
@@ -230,28 +222,24 @@ ${query}
         trace.response.embedModelUsage = res.embedModelUsage;
       }
 
-      if (funcExec.name === 'finalResult') {
+      if (funcExec.name.localeCompare('finalResult') === 0) {
         return [res, funcExec.result ?? ''];
       }
       previousValue = value;
     }
 
-    throw { message: `query uses over max number of steps: ${this.maxSteps}` };
+    throw { message: `max ${this.maxSteps} steps allowed` };
   }
 
   private async _generateDefault(
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
-    { sessionID }: Readonly<GenerateTextExtraOptions>
+    { sessionId }: Readonly<GenerateTextExtraOptions>
   ): Promise<[GenerateTextResponse, string]> {
-    const { schema } = this.conf.responseConfig || {};
-
-    const h = () => mem.history(sessionID);
-    const sprompt: string = schema ? JSON.stringify(schema, null, 2) : '';
-
-    const p = this.create(query, sprompt, h, ai);
-    const res = await ai.generate(p, this.conf, sessionID);
+    const h = () => mem.history(sessionId);
+    const p = this.prompt(query, h);
+    const res = await ai.generate(p, this.conf, sessionId);
     const value = res.results.at(0)?.text?.trim() ?? '';
 
     if (value.length === 0) {
@@ -264,7 +252,7 @@ ${query}
       this.conf.responsePrefix,
       value,
     ];
-    mem.add(mval.join(''), sessionID);
+    mem.add(mval.join(''), sessionId);
     return [res, value];
   }
 
@@ -273,11 +261,10 @@ ${query}
     mem: AIMemory,
     error: Readonly<Error>,
     value: string,
-    { sessionID }: Readonly<GenerateTextExtraOptions>
+    { sessionId }: Readonly<GenerateTextExtraOptions>
   ): Promise<{ fixedValue: string }> {
     const p = `${mem.history()}\nSyntax Error: ${error.message}\n${value}`;
-
-    const res = await ai.generate(p, this.conf, sessionID);
+    const res = await ai.generate(p, this.conf, sessionId);
     const fixedValue = res.results.at(0)?.text?.trim() ?? '';
 
     if (fixedValue.length === 0) {

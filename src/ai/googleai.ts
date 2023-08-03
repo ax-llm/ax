@@ -40,31 +40,28 @@ export enum GoogleAIEmbedModels {
  */
 const modelInfo: TextModelInfo[] = [
   {
-    id: GoogleAIGenerateModel.PaLMTextBison,
+    name: GoogleAIGenerateModel.PaLMTextBison,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1K: 0.001,
     completionTokenCostPer1K: 0.001,
     maxTokens: 8192,
-    oneTPM: 1,
   },
   {
-    id: GoogleAIGenerateModel.PaLMChatBison,
+    name: GoogleAIGenerateModel.PaLMChatBison,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1K: 0.0005,
     completionTokenCostPer1K: 0.0005,
     maxTokens: 4096,
-    oneTPM: 1,
   },
   {
-    id: GoogleAIEmbedModels.PaLMTextEmbeddingGecko,
+    name: GoogleAIEmbedModels.PaLMTextEmbeddingGecko,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1K: 0.0001,
     completionTokenCostPer1K: 0.0001,
     maxTokens: 3072,
-    oneTPM: 1,
   },
 ];
 
@@ -85,7 +82,7 @@ export type GoogleAIOptions = {
  * GoogleAI: Default Model options for text generation
  * @export
  */
-export const GoogleAIDefaultOptions = (): GoogleAIOptions => ({
+export const GoogleAIdefaultOptions = (): GoogleAIOptions => ({
   model: GoogleAIGenerateModel.PaLMTextBison,
   embedModel: GoogleAIEmbedModels.PaLMTextEmbeddingGecko,
   maxTokens: 300,
@@ -99,7 +96,7 @@ export const GoogleAIDefaultOptions = (): GoogleAIOptions => ({
  * @export
  */
 export const GoogleAICreativeOptions = (): GoogleAIOptions => ({
-  ...GoogleAIDefaultOptions(),
+  ...GoogleAIdefaultOptions(),
   model: GoogleAIGenerateModel.PaLMTextBison,
   temperature: 0.9,
 });
@@ -109,7 +106,7 @@ export const GoogleAICreativeOptions = (): GoogleAIOptions => ({
  * @export
  */
 export const GoogleAIFastOptions = (): GoogleAIOptions => ({
-  ...GoogleAIDefaultOptions(),
+  ...GoogleAIdefaultOptions(),
   model: GoogleAIGenerateModel.PaLMTextBison,
   temperature: 0.45,
 });
@@ -235,8 +232,8 @@ export class GoogleAI extends BaseAI {
 
   constructor(
     apiKey: string,
-    projectID: string,
-    options: Readonly<GoogleAIOptions> = GoogleAIDefaultOptions()
+    projectId: string,
+    options: Readonly<GoogleAIOptions> = GoogleAIdefaultOptions()
   ) {
     super('GoogleAI', modelInfo, {
       model: options.model,
@@ -250,7 +247,7 @@ export class GoogleAI extends BaseAI {
     this.options = options;
 
     this.apiURL = new URL(
-      `${projectID}/locations/us-central1/publishers/google/models/${options.model}:predict`,
+      `${projectId}/locations/us-central1/publishers/google/models/${options.model}:predict`,
       apiURL
     ).href;
   }
@@ -268,22 +265,22 @@ export class GoogleAI extends BaseAI {
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     if (
       [GoogleAIGenerateModel.PaLMChatBison].includes(
         this.options.model as GoogleAIGenerateModel
       )
     ) {
-      return await this.generateChat(prompt, md, sessionID);
+      return await this.generateChat(prompt, md, sessionId);
     }
-    return await this.generateDefault(prompt, md, sessionID);
+    return await this.generateDefault(prompt, md, sessionId);
   }
 
   private async generateDefault(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
@@ -301,7 +298,7 @@ export class GoogleAI extends BaseAI {
     const totalTokens = promptTokens + completionTokens;
 
     return {
-      sessionID,
+      sessionId,
       results: predictions.map((p) => ({ id: '', text: p.content })),
       modelUsage: {
         promptTokens,
@@ -314,7 +311,7 @@ export class GoogleAI extends BaseAI {
   private async generateChat(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
@@ -334,7 +331,7 @@ export class GoogleAI extends BaseAI {
     const totalTokens = promptTokens + completionTokens;
 
     return {
-      sessionID,
+      sessionId,
       results: predictions.map((p) => ({
         id: '',
         text: p.candidates[0].content,
@@ -349,7 +346,7 @@ export class GoogleAI extends BaseAI {
 
   async embed(
     textToEmbed: Readonly<string[] | string>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
@@ -375,7 +372,7 @@ export class GoogleAI extends BaseAI {
     const promptTokens = texts.at(0)?.length ?? 0;
 
     return {
-      sessionID,
+      sessionId,
       texts,
       embedding: predictions.at(0)?.embeddings.values ?? [],
       modelUsage: {

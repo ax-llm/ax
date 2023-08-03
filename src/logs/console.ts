@@ -25,7 +25,7 @@ export class ConsoleLogger {
     if (!info) return;
 
     console.log(chalk.green(`\n📘 Model Info:`));
-    this.print('ID', info.id, 1);
+    this.print('Id', info.name, 1);
     this.print('Currency', info.currency, 1);
     this.print('Character Is Token', info.characterIsToken, 1);
     this.print('Prompt Token Cost Per 1K', info.promptTokenCostPer1K, 1);
@@ -35,7 +35,6 @@ export class ConsoleLogger {
       1
     );
     this.print('Max Tokens', info.maxTokens, 1);
-    this.print('One TPM', info.oneTPM, 1);
   }
 
   private printModelConfig(
@@ -72,10 +71,10 @@ export class ConsoleLogger {
     resp: Readonly<GenerateTextResponse>
   ): void {
     console.log(chalk.blue(`\n🚀 Generate Text Responses:`));
-    this.print('Remote ID', resp.remoteID, 1);
+    this.print('Remote Id', resp.remoteId, 1);
     resp.results.forEach((result, j) => {
       this.print(`Result ${j + 1}`, result.text, 2);
-      this.print('Result ID', result.id, 2);
+      this.print('Result Id', result.id, 2);
       this.print('Finish Reason', result.finishReason, 2);
     });
     this.print('Model Usage', JSON.stringify(resp.modelUsage), 1);
@@ -86,8 +85,8 @@ export class ConsoleLogger {
     console.log(
       chalk.bold.cyan(`\n🔎 Trace ${this.traceIndex + 1}\n` + '_'.repeat(50))
     );
-    this.print('Trace ID', trace.traceID, 1);
-    this.print('Session ID', trace.sessionID, 1);
+    this.print('Trace Id', trace.traceId, 1);
+    this.print('Session Id', trace.sessionId, 1);
     this.print('Prompt', trace.request.prompt, 1);
 
     this.printModelInfo(trace.request.modelInfo);

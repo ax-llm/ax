@@ -59,76 +59,67 @@ export enum TogetherCodeModel {}
 
 const modelInfo: TextModelInfo[] = [
   {
-    id: TogetherLanguageModel.Llama27B,
+    name: TogetherLanguageModel.Llama27B,
     currency: 'usd',
     promptTokenCostPer1K: 0.001,
     completionTokenCostPer1K: 0.001,
     maxTokens: 4000,
-    oneTPM: 1,
   },
   {
-    id: TogetherChatModel.Llama27BChat,
+    name: TogetherChatModel.Llama27BChat,
     currency: 'usd',
     promptTokenCostPer1K: 0.001,
     completionTokenCostPer1K: 0.001,
     maxTokens: 4000,
-    oneTPM: 1,
   },
   {
-    id: TogetherLanguageModel.Llama213B,
+    name: TogetherLanguageModel.Llama213B,
     currency: 'usd',
     promptTokenCostPer1K: 0.003,
     completionTokenCostPer1K: 0.003,
     maxTokens: 4000,
-    oneTPM: 1,
   },
   {
-    id: TogetherChatModel.Llama213BChat,
+    name: TogetherChatModel.Llama213BChat,
     currency: 'usd',
     promptTokenCostPer1K: 0.003,
     completionTokenCostPer1K: 0.003,
     maxTokens: 4000,
-    oneTPM: 1,
   },
   {
-    id: TogetherLanguageModel.Llama270B,
+    name: TogetherLanguageModel.Llama270B,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 4000,
-    oneTPM: 1,
   },
   {
-    id: TogetherChatModel.Llama270BChat,
+    name: TogetherChatModel.Llama270BChat,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 4000,
-    oneTPM: 1,
   },
   {
-    id: TogetherChatModel.RedPajamaIncite7BChat,
+    name: TogetherChatModel.RedPajamaIncite7BChat,
     currency: 'usd',
     promptTokenCostPer1K: 0.001,
     completionTokenCostPer1K: 0.001,
     maxTokens: 2048,
-    oneTPM: 1,
   },
   {
-    id: TogetherChatModel.GPTNeoXTChatBase20B,
+    name: TogetherChatModel.GPTNeoXTChatBase20B,
     currency: 'usd',
     promptTokenCostPer1K: 0.003,
     completionTokenCostPer1K: 0.003,
     maxTokens: 2048,
-    oneTPM: 1,
   },
   {
-    id: TogetherChatModel.Falcon7BInstruct,
+    name: TogetherChatModel.Falcon7BInstruct,
     currency: 'usd',
     promptTokenCostPer1K: 0.006,
     completionTokenCostPer1K: 0.006,
     maxTokens: 2048,
-    oneTPM: 1,
   },
   // {
   //   id: TogetherLanguageModel.TogetherComputerMPT30BInstruct,
@@ -136,7 +127,6 @@ const modelInfo: TextModelInfo[] = [
   //   promptTokenCostPer1K: 0.006,
   //   completionTokenCostPer1K: 0.006,
   //   maxTokens: 2048,
-  //   oneTPM: 1,
   // },
   // {
   //   id: TogetherChatModel.LMSysVicuna7BDeltaV11,
@@ -144,7 +134,6 @@ const modelInfo: TextModelInfo[] = [
   //   promptTokenCostPer1K: 0.000252,
   //   completionTokenCostPer1K: 0.000252,
   //   maxTokens: 2048,
-  //   oneTPM: 1,
   // },
   // {
   //   id: TogetherChatModel.LMsysVicuna13BDeltaV11,
@@ -152,7 +141,6 @@ const modelInfo: TextModelInfo[] = [
   //   promptTokenCostPer1K: 0.003,
   //   completionTokenCostPer1K: 0.003,
   //   maxTokens: 2048,
-  //   oneTPM: 1,
   // },
   // {
   //   id: TogetherChatModel.MosaiclMPT7BChat,
@@ -160,7 +148,6 @@ const modelInfo: TextModelInfo[] = [
   //   promptTokenCostPer1K: 0.001,
   //   completionTokenCostPer1K: 0.001,
   //   maxTokens: 2048,
-  //   oneTPM: 1,
   // },
 
   // {
@@ -169,7 +156,6 @@ const modelInfo: TextModelInfo[] = [
   //   promptTokenCostPer1K: 0.006,
   //   completionTokenCostPer1K: 0.006,
   //   maxTokens: 2048,
-  //   oneTPM: 1,
   // },
 ];
 
@@ -271,15 +257,8 @@ export class Together extends BaseAI {
   async generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
-    const model = modelInfo.find((v) => v.id === this.options.model);
-    if (!model) {
-      throw new Error(
-        `Together model information not found: ${this.options.model}`
-      );
-    }
-
     const res = await apiCall<
       TogetherAPI,
       TogetherGenerateRequest,
@@ -303,7 +282,7 @@ export class Together extends BaseAI {
     } = res;
 
     return {
-      sessionID,
+      sessionId,
       results: choices.map((v) => ({
         text: v.text,
         finishReason: v.finish_reason,

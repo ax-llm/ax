@@ -9,9 +9,8 @@ export class SummarizePrompt extends AIPrompt<string> {
     super({ stopSequences: ['---'] });
   }
 
-  override create(query: string, system: string): string {
+  override prompt(query: string): string {
     return `
-${system}
 The killer whale or orca (Orcinus orca) is a toothed whale belonging to the oceanic dolphin family, of which it is the largest member"
 
 In summary:The killer whale or orca is the largest type of dolphin.

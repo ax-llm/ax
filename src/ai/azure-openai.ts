@@ -46,10 +46,9 @@ export type AzureOpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
  * AzureOpenAI: Default Model options for text generation
  * @export
  */
-export const AzureOpenAIDefaultOptions = (): AzureOpenAIOptions => ({
+export const AzureOpenAIdefaultOptions = (): AzureOpenAIOptions => ({
   model: OpenAIGenerateModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
-  suffix: null,
   maxTokens: 300,
   temperature: 0.45,
   topP: 1,
@@ -60,7 +59,7 @@ export const AzureOpenAIDefaultOptions = (): AzureOpenAIOptions => ({
  * @export
  */
 export const AzureOpenAICreativeOptions = (): AzureOpenAIOptions => ({
-  ...AzureOpenAIDefaultOptions(),
+  ...AzureOpenAIdefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.9,
 });
@@ -70,7 +69,7 @@ export const AzureOpenAICreativeOptions = (): AzureOpenAIOptions => ({
  * @export
  */
 export const AzureOpenAIFastOptions = (): AzureOpenAIOptions => ({
-  ...AzureOpenAIDefaultOptions(),
+  ...AzureOpenAIdefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.45,
 });
@@ -180,10 +179,10 @@ const generateReq = (
   return {
     model: opt.model.replace('.', ''),
     prompt,
-    suffix: opt.suffix,
+    suffix: opt.suffix ?? null,
     max_tokens: opt.maxTokens,
     temperature: opt.temperature,
-    top_p: opt.topP,
+    top_p: opt.topP ?? 1,
     n: opt.n,
     stream: opt.stream,
     logprobs: opt.logprobs,
@@ -212,7 +211,7 @@ const generateChatReq = (
     messages: [{ role: 'user', content: prompt }],
     max_tokens: opt.maxTokens,
     temperature: opt.temperature,
-    top_p: opt.topP,
+    top_p: opt.topP ?? 1,
     n: opt.n,
     stream: opt.stream,
     stop: stopSequences,
@@ -236,7 +235,7 @@ export class AzureOpenAI extends BaseAI {
     apiKey: string,
     host: string,
     deploymentName: string,
-    options: Readonly<AzureOpenAIOptions> = AzureOpenAIDefaultOptions()
+    options: Readonly<AzureOpenAIOptions> = AzureOpenAIdefaultOptions()
   ) {
     super('Azure OpenAI', openAIModelInfo, {
       model: options.model,
@@ -275,22 +274,22 @@ export class AzureOpenAI extends BaseAI {
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     if (
       [OpenAIGenerateModel.GPT35Turbo, OpenAIGenerateModel.GPT4].includes(
         this.options.model as OpenAIGenerateModel
       )
     ) {
-      return await this.generateChat(prompt, md, sessionID);
+      return await this.generateChat(prompt, md, sessionId);
     }
-    return await this.generateDefault(prompt, md, sessionID);
+    return await this.generateDefault(prompt, md, sessionId);
   }
 
   private async generateDefault(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       AzureOpenAIAPI,
@@ -303,8 +302,8 @@ export class AzureOpenAI extends BaseAI {
 
     const { id, choices: c, usage: u } = res;
     return {
-      sessionID,
-      remoteID: id.toString(),
+      sessionId,
+      remoteId: id.toString(),
       results: c.map((v) => ({
         id: v.index.toString(),
         text: v.text,
@@ -321,7 +320,7 @@ export class AzureOpenAI extends BaseAI {
   private async generateChat(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       AzureOpenAIAPI,
@@ -334,8 +333,8 @@ export class AzureOpenAI extends BaseAI {
 
     const { id, choices: c, usage: u } = res;
     return {
-      sessionID,
-      remoteID: id.toString(),
+      sessionId,
+      remoteId: id.toString(),
       results: c.map((v) => ({
         id: v.index.toString(),
         text: v.message.content,
@@ -351,7 +350,7 @@ export class AzureOpenAI extends BaseAI {
 
   async embed(
     textToEmbed: Readonly<string[] | string>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse> {
     const texts: readonly string[] =
       typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
@@ -376,7 +375,7 @@ export class AzureOpenAI extends BaseAI {
 
     const { data, usage: u } = res;
     return {
-      sessionID,
+      sessionId,
       texts,
       embedding: data.embedding,
       modelUsage: {

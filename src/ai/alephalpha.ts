@@ -46,44 +46,39 @@ export enum AlephaAlphaGenerateHosting {
 
 const modelInfo: TextModelInfo[] = [
   {
-    id: AlephAlphaGenerateModel.LuminousSupremeControl,
+    name: AlephAlphaGenerateModel.LuminousSupremeControl,
     currency: 'eur',
     promptTokenCostPer1K: 0.04375,
     completionTokenCostPer1K: 0.04375,
     maxTokens: 2048,
-    oneTPM: 1,
   },
   {
-    id: AlephAlphaGenerateModel.LuminousSupreme,
+    name: AlephAlphaGenerateModel.LuminousSupreme,
     currency: 'eur',
     promptTokenCostPer1K: 0.035,
     completionTokenCostPer1K: 0.035,
     maxTokens: 2048,
-    oneTPM: 1,
   },
   {
-    id: AlephAlphaGenerateModel.LuminousExtended,
+    name: AlephAlphaGenerateModel.LuminousExtended,
     currency: 'eur',
     promptTokenCostPer1K: 0.009,
     completionTokenCostPer1K: 0.009,
     maxTokens: 2048,
-    oneTPM: 1,
   },
   {
-    id: AlephAlphaGenerateModel.LuminousBase,
+    name: AlephAlphaGenerateModel.LuminousBase,
     currency: 'eur',
     promptTokenCostPer1K: 0.006,
     completionTokenCostPer1K: 0.006,
     maxTokens: 2048,
-    oneTPM: 1,
   },
   {
-    id: AlephAlphaEmbedModel.LuminousExplore,
+    name: AlephAlphaEmbedModel.LuminousExplore,
     currency: 'eur',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 2048,
-    oneTPM: 1,
   },
 ];
 
@@ -310,7 +305,7 @@ export class AlephAlpha extends BaseAI {
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       API,
@@ -327,7 +322,7 @@ export class AlephAlpha extends BaseAI {
 
     const { completions } = res;
     return {
-      sessionID,
+      sessionId,
       results: completions.map((v) => ({
         text: v.completion,
         finishReason: v.finish_reason,
@@ -337,7 +332,7 @@ export class AlephAlpha extends BaseAI {
 
   async embed(
     textToEmbed: readonly string[] | string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
@@ -365,7 +360,7 @@ export class AlephAlpha extends BaseAI {
 
     const { embedding } = res;
     return {
-      sessionID,
+      sessionId,
       texts,
       embedding: embedding,
     };

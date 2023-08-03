@@ -62,9 +62,9 @@ test('multiSessionChatWithAI', async (t) => {
 
   for (let i = 0; i < humanQuerys.length; i++) {
     const q = humanQuerys[i];
-    const res1 = await prompt.generate(ai, q, { sessionID: '1', memory });
-    const res2 = await prompt.generate(ai, q, { sessionID: '2', memory });
-    const res3 = await prompt.generate(ai, q, { sessionID: '3', memory });
+    const res1 = await prompt.generate(ai, q, { sessionId: '1', memory });
+    const res2 = await prompt.generate(ai, q, { sessionId: '2', memory });
+    const res3 = await prompt.generate(ai, q, { sessionId: '3', memory });
 
     t.is(res1.value(), aiResponses[i]);
     t.is(res2.value(), aiResponses[i]);

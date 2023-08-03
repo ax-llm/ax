@@ -1,5 +1,3 @@
-/* eslint-disable guard-for-in */
-/* eslint-disable no-restricted-syntax */
 import { AIPrompt } from '../text/text.js';
 import { PromptConfig } from '../text/types.js';
 
@@ -33,7 +31,11 @@ export class MessagePrompt extends AIPrompt<string> {
   private receiver = '';
   private product = '';
 
-  constructor(mi: MessageInfo, pi: ProductInfo, ri: MessageReceiver) {
+  constructor(
+    mi: Readonly<MessageInfo>,
+    pi: Readonly<ProductInfo>,
+    ri: Readonly<MessageReceiver>
+  ) {
     super({ stopSequences: ['Text:'] } as PromptConfig<string>);
 
     let k1: keyof MessageReceiver;
@@ -49,9 +51,8 @@ export class MessagePrompt extends AIPrompt<string> {
     this.messageInfo = mi;
   }
 
-  override create(query: string, system: string): string {
+  override prompt(query: string): string {
     return `
-${system}
 Using the below information to write an effective ${this.messageInfo.type}.
 
 Product information:

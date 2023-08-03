@@ -10,20 +10,18 @@ import { BaseAI } from './base.js';
 
 const modelInfo: TextModelInfo[] = [
   {
-    id: 'betty-fake-completion-model',
+    name: 'betty-fake-completion-model',
     currency: 'usd',
     promptTokenCostPer1K: 0.03,
     completionTokenCostPer1K: 0.06,
     maxTokens: 1024,
-    oneTPM: 1,
   },
   {
-    id: 'betty-fake-embed-model',
+    name: 'betty-fake-embed-model',
     currency: 'usd',
     promptTokenCostPer1K: 0.003,
     completionTokenCostPer1K: 0.006,
     maxTokens: 8192,
-    oneTPM: 1,
   },
 ];
 /**
@@ -63,20 +61,20 @@ export class Betty extends BaseAI {
   generate(
     prompt: string,
     _md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
-    if (sessionID && !this.sdata.has(sessionID)) {
-      this.sdata.set(sessionID, [...this.answers]);
+    if (sessionId && !this.sdata.has(sessionId)) {
+      this.sdata.set(sessionId, [...this.answers]);
     }
-    const answers = sessionID ? this.sdata.get(sessionID) : this.data;
+    const answers = sessionId ? this.sdata.get(sessionId) : this.data;
 
     const text = answers?.shift() || '';
 
     this.index++;
 
     const res = {
-      remoteID: this.index.toString(),
-      sessionID,
+      remoteId: this.index.toString(),
+      sessionId,
       modelUsage: {
         promptTokens: prompt.length,
         totalTokens: prompt.length + (text?.length || 0),
@@ -95,13 +93,13 @@ export class Betty extends BaseAI {
 
   embed(
     textToEmbed: readonly string[] | string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
     const embedding = [1, 2, 3, 4];
     const res = {
       id: '',
-      sessionID,
+      sessionId,
       texts,
       modelUsage: {
         promptTokens: texts.length,

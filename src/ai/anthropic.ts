@@ -25,20 +25,18 @@ export enum AnthropicGenerateModel {
 
 const modelInfo: TextModelInfo[] = [
   {
-    id: AnthropicGenerateModel.Claude2,
+    name: AnthropicGenerateModel.Claude2,
     currency: 'usd',
     promptTokenCostPer1K: 0.01102,
     completionTokenCostPer1K: 0.03268,
     maxTokens: 100000,
-    oneTPM: 1,
   },
   {
-    id: AnthropicGenerateModel.ClaudeInstant,
+    name: AnthropicGenerateModel.ClaudeInstant,
     currency: 'usd',
     promptTokenCostPer1K: 0.00163,
     completionTokenCostPer1K: 0.00551,
     maxTokens: 100000,
-    oneTPM: 1,
   },
 ];
 
@@ -139,7 +137,7 @@ export class Anthropic extends BaseAI {
   async generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       AnthropicAPI,
@@ -157,8 +155,8 @@ export class Anthropic extends BaseAI {
 
     const { id, generations } = res;
     return {
-      sessionID,
-      remoteID: id,
+      sessionId,
+      remoteId: id,
       results: generations,
     };
   }

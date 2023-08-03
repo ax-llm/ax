@@ -17,13 +17,14 @@ export class AssistantPrompt extends AIPrompt<string> {
     this.context = context;
   }
 
-  override create(query: string, system: string, history: () => string): string {
+  override prompt(query: string, history: () => string): string {
     return `
-${system}
 The following is a conversation with an AI assistant. The assistant is helpful, creative, clever, and very friendly.
+
 ${this.context ? `\nUse the following context:\n${this.context}` : ''}
 
 ${history()}
+
 Human: ${query}
 AI:
 `;

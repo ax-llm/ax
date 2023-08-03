@@ -55,7 +55,7 @@ export const processFunction = async (
   value: string,
   functions: readonly PromptFunction[],
   ai: Readonly<AI>,
-  sessionID?: string
+  sessionId?: string
 ): Promise<FunctionExec> => {
   let funcName = '';
   let funcArgs = '';
@@ -75,17 +75,26 @@ export const processFunction = async (
     funcArgs = v[2].trim();
   }
 
-  const func = functions.find((v) => v.name === funcName);
+  const func = functions.find((v) => v.name.localeCompare(funcName) === 0);
 
   // add {} to object args if missing
-  if (func?.inputSchema?.type === 'object' && !funcArgs.startsWith('{')) {
+  if (
+    func?.inputSchema?.type === 'object' &&
+    !funcArgs.startsWith('{') &&
+    !funcArgs.startsWith('[')
+  ) {
     funcArgs = `{${funcArgs}}`;
   }
 
   let funcExec: FunctionExec = { name: funcName, reasoning };
 
+  if (!func) {
+    funcExec.result = `Function ${funcName} not found`;
+    return funcExec;
+  }
+
   // return final result
-  if (funcName === 'finalResult') {
+  if (funcName.localeCompare('finalResult') === 0) {
     funcExec.result = funcArgs;
     return funcExec;
   }
@@ -94,7 +103,7 @@ export const processFunction = async (
   if (func) {
     funcExec = await executeFunction(func, funcArgs, {
       ai,
-      sessionID,
+      sessionId,
     });
 
     if (funcExec.parsingError) {
@@ -102,14 +111,12 @@ export const processFunction = async (
     } else if (!funcExec.result || funcExec.result.length === 0) {
       funcExec.result = `No data returned by function`;
     }
-  } else {
-    funcExec.result = `Function ${funcName} not found`;
   }
 
   return funcExec;
 };
 
-export const buildFunctionsPrompt = (
+export const functionsToJSON = (
   functions: readonly PromptFunction[]
 ): string => {
   const funcList = functions.map((v) => ({
@@ -118,44 +125,14 @@ export const buildFunctionsPrompt = (
     parameters: v.inputSchema,
   }));
 
-  const functionsJSON = JSON.stringify(funcList, null, 2);
-
-  return `
-Functions:
-${functionsJSON}
-
-Use these provided functions. Stick to these steps without creating custom functions. For functions stick to the defined format.
-
-Steps:
-
-Thought: Plan the approach.
-Function Call: functionName(parameters in json)
-Result: Function result.
-Thought: Review the outcome and decide next steps using results.
-Repeat steps 2-4 until nearing solution.
-Finally:
-
-Thought: Prepare for the final result.
-Function Call: finalResult(parameters in json)
-
-Task:
-  `;
-  //   return `
-  // To solve the below task think step-by-step in the format below. Use only below listed functions. Do not create custom functions. Function parameters are in json as per the functions json schema.
-
-  // Functions:
-  // ${functionsJSON}
-
-  // Format:
-  // Thought: Consider what to do.
-  // Function Call: functionName(parameters)
-  // Result: Function result.
-  // Thought: Use the result to solve the task.
-  // Repeat previous four steps as necessary.
-
-  // Thought: Return final result.
-  // Function Call: finalResult(parameters)
-
-  // Task:
-  // `;
+  return JSON.stringify(funcList, null, 2);
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const finalResultFunc = (schema: any): PromptFunction => ({
+  name: 'finalResult',
+  description: 'Return the final result',
+  inputSchema: schema ?? {},
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  func: async (arg0: any) => arg0,
+});

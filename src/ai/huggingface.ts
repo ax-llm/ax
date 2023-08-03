@@ -39,12 +39,11 @@ export enum HuggingFaceGenerateModel {
  */
 export const HuggingFaceModelInfo: TextModelInfo[] = [
   {
-    id: HuggingFaceGenerateModel.MetaLlama270BChatHF,
+    name: HuggingFaceGenerateModel.MetaLlama270BChatHF,
     currency: 'usd',
     promptTokenCostPer1K: 0.0,
     completionTokenCostPer1K: 0.0,
     maxTokens: 4000,
-    oneTPM: 1,
   },
 ];
 
@@ -175,7 +174,7 @@ export class HuggingFace extends BaseAI {
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       HuggingFaceAPI,
@@ -187,7 +186,7 @@ export class HuggingFace extends BaseAI {
     );
 
     return {
-      sessionID,
+      sessionId,
       results: [{ text: res.generated_text }],
     };
   }

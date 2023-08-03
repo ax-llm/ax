@@ -71,92 +71,46 @@ export enum OpenAIAudioModel {
  */
 export const openAIModelInfo: TextModelInfo[] = [
   {
-    id: OpenAIGenerateModel.GPT4,
+    name: OpenAIGenerateModel.GPT4,
     currency: 'usd',
     promptTokenCostPer1K: 0.03,
     completionTokenCostPer1K: 0.06,
     maxTokens: 8192,
-    oneTPM: 1,
   },
   {
-    id: OpenAIGenerateModel.GPT432K,
+    name: OpenAIGenerateModel.GPT432K,
     currency: 'usd',
     promptTokenCostPer1K: 0.06,
     completionTokenCostPer1K: 0.12,
     maxTokens: 32768,
-    oneTPM: 1,
   },
   {
-    id: OpenAIGenerateModel.GPT35Turbo,
+    name: OpenAIGenerateModel.GPT35Turbo,
     currency: 'usd',
     promptTokenCostPer1K: 0.002,
     completionTokenCostPer1K: 0.002,
     maxTokens: 4096,
-    oneTPM: 1,
   },
   {
-    id: OpenAIGenerateModel.GPT35Turbo16K,
+    name: OpenAIGenerateModel.GPT35Turbo16K,
     currency: 'usd',
     promptTokenCostPer1K: 0.003,
     completionTokenCostPer1K: 0.004,
     maxTokens: 16384,
-    oneTPM: 1,
   },
   {
-    id: OpenAIGenerateModel.GPT35TextDavinci003,
+    name: OpenAIGenerateModel.GPT35TextDavinci003,
     currency: 'usd',
     promptTokenCostPer1K: 0.02,
     completionTokenCostPer1K: 0.02,
     maxTokens: 4097,
-    oneTPM: 1,
   },
   {
-    id: OpenAIGenerateModel.GPT35TextDavinci002,
+    name: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
     currency: 'usd',
-    promptTokenCostPer1K: 0.02,
-    completionTokenCostPer1K: 0.02,
-    maxTokens: 4097,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT35CodeDavinci002,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.1,
-    completionTokenCostPer1K: 0.1,
-    maxTokens: 8001,
-    oneTPM: 1,
-  },
-  {
-    id: OpenAIGenerateModel.GPT3TextCurie001,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.002,
-    completionTokenCostPer1K: 0.002,
-    maxTokens: 2049,
-    oneTPM: 25,
-  },
-  {
-    id: OpenAIGenerateModel.GPT3TextBabbage001,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.0005,
-    completionTokenCostPer1K: 0.0005,
-    maxTokens: 2049,
-    oneTPM: 100,
-  },
-  {
-    id: OpenAIGenerateModel.GPT3TextAda001,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.0004,
-    completionTokenCostPer1K: 0.0004,
-    maxTokens: 2049,
-    oneTPM: 200,
-  },
-  {
-    id: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.0004,
-    completionTokenCostPer1K: 0.0004,
+    promptTokenCostPer1K: 0.0001,
+    completionTokenCostPer1K: 0.0001,
     maxTokens: 8191,
-    oneTPM: 200,
   },
 ];
 
@@ -175,7 +129,7 @@ export type OpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
  * OpenAI: Default Model options for text generation
  * @export
  */
-export const OpenAIDefaultOptions = (): OpenAIOptions => ({
+export const OpenAIdefaultOptions = (): OpenAIOptions => ({
   model: OpenAIGenerateModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
@@ -195,7 +149,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
  * @export
  */
 export const OpenAIBestModelOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+  ...OpenAIdefaultOptions(),
   model: OpenAIGenerateModel.GPT4,
 });
 
@@ -204,7 +158,7 @@ export const OpenAIBestModelOptions = (): OpenAIOptions => ({
  * @export
  */
 export const OpenAICreativeOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+  ...OpenAIdefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.9,
   logitBias: undefined,
@@ -215,7 +169,7 @@ export const OpenAICreativeOptions = (): OpenAIOptions => ({
  * @export
  */
 export const OpenAIFastOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+  ...OpenAIdefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.45,
 });
@@ -343,10 +297,10 @@ const generateReq = (
   return {
     model: opt.model,
     prompt,
-    suffix: opt.suffix,
+    suffix: opt.suffix ?? null,
     max_tokens: opt.maxTokens,
     temperature: opt.temperature,
-    top_p: opt.topP,
+    top_p: opt.topP ?? 1,
     n: opt.n,
     stream: opt.stream,
     logprobs: opt.logprobs,
@@ -375,7 +329,7 @@ const generateChatReq = (
     messages: [{ role: 'user', content: prompt }],
     max_tokens: opt.maxTokens,
     temperature: opt.temperature,
-    top_p: opt.topP,
+    top_p: opt.topP ?? 1,
     n: opt.n,
     stream: opt.stream,
     stop: stopSequences,
@@ -404,12 +358,12 @@ const generateAudioReq = (
  */
 export class OpenAI extends BaseAI {
   private apiKey: string;
-  private orgID?: string;
+  private orgId?: string;
   private options: OpenAIOptions;
 
   constructor(
     apiKey: string,
-    options: Readonly<OpenAIOptions> = OpenAIDefaultOptions()
+    options: Readonly<OpenAIOptions> = OpenAIdefaultOptions()
   ) {
     super('OpenAI', openAIModelInfo, {
       model: options.model,
@@ -443,21 +397,21 @@ export class OpenAI extends BaseAI {
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     return [
       OpenAIGenerateModel.GPT35Turbo,
       OpenAIGenerateModel.GPT35Turbo16K,
       OpenAIGenerateModel.GPT4,
     ].includes(this.options.model as OpenAIGenerateModel)
-      ? await this.generateChat(prompt, md, sessionID)
-      : await this.generateDefault(prompt, md, sessionID);
+      ? await this.generateChat(prompt, md, sessionId)
+      : await this.generateDefault(prompt, md, sessionId);
   }
 
   private async generateDefault(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       OpenAIAPI,
@@ -470,8 +424,8 @@ export class OpenAI extends BaseAI {
 
     const { id, choices: c, usage: u } = res;
     return {
-      remoteID: id.toString(),
-      sessionID,
+      remoteId: id.toString(),
+      sessionId,
       results: c.map((v) => ({
         id: v.index.toString(),
         text: v.text,
@@ -488,7 +442,7 @@ export class OpenAI extends BaseAI {
   private async generateChat(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       OpenAIAPI,
@@ -501,8 +455,8 @@ export class OpenAI extends BaseAI {
 
     const { id, choices: c, usage: u } = res;
     return {
-      remoteID: id.toString(),
-      sessionID,
+      remoteId: id.toString(),
+      sessionId,
       results: c.map((v) => ({
         id: v.index.toString(),
         text: v.message.content,
@@ -518,7 +472,7 @@ export class OpenAI extends BaseAI {
 
   async embed(
     textToEmbed: readonly string[] | string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
@@ -540,7 +494,7 @@ export class OpenAI extends BaseAI {
 
     const { data, usage: u } = res;
     return {
-      sessionID,
+      sessionId,
       texts,
       embedding: data.at(0)?.embedding || [],
       modelUsage: {
@@ -555,7 +509,7 @@ export class OpenAI extends BaseAI {
     file: string,
     prompt?: string,
     language?: string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<TranscriptResponse> {
     const res = await apiCallWithUpload<
       OpenAIAPI,
@@ -569,7 +523,7 @@ export class OpenAI extends BaseAI {
 
     const { duration, segments } = res;
     return {
-      sessionID,
+      sessionId,
       duration,
       segments: segments.map((v) => ({
         id: v.id,
@@ -586,7 +540,7 @@ export class OpenAI extends BaseAI {
       key: this.apiKey,
       name,
       headers: {
-        ...(this.orgID ? { 'OpenAI-Organization': this.orgID } : null),
+        ...(this.orgId ? { 'OpenAI-Organization': this.orgId } : null),
       },
     };
   }

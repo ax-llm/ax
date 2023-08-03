@@ -3,17 +3,16 @@ import { JSONSchemaType } from 'ajv';
 import { AI } from './wrap';
 
 export type GenerateTextExtraOptions = {
-  sessionID?: string;
+  sessionId?: string;
 };
 
 export type TextModelInfo = {
-  id: string;
+  name: string;
   currency: string;
   characterIsToken?: boolean;
   promptTokenCostPer1K: number;
   completionTokenCostPer1K: number;
-  maxTokens: number;
-  oneTPM: number;
+  maxTokens?: number;
 };
 
 export type TokenUsage = {
@@ -23,10 +22,9 @@ export type TokenUsage = {
 };
 
 export type GenerateTextModelConfig = {
-  suffix: string | null;
   maxTokens: number;
   temperature: number;
-  topP: number;
+  topP?: number;
   topK?: number;
   n?: number;
   stream?: boolean;
@@ -36,6 +34,7 @@ export type GenerateTextModelConfig = {
   frequencyPenalty?: number;
   bestOf?: number;
   logitBias?: Map<string, number>;
+  suffix?: string | null;
 };
 
 export type FunctionExec = {
@@ -50,8 +49,8 @@ export type FunctionExec = {
 };
 
 export type GenerateTextResponse = {
-  sessionID?: string;
-  remoteID?: string;
+  sessionId?: string;
+  remoteId?: string;
   results: {
     text: string;
     id?: string;
@@ -72,15 +71,15 @@ export type APIError = {
 };
 
 export type AIGenerateTextTrace = {
-  traceID: string;
-  sessionID?: string;
+  traceId: string;
+  sessionId?: string;
   request: {
-    prompt?: string;
-    modelInfo?: Readonly<TextModelInfo>;
-    modelConfig?: Readonly<GenerateTextModelConfig>;
+    prompt: string;
+    modelInfo: Readonly<TextModelInfo & { provider: string }>;
+    modelConfig: Readonly<GenerateTextModelConfig>;
     embedModelInfo?: Readonly<TextModelInfo>;
   };
-  response?: Omit<GenerateTextResponse, 'sessionID'> & {
+  response: Omit<GenerateTextResponse, 'sessionId'> & {
     modelResponseTime?: number;
     embedModelResponseTime?: number;
     functions?: FunctionExec[];
@@ -93,21 +92,21 @@ export type AIGenerateTextTrace = {
 // eslint-disable-next-line functional/no-mixed-types
 export type AITextResponse<T> = {
   prompt: string;
-  sessionID?: string;
+  sessionId?: string;
   traces: AIGenerateTextTrace[];
   value(): T;
 };
 
 export type EmbedResponse = {
-  remoteID?: string;
-  sessionID?: string;
+  remoteId?: string;
+  sessionId?: string;
   texts: readonly string[];
   embedding: readonly number[];
   modelUsage?: TokenUsage;
 };
 
 export type TranscriptResponse = {
-  sessionID?: string;
+  sessionId?: string;
   duration: number;
   segments: {
     id: number;
@@ -118,10 +117,10 @@ export type TranscriptResponse = {
 };
 
 export interface AIMemory {
-  add(text: string, sessionID?: string): void;
-  history(sessionID?: string): string;
-  peek(sessionID?: string): Readonly<string[]>;
-  reset(sessionID?: string): void;
+  add(text: string, sessionId?: string): void;
+  history(sessionId?: string): string;
+  peek(sessionId?: string): Readonly<string[]>;
+  reset(sessionId?: string): void;
 }
 
 export type Embeddings = {
@@ -131,7 +130,7 @@ export type Embeddings = {
 
 export type PromptFunctionExtraOptions = {
   ai: Readonly<AI>;
-  sessionID?: string;
+  sessionId?: string;
 };
 
 export type PromptFunctionFunc = (
@@ -169,23 +168,23 @@ export type AIPromptConfig = {
 
 export interface AIService {
   name(): string;
-  getModelInfo(): Readonly<TextModelInfo> | undefined;
+  getModelInfo(): Readonly<TextModelInfo & { provider: string }>;
   getEmbedModelInfo(): Readonly<TextModelInfo> | undefined;
   getModelConfig(): Readonly<GenerateTextModelConfig>;
   generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse>;
   embed(
     text2Embed: readonly string[] | string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse>;
   transcribe(
     file: string,
     prompt?: string,
     language?: string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<TranscriptResponse>;
 }
 

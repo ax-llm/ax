@@ -1,4 +1,5 @@
 import { ConsoleLogger } from '../logs/console.js';
+// import { RemoteLogger } from '../logs/remote.js';
 import {
   AIGenerateTextTrace,
   AIPromptConfig,
@@ -20,9 +21,11 @@ export type RateLimiterFunction = <T>(func: unknown) => T;
 
 export class AI implements AIService {
   private consoleLog = new ConsoleLogger();
+  // private consoleLog = new RemoteLogger(); //new ConsoleLogger();
+
   private log?: (traces: Readonly<AIGenerateTextTrace>) => void;
   private traces: AIGenerateTextTrace[] = [];
-  private traceID: string;
+  private traceId: string;
   private ai: AIService;
   private rt?: RateLimiterFunction;
 
@@ -33,7 +36,7 @@ export class AI implements AIService {
   ) {
     this.ai = ai;
     this.rt = rateLimiter;
-    this.traceID = uuid();
+    this.traceId = uuid();
     this.log = log;
   }
 
@@ -41,7 +44,7 @@ export class AI implements AIService {
     return this.traces;
   }
 
-  getModelInfo(): Readonly<TextModelInfo> | undefined {
+  getModelInfo(): Readonly<TextModelInfo & { provider: string }> {
     throw new Error('Method not implemented.');
   }
   getEmbedModelInfo(): Readonly<TextModelInfo> | undefined {
@@ -73,11 +76,14 @@ export class AI implements AIService {
 
   private newTrace(prompt: string): AIGenerateTextTrace {
     const trace = {
-      traceID: this.traceID,
+      traceId: this.traceId,
       request: {
         prompt,
         modelInfo: this.ai.getModelInfo(),
         modelConfig: this.ai.getModelConfig(),
+      },
+      response: {
+        results: [],
       },
     };
     this.traces.push(trace);
@@ -87,13 +93,13 @@ export class AI implements AIService {
   async generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
-    sessionID?: string
+    sessionId?: string
   ): Promise<GenerateTextResponse> {
     let modelResponseTime;
 
     const fn = async () => {
       const st = new Date().getTime();
-      const res = await this.ai.generate(prompt, md, sessionID);
+      const res = await this.ai.generate(prompt, md, sessionId);
       modelResponseTime = new Date().getTime() - st;
       return res;
     };
@@ -106,7 +112,7 @@ export class AI implements AIService {
 
     if (trace) {
       trace.response = {
-        remoteID: res?.remoteID,
+        remoteId: res?.remoteId,
         results: res?.results ?? [],
         modelUsage: res?.modelUsage,
         embedModelUsage: res?.embedModelUsage,
@@ -119,13 +125,13 @@ export class AI implements AIService {
 
   async embed(
     textToEmbed: readonly string[] | string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<EmbedResponse> {
     let embedModelResponseTime;
 
     const fn = async () => {
       const st = new Date().getTime();
-      const res = await this.ai.embed(textToEmbed, sessionID);
+      const res = await this.ai.embed(textToEmbed, sessionId);
       embedModelResponseTime = new Date().getTime() - st;
       return res;
     };
@@ -151,7 +157,7 @@ export class AI implements AIService {
     file: string,
     prompt?: string,
     language?: string,
-    sessionID?: string
+    sessionId?: string
   ): Promise<TranscriptResponse> {
     if (!this.ai.transcribe) {
       throw new Error('Transcribe not supported');
@@ -159,9 +165,9 @@ export class AI implements AIService {
     return this.rt
       ? this.rt<Promise<TranscriptResponse>>(async () =>
           this.ai.transcribe
-            ? await this.ai.transcribe(file, prompt, language, sessionID)
+            ? await this.ai.transcribe(file, prompt, language, sessionId)
             : null
         )
-      : await this.ai.transcribe(file, prompt, language, sessionID);
+      : await this.ai.transcribe(file, prompt, language, sessionId);
   }
 }

@@ -9,7 +9,7 @@ export enum BusinessInfo {
   ProductPurchaseDate = 'Product Purchase Date',
 
   // Purchases
-  OrderID = 'Order ID',
+  OrderId = 'Order Id',
   OrderQuantity = 'Order Quantity',
   AccountNumber = 'Account Number',
   ShippingAddress = 'Shipping Address',
@@ -93,9 +93,8 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
       .join('\n');
   }
 
-  override create(query: string, system: string): string {
+  override prompt(query: string): string {
     return `
-${system}
 Extract the following entities mentioned in the text below. Use N/A if entity is not found::
 ${this.entityValue}
 
