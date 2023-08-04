@@ -7,7 +7,7 @@ import { stringToObject } from './util.js';
 import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
-const thoughtRe = /Thought:(.*)$/gm;
+// const thoughtRe = /Thought:(.*)$/gm;
 
 const executeFunction = async (
   funcInfo: Readonly<PromptFunction>,
@@ -32,9 +32,13 @@ const executeFunction = async (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args = stringToObject<any>(funcArgJSON, funcInfo.inputSchema);
   } catch (e) {
+    const error = (e as Error).message;
     return {
       name: funcInfo.name,
-      parsingError: { error: (e as Error).message, data: funcArgJSON },
+      parsingError: {
+        error: `Syntax error in JSON: ${error}`,
+        data: funcArgJSON,
+      },
     };
   }
 
@@ -51,29 +55,35 @@ const executeFunction = async (
   };
 };
 
+export const parseFunction = (
+  value: string
+): { funcName: string; funcArgs: string } | undefined => {
+  let v: string[] | null;
+
+  // extract function calls
+  if ((v = functionCallRe.exec(value)) !== null) {
+    return {
+      funcName: v[1].trim(),
+      funcArgs: v[2].trim(),
+    };
+  }
+  return;
+};
+
 export const processFunction = async (
-  value: string,
+  funcName: string,
+  funcArgs: string,
   functions: readonly PromptFunction[],
   ai: Readonly<AI>,
   sessionId?: string
 ): Promise<FunctionExec> => {
-  let funcName = '';
-  let funcArgs = '';
-  let v: string[] | null;
-
   // extract thoughts
-  const tm = value.matchAll(thoughtRe);
+  // const tm = value.matchAll(thoughtRe);
   const reasoning: string[] = [];
 
-  for (const m of tm) {
-    reasoning.push(m[1].trim());
-  }
-
-  // extract function calls
-  if ((v = functionCallRe.exec(value)) !== null) {
-    funcName = v[1].trim();
-    funcArgs = v[2].trim();
-  }
+  // for (const m of tm) {
+  //   reasoning.push(m[1].trim());
+  // }
 
   const func = functions.find((v) => v.name.localeCompare(funcName) === 0);
 
@@ -90,12 +100,6 @@ export const processFunction = async (
 
   if (!func) {
     funcExec.result = `Function ${funcName} not found`;
-    return funcExec;
-  }
-
-  // return final result
-  if (funcName.localeCompare('finalResult') === 0) {
-    funcExec.result = funcArgs;
     return funcExec;
   }
 

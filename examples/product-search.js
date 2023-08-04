@@ -73,5 +73,4 @@ const prompt = new SPrompt(responseSchema, functions);
 prompt.setDebug(true);
 
 const res = await prompt.generate(ai, customerQuery);
-console.log(chalk.green('Result:\n', JSON.stringify(res.value(), null, 2)));
-console.log(chalk.green('Tokens Used:\n', JSON.stringify(res.usage, null, 2)));
+console.log(chalk.green(JSON.stringify(res.value(), null, 2)));

@@ -18,7 +18,7 @@ export class SPrompt<S> extends AIPrompt<S> {
   ) {
     super({
       functions,
-      stopSequences: [],
+      stopSequences: ['Result:'],
       responseConfig: { schema: resultSchema },
     });
 
@@ -33,18 +33,18 @@ export class SPrompt<S> extends AIPrompt<S> {
   Functions:
   ${this.functionsJSON}
 
-  Use functions. Stick to these steps without creating custom functions. For functions stick to the defined format.
+  Think step-by-step. Use functions. Do not create new functions. Stick to the defined format and function schemas.
 
-  Steps:
-  Thought: Plan the approach.
-  Function Call: functionName(parameters in json)
-  Result: Function result.
-  Thought: Review the outcome and decide next steps using results.
-  Repeat steps 2-4 until nearing solution.
+  Format:
+  1. Thought: Consider what to do.
+  2. functionName(parameters in json)
+  3. Result: Function result.
+  4. Thought: Analyze result and plan next.
+  Repeat steps 1-4 until nearing solution.
   Finally:
   
   Thought: Prepare for the final result.
-  Function Call: finalResult(parameters in json)
+  finalResult(parameters in json)
   
   Task:
   ${query}
