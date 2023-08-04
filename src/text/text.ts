@@ -168,7 +168,7 @@ export class AIPrompt<T> {
         }
 
         if (i === retryCount - 1) {
-          continue;
+          break;
         }
 
         const { fixedValue } = await this.fixResultSyntax<T>(
