@@ -129,7 +129,7 @@ export type OpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
  * OpenAI: Default Model options for text generation
  * @export
  */
-export const OpenAIdefaultOptions = (): OpenAIOptions => ({
+export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   model: OpenAIGenerateModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
@@ -149,7 +149,7 @@ export const OpenAIdefaultOptions = (): OpenAIOptions => ({
  * @export
  */
 export const OpenAIBestModelOptions = (): OpenAIOptions => ({
-  ...OpenAIdefaultOptions(),
+  ...OpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT4,
 });
 
@@ -158,7 +158,7 @@ export const OpenAIBestModelOptions = (): OpenAIOptions => ({
  * @export
  */
 export const OpenAICreativeOptions = (): OpenAIOptions => ({
-  ...OpenAIdefaultOptions(),
+  ...OpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.9,
   logitBias: undefined,
@@ -169,7 +169,7 @@ export const OpenAICreativeOptions = (): OpenAIOptions => ({
  * @export
  */
 export const OpenAIFastOptions = (): OpenAIOptions => ({
-  ...OpenAIdefaultOptions(),
+  ...OpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.45,
 });
@@ -363,7 +363,7 @@ export class OpenAI extends BaseAI {
 
   constructor(
     apiKey: string,
-    options: Readonly<OpenAIOptions> = OpenAIdefaultOptions()
+    options: Readonly<OpenAIOptions> = OpenAIDefaultOptions()
   ) {
     super('OpenAI', openAIModelInfo, {
       model: options.model,

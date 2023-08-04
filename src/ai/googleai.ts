@@ -82,7 +82,7 @@ export type GoogleAIOptions = {
  * GoogleAI: Default Model options for text generation
  * @export
  */
-export const GoogleAIdefaultOptions = (): GoogleAIOptions => ({
+export const GoogleAIDefaultOptions = (): GoogleAIOptions => ({
   model: GoogleAIGenerateModel.PaLMTextBison,
   embedModel: GoogleAIEmbedModels.PaLMTextEmbeddingGecko,
   maxTokens: 300,
@@ -96,7 +96,7 @@ export const GoogleAIdefaultOptions = (): GoogleAIOptions => ({
  * @export
  */
 export const GoogleAICreativeOptions = (): GoogleAIOptions => ({
-  ...GoogleAIdefaultOptions(),
+  ...GoogleAIDefaultOptions(),
   model: GoogleAIGenerateModel.PaLMTextBison,
   temperature: 0.9,
 });
@@ -106,7 +106,7 @@ export const GoogleAICreativeOptions = (): GoogleAIOptions => ({
  * @export
  */
 export const GoogleAIFastOptions = (): GoogleAIOptions => ({
-  ...GoogleAIdefaultOptions(),
+  ...GoogleAIDefaultOptions(),
   model: GoogleAIGenerateModel.PaLMTextBison,
   temperature: 0.45,
 });
@@ -233,7 +233,7 @@ export class GoogleAI extends BaseAI {
   constructor(
     apiKey: string,
     projectId: string,
-    options: Readonly<GoogleAIOptions> = GoogleAIdefaultOptions()
+    options: Readonly<GoogleAIOptions> = GoogleAIDefaultOptions()
   ) {
     super('GoogleAI', modelInfo, {
       model: options.model,

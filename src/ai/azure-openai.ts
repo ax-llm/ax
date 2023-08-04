@@ -46,7 +46,7 @@ export type AzureOpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
  * AzureOpenAI: Default Model options for text generation
  * @export
  */
-export const AzureOpenAIdefaultOptions = (): AzureOpenAIOptions => ({
+export const AzureOpenAIDefaultOptions = (): AzureOpenAIOptions => ({
   model: OpenAIGenerateModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   maxTokens: 300,
@@ -59,7 +59,7 @@ export const AzureOpenAIdefaultOptions = (): AzureOpenAIOptions => ({
  * @export
  */
 export const AzureOpenAICreativeOptions = (): AzureOpenAIOptions => ({
-  ...AzureOpenAIdefaultOptions(),
+  ...AzureOpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.9,
 });
@@ -69,7 +69,7 @@ export const AzureOpenAICreativeOptions = (): AzureOpenAIOptions => ({
  * @export
  */
 export const AzureOpenAIFastOptions = (): AzureOpenAIOptions => ({
-  ...AzureOpenAIdefaultOptions(),
+  ...AzureOpenAIDefaultOptions(),
   model: OpenAIGenerateModel.GPT35Turbo,
   temperature: 0.45,
 });
@@ -235,7 +235,7 @@ export class AzureOpenAI extends BaseAI {
     apiKey: string,
     host: string,
     deploymentName: string,
-    options: Readonly<AzureOpenAIOptions> = AzureOpenAIdefaultOptions()
+    options: Readonly<AzureOpenAIOptions> = AzureOpenAIDefaultOptions()
   ) {
     super('Azure OpenAI', openAIModelInfo, {
       model: options.model,
