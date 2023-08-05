@@ -53,7 +53,7 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
   constructor(entities: readonly ExtractEntity[]) {
     super({
       stopSequences: ['Text:'],
-      responseConfig: { keyValue: true },
+      response: { keyValue: true },
     });
 
     if (entities.length === 0) {

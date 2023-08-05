@@ -134,7 +134,7 @@ test('findAnswersWithAI', async (t) => {
     { memory }
   );
 
-  const answer = res.value();
+  const answer = res.value() as { companyName: string };
   t.is(answer.companyName, 'Google');
 });
 
@@ -237,7 +237,7 @@ test('getStructuredDataFromAI', async (t) => {
     'Give me details on the movie Sneakers'
   );
 
-  const movie = res.value();
+  const movie = res.value() as Oracle;
   t.is(movie.name, 'Sneakers');
   t.is(movie.budgetInUSD, 35000000);
   t.is(movie.actors[0].role, 'Martin Bishop');

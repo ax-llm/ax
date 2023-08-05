@@ -1,124 +1,145 @@
+import { parseResult } from './result.js';
 import {
+  AIGenerateTextTraceStep,
+  AIPromptConfig,
   FunctionExec,
+  FuncTrace,
+  GenerateTextExtraOptions,
   PromptFunction,
-  PromptFunctionExtraOptions,
 } from './types.js';
-import { stringToObject } from './util.js';
 import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
 // const thoughtRe = /Thought:(.*)$/gm;
 
-const executeFunction = async (
-  funcInfo: Readonly<PromptFunction>,
-  funcArgJSON: string,
-  extra: Readonly<PromptFunctionExtraOptions>
-): Promise<FunctionExec> => {
-  let args;
+export class FunctionProcessor {
+  private ai: Readonly<AI>;
+  private conf: Readonly<AIPromptConfig>;
+  private options: Readonly<GenerateTextExtraOptions>;
 
-  if (funcInfo.inputSchema === undefined) {
-    const res =
-      funcInfo.func.length === 1
-        ? await funcInfo.func(extra)
-        : await funcInfo.func();
-    return {
-      name: funcInfo.name,
-      result: JSON.stringify(res, null, 2),
-      resultValue: res,
-    };
-  }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    args = stringToObject<any>(funcArgJSON, funcInfo.inputSchema);
-  } catch (e) {
-    const error = (e as Error).message;
-    return {
-      name: funcInfo.name,
-      parsingError: {
-        error: `Syntax error in JSON: ${error}`,
-        data: funcArgJSON,
-      },
-    };
-  }
-
-  const res =
-    funcInfo.func.length === 2
-      ? await funcInfo.func(args, extra)
-      : await funcInfo.func(args);
-
-  return {
-    name: funcInfo.name,
-    args,
-    result: JSON.stringify(res, null, 2),
-    resultValue: res,
-  };
-};
-
-export const parseFunction = (
-  value: string
-): { funcName: string; funcArgs: string } | undefined => {
-  let v: string[] | null;
-
-  // extract function calls
-  if ((v = functionCallRe.exec(value)) !== null) {
-    return {
-      funcName: v[1].trim(),
-      funcArgs: v[2].trim(),
-    };
-  }
-  return;
-};
-
-export const processFunction = async (
-  funcName: string,
-  funcArgs: string,
-  functions: readonly PromptFunction[],
-  ai: Readonly<AI>,
-  sessionId?: string
-): Promise<FunctionExec> => {
-  // extract thoughts
-  // const tm = value.matchAll(thoughtRe);
-  const reasoning: string[] = [];
-
-  // for (const m of tm) {
-  //   reasoning.push(m[1].trim());
-  // }
-
-  const func = functions.find((v) => v.name.localeCompare(funcName) === 0);
-
-  // add {} to object args if missing
-  if (
-    func?.inputSchema?.type === 'object' &&
-    !funcArgs.startsWith('{') &&
-    !funcArgs.startsWith('[')
+  constructor(
+    ai: Readonly<AI>,
+    conf: Readonly<AIPromptConfig>,
+    options: Readonly<GenerateTextExtraOptions>
   ) {
-    funcArgs = `{${funcArgs}}`;
+    this.ai = ai;
+    this.conf = conf;
+    this.options = options;
   }
 
-  let funcExec: FunctionExec = { name: funcName, reasoning };
+  private executeFunction = async <T>(
+    funcInfo: Readonly<PromptFunction>,
+    funcArgJSON: string
+  ): Promise<FunctionExec> => {
+    const extra = { ai: this.ai, session: this.options };
 
-  if (!func) {
-    funcExec.result = `Function ${funcName} not found`;
-    return funcExec;
-  }
+    if (!funcInfo.inputSchema) {
+      const res =
+        funcInfo.func.length === 1
+          ? await funcInfo.func(extra)
+          : await funcInfo.func();
+      return {
+        name: funcInfo.name,
+        result: JSON.stringify(res, null, 2),
+      };
+    }
 
-  // execute value function calls
-  if (func) {
-    funcExec = await executeFunction(func, funcArgs, {
-      ai,
-      sessionId,
-    });
+    const funcArgs = await parseResult<T>(
+      this.ai,
+      this.conf,
+      this.options,
+      funcArgJSON,
+      false,
+      funcInfo.inputSchema
+    );
 
-    if (funcExec.parsingError) {
-      funcExec.result = `Fix error and repeat: ${funcExec.parsingError.error}`;
-    } else if (!funcExec.result || funcExec.result.length === 0) {
+    const res =
+      funcInfo.func.length === 2
+        ? await funcInfo.func(funcArgs, extra)
+        : await funcInfo.func(funcArgs);
+
+    return {
+      name: funcInfo.name,
+      args: funcArgs,
+      result: JSON.stringify(res, null, 2),
+    };
+  };
+
+  public parseFunction = (
+    value: string
+  ): { name: string; args: string } | undefined => {
+    let v: string[] | null;
+
+    // extract function calls
+    if ((v = functionCallRe.exec(value)) !== null) {
+      return {
+        name: v[1].trim(),
+        args: v[2].trim(),
+      };
+    }
+    return;
+  };
+
+  public processFunction = async (
+    funcName: string,
+    funcArgs: string,
+    functions: readonly PromptFunction[]
+  ): Promise<FunctionExec> => {
+    // extract thoughts
+    // const tm = value.matchAll(thoughtRe);
+    // const reasoning: string[] = [];
+
+    // for (const m of tm) {
+    //   reasoning.push(m[1].trim());
+    // }
+
+    const func = functions.find((v) => v.name.localeCompare(funcName) === 0);
+
+    // add {} to object args if missing
+    if (
+      func?.inputSchema?.type === 'object' &&
+      !funcArgs.startsWith('{') &&
+      !funcArgs.startsWith('[')
+    ) {
+      funcArgs = `{${funcArgs}}`;
+    }
+
+    const step = this.ai.getTraceStep() as AIGenerateTextTraceStep;
+    const funcTrace: FuncTrace = {
+      name: funcName,
+      args: funcArgs,
+    };
+
+    let funcExec: FunctionExec = { name: funcName };
+
+    if (!func) {
+      funcExec.result = `Function ${funcName} not found`;
+      return funcExec;
+    }
+
+    if (step) {
+      if (!step.response.functions) {
+        step.response.functions = [];
+      }
+
+      step.response.functions.push(funcTrace);
+    }
+
+    // execute value function calls
+    funcExec = await this.executeFunction(func, funcArgs);
+
+    // signal error if no data returned
+    if (!funcExec.result || funcExec.result.length === 0) {
       funcExec.result = `No data returned by function`;
     }
-  }
 
-  return funcExec;
-};
+    if (step) {
+      funcTrace.result = funcExec.result;
+    }
+
+    return funcExec;
+  };
+}
 
 export const functionsToJSON = (
   functions: readonly PromptFunction[]

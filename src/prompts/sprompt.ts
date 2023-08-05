@@ -19,7 +19,7 @@ export class SPrompt<S> extends AIPrompt<S> {
     super({
       functions,
       stopSequences: ['Result:'],
-      responseConfig: { schema: resultSchema },
+      response: { schema: resultSchema },
     });
 
     if (functions.length > 0) {

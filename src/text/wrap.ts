@@ -1,7 +1,7 @@
 import { ConsoleLogger } from '../logs/console.js';
 // import { RemoteLogger } from '../logs/remote.js';
 import {
-  AIGenerateTextTrace,
+  AIGenerateTextTraceStep,
   AIPromptConfig,
   AIService,
   EmbedResponse,
@@ -21,17 +21,17 @@ export type RateLimiterFunction = <T>(func: unknown) => T;
 
 export class AI implements AIService {
   private consoleLog = new ConsoleLogger();
-  // private consoleLog = new RemoteLogger(); //new ConsoleLogger();
+  // private consoleLog = new RemoteLogger();
 
-  private log?: (traces: Readonly<AIGenerateTextTrace>) => void;
-  private traces: AIGenerateTextTrace[] = [];
+  private log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void;
+  private traceSteps: AIGenerateTextTraceStep[] = [];
   private traceId: string;
   private ai: AIService;
   private rt?: RateLimiterFunction;
 
   constructor(
     ai: AIService,
-    log?: (traces: Readonly<AIGenerateTextTrace>) => void,
+    log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void,
     rateLimiter?: RateLimiterFunction
   ) {
     this.ai = ai;
@@ -40,8 +40,8 @@ export class AI implements AIService {
     this.log = log;
   }
 
-  getTraces(): AIGenerateTextTrace[] {
-    return this.traces;
+  getTraceSteps(): AIGenerateTextTraceStep[] {
+    return this.traceSteps;
   }
 
   getModelInfo(): Readonly<TextModelInfo & { provider: string }> {
@@ -60,22 +60,22 @@ export class AI implements AIService {
 
   logTrace(): void {
     if (this.log) {
-      this.traces.forEach((trace) => this.log?.(trace));
+      this.traceSteps.forEach((step) => this.log?.(step));
     }
   }
 
   consoleLogTrace(): void {
-    if (this.traces.length > 0) {
-      this.traces.forEach((trace) => this.consoleLog.log(trace));
+    if (this.traceSteps.length > 0) {
+      this.traceSteps.forEach((step) => this.consoleLog.log(step));
     }
   }
 
-  getTrace(): AIGenerateTextTrace | undefined {
-    return this.traces.at(-1);
+  getTraceStep(): AIGenerateTextTraceStep | undefined {
+    return this.traceSteps.at(-1);
   }
 
-  private newTrace(prompt: string): AIGenerateTextTrace {
-    const trace = {
+  private newTraceStep(prompt: string): AIGenerateTextTraceStep {
+    const step = {
       traceId: this.traceId,
       request: {
         prompt,
@@ -86,8 +86,8 @@ export class AI implements AIService {
         results: [],
       },
     };
-    this.traces.push(trace);
-    return trace;
+    this.traceSteps.push(step);
+    return step;
   }
 
   async generate(
@@ -104,7 +104,7 @@ export class AI implements AIService {
       return res;
     };
 
-    const trace = this.newTrace(prompt);
+    const trace = this.newTraceStep(prompt);
 
     const res = this.rt
       ? await this.rt<Promise<GenerateTextResponse>>(fn)
@@ -136,18 +136,18 @@ export class AI implements AIService {
       return res;
     };
 
-    const trace = this.getTrace() as AIGenerateTextTrace;
-    if (trace) {
-      trace.request.embedModelInfo = this.ai.getEmbedModelInfo();
+    const step = this.getTraceStep() as AIGenerateTextTraceStep;
+    if (step) {
+      step.request.embedModelInfo = this.ai.getEmbedModelInfo();
     }
 
     const res = this.rt
       ? await this.rt<Promise<EmbedResponse>>(async () => fn())
       : await fn();
 
-    if (trace && trace.response) {
-      trace.response.embedModelResponseTime = embedModelResponseTime;
-      trace.response.embedModelUsage = res.modelUsage;
+    if (step) {
+      step.response.embedModelResponseTime = embedModelResponseTime;
+      step.response.embedModelUsage = res.modelUsage;
     }
 
     return res;

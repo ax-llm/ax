@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 
 import {
-  AIGenerateTextTrace,
+  AIGenerateTextTraceStep,
   FunctionExec,
   GenerateTextModelConfig,
   GenerateTextResponse,
@@ -58,12 +58,7 @@ export class ConsoleLogger {
       this.print(`Function ${i + 1}`, func.name, 1);
       this.print('Arguments', JSON.stringify(func.args), 1);
       this.print('Result', func.result, 1);
-      this.print('Result Value', JSON.stringify(func.resultValue), 1);
-      this.print('Reasoning', func.reasoning?.join(', '), 1);
-      if (func.parsingError) {
-        this.print('Parsing Error', func.parsingError.error, 1);
-        this.print('Data', func.parsingError.data, 1);
-      }
+      // this.print('Reasoning', func.reasoning?.join(', '), 1);
     });
   }
 
@@ -81,7 +76,7 @@ export class ConsoleLogger {
     this.print('Embed Model Usage', JSON.stringify(resp.embedModelUsage), 1);
   }
 
-  public log(trace: Readonly<AIGenerateTextTrace>): void {
+  public log(trace: Readonly<AIGenerateTextTraceStep>): void {
     console.log(
       chalk.bold.cyan(`\n🔎 Trace ${this.traceIndex + 1}\n` + '_'.repeat(50))
     );
@@ -104,8 +99,8 @@ export class ConsoleLogger {
       );
       this.printFunctionExec(trace.response.functions);
       if (trace.response.parsingError) {
-        this.print('Parsing Error', trace.response.parsingError.error, 1);
-        this.print('Data', trace.response.parsingError.data, 1);
+        this.print('Parsing Error', trace.response.parsingError.message, 1);
+        this.print('Data', trace.response.parsingError.value, 1);
       }
       if (trace.response.apiError) {
         console.log(chalk.red(`\n❌ API Error:`));

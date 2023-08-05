@@ -1,24 +1,22 @@
-import { JSONSchemaType } from 'ajv';
-
 import {
   finalResultFunc,
+  FunctionProcessor,
   functionsToJSON,
-  parseFunction,
-  processFunction,
 } from './functions.js';
 import { Memory } from './memory.js';
+import { parseResult } from './result.js';
 import {
-  AIGenerateTextTrace,
+  AIGenerateTextTraceStep,
   AIMemory,
   AIService,
   AITextResponse,
-  FunctionExec,
+  APIError,
   GenerateTextExtraOptions,
   GenerateTextResponse,
+  ParsingError,
   PromptConfig,
   PromptFunction,
 } from './types.js';
-import { stringToObject } from './util.js';
 import { AI, RateLimiterFunction } from './wrap.js';
 
 export type Options = {
@@ -46,10 +44,10 @@ export class AIPrompt<T> {
     this.functions = this.conf.functions ?? [];
     this.debug = conf.debug || false;
 
-    if (this.functions.length > 0 && this.conf.responseConfig?.schema) {
+    if (this.functions.length > 0 && this.conf.response?.schema) {
       this.functions = [
         ...this.functions,
-        finalResultFunc(this.conf.responseConfig?.schema),
+        finalResultFunc(this.conf.response?.schema),
       ];
     }
   }
@@ -74,7 +72,7 @@ export class AIPrompt<T> {
     ai: AIService,
     query: string,
     { sessionId, memory, rateLimiter }: Options = {}
-  ): Promise<AITextResponse<T>> {
+  ): Promise<AITextResponse<string | Map<string, string[]> | T>> {
     const wai = new AI(ai, this.conf.log, rateLimiter);
     const [, value] = await this._generate(
       wai,
@@ -82,7 +80,7 @@ export class AIPrompt<T> {
       query,
       sessionId
     );
-    const traces = wai.getTraces();
+    const traces = wai.getTraceSteps();
 
     return {
       sessionId,
@@ -97,17 +95,22 @@ export class AIPrompt<T> {
     mem: AIMemory,
     query: string,
     sessionId?: string
-  ): Promise<[GenerateTextResponse, T]> {
+  ): Promise<[GenerateTextResponse, string | Map<string, string[]> | T]> {
     try {
-      return await this._generateHandler(ai, mem, query, sessionId);
+      return await this.generateHandler(ai, mem, query, sessionId);
     } catch (e: unknown) {
-      const trace = ai.getTrace() as AIGenerateTextTrace;
-      const err = e as Error;
+      const step = ai.getTraceStep() as AIGenerateTextTraceStep;
+      const err = e as APIError | ParsingError | Error;
 
-      if (trace && trace.response) {
-        trace.finalError = err.message;
+      if (step && step.response) {
+        if ((err as APIError).request) {
+          step.response.apiError = err as APIError;
+        }
+        if ((err as ParsingError).value) {
+          step.response.parsingError = err as ParsingError;
+        }
       }
-      throw new Error(err.message);
+      throw err as Error;
     } finally {
       if (this.debug) {
         ai.consoleLogTrace();
@@ -116,16 +119,16 @@ export class AIPrompt<T> {
     }
   }
 
-  private async _generateHandler(
+  private async generateHandler(
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
     sessionId?: string
-  ): Promise<[GenerateTextResponse, T]> {
-    const { responseConfig } = this.conf;
-    const { keyValue, schema } = responseConfig || {};
+  ): Promise<[GenerateTextResponse, string | Map<string, string[]> | T]> {
+    const { stopSequences } = this.conf;
+    const { keyValue = false, schema } = this.conf.response || {};
 
-    const extraOptions = {
+    const options = {
       sessionId,
     };
 
@@ -133,72 +136,42 @@ export class AIPrompt<T> {
     let value: string;
 
     if (this.functions && this.functions?.length > 0) {
-      [res, value] = await this._generateWithFunctions(
-        ai,
-        mem,
-        query,
-        extraOptions
-      );
+      [res, value] = await this.generateWithFunctions(ai, mem, query, options);
     } else {
-      [res, value] = await this._generateDefault(ai, mem, query, extraOptions);
+      [res, value] = await this.generateDefault(ai, mem, query, options);
     }
 
-    const retryCount = 5;
-
-    for (let i = 0; i < retryCount; i++) {
-      let fvalue: string | Map<string, string[]> | T;
-
-      try {
-        if (keyValue) {
-          fvalue = stringToMap(value);
-        } else if (schema) {
-          fvalue = stringToObject<T>(value, schema);
-        } else {
-          fvalue = value;
-        }
-        return [res, fvalue] as [GenerateTextResponse, T];
-      } catch (e: unknown) {
-        const error = e as Error;
-        const trace = ai.getTrace() as AIGenerateTextTrace;
-        if (trace && trace.response) {
-          trace.response.parsingError = {
-            error: error.message,
-            data: value,
-          };
-        }
-
-        if (i === retryCount - 1) {
-          break;
-        }
-
-        const { fixedValue } = await this.fixResultSyntax<T>(
-          ai,
-          mem,
-          error,
-          value,
-          extraOptions,
-          this.conf.responseConfig?.schema
-        );
-        value = fixedValue;
-      }
-    }
-
-    throw { message: `Unable to fix result syntax` };
+    const finalValue = await parseResult<T>(
+      ai,
+      { stopSequences },
+      options,
+      value,
+      keyValue,
+      schema
+    );
+    return [res, finalValue];
   }
 
-  private async _generateWithFunctions(
+  private async generateWithFunctions(
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
     { sessionId }: Readonly<GenerateTextExtraOptions>
   ): Promise<[GenerateTextResponse, string]> {
+    const { stopSequences } = this.conf;
     const h = () => mem.history(sessionId);
+
+    const funcProcessor = new FunctionProcessor(
+      ai,
+      { stopSequences },
+      { sessionId }
+    );
 
     let previousValue;
 
     for (let i = 0; i < this.maxSteps; i++) {
       const p = this.prompt(query, h);
-      const res = await ai.generate(p, this.conf, sessionId);
+      const res = await ai.generate(p, { stopSequences }, sessionId);
       const value = res.results.at(0)?.text?.trim() ?? '';
 
       // check for duplicate responses
@@ -211,24 +184,27 @@ export class AIPrompt<T> {
 
       // check for empty responses
       if (value.length === 0) {
-        throw { message: `Empty response received` };
+        throw { message: `Empty response received`, value };
       }
 
       // check for functions
-      const foundFunc = parseFunction(value);
+      const foundFunc = funcProcessor.parseFunction(value);
 
       // loop back if no function found
       if (!foundFunc) {
         continue;
       }
 
-      const funcExec = await processFunction(
-        foundFunc.funcName,
-        foundFunc.funcArgs,
-        this.functions,
-        ai,
-        sessionId
+      const funcExec = await funcProcessor.processFunction(
+        foundFunc.name,
+        foundFunc.args,
+        this.functions
       );
+
+      const step = ai.getTraceStep() as AIGenerateTextTraceStep;
+      if (step) {
+        step.response.embedModelUsage = res.embedModelUsage;
+      }
 
       const mval = [
         value,
@@ -237,33 +213,28 @@ export class AIPrompt<T> {
       ];
       mem.add(`\n${mval.join('\n')}`, sessionId);
 
-      const trace = ai.getTrace() as AIGenerateTextTrace;
-      if (trace && trace.response) {
-        addFuncToTrace(trace, funcExec);
-        trace.response.embedModelUsage = res.embedModelUsage;
-      }
-
-      if (funcExec.name.localeCompare('finalResult') === 0) {
+      if (foundFunc.name.localeCompare('finalResult') === 0) {
         return [res, funcExec.result ?? ''];
       }
     }
 
-    throw { message: `max ${this.maxSteps} steps allowed` };
+    throw new Error(`max ${this.maxSteps} steps allowed`);
   }
 
-  private async _generateDefault(
+  private async generateDefault(
     ai: Readonly<AI>,
     mem: AIMemory,
     query: string,
     { sessionId }: Readonly<GenerateTextExtraOptions>
   ): Promise<[GenerateTextResponse, string]> {
+    const { stopSequences } = this.conf;
     const h = () => mem.history(sessionId);
     const p = this.prompt(query, h);
-    const res = await ai.generate(p, this.conf, sessionId);
+    const res = await ai.generate(p, { stopSequences }, sessionId);
     const value = res.results.at(0)?.text?.trim() ?? '';
 
     if (value.length === 0) {
-      throw { message: 'Empty response received' };
+      throw { message: 'Empty response received', value };
     }
 
     const mval = [
@@ -275,70 +246,12 @@ export class AIPrompt<T> {
     mem.add(mval.join(''), sessionId);
     return [res, value];
   }
-
-  private async fixResultSyntax<T>(
-    ai: Readonly<AI>,
-    _mem: AIMemory,
-    error: Readonly<Error>,
-    value: string,
-    { sessionId }: Readonly<GenerateTextExtraOptions>,
-    expectedSchema?: Readonly<JSONSchemaType<T>>
-  ): Promise<{ fixedValue: string }> {
-    let prompt = [
-      `Result JSON:\n"""${value}"""`,
-      `Syntax error in result JSON:\n${error.message}`,
-    ];
-
-    const jschema = JSON.stringify(expectedSchema, null, 2);
-
-    if (expectedSchema) {
-      prompt = [
-        ...prompt,
-        `Expected result must follow below JSON-Schema:\n${jschema}`,
-        `Result JSON:`,
-      ];
-    }
-
-    const res = await ai.generate(prompt.join('\n\n'), this.conf, sessionId);
-    const fixedValue = res.results.at(0)?.text?.trim() ?? '';
-
-    if (fixedValue.length === 0) {
-      throw { message: 'Empty response received' };
-    }
-
-    return { fixedValue };
-  }
 }
 
-const stringToMap = (text: string): Map<string, string[]> => {
-  const vm = new Map<string, string[]>();
-  const re = /([a-zA-Z ]+):\s{0,}\n?(((?!N\/A).)+)$/gm;
-
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    // This is necessary to avoid infinite loops with zero-width matches
-    if (m.index === re.lastIndex) {
-      re.lastIndex++;
-    }
-    vm.set(m[1], m[2].split(','));
-  }
-  if (vm.size === 0) {
-    throw { message: 'Expected format is a list of key: value' };
-  }
-  return vm;
-};
-
-function jaccardSimilarity(sentence1: string, sentence2: string) {
+const jaccardSimilarity = (sentence1: string, sentence2: string) => {
   const set1 = new Set(sentence1.split(' '));
   const set2 = new Set(sentence2.split(' '));
   const intersection = new Set([...set1].filter((word) => set2.has(word)));
   const union = new Set([...set1, ...set2]);
   return intersection.size / union.size;
-}
-
-function addFuncToTrace(
-  trace: Readonly<AIGenerateTextTrace>,
-  funcExec: Readonly<FunctionExec>
-) {
-  trace.response.functions = [...(trace.response.functions ?? []), funcExec];
-}
+};

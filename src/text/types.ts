@@ -42,10 +42,7 @@ export type FunctionExec = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args?: any;
   result?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  resultValue?: any;
-  reasoning?: string[];
-  parsingError?: { error: string; data: string };
+  // reasoning?: string[];
 };
 
 export type GenerateTextResponse = {
@@ -62,15 +59,19 @@ export type GenerateTextResponse = {
 
 export type APIError = {
   message: string;
-  status?: number;
+  status: number;
   header?: Record<string, string>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  body?: any;
+  request: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  request?: any;
+  body?: any;
 };
 
-export type AIGenerateTextTrace = {
+export type ParsingError = { message: string; value: string };
+
+export type FuncTrace = { name: string; args: string; result?: string };
+
+export type AIGenerateTextTraceStep = {
   traceId: string;
   sessionId?: string;
   request: {
@@ -82,18 +83,17 @@ export type AIGenerateTextTrace = {
   response: Omit<GenerateTextResponse, 'sessionId'> & {
     modelResponseTime?: number;
     embedModelResponseTime?: number;
-    functions?: FunctionExec[];
-    parsingError?: { error: string; data: string };
+    functions?: FuncTrace[];
+    parsingError?: ParsingError;
     apiError?: APIError;
   };
-  finalError?: string;
 };
 
 // eslint-disable-next-line functional/no-mixed-types
 export type AITextResponse<T> = {
   prompt: string;
   sessionId?: string;
-  traces: AIGenerateTextTrace[];
+  traces: AIGenerateTextTraceStep[];
   value(): T;
 };
 
@@ -157,9 +157,9 @@ export type PromptConfig<T> = AIPromptConfig & {
   queryPrefix?: string;
   responsePrefix?: string;
   functions?: PromptFunction[];
-  responseConfig?: PromptResponseConfig<T>;
+  response?: PromptResponseConfig<T>;
   debug?: boolean;
-  log?: (traces: Readonly<AIGenerateTextTrace>) => void;
+  log?: (traces: Readonly<AIGenerateTextTraceStep>) => void;
 };
 
 export type AIPromptConfig = {

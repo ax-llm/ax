@@ -1,9 +1,14 @@
 import superagent from 'superagent';
 
-import { AIGenerateTextTrace } from '../text/types';
+import { AIGenerateTextTraceStep } from '../text/types';
 
-const postTrace = async (trace: Readonly<AIGenerateTextTrace>) => {
-  const res = await superagent
+const postTrace = async ({
+  traceId,
+  sessionId,
+  ...step
+}: Readonly<AIGenerateTextTraceStep>) => {
+  const trace = { traceId, sessionId, step };
+  await superagent
     .post(`http://localhost:3000/api/a/traces`)
     .set(
       'Cookie',
@@ -13,14 +18,12 @@ const postTrace = async (trace: Readonly<AIGenerateTextTrace>) => {
     .type('json')
     .accept('json')
     .retry(0);
-
-  console.log(res);
 };
 
 export class RemoteLogger {
   //   private traceIndex = 0;
 
-  public log(trace: Readonly<AIGenerateTextTrace>): void {
+  public log(trace: Readonly<AIGenerateTextTraceStep>): void {
     postTrace(trace);
     // this.traceIndex++;
   }
