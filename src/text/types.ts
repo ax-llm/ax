@@ -87,6 +87,7 @@ export type AIGenerateTextTraceStep = {
     parsingError?: ParsingError;
     apiError?: APIError;
   };
+  createdAt: string;
 };
 
 // eslint-disable-next-line functional/no-mixed-types

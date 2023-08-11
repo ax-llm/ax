@@ -6,6 +6,8 @@ import {
   Together,
 } from '@dosco/llm-client';
 
+import 'dotenv/config';
+
 const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
     return new Cohere(process.env.COHERE_APIKEY);
@@ -172,10 +174,12 @@ const restaurant = {
 };
 
 const prompt = new SPrompt(restaurant, funcs);
-prompt.setDebug(true);
+// prompt.setDebug(true);
 
 const customerQuery =
   "I'm looking for ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
 
-const res = await prompt.generate(ai, customerQuery);
+const res = await prompt.generate(ai, customerQuery, {
+  apiKey: process.env.LLM_CLIENT_APIKEY,
+});
 console.log('>', res.value());

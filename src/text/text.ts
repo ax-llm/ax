@@ -23,6 +23,7 @@ export type Options = {
   sessionId?: string;
   memory?: AIMemory;
   rateLimiter?: RateLimiterFunction;
+  apiKey?: string;
 };
 
 /**
@@ -71,9 +72,9 @@ export class AIPrompt<T> {
   async generate(
     ai: AIService,
     query: string,
-    { sessionId, memory, rateLimiter }: Options = {}
+    { sessionId, memory, rateLimiter, apiKey }: Options = {}
   ): Promise<AITextResponse<string | Map<string, string[]> | T>> {
-    const wai = new AI(ai, this.conf.log, rateLimiter);
+    const wai = new AI(ai, this.conf.log, rateLimiter, apiKey);
     const [, value] = await this._generate(
       wai,
       memory || new Memory(),

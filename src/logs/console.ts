@@ -16,7 +16,7 @@ export class ConsoleLogger {
     const prefix = ' '.repeat(indent * 2);
     console.log(
       `${prefix}${chalk.underline(message)}: ${
-        value !== undefined ? chalk.bold(value) : chalk.gray('<not-set>')
+        value ? chalk.bold(value) : chalk.gray('<not-set>')
       }`
     );
   }

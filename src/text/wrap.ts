@@ -1,5 +1,5 @@
 import { ConsoleLogger } from '../logs/console.js';
-// import { RemoteLogger } from '../logs/remote.js';
+import { RemoteLogger } from '../logs/remote.js';
 import {
   AIGenerateTextTraceStep,
   AIPromptConfig,
@@ -21,7 +21,7 @@ export type RateLimiterFunction = <T>(func: unknown) => T;
 
 export class AI implements AIService {
   private consoleLog = new ConsoleLogger();
-  // private consoleLog = new RemoteLogger();
+  private remoteLog;
 
   private log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void;
   private traceSteps: AIGenerateTextTraceStep[] = [];
@@ -32,12 +32,18 @@ export class AI implements AIService {
   constructor(
     ai: AIService,
     log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void,
-    rateLimiter?: RateLimiterFunction
+    rateLimiter?: RateLimiterFunction,
+    apiKey?: string
   ) {
     this.ai = ai;
     this.rt = rateLimiter;
     this.traceId = uuid();
     this.log = log;
+
+    if (apiKey) {
+      const devMode = process.env.DEV_MODE === 'true';
+      this.remoteLog = new RemoteLogger(apiKey, devMode);
+    }
   }
 
   getTraceSteps(): AIGenerateTextTraceStep[] {
@@ -59,15 +65,21 @@ export class AI implements AIService {
   }
 
   logTrace(): void {
+    if (this.traceSteps.length === 0) {
+      return;
+    }
+
+    if (this.remoteLog) {
+      this.traceSteps.forEach((step) => this.remoteLog?.log?.(step));
+    }
+
     if (this.log) {
       this.traceSteps.forEach((step) => this.log?.(step));
     }
   }
 
   consoleLogTrace(): void {
-    if (this.traceSteps.length > 0) {
-      this.traceSteps.forEach((step) => this.consoleLog.log(step));
-    }
+    this.traceSteps.forEach((step) => this.consoleLog.log(step));
   }
 
   getTraceStep(): AIGenerateTextTraceStep | undefined {
@@ -85,6 +97,7 @@ export class AI implements AIService {
       response: {
         results: [],
       },
+      createdAt: new Date().toISOString(),
     };
     this.traceSteps.push(step);
     return step;

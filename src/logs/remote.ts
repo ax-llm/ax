@@ -2,29 +2,32 @@ import superagent from 'superagent';
 
 import { AIGenerateTextTraceStep } from '../text/types';
 
-const postTrace = async ({
-  traceId,
-  sessionId,
-  ...step
-}: Readonly<AIGenerateTextTraceStep>) => {
+const postTrace = async (
+  apiKey: string,
+  devMode: boolean,
+  { traceId, sessionId, ...step }: Readonly<AIGenerateTextTraceStep>
+) => {
+  const host = devMode ? 'http://localhost:3000' : 'https://api.llmclient.com';
   const trace = { traceId, sessionId, step };
   await superagent
-    .post(`http://localhost:3000/api/a/traces`)
-    .set(
-      'Cookie',
-      '__session=s%3APyzR1ScUb8YnwJ7t7LYpSealN-69v9JR.ZfqRqKTOPJeLQSEUipvIJsCeIbp5P36MiSY%2FXIfvmsM'
-    )
+    .post(new URL(`/api/t/traces`, host).href)
+    .set('x-api-key', apiKey)
     .send(trace)
     .type('json')
     .accept('json')
-    .retry(0);
+    .retry(1);
 };
 
 export class RemoteLogger {
-  //   private traceIndex = 0;
+  private apiKey: string;
+  private devMode = false;
+
+  constructor(apiKey: string, devMode = false) {
+    this.apiKey = apiKey;
+    this.devMode = devMode;
+  }
 
   public log(trace: Readonly<AIGenerateTextTraceStep>): void {
-    postTrace(trace);
-    // this.traceIndex++;
+    postTrace(this.apiKey, this.devMode, trace);
   }
 }
