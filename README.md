@@ -409,6 +409,27 @@ ____________________________________________
   Reasoning: <not-set>
 ```
 
+## Web UI for Tracing and Metrics
+A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
+
+To enable sign-up at https://llmclient.com and get your API Key. Then set the `apiKey` config param on the prompt.
+
+```
+const prompt = new SPrompt(restaurant, funcs);
+// prompt.setDebug(true);
+
+const customerQuery =
+  "I'm looking for ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
+
+const res = await prompt.generate(ai, customerQuery, {
+  apiKey: process.env.LLM_CLIENT_APIKEY,
+});
+```
+
+![frame_chrome_mac_dark (2)](https://github.com/dosco/llm-client/assets/832235/b6c1b58b-6969-498f-b266-d4d205911ba9)
+
+
+
 ## Troubleshooting
 
 1. **The LLM can't find the right function to use from the ones I've provided**
