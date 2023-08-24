@@ -3,6 +3,8 @@ import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
 import { createInterface } from 'readline';
 import Bottleneck from 'bottleneck';
 
+import 'dotenv/config';
+
 const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
     return new Cohere(process.env.COHERE_APIKEY);

@@ -1,5 +1,7 @@
 import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
 
+import 'dotenv/config';
+
 import chalk from 'chalk';
 import { createInterface } from 'readline';
 

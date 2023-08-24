@@ -94,7 +94,7 @@ There are even some useful built-in functions like a `Code Interpreter` that the
 
 Build a meeting notes app backed by a task management tool that figures out the decided tasks and creates and assigns the tasks correctly as cards in Trello, Asana or Jira. Or a food finding app that uses the weather and google places api to find a place to eat at.
 
-You can truely build your entire backend with LLMs using this capability. To me this feels like magic.
+You can truly build your entire backend with LLMs using this capability. To me this feels like magic.
 
 ## Built-in Functions
 
@@ -208,7 +208,7 @@ The usage stats are useful to be able to compute costs and usage information.
 
 ## Extract Details From Messages
 
-Extracting information from text is one of the most useful thing LLMs can do. You can either use the more specialized `ExtractInfoPrompt` which should work even with simplier LLMs or use the `SPrompt` with or without functions and the `resultSchema` to do the same.
+Extracting information from text is one of the most useful thing LLMs can do. You can either use the more specialized `ExtractInfoPrompt` which should work even with simpler LLMs or use the `SPrompt` with or without functions and the `resultSchema` to do the same.
 
 ```js
 const entities = [

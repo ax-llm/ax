@@ -1,5 +1,7 @@
-import { MessageType } from '@dosco/llm-client';
+import { MessagePrompt, MessageType } from '@dosco/llm-client';
 import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
+
+import 'dotenv/config';
 
 const InitAI = () => {
   if (process.env.COHERE_APIKEY) {

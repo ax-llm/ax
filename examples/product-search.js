@@ -1,5 +1,7 @@
 import { SPrompt, Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
 
+import 'dotenv/config';
+
 import chalk from 'chalk';
 
 const InitAI = () => {

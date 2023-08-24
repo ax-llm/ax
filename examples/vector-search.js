@@ -1,6 +1,8 @@
 import { Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
 import { LocalIndex } from 'vectra';
 
+import 'dotenv/config';
+
 const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
     return new Cohere(process.env.COHERE_APIKEY);

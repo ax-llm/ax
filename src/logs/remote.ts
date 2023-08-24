@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import superagent from 'superagent';
 
 import { AIGenerateTextTraceStep } from '../text/types';
@@ -25,6 +26,10 @@ export class RemoteLogger {
   constructor(apiKey: string, devMode = false) {
     this.apiKey = apiKey;
     this.devMode = devMode;
+
+    console.log(
+      chalk.magentaBright(`🦙 Remote logging traces to llmclient.com`)
+    );
   }
 
   public log(trace: Readonly<AIGenerateTextTraceStep>): void {

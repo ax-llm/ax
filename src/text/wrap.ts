@@ -40,6 +40,10 @@ export class AI implements AIService {
     this.traceId = uuid();
     this.log = log;
 
+    if (!apiKey) {
+      apiKey = process.env.LLMCLIENT_APIKEY ?? process.env.LLMC_APIKEY;
+    }
+
     if (apiKey) {
       const devMode = process.env.DEV_MODE === 'true';
       this.remoteLog = new RemoteLogger(apiKey, devMode);

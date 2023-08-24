@@ -8,6 +8,8 @@ import {
   JSInterpreterFunction,
 } from '@dosco/llm-client';
 
+import 'dotenv/config';
+
 export const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
     return new Cohere(process.env.COHERE_APIKEY);
