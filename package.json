@@ -1,6 +1,6 @@
 {
   "name": "@dosco/llm-client",
-  "version": "4.0.17",
+  "version": "4.0.18",
   "type": "module",
   "description": "The best library to work with LLMs",
   "main": "build/main/index.js",

@@ -30,6 +30,7 @@ const to = {
 };
 
 const prompt = new MessagePrompt({ type: MessageType.Text }, product, to);
+// prompt.setDebug(true);
 
 const context = `
 1. Under 160 characters

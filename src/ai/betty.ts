@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
@@ -34,11 +35,19 @@ export class Betty extends BaseAI {
   private sdata: Map<string, string[]> = new Map();
   private index = 0;
 
-  constructor(answers: readonly string[]) {
-    super('Betty', modelInfo, {
-      model: 'betty-fake-completion-model',
-      embedModel: 'betty-fake-embed-model',
-    });
+  constructor(
+    answers: readonly string[],
+    otherOptions?: Readonly<AIServiceOptions>
+  ) {
+    super(
+      'Betty',
+      modelInfo,
+      {
+        model: 'betty-fake-completion-model',
+        embedModel: 'betty-fake-embed-model',
+      },
+      otherOptions
+    );
     this.answers = [...answers];
     this.data = [...answers];
   }

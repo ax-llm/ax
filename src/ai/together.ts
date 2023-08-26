@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
@@ -230,11 +231,17 @@ export class Together extends BaseAI {
 
   constructor(
     apiKey: string,
-    options: Readonly<TogetherOptions> = TogetherDefaultOptions()
+    options: Readonly<TogetherOptions> = TogetherDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('Together', modelInfo, {
-      model: options.model as string,
-    });
+    super(
+      'Together',
+      modelInfo,
+      {
+        model: options.model as string,
+      },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('Together API key not set');

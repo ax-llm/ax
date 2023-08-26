@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
@@ -235,12 +236,18 @@ export class AzureOpenAI extends BaseAI {
     apiKey: string,
     host: string,
     deploymentName: string,
-    options: Readonly<AzureOpenAIOptions> = AzureOpenAIDefaultOptions()
+    options: Readonly<AzureOpenAIOptions> = AzureOpenAIDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('Azure OpenAI', openAIModelInfo, {
-      model: options.model,
-      embedModel: options.embedModel,
-    });
+    super(
+      'Azure OpenAI',
+      openAIModelInfo,
+      {
+        model: options.model,
+        embedModel: options.embedModel,
+      },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');

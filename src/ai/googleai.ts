@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
@@ -233,12 +234,18 @@ export class GoogleAI extends BaseAI {
   constructor(
     apiKey: string,
     projectId: string,
-    options: Readonly<GoogleAIOptions> = GoogleAIDefaultOptions()
+    options: Readonly<GoogleAIOptions> = GoogleAIDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('GoogleAI', modelInfo, {
-      model: options.model,
-      embedModel: options.embedModel,
-    });
+    super(
+      'GoogleAI',
+      modelInfo,
+      {
+        model: options.model,
+        embedModel: options.embedModel,
+      },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('GoogleAI API key not set');

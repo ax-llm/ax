@@ -10,6 +10,7 @@ const postTrace = async (
 ) => {
   const host = devMode ? 'http://localhost:3000' : 'https://api.llmclient.com';
   const trace = { traceId, sessionId, step };
+
   await superagent
     .post(new URL(`/api/t/traces`, host).href)
     .set('x-api-key', apiKey)
@@ -20,19 +21,34 @@ const postTrace = async (
 };
 
 export class RemoteLogger {
-  private apiKey: string;
+  private apiKey?: string;
   private devMode = false;
 
-  constructor(apiKey: string, devMode = false) {
-    this.apiKey = apiKey;
-    this.devMode = devMode;
-
-    console.log(
-      chalk.magentaBright(`🦙 Remote logging traces to llmclient.com`)
-    );
+  constructor() {
+    this.apiKey = process.env.LLMCLIENT_APIKEY ?? process.env.LLMC_APIKEY;
+    this.devMode = process.env.DEV_MODE === 'true';
   }
 
-  public log(trace: Readonly<AIGenerateTextTraceStep>): void {
+  setAPIKey(apiKey: string): void {
+    if (apiKey.length === 0) {
+      throw new Error('Invalid LLM Client API key');
+    }
+    this.apiKey = apiKey;
+  }
+
+  printDebugInfo() {
+    if (!this.apiKey || this.apiKey.length === 0) {
+      return;
+    }
+    const logTo = this.devMode ? 'localhost:3000 (dev mode)' : 'llmclient.com';
+    const msg = `🦙 Remote logging traces to ${logTo}`;
+    console.log(chalk.yellowBright(msg));
+  }
+
+  log(trace: Readonly<AIGenerateTextTraceStep>): void {
+    if (!this.apiKey || this.apiKey.length === 0) {
+      return;
+    }
     postTrace(this.apiKey, this.devMode, trace);
   }
 }

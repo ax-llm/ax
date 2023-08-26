@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
@@ -110,11 +111,17 @@ export class Anthropic extends BaseAI {
 
   constructor(
     apiKey: string,
-    options: Readonly<AnthropicOptions> = AnthropicDefaultOptions()
+    options: Readonly<AnthropicOptions> = AnthropicDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('Anthropic', modelInfo, {
-      model: options.model,
-    });
+    super(
+      'Anthropic',
+      modelInfo,
+      {
+        model: options.model,
+      },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('Anthropic API key not set');

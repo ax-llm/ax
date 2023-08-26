@@ -2,23 +2,23 @@ import { parseResult } from './result.js';
 import {
   AIGenerateTextTraceStep,
   AIPromptConfig,
+  AIService,
   FunctionExec,
   FuncTrace,
   GenerateTextExtraOptions,
   PromptFunction,
 } from './types.js';
-import { AI } from './wrap.js';
 
 const functionCallRe = /(\w+)\((.*)\)/s;
 // const thoughtRe = /Thought:(.*)$/gm;
 
 export class FunctionProcessor {
-  private ai: Readonly<AI>;
+  private ai: AIService;
   private conf: Readonly<AIPromptConfig>;
   private options: Readonly<GenerateTextExtraOptions>;
 
   constructor(
-    ai: Readonly<AI>,
+    ai: AIService,
     conf: Readonly<AIPromptConfig>,
     options: Readonly<GenerateTextExtraOptions>
   ) {

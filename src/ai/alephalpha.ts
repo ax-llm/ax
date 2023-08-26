@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   EmbedResponse,
   GenerateTextResponse,
   TextModelInfo,
@@ -288,12 +289,18 @@ export class AlephAlpha extends BaseAI {
 
   constructor(
     apiKey: string,
-    options: Readonly<AlephAlphaOptions> = AlephAlphaDefaultOptions()
+    options: Readonly<AlephAlphaOptions> = AlephAlphaDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('AlephAlpha', modelInfo, {
-      model: options.model,
-      embedModel: options.embedModel,
-    });
+    super(
+      'AlephAlpha',
+      modelInfo,
+      {
+        model: options.model,
+        embedModel: options.embedModel,
+      },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('AlephAlpha API key not set');

@@ -361,26 +361,19 @@ const resultSchema = {
 const prompt = new SPrompt(resultSchema, functions);
 ```
 
-
 ## Web UI for Debugging, Tracing and Metrics
+
 A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
 
-To enable sign-up at https://llmclient.com and get your API Key. Then set the `apiKey` config param on the prompt.
+To enable sign-up at https://llmclient.com and get your API Key. Then set any one of these two enviroment variables `LLMC_APIKEY` or `LLMCLIENT_APIKEY`
 
 ```
-const prompt = new SPrompt(restaurant, funcs);
-// prompt.setDebug(true);
+# This is a fake key for example purposes
+LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32"
 
-const customerQuery =
-  "I'm looking for ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
-
-const res = await prompt.generate(ai, customerQuery, {
-  apiKey: process.env.LLM_CLIENT_APIKEY,
-});
 ```
 
 ![frame_chrome_mac_dark (3)](https://github.com/dosco/llm-client/assets/832235/cceb6e1f-687a-437a-b733-e9a5f1866aa9)
-
 
 ## Detailed Debug Logs
 
@@ -429,7 +422,6 @@ ____________________________________________
   Reasoning: I have found some restaurants in San Francisco that have outdoor seating and serve sushi., I need to choose a restaurant based on my preferences.
   Reasoning: <not-set>
 ```
-
 
 ## Troubleshooting
 

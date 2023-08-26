@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
@@ -202,12 +203,18 @@ export class Cohere extends BaseAI {
 
   constructor(
     apiKey: string,
-    options: Readonly<CohereOptions> = CohereDefaultOptions()
+    options: Readonly<CohereOptions> = CohereDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('Cohere', modelInfo, {
-      model: options.model,
-      embedModel: options.embedModel,
-    });
+    super(
+      'Cohere',
+      modelInfo,
+      {
+        model: options.model,
+        embedModel: options.embedModel,
+      },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('Cohere API key not set');

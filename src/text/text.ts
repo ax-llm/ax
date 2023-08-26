@@ -17,13 +17,10 @@ import {
   PromptConfig,
   PromptFunction,
 } from './types.js';
-import { AI, RateLimiterFunction } from './wrap.js';
 
 export type Options = {
   sessionId?: string;
   memory?: AIMemory;
-  rateLimiter?: RateLimiterFunction;
-  apiKey?: string;
 };
 
 /**
@@ -72,16 +69,17 @@ export class AIPrompt<T> {
   async generate(
     ai: AIService,
     query: string,
-    { sessionId, memory, rateLimiter, apiKey }: Options = {}
+    { sessionId, memory }: Options = {}
   ): Promise<AITextResponse<string | Map<string, string[]> | T>> {
-    const wai = new AI(ai, this.conf.log, rateLimiter, apiKey);
+    ai.setOptions({ debug: this.debug, disableLog: true });
+
     const [, value] = await this._generate(
-      wai,
+      ai,
       memory || new Memory(),
       query,
       sessionId
     );
-    const traces = wai.getTraceSteps();
+    const traces = ai.getTraceSteps();
 
     return {
       sessionId,
@@ -92,7 +90,7 @@ export class AIPrompt<T> {
   }
 
   private async _generate(
-    ai: Readonly<AI>,
+    ai: AIService,
     mem: AIMemory,
     query: string,
     sessionId?: string
@@ -113,15 +111,12 @@ export class AIPrompt<T> {
       }
       throw err as Error;
     } finally {
-      if (this.debug) {
-        ai.consoleLogTrace();
-      }
       ai.logTrace();
     }
   }
 
   private async generateHandler(
-    ai: Readonly<AI>,
+    ai: AIService,
     mem: AIMemory,
     query: string,
     sessionId?: string
@@ -154,7 +149,7 @@ export class AIPrompt<T> {
   }
 
   private async generateWithFunctions(
-    ai: Readonly<AI>,
+    ai: AIService,
     mem: AIMemory,
     query: string,
     { sessionId }: Readonly<GenerateTextExtraOptions>
@@ -223,7 +218,7 @@ export class AIPrompt<T> {
   }
 
   private async generateDefault(
-    ai: Readonly<AI>,
+    ai: AIService,
     mem: AIMemory,
     query: string,
     { sessionId }: Readonly<GenerateTextExtraOptions>

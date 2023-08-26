@@ -1,13 +1,12 @@
 import Ajv, { JSONSchemaType } from 'ajv';
 import JSON5 from 'json5';
 
-import { AIPromptConfig, GenerateTextExtraOptions } from './types';
-import { AI } from './wrap';
+import { AIPromptConfig, AIService, GenerateTextExtraOptions } from './types';
 
 const ajv = new Ajv();
 
 export async function parseResult<T>(
-  ai: Readonly<AI>,
+  ai: AIService,
   conf: Readonly<AIPromptConfig>,
   options: Readonly<GenerateTextExtraOptions>,
   value: string,
@@ -54,7 +53,7 @@ export async function parseResult<T>(
 }
 
 const fixResultSyntax = async <T>(
-  ai: Readonly<AI>,
+  ai: AIService,
   md: Readonly<AIPromptConfig>,
   errorMessage: Readonly<string>,
   value: string,

@@ -1,9 +1,12 @@
 import { PromptFunction } from '../prompts';
-import { PromptFunctionExtraOptions, PromptFunctionFunc } from '../text/types';
-import { AI } from '../text/wrap';
+import {
+  AIService,
+  PromptFunctionExtraOptions,
+  PromptFunctionFunc,
+} from '../text/types';
 
 export const EmbedAdapter = (
-  ai: Readonly<AI>,
+  ai: AIService,
   info: Readonly<{
     name: string;
     description: string;
@@ -40,7 +43,7 @@ export const EmbedAdapter = (
 });
 
 export const embedAdapter = async (
-  ai: Readonly<AI>,
+  ai: AIService,
   text: string,
   func: PromptFunctionFunc,
   extra?: Readonly<PromptFunctionExtraOptions>

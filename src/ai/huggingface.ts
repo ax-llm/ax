@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
@@ -148,11 +149,17 @@ export class HuggingFace extends BaseAI {
 
   constructor(
     apiKey: string,
-    options: Readonly<HuggingFaceOptions> = HuggingFaceDefaultOptions()
+    options: Readonly<HuggingFaceOptions> = HuggingFaceDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('Hugging Face', HuggingFaceModelInfo, {
-      model: options.model,
-    });
+    super(
+      'Hugging Face',
+      HuggingFaceModelInfo,
+      {
+        model: options.model,
+      },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('Hugging Face API key not set');

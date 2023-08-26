@@ -1,5 +1,6 @@
 import {
   AIPromptConfig,
+  AIServiceOptions,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
@@ -363,12 +364,15 @@ export class OpenAI extends BaseAI {
 
   constructor(
     apiKey: string,
-    options: Readonly<OpenAIOptions> = OpenAIDefaultOptions()
+    options: Readonly<OpenAIOptions> = OpenAIDefaultOptions(),
+    otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super('OpenAI', openAIModelInfo, {
-      model: options.model,
-      embedModel: options.embedModel,
-    });
+    super(
+      'OpenAI',
+      openAIModelInfo,
+      { model: options.model, embedModel: options.embedModel },
+      otherOptions
+    );
 
     if (apiKey === '') {
       throw new Error('OpenAPI API key not set');
@@ -377,7 +381,7 @@ export class OpenAI extends BaseAI {
     this.options = options;
   }
 
-  getModelConfig(): GenerateTextModelConfig {
+  override getModelConfig(): GenerateTextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
@@ -394,7 +398,7 @@ export class OpenAI extends BaseAI {
     } as GenerateTextModelConfig;
   }
 
-  async generate(
+  override async _generate(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionId?: string
@@ -404,11 +408,11 @@ export class OpenAI extends BaseAI {
       OpenAIGenerateModel.GPT35Turbo16K,
       OpenAIGenerateModel.GPT4,
     ].includes(this.options.model as OpenAIGenerateModel)
-      ? await this.generateChat(prompt, md, sessionId)
-      : await this.generateDefault(prompt, md, sessionId);
+      ? await this._generateChat(prompt, md, sessionId)
+      : await this._generateDefault(prompt, md, sessionId);
   }
 
-  private async generateDefault(
+  private async _generateDefault(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionId?: string
@@ -439,7 +443,7 @@ export class OpenAI extends BaseAI {
     };
   }
 
-  private async generateChat(
+  private async _generateChat(
     prompt: string,
     md: Readonly<AIPromptConfig>,
     sessionId?: string
@@ -470,7 +474,7 @@ export class OpenAI extends BaseAI {
     };
   }
 
-  async embed(
+  async _embed(
     textToEmbed: readonly string[] | string,
     sessionId?: string
   ): Promise<EmbedResponse> {
@@ -496,7 +500,7 @@ export class OpenAI extends BaseAI {
     };
   }
 
-  async transcribe(
+  async _transcribe(
     file: string,
     prompt?: string,
     language?: string,

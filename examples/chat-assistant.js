@@ -34,6 +34,13 @@ AI: will it ever end?
 
 const ai = InitAI();
 
+let id = 0;
+const rateLimiter = (fn) => {
+  id++;
+  return bottleneck.schedule({ id: `${id}` }, fn);
+};
+ai.set({ rateLimiter });
+
 const mem = new Memory();
 const prompt = new AssistantPrompt();
 prompt.setDebug(true);
@@ -42,13 +49,6 @@ const bottleneck = new Bottleneck({
   maxConcurrent: 1, // Maximum number of requests running at the same time
   minTime: 200, // Minimum time between each request
 });
-
-let id = 0;
-
-const rateLimiter = (fn) => {
-  id++;
-  return bottleneck.schedule({ id: `${id}` }, fn);
-};
 
 const rl = createInterface(process.stdin, process.stdout);
 rl.setPrompt('AI: ');
@@ -62,7 +62,7 @@ rl.on('line', async function (line) {
       rl.close();
       return;
     default:
-      const res = await prompt.generate(ai, line, { mem, rateLimiter });
+      const res = await prompt.generate(ai, line, { mem });
       console.log(`> ${res.value()}\n`);
       break;
   }

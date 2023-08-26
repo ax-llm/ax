@@ -1,7 +1,5 @@
 import { JSONSchemaType } from 'ajv';
 
-import { AI } from './wrap';
-
 export type GenerateTextExtraOptions = {
   sessionId?: string;
 };
@@ -130,7 +128,7 @@ export type Embeddings = {
 };
 
 export type PromptFunctionExtraOptions = {
-  ai: Readonly<AI>;
+  ai: AIService;
   sessionId?: string;
 };
 
@@ -167,11 +165,35 @@ export type AIPromptConfig = {
   stopSequences: string[];
 };
 
+// eslint-disable-next-line functional/no-mixed-types
+export type AIServiceOptions = {
+  debug?: boolean;
+  disableLog?: boolean;
+  llmClientAPIKey?: string;
+  log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void;
+  rateLimiter?: RateLimiterFunction;
+};
+
 export interface AIService {
   name(): string;
   getModelInfo(): Readonly<TextModelInfo & { provider: string }>;
   getEmbedModelInfo(): Readonly<TextModelInfo> | undefined;
   getModelConfig(): Readonly<GenerateTextModelConfig>;
+  _generate(
+    prompt: string,
+    md?: Readonly<AIPromptConfig>,
+    sessionId?: string
+  ): Promise<GenerateTextResponse>;
+  _embed(
+    text2Embed: readonly string[] | string,
+    sessionId?: string
+  ): Promise<EmbedResponse>;
+  _transcribe(
+    file: string,
+    prompt?: string,
+    language?: string,
+    sessionId?: string
+  ): Promise<TranscriptResponse>;
   generate(
     prompt: string,
     md?: Readonly<AIPromptConfig>,
@@ -187,7 +209,13 @@ export interface AIService {
     language?: string,
     sessionId?: string
   ): Promise<TranscriptResponse>;
+  getTraceStep(): AIGenerateTextTraceStep | undefined;
+  getTraceSteps(): AIGenerateTextTraceStep[];
+  setOptions(options: Readonly<AIServiceOptions>): void;
+  logTrace(): void;
 }
+
+export type RateLimiterFunction = <T>(func: unknown) => T;
 
 /*
 Magic isn't always unicorns and fairy dust␊
