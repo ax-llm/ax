@@ -1,14 +1,13 @@
 import Ajv, { JSONSchemaType } from 'ajv';
 import JSON5 from 'json5';
 
-import { AIPromptConfig, AIService, GenerateTextExtraOptions } from './types';
+import { AIPromptConfig, AIService, AIServiceActionOptions } from './types';
 
 const ajv = new Ajv();
 
 export async function parseResult<T>(
   ai: AIService,
-  conf: Readonly<AIPromptConfig>,
-  options: Readonly<GenerateTextExtraOptions>,
+  options: Readonly<AIPromptConfig & AIServiceActionOptions>,
   value: string,
   keyValue = false,
   schema?: Readonly<JSONSchemaType<T>>
@@ -27,11 +26,7 @@ export async function parseResult<T>(
       }
     } catch (e: unknown) {
       const { message } = e as Error;
-
-      const step = ai.getTraceStep();
-      if (step) {
-        step.response.parsingError = { message, value };
-      }
+      ai.getTraceResponse()?.setParsingError({ message, value });
 
       if (i === retryCount - 1) {
         break;
@@ -39,10 +34,9 @@ export async function parseResult<T>(
 
       const fixedValue = await fixResultSyntax<T>(
         ai,
-        conf,
+        options,
         message,
         value,
-        options,
         schema
       );
       value = fixedValue;
@@ -54,10 +48,9 @@ export async function parseResult<T>(
 
 const fixResultSyntax = async <T>(
   ai: AIService,
-  md: Readonly<AIPromptConfig>,
+  options: Readonly<AIPromptConfig & AIServiceActionOptions>,
   errorMessage: Readonly<string>,
   value: string,
-  { sessionId }: Readonly<GenerateTextExtraOptions>,
   expectedSchema?: Readonly<JSONSchemaType<T>>
 ): Promise<string> => {
   let prompt = [
@@ -75,7 +68,7 @@ const fixResultSyntax = async <T>(
     ];
   }
 
-  const res = await ai.generate(prompt.join('\n\n'), md, sessionId);
+  const res = await ai.generate(prompt.join('\n\n'), options);
   const fixedValue = res.results.at(0)?.text?.trim() ?? '';
 
   if (fixedValue.length === 0) {

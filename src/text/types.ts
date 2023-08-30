@@ -1,15 +1,16 @@
 import { JSONSchemaType } from 'ajv';
 
-export type GenerateTextExtraOptions = {
-  sessionId?: string;
-};
+import {
+  GenerateTextRequestBuilder,
+  GenerateTextResponseBuilder,
+} from '../tracing/trace';
 
 export type TextModelInfo = {
   name: string;
-  currency: string;
+  currency?: string;
   characterIsToken?: boolean;
-  promptTokenCostPer1K: number;
-  completionTokenCostPer1K: number;
+  promptTokenCostPer1K?: number;
+  completionTokenCostPer1K?: number;
   maxTokens?: number;
 };
 
@@ -69,22 +70,33 @@ export type ParsingError = { message: string; value: string };
 
 export type FuncTrace = { name: string; args: string; result?: string };
 
+export type TextModelInfoWithProvider = TextModelInfo & { provider: string };
+
+export type AIGenerateTextTraceStepRequest = {
+  prompt: string;
+  systemPrompt?: string;
+  texts?: readonly string[];
+  modelConfig?: Readonly<GenerateTextModelConfig>;
+  modelInfo?: Readonly<TextModelInfoWithProvider>;
+  embedModelInfo?: Readonly<TextModelInfoWithProvider>;
+};
+
+export type AIGenerateTextTraceStepResponse = Omit<
+  GenerateTextResponse,
+  'sessionId'
+> & {
+  modelResponseTime?: number;
+  embedModelResponseTime?: number;
+  functions?: FuncTrace[];
+  parsingError?: ParsingError;
+  apiError?: APIError;
+};
+
 export type AIGenerateTextTraceStep = {
   traceId: string;
   sessionId?: string;
-  request: {
-    prompt: string;
-    modelInfo: Readonly<TextModelInfo & { provider: string }>;
-    modelConfig: Readonly<GenerateTextModelConfig>;
-    embedModelInfo?: Readonly<TextModelInfo>;
-  };
-  response: Omit<GenerateTextResponse, 'sessionId'> & {
-    modelResponseTime?: number;
-    embedModelResponseTime?: number;
-    functions?: FuncTrace[];
-    parsingError?: ParsingError;
-    apiError?: APIError;
-  };
+  request: AIGenerateTextTraceStepRequest;
+  response: AIGenerateTextTraceStepResponse;
   createdAt: string;
 };
 
@@ -92,7 +104,6 @@ export type AIGenerateTextTraceStep = {
 export type AITextResponse<T> = {
   prompt: string;
   sessionId?: string;
-  traces: AIGenerateTextTraceStep[];
   value(): T;
 };
 
@@ -165,6 +176,10 @@ export type AIPromptConfig = {
   stopSequences: string[];
 };
 
+export type AITranscribeConfig = {
+  language?: string;
+};
+
 // eslint-disable-next-line functional/no-mixed-types
 export type AIServiceOptions = {
   debug?: boolean;
@@ -174,6 +189,11 @@ export type AIServiceOptions = {
   rateLimiter?: RateLimiterFunction;
 };
 
+export type AIServiceActionOptions = {
+  sessionId?: string;
+  traceId?: string;
+};
+
 export interface AIService {
   name(): string;
   getModelInfo(): Readonly<TextModelInfo & { provider: string }>;
@@ -181,37 +201,34 @@ export interface AIService {
   getModelConfig(): Readonly<GenerateTextModelConfig>;
   _generate(
     prompt: string,
-    md?: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse>;
   _embed(
     text2Embed: readonly string[] | string,
-    sessionId?: string
+    options?: Readonly<AIServiceActionOptions>
   ): Promise<EmbedResponse>;
   _transcribe(
     file: string,
     prompt?: string,
-    language?: string,
-    sessionId?: string
+    options?: Readonly<AITranscribeConfig>
   ): Promise<TranscriptResponse>;
   generate(
     prompt: string,
-    md?: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<GenerateTextResponse>;
   embed(
     text2Embed: readonly string[] | string,
-    sessionId?: string
+    options?: Readonly<AIServiceActionOptions>
   ): Promise<EmbedResponse>;
   transcribe(
     file: string,
     prompt?: string,
-    language?: string,
-    sessionId?: string
+    options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
   ): Promise<TranscriptResponse>;
-  getTraceStep(): AIGenerateTextTraceStep | undefined;
-  getTraceSteps(): AIGenerateTextTraceStep[];
   setOptions(options: Readonly<AIServiceOptions>): void;
+  getTraceRequest(): Readonly<GenerateTextRequestBuilder> | undefined;
+  getTraceResponse(): Readonly<GenerateTextResponseBuilder> | undefined;
+  traceExists(): boolean;
   logTrace(): void;
 }
 

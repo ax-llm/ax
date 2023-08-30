@@ -1,24 +1,7 @@
 import chalk from 'chalk';
-import superagent from 'superagent';
 
 import { AIGenerateTextTraceStep } from '../text/types';
-
-const postTrace = async (
-  apiKey: string,
-  devMode: boolean,
-  { traceId, sessionId, ...step }: Readonly<AIGenerateTextTraceStep>
-) => {
-  const host = devMode ? 'http://localhost:3000' : 'https://api.llmclient.com';
-  const trace = { traceId, sessionId, step };
-
-  await superagent
-    .post(new URL(`/api/t/traces`, host).href)
-    .set('x-api-key', apiKey)
-    .send(trace)
-    .type('json')
-    .accept('json')
-    .retry(1);
-};
+import { sendTrace } from '../tracing/index.js';
 
 export class RemoteLogger {
   private apiKey?: string;
@@ -49,6 +32,6 @@ export class RemoteLogger {
     if (!this.apiKey || this.apiKey.length === 0) {
       return;
     }
-    postTrace(this.apiKey, this.devMode, trace);
+    sendTrace(trace, this.apiKey, this.devMode);
   }
 }

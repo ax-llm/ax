@@ -30,9 +30,9 @@ const modelInfo: TextModelInfo[] = [
  * @export
  */
 export class Betty extends BaseAI {
-  private answers: string[];
+  // private answers: string[];
   private data: string[];
-  private sdata: Map<string, string[]> = new Map();
+  // private sdata: Map<string, string[]> = new Map();
   private index = 0;
 
   constructor(
@@ -48,7 +48,7 @@ export class Betty extends BaseAI {
       },
       otherOptions
     );
-    this.answers = [...answers];
+    // this.answers = [...answers];
     this.data = [...answers];
   }
 
@@ -67,23 +67,17 @@ export class Betty extends BaseAI {
     };
   }
 
-  generate(
+  _generate(
     prompt: string,
-    _md: Readonly<AIPromptConfig>,
-    sessionId?: string
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
-    if (sessionId && !this.sdata.has(sessionId)) {
-      this.sdata.set(sessionId, [...this.answers]);
-    }
-    const answers = sessionId ? this.sdata.get(sessionId) : this.data;
-
+    const answers = this.data;
     const text = answers?.shift() || '';
-
     this.index++;
 
     const res = {
       remoteId: this.index.toString(),
-      sessionId,
       modelUsage: {
         promptTokens: prompt.length,
         totalTokens: prompt.length + (text?.length || 0),
@@ -100,15 +94,11 @@ export class Betty extends BaseAI {
     });
   }
 
-  embed(
-    textToEmbed: readonly string[] | string,
-    sessionId?: string
-  ): Promise<EmbedResponse> {
+  _embed(textToEmbed: readonly string[] | string): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
     const embedding = [1, 2, 3, 4];
     const res = {
       id: '',
-      sessionId,
       texts,
       modelUsage: {
         promptTokens: texts.length,

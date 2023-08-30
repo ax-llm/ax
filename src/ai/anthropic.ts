@@ -6,8 +6,8 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from '../util/apicall.js';
 import { BaseAI } from './base.js';
-import { API, apiCall } from './util.js';
 
 type AnthropicAPI = API & {
   headers: { 'Anthropic-Version': string };
@@ -141,10 +141,9 @@ export class Anthropic extends BaseAI {
     } as GenerateTextModelConfig;
   }
 
-  async generate(
+  async _generate(
     prompt: string,
-    md?: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       AnthropicAPI,
@@ -157,12 +156,11 @@ export class Anthropic extends BaseAI {
         url: apiURL,
         headers: { 'Anthropic-Version': '2023-06-01' },
       },
-      generateReq(prompt, this.options, md?.stopSequences)
+      generateReq(prompt, this.options, options?.stopSequences)
     );
 
     const { id, generations } = res;
     return {
-      sessionId,
       remoteId: id,
       results: generations,
     };

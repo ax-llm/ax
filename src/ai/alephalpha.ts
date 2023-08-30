@@ -6,8 +6,8 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from '../util/apicall.js';
 import { BaseAI } from './base.js';
-import { API, apiCall } from './util.js';
 
 const apiURL = 'https://api.aleph-alpha.com/';
 
@@ -309,10 +309,9 @@ export class AlephAlpha extends BaseAI {
     this.options = options;
   }
 
-  async generate(
+  async _generate(
     prompt: string,
-    md: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       API,
@@ -324,12 +323,11 @@ export class AlephAlpha extends BaseAI {
         name: apiTypes.Generate,
         url: apiURL,
       },
-      generateReq(prompt, this.options, md.stopSequences)
+      generateReq(prompt, this.options, options?.stopSequences ?? [])
     );
 
     const { completions } = res;
     return {
-      sessionId,
       results: completions.map((v) => ({
         text: v.completion,
         finishReason: v.finish_reason,
@@ -337,9 +335,8 @@ export class AlephAlpha extends BaseAI {
     };
   }
 
-  async embed(
-    textToEmbed: readonly string[] | string,
-    sessionId?: string
+  async _embed(
+    textToEmbed: readonly string[] | string
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
@@ -367,7 +364,6 @@ export class AlephAlpha extends BaseAI {
 
     const { embedding } = res;
     return {
-      sessionId,
       texts,
       embedding: embedding,
     };

@@ -6,8 +6,8 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from '../util/apicall.js';
 import { BaseAI } from './base.js';
-import { API, apiCall } from './util.js';
 
 type TogetherAPI = API & {
   headers: { Authorization: string; accept: string; 'content-type': string };
@@ -261,10 +261,9 @@ export class Together extends BaseAI {
     } as GenerateTextModelConfig;
   }
 
-  async generate(
+  async _generate(
     prompt: string,
-    md?: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       TogetherAPI,
@@ -281,7 +280,7 @@ export class Together extends BaseAI {
           'content-type': 'application/json',
         },
       },
-      generateReq(prompt, this.options, md?.stopSequences)
+      generateReq(prompt, this.options, options?.stopSequences)
     );
 
     const {
@@ -289,7 +288,6 @@ export class Together extends BaseAI {
     } = res;
 
     return {
-      sessionId,
       results: choices.map((v) => ({
         text: v.text,
         finishReason: v.finish_reason,

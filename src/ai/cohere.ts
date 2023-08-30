@@ -8,7 +8,7 @@ import {
 } from '../text/types.js';
 
 import { BaseAI } from './base.js';
-import { API, apiCall } from './util.js';
+import { API, apiCall } from '../util/apicall.js';
 
 type CohereAPI = API;
 
@@ -235,10 +235,9 @@ export class Cohere extends BaseAI {
     } as GenerateTextModelConfig;
   }
 
-  async generate(
+  async _generate(
     prompt: string,
-    md?: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       CohereAPI,
@@ -250,21 +249,19 @@ export class Cohere extends BaseAI {
         name: apiTypes.Generate,
         url: apiURL,
       },
-      generateReq(prompt, this.options, md?.stopSequences)
+      generateReq(prompt, this.options, options?.stopSequences)
     );
 
     const { id, generations } = res;
 
     return {
-      sessionId,
       remoteId: id,
       results: generations.map(({ id, text }) => ({ id, text })),
     };
   }
 
-  async embed(
-    textToEmbed: readonly string[] | string,
-    sessionId?: string
+  async _embed(
+    textToEmbed: readonly string[] | string
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
@@ -283,7 +280,6 @@ export class Cohere extends BaseAI {
 
     const { id, embeddings } = res;
     return {
-      sessionId,
       remoteId: id,
       texts,
       embedding: embeddings.at(0) || [],

@@ -7,8 +7,8 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from '../util/apicall.js';
 import { BaseAI } from './base.js';
-import { API, apiCall } from './util.js';
 
 /**
  * GoogleAI: API call details
@@ -269,31 +269,32 @@ export class GoogleAI extends BaseAI {
     } as GenerateTextModelConfig;
   }
 
-  async generate(
+  async _generate(
     prompt: string,
-    md: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     if (
       [GoogleAIGenerateModel.PaLMChatBison].includes(
         this.options.model as GoogleAIGenerateModel
       )
     ) {
-      return await this.generateChat(prompt, md, sessionId);
+      return await this._generateChat(prompt, options);
     }
-    return await this.generateDefault(prompt, md, sessionId);
+    return await this._generateDefault(prompt, options);
   }
 
-  private async generateDefault(
+  private async _generateDefault(
     prompt: string,
-    md: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
       GoogleAIGenerateRequest,
       GoogleAIGenerateTextResponse
-    >(this.createAPI(), generateReq(prompt, this.options, md.stopSequences));
+    >(
+      this.createAPI(),
+      generateReq(prompt, this.options, options?.stopSequences ?? [])
+    );
 
     const { predictions } = res;
     const promptTokens = prompt.length;
@@ -305,7 +306,6 @@ export class GoogleAI extends BaseAI {
     const totalTokens = promptTokens + completionTokens;
 
     return {
-      sessionId,
       results: predictions.map((p) => ({ id: '', text: p.content })),
       modelUsage: {
         promptTokens,
@@ -315,10 +315,9 @@ export class GoogleAI extends BaseAI {
     };
   }
 
-  private async generateChat(
+  private async _generateChat(
     prompt: string,
-    md: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
@@ -326,7 +325,7 @@ export class GoogleAI extends BaseAI {
       GoogleAIChatGenerateResponse
     >(
       this.createAPI(),
-      generateChatReq(prompt, this.options, md.stopSequences)
+      generateChatReq(prompt, this.options, options?.stopSequences ?? [])
     );
 
     const { predictions } = res;
@@ -338,7 +337,6 @@ export class GoogleAI extends BaseAI {
     const totalTokens = promptTokens + completionTokens;
 
     return {
-      sessionId,
       results: predictions.map((p) => ({
         id: '',
         text: p.candidates[0].content,
@@ -351,9 +349,8 @@ export class GoogleAI extends BaseAI {
     };
   }
 
-  async embed(
-    textToEmbed: Readonly<string[] | string>,
-    sessionId?: string
+  async _embed(
+    textToEmbed: Readonly<string[] | string>
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
@@ -368,7 +365,6 @@ export class GoogleAI extends BaseAI {
     const promptTokens = texts.at(0)?.length ?? 0;
 
     return {
-      sessionId,
       texts,
       embedding: predictions.at(0)?.embeddings.values ?? [],
       modelUsage: {

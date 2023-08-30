@@ -49,7 +49,7 @@ export const embedAdapter = async (
   extra?: Readonly<PromptFunctionExtraOptions>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> => {
-  const embedRes = await ai.embed(text, extra?.sessionId);
+  const embedRes = await ai.embed(text, { sessionId: extra?.sessionId });
   const embeds = embedRes.embedding;
 
   return func.length === 2 ? func(embeds, extra) : func(embeds);

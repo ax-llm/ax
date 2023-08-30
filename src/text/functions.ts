@@ -1,11 +1,10 @@
 import { parseResult } from './result.js';
 import {
-  AIGenerateTextTraceStep,
   AIPromptConfig,
   AIService,
+  AIServiceActionOptions,
   FunctionExec,
   FuncTrace,
-  GenerateTextExtraOptions,
   PromptFunction,
 } from './types.js';
 
@@ -14,16 +13,13 @@ const functionCallRe = /(\w+)\((.*)\)/s;
 
 export class FunctionProcessor {
   private ai: AIService;
-  private conf: Readonly<AIPromptConfig>;
-  private options: Readonly<GenerateTextExtraOptions>;
+  private options: Readonly<AIPromptConfig & AIServiceActionOptions>;
 
   constructor(
     ai: AIService,
-    conf: Readonly<AIPromptConfig>,
-    options: Readonly<GenerateTextExtraOptions>
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ) {
     this.ai = ai;
-    this.conf = conf;
     this.options = options;
   }
 
@@ -46,7 +42,6 @@ export class FunctionProcessor {
 
     const funcArgs = await parseResult<T>(
       this.ai,
-      this.conf,
       this.options,
       funcArgJSON,
       false,
@@ -104,39 +99,25 @@ export class FunctionProcessor {
       funcArgs = `{${funcArgs}}`;
     }
 
-    const step = this.ai.getTraceStep() as AIGenerateTextTraceStep;
-    const funcTrace: FuncTrace = {
-      name: funcName,
-      args: funcArgs,
-    };
-
-    let funcExec: FunctionExec = { name: funcName };
-
     if (!func) {
-      funcExec.result = `Function ${funcName} not found`;
+      const funcExec = {
+        name: funcName,
+        args: funcArgs,
+        result: `Function ${funcName} not found`,
+      };
+      this.ai.getTraceResponse()?.addFunction(funcExec as FuncTrace);
       return funcExec;
     }
 
-    if (step) {
-      if (!step.response.functions) {
-        step.response.functions = [];
-      }
-
-      step.response.functions.push(funcTrace);
-    }
-
     // execute value function calls
-    funcExec = await this.executeFunction(func, funcArgs);
+    const funcExec = await this.executeFunction(func, funcArgs);
 
     // signal error if no data returned
     if (!funcExec.result || funcExec.result.length === 0) {
       funcExec.result = `No data returned by function`;
     }
 
-    if (step) {
-      funcTrace.result = funcExec.result;
-    }
-
+    this.ai.getTraceResponse()?.addFunction(funcExec as FuncTrace);
     return funcExec;
   };
 }

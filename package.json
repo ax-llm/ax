@@ -1,6 +1,6 @@
 {
   "name": "@dosco/llm-client",
-  "version": "4.0.18",
+  "version": "4.0.19",
   "type": "module",
   "description": "The best library to work with LLMs",
   "main": "build/main/index.js",
@@ -13,6 +13,7 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
+    "proxy": "node build/main/proxy/index.js",
     "build": "run-p build:*",
     "build:main": "tsc -p tsconfig.json",
     "build:module": "tsc -p tsconfig.module.json",
@@ -47,14 +48,18 @@
   "dependencies": {
     "ajv": "^8.12.0",
     "chalk": "^5.3.0",
+    "dotenv": "^16.3.1",
+    "http-proxy": "^1.18.1",
     "json5": "^2.2.3",
-    "superagent": "^8.0.9"
+    "superagent": "^8.1.2"
   },
   "devDependencies": {
     "@ava/typescript": "^3.0.1",
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
+    "@types/http-proxy": "^1.17.11",
     "@types/lodash": "^4.14.195",
     "@types/node": "^18.13.0",
+    "@types/stream-array": "^1.1.0",
     "@types/superagent": "^4.1.18",
     "@typescript-eslint/eslint-plugin": "^5.52.0",
     "@typescript-eslint/parser": "^5.52.0",

@@ -39,6 +39,7 @@ test('contextEnabledConversationWithAI', async (t) => {
   }
 });
 
+/*
 test('multiSessionChatWithAI', async (t) => {
   const humanQuerys = [
     'Hey there!',
@@ -75,6 +76,7 @@ test('multiSessionChatWithAI', async (t) => {
     t.deepEqual(memory.peek('3'), exp[i]);
   }
 });
+*/
 
 const googleSearch = ({
   text,

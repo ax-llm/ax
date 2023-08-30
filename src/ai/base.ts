@@ -4,15 +4,22 @@ import {
   AIGenerateTextTraceStep,
   AIPromptConfig,
   AIService,
+  AIServiceActionOptions,
   AIServiceOptions,
+  AITranscribeConfig,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
   RateLimiterFunction,
   TextModelInfo,
+  TextModelInfoWithProvider,
   TranscriptResponse,
 } from '../text/types.js';
-import { uuid } from '../text/util.js';
+import {
+  AIGenerateTextTraceStepBuilder,
+  GenerateTextRequestBuilder,
+  GenerateTextResponseBuilder,
+} from '../tracing/index.js';
 
 export class BaseAI implements AIService {
   private consoleLog = new ConsoleLogger();
@@ -22,8 +29,10 @@ export class BaseAI implements AIService {
 
   private rt?: RateLimiterFunction;
   private log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void;
-  private traceSteps: AIGenerateTextTraceStep[] = [];
-  private traceId: string;
+
+  private traceStepBuilder?: AIGenerateTextTraceStepBuilder;
+  private traceStepReqBuilder?: GenerateTextRequestBuilder;
+  private traceStepRespBuilder?: GenerateTextResponseBuilder;
 
   protected aiName: string;
   protected modelInfo: TextModelInfo;
@@ -36,7 +45,6 @@ export class BaseAI implements AIService {
     options: Readonly<AIServiceOptions> = {}
   ) {
     this.aiName = aiName;
-    this.traceId = uuid();
 
     if (models.model.length === 0) {
       throw new Error('No model defined');
@@ -90,18 +98,14 @@ export class BaseAI implements AIService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _prompt: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _md?: Readonly<AIPromptConfig> | undefined,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionId?: string | undefined
+    _options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     throw new Error('Method not implemented.');
   }
 
   _embed(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _text2Embed: string | readonly string[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionId?: string | undefined
+    _text2Embed: string | readonly string[]
   ): Promise<EmbedResponse> {
     throw new Error('Method not implemented.');
   }
@@ -112,23 +116,19 @@ export class BaseAI implements AIService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _prompt?: string | undefined,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _language?: string | undefined,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _sessionId?: string | undefined
+    _options?: Readonly<AITranscribeConfig>
   ): Promise<TranscriptResponse> {
     throw new Error('Method not implemented.');
   }
 
-  getTraceSteps(): AIGenerateTextTraceStep[] {
-    return this.traceSteps;
-  }
-
-  getModelInfo(): Readonly<TextModelInfo & { provider: string }> {
+  getModelInfo(): Readonly<TextModelInfoWithProvider> {
     return { ...this.modelInfo, provider: this.aiName };
   }
 
-  getEmbedModelInfo(): TextModelInfo | undefined {
-    return this.embedModelInfo ? { ...this.embedModelInfo } : undefined;
+  getEmbedModelInfo(): TextModelInfoWithProvider | undefined {
+    return this.embedModelInfo
+      ? { ...this.embedModelInfo, provider: this.aiName }
+      : undefined;
   }
 
   name(): string {
@@ -139,128 +139,145 @@ export class BaseAI implements AIService {
     throw new Error('getModelConfig not implemented');
   }
 
+  getTraceRequest(): Readonly<GenerateTextRequestBuilder> | undefined {
+    return this.traceStepReqBuilder;
+  }
+
+  getTraceResponse(): Readonly<GenerateTextResponseBuilder> | undefined {
+    return this.traceStepRespBuilder;
+  }
+
+  traceExists(): boolean {
+    return (
+      this.traceStepBuilder !== undefined &&
+      this.traceStepReqBuilder !== undefined &&
+      this.traceStepRespBuilder !== undefined
+    );
+  }
+
   logTrace(): void {
+    if (
+      !this.traceStepBuilder ||
+      !this.traceStepReqBuilder ||
+      !this.traceStepRespBuilder
+    ) {
+      throw new Error('Trace not initialized');
+    }
+
+    const traceStep = this.traceStepBuilder
+      .setRequest(this.traceStepReqBuilder)
+      .setResponse(this.traceStepRespBuilder)
+      .build();
+
     if (this.remoteLog) {
-      this.traceSteps.forEach((step) => this.remoteLog?.log?.(step));
+      this.remoteLog?.log?.(traceStep);
     }
 
     if (this.log) {
-      this.traceSteps.forEach((step) => this.log?.(step));
+      this.log?.(traceStep);
     }
 
     if (this.debug) {
-      this.traceSteps.forEach((step) => this.consoleLog.log(step));
+      this.consoleLog.log(traceStep);
     }
-  }
-
-  getTraceStep(): AIGenerateTextTraceStep | undefined {
-    return this.traceSteps.at(-1);
-  }
-
-  private newTraceStep(prompt: string): AIGenerateTextTraceStep {
-    const step = {
-      traceId: this.traceId,
-      request: {
-        prompt,
-        modelInfo: this.getModelInfo(),
-        modelConfig: this.getModelConfig(),
-      },
-      response: {
-        results: [],
-      },
-      createdAt: new Date().toISOString(),
-    };
-    this.traceSteps.push(step);
-    return step;
   }
 
   async generate(
     prompt: string,
-    md: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<GenerateTextResponse> {
     let modelResponseTime;
 
     const fn = async () => {
       const st = new Date().getTime();
-      const res = await this._generate(prompt, md, sessionId);
+      const res = await this._generate(prompt, options);
       modelResponseTime = new Date().getTime() - st;
       return res;
     };
 
-    const trace = this.newTraceStep(prompt);
+    this.traceStepBuilder = new AIGenerateTextTraceStepBuilder()
+      .setTraceId(options?.traceId)
+      .setSessionId(options?.sessionId);
+
+    this.traceStepReqBuilder = new GenerateTextRequestBuilder().setGenerateStep(
+      prompt,
+      this.getModelConfig(),
+      this.getModelInfo()
+    );
 
     const res = this.rt
       ? await this.rt<Promise<GenerateTextResponse>>(fn)
       : await fn();
 
-    if (trace) {
-      trace.response = {
-        remoteId: res?.remoteId,
-        results: res?.results ?? [],
-        modelUsage: res?.modelUsage,
-        embedModelUsage: res?.embedModelUsage,
-        modelResponseTime,
-      };
-    }
+    this.traceStepRespBuilder = new GenerateTextResponseBuilder()
+      .setRemoteId(res.remoteId)
+      .setResults(res.results)
+      .setModelUsage(res.modelUsage)
+      .setModelResponseTime(modelResponseTime);
 
     if (!this.disableLog) {
       this.logTrace();
     }
 
+    res.sessionId = options?.sessionId;
     return res;
   }
 
   async embed(
     textToEmbed: readonly string[] | string,
-    sessionId?: string
+    options?: Readonly<AIServiceActionOptions>
   ): Promise<EmbedResponse> {
-    let embedModelResponseTime;
+    let modelResponseTime;
 
     const fn = async () => {
       const st = new Date().getTime();
-      const res = await this._embed(textToEmbed, sessionId);
-      embedModelResponseTime = new Date().getTime() - st;
+      const res = await this._embed(textToEmbed);
+      modelResponseTime = new Date().getTime() - st;
       return res;
     };
 
-    const step = this.getTraceStep() as AIGenerateTextTraceStep;
-    if (step) {
-      step.request.embedModelInfo = this.getEmbedModelInfo();
-    }
+    this.traceStepBuilder = new AIGenerateTextTraceStepBuilder()
+      .setTraceId(options?.traceId)
+      .setSessionId(options?.sessionId);
+
+    this.traceStepReqBuilder = new GenerateTextRequestBuilder().setEmbedStep(
+      typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed,
+      this.getEmbedModelInfo()
+    );
 
     const res = this.rt
       ? await this.rt<Promise<EmbedResponse>>(async () => fn())
       : await fn();
 
-    if (step) {
-      step.response.embedModelResponseTime = embedModelResponseTime;
-      step.response.embedModelUsage = res.modelUsage;
-    }
+    this.traceStepRespBuilder = new GenerateTextResponseBuilder()
+      .setRemoteId(res.remoteId)
+      .setEmbedModelUsage(res.modelUsage)
+      .setEmbedModelResponseTime(modelResponseTime);
 
     if (!this.disableLog) {
       this.logTrace();
     }
 
+    res.sessionId = options?.sessionId;
     return res;
   }
 
   async transcribe(
     file: string,
     prompt?: string,
-    language?: string,
-    sessionId?: string
+    options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
   ): Promise<TranscriptResponse> {
-    if (!this.transcribe) {
+    if (!this._transcribe) {
       throw new Error('Transcribe not supported');
     }
 
-    return this.rt
-      ? this.rt<Promise<TranscriptResponse>>(async () =>
-          this._transcribe
-            ? await this._transcribe(file, prompt, language, sessionId)
-            : null
+    const res = this.rt
+      ? await this.rt<Promise<TranscriptResponse>>(
+          async () => await this._transcribe(file, prompt, options)
         )
-      : await this._transcribe(file, prompt, language, sessionId);
+      : await this._transcribe(file, prompt, options);
+
+    res.sessionId = options?.sessionId;
+    return res;
   }
 }

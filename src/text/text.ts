@@ -6,20 +6,20 @@ import {
 import { Memory } from './memory.js';
 import { parseResult } from './result.js';
 import {
-  AIGenerateTextTraceStep,
   AIMemory,
+  AIPromptConfig,
   AIService,
+  AIServiceActionOptions,
   AITextResponse,
   APIError,
-  GenerateTextExtraOptions,
   GenerateTextResponse,
   ParsingError,
   PromptConfig,
   PromptFunction,
 } from './types.js';
+import { uuid } from './util.js';
 
 export type Options = {
-  sessionId?: string;
   memory?: AIMemory;
 };
 
@@ -69,22 +69,22 @@ export class AIPrompt<T> {
   async generate(
     ai: AIService,
     query: string,
-    { sessionId, memory }: Options = {}
+    options: Readonly<Options & AIServiceActionOptions> = {}
   ): Promise<AITextResponse<string | Map<string, string[]> | T>> {
     ai.setOptions({ debug: this.debug, disableLog: true });
+    const { sessionId, memory } = options;
+    const { stopSequences } = this.conf;
+    const traceId = options.traceId ?? uuid();
 
-    const [, value] = await this._generate(
-      ai,
-      memory || new Memory(),
-      query,
-      sessionId
-    );
-    const traces = ai.getTraceSteps();
+    const [, value] = await this._generate(ai, memory || new Memory(), query, {
+      ...options,
+      traceId,
+      stopSequences,
+    });
 
     return {
       sessionId,
       prompt: query,
-      traces,
       value: () => value,
     };
   }
@@ -93,25 +93,26 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    sessionId?: string
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<[GenerateTextResponse, string | Map<string, string[]> | T]> {
     try {
-      return await this.generateHandler(ai, mem, query, sessionId);
+      return await this.generateHandler(ai, mem, query, options);
     } catch (e: unknown) {
-      const step = ai.getTraceStep() as AIGenerateTextTraceStep;
       const err = e as APIError | ParsingError | Error;
 
-      if (step && step.response) {
-        if ((err as APIError).request) {
-          step.response.apiError = err as APIError;
-        }
-        if ((err as ParsingError).value) {
-          step.response.parsingError = err as ParsingError;
-        }
+      if ((err as APIError).request) {
+        ai.getTraceResponse()?.setApiError(err as APIError);
       }
+
+      if ((err as ParsingError).value) {
+        ai.getTraceResponse()?.setParsingError(err as ParsingError);
+      }
+
       throw err as Error;
     } finally {
-      ai.logTrace();
+      if (ai.traceExists()) {
+        ai.logTrace();
+      }
     }
   }
 
@@ -119,14 +120,9 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    sessionId?: string
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<[GenerateTextResponse, string | Map<string, string[]> | T]> {
-    const { stopSequences } = this.conf;
     const { keyValue = false, schema } = this.conf.response || {};
-
-    const options = {
-      sessionId,
-    };
 
     let res: GenerateTextResponse;
     let value: string;
@@ -139,7 +135,6 @@ export class AIPrompt<T> {
 
     const finalValue = await parseResult<T>(
       ai,
-      { stopSequences },
       options,
       value,
       keyValue,
@@ -152,22 +147,15 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    { sessionId }: Readonly<GenerateTextExtraOptions>
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<[GenerateTextResponse, string]> {
-    const { stopSequences } = this.conf;
-    const h = () => mem.history(sessionId);
-
-    const funcProcessor = new FunctionProcessor(
-      ai,
-      { stopSequences },
-      { sessionId }
-    );
-
+    const h = () => mem.history(options?.sessionId);
+    const funcProcessor = new FunctionProcessor(ai, options);
     let previousValue;
 
     for (let i = 0; i < this.maxSteps; i++) {
       const p = this.prompt(query, h);
-      const res = await ai.generate(p, { stopSequences }, sessionId);
+      const res = await ai.generate(p, options);
       const value = res.results.at(0)?.text?.trim() ?? '';
 
       // check for duplicate responses
@@ -197,17 +185,12 @@ export class AIPrompt<T> {
         this.functions
       );
 
-      const step = ai.getTraceStep() as AIGenerateTextTraceStep;
-      if (step) {
-        step.response.embedModelUsage = res.embedModelUsage;
-      }
-
       const mval = [
         value,
         this.conf.stopSequences?.at(0) ?? '',
         funcExec.result,
       ];
-      mem.add(`\n${mval.join('\n')}`, sessionId);
+      mem.add(`\n${mval.join('\n')}`, options.sessionId);
 
       if (foundFunc.name.localeCompare('finalResult') === 0) {
         return [res, funcExec.result ?? ''];
@@ -221,12 +204,11 @@ export class AIPrompt<T> {
     ai: AIService,
     mem: AIMemory,
     query: string,
-    { sessionId }: Readonly<GenerateTextExtraOptions>
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<[GenerateTextResponse, string]> {
-    const { stopSequences } = this.conf;
-    const h = () => mem.history(sessionId);
+    const h = () => mem.history(options.sessionId);
     const p = this.prompt(query, h);
-    const res = await ai.generate(p, { stopSequences }, sessionId);
+    const res = await ai.generate(p, options);
     const value = res.results.at(0)?.text?.trim() ?? '';
 
     if (value.length === 0) {
@@ -239,7 +221,7 @@ export class AIPrompt<T> {
       this.conf.responsePrefix,
       value,
     ];
-    mem.add(mval.join(''), sessionId);
+    mem.add(mval.join(''), options.sessionId);
     return [res, value];
   }
 }

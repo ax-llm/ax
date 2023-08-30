@@ -6,8 +6,8 @@ import {
   TextModelInfo,
 } from '../text/types.js';
 
+import { API, apiCall } from '../util/apicall.js';
 import { BaseAI } from './base.js';
-import { API, apiCall } from './util.js';
 
 /**
  * HuggingFace: API call details
@@ -178,10 +178,9 @@ export class HuggingFace extends BaseAI {
     } as GenerateTextModelConfig;
   }
 
-  async generate(
+  async _generate(
     prompt: string,
-    md: Readonly<AIPromptConfig>,
-    sessionId?: string
+    options?: Readonly<AIPromptConfig>
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       HuggingFaceAPI,
@@ -189,11 +188,10 @@ export class HuggingFace extends BaseAI {
       HuggingFaceGenerateTextResponse
     >(
       this.createAPI(apiType.Generate),
-      generateReq(prompt, this.options, md.stopSequences)
+      generateReq(prompt, this.options, options?.stopSequences ?? [])
     );
 
     return {
-      sessionId,
       results: [{ text: res.generated_text }],
     };
   }
