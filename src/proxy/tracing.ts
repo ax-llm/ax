@@ -9,6 +9,8 @@ import { AIGenerateTextTraceStepBuilder } from '../tracing/index.js';
 
 import { ExtendedIncomingMessage } from './types.js';
 
+import 'dotenv/config';
+
 const remoteLog = new RemoteLogger();
 const consoleLog = new ConsoleLogger();
 const debug = process.env.DEBUG === 'true';
@@ -16,8 +18,6 @@ const debug = process.env.DEBUG === 'true';
 const generateTrace = (
   req: Readonly<ExtendedIncomingMessage>
 ): AIGenerateTextTraceStepBuilder | undefined => {
-  console.log('>', req.id, req.type, req.pathname, req.reqBody, req.resBody);
-
   const reqBody = JSON.parse(req.reqBody);
   const resBody = JSON.parse(req.resBody);
 
@@ -45,8 +45,6 @@ export const getTarget = (apiName?: string): string => {
 };
 
 export const publishTrace = (req: Readonly<ExtendedIncomingMessage>) => {
-  console.log('>>>>>>>>> req.id', req.id, generateTrace(req));
-
   const trace = generateTrace(req)
     ?.setTraceId(req.id)
     ?.setModelResponseTime(Date.now() - req.startTime)
@@ -55,6 +53,7 @@ export const publishTrace = (req: Readonly<ExtendedIncomingMessage>) => {
     return;
   }
   remoteLog.log(trace);
+
   if (debug) {
     consoleLog.log(trace);
   }

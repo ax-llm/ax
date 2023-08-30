@@ -9,6 +9,7 @@ import { modelInfoOpenAI } from './info.js';
 import {
   OpenAIAudioRequest,
   OpenAIChatGenerateRequest,
+  OpenAIChatGenerateResponse,
   OpenAIGenerateRequest,
   OpenAIGenerateTextResponse,
   OpenAIOptions,
@@ -149,7 +150,7 @@ export const generateTraceOpenAI = (
 
 export const generateChatTraceOpenAI = (
   request: Readonly<OpenAIChatGenerateRequest>,
-  response: Readonly<OpenAIGenerateTextResponse>
+  response: Readonly<OpenAIChatGenerateResponse>
 ): AIGenerateTextTraceStepBuilder => {
   const {
     model,
@@ -203,7 +204,7 @@ export const generateChatTraceOpenAI = (
         })
         .setResults(
           response.choices.map((choice) => ({
-            text: choice.text,
+            text: `${choice.message.role}: ${choice.message.content}`,
             id: response.id,
             finishReason: choice.finish_reason,
           }))
