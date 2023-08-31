@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import http, { IncomingMessage } from 'http';
 import zlib from 'zlib';
 
