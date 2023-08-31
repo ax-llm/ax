@@ -9,8 +9,6 @@ import {
 } from '../text/types';
 
 export class ConsoleLogger {
-  private traceIndex = 0;
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private print(message: string, value: any, indent = 0): void {
     const prefix = ' '.repeat(indent * 2);
@@ -77,9 +75,7 @@ export class ConsoleLogger {
   }
 
   public log(trace: Readonly<AIGenerateTextTraceStep>): void {
-    console.log(
-      chalk.bold.cyan(`\n🔎 Trace ${this.traceIndex + 1}\n` + '_'.repeat(50))
-    );
+    console.log(chalk.bold.cyan(`\n🔎 Trace\n` + '_'.repeat(50)));
     this.print('Trace Id', trace.traceId, 1);
     this.print('Session Id', trace.sessionId, 1);
     this.print('Prompt', trace.request.prompt, 1);
@@ -107,6 +103,5 @@ export class ConsoleLogger {
         this.print('Message', trace.response.apiError, 1);
       }
     }
-    this.traceIndex++;
   }
 }

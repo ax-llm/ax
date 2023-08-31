@@ -1,6 +1,7 @@
 import superagent from 'superagent';
 
 import {
+  AIGenerateTextChatPromptItem,
   AIGenerateTextTraceStep,
   AIGenerateTextTraceStepRequest,
   AIGenerateTextTraceStepResponse,
@@ -238,6 +239,17 @@ export class GenerateTextRequestBuilder {
     return this;
   }
 
+  setGenerateChatStep(
+    chatPrompt: Readonly<AIGenerateTextChatPromptItem[]>,
+    modelConfig?: Readonly<GenerateTextModelConfig>,
+    modelInfo?: Readonly<TextModelInfoWithProvider>
+  ) {
+    this.request.chatPrompt = chatPrompt;
+    this.request.modelConfig = modelConfig;
+    this.request.modelInfo = modelInfo;
+    return this;
+  }
+
   setEmbedStep(
     texts: readonly string[],
     modelInfo?: Readonly<TextModelInfoWithProvider>
@@ -248,7 +260,7 @@ export class GenerateTextRequestBuilder {
   }
 
   build(): Readonly<{
-    prompt: string;
+    prompt?: string;
     modelConfig?: Readonly<GenerateTextModelConfig>;
     modelInfo?: Readonly<TextModelInfoWithProvider>;
     embedModelInfo?: Readonly<TextModelInfoWithProvider>;

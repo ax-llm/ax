@@ -49,6 +49,7 @@ export type GenerateTextResponse = {
   remoteId?: string;
   results: {
     text: string;
+    role?: string;
     id?: string;
     finishReason?: string;
   }[];
@@ -72,8 +73,14 @@ export type FuncTrace = { name: string; args: string; result?: string };
 
 export type TextModelInfoWithProvider = TextModelInfo & { provider: string };
 
+export type AIGenerateTextChatPromptItem = {
+  text: string;
+  role: string;
+};
+
 export type AIGenerateTextTraceStepRequest = {
-  prompt: string;
+  prompt?: string;
+  chatPrompt?: Readonly<AIGenerateTextChatPromptItem[]>;
   systemPrompt?: string;
   texts?: readonly string[];
   modelConfig?: Readonly<GenerateTextModelConfig>;

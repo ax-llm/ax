@@ -170,10 +170,10 @@ export const generateChatTraceOpenAI = (
   const modelInfo = { ...mi, name: model, provider: 'openai' };
 
   // Building the prompt string from messages array
-  const prompt: string = messages
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((message: any) => `${message.role}: ${message.content}`)
-    .join('\n');
+  const chatPrompt = messages.map((message) => ({
+    text: message.content,
+    role: message.role,
+  }));
 
   // Configure GenerateTextModel based on OpenAIChatGenerateRequest
   const modelConfig: GenerateTextModelConfig = {
@@ -189,8 +189,8 @@ export const generateChatTraceOpenAI = (
 
   return new AIGenerateTextTraceStepBuilder()
     .setRequest(
-      new GenerateTextRequestBuilder().setGenerateStep(
-        prompt,
+      new GenerateTextRequestBuilder().setGenerateChatStep(
+        chatPrompt,
         modelConfig,
         modelInfo
       )
@@ -204,8 +204,9 @@ export const generateChatTraceOpenAI = (
         })
         .setResults(
           response.choices.map((choice) => ({
-            text: `${choice.message.role}: ${choice.message.content}`,
             id: response.id,
+            text: choice.message.content,
+            role: choice.message.role,
             finishReason: choice.finish_reason,
           }))
         )

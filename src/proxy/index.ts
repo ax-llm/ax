@@ -4,14 +4,12 @@ import zlib from 'zlib';
 import chalk from 'chalk';
 import httpProxy from 'http-proxy';
 
-import { uuid } from '../text/util.js';
-
-import { getTarget, publishTrace } from './tracing.js';
+import { processRequest, publishTrace } from './tracing.js';
 import { ExtendedIncomingMessage } from './types.js';
 
 import 'dotenv/config';
 
-const debug = process.env.DEBUG === 'true';
+const debug = (process.env.DEBUG ?? 'true') === 'true';
 
 const proxy = httpProxy.createProxyServer({
   secure: false,
@@ -22,29 +20,24 @@ const proxy = httpProxy.createProxyServer({
 http
   .createServer(async (_req, res) => {
     const req = _req as ExtendedIncomingMessage;
-    if (!req.url) {
-      errMsg(res, 'No URL provided');
+    let target;
+
+    try {
+      target = processRequest(req);
+    } catch (err: unknown) {
+      console.log('Error processing request', err);
       return;
     }
 
-    let target;
-
-    if (req.headers['content-type'] === 'application/json') {
-      const apiName = req.url.split('/', 2).at(1);
-      target = getTarget(apiName);
-
-      req.id = uuid();
-      req.type = apiName;
-      req.url = req.type ? req.url.substring(req.type.length + 1) : req.url;
-      req.pathname = new URL(req.url, target).pathname;
-      req.startTime = Date.now();
+    if (target && req.headers['content-type'] === 'application/json') {
+      proxy.web(req, res, { target });
 
       if (debug) {
-        console.log('> Proxying', req.id, apiName, target, req.pathname);
+        console.log('> Proxying', req.id, req.url);
       }
+    } else {
+      proxy.web(req, res);
     }
-
-    proxy.web(req, res, { target });
   })
   .listen(8081, () => {
     console.log(chalk.greenBright('🦙 LLMClient proxy listening on port 8081'));
@@ -62,7 +55,7 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
   const req = _req as ExtendedIncomingMessage;
   if (req.id) {
     req.resBody = await getBody(_proxyRes);
-    publishTrace(req);
+    publishTrace(req, debug);
   }
 });
 
@@ -73,11 +66,11 @@ proxy.on('error', (err, _req, res) => {
 
 // const cache = new Cache();
 
-const errMsg = (res: Readonly<http.ServerResponse>, msg: string) => {
-  res.writeHead(500);
-  res.end(msg);
-  return;
-};
+// const errMsg = (res: Readonly<http.ServerResponse>, msg: string) => {
+//   res.writeHead(500);
+//   res.end(msg);
+//   return;
+// };
 
 const getBody = (req: Readonly<IncomingMessage>): Promise<string> => {
   const chunks: Uint8Array[] = [];
