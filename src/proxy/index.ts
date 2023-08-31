@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 
+import crypto from 'crypto';
 import http, { IncomingMessage } from 'http';
+import stream from 'stream';
 import zlib from 'zlib';
 
 import chalk from 'chalk';
 import httpProxy from 'http-proxy';
 
-import { processRequest, publishTrace } from './tracing.js';
-import { ExtendedIncomingMessage } from './types.js';
-
+import { Cache } from './cache.js';
+import { buildTrace, processRequest, publishTrace } from './tracing.js';
+import { CacheItem, ExtendedIncomingMessage } from './types.js';
 import 'dotenv/config';
 
 const debug = (process.env.DEBUG ?? 'true') === 'true';
+
+const cache = new Cache<CacheItem>();
 
 const proxy = httpProxy.createProxyServer({
   secure: false,
@@ -20,8 +24,32 @@ const proxy = httpProxy.createProxyServer({
 });
 
 http
-  .createServer(async (_req, res) => {
+  .createServer(async (_req, _res) => {
     const req = _req as ExtendedIncomingMessage;
+    const chunks = await getBody(req);
+
+    const buff = Buffer.concat(chunks);
+    const hash = crypto
+      .createHash('sha1')
+      .update(req.url ?? '')
+      .update(buff)
+      .digest('hex');
+    const cachedResponse = cache.get(hash);
+    const contentEncoding = req.headers['content-encoding'];
+
+    if (cachedResponse) {
+      const { body, headers, trace } = cachedResponse;
+      _res.writeHead(200, headers);
+      _res.write(Buffer.concat(body));
+      _res.end();
+
+      if (trace) {
+        publishTrace(trace, debug);
+      }
+      return;
+    }
+
+    req.reqHash = hash;
     let target;
 
     try {
@@ -32,41 +60,52 @@ http
     }
 
     if (target && req.headers['content-type'] === 'application/json') {
-      proxy.web(req, res, { target });
+      req.reqBody = await decompress(contentEncoding, buff);
 
       if (debug) {
         console.log('> Proxying', req.id, req.url);
       }
-    } else {
-      proxy.web(req, res);
     }
+
+    // setup body buffer to pass to proxy
+    const buffer = new stream.PassThrough();
+    buffer.end(buff);
+
+    proxy.web(req, _res, { target, buffer });
   })
   .listen(8081, () => {
     console.log(chalk.greenBright('🦙 LLMClient proxy listening on port 8081'));
   });
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-proxy.on('proxyReq', async (_proxyReq, _req, _res) => {
-  const req = _req as ExtendedIncomingMessage;
-  if (req.id) {
-    req.reqBody = await getBody(_req);
-  }
-});
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// proxy.on('proxyReq', async (_proxyReq, _req, _res) => {
+// });
+
 proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
   const req = _req as ExtendedIncomingMessage;
-  if (req.id) {
-    req.resBody = await getBody(_proxyRes);
-    publishTrace(req, debug);
+
+  if (_res.writableEnded || !req.id || _proxyRes.statusCode !== 200) {
+    return;
   }
+
+  const chunks = await getBody(_proxyRes);
+  const buff = Buffer.concat(chunks);
+  const contentEncoding = _proxyRes.headers['content-encoding'];
+
+  req.resBody = await decompress(contentEncoding, buff);
+
+  const trace = buildTrace(req);
+  publishTrace(trace, debug);
+
+  cache.set(
+    req.reqHash,
+    { body: chunks, headers: _proxyRes.headers, trace },
+    3600
+  );
 });
 
-proxy.on('error', (err, _req, res) => {
+proxy.on('error', (err, _req, _res) => {
   console.log('Proxying failed', err);
-  res.end();
 });
-
-// const cache = new Cache();
 
 // const errMsg = (res: Readonly<http.ServerResponse>, msg: string) => {
 //   res.writeHead(500);
@@ -74,32 +113,37 @@ proxy.on('error', (err, _req, res) => {
 //   return;
 // };
 
-const getBody = (req: Readonly<IncomingMessage>): Promise<string> => {
-  const chunks: Uint8Array[] = [];
+const getBody = (req: Readonly<IncomingMessage>): Promise<Uint8Array[]> => {
+  return new Promise((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
 
+    req
+      .on('data', (chunk) => chunks.push(chunk))
+      .on('end', () => resolve(chunks))
+      .on('error', (err) => reject(err));
+  });
+};
+
+const decompress = (
+  encoding: string | undefined,
+  buff: Buffer
+): Promise<string> => {
   return new Promise((resolve, reject) => {
     const handler = (err: unknown, decoded: { toString: () => string }) =>
       err ? reject(err) : resolve(decoded.toString());
 
-    req
-      .on('data', function (chunk: Uint8Array) {
-        chunks.push(chunk);
-      })
-      .on('end', function () {
-        const buff = Buffer.concat(chunks);
-        switch (req.headers['content-encoding']) {
-          case 'gzip':
-            zlib.gunzip(buff, handler);
-            break;
-          case 'deflate':
-            zlib.inflate(buff, handler);
-            break;
-          case 'br':
-            zlib.brotliDecompress(buff, handler);
-            break;
-          default:
-            resolve(buff.toString());
-        }
-      });
+    switch (encoding) {
+      case 'gzip':
+        zlib.gunzip(buff, handler);
+        break;
+      case 'deflate':
+        zlib.inflate(buff, handler);
+        break;
+      case 'br':
+        zlib.brotliDecompress(buff, handler);
+        break;
+      default:
+        resolve(buff.toString());
+    }
   });
 };

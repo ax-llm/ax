@@ -11,6 +11,7 @@ import { AIGenerateTextTraceStepBuilder } from '../tracing/index.js';
 import { ExtendedIncomingMessage, ParserFunction } from './types.js';
 
 import 'dotenv/config';
+import { AIGenerateTextTraceStep } from '../text/types.js';
 
 const remoteLog = new RemoteLogger();
 const consoleLog = new ConsoleLogger();
@@ -69,7 +70,7 @@ const parserMap = new Map(Object.entries(parserMappings));
 
 const generateTrace = (
   req: Readonly<ExtendedIncomingMessage>
-): AIGenerateTextTraceStepBuilder | undefined => {
+): AIGenerateTextTraceStepBuilder => {
   const reqBody = JSON.parse(req.reqBody);
   const resBody = JSON.parse(req.resBody);
   return req.parserFn(reqBody, resBody);
@@ -84,20 +85,24 @@ export const getTarget = (apiName?: string): string => {
   }
 };
 
+export const buildTrace = (
+  req: Readonly<ExtendedIncomingMessage>
+): AIGenerateTextTraceStep => {
+  return generateTrace(req)
+    .setTraceId(req.id)
+    .setModelResponseTime(Date.now() - req.startTime)
+    .build();
+};
+
 export const publishTrace = (
-  req: Readonly<ExtendedIncomingMessage>,
+  trace: Readonly<AIGenerateTextTraceStep>,
   debug: boolean
-) => {
-  const trace = generateTrace(req)
-    ?.setTraceId(req.id)
-    ?.setModelResponseTime(Date.now() - req.startTime)
-    ?.build();
-  if (!trace) {
-    return;
-  }
+): AIGenerateTextTraceStep => {
   remoteLog.log(trace);
 
   if (debug) {
     consoleLog.log(trace);
   }
+
+  return trace;
 };

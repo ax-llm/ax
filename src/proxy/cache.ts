@@ -6,12 +6,12 @@ type CacheValue<T> = {
 export class Cache<T> {
   private store: Map<string, CacheValue<T>> = new Map();
 
-  set(key: string, value: Readonly<T>, maxAge: number) {
-    const expiry = new Date(Date.now() + maxAge * 1000);
+  set(key: string, value: Readonly<T>, maxAgeSeconds: number) {
+    const expiry = new Date(Date.now() + maxAgeSeconds * 1000);
 
     this.store.set(key, { value, expiry });
 
-    setTimeout(() => this.removeIfExpired(key), maxAge * 1000);
+    setTimeout(() => this.removeIfExpired(key), maxAgeSeconds * 1000);
   }
 
   get(key: string): T | undefined {
