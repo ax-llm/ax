@@ -1,9 +1,9 @@
-import { GenerateTextModelConfig } from '../../text/types';
 import {
   AIGenerateTextTraceStepBuilder,
   GenerateTextRequestBuilder,
   GenerateTextResponseBuilder,
 } from '../../tracing/index.js';
+import { GenerateTextModelConfig } from '../types.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {
@@ -155,6 +155,8 @@ export const generateChatTraceOpenAI = (
   const {
     model,
     messages,
+    functions,
+    function_call,
     max_tokens,
     temperature,
     top_p,
@@ -170,10 +172,14 @@ export const generateChatTraceOpenAI = (
   const modelInfo = { ...mi, name: model, provider: 'openai' };
 
   // Building the prompt string from messages array
-  const chatPrompt = messages.map((message) => ({
-    text: message.content,
-    role: message.role,
-  }));
+  const chatPrompt = messages.map(
+    ({ content: text, role, name, function_call: functionCall }) => ({
+      text,
+      role,
+      name,
+      functionCall,
+    })
+  );
 
   // Configure GenerateTextModel based on OpenAIChatGenerateRequest
   const modelConfig: GenerateTextModelConfig = {
@@ -189,11 +195,10 @@ export const generateChatTraceOpenAI = (
 
   return new AIGenerateTextTraceStepBuilder()
     .setRequest(
-      new GenerateTextRequestBuilder().setGenerateChatStep(
-        chatPrompt,
-        modelConfig,
-        modelInfo
-      )
+      new GenerateTextRequestBuilder()
+        .setGenerateChatStep(chatPrompt, modelConfig, modelInfo)
+        .setFunctions(functions)
+        .setFunctionCall(function_call as string)
     )
     .setResponse(
       new GenerateTextResponseBuilder()

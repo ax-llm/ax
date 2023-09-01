@@ -1,25 +1,30 @@
 import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
 import {
-  AIGenerateTextTraceStep,
   AIPromptConfig,
   AIService,
   AIServiceActionOptions,
   AIServiceOptions,
   AITranscribeConfig,
-  EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
-  RateLimiterFunction,
-  TextModelInfo,
-  TextModelInfoWithProvider,
-  TranscriptResponse,
 } from '../text/types.js';
 import {
   AIGenerateTextTraceStepBuilder,
   GenerateTextRequestBuilder,
   GenerateTextResponseBuilder,
 } from '../tracing/index.js';
+import {
+  AIGenerateTextTraceStep,
+  TextModelInfoWithProvider,
+} from '../tracing/types.js';
+
+import {
+  EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
+  RateLimiterFunction,
+  TextModelInfo,
+  TranscriptResponse,
+} from './types.js';
 
 export class BaseAI implements AIService {
   private consoleLog = new ConsoleLogger();

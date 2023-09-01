@@ -1,14 +1,13 @@
+import { AIPromptConfig, AIServiceOptions } from '../text/types';
+import { API, apiCall } from '../util/apicall';
+
+import { BaseAI } from './base';
 import {
-  AIPromptConfig,
-  AIServiceOptions,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
-} from '../text/types.js';
-
-import { BaseAI } from './base.js';
-import { API, apiCall } from '../util/apicall.js';
+} from './types';
 
 type CohereAPI = API;
 

@@ -2,13 +2,15 @@ import {
   AIPromptConfig,
   AIServiceOptions,
   AITranscribeConfig,
+} from '../../text/types.js';
+import { apiCall, apiCallWithUpload } from '../../util/apicall.js';
+import { BaseAI } from '../base.js';
+import {
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TranscriptResponse,
-} from '../../text/types.js';
-import { apiCall, apiCallWithUpload } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
+} from '../types.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {

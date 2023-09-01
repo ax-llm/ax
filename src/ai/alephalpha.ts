@@ -1,13 +1,8 @@
-import {
-  AIPromptConfig,
-  AIServiceOptions,
-  EmbedResponse,
-  GenerateTextResponse,
-  TextModelInfo,
-} from '../text/types.js';
-
+import { AIPromptConfig, AIServiceOptions } from '../text/types.js';
 import { API, apiCall } from '../util/apicall.js';
+
 import { BaseAI } from './base.js';
+import { EmbedResponse, GenerateTextResponse, TextModelInfo } from './types.js';
 
 const apiURL = 'https://api.aleph-alpha.com/';
 

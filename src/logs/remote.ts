@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 
-import { AIGenerateTextTraceStep } from '../text/types';
 import { sendTrace } from '../tracing/index.js';
+import { AIGenerateTextTraceStep } from '../tracing/types.js';
 
 export class RemoteLogger {
   private apiKey?: string;

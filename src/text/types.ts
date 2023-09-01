@@ -1,40 +1,18 @@
 import { JSONSchemaType } from 'ajv';
 
 import {
+  EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
+  RateLimiterFunction,
+  TextModelInfo,
+  TranscriptResponse,
+} from '../ai/types';
+import {
   GenerateTextRequestBuilder,
   GenerateTextResponseBuilder,
 } from '../tracing/trace';
-
-export type TextModelInfo = {
-  name: string;
-  currency?: string;
-  characterIsToken?: boolean;
-  promptTokenCostPer1K?: number;
-  completionTokenCostPer1K?: number;
-  maxTokens?: number;
-};
-
-export type TokenUsage = {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-};
-
-export type GenerateTextModelConfig = {
-  maxTokens: number;
-  temperature: number;
-  topP?: number;
-  topK?: number;
-  n?: number;
-  stream?: boolean;
-  logprobs?: number;
-  echo?: boolean;
-  presencePenalty?: number;
-  frequencyPenalty?: number;
-  bestOf?: number;
-  logitBias?: Map<string, number>;
-  suffix?: string | null;
-};
+import { AIGenerateTextTraceStep } from '../tracing/types';
 
 export type FunctionExec = {
   name: string;
@@ -44,93 +22,11 @@ export type FunctionExec = {
   // reasoning?: string[];
 };
 
-export type GenerateTextResponse = {
-  sessionId?: string;
-  remoteId?: string;
-  results: {
-    text: string;
-    role?: string;
-    id?: string;
-    finishReason?: string;
-  }[];
-  modelUsage?: TokenUsage;
-  embedModelUsage?: TokenUsage;
-};
-
-export type APIError = {
-  message: string;
-  status: number;
-  header?: Record<string, string>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  request: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  body?: any;
-};
-
-export type ParsingError = { message: string; value: string };
-
-export type FuncTrace = { name: string; args: string; result?: string };
-
-export type TextModelInfoWithProvider = TextModelInfo & { provider: string };
-
-export type AIGenerateTextChatPromptItem = {
-  text: string;
-  role: string;
-};
-
-export type AIGenerateTextTraceStepRequest = {
-  prompt?: string;
-  chatPrompt?: Readonly<AIGenerateTextChatPromptItem[]>;
-  systemPrompt?: string;
-  texts?: readonly string[];
-  modelConfig?: Readonly<GenerateTextModelConfig>;
-  modelInfo?: Readonly<TextModelInfoWithProvider>;
-  embedModelInfo?: Readonly<TextModelInfoWithProvider>;
-};
-
-export type AIGenerateTextTraceStepResponse = Omit<
-  GenerateTextResponse,
-  'sessionId'
-> & {
-  modelResponseTime?: number;
-  embedModelResponseTime?: number;
-  functions?: FuncTrace[];
-  parsingError?: ParsingError;
-  apiError?: APIError;
-};
-
-export type AIGenerateTextTraceStep = {
-  traceId: string;
-  sessionId?: string;
-  request: AIGenerateTextTraceStepRequest;
-  response: AIGenerateTextTraceStepResponse;
-  createdAt: string;
-};
-
 // eslint-disable-next-line functional/no-mixed-types
 export type AITextResponse<T> = {
   prompt: string;
   sessionId?: string;
   value(): T;
-};
-
-export type EmbedResponse = {
-  remoteId?: string;
-  sessionId?: string;
-  texts: readonly string[];
-  embedding: readonly number[];
-  modelUsage?: TokenUsage;
-};
-
-export type TranscriptResponse = {
-  sessionId?: string;
-  duration: number;
-  segments: {
-    id: number;
-    start: number;
-    end: number;
-    text: string;
-  }[];
 };
 
 export interface AIMemory {
@@ -139,11 +35,6 @@ export interface AIMemory {
   peek(sessionId?: string): Readonly<string[]>;
   reset(sessionId?: string): void;
 }
-
-export type Embeddings = {
-  model: string;
-  embedding: number[];
-};
 
 export type PromptFunctionExtraOptions = {
   ai: AIService;
@@ -238,8 +129,6 @@ export interface AIService {
   traceExists(): boolean;
   logTrace(): void;
 }
-
-export type RateLimiterFunction = <T>(func: unknown) => T;
 
 /*
 Magic isn't always unicorns and fairy dust␊

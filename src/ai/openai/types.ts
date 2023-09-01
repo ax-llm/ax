@@ -1,5 +1,7 @@
-import { GenerateTextModelConfig } from '../../text/types';
+import { JSONSchemaType } from 'ajv/dist/types/json-schema';
+
 import { API } from '../../util/apicall';
+import { GenerateTextModelConfig } from '../types';
 
 /**
  * OpenAI: API call details
@@ -108,7 +110,7 @@ export type OpenAIGenerateTextResponse = {
   choices: {
     text: string;
     index: number;
-    finish_reason: string;
+    finish_reason: 'stop' | 'length' | 'function_call';
     log_probs: OpenAILogprob;
   }[];
   usage: OpenAIUsage;
@@ -116,7 +118,19 @@ export type OpenAIGenerateTextResponse = {
 
 export type OpenAIChatGenerateRequest = {
   model: string;
-  messages: { role: string; content: string }[];
+  messages: {
+    role: 'system' | 'user' | 'assistant' | 'function';
+    content: string;
+    name?: string;
+    // eslint-disable-next-line functional/functional-parameters
+    function_call?: { name: string; arguments: string }[];
+  }[];
+  functions?: {
+    name: string;
+    description?: string;
+    parameters: JSONSchemaType<unknown>;
+  }[];
+  function_call?: 'none' | 'auto' | { name: string };
   max_tokens: number;
   temperature: number;
   top_p: number;

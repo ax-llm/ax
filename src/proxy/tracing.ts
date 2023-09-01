@@ -11,7 +11,7 @@ import { AIGenerateTextTraceStepBuilder } from '../tracing/index.js';
 import { ExtendedIncomingMessage, ParserFunction } from './types.js';
 
 import 'dotenv/config';
-import { AIGenerateTextTraceStep } from '../text/types.js';
+import { AIGenerateTextTraceStep } from '../tracing/types.js';
 
 const remoteLog = new RemoteLogger();
 const consoleLog = new ConsoleLogger();

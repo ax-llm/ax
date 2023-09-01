@@ -1,19 +1,23 @@
 import superagent from 'superagent';
 
 import {
+  GenerateTextModelConfig,
+  TextModelInfo,
+  TokenUsage,
+} from '../ai/types.js';
+import { uuid } from '../text/util.js';
+
+import {
   AIGenerateTextChatPromptItem,
+  AIGenerateTextRequestFunction,
+  AIGenerateTextResponseFunction,
   AIGenerateTextTraceStep,
   AIGenerateTextTraceStepRequest,
   AIGenerateTextTraceStepResponse,
   APIError,
-  FuncTrace,
-  GenerateTextModelConfig,
   ParsingError,
-  TextModelInfo,
   TextModelInfoWithProvider,
-  TokenUsage,
-} from '../text/types';
-import { uuid } from '../text/util.js';
+} from './types.js';
 
 export class ModelInfoBuilder {
   private info: TextModelInfoWithProvider = {} as TextModelInfoWithProvider;
@@ -167,7 +171,13 @@ export class GenerateTextResponseBuilder {
     return this;
   }
 
-  addFunction(func: Readonly<FuncTrace>): this {
+  setFunctions(funcs?: Readonly<AIGenerateTextResponseFunction[]>): this {
+    this.response.functions =
+      funcs as Readonly<AIGenerateTextResponseFunction>[];
+    return this;
+  }
+
+  addFunction(func: Readonly<AIGenerateTextResponseFunction>): this {
     if (!this.response.functions) {
       this.response.functions = [];
     }
@@ -244,9 +254,36 @@ export class GenerateTextRequestBuilder {
     modelConfig?: Readonly<GenerateTextModelConfig>,
     modelInfo?: Readonly<TextModelInfoWithProvider>
   ) {
-    this.request.chatPrompt = chatPrompt;
+    this.request.chatPrompt =
+      chatPrompt as Readonly<AIGenerateTextChatPromptItem>[];
     this.request.modelConfig = modelConfig;
     this.request.modelInfo = modelInfo;
+    return this;
+  }
+
+  addChat(chat: Readonly<AIGenerateTextChatPromptItem>): this {
+    if (!this.request.chatPrompt) {
+      this.request.chatPrompt = [];
+    }
+    this.request.chatPrompt.push(chat);
+    return this;
+  }
+
+  setFunctions(funcs?: Readonly<AIGenerateTextRequestFunction[]>): this {
+    this.request.functions = funcs as Readonly<AIGenerateTextRequestFunction>[];
+    return this;
+  }
+
+  addFunction(func: Readonly<AIGenerateTextRequestFunction>): this {
+    if (!this.request.functions) {
+      this.request.functions = [];
+    }
+    this.request.functions.push(func);
+    return this;
+  }
+
+  setFunctionCall(functionCall: string) {
+    this.request.functionCall = functionCall;
     return this;
   }
 

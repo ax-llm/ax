@@ -1,7 +1,7 @@
 import { IncomingMessage } from 'http';
 
-import { AIGenerateTextTraceStep } from '../text/types';
 import { AIGenerateTextTraceStepBuilder } from '../tracing';
+import { AIGenerateTextTraceStep } from '../tracing/types';
 
 export type ParserFunction = (
   request: Readonly<unknown>,

@@ -1,14 +1,13 @@
+import { AIPromptConfig, AIServiceOptions } from '../text/types.js';
+import { API, apiCall } from '../util/apicall.js';
+
+import { BaseAI } from './base.js';
 import {
-  AIPromptConfig,
-  AIServiceOptions,
   EmbedResponse,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
-} from '../text/types.js';
-
-import { API, apiCall } from '../util/apicall.js';
-import { BaseAI } from './base.js';
+} from './types.js';
 
 /**
  * GoogleAI: API call details

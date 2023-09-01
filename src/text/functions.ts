@@ -4,7 +4,6 @@ import {
   AIService,
   AIServiceActionOptions,
   FunctionExec,
-  FuncTrace,
   PromptFunction,
 } from './types.js';
 
@@ -105,7 +104,7 @@ export class FunctionProcessor {
         args: funcArgs,
         result: `Function ${funcName} not found`,
       };
-      this.ai.getTraceResponse()?.addFunction(funcExec as FuncTrace);
+      this.ai.getTraceResponse()?.addFunction(funcExec);
       return funcExec;
     }
 
@@ -117,7 +116,7 @@ export class FunctionProcessor {
       funcExec.result = `No data returned by function`;
     }
 
-    this.ai.getTraceResponse()?.addFunction(funcExec as FuncTrace);
+    this.ai.getTraceResponse()?.addFunction(funcExec);
     return funcExec;
   };
 }

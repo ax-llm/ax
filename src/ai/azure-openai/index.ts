@@ -1,10 +1,4 @@
-import {
-  AIPromptConfig,
-  AIServiceOptions,
-  EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
-} from '../../text/types.js';
+import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import { API, apiCall } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { modelInfoOpenAI } from '../openai/info.js';
@@ -20,6 +14,11 @@ import {
   OpenAIOptions,
 } from '../openai/types.js';
 import { generateChatReq, generateReq } from '../openai/util.js';
+import {
+  EmbedResponse,
+  GenerateTextModelConfig,
+  GenerateTextResponse,
+} from '../types.js';
 
 /**
  * AzureOpenAI: API call details

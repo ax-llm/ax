@@ -1,3 +1,6 @@
+import { GenerateTextResponse } from '../ai/types.js';
+import { APIError, ParsingError } from '../tracing/types.js';
+
 import {
   finalResultFunc,
   FunctionProcessor,
@@ -11,9 +14,6 @@ import {
   AIService,
   AIServiceActionOptions,
   AITextResponse,
-  APIError,
-  GenerateTextResponse,
-  ParsingError,
   PromptConfig,
   PromptFunction,
 } from './types.js';

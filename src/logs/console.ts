@@ -1,12 +1,12 @@
 import chalk from 'chalk';
 
 import {
-  AIGenerateTextTraceStep,
-  FunctionExec,
   GenerateTextModelConfig,
   GenerateTextResponse,
   TextModelInfo,
-} from '../text/types';
+} from '../ai/types';
+import { FunctionExec } from '../text/types';
+import { AIGenerateTextTraceStep } from '../tracing/types';
 
 export class ConsoleLogger {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
