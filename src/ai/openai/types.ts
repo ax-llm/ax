@@ -87,6 +87,7 @@ export type OpenAIGenerateRequest = {
   best_of?: number;
   logit_bias?: Map<string, number>;
   user?: string;
+  organization?: string;
 };
 
 export type OpenAILogprob = {
@@ -141,6 +142,7 @@ export type OpenAIChatGenerateRequest = {
   frequency_penalty?: number;
   logit_bias?: Map<string, number>;
   user?: string;
+  organization?: string;
 };
 
 export type OpenAIChatGenerateResponse = {

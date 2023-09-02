@@ -9,9 +9,15 @@ import chalk from 'chalk';
 import httpProxy from 'http-proxy';
 
 import { Cache } from './cache.js';
-import { buildTrace, processRequest, publishTrace } from './tracing.js';
+import {
+  buildTrace,
+  processRequest,
+  publishTrace,
+  updateCachedTrace,
+} from './tracing.js';
 import { CacheItem, ExtendedIncomingMessage } from './types.js';
 import 'dotenv/config';
+import { convertToAPIError } from './util.js';
 
 const debug = (process.env.DEBUG ?? 'true') === 'true';
 
@@ -37,6 +43,13 @@ http
     const cachedResponse = cache.get(hash);
     const contentEncoding = req.headers['content-encoding'];
 
+    req.traceId = req.headers['x-llmclient-traceid'] as string | undefined;
+    req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
+
+    if (debug) {
+      console.log('> Proxying', hash, req.url);
+    }
+
     if (cachedResponse) {
       const { body, headers, trace } = cachedResponse;
       _res.writeHead(200, headers);
@@ -44,7 +57,8 @@ http
       _res.end();
 
       if (trace) {
-        publishTrace(trace, debug);
+        const updatedTrace = updateCachedTrace(req, trace);
+        publishTrace(updatedTrace, debug);
       }
       return;
     }
@@ -61,16 +75,13 @@ http
 
     if (target && req.headers['content-type'] === 'application/json') {
       req.reqBody = await decompress(contentEncoding, buff);
-
-      if (debug) {
-        console.log('> Proxying', req.id, req.url);
-      }
     }
 
     // setup body buffer to pass to proxy
     const buffer = new stream.PassThrough();
     buffer.end(buff);
 
+    // send the request to be proxied
     proxy.web(req, _res, { target, buffer });
   })
   .listen(8081, () => {
@@ -83,26 +94,36 @@ http
 proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
   const req = _req as ExtendedIncomingMessage;
 
-  if (_res.writableEnded || !req.id || _proxyRes.statusCode !== 200) {
-    return;
-  }
-
   const chunks = await getBody(_proxyRes);
   const buff = Buffer.concat(chunks);
   const contentEncoding = _proxyRes.headers['content-encoding'];
+  const isOK = _proxyRes.statusCode === 200;
 
-  req.resBody = await decompress(contentEncoding, buff);
+  // parse out error for tracing
+  if (!isOK) {
+    req.error = convertToAPIError(req, _proxyRes);
+  }
 
-  const trace = buildTrace(req);
-  publishTrace(trace, debug);
+  let trace;
 
-  cache.set(
-    req.reqHash,
-    { body: chunks, headers: _proxyRes.headers, trace },
-    3600
-  );
+  // don't record trace if we don't have a request body
+  if (req.reqBody) {
+    req.resBody = await decompress(contentEncoding, buff);
+    trace = buildTrace(req);
+    publishTrace(trace, debug);
+  }
+
+  // only cache successful responses
+  if (isOK) {
+    cache.set(
+      req.reqHash,
+      { body: chunks, headers: _proxyRes.headers, trace },
+      3600
+    );
+  }
 });
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 proxy.on('error', (err, _req, _res) => {
   console.log('Proxying failed', err);
 });

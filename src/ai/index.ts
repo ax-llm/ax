@@ -6,4 +6,3 @@ export * from './googleai.js';
 export * from './together.js';
 export * from './anthropic.js';
 export * from './alephalpha.js';
-export * from '../util/apicall.js';

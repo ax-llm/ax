@@ -10,6 +10,7 @@ import { uuid } from '../text/util.js';
 import {
   AIGenerateTextChatPromptItem,
   AIGenerateTextRequestFunction,
+  AIGenerateTextRequestIdentity,
   AIGenerateTextResponseFunction,
   AIGenerateTextTraceStep,
   AIGenerateTextTraceStepRequest,
@@ -296,12 +297,12 @@ export class GenerateTextRequestBuilder {
     return this;
   }
 
-  build(): Readonly<{
-    prompt?: string;
-    modelConfig?: Readonly<GenerateTextModelConfig>;
-    modelInfo?: Readonly<TextModelInfoWithProvider>;
-    embedModelInfo?: Readonly<TextModelInfoWithProvider>;
-  }> {
+  setIdentity(identity?: Readonly<AIGenerateTextRequestIdentity>): this {
+    this.request.identity = identity;
+    return this;
+  }
+
+  build(): Readonly<AIGenerateTextTraceStepRequest> {
     return this.request;
   }
 }
@@ -331,6 +332,11 @@ export class AIGenerateTextTraceStepBuilder {
 
   setModelResponseTime(modelResponseTime?: number): this {
     this.traceStep.response.modelResponseTime = modelResponseTime;
+    return this;
+  }
+
+  setApiError(apiError?: Readonly<APIError>): this {
+    this.traceStep.response.apiError = apiError;
     return this;
   }
 

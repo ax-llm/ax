@@ -215,7 +215,6 @@ export class BaseAI implements AIService {
       : await fn();
 
     this.traceStepRespBuilder = new GenerateTextResponseBuilder()
-      .setRemoteId(res.remoteId)
       .setResults(res.results)
       .setModelUsage(res.modelUsage)
       .setModelResponseTime(modelResponseTime);
@@ -255,7 +254,6 @@ export class BaseAI implements AIService {
       : await fn();
 
     this.traceStepRespBuilder = new GenerateTextResponseBuilder()
-      .setRemoteId(res.remoteId)
       .setEmbedModelUsage(res.modelUsage)
       .setEmbedModelResponseTime(modelResponseTime);
 

@@ -45,7 +45,7 @@ export const apiCall = async <
     .accept('json')
     .retry(3)
     .then(({ body: data }) => Promise.resolve(data))
-    .catch(({ message, response, code, syscall, address, port }) => {
+    .catch(({ response, code, syscall, address, port }) => {
       if (!response) {
         return Promise.reject({
           apiUrl,
@@ -56,14 +56,13 @@ export const apiCall = async <
           request: json,
         });
       }
-      const { header, status, body } = response;
+      const { headers, status, body } = response;
       return Promise.reject({
-        apiUrl,
-        message,
-        status,
-        header,
-        body,
+        pathname: apiPath,
+        statusCode: status,
+        headers,
         request: json,
+        response: body,
       });
     });
 };

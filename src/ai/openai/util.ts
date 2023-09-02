@@ -104,6 +104,8 @@ export const generateTraceOpenAI = (
     presence_penalty,
     frequency_penalty,
     logit_bias,
+    user,
+    organization,
   } = request;
 
   // Fetching model info
@@ -122,13 +124,13 @@ export const generateTraceOpenAI = (
     logitBias: logit_bias,
   };
 
+  const identity = user || organization ? { user, organization } : undefined;
+
   return new AIGenerateTextTraceStepBuilder()
     .setRequest(
-      new GenerateTextRequestBuilder().setGenerateStep(
-        prompt,
-        modelConfig,
-        modelInfo
-      )
+      new GenerateTextRequestBuilder()
+        .setGenerateStep(prompt, modelConfig, modelInfo)
+        .setIdentity(identity)
     )
     .setResponse(
       new GenerateTextResponseBuilder()
@@ -144,13 +146,12 @@ export const generateTraceOpenAI = (
             finishReason: choice.finish_reason,
           }))
         )
-        .setRemoteId(response.id)
     );
 };
 
 export const generateChatTraceOpenAI = (
   request: Readonly<OpenAIChatGenerateRequest>,
-  response: Readonly<OpenAIChatGenerateResponse>
+  response?: Readonly<OpenAIChatGenerateResponse>
 ): AIGenerateTextTraceStepBuilder => {
   const {
     model,
@@ -165,6 +166,8 @@ export const generateChatTraceOpenAI = (
     presence_penalty,
     frequency_penalty,
     logit_bias,
+    user,
+    organization,
   } = request;
 
   // Fetching model info
@@ -193,28 +196,37 @@ export const generateChatTraceOpenAI = (
     logitBias: logit_bias,
   };
 
+  const modelUsage = response
+    ? {
+        promptTokens: response.usage.prompt_tokens,
+        completionTokens: response.usage.completion_tokens,
+        totalTokens: response.usage.total_tokens,
+      }
+    : undefined;
+
+  const results = response
+    ? response.choices.map((choice) => ({
+        id: response.id,
+        text: choice.message.content,
+        role: choice.message.role,
+        finishReason: choice.finish_reason,
+      }))
+    : undefined;
+
+  const identity = user || organization ? { user, organization } : undefined;
+
   return new AIGenerateTextTraceStepBuilder()
     .setRequest(
       new GenerateTextRequestBuilder()
         .setGenerateChatStep(chatPrompt, modelConfig, modelInfo)
         .setFunctions(functions)
         .setFunctionCall(function_call as string)
+        .setIdentity(identity)
     )
     .setResponse(
       new GenerateTextResponseBuilder()
-        .setModelUsage({
-          promptTokens: response.usage.prompt_tokens,
-          completionTokens: response.usage.completion_tokens,
-          totalTokens: response.usage.total_tokens,
-        })
-        .setResults(
-          response.choices.map((choice) => ({
-            id: response.id,
-            text: choice.message.content,
-            role: choice.message.role,
-            finishReason: choice.finish_reason,
-          }))
-        )
-        .setRemoteId(response.id)
+        .setModelUsage(modelUsage)
+        .setResults(results)
+        .setRemoteId(response?.id)
     );
 };

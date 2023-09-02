@@ -7,11 +7,11 @@ import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
 import { uuid } from '../text/util.js';
 import { AIGenerateTextTraceStepBuilder } from '../tracing/index.js';
+import { AIGenerateTextTraceStep } from '../tracing/types.js';
 
 import { ExtendedIncomingMessage, ParserFunction } from './types.js';
 
 import 'dotenv/config';
-import { AIGenerateTextTraceStep } from '../tracing/types.js';
 
 const remoteLog = new RemoteLogger();
 const consoleLog = new ConsoleLogger();
@@ -48,7 +48,6 @@ export const processRequest = (req: ExtendedIncomingMessage): string => {
     throw new Error(`Unknown LLM provider path: ${urlPath}`);
   }
 
-  req.id = uuid();
   req.startTime = Date.now();
   req.apiKey = req.headers['x-llmclient-apikey'] as string | undefined;
   req.url = urlPath;
@@ -72,8 +71,8 @@ const generateTrace = (
   req: Readonly<ExtendedIncomingMessage>
 ): AIGenerateTextTraceStepBuilder => {
   const reqBody = JSON.parse(req.reqBody);
-  const resBody = JSON.parse(req.resBody);
-  return req.parserFn(reqBody, resBody);
+  const resBody = !req.error ? JSON.parse(req.resBody) : undefined;
+  return req.parserFn(reqBody, resBody).setApiError(req.error);
 };
 
 export const getTarget = (apiName?: string): string => {
@@ -89,9 +88,21 @@ export const buildTrace = (
   req: Readonly<ExtendedIncomingMessage>
 ): AIGenerateTextTraceStep => {
   return generateTrace(req)
-    .setTraceId(req.id)
+    .setTraceId(req.traceId ?? uuid())
+    .setSessionId(req.sessionId)
     .setModelResponseTime(Date.now() - req.startTime)
     .build();
+};
+
+export const updateCachedTrace = (
+  req: Readonly<ExtendedIncomingMessage>,
+  trace: Readonly<AIGenerateTextTraceStep>
+): AIGenerateTextTraceStep => {
+  return {
+    ...trace,
+    traceId: req.traceId ?? uuid(),
+    sessionId: req.sessionId,
+  };
 };
 
 export const publishTrace = (

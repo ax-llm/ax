@@ -7,13 +7,15 @@ import {
 } from '../ai/types';
 
 export type APIError = {
-  message: string;
-  status: number;
-  header?: Record<string, string>;
+  pathname: string;
+  statusCode: number;
+  statusMessage?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  headers?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   request: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  body?: any;
+  response: any;
 };
 
 export type ParsingError = { message: string; value: string };
@@ -40,6 +42,11 @@ export type AIGenerateTextResponseFunction = {
   result?: string;
 };
 
+export type AIGenerateTextRequestIdentity = {
+  user?: string;
+  organization?: string;
+};
+
 export type AIGenerateTextTraceStepRequest = {
   prompt?: string;
   chatPrompt?: Readonly<AIGenerateTextChatPromptItem>[];
@@ -50,6 +57,7 @@ export type AIGenerateTextTraceStepRequest = {
   modelConfig?: Readonly<GenerateTextModelConfig>;
   modelInfo?: Readonly<TextModelInfoWithProvider>;
   embedModelInfo?: Readonly<TextModelInfoWithProvider>;
+  identity?: Readonly<AIGenerateTextRequestIdentity>;
 };
 
 export type AIGenerateTextTraceStepResponse = Omit<
