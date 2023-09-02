@@ -1,4 +1,4 @@
-# LLMClient - Simplify Building with LLMs, Function Calling and Reasoning.
+# LLMClient - Simplify Building with LLMs, Debugging & Tracing Proxy, Function Calling and Reasoning and more
 
 A production library, supports all major hosted and open-source LLMs , focused on function (API) calling and reasoning. Build quickly with LLMs
 
@@ -84,6 +84,41 @@ const res = await prompt.generate(ai, `What is your name?`, {
 
 // Print the result
 console.log(res.value());
+```
+
+## Debug your LLM interactions with a tracing proxy.
+
+A quick proxy server to help debug and trace all your llm interactions while you develop your prompts and LLM powered apps. The proxy has builtin caching to speedup your dev workflows and to save you from paying token costs. **The proxy works with any llm api in any language you don't even have to use llmclient.**
+
+> If you want to view your traces to the hosted web ui then just set the `LLMC_APIKEY` environment variable to your app key from llmclient.com
+
+Start local dev proxy server on port 8081
+```console
+npx @dosco/llm-client:latest proxy
+```
+
+Point your code to local dev proxy server
+```
+http://localhost:8081/openai/v1
+```
+
+Connect any LLM workflow to proxy server 
+```javascript
+// Example using openai client library
+import OpenAI from "openai";
+
+// Point the openai client to the proxy
+const openai = new OpenAI({
+  baseURL: "http://localhost:8081/openai/v1",
+  apiKey: process.env.OPENAI_APIKEY,
+});
+
+const chatCompletion = await openai.chat.completions.create({
+  messages: [{ role: "user", content: "Say this is a test" }],
+  model: "gpt-3.5-turbo",
+});
+
+console.log(chatCompletion);
 ```
 
 ## Function (API) Calling with reasoning (CoT)
