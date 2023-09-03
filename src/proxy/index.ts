@@ -13,6 +13,7 @@ import {
   buildTrace,
   processRequest,
   publishTrace,
+  remoteLog,
   updateCachedTrace,
 } from './tracing.js';
 import { CacheItem, ExtendedIncomingMessage } from './types.js';
@@ -85,7 +86,11 @@ http
     proxy.web(req, _res, { target, buffer });
   })
   .listen(8081, () => {
-    console.log(chalk.greenBright('🦙 LLMClient proxy listening on port 8081'));
+    console.log(
+      chalk.greenBright('🌵 LLMClient caching proxy listening on port 8081')
+    );
+    remoteLog.printDebugInfo();
+    console.log('🔥 ❤️  🖖🏼');
   });
 
 // proxy.on('proxyReq', async (_proxyReq, _req, _res) => {

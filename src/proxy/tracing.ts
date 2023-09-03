@@ -13,7 +13,7 @@ import { ExtendedIncomingMessage, ParserFunction } from './types.js';
 
 import 'dotenv/config';
 
-const remoteLog = new RemoteLogger();
+export const remoteLog = new RemoteLogger();
 const consoleLog = new ConsoleLogger();
 
 // eslint-disable-next-line functional/prefer-immutable-types
