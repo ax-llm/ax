@@ -121,6 +121,21 @@ const chatCompletion = await openai.chat.completions.create({
 console.log(chatCompletion);
 ```
 
+## Web UI for Debugging, Tracing and Metrics
+
+A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
+
+To enable sign-up at https://llmclient.com and get your API Key. Then set any one of these two enviroment variables `LLMC_APIKEY` or `LLMCLIENT_APIKEY`
+
+```
+# This is a fake key for example purposes
+LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32"
+
+```
+
+![frame_chrome_mac_dark (3)](https://github.com/dosco/llm-client/assets/832235/cceb6e1f-687a-437a-b733-e9a5f1866aa9)
+
+
 ## Function (API) Calling with reasoning (CoT)
 
 Often you need the LLM to reason through a task and fetch and update external data related to this task. This is whre reasoning meets function (API) calling. It's built-in so you get all of the magic automatically. Just define the functions you wish to you, a schema for the response object and thats it.
@@ -395,20 +410,6 @@ const resultSchema = {
 
 const prompt = new SPrompt(resultSchema, functions);
 ```
-
-## Web UI for Debugging, Tracing and Metrics
-
-A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
-
-To enable sign-up at https://llmclient.com and get your API Key. Then set any one of these two enviroment variables `LLMC_APIKEY` or `LLMCLIENT_APIKEY`
-
-```
-# This is a fake key for example purposes
-LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32"
-
-```
-
-![frame_chrome_mac_dark (3)](https://github.com/dosco/llm-client/assets/832235/cceb6e1f-687a-437a-b733-e9a5f1866aa9)
 
 ## Detailed Debug Logs
 
