@@ -133,7 +133,7 @@ LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c
 
 ```
 
-![frame_chrome_mac_dark (3)](https://github.com/dosco/llm-client/assets/832235/cceb6e1f-687a-437a-b733-e9a5f1866aa9)
+![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
 
 
 ## Function (API) Calling with reasoning (CoT)
