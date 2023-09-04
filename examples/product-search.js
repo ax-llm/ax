@@ -1,4 +1,4 @@
-import { SPrompt, Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
+import { SPrompt, Anthropic, Cohere, OpenAI } from 'llmclient';
 
 import 'dotenv/config';
 

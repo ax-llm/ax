@@ -1,11 +1,11 @@
 {
-  "name": "llm-client-examples",
+  "name": "llmclient-examples",
   "type": "module",
   "private": true,
-  "description": "llm-client example apps",
+  "description": "llmclient example apps",
   "main": "index.js",
   "dependencies": {
-    "@dosco/llm-client": "4.0.28",
+    "llmclient": "4.0.28",
     "@supercharge/promise-pool": "^2.4.0",
     "bottleneck": "^2.19.5",
     "chalk": "^5.2.0",

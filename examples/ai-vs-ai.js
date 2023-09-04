@@ -1,4 +1,4 @@
-import { Cohere, OpenAI, Memory, AssistantPrompt } from '@dosco/llm-client';
+import { Cohere, OpenAI, Memory, AssistantPrompt } from 'llmclient';
 
 import 'dotenv/config';
 

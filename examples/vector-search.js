@@ -1,4 +1,4 @@
-import { Anthropic, Cohere, OpenAI } from '@dosco/llm-client';
+import { Anthropic, Cohere, OpenAI } from 'llmclient';
 import { LocalIndex } from 'vectra';
 
 import 'dotenv/config';

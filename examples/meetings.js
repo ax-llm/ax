@@ -3,7 +3,7 @@ import {
   OpenAI,
   OpenAIDefaultOptions,
   OpenAIGenerateModel,
-} from '@dosco/llm-client';
+} from 'llmclient';
 
 import * as chrono from 'chrono-node';
 import superagent from 'superagent';

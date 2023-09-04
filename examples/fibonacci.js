@@ -6,7 +6,7 @@ import {
   Cohere,
   OpenAI,
   JSInterpreterFunction,
-} from '@dosco/llm-client';
+} from 'llmclient';
 
 import 'dotenv/config';
 

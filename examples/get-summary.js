@@ -1,5 +1,5 @@
-import { Memory, SummarizePrompt } from '@dosco/llm-client';
-import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
+import { Memory, SummarizePrompt } from 'llmclient';
+import { Anthropic, Together, Cohere, OpenAI } from 'llmclient';
 
 import 'dotenv/config';
 

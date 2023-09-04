@@ -1,5 +1,5 @@
-import { MessagePrompt, MessageType } from '@dosco/llm-client';
-import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
+import { MessagePrompt, MessageType } from 'llmclient';
+import { Anthropic, Together, Cohere, OpenAI } from 'llmclient';
 
 import 'dotenv/config';
 

@@ -6,7 +6,7 @@ import {
   Together,
   Cohere,
   OpenAI,
-} from '@dosco/llm-client';
+} from 'llmclient';
 
 const InitAI = () => {
   if (process.env.COHERE_APIKEY) {

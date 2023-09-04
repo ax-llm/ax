@@ -1,5 +1,5 @@
-import { Memory, AssistantPrompt } from '@dosco/llm-client';
-import { Anthropic, Together, Cohere, OpenAI } from '@dosco/llm-client';
+import { Memory, AssistantPrompt } from 'llmclient';
+import { Anthropic, Together, Cohere, OpenAI } from 'llmclient';
 import { createInterface } from 'readline';
 import Bottleneck from 'bottleneck';
 

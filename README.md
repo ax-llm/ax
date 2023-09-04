@@ -1,11 +1,14 @@
 # LLMClient - Tools to make it easier to build with LLMs
+
 ### 1. Guardrails, Extract JSON, LLM Independant Function Calling
+
 ### 2. Chain of Though Reasoning
+
 ### 3. Proxy for Debugging, Tracing, Caching and more
 
 A production ready library, supports all major hosted and open-source LLMs , focused on function (API) calling and chain of though reasoning. Build quickly with LLMs
 
-[![NPM Package](https://img.shields.io/npm/v/@dosco/llm-client?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/llm-client)
+[![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
@@ -18,7 +21,7 @@ This library handles all the **complexity** so you can focus on building useful 
 We believe that LLMs will soon replace your entire app backend. We truly live in amazing times. Please join our Discord so we can build together.
 
 ```console
-npm i @dosco/llm-client
+npm i llmclient
 ```
 
 ## Why use LLM Client
@@ -68,7 +71,7 @@ List of LLMs that work out of the box with llm-client and support **function cal
 ## Simple to use
 
 ```javascript
-import { OpenAI, AIMemory, AIPrompt } from '@dosco/llm-client';
+import { OpenAI, AIMemory, AIPrompt } from 'llmclient';
 
 // Support for OpenAI, AzureAI, GoogleAI, Cohere, etc...
 const ai = new OpenAI(process.env.OPENAI_APIKEY);
@@ -97,29 +100,32 @@ A quick proxy server to help debug and trace all your llm interactions while you
 > If you want to view your traces to the hosted web ui then just set the `LLMC_APIKEY` environment variable to your app key from llmclient.com
 
 Start local dev proxy server on port 8081
+
 ```console
-npx @dosco/llm-client:latest proxy
+npx llmclient:latest proxy
 ```
 
 Point your code to local dev proxy server
+
 ```
 http://localhost:8081/openai/v1
 ```
 
-Connect any LLM workflow to proxy server 
+Connect any LLM workflow to proxy server
+
 ```javascript
 // Example using openai client library
-import OpenAI from "openai";
+import OpenAI from 'openai';
 
 // Point the openai client to the proxy
 const openai = new OpenAI({
-  baseURL: "http://localhost:8081/openai/v1",
+  baseURL: 'http://localhost:8081/openai/v1',
   apiKey: process.env.OPENAI_APIKEY,
 });
 
 const chatCompletion = await openai.chat.completions.create({
-  messages: [{ role: "user", content: "Say this is a test" }],
-  model: "gpt-3.5-turbo",
+  messages: [{ role: 'user', content: 'Say this is a test' }],
+  model: 'gpt-3.5-turbo',
 });
 
 console.log(chatCompletion);
@@ -138,7 +144,6 @@ LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c
 ```
 
 ![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
-
 
 ## Function (API) Calling with reasoning (CoT)
 
