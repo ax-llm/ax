@@ -86,9 +86,8 @@ http
     proxy.web(req, _res, { target, buffer });
   })
   .listen(8081, () => {
-    console.log(
-      chalk.greenBright('🌵 LLMClient caching proxy listening on port 8081')
-    );
+    const msg = `🌵 LLMClient caching proxy listening on port 8081`;
+    console.log(chalk.greenBright(msg));
     remoteLog.printDebugInfo();
     console.log('🔥 ❤️  🖖🏼');
   });
@@ -104,16 +103,17 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
   const contentEncoding = _proxyRes.headers['content-encoding'];
   const isOK = _proxyRes.statusCode === 200;
 
-  // parse out error for tracing
-  if (!isOK) {
-    req.error = convertToAPIError(req, _proxyRes);
-  }
-
   let trace;
 
   // don't record trace if we don't have a request body
   if (req.reqBody) {
     req.resBody = await decompress(contentEncoding, buff);
+
+    // parse out error for tracing
+    if (!isOK) {
+      req.error = convertToAPIError(req, _proxyRes);
+    }
+
     trace = buildTrace(req);
     publishTrace(trace, debug);
   }

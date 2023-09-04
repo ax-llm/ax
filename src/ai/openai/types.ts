@@ -30,10 +30,9 @@ export const enum OpenAIApi {
  * @export
  */
 export enum OpenAIGenerateModel {
-  GPT4 = 'gpt-4-0613',
+  GPT4 = 'gpt-4',
   GPT432K = 'gpt-4-32k',
   GPT35Turbo = 'gpt-3.5-turbo',
-  GPT35Turbo0613 = 'gpt-3.5-turbo-0613',
   GPT35Turbo16K = 'gpt-3.5-turbo-16k',
   GPT35TextDavinci003 = 'text-davinci-003',
   GPT35TextDavinci002 = 'text-davinci-002',

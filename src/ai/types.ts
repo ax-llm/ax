@@ -5,6 +5,7 @@ export type TextModelInfo = {
   promptTokenCostPer1K?: number;
   completionTokenCostPer1K?: number;
   maxTokens?: number;
+  aliases?: string[];
 };
 
 export type TokenUsage = {

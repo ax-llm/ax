@@ -4,6 +4,7 @@ import {
   GenerateTextResponseBuilder,
 } from '../../tracing/index.js';
 import { GenerateTextModelConfig } from '../types.js';
+import { findItemByNameOrAlias } from '../util.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {
@@ -109,7 +110,7 @@ export const generateTraceOpenAI = (
   } = request;
 
   // Fetching model info
-  const mi = modelInfoOpenAI.find((item) => item.name === model);
+  const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
   const modelInfo = { ...mi, name: model, provider: 'openai' };
 
   // Configure GenerateTextModel based on OpenAIGenerateRequest
@@ -171,7 +172,7 @@ export const generateChatTraceOpenAI = (
   } = request;
 
   // Fetching model info
-  const mi = modelInfoOpenAI.find((item) => item.name === model);
+  const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
   const modelInfo = { ...mi, name: model, provider: 'openai' };
 
   // Building the prompt string from messages array

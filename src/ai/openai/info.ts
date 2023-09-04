@@ -13,6 +13,7 @@ export const modelInfoOpenAI: TextModelInfo[] = [
     promptTokenCostPer1K: 0.03,
     completionTokenCostPer1K: 0.06,
     maxTokens: 8192,
+    aliases: ['gpt-4-0613'],
   },
   {
     name: OpenAIGenerateModel.GPT432K,
@@ -27,13 +28,7 @@ export const modelInfoOpenAI: TextModelInfo[] = [
     promptTokenCostPer1K: 0.002,
     completionTokenCostPer1K: 0.002,
     maxTokens: 4096,
-  },
-  {
-    name: OpenAIGenerateModel.GPT35Turbo0613,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.002,
-    completionTokenCostPer1K: 0.002,
-    maxTokens: 4096,
+    aliases: ['gpt-3.5-turbo-0613'],
   },
   {
     name: OpenAIGenerateModel.GPT35Turbo16K,
