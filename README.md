@@ -1,6 +1,9 @@
-# LLMClient - Simplify Building with LLMs, Debugging & Tracing Proxy, Function Calling and Reasoning and more
+# LLMClient - Tools to make it easier to build with LLMs
+### 1. Guardrails, Extract JSON, LLM Independant Function Calling
+### 2. Chain of Though Reasoning
+### 3. Proxy for Debugging, Tracing, Caching and more
 
-A production library, supports all major hosted and open-source LLMs , focused on function (API) calling and reasoning. Build quickly with LLMs
+A production ready library, supports all major hosted and open-source LLMs , focused on function (API) calling and chain of though reasoning. Build quickly with LLMs
 
 [![NPM Package](https://img.shields.io/npm/v/@dosco/llm-client?style=for-the-badge&color=green)](https://www.npmjs.com/package/@dosco/llm-client)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -26,6 +29,7 @@ npm i @dosco/llm-client
 - Focus on useful real-world usecases
 - Single interface: OpenAI, Azure OpenAI, Cohere and more
 - Built in retry and error-correction logic
+- Guardrails and structured JSON extration
 - Usage statistics
 
 ## Code Examples (Apps)
