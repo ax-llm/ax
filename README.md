@@ -1,13 +1,15 @@
 # LLMClient - Tools to make it easier to build with LLMs
 
-### 1. Guardrails, Extract JSON, LLM Independant Function Calling
+A production ready library, supports all major hosted and open-source LLMs, Build quickly with LLMs
 
-### 2. Chain of Though Reasoning
+![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-### 3. Proxy for Debugging, Tracing, Caching and more
+1. Guardrails, Extract JSON, LLM Independant Function Calling
+2. Chain of Though Reasoning
+3. Proxy for Debugging, Tracing, Caching
+4. Simpler and smaller than the alternatives
 
-A production ready library, supports all major hosted and open-source LLMs , focused on function (API) calling and chain of though reasoning. Build quickly with LLMs
-
+---
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
