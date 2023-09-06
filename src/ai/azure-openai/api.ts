@@ -4,13 +4,13 @@ import { BaseAI } from '../base.js';
 import { modelInfoOpenAI } from '../openai/info.js';
 import {
   OpenAIChatGenerateRequest,
-  OpenAIChatGenerateResponse,
+  OpenAIChatResponse,
+  OpenAICompletionRequest,
+  OpenAICompletionResponse,
   OpenAIEmbedModels,
   OpenAIEmbedRequest,
   OpenAIEmbedResponse,
   OpenAIGenerateModel,
-  OpenAIGenerateRequest,
-  OpenAIGenerateTextResponse,
   OpenAIOptions,
 } from '../openai/types.js';
 import { generateChatReq, generateReq } from '../openai/util.js';
@@ -29,8 +29,8 @@ export type AzureOpenAIApiConfig = API & {
 };
 
 export const enum AzureOpenAIApi {
-  Generate = '/completions',
-  ChatGenerate = '/chat/completions',
+  Completion = '/completions',
+  Chat = '/chat/completions',
   Embed = '/embeddings',
   Transcribe = '/audio/transcriptions',
 }
@@ -142,10 +142,10 @@ export class AzureOpenAI extends BaseAI {
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       AzureOpenAIApiConfig,
-      OpenAIGenerateRequest,
-      OpenAIGenerateTextResponse
+      OpenAICompletionRequest,
+      OpenAICompletionResponse
     >(
-      this.createAPI(AzureOpenAIApi.Generate),
+      this.createAPI(AzureOpenAIApi.Completion),
       generateReq(prompt, this.options, options?.stopSequences ?? [])
     );
 
@@ -157,11 +157,13 @@ export class AzureOpenAI extends BaseAI {
         text: v.text,
         finishReason: v.finish_reason,
       })),
-      modelUsage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
-      },
+      modelUsage: u
+        ? {
+            promptTokens: u.prompt_tokens,
+            completionTokens: u.completion_tokens,
+            totalTokens: u.total_tokens,
+          }
+        : undefined,
     };
   }
 
@@ -172,9 +174,9 @@ export class AzureOpenAI extends BaseAI {
     const res = await apiCall<
       AzureOpenAIApiConfig,
       OpenAIChatGenerateRequest,
-      OpenAIChatGenerateResponse
+      OpenAIChatResponse
     >(
-      this.createAPI(AzureOpenAIApi.ChatGenerate),
+      this.createAPI(AzureOpenAIApi.Chat),
       generateChatReq(prompt, this.options, options?.stopSequences ?? [])
     );
 
@@ -186,11 +188,13 @@ export class AzureOpenAI extends BaseAI {
         text: v.message.content,
         finishReason: v.finish_reason,
       })),
-      modelUsage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
-      },
+      modelUsage: u
+        ? {
+            promptTokens: u.prompt_tokens,
+            completionTokens: u.completion_tokens,
+            totalTokens: u.total_tokens,
+          }
+        : undefined,
     };
   }
 

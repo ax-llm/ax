@@ -10,9 +10,12 @@ import { modelInfoOpenAI } from './info.js';
 import {
   OpenAIAudioRequest,
   OpenAIChatGenerateRequest,
-  OpenAIChatGenerateResponse,
-  OpenAIGenerateRequest,
-  OpenAIGenerateTextResponse,
+  OpenAIChatResponse,
+  OpenAIChatResponseDelta,
+  OpenAICompletionRequest,
+  OpenAICompletionResponse,
+  OpenAICompletionResponseDelta,
+  OpenAILogprob,
   OpenAIOptions,
 } from './types.js';
 
@@ -20,7 +23,7 @@ export const generateReq = (
   prompt: string,
   opt: Readonly<OpenAIOptions>,
   stopSequences: readonly string[]
-): OpenAIGenerateRequest => {
+): OpenAICompletionRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
       'OpenAI supports prompts with max 4 items in stopSequences'
@@ -90,10 +93,23 @@ export const generateAudioReq = (
   };
 };
 
-export const generateTraceOpenAI = (
-  request: Readonly<OpenAIGenerateRequest>,
-  response: Readonly<OpenAIGenerateTextResponse>
+export const generateCompletionTraceOpenAI = (
+  request: string,
+  response?: string
 ): AIGenerateTextTraceStepBuilder => {
+  const req = JSON.parse(request) as OpenAICompletionRequest;
+  let resp: OpenAICompletionResponse | undefined;
+
+  if (!response) {
+    resp = undefined;
+  } else if (req?.stream) {
+    resp = mergeCompletionResponseDeltas(
+      (response as string).split('\n') as string[]
+    );
+  } else {
+    resp = JSON.parse(response) as OpenAICompletionResponse;
+  }
+
   const {
     model,
     prompt,
@@ -107,13 +123,13 @@ export const generateTraceOpenAI = (
     logit_bias,
     user,
     organization,
-  } = request;
+  } = req;
 
   // Fetching model info
   const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
   const modelInfo = { ...mi, name: model, provider: 'openai' };
 
-  // Configure GenerateTextModel based on OpenAIGenerateRequest
+  // Configure GenerateTextModel based on OpenAICompletionRequest
   const modelConfig: GenerateTextModelConfig = {
     maxTokens: max_tokens,
     temperature: temperature,
@@ -125,6 +141,23 @@ export const generateTraceOpenAI = (
     logitBias: logit_bias,
   };
 
+  const modelUsage =
+    resp && resp.usage
+      ? {
+          promptTokens: resp.usage.prompt_tokens,
+          completionTokens: resp.usage.completion_tokens,
+          totalTokens: resp.usage.total_tokens,
+        }
+      : undefined;
+
+  const results = resp
+    ? resp.choices.map((choice) => ({
+        text: choice.text,
+        id: resp?.id,
+        finishReason: choice.finish_reason,
+      }))
+    : undefined;
+
   const identity = user || organization ? { user, organization } : undefined;
 
   return new AIGenerateTextTraceStepBuilder()
@@ -135,25 +168,29 @@ export const generateTraceOpenAI = (
     )
     .setResponse(
       new GenerateTextResponseBuilder()
-        .setModelUsage({
-          promptTokens: response.usage.prompt_tokens,
-          completionTokens: response.usage.completion_tokens,
-          totalTokens: response.usage.total_tokens,
-        })
-        .setResults(
-          response.choices.map((choice) => ({
-            text: choice.text,
-            id: response.id,
-            finishReason: choice.finish_reason,
-          }))
-        )
+        .setModelUsage(modelUsage)
+        .setResults(results)
+        .setRemoteId(resp?.id)
     );
 };
 
 export const generateChatTraceOpenAI = (
-  request: Readonly<OpenAIChatGenerateRequest>,
-  response?: Readonly<OpenAIChatGenerateResponse>
+  request: string,
+  response?: string
 ): AIGenerateTextTraceStepBuilder => {
+  const req = JSON.parse(request) as OpenAIChatGenerateRequest;
+  let resp: OpenAIChatResponse | undefined;
+
+  if (!response) {
+    resp = undefined;
+  } else if (req?.stream) {
+    resp = mergeChatResponseDeltas(
+      (response as string).split('\n') as string[]
+    );
+  } else {
+    resp = JSON.parse(response) as OpenAIChatResponse;
+  }
+
   const {
     model,
     messages,
@@ -169,7 +206,7 @@ export const generateChatTraceOpenAI = (
     logit_bias,
     user,
     organization,
-  } = request;
+  } = req;
 
   // Fetching model info
   const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
@@ -197,17 +234,18 @@ export const generateChatTraceOpenAI = (
     logitBias: logit_bias,
   };
 
-  const modelUsage = response
-    ? {
-        promptTokens: response.usage.prompt_tokens,
-        completionTokens: response.usage.completion_tokens,
-        totalTokens: response.usage.total_tokens,
-      }
-    : undefined;
+  const modelUsage =
+    resp && resp.usage
+      ? {
+          promptTokens: resp.usage.prompt_tokens,
+          completionTokens: resp.usage.completion_tokens,
+          totalTokens: resp.usage.total_tokens,
+        }
+      : undefined;
 
-  const results = response
-    ? response.choices.map((choice) => ({
-        id: response.id,
+  const results = resp
+    ? resp.choices.map((choice) => ({
+        id: `${choice.index}`,
         text: choice.message.content,
         role: choice.message.role,
         finishReason: choice.finish_reason,
@@ -228,6 +266,99 @@ export const generateChatTraceOpenAI = (
       new GenerateTextResponseBuilder()
         .setModelUsage(modelUsage)
         .setResults(results)
-        .setRemoteId(response?.id)
+        .setRemoteId(resp?.id)
     );
+};
+
+function mergeChatResponseDeltas(
+  dataStream: readonly string[]
+): OpenAIChatResponse {
+  const md = new Map<
+    number,
+    { content: string; role: string; finish_reason: string }
+  >();
+
+  let chunk: OpenAIChatResponseDelta | undefined;
+
+  parseStream(dataStream).forEach((data) => {
+    chunk = JSON.parse(data) as OpenAIChatResponseDelta;
+    chunk.choices.forEach((c) => {
+      const { index, delta, finish_reason } = c;
+      const value = md.get(index);
+      md.set(index, {
+        content: value?.content ?? '' + delta.content,
+        role: value?.role ?? delta.role ?? '',
+        finish_reason: value?.finish_reason ?? finish_reason ?? '',
+      });
+    });
+  });
+
+  if (!chunk) {
+    throw new Error('No data chunks found');
+  }
+
+  return {
+    id: chunk.id,
+    object: chunk.object,
+    created: chunk.created,
+    model: chunk.model,
+    choices: Array.from(md, ([index, v]) => ({
+      index,
+      message: {
+        role: v.role,
+        content: v.content,
+      },
+      finish_reason: v.finish_reason,
+    })),
+    usage: chunk.usage,
+  };
+}
+
+function mergeCompletionResponseDeltas(
+  dataStream: readonly string[]
+): OpenAICompletionResponse {
+  const md = new Map<
+    number,
+    { text: string; finish_reason: string; logprobs?: OpenAILogprob }
+  >();
+
+  let chunk: OpenAICompletionResponseDelta | undefined;
+
+  parseStream(dataStream).forEach((data) => {
+    chunk = JSON.parse(data) as OpenAICompletionResponseDelta;
+    chunk.choices.forEach((c) => {
+      const { index, delta, finish_reason } = c;
+      const value = md.get(index);
+      md.set(index, {
+        text: value?.text ?? '' + delta.text,
+        logprobs: value?.logprobs,
+        finish_reason: value?.finish_reason ?? finish_reason ?? '',
+      });
+    });
+  });
+
+  if (!chunk) {
+    throw new Error('No data chunks found');
+  }
+
+  return {
+    id: chunk.id,
+    object: chunk.object,
+    created: chunk.created,
+    model: chunk.model,
+    choices: Array.from(md, ([index, v]) => ({
+      index,
+      text: v.text,
+      logprobs: v.logprobs,
+      finish_reason: v.finish_reason,
+    })),
+    usage: chunk.usage,
+  };
+}
+
+const parseStream = (dataStream: readonly string[]): string[] => {
+  return dataStream
+    .map((v) => v.trim())
+    .filter((v) => v.startsWith('data:') && !v.endsWith('[DONE]'))
+    .map((v) => v.slice('data:'.length));
 };

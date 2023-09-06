@@ -21,13 +21,13 @@ import {
   OpenAIAudioRequest,
   OpenAIAudioResponse,
   OpenAIChatGenerateRequest,
-  OpenAIChatGenerateResponse,
+  OpenAIChatResponse,
+  OpenAICompletionRequest,
+  OpenAICompletionResponse,
   OpenAIEmbedModels,
   OpenAIEmbedRequest,
   OpenAIEmbedResponse,
   OpenAIGenerateModel,
-  OpenAIGenerateRequest,
-  OpenAIGenerateTextResponse,
   OpenAIOptions,
 } from './types.js';
 import { generateAudioReq, generateChatReq, generateReq } from './util.js';
@@ -145,10 +145,10 @@ export class OpenAI extends BaseAI {
   ): Promise<GenerateTextResponse> {
     const res = await apiCall<
       OpenAIApiConfig,
-      OpenAIGenerateRequest,
-      OpenAIGenerateTextResponse
+      OpenAICompletionRequest,
+      OpenAICompletionResponse
     >(
-      this.createAPI(OpenAIApi.Generate),
+      this.createAPI(OpenAIApi.Completion),
       generateReq(prompt, this.options, options?.stopSequences ?? [])
     );
 
@@ -160,11 +160,13 @@ export class OpenAI extends BaseAI {
         text: v.text,
         finishReason: v.finish_reason,
       })),
-      modelUsage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
-      },
+      modelUsage: u
+        ? {
+            promptTokens: u.prompt_tokens,
+            completionTokens: u.completion_tokens,
+            totalTokens: u.total_tokens,
+          }
+        : undefined,
     };
   }
 
@@ -175,9 +177,9 @@ export class OpenAI extends BaseAI {
     const res = await apiCall<
       OpenAIApiConfig,
       OpenAIChatGenerateRequest,
-      OpenAIChatGenerateResponse
+      OpenAIChatResponse
     >(
-      this.createAPI(OpenAIApi.ChatGenerate),
+      this.createAPI(OpenAIApi.Chat),
       generateChatReq(prompt, this.options, options?.stopSequences ?? [])
     );
 
@@ -189,11 +191,13 @@ export class OpenAI extends BaseAI {
         text: v.message.content,
         finishReason: v.finish_reason,
       })),
-      modelUsage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
-      },
+      modelUsage: u
+        ? {
+            promptTokens: u.prompt_tokens,
+            completionTokens: u.completion_tokens,
+            totalTokens: u.total_tokens,
+          }
+        : undefined,
     };
   }
 

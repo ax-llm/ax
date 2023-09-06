@@ -1,7 +1,7 @@
 import { apiURLOpenAI, OpenAIApi } from '../ai/openai/types.js';
 import {
   generateChatTraceOpenAI,
-  generateTraceOpenAI,
+  generateCompletionTraceOpenAI,
 } from '../ai/openai/util.js';
 import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
@@ -60,8 +60,8 @@ const parserMappings = {
   openai: {
     target: 'https://api.openai.com',
     parsers: [
-      { path: OpenAIApi.ChatGenerate, fn: generateChatTraceOpenAI },
-      { path: OpenAIApi.Generate, fn: generateTraceOpenAI },
+      { path: OpenAIApi.Completion, fn: generateCompletionTraceOpenAI },
+      { path: OpenAIApi.Chat, fn: generateChatTraceOpenAI },
     ],
   },
 };
@@ -70,8 +70,8 @@ const parserMap = new Map(Object.entries(parserMappings));
 const generateTrace = (
   req: Readonly<ExtendedIncomingMessage>
 ): AIGenerateTextTraceStepBuilder => {
-  const reqBody = JSON.parse(req.reqBody);
-  const resBody = !req.error ? JSON.parse(req.resBody) : undefined;
+  const reqBody = req.reqBody;
+  const resBody = !req.error ? req.resBody : undefined;
   return req.parserFn(reqBody, resBody).setApiError(req.error);
 };
 

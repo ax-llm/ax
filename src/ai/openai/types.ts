@@ -19,8 +19,8 @@ export const apiURLOpenAI = 'https://api.openai.com/';
  */
 
 export const enum OpenAIApi {
-  Generate = '/v1/completions',
-  ChatGenerate = '/v1/chat/completions',
+  Completion = '/v1/completions',
+  Chat = '/v1/chat/completions',
   Embed = '/v1/embeddings',
   Transcribe = '/v1/audio/transcriptions',
 }
@@ -69,7 +69,7 @@ export type OpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
   user?: string;
 };
 
-export type OpenAIGenerateRequest = {
+export type OpenAICompletionRequest = {
   model: string;
   prompt: string;
   suffix: string | null;
@@ -102,19 +102,38 @@ export type OpenAIUsage = {
   total_tokens: number;
 };
 
-export type OpenAIGenerateTextResponse = {
+export interface OpenAIResponseDelta<T> {
   id: string;
   object: string;
   created: number;
   model: string;
   choices: {
-    text: string;
     index: number;
-    finish_reason: 'stop' | 'length' | 'function_call';
-    log_probs: OpenAILogprob;
+    delta: T;
+    finish_reason: string;
   }[];
-  usage: OpenAIUsage;
+  usage?: OpenAIUsage;
+}
+
+export type OpenAICompletionResponse = {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: {
+    index: number;
+    text: string;
+    finish_reason: string;
+    logprobs?: OpenAILogprob;
+  }[];
+  usage?: OpenAIUsage;
 };
+
+export type OpenAICompletionResponseDelta = OpenAIResponseDelta<{
+  text: string;
+  finish_reason: string;
+  logprobs?: OpenAILogprob;
+}>;
 
 export type OpenAIChatGenerateRequest = {
   model: string;
@@ -144,7 +163,7 @@ export type OpenAIChatGenerateRequest = {
   organization?: string;
 };
 
-export type OpenAIChatGenerateResponse = {
+export type OpenAIChatResponse = {
   id: string;
   object: string;
   created: number;
@@ -157,8 +176,13 @@ export type OpenAIChatGenerateResponse = {
     };
     finish_reason: string;
   }[];
-  usage: OpenAIUsage;
+  usage?: OpenAIUsage;
 };
+
+export type OpenAIChatResponseDelta = OpenAIResponseDelta<{
+  content: string;
+  role?: string;
+}>;
 
 export type OpenAIEmbedRequest = {
   input: readonly string[];

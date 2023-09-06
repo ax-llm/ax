@@ -114,8 +114,12 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
       req.error = convertToAPIError(req, _proxyRes);
     }
 
-    trace = buildTrace(req);
-    publishTrace(trace, debug);
+    try {
+      trace = buildTrace(req);
+      publishTrace(trace, debug);
+    } catch (err: unknown) {
+      console.error('Error building trace', err);
+    }
   }
 
   // only cache successful responses
