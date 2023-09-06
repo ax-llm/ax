@@ -1,20 +1,16 @@
 import superagent from 'superagent';
 
-import {
-  GenerateTextModelConfig,
-  TextModelInfo,
-  TokenUsage,
-} from '../ai/types.js';
+import { TextModelConfig, TextModelInfo, TokenUsage } from '../ai/types.js';
 import { uuid } from '../text/util.js';
 
 import {
-  AIGenerateTextChatPromptItem,
-  AIGenerateTextRequestFunction,
-  AIGenerateTextRequestIdentity,
-  AIGenerateTextResponseFunction,
-  AIGenerateTextTraceStep,
-  AIGenerateTextTraceStepRequest,
-  AIGenerateTextTraceStepResponse,
+  AITextChatPromptItem,
+  AITextRequestFunction,
+  AITextRequestIdentity,
+  AITextResponseFunction,
+  AITextTraceStep,
+  AITextTraceStepRequest,
+  AITextTraceStepResponse,
   APIError,
   ParsingError,
   TextModelInfoWithProvider,
@@ -64,7 +60,7 @@ export class ModelInfoBuilder {
 }
 
 export class ModelConfigBuilder {
-  private config: GenerateTextModelConfig = {} as GenerateTextModelConfig;
+  private config: TextModelConfig = {} as TextModelConfig;
 
   setMaxTokens(maxTokens: number): this {
     this.config.maxTokens = maxTokens;
@@ -131,14 +127,13 @@ export class ModelConfigBuilder {
     return this;
   }
 
-  build(): GenerateTextModelConfig {
+  build(): TextModelConfig {
     return this.config;
   }
 }
 
-export class GenerateTextResponseBuilder {
-  private response: AIGenerateTextTraceStepResponse =
-    {} as AIGenerateTextTraceStepResponse;
+export class TextResponseBuilder {
+  private response: AITextTraceStepResponse = {} as AITextTraceStepResponse;
 
   addResult(
     result: Readonly<{ text: string; id?: string; finishReason?: string }>
@@ -172,13 +167,12 @@ export class GenerateTextResponseBuilder {
     return this;
   }
 
-  setFunctions(funcs?: Readonly<AIGenerateTextResponseFunction[]>): this {
-    this.response.functions =
-      funcs as Readonly<AIGenerateTextResponseFunction>[];
+  setFunctions(funcs?: Readonly<AITextResponseFunction[]>): this {
+    this.response.functions = funcs as Readonly<AITextResponseFunction>[];
     return this;
   }
 
-  addFunction(func: Readonly<AIGenerateTextResponseFunction>): this {
+  addFunction(func: Readonly<AITextResponseFunction>): this {
     if (!this.response.functions) {
       this.response.functions = [];
     }
@@ -208,13 +202,13 @@ export class GenerateTextResponseBuilder {
 
   // Include other setter methods for all fields...
 
-  build(): AIGenerateTextTraceStepResponse {
+  build(): AITextTraceStepResponse {
     return this.response;
   }
 }
 
 /*
-let response = new GenerateTextResponseBuilder()
+let response = new TextResponseBuilder()
     .addResult({text: 'Text', id: '1', finishReason: 'Stop'})
     .addFunction({name: 'function1', args: '1', result: 'result1'})
     .setModelResponseTime(123)
@@ -230,18 +224,17 @@ let response = new GenerateTextResponseBuilder()
     .build();
 */
 
-export class GenerateTextRequestBuilder {
-  private request: AIGenerateTextTraceStepRequest =
-    {} as AIGenerateTextTraceStepRequest;
+export class TextRequestBuilder {
+  private request: AITextTraceStepRequest = {} as AITextTraceStepRequest;
 
   setSystemPrompt(systemPrompt: string): this {
     this.request.systemPrompt = systemPrompt;
     return this;
   }
 
-  setGenerateStep(
+  setStep(
     prompt: string,
-    modelConfig?: Readonly<GenerateTextModelConfig>,
+    modelConfig?: Readonly<TextModelConfig>,
     modelInfo?: Readonly<TextModelInfoWithProvider>
   ) {
     this.request.prompt = prompt;
@@ -250,19 +243,18 @@ export class GenerateTextRequestBuilder {
     return this;
   }
 
-  setGenerateChatStep(
-    chatPrompt: Readonly<AIGenerateTextChatPromptItem[]>,
-    modelConfig?: Readonly<GenerateTextModelConfig>,
+  setChatStep(
+    chatPrompt: Readonly<AITextChatPromptItem[]>,
+    modelConfig?: Readonly<TextModelConfig>,
     modelInfo?: Readonly<TextModelInfoWithProvider>
   ) {
-    this.request.chatPrompt =
-      chatPrompt as Readonly<AIGenerateTextChatPromptItem>[];
+    this.request.chatPrompt = chatPrompt as Readonly<AITextChatPromptItem>[];
     this.request.modelConfig = modelConfig;
     this.request.modelInfo = modelInfo;
     return this;
   }
 
-  addChat(chat: Readonly<AIGenerateTextChatPromptItem>): this {
+  addChat(chat: Readonly<AITextChatPromptItem>): this {
     if (!this.request.chatPrompt) {
       this.request.chatPrompt = [];
     }
@@ -270,12 +262,12 @@ export class GenerateTextRequestBuilder {
     return this;
   }
 
-  setFunctions(funcs?: Readonly<AIGenerateTextRequestFunction[]>): this {
-    this.request.functions = funcs as Readonly<AIGenerateTextRequestFunction>[];
+  setFunctions(funcs?: Readonly<AITextRequestFunction[]>): this {
+    this.request.functions = funcs as Readonly<AITextRequestFunction>[];
     return this;
   }
 
-  addFunction(func: Readonly<AIGenerateTextRequestFunction>): this {
+  addFunction(func: Readonly<AITextRequestFunction>): this {
     if (!this.request.functions) {
       this.request.functions = [];
     }
@@ -297,18 +289,18 @@ export class GenerateTextRequestBuilder {
     return this;
   }
 
-  setIdentity(identity?: Readonly<AIGenerateTextRequestIdentity>): this {
+  setIdentity(identity?: Readonly<AITextRequestIdentity>): this {
     this.request.identity = identity;
     return this;
   }
 
-  build(): Readonly<AIGenerateTextTraceStepRequest> {
+  build(): Readonly<AITextTraceStepRequest> {
     return this.request;
   }
 }
 
-export class AIGenerateTextTraceStepBuilder {
-  private traceStep: AIGenerateTextTraceStep = {} as AIGenerateTextTraceStep;
+export class AITextTraceStepBuilder {
+  private traceStep: AITextTraceStep = {} as AITextTraceStep;
 
   setTraceId(traceId?: string): this {
     this.traceStep.traceId = traceId ? traceId : uuid();
@@ -320,12 +312,12 @@ export class AIGenerateTextTraceStepBuilder {
     return this;
   }
 
-  setRequest(request: Readonly<GenerateTextRequestBuilder>): this {
+  setRequest(request: Readonly<TextRequestBuilder>): this {
     this.traceStep.request = request.build();
     return this;
   }
 
-  setResponse(response: Readonly<GenerateTextResponseBuilder>): this {
+  setResponse(response: Readonly<TextResponseBuilder>): this {
     this.traceStep.response = response.build();
     return this;
   }
@@ -340,14 +332,14 @@ export class AIGenerateTextTraceStepBuilder {
     return this;
   }
 
-  build(): AIGenerateTextTraceStep {
+  build(): AITextTraceStep {
     this.traceStep.createdAt = new Date().toISOString();
     return this.traceStep;
   }
 }
 
 export const sendTrace = async (
-  step: Readonly<AIGenerateTextTraceStep>,
+  step: Readonly<AITextTraceStep>,
   apiKey: string,
   devMode: boolean
 ) => {

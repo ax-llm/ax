@@ -1,15 +1,15 @@
 import {
-  AIGenerateTextTraceStepBuilder,
-  GenerateTextRequestBuilder,
-  GenerateTextResponseBuilder,
+  AITextTraceStepBuilder,
+  TextRequestBuilder,
+  TextResponseBuilder,
 } from '../../tracing/index.js';
-import { GenerateTextModelConfig } from '../types.js';
+import { TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {
   OpenAIAudioRequest,
-  OpenAIChatGenerateRequest,
+  OpenAIChatRequest,
   OpenAIChatResponse,
   OpenAIChatResponseDelta,
   OpenAICompletionRequest,
@@ -53,7 +53,7 @@ export const generateChatReq = (
   prompt: string,
   opt: Readonly<OpenAIOptions>,
   stopSequences: readonly string[]
-): OpenAIChatGenerateRequest => {
+): OpenAIChatRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
       'OpenAI supports prompts with max 4 items in stopSequences'
@@ -96,7 +96,7 @@ export const generateAudioReq = (
 export const generateCompletionTraceOpenAI = (
   request: string,
   response?: string
-): AIGenerateTextTraceStepBuilder => {
+): AITextTraceStepBuilder => {
   const req = JSON.parse(request) as OpenAICompletionRequest;
   let resp: OpenAICompletionResponse | undefined;
 
@@ -129,8 +129,8 @@ export const generateCompletionTraceOpenAI = (
   const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
   const modelInfo = { ...mi, name: model, provider: 'openai' };
 
-  // Configure GenerateTextModel based on OpenAICompletionRequest
-  const modelConfig: GenerateTextModelConfig = {
+  // Configure TextModel based on OpenAICompletionRequest
+  const modelConfig: TextModelConfig = {
     maxTokens: max_tokens,
     temperature: temperature,
     topP: top_p,
@@ -160,14 +160,14 @@ export const generateCompletionTraceOpenAI = (
 
   const identity = user || organization ? { user, organization } : undefined;
 
-  return new AIGenerateTextTraceStepBuilder()
+  return new AITextTraceStepBuilder()
     .setRequest(
-      new GenerateTextRequestBuilder()
-        .setGenerateStep(prompt, modelConfig, modelInfo)
+      new TextRequestBuilder()
+        .setStep(prompt, modelConfig, modelInfo)
         .setIdentity(identity)
     )
     .setResponse(
-      new GenerateTextResponseBuilder()
+      new TextResponseBuilder()
         .setModelUsage(modelUsage)
         .setResults(results)
         .setRemoteId(resp?.id)
@@ -177,8 +177,8 @@ export const generateCompletionTraceOpenAI = (
 export const generateChatTraceOpenAI = (
   request: string,
   response?: string
-): AIGenerateTextTraceStepBuilder => {
-  const req = JSON.parse(request) as OpenAIChatGenerateRequest;
+): AITextTraceStepBuilder => {
+  const req = JSON.parse(request) as OpenAIChatRequest;
   let resp: OpenAIChatResponse | undefined;
 
   if (!response) {
@@ -222,8 +222,8 @@ export const generateChatTraceOpenAI = (
     })
   );
 
-  // Configure GenerateTextModel based on OpenAIChatGenerateRequest
-  const modelConfig: GenerateTextModelConfig = {
+  // Configure TextModel based on OpenAIChatRequest
+  const modelConfig: TextModelConfig = {
     maxTokens: max_tokens,
     temperature: temperature,
     topP: top_p,
@@ -254,16 +254,16 @@ export const generateChatTraceOpenAI = (
 
   const identity = user || organization ? { user, organization } : undefined;
 
-  return new AIGenerateTextTraceStepBuilder()
+  return new AITextTraceStepBuilder()
     .setRequest(
-      new GenerateTextRequestBuilder()
-        .setGenerateChatStep(chatPrompt, modelConfig, modelInfo)
+      new TextRequestBuilder()
+        .setChatStep(chatPrompt, modelConfig, modelInfo)
         .setFunctions(functions)
         .setFunctionCall(function_call as string)
         .setIdentity(identity)
     )
     .setResponse(
-      new GenerateTextResponseBuilder()
+      new TextResponseBuilder()
         .setModelUsage(modelUsage)
         .setResults(results)
         .setRemoteId(resp?.id)

@@ -2,11 +2,7 @@ import { AIPromptConfig, AIServiceOptions } from '../text/types.js';
 import { API, apiCall } from '../util/apicall.js';
 
 import { BaseAI } from './base.js';
-import {
-  GenerateTextModelConfig,
-  GenerateTextResponse,
-  TextModelInfo,
-} from './types.js';
+import { TextModelConfig, TextModelInfo, TextResponse } from './types.js';
 
 type TogetherAPI = API & {
   headers: { Authorization: string; accept: string; 'content-type': string };
@@ -179,7 +175,7 @@ export const TogetherDefaultOptions = (): TogetherOptions => ({
   repetitionPenalty: 1.5,
 });
 
-type TogetherGenerateRequest = {
+type TogetherRequest = {
   model: TogetherChatModel | TogetherLanguageModel | TogetherCodeModel | string;
   prompt: string;
   max_tokens: number;
@@ -192,14 +188,14 @@ type TogetherGenerateRequest = {
   stream_tokens?: boolean;
 };
 
-type TogetherAIGenerateTextResponse = {
+type TogetherAITextResponse = {
   status: string;
   prompt: string[];
   model: string;
   model_owner: string;
   tags: Record<string, unknown>;
   num_returns: number;
-  args: TogetherGenerateRequest;
+  args: TogetherRequest;
   subjobs: string[];
   output: {
     choices: { finish_reason: string; index: number; text: string }[];
@@ -212,7 +208,7 @@ const generateReq = (
   prompt: string,
   opt: Readonly<TogetherOptions>,
   stopSequences?: readonly string[]
-): TogetherGenerateRequest => ({
+): TogetherRequest => ({
   stream_tokens: opt.stream,
   model: opt.model,
   prompt,
@@ -249,7 +245,7 @@ export class Together extends BaseAI {
     this.options = options;
   }
 
-  getModelConfig(): GenerateTextModelConfig {
+  getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
@@ -257,17 +253,17 @@ export class Together extends BaseAI {
       topP: options.topP,
       topK: options.topK,
       stream: options.stream,
-    } as GenerateTextModelConfig;
+    } as TextModelConfig;
   }
 
   async _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       TogetherAPI,
-      TogetherGenerateRequest,
-      TogetherAIGenerateTextResponse
+      TogetherRequest,
+      TogetherAITextResponse
     >(
       {
         key: this.apiKey,

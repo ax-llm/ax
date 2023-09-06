@@ -1,12 +1,12 @@
 import { IncomingMessage } from 'http';
 
-import { AIGenerateTextTraceStepBuilder } from '../tracing';
-import { AIGenerateTextTraceStep, APIError } from '../tracing/types';
+import { AITextTraceStepBuilder } from '../tracing';
+import { AITextTraceStep, APIError } from '../tracing/types';
 
 export type ParserFunction = (
   request: Readonly<unknown>,
   response?: Readonly<unknown>
-) => AIGenerateTextTraceStepBuilder;
+) => AITextTraceStepBuilder;
 
 export type ExtendedIncomingMessage = IncomingMessage & {
   reqHash: string;
@@ -24,5 +24,5 @@ export type ExtendedIncomingMessage = IncomingMessage & {
 export type CacheItem = {
   body: Uint8Array[];
   headers: Record<string, string | string[] | undefined>;
-  trace?: AIGenerateTextTraceStep;
+  trace?: AITextTraceStep;
 };

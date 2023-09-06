@@ -2,11 +2,7 @@ import { AIPromptConfig, AIServiceOptions } from '../text/types.js';
 import { API, apiCall } from '../util/apicall.js';
 
 import { BaseAI } from './base.js';
-import {
-  GenerateTextModelConfig,
-  GenerateTextResponse,
-  TextModelInfo,
-} from './types.js';
+import { TextModelConfig, TextModelInfo, TextResponse } from './types.js';
 
 /**
  * HuggingFace: API call details
@@ -22,14 +18,14 @@ const apiURL = 'https://api-inference.huggingface.co/';
  */
 
 const enum apiType {
-  Generate = 'models',
+  Completion = 'models',
 }
 
 /**
  * HuggingFace: Models for text generation
  * @export
  */
-export enum HuggingFaceGenerateModel {
+export enum HuggingFaceModel {
   MetaLlama270BChatHF = 'meta-llama/Llama-2-70b-chat-hf',
 }
 
@@ -39,7 +35,7 @@ export enum HuggingFaceGenerateModel {
  */
 export const HuggingFaceModelInfo: TextModelInfo[] = [
   {
-    name: HuggingFaceGenerateModel.MetaLlama270BChatHF,
+    name: HuggingFaceModel.MetaLlama270BChatHF,
     currency: 'usd',
     promptTokenCostPer1K: 0.0,
     completionTokenCostPer1K: 0.0,
@@ -52,7 +48,7 @@ export const HuggingFaceModelInfo: TextModelInfo[] = [
  * @export
  */
 export type HuggingFaceOptions = {
-  model: HuggingFaceGenerateModel;
+  model: HuggingFaceModel;
   temperature: number;
   topP: number;
   topK?: number;
@@ -71,7 +67,7 @@ export type HuggingFaceOptions = {
  * @export
  */
 export const HuggingFaceDefaultOptions = (): HuggingFaceOptions => ({
-  model: HuggingFaceGenerateModel.MetaLlama270BChatHF,
+  model: HuggingFaceModel.MetaLlama270BChatHF,
   maxNewTokens: 1000,
   temperature: 0,
   topP: 1,
@@ -83,12 +79,12 @@ export const HuggingFaceDefaultOptions = (): HuggingFaceOptions => ({
  */
 export const HuggingFaceCreativeOptions = (): HuggingFaceOptions => ({
   ...HuggingFaceDefaultOptions(),
-  model: HuggingFaceGenerateModel.MetaLlama270BChatHF,
+  model: HuggingFaceModel.MetaLlama270BChatHF,
   temperature: 0.9,
 });
 
-type HuggingFaceGenerateRequest = {
-  model: HuggingFaceGenerateModel.MetaLlama270BChatHF;
+type HuggingFaceRequest = {
+  model: HuggingFaceModel.MetaLlama270BChatHF;
   inputs: string;
   parameters: {
     max_new_tokens?: number;
@@ -107,7 +103,7 @@ type HuggingFaceGenerateRequest = {
   };
 };
 
-type HuggingFaceGenerateTextResponse = {
+type HuggingFaceTextResponse = {
   generated_text: string;
 };
 
@@ -116,7 +112,7 @@ const generateReq = (
   opt: Readonly<HuggingFaceOptions>,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _stopSequences: readonly string[]
-): HuggingFaceGenerateRequest => {
+): HuggingFaceRequest => {
   return {
     model: opt.model,
     inputs: prompt,
@@ -167,26 +163,26 @@ export class HuggingFace extends BaseAI {
     this.options = options;
   }
 
-  getModelConfig(): GenerateTextModelConfig {
+  getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxNewTokens,
       temperature: options.temperature,
       topP: options.topP,
       topK: options.topK,
-    } as GenerateTextModelConfig;
+    } as TextModelConfig;
   }
 
   async _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       HuggingFaceAPI,
-      HuggingFaceGenerateRequest,
-      HuggingFaceGenerateTextResponse
+      HuggingFaceRequest,
+      HuggingFaceTextResponse
     >(
-      this.createAPI(apiType.Generate),
+      this.createAPI(apiType.Completion),
       generateReq(prompt, this.options, options?.stopSequences ?? [])
     );
 

@@ -1,10 +1,6 @@
 import { JSONSchemaType } from 'ajv';
 
-import {
-  GenerateTextModelConfig,
-  GenerateTextResponse,
-  TextModelInfo,
-} from '../ai/types';
+import { TextModelConfig, TextResponse, TextModelInfo } from '../ai/types';
 
 export type APIError = {
   pathname: string;
@@ -22,7 +18,7 @@ export type ParsingError = { message: string; value: string };
 
 export type TextModelInfoWithProvider = TextModelInfo & { provider: string };
 
-export type AIGenerateTextChatPromptItem = {
+export type AITextChatPromptItem = {
   text: string;
   role: string;
   name?: string;
@@ -30,51 +26,48 @@ export type AIGenerateTextChatPromptItem = {
   functionCall?: { name: string; arguments: string }[];
 };
 
-export type AIGenerateTextRequestFunction = {
+export type AITextRequestFunction = {
   name: string;
   description?: string;
   parameters: JSONSchemaType<unknown>;
 };
 
-export type AIGenerateTextResponseFunction = {
+export type AITextResponseFunction = {
   name: string;
   args?: string;
   result?: string;
 };
 
-export type AIGenerateTextRequestIdentity = {
+export type AITextRequestIdentity = {
   user?: string;
   organization?: string;
 };
 
-export type AIGenerateTextTraceStepRequest = {
+export type AITextTraceStepRequest = {
   prompt?: string;
-  chatPrompt?: Readonly<AIGenerateTextChatPromptItem>[];
+  chatPrompt?: Readonly<AITextChatPromptItem>[];
   systemPrompt?: string;
   texts?: readonly string[];
-  functions?: Readonly<AIGenerateTextRequestFunction>[];
+  functions?: Readonly<AITextRequestFunction>[];
   functionCall?: string;
-  modelConfig?: Readonly<GenerateTextModelConfig>;
+  modelConfig?: Readonly<TextModelConfig>;
   modelInfo?: Readonly<TextModelInfoWithProvider>;
   embedModelInfo?: Readonly<TextModelInfoWithProvider>;
-  identity?: Readonly<AIGenerateTextRequestIdentity>;
+  identity?: Readonly<AITextRequestIdentity>;
 };
 
-export type AIGenerateTextTraceStepResponse = Omit<
-  GenerateTextResponse,
-  'sessionId'
-> & {
+export type AITextTraceStepResponse = Omit<TextResponse, 'sessionId'> & {
   modelResponseTime?: number;
   embedModelResponseTime?: number;
-  functions?: Readonly<AIGenerateTextResponseFunction>[];
+  functions?: Readonly<AITextResponseFunction>[];
   parsingError?: Readonly<ParsingError>;
   apiError?: Readonly<APIError>;
 };
 
-export type AIGenerateTextTraceStep = {
+export type AITextTraceStep = {
   traceId: string;
   sessionId?: string;
-  request: AIGenerateTextTraceStepRequest;
-  response: AIGenerateTextTraceStepResponse;
+  request: AITextTraceStepRequest;
+  response: AITextTraceStepResponse;
   createdAt: string;
 };

@@ -1,4 +1,4 @@
-import { GenerateTextResponse } from '../ai/types.js';
+import { TextResponse } from '../ai/types.js';
 import { APIError, ParsingError } from '../tracing/types.js';
 
 import {
@@ -94,7 +94,7 @@ export class AIPrompt<T> {
     mem: AIMemory,
     query: string,
     options: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<[GenerateTextResponse, string | Map<string, string[]> | T]> {
+  ): Promise<[TextResponse, string | Map<string, string[]> | T]> {
     try {
       return await this.generateHandler(ai, mem, query, options);
     } catch (e: unknown) {
@@ -121,10 +121,10 @@ export class AIPrompt<T> {
     mem: AIMemory,
     query: string,
     options: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<[GenerateTextResponse, string | Map<string, string[]> | T]> {
+  ): Promise<[TextResponse, string | Map<string, string[]> | T]> {
     const { keyValue = false, schema } = this.conf.response || {};
 
-    let res: GenerateTextResponse;
+    let res: TextResponse;
     let value: string;
 
     if (this.functions && this.functions?.length > 0) {
@@ -148,7 +148,7 @@ export class AIPrompt<T> {
     mem: AIMemory,
     query: string,
     options: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<[GenerateTextResponse, string]> {
+  ): Promise<[TextResponse, string]> {
     const h = () => mem.history(options?.sessionId);
     const funcProcessor = new FunctionProcessor(ai, options);
     let previousValue;
@@ -205,7 +205,7 @@ export class AIPrompt<T> {
     mem: AIMemory,
     query: string,
     options: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<[GenerateTextResponse, string]> {
+  ): Promise<[TextResponse, string]> {
     const h = () => mem.history(options.sessionId);
     const p = this.prompt(query, h);
     const res = await ai.generate(p, options);

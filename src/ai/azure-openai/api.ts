@@ -3,22 +3,18 @@ import { API, apiCall } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { modelInfoOpenAI } from '../openai/info.js';
 import {
-  OpenAIChatGenerateRequest,
+  OpenAIChatRequest,
   OpenAIChatResponse,
   OpenAICompletionRequest,
   OpenAICompletionResponse,
   OpenAIEmbedModels,
   OpenAIEmbedRequest,
   OpenAIEmbedResponse,
-  OpenAIGenerateModel,
+  OpenAIModel,
   OpenAIOptions,
 } from '../openai/types.js';
 import { generateChatReq, generateReq } from '../openai/util.js';
-import {
-  EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
-} from '../types.js';
+import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 /**
  * AzureOpenAI: API call details
@@ -40,7 +36,7 @@ export const enum AzureOpenAIApi {
  * @export
  */
 export const AzureOpenAIDefaultOptions = (): OpenAIOptions => ({
-  model: OpenAIGenerateModel.GPT35Turbo,
+  model: OpenAIModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   maxTokens: 300,
   temperature: 0.45,
@@ -53,7 +49,7 @@ export const AzureOpenAIDefaultOptions = (): OpenAIOptions => ({
  */
 export const AzureOpenAICreativeOptions = (): OpenAIOptions => ({
   ...AzureOpenAIDefaultOptions(),
-  model: OpenAIGenerateModel.GPT35Turbo,
+  model: OpenAIModel.GPT35Turbo,
   temperature: 0.9,
 });
 
@@ -63,7 +59,7 @@ export const AzureOpenAICreativeOptions = (): OpenAIOptions => ({
  */
 export const AzureOpenAIFastOptions = (): OpenAIOptions => ({
   ...AzureOpenAIDefaultOptions(),
-  model: OpenAIGenerateModel.GPT35Turbo,
+  model: OpenAIModel.GPT35Turbo,
   temperature: 0.45,
 });
 
@@ -105,7 +101,7 @@ export class AzureOpenAI extends BaseAI {
     this.apiURL = new URL(`/openai/deployments/${deploymentName}`, host).href;
   }
 
-  getModelConfig(): GenerateTextModelConfig {
+  getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
@@ -119,16 +115,16 @@ export class AzureOpenAI extends BaseAI {
       frequencyPenalty: options.frequencyPenalty,
       bestOf: options.bestOf,
       logitBias: options.logitBias,
-    } as GenerateTextModelConfig;
+    } as TextModelConfig;
   }
 
   async _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     if (
-      [OpenAIGenerateModel.GPT35Turbo, OpenAIGenerateModel.GPT4].includes(
-        this.options.model as OpenAIGenerateModel
+      [OpenAIModel.GPT35Turbo, OpenAIModel.GPT4].includes(
+        this.options.model as OpenAIModel
       )
     ) {
       return await this._generateChat(prompt, options);
@@ -139,7 +135,7 @@ export class AzureOpenAI extends BaseAI {
   private async _generateDefault(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       AzureOpenAIApiConfig,
       OpenAICompletionRequest,
@@ -170,10 +166,10 @@ export class AzureOpenAI extends BaseAI {
   private async _generateChat(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       AzureOpenAIApiConfig,
-      OpenAIChatGenerateRequest,
+      OpenAIChatRequest,
       OpenAIChatResponse
     >(
       this.createAPI(AzureOpenAIApi.Chat),

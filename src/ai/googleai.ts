@@ -4,9 +4,9 @@ import { API, apiCall } from '../util/apicall.js';
 import { BaseAI } from './base.js';
 import {
   EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
+  TextModelConfig,
   TextModelInfo,
+  TextResponse,
 } from './types.js';
 
 /**
@@ -21,7 +21,7 @@ const apiURL = 'https://us-central1-aiplatform.googleapis.com/v1/projects/';
  * GoogleAI: Models for text generation
  * @export
  */
-export enum GoogleAIGenerateModel {
+export enum GoogleAIModel {
   PaLMTextBison = `text-bison`,
   PaLMChatBison = `chat-bison`,
 }
@@ -40,7 +40,7 @@ export enum GoogleAIEmbedModels {
  */
 const modelInfo: TextModelInfo[] = [
   {
-    name: GoogleAIGenerateModel.PaLMTextBison,
+    name: GoogleAIModel.PaLMTextBison,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1K: 0.001,
@@ -48,7 +48,7 @@ const modelInfo: TextModelInfo[] = [
     maxTokens: 8192,
   },
   {
-    name: GoogleAIGenerateModel.PaLMChatBison,
+    name: GoogleAIModel.PaLMChatBison,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1K: 0.0005,
@@ -70,7 +70,7 @@ const modelInfo: TextModelInfo[] = [
  * @export
  */
 export type GoogleAIOptions = {
-  model: GoogleAIGenerateModel;
+  model: GoogleAIModel;
   embedModel: GoogleAIEmbedModels;
   maxTokens: number;
   temperature: number;
@@ -83,7 +83,7 @@ export type GoogleAIOptions = {
  * @export
  */
 export const GoogleAIDefaultOptions = (): GoogleAIOptions => ({
-  model: GoogleAIGenerateModel.PaLMTextBison,
+  model: GoogleAIModel.PaLMTextBison,
   embedModel: GoogleAIEmbedModels.PaLMTextEmbeddingGecko,
   maxTokens: 300,
   temperature: 0.45,
@@ -97,7 +97,7 @@ export const GoogleAIDefaultOptions = (): GoogleAIOptions => ({
  */
 export const GoogleAICreativeOptions = (): GoogleAIOptions => ({
   ...GoogleAIDefaultOptions(),
-  model: GoogleAIGenerateModel.PaLMTextBison,
+  model: GoogleAIModel.PaLMTextBison,
   temperature: 0.9,
 });
 
@@ -107,11 +107,11 @@ export const GoogleAICreativeOptions = (): GoogleAIOptions => ({
  */
 export const GoogleAIFastOptions = (): GoogleAIOptions => ({
   ...GoogleAIDefaultOptions(),
-  model: GoogleAIGenerateModel.PaLMTextBison,
+  model: GoogleAIModel.PaLMTextBison,
   temperature: 0.45,
 });
 
-type GoogleAIGenerateRequest = {
+type GoogleAIRequest = {
   instances: [
     {
       prompt: string;
@@ -125,7 +125,7 @@ type GoogleAIGenerateRequest = {
   };
 };
 
-type GoogleAIGenerateTextResponse = {
+type GoogleAITextResponse = {
   predictions: {
     content: string;
     safetyAttributes: {
@@ -138,7 +138,7 @@ type GoogleAIGenerateTextResponse = {
   }[];
 };
 
-type GoogleAIChatGenerateRequest = {
+type GoogleAIChatRequest = {
   instances: [
     {
       context: string;
@@ -154,7 +154,7 @@ type GoogleAIChatGenerateRequest = {
   };
 };
 
-type GoogleAIChatGenerateResponse = {
+type GoogleAIChatResponse = {
   predictions: {
     candidates: { content: string }[];
     citationMetadata: { citations: string[] }[];
@@ -183,7 +183,7 @@ const generateReq = (
   prompt: string,
   opt: Readonly<GoogleAIOptions>,
   stopSequences: readonly string[]
-): GoogleAIGenerateRequest => {
+): GoogleAIRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
       'GoogleAI supports prompts with max 4 items in stopSequences'
@@ -204,7 +204,7 @@ const generateChatReq = (
   prompt: string,
   opt: Readonly<GoogleAIOptions>,
   stopSequences: readonly string[]
-): GoogleAIChatGenerateRequest => {
+): GoogleAIChatRequest => {
   if (stopSequences.length > 4) {
     throw new Error(
       'GoogleAI supports prompts with max 4 items in stopSequences'
@@ -258,23 +258,23 @@ export class GoogleAI extends BaseAI {
     ).href;
   }
 
-  getModelConfig(): GenerateTextModelConfig {
+  getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
       temperature: options.temperature,
       topP: options.topP,
       topK: options.topK,
-    } as GenerateTextModelConfig;
+    } as TextModelConfig;
   }
 
   async _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     if (
-      [GoogleAIGenerateModel.PaLMChatBison].includes(
-        this.options.model as GoogleAIGenerateModel
+      [GoogleAIModel.PaLMChatBison].includes(
+        this.options.model as GoogleAIModel
       )
     ) {
       return await this._generateChat(prompt, options);
@@ -285,11 +285,11 @@ export class GoogleAI extends BaseAI {
   private async _generateDefault(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
-      GoogleAIGenerateRequest,
-      GoogleAIGenerateTextResponse
+      GoogleAIRequest,
+      GoogleAITextResponse
     >(
       this.createAPI(),
       generateReq(prompt, this.options, options?.stopSequences ?? [])
@@ -317,11 +317,11 @@ export class GoogleAI extends BaseAI {
   private async _generateChat(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       GoogleAIAPI,
-      GoogleAIChatGenerateRequest,
-      GoogleAIChatGenerateResponse
+      GoogleAIChatRequest,
+      GoogleAIChatResponse
     >(
       this.createAPI(),
       generateChatReq(prompt, this.options, options?.stopSequences ?? [])

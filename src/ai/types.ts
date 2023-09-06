@@ -14,7 +14,7 @@ export type TokenUsage = {
   totalTokens: number;
 };
 
-export type GenerateTextModelConfig = {
+export type TextModelConfig = {
   maxTokens: number;
   temperature: number;
   topP?: number;
@@ -30,7 +30,7 @@ export type GenerateTextModelConfig = {
   suffix?: string | null;
 };
 
-export type GenerateTextResponse = {
+export type TextResponse = {
   sessionId?: string;
   remoteId?: string;
   results: {

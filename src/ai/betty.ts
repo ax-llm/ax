@@ -3,9 +3,9 @@ import { AIPromptConfig, AIServiceOptions } from '../text/types.js';
 import { BaseAI } from './base.js';
 import {
   EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
+  TextModelConfig,
   TextModelInfo,
+  TextResponse,
 } from './types.js';
 
 const modelInfo: TextModelInfo[] = [
@@ -51,7 +51,7 @@ export class Betty extends BaseAI {
     this.data = [...answers];
   }
 
-  getModelConfig(): Readonly<GenerateTextModelConfig> {
+  getModelConfig(): Readonly<TextModelConfig> {
     return {
       maxTokens: 1024,
       temperature: 0.7,
@@ -70,7 +70,7 @@ export class Betty extends BaseAI {
     prompt: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const answers = this.data;
     const text = answers?.shift() || '';
     this.index++;

@@ -8,19 +8,19 @@ import {
   AITranscribeConfig,
 } from '../text/types.js';
 import {
-  AIGenerateTextTraceStepBuilder,
-  GenerateTextRequestBuilder,
-  GenerateTextResponseBuilder,
+  AITextTraceStepBuilder,
+  TextRequestBuilder,
+  TextResponseBuilder,
 } from '../tracing/index.js';
 import {
-  AIGenerateTextTraceStep,
+  AITextTraceStep,
   TextModelInfoWithProvider,
 } from '../tracing/types.js';
 
 import {
   EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
+  TextModelConfig,
+  TextResponse,
   RateLimiterFunction,
   TextModelInfo,
   TranscriptResponse,
@@ -33,11 +33,11 @@ export class BaseAI implements AIService {
   private disableLog = false;
 
   private rt?: RateLimiterFunction;
-  private log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void;
+  private log?: (traceStep: Readonly<AITextTraceStep>) => void;
 
-  private traceStepBuilder?: AIGenerateTextTraceStepBuilder;
-  private traceStepReqBuilder?: GenerateTextRequestBuilder;
-  private traceStepRespBuilder?: GenerateTextResponseBuilder;
+  private traceStepBuilder?: AITextTraceStepBuilder;
+  private traceStepReqBuilder?: TextRequestBuilder;
+  private traceStepRespBuilder?: TextResponseBuilder;
 
   protected aiName: string;
   protected modelInfo: TextModelInfo;
@@ -104,7 +104,7 @@ export class BaseAI implements AIService {
     _prompt: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     throw new Error('Method not implemented.');
   }
 
@@ -140,15 +140,15 @@ export class BaseAI implements AIService {
     return this.aiName;
   }
 
-  getModelConfig(): GenerateTextModelConfig {
+  getModelConfig(): TextModelConfig {
     throw new Error('getModelConfig not implemented');
   }
 
-  getTraceRequest(): Readonly<GenerateTextRequestBuilder> | undefined {
+  getTraceRequest(): Readonly<TextRequestBuilder> | undefined {
     return this.traceStepReqBuilder;
   }
 
-  getTraceResponse(): Readonly<GenerateTextResponseBuilder> | undefined {
+  getTraceResponse(): Readonly<TextResponseBuilder> | undefined {
     return this.traceStepRespBuilder;
   }
 
@@ -190,7 +190,7 @@ export class BaseAI implements AIService {
   async generate(
     prompt: string,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     let modelResponseTime;
 
     const fn = async () => {
@@ -200,21 +200,19 @@ export class BaseAI implements AIService {
       return res;
     };
 
-    this.traceStepBuilder = new AIGenerateTextTraceStepBuilder()
+    this.traceStepBuilder = new AITextTraceStepBuilder()
       .setTraceId(options?.traceId)
       .setSessionId(options?.sessionId);
 
-    this.traceStepReqBuilder = new GenerateTextRequestBuilder().setGenerateStep(
+    this.traceStepReqBuilder = new TextRequestBuilder().setStep(
       prompt,
       this.getModelConfig(),
       this.getModelInfo()
     );
 
-    const res = this.rt
-      ? await this.rt<Promise<GenerateTextResponse>>(fn)
-      : await fn();
+    const res = this.rt ? await this.rt<Promise<TextResponse>>(fn) : await fn();
 
-    this.traceStepRespBuilder = new GenerateTextResponseBuilder()
+    this.traceStepRespBuilder = new TextResponseBuilder()
       .setResults(res.results)
       .setModelUsage(res.modelUsage)
       .setModelResponseTime(modelResponseTime);
@@ -240,11 +238,11 @@ export class BaseAI implements AIService {
       return res;
     };
 
-    this.traceStepBuilder = new AIGenerateTextTraceStepBuilder()
+    this.traceStepBuilder = new AITextTraceStepBuilder()
       .setTraceId(options?.traceId)
       .setSessionId(options?.sessionId);
 
-    this.traceStepReqBuilder = new GenerateTextRequestBuilder().setEmbedStep(
+    this.traceStepReqBuilder = new TextRequestBuilder().setEmbedStep(
       typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed,
       this.getEmbedModelInfo()
     );
@@ -253,7 +251,7 @@ export class BaseAI implements AIService {
       ? await this.rt<Promise<EmbedResponse>>(async () => fn())
       : await fn();
 
-    this.traceStepRespBuilder = new GenerateTextResponseBuilder()
+    this.traceStepRespBuilder = new TextResponseBuilder()
       .setEmbedModelUsage(res.modelUsage)
       .setEmbedModelResponseTime(modelResponseTime);
 

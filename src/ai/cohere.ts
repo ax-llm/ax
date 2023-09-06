@@ -4,9 +4,9 @@ import { API, apiCall } from '../util/apicall';
 import { BaseAI } from './base';
 import {
   EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
+  TextModelConfig,
   TextModelInfo,
+  TextResponse,
 } from './types';
 
 type CohereAPI = API;
@@ -14,7 +14,7 @@ type CohereAPI = API;
 const apiURL = 'https://api.cohere.ai/v1/';
 
 const enum apiTypes {
-  Generate = 'generate',
+  Completion = 'generate',
   Embed = 'embed',
 }
 
@@ -22,7 +22,7 @@ const enum apiTypes {
  * Cohere: Models for text generation
  * @export
  */
-export enum CohereGenerateModel {
+export enum CohereModel {
   Command = 'command',
   CommandNightly = 'command-nightly',
   CommandXLarge = 'command-xlarge',
@@ -51,21 +51,21 @@ export enum CohereReturnLikelihoods {
 
 const modelInfo: TextModelInfo[] = [
   {
-    name: CohereGenerateModel.Command,
+    name: CohereModel.Command,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 4096,
   },
   {
-    name: CohereGenerateModel.CommandXLarge,
+    name: CohereModel.CommandXLarge,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
     maxTokens: 4096,
   },
   {
-    name: CohereGenerateModel.CommandLight,
+    name: CohereModel.CommandLight,
     currency: 'usd',
     promptTokenCostPer1K: 0.015,
     completionTokenCostPer1K: 0.015,
@@ -99,7 +99,7 @@ const modelInfo: TextModelInfo[] = [
  * @export
  */
 export type CohereOptions = {
-  model: CohereGenerateModel;
+  model: CohereModel;
   embedModel: CohereEmbedModel;
   maxTokens: number;
   temperature: number;
@@ -117,7 +117,7 @@ export type CohereOptions = {
  * @export
  */
 export const CohereDefaultOptions = (): CohereOptions => ({
-  model: CohereGenerateModel.CommandNightly,
+  model: CohereModel.CommandNightly,
   embedModel: CohereEmbedModel.EmbedEnglishLightV20,
   maxTokens: 2000,
   temperature: 0.1,
@@ -140,9 +140,9 @@ export const CohereCreativeOptions = (): CohereOptions => ({
   logitBias: undefined,
 });
 
-type CohereGenerateRequest = {
+type CohereRequest = {
   prompt: string;
-  model: CohereGenerateModel | string;
+  model: CohereModel | string;
   max_tokens: number;
   temperature: number;
   k: number;
@@ -155,7 +155,7 @@ type CohereGenerateRequest = {
   logit_bias?: Map<string, number>;
 };
 
-type CohereAIGenerateTextResponse = {
+type CohereAITextResponse = {
   id: string;
   prompt: string;
   generations: { id: string; text: string }[];
@@ -163,7 +163,7 @@ type CohereAIGenerateTextResponse = {
 
 type CohereEmbedRequest = {
   texts: readonly string[];
-  model: CohereGenerateModel | string;
+  model: CohereModel | string;
   truncate: string;
 };
 
@@ -178,7 +178,7 @@ const generateReq = (
   prompt: string,
   opt: Readonly<CohereOptions>,
   stopSequences?: readonly string[]
-): CohereGenerateRequest => ({
+): CohereRequest => ({
   prompt,
   model: opt.model,
   max_tokens: opt.maxTokens,
@@ -222,7 +222,7 @@ export class Cohere extends BaseAI {
     this.options = options;
   }
 
-  getModelConfig(): GenerateTextModelConfig {
+  getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
@@ -231,21 +231,17 @@ export class Cohere extends BaseAI {
       presencePenalty: options.presencePenalty,
       frequencyPenalty: options.frequencyPenalty,
       logitBias: options.logitBias,
-    } as GenerateTextModelConfig;
+    } as TextModelConfig;
   }
 
   async _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
-    const res = await apiCall<
-      CohereAPI,
-      CohereGenerateRequest,
-      CohereAIGenerateTextResponse
-    >(
+  ): Promise<TextResponse> {
+    const res = await apiCall<CohereAPI, CohereRequest, CohereAITextResponse>(
       {
         key: this.apiKey,
-        name: apiTypes.Generate,
+        name: apiTypes.Completion,
         url: apiURL,
       },
       generateReq(prompt, this.options, options?.stopSequences)

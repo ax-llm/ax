@@ -2,17 +2,14 @@ import { JSONSchemaType } from 'ajv';
 
 import {
   EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
   RateLimiterFunction,
+  TextModelConfig,
   TextModelInfo,
+  TextResponse,
   TranscriptResponse,
 } from '../ai/types';
-import {
-  GenerateTextRequestBuilder,
-  GenerateTextResponseBuilder,
-} from '../tracing/trace';
-import { AIGenerateTextTraceStep } from '../tracing/types';
+import { TextRequestBuilder, TextResponseBuilder } from '../tracing/trace';
+import { AITextTraceStep } from '../tracing/types';
 
 export type FunctionExec = {
   name: string;
@@ -67,7 +64,7 @@ export type PromptConfig<T> = AIPromptConfig & {
   functions?: PromptFunction[];
   response?: PromptResponseConfig<T>;
   debug?: boolean;
-  log?: (traces: Readonly<AIGenerateTextTraceStep>) => void;
+  log?: (traces: Readonly<AITextTraceStep>) => void;
 };
 
 export type AIPromptConfig = {
@@ -83,7 +80,7 @@ export type AIServiceOptions = {
   debug?: boolean;
   disableLog?: boolean;
   llmClientAPIKey?: string;
-  log?: (traceStep: Readonly<AIGenerateTextTraceStep>) => void;
+  log?: (traceStep: Readonly<AITextTraceStep>) => void;
   rateLimiter?: RateLimiterFunction;
 };
 
@@ -96,11 +93,11 @@ export interface AIService {
   name(): string;
   getModelInfo(): Readonly<TextModelInfo & { provider: string }>;
   getEmbedModelInfo(): Readonly<TextModelInfo> | undefined;
-  getModelConfig(): Readonly<GenerateTextModelConfig>;
+  getModelConfig(): Readonly<TextModelConfig>;
   _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse>;
+  ): Promise<TextResponse>;
   _embed(
     text2Embed: readonly string[] | string,
     options?: Readonly<AIServiceActionOptions>
@@ -113,7 +110,7 @@ export interface AIService {
   generate(
     prompt: string,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<GenerateTextResponse>;
+  ): Promise<TextResponse>;
   embed(
     text2Embed: readonly string[] | string,
     options?: Readonly<AIServiceActionOptions>
@@ -124,8 +121,8 @@ export interface AIService {
     options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
   ): Promise<TranscriptResponse>;
   setOptions(options: Readonly<AIServiceOptions>): void;
-  getTraceRequest(): Readonly<GenerateTextRequestBuilder> | undefined;
-  getTraceResponse(): Readonly<GenerateTextResponseBuilder> | undefined;
+  getTraceRequest(): Readonly<TextRequestBuilder> | undefined;
+  getTraceResponse(): Readonly<TextResponseBuilder> | undefined;
   traceExists(): boolean;
   logTrace(): void;
 }

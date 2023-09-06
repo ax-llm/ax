@@ -6,8 +6,8 @@ import {
 import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
 import { uuid } from '../text/util.js';
-import { AIGenerateTextTraceStepBuilder } from '../tracing/index.js';
-import { AIGenerateTextTraceStep } from '../tracing/types.js';
+import { AITextTraceStepBuilder } from '../tracing/index.js';
+import { AITextTraceStep } from '../tracing/types.js';
 
 import { ExtendedIncomingMessage, ParserFunction } from './types.js';
 
@@ -69,7 +69,7 @@ const parserMap = new Map(Object.entries(parserMappings));
 
 const generateTrace = (
   req: Readonly<ExtendedIncomingMessage>
-): AIGenerateTextTraceStepBuilder => {
+): AITextTraceStepBuilder => {
   const reqBody = req.reqBody;
   const resBody = !req.error ? req.resBody : undefined;
   return req.parserFn(reqBody, resBody).setApiError(req.error);
@@ -86,7 +86,7 @@ export const getTarget = (apiName?: string): string => {
 
 export const buildTrace = (
   req: Readonly<ExtendedIncomingMessage>
-): AIGenerateTextTraceStep => {
+): AITextTraceStep => {
   return generateTrace(req)
     .setTraceId(req.traceId ?? uuid())
     .setSessionId(req.sessionId)
@@ -96,8 +96,8 @@ export const buildTrace = (
 
 export const updateCachedTrace = (
   req: Readonly<ExtendedIncomingMessage>,
-  trace: Readonly<AIGenerateTextTraceStep>
-): AIGenerateTextTraceStep => {
+  trace: Readonly<AITextTraceStep>
+): AITextTraceStep => {
   return {
     ...trace,
     traceId: req.traceId ?? uuid(),
@@ -106,9 +106,9 @@ export const updateCachedTrace = (
 };
 
 export const publishTrace = (
-  trace: Readonly<AIGenerateTextTraceStep>,
+  trace: Readonly<AITextTraceStep>,
   debug: boolean
-): AIGenerateTextTraceStep => {
+): AITextTraceStep => {
   remoteLog.log(trace);
 
   if (debug) {

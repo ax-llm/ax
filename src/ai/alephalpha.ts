@@ -2,12 +2,12 @@ import { AIPromptConfig, AIServiceOptions } from '../text/types.js';
 import { API, apiCall } from '../util/apicall.js';
 
 import { BaseAI } from './base.js';
-import { EmbedResponse, GenerateTextResponse, TextModelInfo } from './types.js';
+import { EmbedResponse, TextModelInfo, TextResponse } from './types.js';
 
 const apiURL = 'https://api.aleph-alpha.com/';
 
 const enum apiTypes {
-  Generate = 'complete',
+  Completion = 'complete',
   Embed = 'semantic_embed',
 }
 
@@ -15,7 +15,7 @@ const enum apiTypes {
  * AlephAlpha: Models for text generation
  * @export
  */
-export enum AlephAlphaGenerateModel {
+export enum AlephAlphaModel {
   LuminousSupremeControl = 'luminous-supreme-control',
   LuminousSupreme = 'luminous-supreme',
   LuminousExtended = 'luminous-extended',
@@ -36,34 +36,34 @@ export enum AlephAlphaEmbedRepresentation {
   Query = 'query',
 }
 
-export enum AlephaAlphaGenerateHosting {
+export enum AlephaAlphaHosting {
   MaxPrivacy = 'aleph-alpha',
 }
 
 const modelInfo: TextModelInfo[] = [
   {
-    name: AlephAlphaGenerateModel.LuminousSupremeControl,
+    name: AlephAlphaModel.LuminousSupremeControl,
     currency: 'eur',
     promptTokenCostPer1K: 0.04375,
     completionTokenCostPer1K: 0.04375,
     maxTokens: 2048,
   },
   {
-    name: AlephAlphaGenerateModel.LuminousSupreme,
+    name: AlephAlphaModel.LuminousSupreme,
     currency: 'eur',
     promptTokenCostPer1K: 0.035,
     completionTokenCostPer1K: 0.035,
     maxTokens: 2048,
   },
   {
-    name: AlephAlphaGenerateModel.LuminousExtended,
+    name: AlephAlphaModel.LuminousExtended,
     currency: 'eur',
     promptTokenCostPer1K: 0.009,
     completionTokenCostPer1K: 0.009,
     maxTokens: 2048,
   },
   {
-    name: AlephAlphaGenerateModel.LuminousBase,
+    name: AlephAlphaModel.LuminousBase,
     currency: 'eur',
     promptTokenCostPer1K: 0.006,
     completionTokenCostPer1K: 0.006,
@@ -83,9 +83,9 @@ const modelInfo: TextModelInfo[] = [
  * @export
  */
 export type AlephAlphaOptions = {
-  model: AlephAlphaGenerateModel;
+  model: AlephAlphaModel;
   embedModel: AlephAlphaEmbedModel;
-  hosting?: AlephaAlphaGenerateHosting;
+  hosting?: AlephaAlphaHosting;
   maxTokens: number;
   minTokens?: number;
   echo?: boolean;
@@ -126,7 +126,7 @@ export type AlephAlphaOptions = {
  * @export
  */
 export const AlephAlphaDefaultOptions = (): AlephAlphaOptions => ({
-  model: AlephAlphaGenerateModel.LuminousSupreme,
+  model: AlephAlphaModel.LuminousSupreme,
   embedModel: AlephAlphaEmbedModel.LuminousExplore,
   representation: AlephAlphaEmbedRepresentation.Document,
   disableOptimizations: true,
@@ -144,13 +144,13 @@ export const AlephAlphaDefaultOptions = (): AlephAlphaOptions => ({
  */
 export const AlephAlphaCreativeOptions = (): AlephAlphaOptions => ({
   ...AlephAlphaDefaultOptions(),
-  model: AlephAlphaGenerateModel.LuminousSupreme,
+  model: AlephAlphaModel.LuminousSupreme,
   temperature: 0.9,
 });
 
-type AlephAlphaGenerateRequest = {
-  model: AlephAlphaGenerateModel | string;
-  hosting?: AlephaAlphaGenerateHosting;
+type AlephAlphaRequest = {
+  model: AlephAlphaModel | string;
+  hosting?: AlephaAlphaHosting;
   prompt: string;
   maximum_tokens: number;
   minimum_tokens?: number;
@@ -185,7 +185,7 @@ type AlephAlphaGenerateRequest = {
   control_log_additive?: boolean;
 };
 
-type AlephAlphaAIGenerateTextResponse = {
+type AlephAlphaAITextResponse = {
   model_version: string;
   completions: [
     {
@@ -200,8 +200,8 @@ type AlephAlphaAIGenerateTextResponse = {
 };
 
 type AlephAlphaEmbedRequest = {
-  model: AlephAlphaGenerateModel | string;
-  hosting?: AlephaAlphaGenerateHosting;
+  model: AlephAlphaModel | string;
+  hosting?: AlephaAlphaHosting;
   prompt: string;
   representation: AlephAlphaEmbedRepresentation;
   compress_to_size?: number;
@@ -219,7 +219,7 @@ const generateReq = (
   prompt: string,
   opt: Readonly<AlephAlphaOptions>,
   stopSequences: readonly string[]
-): AlephAlphaGenerateRequest => ({
+): AlephAlphaRequest => ({
   model: opt.model,
   hosting: opt.hosting,
   prompt,
@@ -307,15 +307,11 @@ export class AlephAlpha extends BaseAI {
   async _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
-    const res = await apiCall<
-      API,
-      AlephAlphaGenerateRequest,
-      AlephAlphaAIGenerateTextResponse
-    >(
+  ): Promise<TextResponse> {
+    const res = await apiCall<API, AlephAlphaRequest, AlephAlphaAITextResponse>(
       {
         key: this.apiKey,
-        name: apiTypes.Generate,
+        name: apiTypes.Completion,
         url: apiURL,
       },
       generateReq(prompt, this.options, options?.stopSequences ?? [])

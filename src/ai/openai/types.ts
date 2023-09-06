@@ -1,7 +1,7 @@
 import { JSONSchemaType } from 'ajv/dist/types/json-schema';
 
 import { API } from '../../util/apicall';
-import { GenerateTextModelConfig } from '../types';
+import { TextModelConfig } from '../types';
 
 /**
  * OpenAI: API call details
@@ -29,7 +29,7 @@ export const enum OpenAIApi {
  * OpenAI: Models for text generation
  * @export
  */
-export enum OpenAIGenerateModel {
+export enum OpenAIModel {
   GPT4 = 'gpt-4',
   GPT432K = 'gpt-4-32k',
   GPT35Turbo = 'gpt-3.5-turbo',
@@ -62,8 +62,8 @@ export enum OpenAIAudioModel {
  * OpenAI: Model options for text generation
  * @export
  */
-export type OpenAIOptions = Omit<GenerateTextModelConfig, 'topK'> & {
-  model: OpenAIGenerateModel;
+export type OpenAIOptions = Omit<TextModelConfig, 'topK'> & {
+  model: OpenAIModel;
   embedModel: OpenAIEmbedModels;
   audioModel?: OpenAIAudioModel;
   user?: string;
@@ -135,7 +135,7 @@ export type OpenAICompletionResponseDelta = OpenAIResponseDelta<{
   logprobs?: OpenAILogprob;
 }>;
 
-export type OpenAIChatGenerateRequest = {
+export type OpenAIChatRequest = {
   model: string;
   messages: {
     role: 'system' | 'user' | 'assistant' | 'function';

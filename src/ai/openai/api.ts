@@ -7,8 +7,8 @@ import { apiCall, apiCallWithUpload } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import {
   EmbedResponse,
-  GenerateTextModelConfig,
-  GenerateTextResponse,
+  TextModelConfig,
+  TextResponse,
   TranscriptResponse,
 } from '../types.js';
 
@@ -20,14 +20,14 @@ import {
   OpenAIAudioModel,
   OpenAIAudioRequest,
   OpenAIAudioResponse,
-  OpenAIChatGenerateRequest,
+  OpenAIChatRequest,
   OpenAIChatResponse,
   OpenAICompletionRequest,
   OpenAICompletionResponse,
   OpenAIEmbedModels,
   OpenAIEmbedRequest,
   OpenAIEmbedResponse,
-  OpenAIGenerateModel,
+  OpenAIModel,
   OpenAIOptions,
 } from './types.js';
 import { generateAudioReq, generateChatReq, generateReq } from './util.js';
@@ -37,7 +37,7 @@ import { generateAudioReq, generateChatReq, generateReq } from './util.js';
  * @export
  */
 export const OpenAIDefaultOptions = (): OpenAIOptions => ({
-  model: OpenAIGenerateModel.GPT35Turbo,
+  model: OpenAIModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
   suffix: null,
@@ -57,7 +57,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
  */
 export const OpenAIBestModelOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
-  model: OpenAIGenerateModel.GPT4,
+  model: OpenAIModel.GPT4,
 });
 
 /**
@@ -66,7 +66,7 @@ export const OpenAIBestModelOptions = (): OpenAIOptions => ({
  */
 export const OpenAICreativeOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
-  model: OpenAIGenerateModel.GPT35Turbo,
+  model: OpenAIModel.GPT35Turbo,
   temperature: 0.9,
   logitBias: undefined,
 });
@@ -77,7 +77,7 @@ export const OpenAICreativeOptions = (): OpenAIOptions => ({
  */
 export const OpenAIFastOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
-  model: OpenAIGenerateModel.GPT35Turbo,
+  model: OpenAIModel.GPT35Turbo,
   temperature: 0.45,
 });
 
@@ -109,7 +109,7 @@ export class OpenAI extends BaseAI {
     this.options = options;
   }
 
-  override getModelConfig(): GenerateTextModelConfig {
+  override getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
@@ -123,18 +123,18 @@ export class OpenAI extends BaseAI {
       frequencyPenalty: options.frequencyPenalty,
       bestOf: options.bestOf,
       logitBias: options.logitBias,
-    } as GenerateTextModelConfig;
+    } as TextModelConfig;
   }
 
   override async _generate(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     return [
-      OpenAIGenerateModel.GPT35Turbo,
-      OpenAIGenerateModel.GPT35Turbo16K,
-      OpenAIGenerateModel.GPT4,
-    ].includes(this.options.model as OpenAIGenerateModel)
+      OpenAIModel.GPT35Turbo,
+      OpenAIModel.GPT35Turbo16K,
+      OpenAIModel.GPT4,
+    ].includes(this.options.model as OpenAIModel)
       ? await this._generateChat(prompt, options)
       : await this._generateDefault(prompt, options);
   }
@@ -142,7 +142,7 @@ export class OpenAI extends BaseAI {
   private async _generateDefault(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       OpenAIApiConfig,
       OpenAICompletionRequest,
@@ -173,10 +173,10 @@ export class OpenAI extends BaseAI {
   private async _generateChat(
     prompt: string,
     options?: Readonly<AIPromptConfig>
-  ): Promise<GenerateTextResponse> {
+  ): Promise<TextResponse> {
     const res = await apiCall<
       OpenAIApiConfig,
-      OpenAIChatGenerateRequest,
+      OpenAIChatRequest,
       OpenAIChatResponse
     >(
       this.createAPI(OpenAIApi.Chat),

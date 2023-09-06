@@ -1,12 +1,8 @@
 import chalk from 'chalk';
 
-import {
-  GenerateTextModelConfig,
-  GenerateTextResponse,
-  TextModelInfo,
-} from '../ai/types';
+import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types';
 import { FunctionExec } from '../text/types';
-import { AIGenerateTextTraceStep } from '../tracing/types';
+import { AITextTraceStep } from '../tracing/types';
 
 export class ConsoleLogger {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,7 +32,7 @@ export class ConsoleLogger {
   }
 
   private printModelConfig(
-    config: Readonly<GenerateTextModelConfig | undefined>
+    config: Readonly<TextModelConfig | undefined>
   ): void {
     if (!config) return;
 
@@ -60,10 +56,8 @@ export class ConsoleLogger {
     });
   }
 
-  private printGenerateTextResponse(
-    resp: Readonly<GenerateTextResponse>
-  ): void {
-    console.log(chalk.blue(`\n🚀 Generate Text Responses:`));
+  private printTextResponse(resp: Readonly<TextResponse>): void {
+    console.log(chalk.blue(`\n🚀  Text Responses:`));
     this.print('Remote Id', resp.remoteId, 1);
     resp.results.forEach((result, j) => {
       this.print(`Result ${j + 1}`, result.text, 2);
@@ -74,7 +68,7 @@ export class ConsoleLogger {
     this.print('Embed Model Usage', JSON.stringify(resp.embedModelUsage), 1);
   }
 
-  public log(trace: Readonly<AIGenerateTextTraceStep>): void {
+  public log(trace: Readonly<AITextTraceStep>): void {
     console.log(chalk.bold.cyan(`\n🔎 Trace\n` + '_'.repeat(50)));
     this.print('Trace Id', trace.traceId, 1);
     this.print('Session Id', trace.sessionId, 1);
@@ -86,7 +80,7 @@ export class ConsoleLogger {
 
     if (trace.response) {
       console.log(chalk.magenta(`\n📝 Response:`));
-      this.printGenerateTextResponse(trace.response as GenerateTextResponse);
+      this.printTextResponse(trace.response as TextResponse);
       this.print('Model Response Time', trace.response.modelResponseTime, 1);
       this.print(
         'Embed Model Response Time',

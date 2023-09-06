@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 
 import { sendTrace } from '../tracing/index.js';
-import { AIGenerateTextTraceStep } from '../tracing/types.js';
+import { AITextTraceStep } from '../tracing/types.js';
 
 export class RemoteLogger {
   private apiKey?: string;
@@ -28,7 +28,7 @@ export class RemoteLogger {
     console.log(chalk.yellowBright(msg));
   }
 
-  log(trace: Readonly<AIGenerateTextTraceStep>): void {
+  log(trace: Readonly<AITextTraceStep>): void {
     if (!this.apiKey || this.apiKey.length === 0) {
       return;
     }
