@@ -1,4 +1,4 @@
-# LLMClient - A Caching and Debugging Proxy Server for LLM Users
+# LLMClient - A Caching and Debugging Proxy Server for LLM Users and A Multi-LLM Client Library
 
 Automatically log all prompts, responses, model configuration, etc to make it easier to debug or keep track of what worked and what did not.
 A must have for building with LLMs. It's packed with useful features.
