@@ -34,6 +34,17 @@ const port = parseInt(process.env.PORT ?? '') || 8081;
 
 http
   .createServer(async (_req, _res) => {
+    if (_req.url === '/') {
+      _res.end('Herding Llamas!');
+      return;
+    }
+
+    if (_req.url === '/favicon.ico') {
+      _res.writeHead(404);
+      _res.end();
+      return;
+    }
+
     const req = _req as ExtendedIncomingMessage;
     const chunks = await getBody(req);
 
