@@ -1,37 +1,23 @@
-# LLMClient - A Caching and Debugging Proxy Server for LLM Users and A Multi-LLM Client Library
+# LLMClient 🌵 🦙 🔥 ❤️ 🖖🏼
+### An LLM proxy to log prompts, debug, etc and a multi-llm library to build llm powered chat, function calling, reasoning and other apps.
 
 Automatically log all prompts, responses, model configuration, etc to make it easier to debug or keep track of what worked and what did not.
 A must have for building with LLMs. It's packed with useful features.
 
-![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
-
-1. Proxy for Debugging, Tracing, Caching
-2. Guardrails, Extract JSON, LLM Independant Function Calling
-3. Chain of Though Reasoning
-4. Since interface to all LLMs
-5. Simpler and smaller than the alternatives
-
----
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
-# 🌵 🦙 🔥 ❤️ 🖖🏼
+![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-A **production ready** JS library and proxy server (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. Use the built in caching proxy server to log and trace all your LLM interactions, this makes it easy to debug and track your progress.
-
-Support for **OpenAI**, **Azure-OpenAI**, **GoogleAI**, **Cohere**, **Anthropic**, **Together Compute** and **AlephAlpha** and more.
-
-## Why use LLM Client
-
-- Sensible Defaults
-- Simpler and smaller than the alternatives
-- Minimal to zero dependencies
-- Focus on useful real-world usecases
-- Single interface: OpenAI, Azure OpenAI, Cohere and more
-- Built in retry and error-correction logic
-- Guardrails and structured JSON extration
-- Usage statistics
+1. Proxy for Debugging, Tracing, Caching
+2. Guardrails, Extract JSON,
+3. LLM Independant Function Calling
+4. Chain of Though Reasoning
+5. Since interface to all LLMs
+6. Simpler and smaller than the alternatives
+7. Sensible Defaults
+8. Single interface to OpenAI, GoogeAI, Anthropic, Together, HF and more
 
 ## AI's Supported
 
