@@ -30,6 +30,8 @@ const proxy = httpProxy.createProxyServer({
   changeOrigin: true,
 });
 
+const port = parseInt(process.env.PORT ?? '') || 8081;
+
 http
   .createServer(async (_req, _res) => {
     const req = _req as ExtendedIncomingMessage;
@@ -85,8 +87,8 @@ http
     // send the request to be proxied
     proxy.web(req, _res, { target, buffer });
   })
-  .listen(8081, () => {
-    const msg = `🌵 LLMClient caching proxy listening on port 8081`;
+  .listen(port, () => {
+    const msg = `🌵 LLMClient caching proxy listening on port ${port}`;
     console.log(chalk.greenBright(msg));
     remoteLog.printDebugInfo();
     console.log('🔥 ❤️  🖖🏼');
