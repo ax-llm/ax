@@ -1,13 +1,15 @@
-# LLMClient - Tools to make it easier to build with LLMs
+# LLMClient - ACache and Debugging Proxy Server for LLM Users
 
-A production ready library, supports all major hosted and open-source LLMs, Build quickly with LLMs
+Automatically log all prompts, responses, model configuration, etc to make it easier to debug or keep track of what worked and what did not.
+A must have for building with LLMs. It's packed with useful features.
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-1. Guardrails, Extract JSON, LLM Independant Function Calling
-2. Chain of Though Reasoning
-3. Proxy for Debugging, Tracing, Caching
-4. Simpler and smaller than the alternatives
+1. Proxy for Debugging, Tracing, Caching
+2. Guardrails, Extract JSON, LLM Independant Function Calling
+3. Chain of Though Reasoning
+4. Since interface to all LLMs
+5. Simpler and smaller than the alternatives
 
 ---
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
@@ -16,15 +18,9 @@ A production ready library, supports all major hosted and open-source LLMs, Buil
 
 # 🌵 🦙 🔥 ❤️ 🖖🏼
 
-A **production ready** JS library (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. The most useful prompt engineering researching is implemented in this library. Support for **OpenAI**, **Azure-OpenAI**, **GoogleAI**, **Cohere**, **Anthropic**, **Together Compute** and **AlephAlpha** and more.
+A **production ready** JS library and proxy server (Typescript) that makes it simple to work with any LLM and use advanced features like automatic function calling. The library has sensible defaults, is easy to use and is designed to make features like function calling work across LLMs. Use the built in caching proxy server to log and trace all your LLM interactions, this makes it easy to debug and track your progress.
 
-This library handles all the **complexity** so you can focus on building useful things like question answering, ai bots, business workflows in minutes. You an easily define Javascript functions that the LLM can call. For example lookup your database, an api call to Trello, Notion, Airtable, Twilio or search the web while answering a business question.
-
-We believe that LLMs will soon replace your entire app backend. We truly live in amazing times. Please join our Discord so we can build together.
-
-```console
-npm i llmclient
-```
+Support for **OpenAI**, **Azure-OpenAI**, **GoogleAI**, **Cohere**, **Anthropic**, **Together Compute** and **AlephAlpha** and more.
 
 ## Why use LLM Client
 
@@ -37,27 +33,7 @@ npm i llmclient
 - Guardrails and structured JSON extration
 - Usage statistics
 
-## Code Examples (Apps)
-
-[LLMClient Example Apps](/examples/README.md)
-
-| Example               | Description                                               |
-| --------------------- | --------------------------------------------------------- |
-| meetings.js           | Meeting transcript converted into multiple Trello tasks   |
-| product-search.js     | Call an API to answer product related questions           |
-| food-search.js        | Multiple APIs are used to lookup the best eating options  |
-| fibonacci.js          | Use the built-in JS code interpreter to compute fibonacci |
-| vector-search.js      | Simple example using vector db and embeddings             |
-| customer-support.js   | Extract valuable details from customer communications     |
-| marketing.js          | Use AI to generate short effective marketing sms messages |
-| transcribe-podcast.js | Transcribe multiple podcast channels into text            |
-| chat-assistant.js     | AI chat bot capable of intellegent conversations          |
-| get-summary.js        | AI to generate a short summary of a large block of text   |
-| ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                    |
-
 ## AI's Supported
-
-List of LLMs that work out of the box with llm-client and support **function calling and reasoning**. We also support other models like MPT-Instruct, RedPajama for classification, extraction, etc or Babbage, Ada for embeddings and Whisper for audio transcription.
 
 | AI           | Best Model                           | Functions + CoT |
 | ------------ | ------------------------------------ | --------------- |
@@ -69,31 +45,6 @@ List of LLMs that work out of the box with llm-client and support **function cal
 | Hugging Face | Llama 2                              | 🟡 90%          |
 | Cohere       | Command, Command Nightly             | 🟡 40%          |
 | AlephaAlpha  | Luminous: Control, Supreme, Extended | 🔴 N/A          |
-
-## Simple to use
-
-```javascript
-import { OpenAI, AIMemory, AIPrompt } from 'llmclient';
-
-// Support for OpenAI, AzureAI, GoogleAI, Cohere, etc...
-const ai = new OpenAI(process.env.OPENAI_APIKEY);
-
-// Has built-in support for reasoning, function calling, error correction, etc
-const prompt = new AIPrompt();
-
-// Optional state storage memory
-const memory = new AIMemory();
-
-// Execute the prompt
-const res = await prompt.generate(ai, `What is your name?`, {
-  memory,
-  // sessionID,
-  // rateLimiter
-});
-
-// Print the result
-console.log(res.value());
-```
 
 ## Debug your LLM interactions with a tracing proxy.
 
@@ -113,7 +64,7 @@ Point your code to local dev proxy server
 http://localhost:8081/openai/v1
 ```
 
-Connect any LLM workflow to proxy server
+Connect your LLM code to the proxy server
 
 ```javascript
 // Example using openai client library
@@ -146,6 +97,51 @@ LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c
 ```
 
 ![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
+
+## A simple library to build with all supported LLMs
+
+```javascript
+import { OpenAI, AIMemory, AIPrompt } from 'llmclient';
+
+// Support for OpenAI, AzureAI, GoogleAI, Cohere, etc...
+const ai = new OpenAI(process.env.OPENAI_APIKEY);
+
+// Has built-in support for reasoning, function calling, error correction, etc
+const prompt = new AIPrompt();
+
+// Optional state storage memory
+const memory = new AIMemory();
+
+// Execute the prompt
+const res = await prompt.generate(ai, `What is your name?`, {
+  memory,
+  // sessionID,
+  // rateLimiter
+});
+
+// Print the result
+console.log(res.value());
+```
+
+## Code Examples (Apps)
+
+[LLMClient Example Apps](/examples/README.md)
+
+| Example               | Description                                               |
+| --------------------- | --------------------------------------------------------- |
+| meetings.js           | Meeting transcript converted into multiple Trello tasks   |
+| product-search.js     | Call an API to answer product related questions           |
+| food-search.js        | Multiple APIs are used to lookup the best eating options  |
+| fibonacci.js          | Use the built-in JS code interpreter to compute fibonacci |
+| vector-search.js      | Simple example using vector db and embeddings             |
+| customer-support.js   | Extract valuable details from customer communications     |
+| marketing.js          | Use AI to generate short effective marketing sms messages |
+| transcribe-podcast.js | Transcribe multiple podcast channels into text            |
+| chat-assistant.js     | AI chat bot capable of intellegent conversations          |
+| get-summary.js        | AI to generate a short summary of a large block of text   |
+| ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                    |
+
+
 
 ## Function (API) Calling with reasoning (CoT)
 
