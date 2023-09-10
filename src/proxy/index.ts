@@ -8,12 +8,13 @@ import zlib from 'zlib';
 import chalk from 'chalk';
 import httpProxy from 'http-proxy';
 
+import { RemoteLogger } from '../logs/remote.js';
+
 import { Cache } from './cache.js';
 import {
   buildTrace,
   processRequest,
   publishTrace,
-  remoteLog,
   updateCachedTrace,
 } from './tracing.js';
 import { CacheItem, ExtendedIncomingMessage } from './types.js';
@@ -67,6 +68,7 @@ http
     req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
     req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
     req.host = req.headers['x-llmclient-host'] as string | undefined;
+    req.apiKey = req.headers['x-llmclient-apikey'] as string | undefined;
 
     if (debug) {
       console.log('> Proxying', hash, req.url);
@@ -80,7 +82,7 @@ http
 
       if (trace) {
         const updatedTrace = updateCachedTrace(req, trace);
-        publishTrace(updatedTrace, debug);
+        publishTrace(updatedTrace, req.apiKey, debug);
       }
       return;
     }
@@ -108,6 +110,8 @@ http
   })
   .listen(port, () => {
     const msg = `🌵 LLMClient caching proxy listening on port ${port}`;
+    const remoteLog = new RemoteLogger();
+
     console.log(chalk.greenBright(msg));
     remoteLog.printDebugInfo();
     console.log('🔥 ❤️  🖖🏼');
@@ -139,7 +143,7 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
       trace = buildTrace(req);
 
       if (trace) {
-        publishTrace(trace, debug);
+        publishTrace(trace, req.apiKey, debug);
       }
     } catch (err: unknown) {
       console.error('Error building trace', err);

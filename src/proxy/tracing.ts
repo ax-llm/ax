@@ -8,7 +8,6 @@ import 'dotenv/config';
 import { parserMap } from './parsers.js';
 import { ExtendedIncomingMessage, ParserFunction } from './types.js';
 
-export const remoteLog = new RemoteLogger();
 const consoleLog = new ConsoleLogger();
 
 export const processRequest = (
@@ -46,7 +45,6 @@ export const processRequest = (
   }
 
   req.startTime = Date.now();
-  req.apiKey = req.headers['x-llmclient-apikey'] as string | undefined;
   req.url = urlPath;
   req.parserFn = parserFn as ParserFunction;
 
@@ -96,9 +94,20 @@ export const updateCachedTrace = (
 
 export const publishTrace = (
   trace: Readonly<AITextTraceStep>,
-  debug: boolean
+  apiKey?: string,
+  debug?: boolean
 ): AITextTraceStep => {
-  remoteLog.log(trace);
+  const remoteLog = new RemoteLogger();
+
+  if (apiKey) {
+    remoteLog.setAPIKey(apiKey);
+  }
+
+  try {
+    remoteLog.log(trace);
+  } catch (e) {
+    console.error(e);
+  }
 
   if (debug) {
     consoleLog.log(trace);
