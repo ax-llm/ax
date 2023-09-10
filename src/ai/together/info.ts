@@ -1,6 +1,6 @@
-import { TextModelInfo } from '../types';
+import { TextModelInfo } from '../types.js';
 
-import { TogetherChatModel, TogetherLanguageModel } from './types';
+import { TogetherChatModel, TogetherLanguageModel } from './types.js';
 
 export const modelInfoTogether: TextModelInfo[] = [
   {

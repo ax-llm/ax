@@ -106,3 +106,5 @@ export const publishTrace = (
 
   return trace;
 };
+
+export { AITextTraceStepBuilder };

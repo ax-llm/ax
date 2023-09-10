@@ -1,6 +1,6 @@
-import { TextModelInfo } from '../types';
+import { TextModelInfo } from '../types.js';
 
-import { GoogleEmbedModels, GoogleModel } from './types';
+import { GoogleEmbedModels, GoogleModel } from './types.js';
 
 /**
  * Google: Model information

@@ -2,12 +2,12 @@ import {
   AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
-} from '../../tracing';
-import { TextModelConfig } from '../types';
-import { findItemByNameOrAlias } from '../util';
+} from '../../tracing/index.js';
+import { TextModelConfig } from '../types.js';
+import { findItemByNameOrAlias } from '../util.js';
 
-import { modelInfoHuggingFace } from './info';
-import { HuggingFaceRequest, HuggingFaceResponse } from './types';
+import { modelInfoHuggingFace } from './info.js';
+import { HuggingFaceRequest, HuggingFaceResponse } from './types.js';
 
 export const generateTraceCompletionHuggingFace = (
   request: string,

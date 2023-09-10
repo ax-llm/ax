@@ -1,6 +1,6 @@
-import { TextModelInfo } from '../types';
+import { TextModelInfo } from '../types.js';
 
-import { AnthropicModel } from './api';
+import { AnthropicModel } from './types.js';
 
 export const modelInfoAnthropic: TextModelInfo[] = [
   {

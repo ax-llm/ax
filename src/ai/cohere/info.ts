@@ -1,6 +1,6 @@
-import { TextModelInfo } from '../types';
+import { TextModelInfo } from '../types.js';
 
-import { CohereEmbedModel, CohereModel } from './types';
+import { CohereEmbedModel, CohereModel } from './types.js';
 
 export const modelInfoCohere: TextModelInfo[] = [
   {

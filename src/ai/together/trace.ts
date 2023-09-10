@@ -2,12 +2,15 @@ import {
   AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
-} from '../../tracing';
-import { TextModelConfig } from '../types';
-import { findItemByNameOrAlias } from '../util';
+} from '../../tracing/index.js';
+import { TextModelConfig } from '../types.js';
+import { findItemByNameOrAlias } from '../util.js';
 
-import { modelInfoTogether } from './info';
-import { TogetherCompletionRequest, TogetherCompletionResponse } from './types';
+import { modelInfoTogether } from './info.js';
+import {
+  TogetherCompletionRequest,
+  TogetherCompletionResponse,
+} from './types.js';
 
 export const generateTraceCompletionTogether = (
   request: string,

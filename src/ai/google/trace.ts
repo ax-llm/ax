@@ -2,17 +2,17 @@ import {
   AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
-} from '../../tracing';
-import { TextModelConfig } from '../types';
-import { findItemByNameOrAlias } from '../util';
+} from '../../tracing/index.js';
+import { TextModelConfig } from '../types.js';
+import { findItemByNameOrAlias } from '../util.js';
 
-import { modelInfoGoogle } from './info';
+import { modelInfoGoogle } from './info.js';
 import {
   GoogleChatRequest,
   GoogleChatResponse,
   GoogleCompletionRequest,
   GoogleCompletionResponse,
-} from './types';
+} from './types.js';
 
 const generateCompletionTraceGoogle = (
   req: Readonly<GoogleCompletionRequest>,

@@ -1,10 +1,10 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types';
-import { apiCall } from '../../util/apicall';
-import { BaseAI } from '../base';
-import { EmbedResponse, TextModelConfig, TextResponse } from '../types';
+import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import { apiCall } from '../../util/apicall.js';
+import { BaseAI } from '../base.js';
+import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
-import { modelInfoCohere } from './info';
-import { generateReq } from './req';
+import { modelInfoCohere } from './info.js';
+import { generateReq } from './req.js';
 import {
   apiURLCohere,
   CohereApi,
@@ -16,7 +16,7 @@ import {
   CohereEmbedResponse,
   CohereModel,
   CohereOptions,
-} from './types';
+} from './types.js';
 
 /**
  * Cohere: Default Model options for text generation

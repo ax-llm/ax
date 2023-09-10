@@ -2,12 +2,12 @@ import {
   AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
-} from '../../tracing';
-import { TextModelConfig } from '../types';
-import { findItemByNameOrAlias } from '../util';
+} from '../../tracing/index.js';
+import { TextModelConfig } from '../types.js';
+import { findItemByNameOrAlias } from '../util.js';
 
-import { modelInfoCohere } from './info';
-import { CohereCompletionRequest, CohereCompletionResponse } from './types';
+import { modelInfoCohere } from './info.js';
+import { CohereCompletionRequest, CohereCompletionResponse } from './types.js';
 
 export const generateCompletionTraceCohere = (
   request: string,

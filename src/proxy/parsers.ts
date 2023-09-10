@@ -1,16 +1,16 @@
+import { generateCompletionTraceCohere } from '../ai/cohere/trace.js';
+import { generateTraceGoogle } from '../ai/google/trace.js';
 import {
   generateChatTraceOpenAI,
   generateCompletionTraceOpenAI,
   generateTraceCompletionHuggingFace,
   HuggingFaceApi,
   OpenAIApi,
-} from '../ai';
-import { generateCompletionTraceCohere } from '../ai/cohere/trace';
-import { generateTraceGoogle } from '../ai/google/trace';
-import { generateTraceCompletionTogether } from '../ai/together/trace';
-import { TogetherApi } from '../ai/together/types';
+} from '../ai/index.js';
+import { generateTraceCompletionTogether } from '../ai/together/trace.js';
+import { TogetherApi } from '../ai/together/types.js';
 
-import { ParserFunction } from './types';
+import { ParserFunction } from './types.js';
 
 type Parser = {
   name: string;

@@ -1,6 +1,6 @@
-import { TextModelInfo } from '../types';
+import { TextModelInfo } from '../types.js';
 
-import { HuggingFaceModel } from './types';
+import { HuggingFaceModel } from './types.js';
 
 /**
  * HuggingFace: Model information

@@ -10,31 +10,10 @@ import {
   AnthropicApiConfig,
   AnthropicCompletionRequest,
   AnthropicCompletionResponse,
+  AnthropicModel,
+  AnthropicOptions,
   apiURLAnthropic,
 } from './types.js';
-
-/**
- * Anthropic: Models for text generation
- * @export
- */
-export enum AnthropicModel {
-  Claude2 = 'claude-2',
-  ClaudeInstant = 'claude-instant',
-}
-
-/**
- * Anthropic: Model options for text generation
- * @export
- */
-export type AnthropicOptions = {
-  model: AnthropicModel;
-  maxTokens: number;
-  temperature: number;
-  topP: number;
-  topK?: number;
-  stream?: boolean;
-  stopSequences?: string[];
-};
 
 /**
  * Anthropic: Default Model options for text generation

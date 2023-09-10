@@ -1,5 +1,4 @@
-import { AnthropicOptions } from './api';
-import { AnthropicCompletionRequest } from './types';
+import { AnthropicCompletionRequest, AnthropicOptions } from './types.js';
 
 export const generateReq = (
   prompt: string,
