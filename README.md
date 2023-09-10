@@ -21,16 +21,17 @@ A must have for building with LLMs. It's packed with useful features.
 
 ## AI's Supported
 
-| AI           | Best Model                           | Functions + CoT |
-| ------------ | ------------------------------------ | --------------- |
-| OpenAI       | GPT: 3.5, 3.5-16K, 4, 4-32K          | 🟢 100%         |
-| Anthropic    | Claude Instant, Claude 2             | 🟢 100%         |
-| Azure OpenAI | GPT: 3.5, 3.5-16K, 4, 4-32K          | 🟢 100%         |
-| Google AI    | Text Bison, Chat Bison, Gecko        | 🟢 100%         |
-| Together     | Llama 2                              | 🟢 90%          |
-| Hugging Face | Llama 2                              | 🟡 90%          |
-| Cohere       | Command, Command Nightly             | 🟡 40%          |
-| AlephaAlpha  | Luminous: Control, Supreme, Extended | 🔴 N/A          |
+
+| AI           | Best Model                           | Proxy | Functions + CoT |
+| ------------ | ------------------------------------ | ----- | --------------- |
+| OpenAI       | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
+| Anthropic    | Claude Instant, Claude 2             | ✅    | 🟢 100%         |
+| Azure OpenAI | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
+| Google AI    | Text Bison, Chat Bison, Gecko        | ✅    | 🟢 100%         |
+| Together     | Llama 2                              | ✅    | 🟢 90%          |
+| Hugging Face | Llama 2                              | ✅    | 🟡 90%          |
+| Cohere       | Command, Command Nightly             | ✅    | 🟡 40%          |
+| AlephaAlpha  | Luminous: Control, Supreme, Extended | No    | 🔴 N/A          |
 
 ## Debug your LLM interactions with a tracing proxy.
 
