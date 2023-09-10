@@ -28,6 +28,7 @@ export type TextModelConfig = {
   bestOf?: number;
   logitBias?: Map<string, number>;
   suffix?: string | null;
+  stop?: readonly string[];
 };
 
 export type TextResponse = {

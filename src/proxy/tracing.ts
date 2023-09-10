@@ -1,23 +1,20 @@
-import { apiURLOpenAI, OpenAIApi } from '../ai/openai/types.js';
-import {
-  generateChatTraceOpenAI,
-  generateCompletionTraceOpenAI,
-} from '../ai/openai/util.js';
 import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
 import { uuid } from '../text/util.js';
 import { AITextTraceStepBuilder } from '../tracing/index.js';
 import { AITextTraceStep } from '../tracing/types.js';
 
-import { ExtendedIncomingMessage, ParserFunction } from './types.js';
-
 import 'dotenv/config';
+import { parserMap } from './parsers.js';
+import { ExtendedIncomingMessage, ParserFunction } from './types.js';
 
 export const remoteLog = new RemoteLogger();
 const consoleLog = new ConsoleLogger();
 
-// eslint-disable-next-line functional/prefer-immutable-types
-export const processRequest = (req: ExtendedIncomingMessage): string => {
+export const processRequest = (
+  // eslint-disable-next-line functional/prefer-immutable-types
+  req: ExtendedIncomingMessage
+): string => {
   if (!req.url) {
     throw new Error('No URL provided');
   }
@@ -43,7 +40,7 @@ export const processRequest = (req: ExtendedIncomingMessage): string => {
     throw new Error(`Unknown LLM provider: ${providerName}`);
   }
 
-  const parserFn = pm.parsers.find((p) => p.path === urlPath)?.fn;
+  const parserFn = pm.parsers.find((p) => urlPath?.startsWith(p.path))?.fn;
   if (!parserFn) {
     throw new Error(`Unknown LLM provider path: ${urlPath}`);
   }
@@ -53,45 +50,37 @@ export const processRequest = (req: ExtendedIncomingMessage): string => {
   req.url = urlPath;
   req.parserFn = parserFn as ParserFunction;
 
+  if (pm.target instanceof Function) {
+    if (!req.host && pm.hostRequired) {
+      throw new Error('No host provided (x-llmclient-host');
+    }
+    return pm.target(req.host);
+  }
+
   return pm.target;
 };
 
-const parserMappings = {
-  openai: {
-    target: 'https://api.openai.com',
-    parsers: [
-      { path: OpenAIApi.Completion, fn: generateCompletionTraceOpenAI },
-      { path: OpenAIApi.Chat, fn: generateChatTraceOpenAI },
-    ],
-  },
-};
-const parserMap = new Map(Object.entries(parserMappings));
-
 const generateTrace = (
   req: Readonly<ExtendedIncomingMessage>
-): AITextTraceStepBuilder => {
+): AITextTraceStepBuilder | undefined => {
   const reqBody = req.reqBody;
   const resBody = !req.error ? req.resBody : undefined;
-  return req.parserFn(reqBody, resBody).setApiError(req.error);
-};
-
-export const getTarget = (apiName?: string): string => {
-  switch (apiName) {
-    case 'openai':
-      return apiURLOpenAI;
-    default:
-      throw new Error(`Unknown API name: ${apiName}`);
+  try {
+    return req.parserFn(reqBody, resBody)?.setApiError(req.error);
+  } catch (e) {
+    console.error(e);
   }
+  return;
 };
 
 export const buildTrace = (
   req: Readonly<ExtendedIncomingMessage>
-): AITextTraceStep => {
+): AITextTraceStep | undefined => {
   return generateTrace(req)
-    .setTraceId(req.traceId ?? uuid())
-    .setSessionId(req.sessionId)
-    .setModelResponseTime(Date.now() - req.startTime)
-    .build();
+    ?.setTraceId(req.traceId ?? uuid())
+    ?.setSessionId(req.sessionId)
+    ?.setModelResponseTime(Date.now() - req.startTime)
+    ?.build();
 };
 
 export const updateCachedTrace = (

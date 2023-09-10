@@ -13,6 +13,7 @@ import {
 } from '../types.js';
 
 import { modelInfoOpenAI } from './info.js';
+import { generateAudioReq, generateChatReq, generateReq } from './req.js';
 import {
   apiURLOpenAI,
   OpenAIApi,
@@ -30,7 +31,6 @@ import {
   OpenAIModel,
   OpenAIOptions,
 } from './types.js';
-import { generateAudioReq, generateChatReq, generateReq } from './util.js';
 
 /**
  * OpenAI: Default Model options for text generation

@@ -2,6 +2,7 @@ import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import { API, apiCall } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { modelInfoOpenAI } from '../openai/info.js';
+import { generateChatReq, generateReq } from '../openai/req.js';
 import {
   OpenAIChatRequest,
   OpenAIChatResponse,
@@ -13,7 +14,6 @@ import {
   OpenAIModel,
   OpenAIOptions,
 } from '../openai/types.js';
-import { generateChatReq, generateReq } from '../openai/util.js';
 import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 /**
@@ -221,7 +221,7 @@ export class AzureOpenAI extends BaseAI {
 
   private createAPI(name: AzureOpenAIApi): AzureOpenAIApiConfig {
     return {
-      url: this.apiURL,
+      url: new URL(name, this.apiURL).href,
       name,
       headers: {
         'api-key': this.apiKey,

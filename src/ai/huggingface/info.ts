@@ -1,0 +1,17 @@
+import { TextModelInfo } from '../types';
+
+import { HuggingFaceModel } from './types';
+
+/**
+ * HuggingFace: Model information
+ * @export
+ */
+export const modelInfoHuggingFace: TextModelInfo[] = [
+  {
+    name: HuggingFaceModel.MetaLlama270BChatHF,
+    currency: 'usd',
+    promptTokenCostPer1K: 0.0,
+    completionTokenCostPer1K: 0.0,
+    maxTokens: 4000,
+  },
+];

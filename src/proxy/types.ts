@@ -4,9 +4,9 @@ import { AITextTraceStepBuilder } from '../tracing';
 import { AITextTraceStep, APIError } from '../tracing/types';
 
 export type ParserFunction = (
-  request: Readonly<unknown>,
-  response?: Readonly<unknown>
-) => AITextTraceStepBuilder;
+  request: string,
+  response?: string
+) => AITextTraceStepBuilder | undefined;
 
 export type ExtendedIncomingMessage = IncomingMessage & {
   reqHash: string;
@@ -19,6 +19,7 @@ export type ExtendedIncomingMessage = IncomingMessage & {
   traceId?: string;
   sessionId?: string;
   apiKey?: string;
+  host?: string;
 };
 
 export type CacheItem = {

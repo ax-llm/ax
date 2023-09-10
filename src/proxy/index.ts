@@ -48,10 +48,16 @@ http
     const req = _req as ExtendedIncomingMessage;
     const chunks = await getBody(req);
 
+    const hashKey =
+      (req.method ?? '') +
+      (req.url ?? '') +
+      (req.headers['x-llmclient-apikey'] ?? '') +
+      (req.headers.authorization ?? '');
+
     const buff = Buffer.concat(chunks);
     const hash = crypto
-      .createHash('sha1')
-      .update(req.url ?? '')
+      .createHash('sha256')
+      .update(hashKey)
       .update(buff)
       .digest('hex');
     const cachedResponse = cache.get(hash);
@@ -59,6 +65,8 @@ http
 
     req.traceId = req.headers['x-llmclient-traceid'] as string | undefined;
     req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
+    req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
+    req.host = req.headers['x-llmclient-host'] as string | undefined;
 
     if (debug) {
       console.log('> Proxying', hash, req.url);
@@ -129,7 +137,10 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
 
     try {
       trace = buildTrace(req);
-      publishTrace(trace, debug);
+
+      if (trace) {
+        publishTrace(trace, debug);
+      }
     } catch (err: unknown) {
       console.error('Error building trace', err);
     }
