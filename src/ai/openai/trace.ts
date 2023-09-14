@@ -214,8 +214,9 @@ function mergeChatResponseDeltas(
     chunk.choices.forEach((c) => {
       const { index, delta, finish_reason } = c;
       const value = md.get(index);
+
       md.set(index, {
-        content: value?.content ?? '' + delta.content,
+        content: (value?.content ?? '') + delta.content,
         role: value?.role ?? delta.role ?? '',
         finish_reason: value?.finish_reason ?? finish_reason ?? '',
       });
@@ -259,7 +260,7 @@ function mergeCompletionResponseDeltas(
       const { index, delta, finish_reason } = c;
       const value = md.get(index);
       md.set(index, {
-        text: value?.text ?? '' + delta.text,
+        text: (value?.text ?? '') + delta.text,
         logprobs: value?.logprobs,
         finish_reason: value?.finish_reason ?? finish_reason ?? '',
       });
