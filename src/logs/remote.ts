@@ -28,10 +28,10 @@ export class RemoteLogger {
     console.log(chalk.yellowBright(msg));
   }
 
-  log(trace: Readonly<AITextTraceStep>): void {
+  async log(trace: Readonly<AITextTraceStep>) {
     if (!this.apiKey || this.apiKey.length === 0) {
       return;
     }
-    sendTrace(trace, this.apiKey, this.devMode);
+    await sendTrace(trace, this.apiKey, this.devMode);
   }
 }

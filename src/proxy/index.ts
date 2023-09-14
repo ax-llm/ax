@@ -33,80 +33,91 @@ const proxy = httpProxy.createProxyServer({
 
 const port = parseInt(process.env.PORT ?? '') || 8081;
 
+const requestHandler = async (
+  _req: Readonly<IncomingMessage>,
+  _res: Readonly<http.ServerResponse>
+) => {
+  if (_req.url === '/') {
+    _res.end('Herding Llamas!');
+    return;
+  }
+
+  if (_req.url === '/favicon.ico') {
+    _res.writeHead(404);
+    _res.end();
+    return;
+  }
+
+  const req = _req as ExtendedIncomingMessage;
+  const chunks = await getBody(req);
+
+  const hashKey =
+    (req.method ?? '') +
+    (req.url ?? '') +
+    (req.headers['x-llmclient-apikey'] ?? '') +
+    (req.headers.authorization ?? '');
+
+  const buff = Buffer.concat(chunks);
+  const hash = crypto
+    .createHash('sha256')
+    .update(hashKey)
+    .update(buff)
+    .digest('hex');
+  const cachedResponse = cache.get(hash);
+  const contentEncoding = req.headers['content-encoding'];
+
+  req.traceId = req.headers['x-llmclient-traceid'] as string | undefined;
+  req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
+  req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
+  req.host = req.headers['x-llmclient-host'] as string | undefined;
+  req.apiKey = req.headers['x-llmclient-apikey'] as string | undefined;
+
+  if (debug) {
+    console.log('> Proxying', hash, req.url);
+  }
+
+  if (cachedResponse) {
+    const { body, headers, trace } = cachedResponse;
+    _res.writeHead(200, headers);
+    _res.write(Buffer.concat(body));
+    _res.end();
+
+    if (trace) {
+      const updatedTrace = updateCachedTrace(req, trace);
+      await publishTrace(updatedTrace, req.apiKey, debug);
+    }
+    return;
+  }
+
+  req.reqHash = hash;
+  let target;
+
+  try {
+    target = processRequest(req);
+  } catch (err: unknown) {
+    console.log('Error processing request', err);
+    return;
+  }
+
+  if (target && req.headers['content-type'] === 'application/json') {
+    req.reqBody = await decompress(contentEncoding, buff);
+  }
+
+  // setup body buffer to pass to proxy
+  const buffer = new stream.PassThrough();
+  buffer.end(buff);
+
+  // send the request to be proxied
+  proxy.web(req, _res, { target, buffer });
+};
+
 http
-  .createServer(async (_req, _res) => {
-    if (_req.url === '/') {
-      _res.end('Herding Llamas!');
-      return;
-    }
-
-    if (_req.url === '/favicon.ico') {
-      _res.writeHead(404);
-      _res.end();
-      return;
-    }
-
-    const req = _req as ExtendedIncomingMessage;
-    const chunks = await getBody(req);
-
-    const hashKey =
-      (req.method ?? '') +
-      (req.url ?? '') +
-      (req.headers['x-llmclient-apikey'] ?? '') +
-      (req.headers.authorization ?? '');
-
-    const buff = Buffer.concat(chunks);
-    const hash = crypto
-      .createHash('sha256')
-      .update(hashKey)
-      .update(buff)
-      .digest('hex');
-    const cachedResponse = cache.get(hash);
-    const contentEncoding = req.headers['content-encoding'];
-
-    req.traceId = req.headers['x-llmclient-traceid'] as string | undefined;
-    req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
-    req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
-    req.host = req.headers['x-llmclient-host'] as string | undefined;
-    req.apiKey = req.headers['x-llmclient-apikey'] as string | undefined;
-
-    if (debug) {
-      console.log('> Proxying', hash, req.url);
-    }
-
-    if (cachedResponse) {
-      const { body, headers, trace } = cachedResponse;
-      _res.writeHead(200, headers);
-      _res.write(Buffer.concat(body));
-      _res.end();
-
-      if (trace) {
-        const updatedTrace = updateCachedTrace(req, trace);
-        publishTrace(updatedTrace, req.apiKey, debug);
-      }
-      return;
-    }
-
-    req.reqHash = hash;
-    let target;
-
+  .createServer((req, res) => {
     try {
-      target = processRequest(req);
+      requestHandler(req, res);
     } catch (err: unknown) {
-      console.log('Error processing request', err);
-      return;
+      errMsg(res, (err as Error).message);
     }
-
-    if (target && req.headers['content-type'] === 'application/json') {
-      req.reqBody = await decompress(contentEncoding, buff);
-    }
-
-    // setup body buffer to pass to proxy
-    const buffer = new stream.PassThrough();
-    buffer.end(buff);
-
-    // send the request to be proxied
-    proxy.web(req, _res, { target, buffer });
   })
   .listen(port, () => {
     const msg = `🌵 LLMClient caching proxy listening on port ${port}`;
@@ -117,9 +128,7 @@ http
     console.log('🔥 ❤️  🖖🏼');
   });
 
-// proxy.on('proxyReq', async (_proxyReq, _req, _res) => {
-// });
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
   const req = _req as ExtendedIncomingMessage;
 
@@ -143,10 +152,11 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
       trace = buildTrace(req);
 
       if (trace) {
-        publishTrace(trace, req.apiKey, debug);
+        await publishTrace(trace, req.apiKey, debug);
       }
     } catch (err: unknown) {
-      console.error('Error building trace', err);
+      console.error('Error building trace', (err as Error).message);
+      return;
     }
   }
 
@@ -160,16 +170,20 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
   }
 });
 
+// proxy.on('proxyReq', async (_proxyReq, _req, _res) => {
+// });
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 proxy.on('error', (err, _req, _res) => {
   console.log('Proxying failed', err);
 });
 
-// const errMsg = (res: Readonly<http.ServerResponse>, msg: string) => {
-//   res.writeHead(500);
-//   res.end(msg);
-//   return;
-// };
+const errMsg = (res: Readonly<http.ServerResponse>, msg: string) => {
+  console.error(msg);
+  res.writeHead(500);
+  res.end(msg);
+  return;
+};
 
 const getBody = (req: Readonly<IncomingMessage>): Promise<Uint8Array[]> => {
   return new Promise((resolve, reject) => {

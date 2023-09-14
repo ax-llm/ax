@@ -146,6 +146,10 @@ export const generateChatTraceOpenAI = (
     })
   );
 
+  const systemPrompt = chatPrompt
+    .filter((m) => m.role === 'system')
+    ?.at(0)?.text;
+
   // Configure TextModel based on OpenAIChatRequest
   const modelConfig: TextModelConfig = {
     maxTokens: max_tokens,
@@ -182,6 +186,7 @@ export const generateChatTraceOpenAI = (
     .setRequest(
       new TextRequestBuilder()
         .setChatStep(chatPrompt, modelConfig, modelInfo)
+        .setSystemPrompt(systemPrompt)
         .setFunctions(functions)
         .setFunctionCall(function_call as string)
         .setIdentity(identity)

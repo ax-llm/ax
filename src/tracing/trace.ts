@@ -227,7 +227,7 @@ let response = new TextResponseBuilder()
 export class TextRequestBuilder {
   private request: AITextTraceStepRequest = {} as AITextTraceStepRequest;
 
-  setSystemPrompt(systemPrompt: string): this {
+  setSystemPrompt(systemPrompt?: string): this {
     this.request.systemPrompt = systemPrompt;
     return this;
   }
@@ -354,5 +354,8 @@ export const sendTrace = async (
     .send({ traceId, sessionId, step })
     .type('json')
     .accept('json')
-    .retry(3);
+    .retry(3)
+    .catch((err) => {
+      throw new Error(`Error sending trace: ${err.message}`);
+    });
 };

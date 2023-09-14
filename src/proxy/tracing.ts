@@ -92,11 +92,11 @@ export const updateCachedTrace = (
   };
 };
 
-export const publishTrace = (
+export const publishTrace = async (
   trace: Readonly<AITextTraceStep>,
   apiKey?: string,
   debug?: boolean
-): AITextTraceStep => {
+): Promise<AITextTraceStep> => {
   const remoteLog = new RemoteLogger();
 
   if (apiKey) {
@@ -104,7 +104,7 @@ export const publishTrace = (
   }
 
   try {
-    remoteLog.log(trace);
+    await remoteLog.log(trace);
   } catch (e) {
     console.error(e);
   }
