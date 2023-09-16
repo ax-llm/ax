@@ -2,6 +2,7 @@ import { generateCompletionTraceCohere } from '../ai/cohere/trace.js';
 import { generateTraceGoogle } from '../ai/google/trace.js';
 import {
   generateChatTraceOpenAI,
+  generateCompletionTraceAnthropic,
   generateCompletionTraceOpenAI,
   generateTraceCompletionHuggingFace,
   HuggingFaceApi,
@@ -76,11 +77,11 @@ export const parserMappings: Parser[] = [
   },
   {
     name: 'anthropic',
-    target: 'https://api.anthropic.com/',
+    target: 'https://api.anthropic.com',
     parsers: [
       {
-        path: '/v1/completions',
-        fn: generateTraceCompletionTogether,
+        path: '/v1/complete',
+        fn: generateCompletionTraceAnthropic,
       },
     ],
   },
