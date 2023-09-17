@@ -8,22 +8,22 @@ import zlib from 'zlib';
 import chalk from 'chalk';
 import httpProxy from 'http-proxy';
 
-import { RemoteLogger } from '../logs/remote.js';
+import { RemoteLogger } from '../logs/remote';
 
-import { Cache } from './cache.js';
+import { MemoryCache } from './cache';
 import {
   buildTrace,
   processRequest,
   publishTrace,
   updateCachedTrace,
-} from './tracing.js';
-import { CacheItem, ExtendedIncomingMessage } from './types.js';
+} from './tracing';
+import { CacheItem, ExtendedIncomingMessage } from './types';
 import 'dotenv/config';
-import { convertToAPIError } from './util.js';
+import { convertToAPIError } from './util';
 
 const debug = (process.env.DEBUG ?? 'true') === 'true';
 
-const cache = new Cache<CacheItem>();
+const cache = new MemoryCache<CacheItem>();
 
 const proxy = httpProxy.createProxyServer({
   secure: false,
@@ -63,7 +63,7 @@ const requestHandler = async (
     .update(hashKey)
     .update(buff)
     .digest('hex');
-  const cachedResponse = cache.get(hash);
+  const cachedResponse = await cache.get(hash);
   const contentEncoding = req.headers['content-encoding'];
 
   req.traceId = req.headers['x-llmclient-traceid'] as string | undefined;
@@ -162,7 +162,7 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
 
   // only cache successful responses
   if (isOK) {
-    cache.set(
+    await cache.set(
       req.reqHash,
       { body: chunks, headers: _proxyRes.headers, trace },
       3600
