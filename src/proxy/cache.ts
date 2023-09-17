@@ -1,12 +1,14 @@
-type CacheValue<T> = {
-  value: T;
-  expiry: Date;
-};
+import { Cache, CacheValue } from './types';
 
-export class Cache<T> {
+/**
+ * MemoryCache
+ * @group Cache
+ * @export
+ */
+export class MemoryCache<T> implements Cache<T> {
   private store: Map<string, CacheValue<T>> = new Map();
 
-  set(key: string, value: Readonly<T>, maxAgeSeconds: number) {
+  async set(key: string, value: Readonly<T>, maxAgeSeconds: number): Promise<void> {
     const expiry = new Date(Date.now() + maxAgeSeconds * 1000);
 
     this.store.set(key, { value, expiry });
@@ -14,7 +16,7 @@ export class Cache<T> {
     setTimeout(() => this.removeIfExpired(key), maxAgeSeconds * 1000);
   }
 
-  get(key: string): T | undefined {
+  async get(key: string): Promise<T | undefined> {
     const cacheValue = this.store.get(key);
 
     if (cacheValue) {
@@ -24,7 +26,7 @@ export class Cache<T> {
     return cacheValue?.value;
   }
 
-  removeIfExpired(key: string) {
+  async removeIfExpired(key: string): Promise<void> {
     const cacheValue = this.store.get(key);
 
     if (!cacheValue) {
