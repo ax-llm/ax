@@ -138,7 +138,7 @@ export type OpenAICompletionResponseDelta = OpenAIResponseDelta<{
 export type OpenAIChatRequest = {
   model: string;
   messages: {
-    role: 'system' | 'user' | 'assistant' | 'function';
+    role: string;
     content: string;
     name?: string;
     // eslint-disable-next-line functional/functional-parameters

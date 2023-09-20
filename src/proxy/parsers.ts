@@ -1,38 +1,39 @@
-import { generateCompletionTraceCohere } from '../ai/cohere/trace.js';
-import { generateTraceGoogle } from '../ai/google/trace.js';
 import {
-  generateChatTraceOpenAI,
-  generateCompletionTraceAnthropic,
-  generateCompletionTraceOpenAI,
-  generateTraceCompletionHuggingFace,
+  AnthropicApi,
+  AnthropicCompletionParser,
+  CohereApi,
+  CohereCompletionParser,
+  GoogleParser,
   HuggingFaceApi,
+  HuggingFaceCompletionParser,
   OpenAIApi,
+  OpenAIChatParser,
+  OpenAICompletionParser,
+  TogetherCompletionParser,
 } from '../ai/index.js';
-import { generateTraceCompletionTogether } from '../ai/together/trace.js';
 import { TogetherApi } from '../ai/together/types.js';
+import { Parser } from '../ai/types.js';
 
-import { ParserFunction } from './types.js';
-
-type Parser = {
+type Routes = {
   name: string;
   target: string | ((host?: string) => string);
   hostRequired?: boolean;
   parsers: {
     path: string;
-    fn: ParserFunction;
+    parser: Parser;
   }[];
 };
 
-export const parserMappings: Parser[] = [
+export const routes: Routes[] = [
   {
     name: 'openai',
     target: 'https://api.openai.com',
     parsers: [
       {
         path: OpenAIApi.Completion,
-        fn: generateCompletionTraceOpenAI,
+        parser: new OpenAICompletionParser(),
       },
-      { path: OpenAIApi.Chat, fn: generateChatTraceOpenAI },
+      { path: OpenAIApi.Chat, parser: new OpenAIChatParser() },
     ],
   },
   {
@@ -40,8 +41,8 @@ export const parserMappings: Parser[] = [
     target: (host?: string) => `https://${host}.openai.azure.com/`,
     hostRequired: true,
     parsers: [
-      { path: OpenAIApi.Completion, fn: generateCompletionTraceOpenAI },
-      { path: OpenAIApi.Chat, fn: generateChatTraceOpenAI },
+      { path: OpenAIApi.Completion, parser: new OpenAICompletionParser() },
+      { path: OpenAIApi.Chat, parser: new OpenAIChatParser() },
     ],
   },
   {
@@ -50,7 +51,7 @@ export const parserMappings: Parser[] = [
     parsers: [
       {
         path: HuggingFaceApi.Completion,
-        fn: generateTraceCompletionHuggingFace,
+        parser: new HuggingFaceCompletionParser(),
       },
     ],
   },
@@ -60,7 +61,7 @@ export const parserMappings: Parser[] = [
     parsers: [
       {
         path: TogetherApi.Completion,
-        fn: generateTraceCompletionTogether,
+        parser: new TogetherCompletionParser(),
       },
     ],
   },
@@ -71,7 +72,7 @@ export const parserMappings: Parser[] = [
     parsers: [
       {
         path: `/v1/projects`,
-        fn: generateTraceGoogle,
+        parser: new GoogleParser(),
       },
     ],
   },
@@ -80,8 +81,8 @@ export const parserMappings: Parser[] = [
     target: 'https://api.anthropic.com',
     parsers: [
       {
-        path: '/v1/complete',
-        fn: generateCompletionTraceAnthropic,
+        path: AnthropicApi.Completion,
+        parser: new AnthropicCompletionParser(),
       },
     ],
   },
@@ -90,13 +91,13 @@ export const parserMappings: Parser[] = [
     target: 'https://api.cohere.ai/',
     parsers: [
       {
-        path: '/v1/generate',
-        fn: generateCompletionTraceCohere,
+        path: CohereApi.Completion,
+        parser: new CohereCompletionParser(),
       },
     ],
   },
 ];
 
-export const parserMap = new Map<string, Parser>(
-  parserMappings.map((pm) => [pm.name, pm])
+export const parserMap = new Map<string, Routes>(
+  routes.map((pm) => [pm.name, pm])
 );

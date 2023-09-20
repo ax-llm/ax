@@ -1,3 +1,8 @@
+import { ExtendedIncomingMessage } from '../proxy/types';
+import { AITextTraceStep } from '../tracing/types';
+
+import { PromptUpdater } from './parser';
+
 export type TextModelInfo = {
   name: string;
   currency?: string;
@@ -34,7 +39,7 @@ export type TextModelConfig = {
 export type TextResponse = {
   sessionId?: string;
   remoteId?: string;
-  results: {
+  results: readonly {
     text: string;
     role?: string;
     id?: string;
@@ -64,3 +69,15 @@ export type TranscriptResponse = {
 };
 
 export type RateLimiterFunction = <T>(func: unknown) => T;
+
+/**
+ * Parser
+ * @export
+ */
+export interface Parser {
+  addRequest(request: string, fn?: PromptUpdater): void;
+  addResponse(response: string): void;
+  getTrace(req: Readonly<ExtendedIncomingMessage>): AITextTraceStep;
+  isRequestUpdated(): boolean;
+  renderRequest(): string;
+}

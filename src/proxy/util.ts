@@ -6,7 +6,8 @@ import { ExtendedIncomingMessage } from './types';
 
 export function convertToAPIError(
   req: Readonly<ExtendedIncomingMessage>,
-  res: Readonly<IncomingMessage>
+  res: Readonly<IncomingMessage>,
+  resBody: string
 ): APIError {
   const { statusCode, statusMessage, headers } = res;
 
@@ -20,6 +21,6 @@ export function convertToAPIError(
     statusMessage,
     headers: JSON.stringify(headers),
     request: JSON.stringify(req.reqBody),
-    response: JSON.stringify(req.resBody),
+    response: JSON.stringify(resBody),
   };
 }

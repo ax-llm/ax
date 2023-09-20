@@ -1,25 +1,20 @@
 import { IncomingMessage } from 'http';
 
-import { AITextTraceStepBuilder } from '../tracing';
+import { Parser } from '../ai/types';
 import { AITextTraceStep, APIError } from '../tracing/types';
-
-export type ParserFunction = (
-  request: string,
-  response?: string
-) => AITextTraceStepBuilder | undefined;
 
 export type ExtendedIncomingMessage = IncomingMessage & {
   reqHash: string;
   reqBody: string;
-  resBody: string;
   startTime: number;
-  parserFn: ParserFunction;
+  parser: Parser;
   error?: APIError;
 
   traceId?: string;
   sessionId?: string;
   apiKey?: string;
   host?: string;
+  memory?: string;
 };
 
 /**

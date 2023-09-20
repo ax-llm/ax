@@ -27,11 +27,9 @@ export enum GoogleEmbedModels {
 }
 
 export type GoogleCompletionRequest = {
-  instances: [
-    {
-      prompt: string;
-    }
-  ];
+  instances: {
+    prompt: string;
+  }[];
   parameters: {
     maxOutputTokens: number;
     temperature: number;
@@ -54,13 +52,11 @@ export type GoogleCompletionResponse = {
 };
 
 export type GoogleChatRequest = {
-  instances: [
-    {
-      context: string;
-      examples: { input: { content: string }; output: { content: string } }[];
-      messages: { author: string; content: string }[];
-    }
-  ];
+  instances: {
+    context: string;
+    examples: { input: { content: string }; output: { content: string } }[];
+    messages: { author: string; content: string }[];
+  }[];
   parameters: {
     maxOutputTokens: number;
     temperature: number;

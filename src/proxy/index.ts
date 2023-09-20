@@ -11,12 +11,9 @@ import httpProxy from 'http-proxy';
 import { RemoteLogger } from '../logs/remote';
 
 import { MemoryCache } from './cache';
-import {
-  buildTrace,
-  processRequest,
-  publishTrace,
-  updateCachedTrace,
-} from './tracing';
+import { specialRequestHandler } from './prompt';
+import { extendRequest } from './req';
+import { RemoteTraceStore } from './tracing';
 import { CacheItem, ExtendedIncomingMessage } from './types';
 import 'dotenv/config';
 import { convertToAPIError } from './util';
@@ -71,6 +68,7 @@ const requestHandler = async (
   req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
   req.host = req.headers['x-llmclient-host'] as string | undefined;
   req.apiKey = req.headers['x-llmclient-apikey'] as string | undefined;
+  req.memory = req.headers['x-llmclient-memory'] as string | undefined;
 
   if (debug) {
     console.log('> Proxying', hash, req.url);
@@ -83,8 +81,9 @@ const requestHandler = async (
     _res.end();
 
     if (trace) {
-      const updatedTrace = updateCachedTrace(req, trace);
-      await publishTrace(updatedTrace, req.apiKey, debug);
+      const ts = new RemoteTraceStore(trace, debug, req.apiKey);
+      ts.update(req);
+      await ts.save();
     }
     return;
   }
@@ -93,14 +92,15 @@ const requestHandler = async (
   let target;
 
   try {
-    target = processRequest(req);
+    target = extendRequest(req);
   } catch (err: unknown) {
     console.log('Error processing request', err);
     return;
   }
 
-  if (target && req.headers['content-type'] === 'application/json') {
+  if (req.parser && req.headers['content-type'] === 'application/json') {
     req.reqBody = await decompress(contentEncoding, buff);
+    await specialRequestHandler(debug, req);
   }
 
   // setup body buffer to pass to proxy
@@ -139,21 +139,21 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
 
   let trace;
 
-  // don't record trace if we don't have a request body
-  if (req.reqBody) {
-    req.resBody = await decompress(contentEncoding, buff);
+  // don't record trace if not parser is defined
+  if (req.parser) {
+    const resBody = await decompress(contentEncoding, buff);
 
     // parse out error for tracing
     if (!isOK) {
-      req.error = convertToAPIError(req, _proxyRes);
+      req.error = convertToAPIError(req, _proxyRes, resBody);
     }
 
-    try {
-      trace = buildTrace(req);
+    req.parser.addResponse(resBody);
+    trace = req.parser.getTrace(req);
 
-      if (trace) {
-        await publishTrace(trace, req.apiKey, debug);
-      }
+    try {
+      const ts = new RemoteTraceStore(trace, debug, req.apiKey);
+      await ts.save();
     } catch (err: unknown) {
       console.error('Error building trace', (err as Error).message);
       return;

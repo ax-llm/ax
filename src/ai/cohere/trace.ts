@@ -1,52 +1,64 @@
 import {
-  AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { TextModelConfig } from '../types.js';
+import { BaseParser, PromptUpdater } from '../parser.js';
+import { Parser, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
 import { modelInfoCohere } from './info.js';
 import { CohereCompletionRequest, CohereCompletionResponse } from './types.js';
 
-export const generateCompletionTraceCohere = (
-  request: string,
-  response?: string
-): AITextTraceStepBuilder => {
-  const req = JSON.parse(request) as CohereCompletionRequest;
-  let resp: CohereCompletionResponse | undefined;
+export class CohereCompletionParser
+  extends BaseParser<CohereCompletionRequest, CohereCompletionResponse>
+  implements Parser
+{
+  addRequest = async (request: string, fn?: PromptUpdater) => {
+    super.addRequest(request);
 
-  if (!response) {
-    resp = undefined;
-  } else {
-    resp = JSON.parse(response) as CohereCompletionResponse;
-  }
+    if (!this.req) {
+      throw new Error('Invalid request');
+    }
 
-  const { prompt, model, stop_sequences, max_tokens, temperature, p, k } = req;
+    if (fn) {
+      const memory = await fn({ prompt: this.req.prompt });
+      this.req.prompt += memory.map(({ text }) => text).join('\n');
+      this.reqUpdated = true;
+    }
 
-  // Fetching model info
-  const mi = findItemByNameOrAlias(modelInfoCohere, model);
-  const modelInfo = { ...mi, name: model, provider: 'cohere' };
+    const { prompt, model, stop_sequences, max_tokens, temperature, p, k } =
+      this.req;
 
-  // Configure TextModel based on CohereCompletionRequest
-  const modelConfig: TextModelConfig = {
-    stop: stop_sequences,
-    maxTokens: max_tokens,
-    temperature: temperature,
-    topP: p,
-    topK: k,
+    // Fetching model info
+    const mi = findItemByNameOrAlias(modelInfoCohere, model);
+    const modelInfo = { ...mi, name: model, provider: 'cohere' };
+
+    // Configure TextModel based on CohereCompletionRequest
+    const modelConfig: TextModelConfig = {
+      stop: stop_sequences,
+      maxTokens: max_tokens,
+      temperature: temperature,
+      topP: p,
+      topK: k,
+    };
+
+    this.sb.setRequest(
+      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
+    );
   };
 
-  const results = resp
-    ? resp.generations.map((gen) => ({
-        text: gen.text,
-        finishReason: gen.id, // Changed completion to generation and stop_reason to id
-      }))
-    : undefined;
+  addResponse = (response: string) => {
+    super.addResponse(response);
 
-  return new AITextTraceStepBuilder()
-    .setRequest(
-      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
-    )
-    .setResponse(new TextResponseBuilder().setResults(results));
-};
+    if (!this.resp) {
+      throw new Error('Invalid response');
+    }
+
+    const results = this.resp.generations.map((gen) => ({
+      text: gen.text,
+      finishReason: gen.id, // Changed completion to generation and stop_reason to id
+    }));
+
+    this.sb.setResponse(new TextResponseBuilder().setResults(results));
+  };
+}

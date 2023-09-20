@@ -135,20 +135,10 @@ export class ModelConfigBuilder {
 export class TextResponseBuilder {
   private response: AITextTraceStepResponse = {} as AITextTraceStepResponse;
 
-  addResult(
-    result: Readonly<{ text: string; id?: string; finishReason?: string }>
-  ): this {
-    if (!this.response.results) {
-      this.response.results = [];
-    }
-    this.response.results.push(result);
-    return this;
-  }
-
   setResults(
     results?: Readonly<{ text: string; id?: string; finishReason?: string }[]>
   ): this {
-    this.response.results = [...(results ?? [])];
+    this.response.results = results ?? [];
     return this;
   }
 
@@ -190,12 +180,12 @@ export class TextResponseBuilder {
     return this;
   }
 
-  setParsingError(parsingError: Readonly<ParsingError>): this {
+  setParsingError(parsingError?: Readonly<ParsingError>): this {
     this.response.parsingError = parsingError;
     return this;
   }
 
-  setApiError(apiError: Readonly<APIError>): this {
+  setApiError(apiError?: Readonly<APIError>): this {
     this.response.apiError = apiError;
     return this;
   }
@@ -209,7 +199,7 @@ export class TextResponseBuilder {
 
 /*
 let response = new TextResponseBuilder()
-    .addResult({text: 'Text', id: '1', finishReason: 'Stop'})
+    .addResults([{text: 'Text', id: '1', finishReason: 'Stop'}])
     .addFunction({name: 'function1', args: '1', result: 'result1'})
     .setModelResponseTime(123)
     .setEmbedModelResponseTime(456)
@@ -300,7 +290,9 @@ export class TextRequestBuilder {
 }
 
 export class AITextTraceStepBuilder {
-  private traceStep: AITextTraceStep = {} as AITextTraceStep;
+  private traceStep: AITextTraceStep = {
+    createdAt: new Date().toISOString(),
+  } as AITextTraceStep;
 
   setTraceId(traceId?: string): this {
     this.traceStep.traceId = traceId ? traceId : uuid();
@@ -333,8 +325,11 @@ export class AITextTraceStepBuilder {
   }
 
   build(): AITextTraceStep {
-    this.traceStep.createdAt = new Date().toISOString();
     return this.traceStep;
+  }
+
+  isStream(): boolean {
+    return this.traceStep.request.modelConfig?.stream ?? false;
   }
 }
 
@@ -358,4 +353,27 @@ export const sendTrace = async (
     .catch((err) => {
       throw new Error(`Error sending trace: ${err.message}`);
     });
+};
+
+export const getMemory = async (
+  apiKey: string,
+  devMode: boolean,
+  filter: Readonly<{ sessionId?: string; user?: string; limit?: number }>
+): Promise<{ role?: string; text: string }[]> => {
+  const baseUrl = devMode
+    ? 'http://localhost:3000'
+    : 'https://api.llmclient.com';
+
+  const res = await superagent
+    .get(new URL(`/api/t/traces/memory`, baseUrl).toString())
+    .set('x-api-key', apiKey)
+    .query({ ...filter, limit: filter.limit ?? 10 })
+    .type('json')
+    .accept('json')
+    .retry(3)
+    .catch((err) => {
+      throw new Error(`Error getting traces: ${err.message}`);
+    });
+
+  return res.body?.memory ?? [];
 };

@@ -15,6 +15,7 @@ export const generateReq = (
       'OpenAI supports prompts with max 4 items in stopSequences'
     );
   }
+
   return {
     model: opt.model,
     prompt,

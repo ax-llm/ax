@@ -1,10 +1,10 @@
 import {
-  AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { TextModelConfig } from '../types.js';
-import { findItemByNameOrAlias } from '../util.js';
+import { BaseParser, PromptUpdater } from '../parser.js';
+import { Parser, TextModelConfig } from '../types.js';
+import { findItemByNameOrAlias, uniqBy } from '../util.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {
@@ -17,187 +17,233 @@ import {
   OpenAILogprob,
 } from './types.js';
 
-export const generateCompletionTraceOpenAI = (
-  request: string,
-  response?: string
-): AITextTraceStepBuilder => {
-  const req = JSON.parse(request) as OpenAICompletionRequest;
-  let resp: OpenAICompletionResponse | undefined;
+export class OpenAICompletionParser extends BaseParser<
+  OpenAICompletionRequest,
+  OpenAICompletionResponse
+> {
+  addRequest = async (request: string, fn?: PromptUpdater) => {
+    super.addRequest(request);
 
-  if (!response) {
-    resp = undefined;
-  } else if (req?.stream) {
-    resp = mergeCompletionResponseDeltas(
-      (response as string).split('\n') as string[]
-    );
-  } else {
-    resp = JSON.parse(response) as OpenAICompletionResponse;
-  }
+    if (!this.req) {
+      throw new Error('Invalid request');
+    }
 
-  const {
-    model,
-    prompt,
-    max_tokens,
-    temperature,
-    top_p,
-    n,
-    stream,
-    presence_penalty,
-    frequency_penalty,
-    logit_bias,
-    user,
-    organization,
-  } = req;
+    if (fn) {
+      const memory = await fn({ prompt: this.req.prompt, user: this.req.user });
+      this.req.prompt += memory.map(({ text }) => text).join('\n');
+      this.reqUpdated = true;
+    }
 
-  // Fetching model info
-  const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
-  const modelInfo = { ...mi, name: model, provider: 'openai' };
+    const {
+      model,
+      prompt,
+      max_tokens,
+      temperature,
+      top_p,
+      n,
+      stream,
+      presence_penalty,
+      frequency_penalty,
+      logit_bias,
+      user,
+      organization,
+    } = this.req;
 
-  // Configure TextModel based on OpenAICompletionRequest
-  const modelConfig: TextModelConfig = {
-    maxTokens: max_tokens,
-    temperature: temperature,
-    topP: top_p,
-    n: n,
-    stream: stream,
-    presencePenalty: presence_penalty,
-    frequencyPenalty: frequency_penalty,
-    logitBias: logit_bias,
-  };
+    // Fetching model info
+    const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
+    const modelInfo = { ...mi, name: model, provider: 'openai' };
 
-  const modelUsage =
-    resp && resp.usage
-      ? {
-          promptTokens: resp.usage.prompt_tokens,
-          completionTokens: resp.usage.completion_tokens,
-          totalTokens: resp.usage.total_tokens,
-        }
-      : undefined;
+    // Configure TextModel based on OpenAICompletionRequest
+    const modelConfig: TextModelConfig = {
+      maxTokens: max_tokens,
+      temperature: temperature,
+      topP: top_p,
+      n: n,
+      stream: stream,
+      presencePenalty: presence_penalty,
+      frequencyPenalty: frequency_penalty,
+      logitBias: logit_bias,
+    };
 
-  const results = resp
-    ? resp.choices.map((choice) => ({
-        text: choice.text,
-        id: resp?.id,
-        finishReason: choice.finish_reason,
-      }))
-    : undefined;
+    const identity = user || organization ? { user, organization } : undefined;
 
-  const identity = user || organization ? { user, organization } : undefined;
-
-  return new AITextTraceStepBuilder()
-    .setRequest(
+    this.sb.setRequest(
       new TextRequestBuilder()
         .setStep(prompt, modelConfig, modelInfo)
         .setIdentity(identity)
-    )
-    .setResponse(
-      new TextResponseBuilder()
-        .setModelUsage(modelUsage)
-        .setResults(results)
-        .setRemoteId(resp?.id)
     );
-};
-
-export const generateChatTraceOpenAI = (
-  request: string,
-  response?: string
-): AITextTraceStepBuilder => {
-  const req = JSON.parse(request) as OpenAIChatRequest;
-  let resp: OpenAIChatResponse | undefined;
-
-  if (!response) {
-    resp = undefined;
-  } else if (req?.stream) {
-    resp = mergeChatResponseDeltas(
-      (response as string).split('\n') as string[]
-    );
-  } else {
-    resp = JSON.parse(response) as OpenAIChatResponse;
-  }
-
-  const {
-    model,
-    messages,
-    functions,
-    function_call,
-    max_tokens,
-    temperature,
-    top_p,
-    n,
-    stream,
-    presence_penalty,
-    frequency_penalty,
-    logit_bias,
-    user,
-    organization,
-  } = req;
-
-  // Fetching model info
-  const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
-  const modelInfo = { ...mi, name: model, provider: 'openai' };
-
-  // Building the prompt string from messages array
-  const chatPrompt = messages.map(
-    ({ content: text, role, name, function_call: functionCall }) => ({
-      text,
-      role,
-      name,
-      functionCall,
-    })
-  );
-
-  const systemPrompt = chatPrompt
-    .filter((m) => m.role === 'system')
-    ?.at(0)?.text;
-
-  // Configure TextModel based on OpenAIChatRequest
-  const modelConfig: TextModelConfig = {
-    maxTokens: max_tokens,
-    temperature: temperature,
-    topP: top_p,
-    n: n,
-    stream: stream,
-    presencePenalty: presence_penalty,
-    frequencyPenalty: frequency_penalty,
-    logitBias: logit_bias,
   };
 
-  const modelUsage =
-    resp && resp.usage
+  addResponse = (response: string) => {
+    if (this.sb.isStream()) {
+      this.resp = mergeCompletionResponseDeltas(
+        (response as string).split('\n') as string[]
+      );
+    } else {
+      super.addResponse(response);
+    }
+
+    if (!this.resp) {
+      throw new Error('Invalid response');
+    }
+
+    const { id, usage, choices } = this.resp;
+
+    const modelUsage = usage
       ? {
-          promptTokens: resp.usage.prompt_tokens,
-          completionTokens: resp.usage.completion_tokens,
-          totalTokens: resp.usage.total_tokens,
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens,
         }
       : undefined;
 
-  const results = resp
-    ? resp.choices.map((choice) => ({
-        id: `${choice.index}`,
-        text: choice.message.content,
-        role: choice.message.role,
-        finishReason: choice.finish_reason,
-      }))
-    : undefined;
+    const results = choices.map((choice) => ({
+      text: choice.text,
+      finishReason: choice.finish_reason,
+    }));
 
-  const identity = user || organization ? { user, organization } : undefined;
+    this.sb.setResponse(
+      new TextResponseBuilder()
+        .setModelUsage(modelUsage)
+        .setResults(results)
+        .setRemoteId(id)
+    );
+  };
+}
 
-  return new AITextTraceStepBuilder()
-    .setRequest(
+export class OpenAIChatParser
+  extends BaseParser<OpenAIChatRequest, OpenAIChatResponse>
+  implements Parser
+{
+  addRequest = async (request: string, fn?: PromptUpdater) => {
+    super.addRequest(request);
+
+    if (!this.req) {
+      throw new Error('Invalid request');
+    }
+
+    if (fn) {
+      const memory = await fn({
+        prompt: this.req.messages.at(-1)?.content,
+        user: this.req.user,
+      });
+
+      const prompt = memory.map(({ role = '', text: content }) => ({
+        role,
+        content,
+      }));
+
+      const system = this.req.messages.filter(({ role }) => role === 'system');
+      let messages = [];
+
+      if (system) {
+        const other = this.req.messages.filter(({ role }) => role !== 'system');
+        messages = [...system, ...prompt, ...other];
+      } else {
+        messages = [...prompt, ...this.req.messages];
+      }
+
+      this.req.messages = uniqBy(messages, ({ content }) => content);
+      this.reqUpdated = true;
+    }
+
+    const {
+      model,
+      messages,
+      functions,
+      function_call,
+      max_tokens,
+      temperature,
+      top_p,
+      n,
+      stream,
+      presence_penalty,
+      frequency_penalty,
+      logit_bias,
+      user,
+      organization,
+    } = this.req;
+
+    // Fetching model info
+    const mi = findItemByNameOrAlias(modelInfoOpenAI, model);
+    const modelInfo = { ...mi, name: model, provider: 'openai' };
+
+    // Building the prompt string from messages array
+    const chatPrompt = messages.map(
+      ({ content: text, role, name, function_call: functionCall }) => ({
+        text,
+        role,
+        name,
+        functionCall,
+      })
+    );
+
+    const systemPrompt = chatPrompt
+      .filter((m) => m.role === 'system')
+      ?.at(0)?.text;
+
+    // Configure TextModel based on OpenAIChatRequest
+    const modelConfig: TextModelConfig = {
+      maxTokens: max_tokens,
+      temperature: temperature,
+      topP: top_p,
+      n: n,
+      stream: stream,
+      presencePenalty: presence_penalty,
+      frequencyPenalty: frequency_penalty,
+      logitBias: logit_bias,
+    };
+
+    const identity = user || organization ? { user, organization } : undefined;
+
+    this.sb.setRequest(
       new TextRequestBuilder()
         .setChatStep(chatPrompt, modelConfig, modelInfo)
         .setSystemPrompt(systemPrompt)
         .setFunctions(functions)
         .setFunctionCall(function_call as string)
         .setIdentity(identity)
-    )
-    .setResponse(
+    );
+  };
+
+  addResponse = (response: string) => {
+    if (this.sb.isStream()) {
+      this.resp = mergeChatResponseDeltas(
+        (response as string).split('\n') as string[]
+      );
+    } else {
+      super.addResponse(response);
+    }
+
+    if (!this.resp) {
+      throw new Error('Invalid response');
+    }
+
+    const { id, usage, choices } = this.resp;
+
+    const modelUsage = usage
+      ? {
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens,
+        }
+      : undefined;
+
+    const results = choices.map((choice) => ({
+      id: `${choice.index}`,
+      text: choice.message.content,
+      role: choice.message.role,
+      finishReason: choice.finish_reason,
+    }));
+
+    this.sb.setResponse(
       new TextResponseBuilder()
         .setModelUsage(modelUsage)
         .setResults(results)
-        .setRemoteId(resp?.id)
+        .setRemoteId(id)
     );
-};
+  };
+}
 
 function mergeChatResponseDeltas(
   dataStream: readonly string[]

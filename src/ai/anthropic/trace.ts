@@ -1,9 +1,9 @@
 import {
-  AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { TextModelConfig } from '../types.js';
+import { BaseParser, PromptUpdater } from '../parser.js';
+import { Parser, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
 import { modelInfoAnthropic } from './info.js';
@@ -13,63 +13,82 @@ import {
   AnthropicResponseDelta,
 } from './types.js';
 
-export const generateCompletionTraceAnthropic = (
-  request: string,
-  response?: string
-): AITextTraceStepBuilder => {
-  const req = JSON.parse(request) as AnthropicCompletionRequest;
-  let resp: AnthropicCompletionResponse | undefined;
+export class AnthropicCompletionParser
+  extends BaseParser<AnthropicCompletionRequest, AnthropicCompletionResponse>
+  implements Parser
+{
+  addRequest = async (request: string, fn?: PromptUpdater) => {
+    super.addRequest(request);
 
-  if (!response) {
-    resp = undefined;
-  } else if (req?.stream) {
-    resp = mergeCompletionResponseDeltas(
-      (response as string).split('\n') as string[]
+    if (!this.req) {
+      throw new Error('Invalid request');
+    }
+
+    if (fn) {
+      const memory = await fn({
+        prompt: this.req.prompt,
+        user: this.req.metadata?.user_id,
+      });
+
+      this.req.prompt += memory.map(({ text }) => text).join('\n');
+      this.reqUpdated = true;
+    }
+
+    const {
+      prompt,
+      model,
+      stop_sequences,
+      max_tokens_to_sample,
+      temperature,
+      top_p,
+      top_k,
+      stream,
+    } = this.req;
+
+    // Fetching model info
+    const mi = findItemByNameOrAlias(modelInfoAnthropic, model);
+    const modelInfo = { ...mi, name: model, provider: 'anthropic' };
+
+    // Configure TextModel based on AnthropicCompletionRequest
+    const modelConfig: TextModelConfig = {
+      stop: stop_sequences,
+      maxTokens: max_tokens_to_sample,
+      temperature: temperature,
+      topP: top_p,
+      topK: top_k,
+      stream: stream,
+    };
+
+    this.sb.setRequest(
+      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
     );
-  } else {
-    resp = JSON.parse(response) as AnthropicCompletionResponse;
-  }
-
-  const {
-    prompt,
-    model,
-    stop_sequences,
-    max_tokens_to_sample,
-    temperature,
-    top_p,
-    top_k,
-    stream,
-  } = req;
-
-  // Fetching model info
-  const mi = findItemByNameOrAlias(modelInfoAnthropic, model);
-  const modelInfo = { ...mi, name: model, provider: 'anthropic' };
-
-  // Configure TextModel based on AnthropicCompletionRequest
-  const modelConfig: TextModelConfig = {
-    stop: stop_sequences,
-    maxTokens: max_tokens_to_sample,
-    temperature: temperature,
-    topP: top_p,
-    topK: top_k,
-    stream: stream,
   };
 
-  const results = resp
-    ? [
-        {
-          text: resp.completion,
-          finishReason: resp.stop_reason ?? undefined,
-        },
-      ]
-    : undefined;
+  addResponse = (response: string) => {
+    if (this.sb.isStream()) {
+      this.resp = mergeCompletionResponseDeltas(
+        (response as string).split('\n') as string[]
+      );
+    } else {
+      super.addResponse(response);
+    }
 
-  return new AITextTraceStepBuilder()
-    .setRequest(
-      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
-    )
-    .setResponse(new TextResponseBuilder().setResults(results));
-};
+    if (!this.resp) {
+      throw new Error('Invalid response');
+    }
+
+    const { completion, stop_reason } = this.resp;
+
+    const results = [
+      {
+        text: completion,
+        finishReason: stop_reason ?? undefined,
+      },
+    ];
+
+    this.sb.setResponse(new TextResponseBuilder().setResults(results));
+  };
+}
 
 function mergeCompletionResponseDeltas(
   dataStream: readonly string[]

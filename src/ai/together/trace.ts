@@ -1,9 +1,9 @@
 import {
-  AITextTraceStepBuilder,
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { TextModelConfig } from '../types.js';
+import { BaseParser, PromptUpdater } from '../parser.js';
+import { Parser, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
 import { modelInfoTogether } from './info.js';
@@ -12,50 +12,63 @@ import {
   TogetherCompletionResponse,
 } from './types.js';
 
-export const generateTraceCompletionTogether = (
-  request: string,
-  response?: string
-): AITextTraceStepBuilder => {
-  const req = JSON.parse(request) as TogetherCompletionRequest;
-  let resp: TogetherCompletionResponse | undefined;
+export class TogetherCompletionParser
+  extends BaseParser<TogetherCompletionRequest, TogetherCompletionResponse>
+  implements Parser
+{
+  addRequest = async (request: string, fn?: PromptUpdater) => {
+    super.addRequest(request);
 
-  if (!response) {
-    resp = undefined;
-  } else {
-    resp = JSON.parse(response) as TogetherCompletionResponse;
-  }
+    if (!this.req) {
+      throw new Error('Invalid request');
+    }
 
-  const {
-    prompt,
-    max_tokens: max_tokens,
-    temperature,
-    top_p,
-    repetition_penalty: presence_penalty,
-  } = req;
+    if (fn) {
+      const memory = await fn({ prompt: this.req.prompt });
+      this.req.prompt += memory.map(({ text }) => text).join('\n');
+      this.reqUpdated = true;
+    }
 
-  // Fetching model info
-  const mi = findItemByNameOrAlias(modelInfoTogether, req.model.toString());
-  const modelInfo = {
-    ...mi,
-    name: req.model.toString(),
-    provider: 'together',
-  };
+    const {
+      model,
+      prompt,
+      max_tokens: max_tokens,
+      temperature,
+      top_p,
+      repetition_penalty: presence_penalty,
+    } = this.req;
 
-  // Configure TextModel based on TogetherCompletionRequest
-  const modelConfig: TextModelConfig = {
-    maxTokens: max_tokens ?? 0,
-    temperature: temperature,
-    topP: top_p,
-    presencePenalty: presence_penalty,
-  };
+    // Fetching model info
+    const mi = findItemByNameOrAlias(modelInfoTogether, model.toString());
+    const modelInfo = {
+      ...mi,
+      name: model.toString(),
+      provider: 'together',
+    };
 
-  const results = resp
-    ? resp.output.choices.map((choice) => ({ text: choice.text }))
-    : undefined;
+    // Configure TextModel based on TogetherCompletionRequest
+    const modelConfig: TextModelConfig = {
+      maxTokens: max_tokens ?? 0,
+      temperature: temperature,
+      topP: top_p,
+      presencePenalty: presence_penalty,
+    };
 
-  return new AITextTraceStepBuilder()
-    .setRequest(
+    this.sb.setRequest(
       new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
-    )
-    .setResponse(new TextResponseBuilder().setResults(results));
-};
+    );
+  };
+  addResponse = (response: string) => {
+    super.addResponse(response);
+
+    if (!this.resp) {
+      throw new Error('Invalid response');
+    }
+
+    const results = this.resp.output.choices.map((choice) => ({
+      text: choice.text,
+    }));
+
+    this.sb.setResponse(new TextResponseBuilder().setResults(results));
+  };
+}
