@@ -80,8 +80,23 @@ To enable sign-up at https://llmclient.com and get your API Key. Then set any on
 ```
 # This is a fake key for example purposes
 LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32"
-
 ```
+
+### Long Term Memory
+
+Automatically have the previous conversation added to the prompt to provide a long running context. To enable set the below http header fetch the previous conversation based on `session id` or `user`
+```
+# Use the value of the openai api `user` field to fetch previous conversations
+x-llmclient-memory: user
+
+# Use the value of the `session id` field to fetch previous conversations
+x-llmclient-sessionid: 1234
+x-llmclient-memory: session
+```
+
+
+
+
 
 ![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
 
