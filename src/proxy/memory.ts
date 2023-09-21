@@ -1,4 +1,4 @@
-import { getMemory } from '../tracing';
+import { getMemory } from '../tracing/trace.js';
 
 export type MemoryFilter = {
   sessionId?: string;

@@ -1,5 +1,5 @@
-import { parserMap } from './parsers';
-import { ExtendedIncomingMessage } from './types';
+import { parserMap } from './parsers.js';
+import { ExtendedIncomingMessage } from './types.js';
 
 export const extendRequest = (
   // eslint-disable-next-line functional/prefer-immutable-types

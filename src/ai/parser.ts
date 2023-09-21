@@ -1,6 +1,6 @@
-import { ExtendedIncomingMessage } from '../proxy/types';
-import { AITextTraceStepBuilder } from '../tracing';
-import { AITextTraceStep } from '../tracing/types';
+import { ExtendedIncomingMessage } from '../proxy/types.js';
+import { AITextTraceStepBuilder } from '../tracing/trace.js';
+import { AITextTraceStep } from '../tracing/types.js';
 
 export type Prompt = {
   role?: string;

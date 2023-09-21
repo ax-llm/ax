@@ -1,7 +1,7 @@
-import { PromptUpdater } from '../ai/parser';
+import { PromptUpdater } from '../ai/parser.js';
 
-import { MemoryFilter, RemoteMemoryStore } from './memory';
-import { ExtendedIncomingMessage } from './types';
+import { MemoryFilter, RemoteMemoryStore } from './memory.js';
+import { ExtendedIncomingMessage } from './types.js';
 
 const promptUpdater = (
   debug: boolean,

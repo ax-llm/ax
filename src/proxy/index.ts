@@ -8,15 +8,16 @@ import zlib from 'zlib';
 import chalk from 'chalk';
 import httpProxy from 'http-proxy';
 
-import { RemoteLogger } from '../logs/remote';
+import { RemoteLogger } from '../logs/remote.js';
 
-import { MemoryCache } from './cache';
-import { specialRequestHandler } from './prompt';
-import { extendRequest } from './req';
-import { RemoteTraceStore } from './tracing';
-import { CacheItem, ExtendedIncomingMessage } from './types';
+import { MemoryCache } from './cache.js';
+import { specialRequestHandler } from './prompt.js';
+import { extendRequest } from './req.js';
+import { RemoteTraceStore } from './tracing.js';
+import { CacheItem, ExtendedIncomingMessage } from './types.js';
+import { convertToAPIError } from './util.js';
+
 import 'dotenv/config';
-import { convertToAPIError } from './util';
 
 const debug = (process.env.DEBUG ?? 'true') === 'true';
 
