@@ -1,5 +1,5 @@
 # LLMClient 🌵 🦙 🔥 ❤️ 🖖🏼
-### An LLM proxy to log prompts, debug, etc and a multi-llm library to build llm powered chat, function calling, reasoning and other apps.
+### Tools to build with LLMs: Logging Proxy, Long Term Memory, Multi-LLM API and more
 
 Automatically log all prompts, responses, model configuration, etc to make it easier to debug or keep track of what worked and what did not.
 A must have for building with LLMs. It's packed with useful features.
