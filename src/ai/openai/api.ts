@@ -144,9 +144,9 @@ export class OpenAI extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      OpenAIApiConfig,
       OpenAICompletionRequest,
-      OpenAICompletionResponse
+      OpenAICompletionResponse,
+      OpenAIApiConfig
     >(
       this.createAPI(OpenAIApi.Completion),
       generateReq(prompt, this.options, options?.stopSequences ?? [])
@@ -175,9 +175,9 @@ export class OpenAI extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      OpenAIApiConfig,
       OpenAIChatRequest,
-      OpenAIChatResponse
+      OpenAIChatResponse,
+      OpenAIApiConfig
     >(
       this.createAPI(OpenAIApi.Chat),
       generateChatReq(prompt, this.options, options?.stopSequences ?? [])
@@ -208,9 +208,9 @@ export class OpenAI extends BaseAI {
 
     const embedReq = { input: texts, model: this.options.embedModel };
     const res = await apiCall<
-      OpenAIApiConfig,
       OpenAIEmbedRequest,
-      OpenAIEmbedResponse
+      OpenAIEmbedResponse,
+      OpenAIApiConfig
     >(this.createAPI(OpenAIApi.Embed), embedReq);
 
     const { data, usage: u } = res;

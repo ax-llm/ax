@@ -9,15 +9,16 @@ export type API = {
   key?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   headers?: any;
+  put?: boolean;
 };
 
 export const apiCall = async <
-  APIType extends API,
   Request extends object,
-  Response
+  Response,
+  APIType extends API = API
 >(
   api: APIType,
-  json: Request
+  json: Request | string
 ): Promise<Response> => {
   const useProxy =
     process.env.LLMCLIENT_PROXY ?? process.env.LLMC_PROXY === 'true';
@@ -37,8 +38,9 @@ export const apiCall = async <
     Authorization: api.key ? `Bearer ${api.key}` : undefined,
   };
 
-  return await superagent
-    .post(apiUrl)
+  const request = api.put ? superagent.put(apiUrl) : superagent.post(apiUrl);
+
+  return await request
     .send(json)
     .set(headers)
     .type('json')

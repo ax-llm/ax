@@ -1,10 +1,7 @@
-import { API } from '../../util/apicall';
-
 /**
  * Google: API call details
  * @export
  */
-export type GoogleApiConfig = API;
 
 export const apiURLGoogle =
   'https://us-central1-aiplatform.googleapis.com/v1/projects/';

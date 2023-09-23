@@ -1,11 +1,3 @@
-import { API } from '../../util/apicall';
-
-/**
- * HuggingFace: API call details
- * @export
- */
-export type HuggingFaceApiConfig = API;
-
 export const apiURLHuggingFace = 'https://api-inference.huggingface.co/';
 
 /**

@@ -1,9 +1,3 @@
-import { API } from '../../util/apicall';
-
-export type TogetherApiConfig = API & {
-  headers: { Authorization: string; accept: string; 'content-type': string };
-};
-
 export const apiURLTogether = 'https://api.together.xyz/';
 
 export const enum TogetherApi {

@@ -137,9 +137,9 @@ export class AzureOpenAI extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      AzureOpenAIApiConfig,
       OpenAICompletionRequest,
-      OpenAICompletionResponse
+      OpenAICompletionResponse,
+      AzureOpenAIApiConfig
     >(
       this.createAPI(AzureOpenAIApi.Completion),
       generateReq(prompt, this.options, options?.stopSequences ?? [])
@@ -168,9 +168,9 @@ export class AzureOpenAI extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      AzureOpenAIApiConfig,
       OpenAIChatRequest,
-      OpenAIChatResponse
+      OpenAIChatResponse,
+      AzureOpenAIApiConfig
     >(
       this.createAPI(AzureOpenAIApi.Chat),
       generateChatReq(prompt, this.options, options?.stopSequences ?? [])
@@ -202,9 +202,9 @@ export class AzureOpenAI extends BaseAI {
 
     const embedReq = { input: texts, model: this.options.embedModel };
     const res = await apiCall<
-      AzureOpenAIApiConfig,
       OpenAIEmbedRequest,
-      OpenAIEmbedResponse
+      OpenAIEmbedResponse,
+      AzureOpenAIApiConfig
     >(this.createAPI(AzureOpenAIApi.Embed), embedReq);
 
     const { data, usage: u } = res;

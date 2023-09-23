@@ -1,5 +1,5 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { apiCall } from '../../util/apicall.js';
+import { API, apiCall } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
@@ -7,7 +7,6 @@ import { modelInfoGoogle } from './info.js';
 import { generateChatReq, generateReq } from './req.js';
 import {
   apiURLGoogle,
-  GoogleApiConfig,
   GoogleChatRequest,
   GoogleChatResponse,
   GoogleCompletionRequest,
@@ -128,7 +127,6 @@ export class Google extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      GoogleApiConfig,
       GoogleCompletionRequest,
       GoogleCompletionResponse
     >(
@@ -159,11 +157,7 @@ export class Google extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
-      GoogleApiConfig,
-      GoogleChatRequest,
-      GoogleChatResponse
-    >(
+    const res = await apiCall<GoogleChatRequest, GoogleChatResponse>(
       this.createAPI(),
       generateChatReq(prompt, this.options, options?.stopSequences ?? [])
     );
@@ -195,11 +189,10 @@ export class Google extends BaseAI {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
     const embedReq = { instances: [{ content: texts.at(0) ?? '' }] };
-    const res = await apiCall<
-      GoogleApiConfig,
-      GoogleEmbedRequest,
-      GoogleEmbedResponse
-    >(this.createAPI(), embedReq);
+    const res = await apiCall<GoogleEmbedRequest, GoogleEmbedResponse>(
+      this.createAPI(),
+      embedReq
+    );
 
     const { predictions } = res;
     const promptTokens = texts.at(0)?.length ?? 0;
@@ -215,7 +208,7 @@ export class Google extends BaseAI {
     };
   }
 
-  private createAPI(): GoogleApiConfig {
+  private createAPI(): API {
     return {
       url: this.apiURL,
       key: this.apiKey,

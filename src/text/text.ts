@@ -1,3 +1,5 @@
+import { v4 as uuid } from 'uuid';
+
 import { TextResponse } from '../ai/types.js';
 import { APIError, ParsingError } from '../tracing/types.js';
 
@@ -17,7 +19,6 @@ import {
   PromptConfig,
   PromptFunction,
 } from './types.js';
-import { uuid } from './util.js';
 
 export type Options = {
   memory?: AIMemory;

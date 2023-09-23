@@ -8,7 +8,6 @@ import { generateReq } from './req.js';
 import {
   apiURLTogether,
   TogetherApi,
-  TogetherApiConfig,
   TogetherCompletionRequest,
   TogetherCompletionResponse,
   TogetherLanguageModel,
@@ -65,7 +64,6 @@ export class Together extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      TogetherApiConfig,
       TogetherCompletionRequest,
       TogetherCompletionResponse
     >(
@@ -73,11 +71,6 @@ export class Together extends BaseAI {
         key: this.apiKey,
         name: TogetherApi.Completion,
         url: apiURLTogether,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          accept: 'application/json',
-          'content-type': 'application/json',
-        },
       },
       generateReq(prompt, this.options, options?.stopSequences)
     );

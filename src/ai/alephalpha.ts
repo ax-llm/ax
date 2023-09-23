@@ -1,5 +1,5 @@
 import { AIPromptConfig, AIServiceOptions } from '../text/types.js';
-import { API, apiCall } from '../util/apicall.js';
+import { apiCall } from '../util/apicall.js';
 
 import { BaseAI } from './base.js';
 import { EmbedResponse, TextModelInfo, TextResponse } from './types.js';
@@ -308,7 +308,7 @@ export class AlephAlpha extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<API, AlephAlphaRequest, AlephAlphaAITextResponse>(
+    const res = await apiCall<AlephAlphaRequest, AlephAlphaAITextResponse>(
       {
         key: this.apiKey,
         name: apiTypes.Completion,
@@ -340,11 +340,7 @@ export class AlephAlpha extends BaseAI {
       throw new Error('AlephAlpha limits embeddings input to 512 characters');
     }
 
-    const res = await apiCall<
-      API,
-      AlephAlphaEmbedRequest,
-      AlephAlphaEmbedResponse
-    >(
+    const res = await apiCall<AlephAlphaEmbedRequest, AlephAlphaEmbedResponse>(
       {
         key: this.apiKey,
         name: apiTypes.Embed,

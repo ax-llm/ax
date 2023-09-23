@@ -1,7 +1,3 @@
-import { API } from '../../util/apicall';
-
-export type CohereApiConfig = API;
-
 export const apiURLCohere = 'https://api.cohere.ai/';
 
 export const enum CohereApi {

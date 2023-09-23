@@ -1,7 +1,7 @@
 import superagent from 'superagent';
+import { v4 as uuid } from 'uuid';
 
 import { TextModelConfig, TextModelInfo, TokenUsage } from '../ai/types.js';
-import { uuid } from '../text/util.js';
 
 import {
   AITextChatPromptItem,

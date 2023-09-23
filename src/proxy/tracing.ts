@@ -1,6 +1,7 @@
+import { v4 as uuid } from 'uuid';
+
 import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
-import { uuid } from '../text/util.js';
 import { AITextTraceStep } from '../tracing/types.js';
 
 import 'dotenv/config';

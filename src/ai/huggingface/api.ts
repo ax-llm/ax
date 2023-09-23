@@ -1,5 +1,5 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { apiCall } from '../../util/apicall.js';
+import { API, apiCall } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { TextModelConfig, TextResponse } from '../types.js';
 
@@ -8,7 +8,6 @@ import { generateReq } from './req.js';
 import {
   apiURLHuggingFace,
   HuggingFaceApi,
-  HuggingFaceApiConfig,
   HuggingFaceModel,
   HuggingFaceOptions,
   HuggingFaceRequest,
@@ -79,11 +78,7 @@ export class HuggingFace extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
-      HuggingFaceApiConfig,
-      HuggingFaceRequest,
-      HuggingFaceResponse
-    >(
+    const res = await apiCall<HuggingFaceRequest, HuggingFaceResponse>(
       this.createAPI(HuggingFaceApi.Completion),
       generateReq(prompt, this.options, options?.stopSequences ?? [])
     );
@@ -93,7 +88,7 @@ export class HuggingFace extends BaseAI {
     };
   }
 
-  private createAPI(name: HuggingFaceApi): HuggingFaceApiConfig {
+  private createAPI(name: HuggingFaceApi): API {
     return {
       url: new URL(`${name}/${this.options.model}`, apiURLHuggingFace).href,
       key: this.apiKey,

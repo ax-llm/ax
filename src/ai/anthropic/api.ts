@@ -71,9 +71,9 @@ export class Anthropic extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      AnthropicApiConfig,
       AnthropicCompletionRequest,
-      AnthropicCompletionResponse
+      AnthropicCompletionResponse,
+      AnthropicApiConfig
     >(
       {
         key: this.apiKey,

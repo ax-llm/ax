@@ -8,7 +8,6 @@ import { generateReq } from './req.js';
 import {
   apiURLCohere,
   CohereApi,
-  CohereApiConfig,
   CohereCompletionRequest,
   CohereCompletionResponse,
   CohereEmbedModel,
@@ -93,7 +92,6 @@ export class Cohere extends BaseAI {
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
     const res = await apiCall<
-      CohereApiConfig,
       CohereCompletionRequest,
       CohereCompletionResponse
     >(
@@ -118,11 +116,7 @@ export class Cohere extends BaseAI {
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
-    const res = await apiCall<
-      CohereApiConfig,
-      CohereEmbedRequest,
-      CohereEmbedResponse
-    >(
+    const res = await apiCall<CohereEmbedRequest, CohereEmbedResponse>(
       {
         key: this.apiKey,
         name: CohereApi.Embed,
