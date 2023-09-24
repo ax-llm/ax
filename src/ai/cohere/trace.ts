@@ -2,16 +2,17 @@ import {
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { BaseParser, PromptUpdater } from '../parser.js';
-import { Parser, TextModelConfig } from '../types.js';
+import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
+import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
+import { Cohere } from './api.js';
 import { modelInfoCohere } from './info.js';
 import { CohereCompletionRequest, CohereCompletionResponse } from './types.js';
 
-export class CohereCompletionParser
-  extends BaseParser<CohereCompletionRequest, CohereCompletionResponse>
-  implements Parser
+export class CohereCompletionMiddleware
+  extends BaseAIMiddleware<CohereCompletionRequest, CohereCompletionResponse>
+  implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
     super.addRequest(request);
@@ -60,5 +61,11 @@ export class CohereCompletionParser
     }));
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
+  };
+
+  embed = async (text: string): Promise<readonly number[]> => {
+    const ai = new Cohere(this.apiKey);
+    const res = await ai.embed(text);
+    return res.embedding;
   };
 }

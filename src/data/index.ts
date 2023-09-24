@@ -1,10 +1,33 @@
 import * as htmlparser2 from 'htmlparser2';
 
+import { OpenAI } from '../ai/index.js';
+import { Weaviate } from '../db/weaviate.js';
+import { uuidURL, uuidv5 } from '../util/uuid.js';
+
 import { Spider } from './spider.js';
+
+import 'dotenv/config';
+
+if (!process.env.OPENAI_APIKEY) {
+  throw new Error('OPENAI_APIKEY is not set');
+}
+
+if (!process.env.WEAVIATE_APIKEY) {
+  throw new Error('WEAVIATE_APIKEY is not set');
+}
+
+if (!process.env.WEAVIATE_HOST) {
+  throw new Error('WEAVIATE_HOST is not set');
+}
+
+const chunkSize = 512;
+const openAIKey = process.env.OPENAI_APIKEY;
+const weaviateKey = process.env.WEAVIATE_APIKEY;
+const weaviateHost = process.env.WEAVIATE_HOST;
 
 const spider = new Spider(
   'https://www.pinecone.io/learn/chunking-strategies/',
-  (url, data, nextDepth) => {
+  async (url, data, nextDepth) => {
     const chunks: string[] = [];
 
     let textBuff = '';
@@ -30,9 +53,9 @@ const spider = new Spider(
 
           if (cleanText.length > 10) {
             textBuff += cleanText;
-            while (textBuff.length >= 256) {
-              chunks.push(textBuff.slice(0, 256));
-              textBuff = textBuff.slice(256);
+            while (textBuff.length >= chunkSize) {
+              chunks.push(textBuff.slice(0, chunkSize));
+              textBuff = textBuff.slice(chunkSize);
             }
           }
         },
@@ -49,8 +72,29 @@ const spider = new Spider(
     parser.write(data);
     parser.end();
 
-    console.log(url);
-    chunks.forEach((chunk) => console.log('>', chunk));
+    const ai = new OpenAI(openAIKey);
+    const db = new Weaviate(weaviateKey, weaviateHost);
+    const batchReq = [];
+
+    let i = 0;
+    for (const chunk of chunks) {
+      const res = await ai.embed(chunk);
+      const id = uuidv5(`${url}#${i}`, uuidURL);
+
+      batchReq.push({
+        id,
+        table: 'Test',
+        values: res.embedding,
+        metadata: {
+          content: chunk,
+        },
+      });
+
+      i += 1;
+    }
+
+    const res = await db.batchUpsert(batchReq);
+    console.log(`${url}\n`, JSON.stringify(res, null, 2));
   },
   {
     depth: 2,

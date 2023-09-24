@@ -18,13 +18,14 @@ const enum WeaviateApi {
 type WeaviateUpsertRequest = {
   id?: string;
   class: string;
-  vector?: number[];
+  vector?: readonly number[];
   tenant?: string;
   properties: Record<string, string>;
 };
 
 type WeaviateUpsertResponse = {
   id: string;
+  result?: { errors?: { error: { message: string }[] } };
 };
 
 // For query
@@ -77,7 +78,10 @@ export class Weaviate {
       }
     );
 
-    return { id: res.id };
+    return {
+      id: res.id,
+      errors: res.result?.errors?.error.map(({ message }) => message),
+    };
   }
 
   async batchUpsert(
@@ -95,12 +99,15 @@ export class Weaviate {
       properties: req.metadata ?? {},
     }));
 
-    await apiCall<
+    const res = await apiCall<
       { objects: WeaviateUpsertRequest[] },
       WeaviateUpsertResponse[]
     >(this.createAPI(WeaviateApi.BatchUpsert), { objects });
 
-    return batchReq.map(({ id }) => ({ id }));
+    return res.map(({ id, result }) => ({
+      id: id,
+      errors: result?.errors?.error.map(({ message }) => message),
+    }));
   }
 
   async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {

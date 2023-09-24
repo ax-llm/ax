@@ -2,10 +2,11 @@ import {
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { BaseParser, PromptUpdater } from '../parser.js';
-import { Parser, TextModelConfig } from '../types.js';
+import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
+import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias, uniqBy } from '../util.js';
 
+import { OpenAI } from './api.js';
 import { modelInfoOpenAI } from './info.js';
 import {
   OpenAIChatRequest,
@@ -17,7 +18,7 @@ import {
   OpenAILogprob,
 } from './types.js';
 
-export class OpenAICompletionParser extends BaseParser<
+export class OpenAICompletionMiddleware extends BaseAIMiddleware<
   OpenAICompletionRequest,
   OpenAICompletionResponse
 > {
@@ -109,11 +110,17 @@ export class OpenAICompletionParser extends BaseParser<
         .setRemoteId(id)
     );
   };
+
+  embed = async (text: string): Promise<readonly number[]> => {
+    const ai = new OpenAI(this.apiKey);
+    const res = await ai.embed(text);
+    return res.embedding;
+  };
 }
 
-export class OpenAIChatParser
-  extends BaseParser<OpenAIChatRequest, OpenAIChatResponse>
-  implements Parser
+export class OpenAIChatMiddleware
+  extends BaseAIMiddleware<OpenAIChatRequest, OpenAIChatResponse>
+  implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
     super.addRequest(request);
@@ -242,6 +249,12 @@ export class OpenAIChatParser
         .setResults(results)
         .setRemoteId(id)
     );
+  };
+
+  embed = async (text: string): Promise<readonly number[]> => {
+    const ai = new OpenAI(this.apiKey);
+    const res = await ai.embed(text);
+    return res.embedding;
   };
 }
 

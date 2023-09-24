@@ -16,7 +16,7 @@ const enum PineconeApi {
 
 type PineconeUpsertRequest = {
   id: string;
-  values: number[];
+  values: readonly number[];
   metadata?: Record<string, string>;
 };
 
@@ -32,10 +32,8 @@ type PineconeQueryRequest = {
   filter?: Record<string, string>;
   includeValues: boolean;
   includeMetadata: boolean;
-  vector: number[];
+  vector: readonly number[];
   id?: string;
-  values: number[];
-  metadata?: Record<string, string>;
 };
 
 type PineconeQueryResponse = {
@@ -56,10 +54,8 @@ const createPineconeQueryRequest = (
     filter: {},
     includeValues: true,
     includeMetadata: true,
-    vector: req.values || [],
+    vector: req.values ?? [],
     id: req.id,
-    values: req.values || [],
-    metadata: {},
   };
 
   return pineconeQueryRequest;
@@ -91,10 +87,10 @@ export class PineCone {
   ): Promise<DBUpsertResponse[]> {
     await apiCall<PineconeUpsertRequest[], PineconeUpsertResponse[]>(
       this.createAPI(PineconeApi.Insert),
-      batchReq.map((req) => ({
-        id: req.id,
-        values: req.values ?? [],
-        metadata: req.metadata,
+      batchReq.map(({ id, values = [], metadata }) => ({
+        id,
+        values,
+        metadata,
       }))
     );
 
@@ -123,7 +119,7 @@ export class PineCone {
       url: this.apiURL,
       name,
       headers: {
-        'api-key': this.apiKey,
+        'Api-Key': this.apiKey,
       },
     };
   }

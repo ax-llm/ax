@@ -2,16 +2,17 @@ import {
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { BaseParser, PromptUpdater } from '../parser.js';
-import { Parser } from '../types.js';
+import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
+import { AIMiddleware } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
+import { HuggingFace } from './api.js';
 import { modelInfoHuggingFace } from './info.js';
 import { HuggingFaceRequest, HuggingFaceResponse } from './types.js';
 
-export class HuggingFaceCompletionParser
-  extends BaseParser<HuggingFaceRequest, HuggingFaceResponse>
-  implements Parser
+export class HuggingFaceCompletionMiddleware
+  extends BaseAIMiddleware<HuggingFaceRequest, HuggingFaceResponse>
+  implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
     super.addRequest(request);
@@ -70,5 +71,11 @@ export class HuggingFaceCompletionParser
     ];
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
+  };
+
+  embed = async (text: string): Promise<readonly number[]> => {
+    const ai = new HuggingFace(this.apiKey);
+    const res = await ai.embed(text);
+    return res.embedding;
   };
 }

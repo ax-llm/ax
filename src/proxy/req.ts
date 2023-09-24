@@ -1,4 +1,4 @@
-import { parserMap } from './parsers.js';
+import { parserMap } from './middleware.js';
 import { ExtendedIncomingMessage } from './types.js';
 
 export const extendRequest = (
@@ -30,14 +30,17 @@ export const extendRequest = (
     throw new Error(`Unknown LLM provider: ${providerName}`);
   }
 
-  const parser = pm.parsers.find((p) => urlPath?.startsWith(p.path))?.parser;
-  if (!parser) {
+  const middleware = pm.routes.find((p) =>
+    urlPath?.startsWith(p.path)
+  )?.middleware;
+
+  if (!middleware) {
     throw new Error(`Unknown LLM provider path: ${urlPath}`);
   }
 
   req.startTime = Date.now();
   req.url = urlPath;
-  req.parser = parser;
+  req.middleware = middleware(req);
 
   if (pm.target instanceof Function) {
     if (!req.host && pm.hostRequired) {

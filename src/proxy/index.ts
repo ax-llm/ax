@@ -64,12 +64,11 @@ const requestHandler = async (
   const cachedResponse = await cache.get(hash);
   const contentEncoding = req.headers['content-encoding'];
 
+  req.llmClientAPIKey = req.headers['x-llmclient-apikey'] as string | undefined;
   req.traceId = req.headers['x-llmclient-traceid'] as string | undefined;
   req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
   req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
   req.host = req.headers['x-llmclient-host'] as string | undefined;
-  req.apiKey = req.headers['x-llmclient-apikey'] as string | undefined;
-  req.memory = req.headers['x-llmclient-memory'] as string | undefined;
 
   if (debug) {
     console.log('> Proxying', hash, req.url);
@@ -82,7 +81,7 @@ const requestHandler = async (
     _res.end();
 
     if (trace) {
-      const ts = new RemoteTraceStore(trace, debug, req.apiKey);
+      const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
       ts.update(req);
       await ts.save();
     }
@@ -99,7 +98,7 @@ const requestHandler = async (
     return;
   }
 
-  if (req.parser && req.headers['content-type'] === 'application/json') {
+  if (req.middleware && req.headers['content-type'] === 'application/json') {
     req.reqBody = await decompress(contentEncoding, buff);
     await specialRequestHandler(debug, req);
   }
@@ -141,7 +140,7 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
   let trace;
 
   // don't record trace if not parser is defined
-  if (req.parser) {
+  if (req.middleware) {
     const resBody = await decompress(contentEncoding, buff);
 
     // parse out error for tracing
@@ -149,11 +148,11 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
       req.error = convertToAPIError(req, _proxyRes, resBody);
     }
 
-    req.parser.addResponse(resBody);
-    trace = req.parser.getTrace(req);
+    req.middleware.addResponse(resBody);
+    trace = req.middleware.getTrace(req);
 
     try {
-      const ts = new RemoteTraceStore(trace, debug, req.apiKey);
+      const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
       await ts.save();
     } catch (err: unknown) {
       console.error('Error building trace', (err as Error).message);

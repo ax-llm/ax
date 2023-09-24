@@ -1,7 +1,7 @@
 import { ExtendedIncomingMessage } from '../proxy/types';
 import { AITextTraceStep } from '../tracing/types';
 
-import { PromptUpdater } from './parser';
+import { PromptUpdater } from './middleware';
 
 export type TextModelInfo = {
   name: string;
@@ -71,13 +71,14 @@ export type TranscriptResponse = {
 export type RateLimiterFunction = <T>(func: unknown) => T;
 
 /**
- * Parser
+ * Middleware
  * @export
  */
-export interface Parser {
+export interface AIMiddleware {
   addRequest(request: string, fn?: PromptUpdater): void;
   addResponse(response: string): void;
   getTrace(req: Readonly<ExtendedIncomingMessage>): AITextTraceStep;
+  embed(text: string): Promise<readonly number[]>;
   isRequestUpdated(): boolean;
   renderRequest(): string;
 }

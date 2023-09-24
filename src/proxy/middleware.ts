@@ -1,26 +1,28 @@
 import {
   AnthropicApi,
-  AnthropicCompletionParser,
+  AnthropicCompletionMiddleware,
   CohereApi,
-  CohereCompletionParser,
-  GoogleParser,
+  CohereCompletionMiddleware,
+  GoogleMiddleware,
   HuggingFaceApi,
-  HuggingFaceCompletionParser,
+  HuggingFaceCompletionMiddleware,
   OpenAIApi,
-  OpenAIChatParser,
-  OpenAICompletionParser,
-  TogetherCompletionParser,
+  OpenAIChatMiddleware,
+  OpenAICompletionMiddleware,
+  TogetherCompletionMiddleware,
 } from '../ai/index.js';
 import { TogetherApi } from '../ai/together/types.js';
-import { Parser } from '../ai/types.js';
+import { AIMiddleware } from '../ai/types.js';
+
+import { ExtendedIncomingMessage } from './types.js';
 
 type Routes = {
   name: string;
   target: string | ((host?: string) => string);
   hostRequired?: boolean;
-  parsers: {
+  routes: {
     path: string;
-    parser: Parser;
+    middleware: (req: Readonly<ExtendedIncomingMessage>) => AIMiddleware;
   }[];
 };
 
@@ -28,40 +30,49 @@ export const routes: Routes[] = [
   {
     name: 'openai',
     target: 'https://api.openai.com',
-    parsers: [
+    routes: [
       {
         path: OpenAIApi.Completion,
-        parser: new OpenAICompletionParser(),
+        middleware: (req) => new OpenAICompletionMiddleware(req),
       },
-      { path: OpenAIApi.Chat, parser: new OpenAIChatParser() },
+      {
+        path: OpenAIApi.Chat,
+        middleware: (req) => new OpenAIChatMiddleware(req),
+      },
     ],
   },
   {
     name: 'azure-openai',
     target: (host?: string) => `https://${host}.openai.azure.com/`,
     hostRequired: true,
-    parsers: [
-      { path: OpenAIApi.Completion, parser: new OpenAICompletionParser() },
-      { path: OpenAIApi.Chat, parser: new OpenAIChatParser() },
+    routes: [
+      {
+        path: OpenAIApi.Completion,
+        middleware: (req) => new OpenAICompletionMiddleware(req),
+      },
+      {
+        path: OpenAIApi.Chat,
+        middleware: (req) => new OpenAIChatMiddleware(req),
+      },
     ],
   },
   {
     name: 'huggingface',
     target: 'https://api-inference.huggingface.co/',
-    parsers: [
+    routes: [
       {
         path: HuggingFaceApi.Completion,
-        parser: new HuggingFaceCompletionParser(),
+        middleware: (req) => new HuggingFaceCompletionMiddleware(req),
       },
     ],
   },
   {
     name: 'together',
     target: 'https://api.together.xyz/',
-    parsers: [
+    routes: [
       {
         path: TogetherApi.Completion,
-        parser: new TogetherCompletionParser(),
+        middleware: (req) => new TogetherCompletionMiddleware(req),
       },
     ],
   },
@@ -69,30 +80,30 @@ export const routes: Routes[] = [
     name: 'google',
     target: (host?: string) =>
       `https://${host ?? 'us-central1'}-aiplatform.googleapis.com`,
-    parsers: [
+    routes: [
       {
         path: `/v1/projects`,
-        parser: new GoogleParser(),
+        middleware: (req) => new GoogleMiddleware(req),
       },
     ],
   },
   {
     name: 'anthropic',
     target: 'https://api.anthropic.com',
-    parsers: [
+    routes: [
       {
         path: AnthropicApi.Completion,
-        parser: new AnthropicCompletionParser(),
+        middleware: (req) => new AnthropicCompletionMiddleware(req),
       },
     ],
   },
   {
     name: 'cohere',
     target: 'https://api.cohere.ai/',
-    parsers: [
+    routes: [
       {
         path: CohereApi.Completion,
-        parser: new CohereCompletionParser(),
+        middleware: (req) => new CohereCompletionMiddleware(req),
       },
     ],
   },

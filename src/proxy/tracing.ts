@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid';
+import crypto from 'crypto';
 
 import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
@@ -30,7 +30,7 @@ export class RemoteTraceStore {
   }
 
   update = (req: Readonly<ExtendedIncomingMessage>) => {
-    this.step.traceId = req.traceId ?? uuid();
+    this.step.traceId = req.traceId ?? crypto.randomUUID();
     this.step.sessionId = req.sessionId;
   };
 

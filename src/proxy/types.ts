@@ -1,20 +1,19 @@
 import { IncomingMessage } from 'http';
 
-import { Parser } from '../ai/types';
+import { AIMiddleware } from '../ai/types';
 import { AITextTraceStep, APIError } from '../tracing/types';
 
 export type ExtendedIncomingMessage = IncomingMessage & {
   reqHash: string;
   reqBody: string;
   startTime: number;
-  parser: Parser;
+  middleware: AIMiddleware;
   error?: APIError;
 
   traceId?: string;
   sessionId?: string;
-  apiKey?: string;
+  llmClientAPIKey?: string;
   host?: string;
-  memory?: string;
 };
 
 /**

@@ -2,19 +2,23 @@ import {
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { BaseParser, PromptUpdater } from '../parser.js';
-import { Parser, TextModelConfig } from '../types.js';
+import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
+import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
+import { Together } from './api.js';
 import { modelInfoTogether } from './info.js';
 import {
   TogetherCompletionRequest,
   TogetherCompletionResponse,
 } from './types.js';
 
-export class TogetherCompletionParser
-  extends BaseParser<TogetherCompletionRequest, TogetherCompletionResponse>
-  implements Parser
+export class TogetherCompletionMiddleware
+  extends BaseAIMiddleware<
+    TogetherCompletionRequest,
+    TogetherCompletionResponse
+  >
+  implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
     super.addRequest(request);
@@ -58,6 +62,7 @@ export class TogetherCompletionParser
       new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
     );
   };
+
   addResponse = (response: string) => {
     super.addResponse(response);
 
@@ -70,5 +75,11 @@ export class TogetherCompletionParser
     }));
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
+  };
+
+  embed = async (text: string): Promise<readonly number[]> => {
+    const ai = new Together(this.apiKey);
+    const res = await ai.embed(text);
+    return res.embedding;
   };
 }

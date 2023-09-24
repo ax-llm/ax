@@ -7,19 +7,35 @@ export type Prompt = {
   text: string;
 };
 
+export type PromptUpdaterArgs = {
+  prompt?: string;
+  user?: string;
+};
+
 export type PromptUpdater = ({
   prompt,
   user,
-}: Readonly<{ prompt?: string; user?: string }>) => Promise<Prompt[]>;
+}: Readonly<PromptUpdaterArgs>) => Promise<Prompt[]>;
 
-export class BaseParser<AIRequest, AIResponse> {
+export class BaseAIMiddleware<AIRequest, AIResponse> {
   protected sb = new AITextTraceStepBuilder();
-  protected reqBody?: string;
-  protected resBody?: string;
-
   protected req?: AIRequest;
   protected resp?: AIResponse;
   protected reqUpdated = false;
+  protected exReq: Readonly<ExtendedIncomingMessage>;
+  protected apiKey: string;
+
+  constructor(exReq: Readonly<ExtendedIncomingMessage>) {
+    this.exReq = exReq;
+
+    this.apiKey =
+      exReq.headers.authorization?.substring(7) ??
+      (exReq.headers['api-key'] as string);
+
+    if (!this.apiKey || this.apiKey.length === 0) {
+      throw new Error('Missing API key for AI provider');
+    }
+  }
 
   protected addRequest(request: string) {
     if (!this.req) {
@@ -33,12 +49,13 @@ export class BaseParser<AIRequest, AIResponse> {
     }
   }
 
-  public getTrace(req: Readonly<ExtendedIncomingMessage>): AITextTraceStep {
+  public getTrace(): AITextTraceStep {
+    const { error, traceId, sessionId, startTime } = this.exReq;
     return this.sb
-      .setApiError(req.error)
-      .setTraceId(req.traceId)
-      .setSessionId(req.sessionId)
-      .setModelResponseTime(Date.now() - req.startTime)
+      .setApiError(error)
+      .setTraceId(traceId)
+      .setSessionId(sessionId)
+      .setModelResponseTime(Date.now() - startTime)
       .build();
   }
 

@@ -4,4 +4,4 @@ export * from './prompts';
 export * from './funcs';
 export * from './tracing';
 export * from './proxy';
-export * from './data';
+export * from './db';

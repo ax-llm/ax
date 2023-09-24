@@ -2,10 +2,11 @@ import {
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { BaseParser, PromptUpdater } from '../parser.js';
-import { Parser, TextModelConfig } from '../types.js';
+import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
+import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
+import { Anthropic } from './api.js';
 import { modelInfoAnthropic } from './info.js';
 import {
   AnthropicCompletionRequest,
@@ -13,9 +14,12 @@ import {
   AnthropicResponseDelta,
 } from './types.js';
 
-export class AnthropicCompletionParser
-  extends BaseParser<AnthropicCompletionRequest, AnthropicCompletionResponse>
-  implements Parser
+export class AnthropicCompletionMiddleware
+  extends BaseAIMiddleware<
+    AnthropicCompletionRequest,
+    AnthropicCompletionResponse
+  >
+  implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
     super.addRequest(request);
@@ -87,6 +91,12 @@ export class AnthropicCompletionParser
     ];
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
+  };
+
+  embed = async (text: string): Promise<readonly number[]> => {
+    const ai = new Anthropic(this.apiKey);
+    const res = await ai.embed(text);
+    return res.embedding;
   };
 }
 

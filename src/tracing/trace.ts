@@ -1,5 +1,6 @@
+import crypto from 'crypto';
+
 import superagent from 'superagent';
-import { v4 as uuid } from 'uuid';
 
 import { TextModelConfig, TextModelInfo, TokenUsage } from '../ai/types.js';
 
@@ -295,7 +296,7 @@ export class AITextTraceStepBuilder {
   } as AITextTraceStep;
 
   setTraceId(traceId?: string): this {
-    this.traceStep.traceId = traceId ? traceId : uuid();
+    this.traceStep.traceId = traceId ? traceId : crypto.randomUUID();
     return this;
   }
 

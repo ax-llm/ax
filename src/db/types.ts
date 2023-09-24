@@ -3,7 +3,7 @@
 export type DBUpsertRequest = {
   id: string;
   text?: string;
-  values?: number[];
+  values?: readonly number[];
   metadata?: Record<string, string>;
   table: string;
   namespace?: string;
@@ -11,6 +11,7 @@ export type DBUpsertRequest = {
 
 export type DBUpsertResponse = {
   id: string;
+  errors?: string[];
 };
 
 // For query
@@ -18,7 +19,7 @@ export type DBUpsertResponse = {
 export type DBQueryRequest = {
   id?: string;
   text?: string;
-  values?: number[];
+  values?: readonly number[];
   table: string;
   columns: string[];
   limit?: number;

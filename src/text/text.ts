@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid';
+import crypto from 'crypto';
 
 import { TextResponse } from '../ai/types.js';
 import { APIError, ParsingError } from '../tracing/types.js';
@@ -75,7 +75,7 @@ export class AIPrompt<T> {
     ai.setOptions({ debug: this.debug, disableLog: true });
     const { sessionId, memory } = options;
     const { stopSequences } = this.conf;
-    const traceId = options.traceId ?? uuid();
+    const traceId = options.traceId ?? crypto.randomUUID();
 
     const [, value] = await this._generate(ai, memory || new Memory(), query, {
       ...options,

@@ -2,10 +2,11 @@ import {
   TextRequestBuilder,
   TextResponseBuilder,
 } from '../../tracing/index.js';
-import { BaseParser, PromptUpdater } from '../parser.js';
-import { Parser } from '../types.js';
+import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
+import { AIMiddleware } from '../types.js';
 import { findItemByNameOrAlias, uniqBy } from '../util.js';
 
+import { Google } from './api.js';
 import { modelInfoGoogle } from './info.js';
 import {
   GoogleChatRequest,
@@ -14,9 +15,9 @@ import {
   GoogleCompletionResponse,
 } from './types.js';
 
-class GoogleCompletionParser
-  extends BaseParser<GoogleCompletionRequest, GoogleCompletionResponse>
-  implements Parser
+class GoogleCompletionMiddleware
+  extends BaseAIMiddleware<GoogleCompletionRequest, GoogleCompletionResponse>
+  implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
     super.addRequest(request);
@@ -75,11 +76,14 @@ class GoogleCompletionParser
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
   };
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  embed = async (_text: string): Promise<readonly number[]> => [];
 }
 
-class GoogleChatParser
-  extends BaseParser<GoogleChatRequest, GoogleChatResponse>
-  implements Parser
+class GoogleChatMiddleware
+  extends BaseAIMiddleware<GoogleChatRequest, GoogleChatResponse>
+  implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
     super.addRequest(request);
@@ -167,16 +171,19 @@ class GoogleChatParser
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
   };
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  embed = async (_text: string): Promise<readonly number[]> => [];
 }
 
-export class GoogleParser
-  extends BaseParser<
+export class GoogleMiddleware
+  extends BaseAIMiddleware<
     GoogleChatRequest | GoogleCompletionRequest,
     GoogleChatResponse | GoogleCompletionResponse
   >
-  implements Parser
+  implements AIMiddleware
 {
-  parser?: Parser;
+  mw?: AIMiddleware;
 
   addRequest = (request: string, fn?: PromptUpdater | undefined) => {
     super.addRequest(request);
@@ -191,17 +198,31 @@ export class GoogleParser
     const rq = this.req as GoogleCompletionRequest;
 
     if (rq.instances.at(0)?.prompt) {
-      this.parser = new GoogleCompletionParser();
+      this.mw = new GoogleCompletionMiddleware(this.exReq);
     } else {
-      this.parser = new GoogleChatParser();
+      this.mw = new GoogleChatMiddleware(this.exReq);
     }
-    this.parser.addRequest(request, fn);
+    this.mw.addRequest(request, fn);
   };
 
   addResponse = (response: string) => {
-    if (!this.parser) {
-      throw new Error('Invalid parser');
+    if (!this.mw) {
+      throw new Error('Invalid middlware');
     }
-    this.parser.addResponse(response);
+    this.mw.addResponse(response);
+  };
+
+  embed = async (text: string): Promise<readonly number[]> => {
+    const projectId = this.exReq.headers[
+      'x-llmclient-google-project-id'
+    ] as string;
+    if (!projectId) {
+      throw new Error(
+        'Missing Google project ID header: x-llmclient-google-project-id'
+      );
+    }
+    const ai = new Google(this.apiKey, projectId);
+    const res = await ai.embed(text);
+    return res.embedding;
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "5.0.12",
+  "version": "5.0.13",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -15,6 +15,7 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
+    "spider": "esrun src/data/index.ts",
     "proxy": "esrun src/proxy/index.ts",
     "proxy-dev": "esrun --watch=src/* --preserveConsole src/proxy/index.ts",
     "build": "run-p build:*",
@@ -54,8 +55,7 @@
     "htmlparser2": "^9.0.0",
     "http-proxy": "^1.18.1",
     "json5": "^2.2.3",
-    "superagent": "^8.1.2",
-    "uuid": "^9.0.1"
+    "superagent": "^8.1.2"
   },
   "devDependencies": {
     "@ava/typescript": "^3.0.1",

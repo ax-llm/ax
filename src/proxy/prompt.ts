@@ -1,29 +1,29 @@
-import { PromptUpdater } from '../ai/parser.js';
+import { Prompt, PromptUpdater } from '../ai/middleware.js';
 
-import { MemoryFilter, RemoteMemoryStore } from './memory.js';
+import { RemoteMemoryStore } from './memory.js';
 import { ExtendedIncomingMessage } from './types.js';
+import { VectorMemoryStore } from './vector.js';
 
 const promptUpdater = (
   debug: boolean,
   req: Readonly<ExtendedIncomingMessage>
 ): PromptUpdater | undefined => {
-  if (!req.apiKey || !req.memory) {
-    return;
-  }
+  return async (args) => {
+    const prompt: Prompt[] = [];
 
-  const ms = new RemoteMemoryStore(debug, req.apiKey);
-  const memory = req.memory;
-
-  return async ({ user }) => {
-    const filter: MemoryFilter = { limit: 10 };
-    if (memory.indexOf('session') > -1) {
-      filter.sessionId = req.sessionId;
-    }
-    if (memory.indexOf('user') > -1) {
-      filter.user = user;
+    const rms = new RemoteMemoryStore(debug);
+    const res1 = await rms.getMemory(req, args);
+    if (res1) {
+      prompt.push(...res1);
     }
 
-    return await ms.fetch(filter);
+    const vms = new VectorMemoryStore(debug);
+    const res2 = await vms.getMemory(req, args);
+    if (res2) {
+      prompt.push(...res2);
+    }
+
+    return prompt;
   };
 };
 
@@ -31,8 +31,5 @@ export const specialRequestHandler = async (
   debug: boolean,
   req: Readonly<ExtendedIncomingMessage>
 ) => {
-  if (req.apiKey && req.memory) {
-    await req.parser.addRequest(req.reqBody, promptUpdater(debug, req));
-  }
-  await req.parser.addRequest(req.reqBody);
+  await req.middleware.addRequest(req.reqBody, promptUpdater(debug, req));
 };
