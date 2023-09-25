@@ -1,8 +1,6 @@
-# LLMClient 🌵 🦙 🔥 ❤️ 🖖🏼
-### Tools to build with LLMs: Logging Proxy, Long Term Memory, Multi-LLM API and more
+# LLMClient - An LLM Proxy with Tracing, Long-Term Memory and Vector DB Integration.
 
-Automatically log all prompts, responses, model configuration, etc to make it easier to debug or keep track of what worked and what did not.
-A must have for building with LLMs. It's packed with useful features.
+🌵 🦙 🔥 ❤️ 🖖🏼  
 
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -10,30 +8,18 @@ A must have for building with LLMs. It's packed with useful features.
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-1. Proxy for Debugging, Tracing, Caching
-2. Guardrails, Extract JSON,
-3. LLM Independant Function Calling
-4. Chain of Though Reasoning
-5. Since interface to all LLMs
-6. Simpler and smaller than the alternatives
-7. Sensible Defaults
-8. Single interface to OpenAI, GoogeAI, Anthropic, Together, HF and more
 
-## AI's Supported
+## Log all your LLM interactions
 
+<div>
+  <img src="http://llmclient.com/images/providers/openai.png" alt="OpenAI" height="80" align="middle">
+  <img src="http://llmclient.com/images/providers/huggingface.png" alt="HuggingFace" height="80" align="middle">
+  <img src="http://llmclient.com/images/providers/anthropic.png" alt="Anthropic" height="50" align="middle">
+  <img src="http://llmclient.com/images/providers/cohere.png" alt="Cohere" height="50" align="middle">
+  <img src="http://llmclient.com/images/providers/together.png" alt="Together" height="50" align="middle">
+  <img src="http://llmclient.com/images/providers/google.png" alt="Google" height="50" align="middle">
+</div>
 
-| AI           | Best Model                           | Proxy | Functions + CoT |
-| ------------ | ------------------------------------ | ----- | --------------- |
-| OpenAI       | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
-| Anthropic    | Claude Instant, Claude 2             | ✅    | 🟢 100%         |
-| Azure OpenAI | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
-| Google AI    | Text Bison, Chat Bison, Gecko        | ✅    | 🟢 100%         |
-| Together     | Llama 2                              | ✅    | 🟢 90%          |
-| Hugging Face | Llama 2                              | ✅    | 🟡 90%          |
-| Cohere       | Command, Command Nightly             | ✅    | 🟡 40%          |
-| AlephaAlpha  | Luminous: Control, Supreme, Extended | No    | 🔴 N/A          |
-
-## Debug your LLM interactions with a tracing proxy.
 
 A quick proxy server to help debug and trace all your llm interactions while you develop your prompts and LLM powered apps. The proxy has builtin caching to speedup your dev workflows and to save you from paying token costs. **The proxy works with any llm api in any language you don't even have to use llmclient.**
 
@@ -75,17 +61,16 @@ console.log(chatCompletion);
 
 A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
 
-To enable sign-up at https://llmclient.com and get your API Key. Then set any one of these two enviroment variables `LLMC_APIKEY` or `LLMCLIENT_APIKEY`
-
-```
-# This is a fake key for example purposes
-LLMC_APIKEY = "lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32"
-```
+> Sign-up at https://llmclient.com and get your API Key
 
 ### Long Term Memory
 
-Automatically have the previous conversation added to the prompt to provide a long running context. To enable set the below http header fetch the previous conversation based on `session id` or `user`
+Automatically have the previous conversation added to the prompt to provide a long running context. To enable set the below http header fetch the previous conversation based on `session id` or `user`. An LLM client API key is required to fetch previous logged chats.
+
 ```
+# LLMClient API Key from https://lmclient.com
+x-llmclient-apikey: lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32
+
 # Use the value of the openai api `user` field to fetch previous conversations
 x-llmclient-memory: user
 
@@ -94,13 +79,39 @@ x-llmclient-sessionid: 1234
 x-llmclient-memory: session
 ```
 
+### Vector DB Support (Builtin RAG)
 
+Retrieval augmented generation (RAG) is a very common LLM uscase where you need to fetch data similiar to the prompt from vector db store and merge it with the prompt to help the LLM answer the provided question. You can now automatically have RAG handled for you when using this proxy just by setting the below headers. Pinecone and Weaviate vector databases are both supported. RAG does not need an LLMClient API key.
 
-
+```
+x-llmclient-db-host: https://test-e5gd99ta.weaviate.network
+x-llmclient-db-apikey: <weaviate/pinecone-api-key>
+x-llmclient-db-values: <weaviate/pinecone-metadata-fieldname>
+x-llmclient-db-table: <weaviate/pinecone-class-name>
+```
 
 ![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
 
+---
+
 ## A simple library to build with all supported LLMs
+
+LLMClient is also a simple library to build chain of though and function calling workflows with all LLMs. Built in support for error-correction, structured data extraction, guardrails, etc
+
+## AI's Supported
+
+
+| AI           | Best Model                           | Proxy | Functions + CoT |
+| ------------ | ------------------------------------ | ----- | --------------- |
+| OpenAI       | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
+| Anthropic    | Claude Instant, Claude 2             | ✅    | 🟢 100%         |
+| Azure OpenAI | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
+| Google AI    | Text Bison, Chat Bison, Gecko        | ✅    | 🟢 100%         |
+| Together     | Llama 2                              | ✅    | 🟢 90%          |
+| Hugging Face | Llama 2                              | ✅    | 🟡 90%          |
+| Cohere       | Command, Command Nightly             | ✅    | 🟡 40%          |
+| AlephaAlpha  | Luminous: Control, Supreme, Extended | No    | 🔴 N/A          |
+
 
 ```javascript
 import { OpenAI, AIMemory, AIPrompt } from 'llmclient';
