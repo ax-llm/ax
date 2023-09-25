@@ -3,7 +3,6 @@
 import crypto from 'crypto';
 import http, { IncomingMessage } from 'http';
 import stream from 'stream';
-import zlib from 'zlib';
 
 import chalk from 'chalk';
 import httpProxy from 'http-proxy';
@@ -11,11 +10,11 @@ import httpProxy from 'http-proxy';
 import { RemoteLogger } from '../logs/remote.js';
 
 import { MemoryCache } from './cache.js';
-import { specialRequestHandler } from './prompt.js';
+import { processAIRequest } from './prompt.js';
 import { extendRequest } from './req.js';
 import { RemoteTraceStore } from './tracing.js';
 import { CacheItem, ExtendedIncomingMessage } from './types.js';
-import { convertToAPIError } from './util.js';
+import { convertToAPIError, decompress } from './util.js';
 
 import 'dotenv/config';
 
@@ -98,14 +97,27 @@ const requestHandler = async (
     return;
   }
 
-  if (req.middleware && req.headers['content-type'] === 'application/json') {
-    req.reqBody = await decompress(contentEncoding, buff);
-    await specialRequestHandler(debug, req);
-  }
-
   // setup body buffer to pass to proxy
   const buffer = new stream.PassThrough();
-  buffer.end(buff);
+
+  // llm requests that we need to trace and update
+  if (req.middleware && req.headers['content-type'] === 'application/json') {
+    req.reqBody = await decompress(contentEncoding, buff);
+
+    // process the request
+    const ureq = await processAIRequest(debug, req);
+
+    // update the request body if needed
+    if (ureq) {
+      delete req.headers['content-length'];
+      req.reqBody = ureq;
+      buffer.end(Buffer.from(ureq));
+    }
+  }
+
+  if (buffer.readableLength === 0) {
+    buffer.end(buff);
+  }
 
   // send the request to be proxied
   proxy.web(req, _res, { target, buffer });
@@ -148,10 +160,14 @@ proxy.on('proxyRes', async (_proxyRes, _req, _res) => {
       req.error = convertToAPIError(req, _proxyRes, resBody);
     }
 
-    req.middleware.addResponse(resBody);
-    trace = req.middleware.getTrace(req);
-
     try {
+      // add the response to the trace
+      req.middleware.addResponse(resBody);
+
+      // build the trace
+      trace = req.middleware.getTrace(req);
+
+      // send the trace
       const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
       await ts.save();
     } catch (err: unknown) {
@@ -193,29 +209,5 @@ const getBody = (req: Readonly<IncomingMessage>): Promise<Uint8Array[]> => {
       .on('data', (chunk) => chunks.push(chunk))
       .on('end', () => resolve(chunks))
       .on('error', (err) => reject(err));
-  });
-};
-
-const decompress = (
-  encoding: string | undefined,
-  buff: Buffer
-): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const handler = (err: unknown, decoded: { toString: () => string }) =>
-      err ? reject(err) : resolve(decoded.toString());
-
-    switch (encoding) {
-      case 'gzip':
-        zlib.gunzip(buff, handler);
-        break;
-      case 'deflate':
-        zlib.inflate(buff, handler);
-        break;
-      case 'br':
-        zlib.brotliDecompress(buff, handler);
-        break;
-      default:
-        resolve(buff.toString());
-    }
   });
 };

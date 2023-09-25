@@ -23,13 +23,20 @@ const promptUpdater = (
       prompt.push(...res2);
     }
 
+    console.log('prompt', prompt);
+
     return prompt;
   };
 };
 
-export const specialRequestHandler = async (
+export const processAIRequest = async (
   debug: boolean,
   req: Readonly<ExtendedIncomingMessage>
-) => {
+): Promise<string | undefined> => {
   await req.middleware.addRequest(req.reqBody, promptUpdater(debug, req));
+
+  if (req.middleware.isRequestUpdated()) {
+    return await req.middleware.renderRequest();
+  }
+  return;
 };

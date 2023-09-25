@@ -15,11 +15,11 @@ export class RemoteMemoryStore {
     { user }: Readonly<PromptUpdaterArgs>
   ): Promise<Prompt[] | undefined> => {
     const apiKey = req.llmClientAPIKey;
-    if (!apiKey || apiKey) {
+    if (!apiKey || apiKey === '') {
       return;
     }
     const memory = req.headers['x-llmclient-memory'] as string | undefined;
-    if (!memory || memory.length === 0) {
+    if (!memory || memory === '') {
       return;
     }
 
