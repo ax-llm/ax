@@ -3,6 +3,7 @@ import { API, apiCall } from '../util/apicall.js';
 import {
   DBQueryRequest,
   DBQueryResponse,
+  DBService,
   DBUpsertRequest,
   DBUpsertResponse,
 } from './types.js';
@@ -62,15 +63,15 @@ const createPineconeQueryRequest = (
 };
 
 /**
- * OpenAI: AI Service
+ * Pinecone: DB Service
  * @export
  */
-export class PineCone {
+export class Pinecone implements DBService {
   private apiKey: string;
   private apiURL: string;
 
   constructor(apiKey: string, host: string) {
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Pinecone API key not set');
     }
     this.apiKey = apiKey;

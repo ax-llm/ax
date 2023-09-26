@@ -57,7 +57,7 @@ export class HuggingFace extends BaseAI {
       otherOptions
     );
 
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Hugging Face API key not set');
     }
     this.apiKey = apiKey;

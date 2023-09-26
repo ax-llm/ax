@@ -88,9 +88,13 @@ export class Google extends BaseAI {
       otherOptions
     );
 
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Google API key not set');
     }
+    if (!projectId || projectId === '') {
+      throw new Error('Google Project ID not set (projectId)');
+    }
+
     this.apiKey = apiKey;
     this.options = options;
 

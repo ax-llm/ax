@@ -68,7 +68,7 @@ export class Cohere extends BaseAI {
       otherOptions
     );
 
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
     }
     this.apiKey = apiKey;

@@ -34,7 +34,7 @@ export type DBQueryResponse = {
   }[];
 };
 
-export interface DB {
+export interface DBService {
   upsert(
     req: Readonly<DBUpsertRequest>,
     update?: boolean

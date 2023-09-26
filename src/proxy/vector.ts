@@ -1,6 +1,6 @@
 import { Prompt, PromptUpdaterArgs } from '../ai/middleware.js';
-import { PineCone } from '../db/pinecone.js';
-import { DB } from '../db/types.js';
+import { Pinecone } from '../db/pinecone.js';
+import { DBService } from '../db/types.js';
 import { Weaviate } from '../db/weaviate.js';
 
 import { ExtendedIncomingMessage } from './types.js';
@@ -32,10 +32,10 @@ export class VectorMemoryStore {
       return;
     }
 
-    let db: DB;
+    let db: DBService;
 
     if (host.indexOf('pinecone') > -1) {
-      db = new PineCone(apiKey, host);
+      db = new Pinecone(apiKey, host);
     } else if (host.indexOf('weaviate') > -1) {
       db = new Weaviate(apiKey, host);
     } else {

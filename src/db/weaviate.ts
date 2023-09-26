@@ -3,6 +3,7 @@ import { API, apiCall } from '../util/apicall.js';
 import {
   DBQueryRequest,
   DBQueryResponse,
+  DBService,
   DBUpsertRequest,
   DBUpsertResponse,
 } from './types.js';
@@ -46,15 +47,15 @@ type WeaviateQueryResponse = {
 };
 
 /**
- * OpenAI: AI Service
+ * Weaviate: DB Service
  * @export
  */
-export class Weaviate {
+export class Weaviate implements DBService {
   private apiKey: string;
   private apiURL: string;
 
   constructor(apiKey: string, host: string) {
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Weaviate API key not set');
     }
     this.apiKey = apiKey;

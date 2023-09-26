@@ -89,9 +89,16 @@ export class AzureOpenAI extends BaseAI {
       otherOptions
     );
 
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
     }
+    if (!host || host === '') {
+      throw new Error('Azure OpenAPI host not set (host)');
+    }
+    if (!deploymentName || deploymentName === '') {
+      throw new Error('Azure OpenAPI deployment name not set (deploymentName)');
+    }
+
     this.apiKey = apiKey;
     this.options = options;
 

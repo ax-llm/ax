@@ -41,7 +41,7 @@ export class Together extends BaseAI {
       otherOptions
     );
 
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
     }
     this.apiKey = apiKey;

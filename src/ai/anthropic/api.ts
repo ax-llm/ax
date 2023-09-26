@@ -48,7 +48,7 @@ export class Anthropic extends BaseAI {
       otherOptions
     );
 
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('Anthropic API key not set');
     }
     this.apiKey = apiKey;

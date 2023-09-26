@@ -297,7 +297,7 @@ export class AlephAlpha extends BaseAI {
       otherOptions
     );
 
-    if (apiKey === '') {
+    if (!apiKey || apiKey === '') {
       throw new Error('AlephAlpha API key not set');
     }
     this.apiKey = apiKey;
