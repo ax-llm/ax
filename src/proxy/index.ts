@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import 'dotenv/config';
-import { LLMProxy } from './proxy';
+import { LLMProxy } from './proxy.js';
 
 const debug = (process.env.DEBUG ?? 'true') === 'true';
 

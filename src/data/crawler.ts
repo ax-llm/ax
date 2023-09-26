@@ -1,9 +1,9 @@
 import superagent from 'superagent';
 
-import { AI } from '../ai';
-import { DB, DBService } from '../db';
-import { AIService } from '../text/types';
-import { uuidURL, uuidv5 } from '../util/uuid';
+import { AI } from '../ai/index.js';
+import { DB, DBService } from '../db/index.js';
+import { AIService } from '../text/types.js';
+import { uuidURL, uuidv5 } from '../util/uuid.js';
 
 type RequestHandler = (
   queueUrl: (url: string, nextDepth: number) => void,
