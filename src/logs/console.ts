@@ -59,7 +59,7 @@ export class ConsoleLogger {
   private printTextResponse(resp: Readonly<TextResponse>): void {
     console.log(chalk.blue(`\n🚀  Text Responses:`));
     this.print('Remote Id', resp.remoteId, 1);
-    resp.results.forEach((result, j) => {
+    resp.results?.forEach((result, j) => {
       this.print(`Result ${j + 1}`, result.text, 2);
       this.print('Result Id', result.id, 2);
       this.print('Finish Reason', result.finishReason, 2);
@@ -94,7 +94,11 @@ export class ConsoleLogger {
       }
       if (trace.response.apiError) {
         console.log(chalk.red(`\n❌ API Error:`));
-        this.print('Message', trace.response.apiError, 1);
+        this.print(
+          'Message\n',
+          JSON.stringify(trace.response.apiError, null, 2),
+          1
+        );
       }
     }
   }

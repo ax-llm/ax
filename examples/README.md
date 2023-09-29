@@ -69,24 +69,22 @@ Here is a quick overview of the modules you will find in this project. To run th
 OPENAI_KEY=your-openai-auth-key node product-search.js
 ```
 
-1. **ask-questions.js:** This script enables AI to utilize Google search to pinpoint correct answers, expanding the AI's knowledge base beyond static data.
+1. **product-search.js:** Allows customers to pose product-related questions in natural language, improving customer experience and interaction.
 
-2. **product-search.js:** Allows customers to pose product-related questions in natural language, improving customer experience and interaction.
+2. **food-search.js:** Integrates multiple APIs to recommend the best dining options based on the user's preferences or location.
 
-3. **food-search.js:** Integrates multiple APIs to recommend the best dining options based on the user's preferences or location.
+3. **customer-support.js:** Extracts valuable details from customer communications, making data analysis and customer feedback processing more efficient.
 
-4. **customer-support.js:** Extracts valuable details from customer communications, making data analysis and customer feedback processing more efficient.
+4. **marketing.js:** Uses AI to create succinct yet impactful marketing SMS messages, enhancing the effectiveness of your marketing strategies.
 
-5. **marketing.js:** Uses AI to create succinct yet impactful marketing SMS messages, enhancing the effectiveness of your marketing strategies.
+5. **transcribe-podcast.js:** Transcribes multiple podcast channels into text, making podcast content more accessible and searchable.
 
-6. **transcribe-podcast.js:** Transcribes multiple podcast channels into text, making podcast content more accessible and searchable.
+6. **chat-assistant.js:** A smart AI chatbot module capable of conducting intelligent conversations, ideal for customer service, user interaction, or simply for AI practice. Uses a rate-limiter to ensure api rate limites and honored.
 
-7. **chat-assistant.js:** A smart AI chatbot module capable of conducting intelligent conversations, ideal for customer service, user interaction, or simply for AI practice. Uses a rate-limiter to ensure api rate limites and honored.
+7. **get-summary.js:** Employs AI to condense a large block of text into a concise summary, which is useful for quick information absorption.
 
-8. **get-summary.js:** Employs AI to condense a large block of text into a concise summary, which is useful for quick information absorption.
+8. **ai-vs-ai.js:** A fascinating module where OpenAI engages in friendly banter with Cohere, providing unique insight into the interaction between different AI models.
 
-9. **ai-vs-ai.js:** A fascinating module where OpenAI engages in friendly banter with Cohere, providing unique insight into the interaction between different AI models.
+9. **fibonacci.js** Generates code to compute the Fibonacci series and then uses the built-in JS code interpreter function to execute it.
 
-10. **fibonacci.js** Generates code to compute the Fibonacci series and then uses the built-in JS code interpreter function to execute it.
-
-11. **vector-search.js** Simple example to show how you can use vector search and embedding with this library.
+1o. **vector-search.js** Simple example to show how you can use vector search and embedding with this library.

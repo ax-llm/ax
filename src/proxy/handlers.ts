@@ -133,8 +133,10 @@ export function addHandlers(
       }
 
       try {
-        // add the response to the trace
-        req.middleware.addResponse(resBody);
+        if (!req.error) {
+          // add the response to the trace
+          req.middleware.addResponse(resBody);
+        }
 
         // build the trace
         trace = req.middleware.getTrace(req);
@@ -143,7 +145,7 @@ export function addHandlers(
         const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
         await ts.save();
       } catch (err: unknown) {
-        console.error('Error building trace', (err as Error).message);
+        console.error('Error building trace:', (err as Error).message);
         return;
       }
     }

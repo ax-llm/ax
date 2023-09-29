@@ -15,6 +15,11 @@
   ],
   "globals": { "BigInt": true, "console": true, "WebAssembly": true },
   "rules": {
+    "import/extensions": [
+      "error",
+      "ignorePackages",
+      { "js": "never", "ts": "never", "tsx": "never" }
+    ],
     "functional/no-classes": "off",
     "functional/no-return-void": "off",
     "functional/no-let": "off",

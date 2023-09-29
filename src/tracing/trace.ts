@@ -316,11 +316,17 @@ export class AITextTraceStepBuilder {
   }
 
   setModelResponseTime(modelResponseTime?: number): this {
+    if (!this.traceStep.response) {
+      this.traceStep.response = {} as AITextTraceStepResponse;
+    }
     this.traceStep.response.modelResponseTime = modelResponseTime;
     return this;
   }
 
   setApiError(apiError?: Readonly<APIError>): this {
+    if (!this.traceStep.response) {
+      this.traceStep.response = {} as AITextTraceStepResponse;
+    }
     this.traceStep.response.apiError = apiError;
     return this;
   }
