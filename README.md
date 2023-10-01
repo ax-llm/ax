@@ -88,9 +88,12 @@ x-llmclient-db-table: <weaviate-class-name>
 x-llmclient-db-values: <weaviate-metadata-fieldnames> (comma seperated)
 ```
 
+Optional values for additional features like RAG query rewriting. We will use the provided prompt (or a default one) to rewrite the query to improve the vector db search results.
+
 ```
 x-llmclient-db-namespace: <weaviate-namespace-name>
 x-llmclient-db-rewrite-query: true
+x-llmclient-db-rewrite-query-prompt: <prompt text to use to reframe rag query> (optional)
 ```
 
 ![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
