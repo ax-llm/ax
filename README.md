@@ -1,13 +1,12 @@
 # LLMClient - An LLM Proxy with Tracing, Long-Term Memory and Vector DB Integration.
 
-🌵 🦙 🔥 ❤️ 🖖🏼  
+🌵 🦙 🔥 ❤️ 🖖🏼
 
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
-
 
 ## Log all your LLM interactions
 
@@ -19,7 +18,6 @@
   <img src="http://llmclient.com/images/providers/together.png" alt="Together" height="50" align="middle">
   <img src="http://llmclient.com/images/providers/google.png" alt="Google" height="50" align="middle">
 </div>
-
 
 A quick proxy server to help debug and trace all your llm interactions while you develop your prompts and LLM powered apps. The proxy has builtin caching to speedup your dev workflows and to save you from paying token costs. **The proxy works with any llm api in any language you don't even have to use llmclient.**
 
@@ -84,10 +82,15 @@ x-llmclient-memory: session
 Retrieval augmented generation (RAG) is a very common LLM uscase where you need to fetch data similiar to the prompt from vector db store and merge it with the prompt to help the LLM answer the provided question. You can now automatically have RAG handled for you when using this proxy just by setting the below headers. Pinecone and Weaviate vector databases are both supported. RAG does not need an LLMClient API key.
 
 ```
-x-llmclient-db-host: https://test-e5gd99ta.weaviate.network
-x-llmclient-db-apikey: <weaviate/pinecone-api-key>
-x-llmclient-db-values: <weaviate/pinecone-metadata-fieldname>
-x-llmclient-db-table: <weaviate/pinecone-class-name>
+x-llmclient-db-host: <weaviate-host-url>
+x-llmclient-db-apikey: <weaviate-api-key>
+x-llmclient-db-table: <weaviate-class-name>
+x-llmclient-db-values: <weaviate-metadata-fieldnames> (comma seperated)
+```
+
+```
+x-llmclient-db-namespace: <weaviate-namespace-name>
+x-llmclient-db-rewrite-query: true
 ```
 
 ![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
@@ -100,7 +103,6 @@ LLMClient is also a simple library to build chain of though and function calling
 
 ## AI's Supported
 
-
 | AI           | Best Model                           | Proxy | Functions + CoT |
 | ------------ | ------------------------------------ | ----- | --------------- |
 | OpenAI       | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
@@ -111,7 +113,6 @@ LLMClient is also a simple library to build chain of though and function calling
 | Hugging Face | Llama 2                              | ✅    | 🟡 90%          |
 | Cohere       | Command, Command Nightly             | ✅    | 🟡 40%          |
 | AlephaAlpha  | Luminous: Control, Supreme, Extended | No    | 🔴 N/A          |
-
 
 ```javascript
 import { OpenAI, AIMemory, AIPrompt } from 'llmclient';
@@ -153,8 +154,6 @@ console.log(res.value());
 | chat-assistant.js     | AI chat bot capable of intellegent conversations          |
 | get-summary.js        | AI to generate a short summary of a large block of text   |
 | ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                    |
-
-
 
 ## Function (API) Calling with reasoning (CoT)
 
