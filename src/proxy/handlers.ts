@@ -32,10 +32,15 @@ export const requestHandler = async (
   const req = _req as ExtendedIncomingMessage;
   const chunks = await getBody(req);
 
+  const xheaders = Object.entries(req.headers)
+    .filter(([k]) => k.startsWith('x-llmclient-'))
+    .map(([k, v]) => k + v)
+    .join('');
+
   const hashKey =
     (req.method ?? '') +
     (req.url ?? '') +
-    (req.headers['x-llmclient-apikey'] ?? '') +
+    (xheaders ?? '') +
     (req.headers.authorization ?? '');
 
   const buff = Buffer.concat(chunks);
@@ -48,10 +53,11 @@ export const requestHandler = async (
   const contentEncoding = req.headers['content-encoding'];
 
   req.llmClientAPIKey = req.headers['x-llmclient-apikey'] as string | undefined;
-  req.traceId = req.headers['x-llmclient-traceid'] as string | undefined;
-  req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
   req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
   req.host = req.headers['x-llmclient-host'] as string | undefined;
+
+  const traceId = req.headers['x-llmclient-traceid'] as string | undefined;
+  req.traceId = !traceId || traceId === '' ? crypto.randomUUID() : traceId;
 
   if (debug) {
     console.log('> Proxying', hash, req.url);

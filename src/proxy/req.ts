@@ -30,6 +30,8 @@ export const extendRequest = (
     throw new Error(`Unknown LLM provider: ${providerName}`);
   }
 
+  req.providerName = providerName;
+
   const middleware = pm.routes.find((p) =>
     urlPath?.startsWith(p.path)
   )?.middleware;

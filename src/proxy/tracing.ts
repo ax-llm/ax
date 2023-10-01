@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-
 import { ConsoleLogger } from '../logs/console.js';
 import { RemoteLogger } from '../logs/remote.js';
 import { AITextTraceStep } from '../tracing/types.js';
@@ -30,7 +28,7 @@ export class RemoteTraceStore {
   }
 
   update = (req: Readonly<ExtendedIncomingMessage>) => {
-    this.step.traceId = req.traceId ?? crypto.randomUUID();
+    this.step.traceId = req.traceId;
     this.step.sessionId = req.sessionId;
   };
 

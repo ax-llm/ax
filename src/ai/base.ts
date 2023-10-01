@@ -19,10 +19,10 @@ import {
 
 import {
   EmbedResponse,
-  TextModelConfig,
-  TextResponse,
   RateLimiterFunction,
+  TextModelConfig,
   TextModelInfo,
+  TextResponse,
   TranscriptResponse,
 } from './types.js';
 

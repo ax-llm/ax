@@ -6,7 +6,6 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
-import { Cohere } from './api.js';
 import { modelInfoCohere } from './info.js';
 import { CohereCompletionRequest, CohereCompletionResponse } from './types.js';
 
@@ -61,11 +60,5 @@ export class CohereCompletionMiddleware
     }));
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
-  };
-
-  embed = async (text: string): Promise<readonly number[]> => {
-    const ai = new Cohere(this.apiKey);
-    const res = await ai.embed(text);
-    return res.embedding;
   };
 }

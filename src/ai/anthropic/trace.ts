@@ -6,7 +6,6 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
-import { Anthropic } from './api.js';
 import { modelInfoAnthropic } from './info.js';
 import {
   AnthropicCompletionRequest,
@@ -91,12 +90,6 @@ export class AnthropicCompletionMiddleware
     ];
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
-  };
-
-  embed = async (text: string): Promise<readonly number[]> => {
-    const ai = new Anthropic(this.apiKey);
-    const res = await ai.embed(text);
-    return res.embedding;
   };
 }
 

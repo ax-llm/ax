@@ -1,4 +1,5 @@
 import { ExtendedIncomingMessage } from '../proxy/types.js';
+import { AIService } from '../text/types.js';
 import { AITextTraceStepBuilder } from '../tracing/trace.js';
 import { AITextTraceStep } from '../tracing/types.js';
 
@@ -21,6 +22,8 @@ export class BaseAIMiddleware<AIRequest, AIResponse> {
   protected sb = new AITextTraceStepBuilder();
   protected req?: AIRequest;
   protected resp?: AIResponse;
+  protected ai?: AIService;
+
   protected reqUpdated = false;
   protected exReq: Readonly<ExtendedIncomingMessage>;
   protected apiKey: string;
@@ -65,5 +68,9 @@ export class BaseAIMiddleware<AIRequest, AIResponse> {
 
   public renderRequest() {
     return JSON.stringify(this.req);
+  }
+
+  public getAPIKey() {
+    return this.apiKey;
   }
 }

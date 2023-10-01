@@ -6,7 +6,6 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
-import { Together } from './api.js';
 import { modelInfoTogether } from './info.js';
 import {
   TogetherCompletionRequest,
@@ -75,11 +74,5 @@ export class TogetherCompletionMiddleware
     }));
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
-  };
-
-  embed = async (text: string): Promise<readonly number[]> => {
-    const ai = new Together(this.apiKey);
-    const res = await ai.embed(text);
-    return res.embedding;
   };
 }

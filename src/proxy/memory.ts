@@ -4,12 +4,6 @@ import { getMemory } from '../tracing/trace.js';
 import { ExtendedIncomingMessage } from './types.js';
 
 export class RemoteMemoryStore {
-  private readonly debug: boolean;
-
-  constructor(debug: boolean) {
-    this.debug = debug;
-  }
-
   getMemory = async (
     req: Readonly<ExtendedIncomingMessage>,
     { user }: Readonly<PromptUpdaterArgs>
@@ -18,6 +12,7 @@ export class RemoteMemoryStore {
     if (!apiKey || apiKey === '') {
       return;
     }
+
     const memory = req.headers['x-llmclient-memory'] as string | undefined;
     if (!memory || memory === '') {
       return;
@@ -36,6 +31,6 @@ export class RemoteMemoryStore {
       filter.user = user;
     }
 
-    return await getMemory(apiKey, this.debug, filter);
+    return await getMemory(apiKey, filter);
   };
 }

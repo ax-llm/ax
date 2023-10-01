@@ -4,3 +4,5 @@ export * from './prompts/index.js';
 export * from './funcs/index.js';
 export * from './tracing/index.js';
 export * from './db/index.js';
+export * from './data/index.js';
+export * from './proxy/index.js';

@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "5.0.17",
+  "version": "5.0.18",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -18,8 +18,7 @@
   "keywords": [],
   "scripts": {
     "llmclient": "esrun src/cmd/index.ts",
-    "proxy": "esrun src/proxy/index.ts",
-    "proxy-dev": "esrun --watch=src/* --preserveConsole src/proxy/index.ts",
+    "llmclient-dev": "esrun --watch=src/* --preserveConsole src/cmd/index.ts",
     "build": "run-p build:*",
     "build:module": "tsc -p tsconfig.module.json",
     "fix": "run-s fix:*",

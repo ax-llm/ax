@@ -6,7 +6,6 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
-import { HuggingFace } from './api.js';
 import { modelInfoHuggingFace } from './info.js';
 import { HuggingFaceRequest, HuggingFaceResponse } from './types.js';
 
@@ -71,11 +70,5 @@ export class HuggingFaceCompletionMiddleware
     ];
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
-  };
-
-  embed = async (text: string): Promise<readonly number[]> => {
-    const ai = new HuggingFace(this.apiKey);
-    const res = await ai.embed(text);
-    return res.embedding;
   };
 }

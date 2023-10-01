@@ -32,6 +32,6 @@ export class RemoteLogger {
     if (!this.apiKey || this.apiKey.length === 0) {
       return;
     }
-    await sendTrace(trace, this.apiKey, this.devMode);
+    await sendTrace(trace, this.apiKey);
   }
 }

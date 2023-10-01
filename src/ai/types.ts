@@ -78,7 +78,7 @@ export interface AIMiddleware {
   addRequest(request: string, fn?: PromptUpdater): void;
   addResponse(response: string): void;
   getTrace(req: Readonly<ExtendedIncomingMessage>): AITextTraceStep;
-  embed(text: string): Promise<readonly number[]>;
   isRequestUpdated(): boolean;
   renderRequest(): string;
+  getAPIKey(): string;
 }

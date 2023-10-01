@@ -6,7 +6,6 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias, uniqBy } from '../util.js';
 
-import { OpenAI } from './api.js';
 import { modelInfoOpenAI } from './info.js';
 import {
   OpenAIChatRequest,
@@ -109,12 +108,6 @@ export class OpenAICompletionMiddleware extends BaseAIMiddleware<
         .setResults(results)
         .setRemoteId(id)
     );
-  };
-
-  embed = async (text: string): Promise<readonly number[]> => {
-    const ai = new OpenAI(this.apiKey);
-    const res = await ai.embed(text);
-    return res.embedding;
   };
 }
 
@@ -249,12 +242,6 @@ export class OpenAIChatMiddleware
         .setResults(results)
         .setRemoteId(id)
     );
-  };
-
-  embed = async (text: string): Promise<readonly number[]> => {
-    const ai = new OpenAI(this.apiKey);
-    const res = await ai.embed(text);
-    return res.embedding;
   };
 }
 

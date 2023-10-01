@@ -40,33 +40,15 @@ export const apiCall = async <
 
   const request = api.put ? superagent.put(apiUrl) : superagent.post(apiUrl);
 
-  return await request
+  const res = await request
     .send(json)
     .set(headers)
     .type('json')
     .accept('json')
     .retry(3)
-    .then(({ body: data }) => Promise.resolve(data))
-    .catch(({ response, code, syscall, address, port }) => {
-      if (!response) {
-        return Promise.reject({
-          apiUrl,
-          code,
-          syscall,
-          address,
-          port,
-          request: json,
-        });
-      }
-      const { headers, status, body } = response;
-      return Promise.reject({
-        pathname: apiPath,
-        statusCode: status,
-        headers,
-        request: json,
-        response: body,
-      });
-    });
+    .catch(httpError(apiUrl, json));
+
+  return res.body;
 };
 
 export const apiCallWithUpload = async <APIType extends API, Request, Response>(
@@ -87,11 +69,49 @@ export const apiCallWithUpload = async <APIType extends API, Request, Response>(
   const apiPath = api.name ?? '/';
   const apiUrl = new URL(apiPath, baseUrl).toString();
 
-  return await superagent
+  const data = await superagent
     .post(apiUrl)
     .retry(3)
     .attach('file', file)
     .set(headers)
     .field(json as { [fieldName: string]: string })
-    .then(({ body: data }) => Promise.resolve(data));
+    .catch(httpError(apiUrl));
+
+  return data.body;
 };
+
+export const httpError =
+  (apiUrl: string, json?: unknown) =>
+  ({
+    response,
+    code,
+    syscall,
+    address,
+    port,
+  }: Readonly<{
+    response: superagent.Response;
+    code: unknown;
+    syscall: unknown;
+    address: unknown;
+    port: unknown;
+  }>) => {
+    if (!response) {
+      throw {
+        apiUrl,
+        code,
+        syscall,
+        address,
+        port,
+        request: json,
+      };
+    }
+
+    const { headers, status, body } = response;
+    throw {
+      apiUrl,
+      statusCode: status,
+      headers,
+      request: json,
+      response: body,
+    };
+  };

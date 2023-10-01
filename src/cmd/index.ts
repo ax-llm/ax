@@ -3,9 +3,10 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
-import { Crawler } from '../data/crawler.js';
-import { HTMLCrawler } from '../data/html.js';
-import { LLMProxy } from '../proxy/proxy.js';
+import { Crawler, HTMLCrawler } from '../data/index.js';
+import { LLMProxy } from '../proxy/index.js';
+
+import 'dotenv/config';
 
 yargs(hideBin(process.argv))
   .command(
@@ -17,7 +18,7 @@ yargs(hideBin(process.argv))
           alias: 'p',
           type: 'number',
           description: 'port to bind on',
-          default: 8081,
+          default: parseInt(process.env.PORT ?? '') || 8081,
         },
         debug: {
           alias: 'd',
@@ -124,5 +125,6 @@ yargs(hideBin(process.argv))
       await crawler.crawl();
     }
   )
+  .env('LLMCLIENT')
   .demandCommand()
   .parse();

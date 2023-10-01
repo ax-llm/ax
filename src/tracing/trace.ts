@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import superagent from 'superagent';
 
 import { TextModelConfig, TextModelInfo, TokenUsage } from '../ai/types.js';
+import { httpError } from '../util/apicall.js';
 
 import {
   AITextChatPromptItem,
@@ -296,7 +297,7 @@ export class AITextTraceStepBuilder {
   } as AITextTraceStep;
 
   setTraceId(traceId?: string): this {
-    this.traceStep.traceId = traceId ? traceId : crypto.randomUUID();
+    this.traceStep.traceId = traceId ?? crypto.randomUUID();
     return this;
   }
 
@@ -342,45 +343,43 @@ export class AITextTraceStepBuilder {
 
 export const sendTrace = async (
   step: Readonly<AITextTraceStep>,
-  apiKey: string,
-  devMode: boolean
+  apiKey: string
 ) => {
+  const devMode = process.env.DEV_MODE === 'true';
   const { traceId, sessionId } = step;
   const baseUrl = devMode
     ? 'http://localhost:3000'
     : 'https://api.llmclient.com';
+  const apiUrl = new URL(`/api/t/traces`, baseUrl).toString();
 
   await superagent
-    .post(new URL(`/api/t/traces`, baseUrl).toString())
+    .post(apiUrl)
     .set('x-api-key', apiKey)
     .send({ traceId, sessionId, step })
     .type('json')
     .accept('json')
     .retry(3)
-    .catch((err) => {
-      throw new Error(`Error sending trace: ${err.message}`);
-    });
+    .catch(httpError(apiUrl));
 };
 
 export const getMemory = async (
   apiKey: string,
-  devMode: boolean,
   filter: Readonly<{ sessionId?: string; user?: string; limit?: number }>
 ): Promise<{ role?: string; text: string }[]> => {
+  const devMode = process.env.DEV_MODE === 'true';
   const baseUrl = devMode
     ? 'http://localhost:3000'
     : 'https://api.llmclient.com';
+  const apiUrl = new URL(`/api/t/traces/memory`, baseUrl).toString();
 
   const res = await superagent
-    .get(new URL(`/api/t/traces/memory`, baseUrl).toString())
+    .get(apiUrl)
     .set('x-api-key', apiKey)
     .query({ ...filter, limit: filter.limit ?? 10 })
     .type('json')
     .accept('json')
     .retry(3)
-    .catch((err) => {
-      throw new Error(`Error getting traces: ${err.message}`);
-    });
+    .catch(httpError(apiUrl));
 
   return res.body?.memory ?? [];
 };

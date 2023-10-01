@@ -11,19 +11,25 @@ const promptUpdater = (
   return async (args) => {
     const prompt: Prompt[] = [];
 
-    const rms = new RemoteMemoryStore(debug);
-    const res1 = await rms.getMemory(req, args);
-    if (res1) {
-      prompt.push(...res1);
+    const rms = new RemoteMemoryStore();
+    try {
+      const res1 = await rms.getMemory(req, args);
+      if (res1) {
+        prompt.push(...res1);
+      }
+    } catch (e) {
+      console.error('Error fetching memory from remote', e);
     }
 
     const vms = new VectorMemoryStore(debug);
-    const res2 = await vms.getMemory(req, args);
-    if (res2) {
-      prompt.push(...res2);
+    try {
+      const res2 = await vms.getMemory(req, args);
+      if (res2) {
+        prompt.push(...res2);
+      }
+    } catch (e) {
+      console.error('Error fetching memory from vector db', e);
     }
-
-    console.log('prompt', prompt);
 
     return prompt;
   };

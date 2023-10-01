@@ -7,10 +7,11 @@ export type ExtendedIncomingMessage = IncomingMessage & {
   reqHash: string;
   reqBody: string;
   startTime: number;
+  providerName: string;
   middleware: AIMiddleware;
   error?: APIError;
 
-  traceId?: string;
+  traceId: string;
   sessionId?: string;
   llmClientAPIKey?: string;
   host?: string;

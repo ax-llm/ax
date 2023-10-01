@@ -6,7 +6,6 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware } from '../types.js';
 import { findItemByNameOrAlias, uniqBy } from '../util.js';
 
-import { Google } from './api.js';
 import { modelInfoGoogle } from './info.js';
 import {
   GoogleChatRequest,
@@ -212,17 +211,20 @@ export class GoogleMiddleware
     this.mw.addResponse(response);
   };
 
-  embed = async (text: string): Promise<readonly number[]> => {
-    const projectId = this.exReq.headers[
-      'x-llmclient-google-project-id'
-    ] as string;
-    if (!projectId) {
-      throw new Error(
-        'Missing Google project ID header: x-llmclient-google-project-id'
-      );
-    }
-    const ai = new Google(this.apiKey, projectId);
-    const res = await ai.embed(text);
-    return res.embedding;
-  };
+  // embed = async (text: string): Promise<readonly number[]> => {
+  //   const projectId = this.exReq.headers[
+  //     'x-llmclient-google-project-id'
+  //   ] as string;
+  //   if (!projectId) {
+  //     throw new Error(
+  //       'Missing Google project ID header: x-llmclient-google-project-id'
+  //     );
+  //   }
+  //   const ai = new Google(this.apiKey, projectId);
+  //   const res = await ai.embed(text, {
+  //     traceId: this.exReq?.traceId,
+  //     sessionId: this.exReq?.sessionId,
+  //   });
+  //   return res.embedding;
+  // };
 }
