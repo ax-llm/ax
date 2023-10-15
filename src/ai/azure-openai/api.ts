@@ -1,5 +1,5 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { API, apiCall } from '../../util/apicall.js';
+import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { modelInfoOpenAI } from '../openai/info.js';
 import { generateChatReq, generateReq } from '../openai/req.js';
@@ -143,7 +143,7 @@ export class AzureOpenAI extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
+    const res = await this.apiCall<
       OpenAICompletionRequest,
       OpenAICompletionResponse,
       AzureOpenAIApiConfig
@@ -174,7 +174,7 @@ export class AzureOpenAI extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
+    const res = await this.apiCall<
       OpenAIChatRequest,
       OpenAIChatResponse,
       AzureOpenAIApiConfig
@@ -208,7 +208,7 @@ export class AzureOpenAI extends BaseAI {
       typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
     const embedReq = { input: texts, model: this.options.embedModel };
-    const res = await apiCall<
+    const res = await this.apiCall<
       OpenAIEmbedRequest,
       OpenAIEmbedResponse,
       AzureOpenAIApiConfig

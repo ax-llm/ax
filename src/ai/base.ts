@@ -16,6 +16,7 @@ import {
   AITextTraceStep,
   TextModelInfoWithProvider,
 } from '../tracing/types.js';
+import { API, apiCall, apiCallWithUpload } from '../util/apicall.js';
 
 import {
   EmbedResponse,
@@ -31,6 +32,7 @@ export class BaseAI implements AIService {
   private remoteLog = new RemoteLogger();
   private debug = false;
   private disableLog = false;
+  private apiConfig?: API;
 
   private rt?: RateLimiterFunction;
   private log?: (traceStep: Readonly<AITextTraceStep>) => void;
@@ -97,6 +99,10 @@ export class BaseAI implements AIService {
     if (this.debug) {
       this.remoteLog.printDebugInfo();
     }
+  }
+
+  setAPIConfig(apiConfig: Readonly<API>): void {
+    this.apiConfig = apiConfig;
   }
 
   _generate(
@@ -280,5 +286,48 @@ export class BaseAI implements AIService {
 
     res.sessionId = options?.sessionId;
     return res;
+  }
+
+  async apiCall<
+    Request extends object,
+    Response,
+    APIType extends API = API
+  >(
+    api: APIType,
+    json: Request | string
+  ): Promise<Response> {
+    return apiCall<Request, Response, APIType>(this.mergeAPIConfig<APIType>(api), json);
+  }
+
+  async apiCallWithUpload<Request, Response, APIType extends API >(
+    api: APIType,
+    json: Request,
+    file: string
+  ): Promise<Response> {
+  return apiCallWithUpload<Request, Response, APIType>(this.mergeAPIConfig<APIType>(api), json, file);
+  }
+
+  private mergeAPIConfig<APIType extends API = API>(_api: APIType) : APIType {
+    if (!this.apiConfig) {
+      return _api
+    }
+    const api = {..._api}
+
+    if (this.apiConfig.key) {
+      api.key = this.apiConfig.key;
+    }
+    if (this.apiConfig.url) {
+      api.url = this.apiConfig.url;
+    }
+    if (this.apiConfig.name) {
+      api.name = this.apiConfig.name;
+    } 
+    if (this.apiConfig.headers) {
+      api.headers = [...api.headers, this.apiConfig.headers]
+    }
+    if (this.apiConfig.url !== "") {
+      api.url = this.apiConfig.url;
+    }
+    return api
   }
 }

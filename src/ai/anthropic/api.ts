@@ -1,5 +1,4 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { apiCall } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { TextModelConfig, TextResponse } from '../types.js';
 
@@ -70,7 +69,7 @@ export class Anthropic extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
+    const res = await this.apiCall<
       AnthropicCompletionRequest,
       AnthropicCompletionResponse,
       AnthropicApiConfig

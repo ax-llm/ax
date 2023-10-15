@@ -1,5 +1,4 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { apiCall } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
@@ -91,7 +90,7 @@ export class Cohere extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
+    const res = await this.apiCall<
       CohereCompletionRequest,
       CohereCompletionResponse
     >(
@@ -116,7 +115,7 @@ export class Cohere extends BaseAI {
   ): Promise<EmbedResponse> {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
-    const res = await apiCall<CohereEmbedRequest, CohereEmbedResponse>(
+    const res = await this.apiCall<CohereEmbedRequest, CohereEmbedResponse>(
       {
         key: this.apiKey,
         name: CohereApi.Embed,

@@ -3,7 +3,6 @@ import {
   AIServiceOptions,
   AITranscribeConfig,
 } from '../../text/types.js';
-import { apiCall, apiCallWithUpload } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import {
   EmbedResponse,
@@ -143,7 +142,7 @@ export class OpenAI extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
+    const res = await this.apiCall<
       OpenAICompletionRequest,
       OpenAICompletionResponse,
       OpenAIApiConfig
@@ -174,7 +173,7 @@ export class OpenAI extends BaseAI {
     prompt: string,
     options?: Readonly<AIPromptConfig>
   ): Promise<TextResponse> {
-    const res = await apiCall<
+    const res = await this.apiCall<
       OpenAIChatRequest,
       OpenAIChatResponse,
       OpenAIApiConfig
@@ -207,7 +206,7 @@ export class OpenAI extends BaseAI {
     const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
 
     const embedReq = { input: texts, model: this.options.embedModel };
-    const res = await apiCall<
+    const res = await this.apiCall<
       OpenAIEmbedRequest,
       OpenAIEmbedResponse,
       OpenAIApiConfig
@@ -230,10 +229,10 @@ export class OpenAI extends BaseAI {
     prompt?: string,
     options?: Readonly<AITranscribeConfig>
   ): Promise<TranscriptResponse> {
-    const res = await apiCallWithUpload<
-      OpenAIApiConfig,
+    const res = await this.apiCallWithUpload<
       OpenAIAudioRequest,
-      OpenAIAudioResponse
+      OpenAIAudioResponse,
+      OpenAIApiConfig
     >(
       this.createAPI(OpenAIApi.Transcribe),
       generateAudioReq(this.options, prompt, options?.language),

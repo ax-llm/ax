@@ -51,7 +51,7 @@ export const apiCall = async <
   return res.body;
 };
 
-export const apiCallWithUpload = async <APIType extends API, Request, Response>(
+export const apiCallWithUpload = async <Request, Response, APIType extends API>(
   api: APIType,
   json: Request,
   file: string
