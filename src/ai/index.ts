@@ -14,8 +14,8 @@ export * from './cohere/index.js';
 export * from './google/index.js';
 export * from './anthropic/index.js';
 
-export * from './betty.js';
-export * from './alephalpha.js';
+// export * from './betty.js';
+// export * from './alephalpha.js';
 
 export const AI = (
   name: string,

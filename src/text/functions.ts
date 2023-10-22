@@ -1,143 +1,104 @@
+import Ajv, { JSONSchemaType } from 'ajv';
+
+import { TextResponseFunctionCall } from '../ai/types.js';
+
 import { parseResult } from './result.js';
 import {
   AIPromptConfig,
   AIService,
   AIServiceActionOptions,
   FunctionExec,
-  PromptFunction,
+  PromptFunction
 } from './types.js';
 
-const functionCallRe = /(\w+)\((.*)\)/s;
-// const thoughtRe = /Thought:(.*)$/gm;
+const ajv = new Ajv();
 
 export class FunctionProcessor {
-  private ai: AIService;
-  private options: Readonly<AIPromptConfig & AIServiceActionOptions>;
+  private funcList: readonly PromptFunction[];
 
-  constructor(
-    ai: AIService,
-    options: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ) {
-    this.ai = ai;
-    this.options = options;
+  constructor(funcList: readonly PromptFunction[]) {
+    funcList.forEach((v) =>
+      ajv.validateSchema(v.inputSchema as JSONSchemaType<unknown>)
+    );
+    this.funcList = funcList;
   }
 
-  private executeFunction = async <T>(
-    funcInfo: Readonly<PromptFunction>,
-    funcArgJSON: string
+  private executeFunction = async <T = unknown>(
+    fn: Readonly<PromptFunction>,
+    funcArgJSON: string,
+    ai: AIService,
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<FunctionExec> => {
-    const extra = { ai: this.ai, session: this.options };
+    const extra = { ai, session: options };
 
-    if (!funcInfo.inputSchema) {
-      const res =
-        funcInfo.func.length === 1
-          ? await funcInfo.func(extra)
-          : await funcInfo.func();
+    if (!fn.inputSchema) {
+      const res = fn.func.length === 1 ? await fn.func(extra) : await fn.func();
+
       return {
-        name: funcInfo.name,
-        result: JSON.stringify(res, null, 2),
+        name: fn.name,
+        result: JSON.stringify(res, null, 2)
       };
     }
 
     const funcArgs = await parseResult<T>(
-      this.ai,
-      this.options,
+      ai,
+      options,
       funcArgJSON,
       false,
-      funcInfo.inputSchema
+      fn.inputSchema as JSONSchemaType<T>
     );
 
     const res =
-      funcInfo.func.length === 2
-        ? await funcInfo.func(funcArgs, extra)
-        : await funcInfo.func(funcArgs);
+      fn.func.length === 2
+        ? await fn.func(funcArgs, extra)
+        : await fn.func(funcArgs);
 
     return {
-      name: funcInfo.name,
+      name: fn.name,
       args: funcArgs,
-      result: JSON.stringify(res, null, 2),
+      result: JSON.stringify(res, null, 2)
     };
   };
 
-  public parseFunction = (
-    value: string
-  ): { name: string; args: string } | undefined => {
-    let v: string[] | null;
-
-    // extract function calls
-    if ((v = functionCallRe.exec(value)) !== null) {
-      return {
-        name: v[1].trim(),
-        args: v[2].trim(),
-      };
-    }
-    return;
-  };
-
   public processFunction = async (
-    funcName: string,
-    funcArgs: string,
-    functions: readonly PromptFunction[]
+    func: Readonly<TextResponseFunctionCall>,
+    ai: AIService,
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<FunctionExec> => {
-    // extract thoughts
-    // const tm = value.matchAll(thoughtRe);
-    // const reasoning: string[] = [];
+    const fn = this.funcList.find((v) => v.name.localeCompare(func.name) === 0);
 
-    // for (const m of tm) {
-    //   reasoning.push(m[1].trim());
-    // }
-
-    const func = functions.find((v) => v.name.localeCompare(funcName) === 0);
-
-    // add {} to object args if missing
+    let funcArgJSON = func.args;
     if (
-      func?.inputSchema?.type === 'object' &&
-      !funcArgs.startsWith('{') &&
-      !funcArgs.startsWith('[')
+      fn &&
+      (fn.inputSchema as JSONSchemaType<object>)?.type === 'object' &&
+      !funcArgJSON.startsWith('{') &&
+      !funcArgJSON.startsWith('[')
     ) {
-      funcArgs = `{${funcArgs}}`;
+      funcArgJSON = `{${funcArgJSON}}`;
     }
 
-    if (!func) {
-      const funcExec = {
-        name: funcName,
-        args: funcArgs,
-        result: `Function ${funcName} not found`,
-      };
-      this.ai.getTraceResponse()?.addFunction(funcExec);
-      return funcExec;
+    if (!fn) {
+      throw new Error(`Function ${func.name} not found`);
     }
 
     // execute value function calls
-    const funcExec = await this.executeFunction(func, funcArgs);
+    const funcExec = await this.executeFunction(fn, funcArgJSON, ai, options);
 
-    // signal error if no data returned
-    if (!funcExec.result || funcExec.result.length === 0) {
-      funcExec.result = `No data returned by function`;
-    }
-
-    this.ai.getTraceResponse()?.addFunction(funcExec);
+    // // signal error if no data returned
+    // if (!funcExec.result || funcExec.result.length === 0) {
+    //   funcExec.result = `No data returned by function`;
+    // }
     return funcExec;
   };
 }
 
-export const functionsToJSON = (
-  functions: readonly PromptFunction[]
-): string => {
-  const funcList = functions.map((v) => ({
-    name: v.name,
-    description: v.description,
-    parameters: v.inputSchema,
-  }));
-
-  return JSON.stringify(funcList, null, 2);
-};
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const finalResultFunc = (schema: any): PromptFunction => ({
-  name: 'finalResult',
-  description: 'Return the final result',
-  inputSchema: schema ?? {},
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  func: async (arg0: any) => arg0,
-});
+export function buildFinalResultSchema<T>(
+  schema: Readonly<JSONSchemaType<T>>
+): PromptFunction {
+  return {
+    name: 'finalResult',
+    description: 'Return the final result',
+    inputSchema: schema as JSONSchemaType<{ value: T }>,
+    func: async (arg0: T) => arg0
+  };
+}

@@ -1,6 +1,6 @@
 import {
   TextRequestBuilder,
-  TextResponseBuilder,
+  TextResponseBuilder
 } from '../../tracing/index.js';
 import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware } from '../types.js';
@@ -11,7 +11,7 @@ import {
   GoogleChatRequest,
   GoogleChatResponse,
   GoogleCompletionRequest,
-  GoogleCompletionResponse,
+  GoogleCompletionResponse
 } from './types.js';
 
 class GoogleCompletionMiddleware
@@ -43,8 +43,8 @@ class GoogleCompletionMiddleware
         maxOutputTokens: max_tokens,
         temperature,
         topP: top_p,
-        topK: top_k,
-      },
+        topK: top_k
+      }
     } = this.req;
 
     // Fetching model info
@@ -56,11 +56,15 @@ class GoogleCompletionMiddleware
       maxTokens: max_tokens ?? 0,
       temperature: temperature,
       topP: top_p,
-      topK: top_k,
+      topK: top_k
     };
 
     this.sb.setRequest(
-      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
+      new TextRequestBuilder().setCompletionStep(
+        { prompt },
+        modelConfig,
+        modelInfo
+      )
     );
   };
   addResponse = (response: string) => {
@@ -101,7 +105,7 @@ class GoogleChatMiddleware
       const memory = await fn({ prompt: instance.messages.at(-1)?.content });
       const prompt = memory.map(({ role: author = '', text: content }) => ({
         author,
-        content,
+        content
       }));
 
       this.req.instances[0].messages = uniqBy(
@@ -113,7 +117,7 @@ class GoogleChatMiddleware
     }
 
     const {
-      parameters: { maxOutputTokens, temperature, topP, topK },
+      parameters: { maxOutputTokens, temperature, topP, topK }
     } = this.req;
 
     const examples = instance?.examples
@@ -127,7 +131,7 @@ class GoogleChatMiddleware
     // Context Prompt
     const prompt = [
       instance?.context,
-      examples ? `Examples:\n${examples}` : null,
+      examples ? `Examples:\n${examples}` : null
     ].join('\n');
 
     // Building the prompt string from messages array
@@ -135,7 +139,7 @@ class GoogleChatMiddleware
       instance?.messages.map(({ content: text, author: role }) => ({
         text,
         role,
-        name: role, // assuming author is same as name
+        name: role // assuming author is same as name
       })) ?? [];
 
     // Configure TextModel based on GoogleChatRequest
@@ -143,12 +147,12 @@ class GoogleChatMiddleware
       maxTokens: maxOutputTokens,
       temperature: temperature,
       topP: topP,
-      topK: topK,
+      topK: topK
     };
 
     this.sb.setRequest(
       new TextRequestBuilder()
-        .setChatStep(chatPrompt, modelConfig, modelInfo)
+        .setChatStep({ chatPrompt }, modelConfig, modelInfo)
         .setSystemPrompt(prompt)
     );
   };
@@ -163,9 +167,7 @@ class GoogleChatMiddleware
     const prediction = this.resp?.predictions.at(0);
 
     const results = prediction?.candidates.map(({ content }, i) => ({
-      text: [content, prediction?.citationMetadata?.at(i)?.citations].join(
-        '\n'
-      ),
+      text: [content, prediction?.citationMetadata?.at(i)?.citations].join('\n')
     }));
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));

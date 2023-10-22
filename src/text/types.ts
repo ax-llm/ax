@@ -6,10 +6,17 @@ import {
   TextModelConfig,
   TextModelInfo,
   TextResponse,
-  TranscriptResponse,
+  TextResponseResult
 } from '../ai/types';
 import { TextRequestBuilder, TextResponseBuilder } from '../tracing/trace';
-import { AITextTraceStep } from '../tracing/types';
+import {
+  AITextChatPromptItem,
+  AITextChatRequest,
+  AITextCompletionRequest,
+  AITextEmbedRequest,
+  AITextTraceStep
+} from '../tracing/types';
+import { API } from '../util/apicall';
 
 export type FunctionExec = {
   name: string;
@@ -27,9 +34,9 @@ export type AITextResponse<T> = {
 };
 
 export interface AIMemory {
-  add(text: string, sessionId?: string): void;
-  history(sessionId?: string): string;
-  peek(sessionId?: string): Readonly<string[]>;
+  add(result: Readonly<TextResponseResult>, sessionId?: string): void;
+  history(sessionId?: string): Readonly<AITextChatPromptItem[]>;
+  peek(sessionId?: string): Readonly<TextResponseResult[]>;
   reset(sessionId?: string): void;
 }
 
@@ -48,8 +55,7 @@ export type PromptFunctionFunc = (
 export type PromptFunction = {
   readonly name: string;
   readonly description: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly inputSchema?: any;
+  readonly inputSchema?: unknown;
   func: PromptFunctionFunc;
 };
 
@@ -59,9 +65,8 @@ export type PromptResponseConfig<T> = {
 };
 
 export type PromptConfig<T> = AIPromptConfig & {
-  queryPrefix?: string;
-  responsePrefix?: string;
   functions?: PromptFunction[];
+  functionCall?: string | { name: string };
   response?: PromptResponseConfig<T>;
   debug?: boolean;
   log?: (traces: Readonly<AITextTraceStep>) => void;
@@ -89,37 +94,56 @@ export type AIServiceActionOptions = {
   traceId?: string;
 };
 
+export interface AIServiceBase<
+  TCompletionRequest,
+  TChatRequest,
+  TEmbedRequest,
+  TCompletionResponse,
+  TChatResponse,
+  TEmbedResponse
+> {
+  generateCompletionReq?(
+    req: Readonly<AITextCompletionRequest>,
+    config: Readonly<AIPromptConfig>
+  ): [API, TCompletionRequest];
+  generateChatReq?(
+    req: Readonly<AITextChatRequest>,
+    config: Readonly<AIPromptConfig>
+  ): [API, TChatRequest];
+  generateEmbedReq?(req: Readonly<AITextChatRequest>): [API, TEmbedRequest];
+  generateCompletionResp?(resp: Readonly<TCompletionResponse>): TextResponse;
+  generateChatResp?(resp: Readonly<TChatResponse>): TextResponse;
+  generateEmbedResp?(resp: Readonly<TEmbedResponse>): EmbedResponse;
+}
+
 export interface AIService {
   name(): string;
   getModelInfo(): Readonly<TextModelInfo & { provider: string }>;
   getEmbedModelInfo(): Readonly<TextModelInfo> | undefined;
   getModelConfig(): Readonly<TextModelConfig>;
-  _generate(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
+
+  // _transcribe(
+  //   file: string,
+  //   prompt?: string,
+  //   options?: Readonly<AITranscribeConfig>
+  // ): Promise<TranscriptResponse>;
+  completion(
+    req: Readonly<AITextCompletionRequest>,
+    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse>;
-  _embed(
-    text2Embed: readonly string[] | string,
-    options?: Readonly<AIServiceActionOptions>
-  ): Promise<EmbedResponse>;
-  _transcribe(
-    file: string,
-    prompt?: string,
-    options?: Readonly<AITranscribeConfig>
-  ): Promise<TranscriptResponse>;
-  generate(
-    prompt: string,
+  chat(
+    req: Readonly<AITextChatRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse>;
   embed(
-    text2Embed: readonly string[] | string,
-    options?: Readonly<AIServiceActionOptions>
+    req: Readonly<AITextEmbedRequest>,
+    options?: Readonly<AIServiceActionOptions & AIServiceActionOptions>
   ): Promise<EmbedResponse>;
-  transcribe(
-    file: string,
-    prompt?: string,
-    options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
-  ): Promise<TranscriptResponse>;
+  // transcribe(
+  //   file: string,
+  //   prompt?: string,
+  //   options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
+  // ): Promise<TranscriptResponse>;
   setOptions(options: Readonly<AIServiceOptions>): void;
   getTraceRequest(): Readonly<TextRequestBuilder> | undefined;
   getTraceResponse(): Readonly<TextResponseBuilder> | undefined;

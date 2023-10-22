@@ -52,7 +52,7 @@ export class Crawler {
     dbOptions,
     startPage,
     handleRequest,
-    config,
+    config
   }: Readonly<CrawlerConfig>) {
     this.ai = AI(llmType, llmAPIKey, llmOptions);
     this.db = DB(dbHost, dbAPIKey, dbOptions);
@@ -119,17 +119,17 @@ export class Crawler {
 
     let i = 0;
     for (const chunk of chunks) {
-      const res = await this.ai.embed(chunk);
+      const res = await this.ai.embed({ texts: [chunk] });
       const id = uuidv5(`${url}#${i}`, uuidURL);
 
       batchReq.push({
         id,
         table: this.dbTable,
         namespace: this.dbNamespace,
-        values: res.embedding,
+        values: res.embeddings.at(0),
         metadata: {
-          content: chunk,
-        },
+          content: chunk
+        }
       });
       i += 1;
     }

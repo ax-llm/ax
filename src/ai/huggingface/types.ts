@@ -1,14 +1,3 @@
-export const apiURLHuggingFace = 'https://api-inference.huggingface.co/';
-
-/**
- * HuggingFace: API types
- * @export
- */
-
-export const enum HuggingFaceApi {
-  Completion = 'models',
-}
-
 /**
  * HuggingFace: Models for text generation
  * @export
@@ -37,7 +26,7 @@ export type HuggingFaceOptions = {
 };
 
 export type HuggingFaceRequest = {
-  model: HuggingFaceModel.MetaLlama270BChatHF;
+  model: HuggingFaceModel | string;
   inputs: string;
   parameters: {
     max_new_tokens?: number;

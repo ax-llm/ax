@@ -36,9 +36,7 @@ const result = {
 const prompt = new SPrompt(result, [JSInterpreterFunction()]);
 // prompt.setDebug(true);
 
-const query = `
-Calculate the fibonacci series of 10
-`;
+const query = `Use code to calculate the fibonacci series of 10`;
 
-const res = await prompt.generate(ai, query);
+const res = await prompt.generate(ai, query, { functionCall: { name: "jsInterpreter" } });
 console.log('>', res.value());

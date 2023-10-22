@@ -1,18 +1,12 @@
-import { API, apiCall } from '../util/apicall.js';
+import { apiCall } from '../util/apicall.js';
 
 import {
   DBQueryRequest,
   DBQueryResponse,
   DBService,
   DBUpsertRequest,
-  DBUpsertResponse,
+  DBUpsertResponse
 } from './types.js';
-
-const enum WeaviateApi {
-  GraphQL = '/v1/graphql',
-  Upsert = '/v1/objects',
-  BatchUpsert = '/v1/batch/objects',
-}
 
 // For upsert
 
@@ -66,22 +60,25 @@ export class Weaviate implements DBService {
     req: Readonly<DBUpsertRequest>,
     update?: boolean
   ): Promise<DBUpsertResponse> {
-    const path = update ? `/${req.table}/${req.id}` : '';
-
     const res = await apiCall<WeaviateUpsertRequest, WeaviateUpsertResponse>(
-      this.createAPI(WeaviateApi.Upsert + path, update),
+      {
+        url: this.apiURL,
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+        name: `/v1/objects/${req.table}/${req.id}`,
+        put: update ? true : false
+      },
       {
         id: req.id,
         class: req.table,
         tenant: req.namespace,
         vector: req.values,
-        properties: req.metadata ?? {},
+        properties: req.metadata ?? {}
       }
     );
 
     return {
       id: res.id,
-      errors: res.result?.errors?.error.map(({ message }) => message),
+      errors: res.result?.errors?.error.map(({ message }) => message)
     };
   }
 
@@ -97,17 +94,24 @@ export class Weaviate implements DBService {
       class: req.table,
       tenant: req.namespace,
       vector: req.values,
-      properties: req.metadata ?? {},
+      properties: req.metadata ?? {}
     }));
 
     const res = await apiCall<
       { objects: WeaviateUpsertRequest[] },
       WeaviateUpsertResponse[]
-    >(this.createAPI(WeaviateApi.BatchUpsert), { objects });
+    >(
+      {
+        url: this.apiURL,
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+        name: '/v1/batch/objects'
+      },
+      { objects }
+    );
 
     return res.map(({ id, result }) => ({
       id: id,
-      errors: result?.errors?.error.map(({ message }) => message),
+      errors: result?.errors?.error.map(({ message }) => message)
     }));
   }
 
@@ -127,7 +131,11 @@ export class Weaviate implements DBService {
     }
 
     const res = await apiCall<WeaviateQueryRequest, WeaviateQueryResponse>(
-      this.createAPI(WeaviateApi.GraphQL),
+      {
+        url: this.apiURL,
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+        name: '/v1/graphql'
+      },
       {
         query: `{
           Get {
@@ -138,7 +146,7 @@ export class Weaviate implements DBService {
                 ${req.columns.join('\n')}
             }
           }
-        }`,
+        }`
       }
     );
 
@@ -153,14 +161,5 @@ export class Weaviate implements DBService {
     );
 
     return { matches } as DBQueryResponse;
-  }
-
-  private createAPI(name: Readonly<string>, update = false): API {
-    return {
-      url: this.apiURL,
-      key: this.apiKey,
-      name,
-      put: update ? true : false,
-    };
   }
 }

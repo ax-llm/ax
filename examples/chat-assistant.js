@@ -1,4 +1,4 @@
-import { Memory, AssistantPrompt } from 'llmclient';
+import { Memory } from 'llmclient';
 import { Anthropic, Together, Cohere, OpenAI } from 'llmclient';
 import { createInterface } from 'readline';
 import Bottleneck from 'bottleneck';
@@ -39,11 +39,9 @@ const rateLimiter = (fn) => {
   id++;
   return bottleneck.schedule({ id: `${id}` }, fn);
 };
-ai.set({ rateLimiter });
+ai.setOptions({ rateLimiter });
 
 const mem = new Memory();
-const prompt = new AssistantPrompt();
-prompt.setDebug(true);
 
 const bottleneck = new Bottleneck({
   maxConcurrent: 1, // Maximum number of requests running at the same time
@@ -51,7 +49,7 @@ const bottleneck = new Bottleneck({
 });
 
 const rl = createInterface(process.stdin, process.stdout);
-rl.setPrompt('AI: ');
+rl.setPrompt('User: ');
 rl.prompt();
 
 rl.on('line', async function (line) {
@@ -62,8 +60,8 @@ rl.on('line', async function (line) {
       rl.close();
       return;
     default:
-      const res = await prompt.generate(ai, line, { mem });
-      console.log(`> ${res.value()}\n`);
+      const res = await ai.chat({ chatPrompt: [{ role: "user", text: line }] }, { mem });
+      console.log(`AI: ${res.results.at(0)?.text}\n`);
       break;
   }
   rl.prompt();

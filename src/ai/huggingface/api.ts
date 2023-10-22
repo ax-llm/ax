@@ -1,17 +1,15 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import { AITextCompletionRequest } from '../../tracing/types.js';
 import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoHuggingFace } from './info.js';
-import { generateReq } from './req.js';
 import {
-  apiURLHuggingFace,
-  HuggingFaceApi,
   HuggingFaceModel,
   HuggingFaceOptions,
   HuggingFaceRequest,
-  HuggingFaceResponse,
+  HuggingFaceResponse
 } from './types.js';
 
 /**
@@ -20,9 +18,9 @@ import {
  */
 export const HuggingFaceDefaultOptions = (): HuggingFaceOptions => ({
   model: HuggingFaceModel.MetaLlama270BChatHF,
-  maxNewTokens: 1000,
+  maxNewTokens: 500,
   temperature: 0,
-  topP: 1,
+  topP: 1
 });
 
 /**
@@ -32,15 +30,21 @@ export const HuggingFaceDefaultOptions = (): HuggingFaceOptions => ({
 export const HuggingFaceCreativeOptions = (): HuggingFaceOptions => ({
   ...HuggingFaceDefaultOptions(),
   model: HuggingFaceModel.MetaLlama270BChatHF,
-  temperature: 0.9,
+  temperature: 0.9
 });
 
 /**
  * HuggingFace: AI Service
  * @export
  */
-export class HuggingFace extends BaseAI {
-  private apiKey: string;
+export class HuggingFace extends BaseAI<
+  HuggingFaceRequest,
+  unknown,
+  unknown,
+  HuggingFaceResponse,
+  unknown,
+  unknown
+> {
   private options: HuggingFaceOptions;
 
   constructor(
@@ -48,51 +52,82 @@ export class HuggingFace extends BaseAI {
     options: Readonly<HuggingFaceOptions> = HuggingFaceDefaultOptions(),
     otherOptions?: Readonly<AIServiceOptions>
   ) {
+    if (!apiKey || apiKey === '') {
+      throw new Error('HuggingFace API key not set');
+    }
     super(
-      'Hugging Face',
+      'HuggingFace',
+      'https://api-inference.huggingface.co',
+      { Authorization: `Bearer ${apiKey}` },
       modelInfoHuggingFace,
-      {
-        model: options.model,
-      },
+      { model: options.model },
       otherOptions
     );
-
-    if (!apiKey || apiKey === '') {
-      throw new Error('Hugging Face API key not set');
-    }
-    this.apiKey = apiKey;
     this.options = options;
   }
 
-  getModelConfig(): TextModelConfig {
+  override getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxNewTokens,
       temperature: options.temperature,
       topP: options.topP,
       topK: options.topK,
+      n: options.numReturnSequences,
+      presencePenalty: options.repetitionPenalty
     } as TextModelConfig;
   }
 
-  async _generate(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    const res = await this.apiCall<HuggingFaceRequest, HuggingFaceResponse>(
-      this.createAPI(HuggingFaceApi.Completion),
-      generateReq(prompt, this.options, options?.stopSequences ?? [])
-    );
+  generateCompletionReq = (
+    req: Readonly<AITextCompletionRequest>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _config: Readonly<AIPromptConfig>
+  ): [API, HuggingFaceRequest] => {
+    const model = req.modelInfo?.name ?? this.options.model;
+    const functionsList = req.functions
+      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
+      : '';
+    const inputs = `${functionsList} ${req.systemPrompt || ''} ${
+      req.prompt || ''
+    }`.trim();
 
-    return {
-      results: [{ text: res.generated_text }],
+    const apiConfig = {
+      name: '/models'
     };
-  }
 
-  private createAPI(name: HuggingFaceApi): API {
-    return {
-      url: new URL(`${name}/${this.options.model}`, apiURLHuggingFace).href,
-      key: this.apiKey,
-      name,
+    const reqValue: HuggingFaceRequest = {
+      model,
+      inputs,
+      parameters: {
+        max_new_tokens: req.modelConfig?.maxTokens ?? this.options.maxNewTokens,
+        repetition_penalty:
+          req.modelConfig?.presencePenalty ?? this.options.repetitionPenalty,
+        temperature: req.modelConfig?.temperature ?? this.options.temperature,
+        top_p: req.modelConfig?.topP ?? this.options.topP,
+        top_k: req.modelConfig?.topK ?? this.options.topK,
+        return_full_text: this.options.returnFullText,
+        num_return_sequences: this.options.numReturnSequences,
+        do_sample: this.options.doSample,
+        max_time: this.options.maxTime
+      },
+      options: {
+        use_cache: this.options.useCache,
+        wait_for_model: this.options.waitForModel
+      }
     };
-  }
+
+    return [apiConfig, reqValue];
+  };
+
+  generateCompletionResp = (
+    resp: Readonly<HuggingFaceResponse>
+  ): TextResponse => {
+    return {
+      results: [
+        {
+          text: resp.generated_text
+        }
+      ]
+    };
+  };
 }

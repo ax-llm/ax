@@ -3,10 +3,13 @@ import crypto from 'crypto';
 import superagent from 'superagent';
 
 import { TextModelConfig, TextModelInfo, TokenUsage } from '../ai/types.js';
-import { httpError } from '../util/apicall.js';
+import { httpError, SuperAgentError } from '../util/apicall.js';
 
 import {
   AITextChatPromptItem,
+  AITextChatRequest,
+  AITextCompletionRequest,
+  AITextEmbedRequest,
   AITextRequestFunction,
   AITextRequestIdentity,
   AITextResponseFunction,
@@ -15,7 +18,7 @@ import {
   AITextTraceStepResponse,
   APIError,
   ParsingError,
-  TextModelInfoWithProvider,
+  TextModelInfoWithProvider
 } from './types.js';
 
 export class ModelInfoBuilder {
@@ -220,64 +223,82 @@ export class TextRequestBuilder {
   private request: AITextTraceStepRequest = {} as AITextTraceStepRequest;
 
   setSystemPrompt(systemPrompt?: string): this {
-    this.request.systemPrompt = systemPrompt;
+    (this.request as AITextCompletionRequest).systemPrompt = systemPrompt;
     return this;
   }
 
-  setStep(
-    prompt: string,
+  setCompletionStep(
+    req: Readonly<AITextCompletionRequest>,
     modelConfig?: Readonly<TextModelConfig>,
     modelInfo?: Readonly<TextModelInfoWithProvider>
   ) {
-    this.request.prompt = prompt;
-    this.request.modelConfig = modelConfig;
-    this.request.modelInfo = modelInfo;
+    const request: AITextCompletionRequest | AITextChatRequest = { ...req };
+    if (!req.modelConfig) {
+      request.modelConfig = modelConfig;
+    }
+    if (!req.modelInfo) {
+      request.modelInfo = modelInfo;
+    }
+    this.request = request;
     return this;
   }
 
   setChatStep(
-    chatPrompt: Readonly<AITextChatPromptItem[]>,
+    req: Readonly<AITextChatRequest>,
     modelConfig?: Readonly<TextModelConfig>,
     modelInfo?: Readonly<TextModelInfoWithProvider>
   ) {
-    this.request.chatPrompt = chatPrompt as Readonly<AITextChatPromptItem>[];
-    this.request.modelConfig = modelConfig;
-    this.request.modelInfo = modelInfo;
+    const request: AITextCompletionRequest = { ...req };
+    if (!req.modelConfig) {
+      request.modelConfig = modelConfig;
+    }
+    if (!req.modelInfo) {
+      request.modelInfo = modelInfo;
+    }
+    this.request = request;
+
     return this;
   }
 
   addChat(chat: Readonly<AITextChatPromptItem>): this {
-    if (!this.request.chatPrompt) {
-      this.request.chatPrompt = [];
+    const req = this.request as AITextChatRequest;
+    if (!req.chatPrompt) {
+      req.chatPrompt = [];
     }
-    this.request.chatPrompt.push(chat);
+    req.chatPrompt.push(chat);
     return this;
   }
 
   setFunctions(funcs?: Readonly<AITextRequestFunction[]>): this {
-    this.request.functions = funcs as Readonly<AITextRequestFunction>[];
+    (this.request as AITextCompletionRequest | AITextChatRequest).functions =
+      funcs as Readonly<AITextRequestFunction>[];
     return this;
   }
 
   addFunction(func: Readonly<AITextRequestFunction>): this {
-    if (!this.request.functions) {
-      this.request.functions = [];
+    const request: AITextCompletionRequest | AITextChatRequest = this.request;
+    if (!request.functions) {
+      request.functions = [];
     }
-    this.request.functions.push(func);
+    request.functions.push(func);
     return this;
   }
 
   setFunctionCall(functionCall: string) {
-    this.request.functionCall = functionCall;
+    (this.request as AITextCompletionRequest | AITextChatRequest).functionCall =
+      functionCall;
     return this;
   }
 
   setEmbedStep(
-    texts: readonly string[],
+    req: Readonly<AITextEmbedRequest>,
     modelInfo?: Readonly<TextModelInfoWithProvider>
   ) {
-    this.request.texts = texts;
-    this.request.modelInfo = modelInfo;
+    const request: AITextEmbedRequest = { ...req };
+    if (!req.embedModelInfo) {
+      request.embedModelInfo = modelInfo;
+    }
+    this.request = request;
     return this;
   }
 
@@ -293,7 +314,7 @@ export class TextRequestBuilder {
 
 export class AITextTraceStepBuilder {
   private traceStep: AITextTraceStep = {
-    createdAt: new Date().toISOString(),
+    createdAt: new Date().toISOString()
   } as AITextTraceStep;
 
   setTraceId(traceId?: string): this {
@@ -337,7 +358,10 @@ export class AITextTraceStepBuilder {
   }
 
   isStream(): boolean {
-    return this.traceStep.request.modelConfig?.stream ?? false;
+    return (
+      (this.traceStep.request as AITextCompletionRequest | AITextChatRequest)
+        .modelConfig?.stream ?? false
+    );
   }
 }
 
@@ -352,14 +376,22 @@ export const sendTrace = async (
     : 'https://api.llmclient.com';
   const apiUrl = new URL(`/api/t/traces`, baseUrl).toString();
 
-  await superagent
-    .post(apiUrl)
-    .set('x-api-key', apiKey)
-    .send({ traceId, sessionId, step })
-    .type('json')
-    .accept('json')
-    .retry(3)
-    .catch(httpError(apiUrl));
+  try {
+    await superagent
+      .post(apiUrl)
+      .set('x-api-key', apiKey)
+      .send({ traceId, sessionId, step })
+      .type('json')
+      .accept('json')
+      .retry(3);
+  } catch (e: unknown) {
+    throw httpError(
+      'sendTrace',
+      apiUrl,
+      { traceId, sessionId, step },
+      e as SuperAgentError
+    );
+  }
 };
 
 export const getMemory = async (
@@ -372,14 +404,21 @@ export const getMemory = async (
     : 'https://api.llmclient.com';
   const apiUrl = new URL(`/api/t/traces/memory`, baseUrl).toString();
 
-  const res = await superagent
-    .get(apiUrl)
-    .set('x-api-key', apiKey)
-    .query({ ...filter, limit: filter.limit ?? 10 })
-    .type('json')
-    .accept('json')
-    .retry(3)
-    .catch(httpError(apiUrl));
-
-  return res.body?.memory ?? [];
+  try {
+    const res = await superagent
+      .get(apiUrl)
+      .set('x-api-key', apiKey)
+      .query({ ...filter, limit: filter.limit ?? 10 })
+      .type('json')
+      .accept('json')
+      .retry(3);
+    return res.body?.memory ?? [];
+  } catch (e: unknown) {
+    throw httpError(
+      'getMemory',
+      apiUrl,
+      { ...filter, limit: filter.limit ?? 10 },
+      e as SuperAgentError
+    );
+  }
 };

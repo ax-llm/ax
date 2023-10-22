@@ -36,15 +36,24 @@ export type TextModelConfig = {
   stop?: readonly string[];
 };
 
+export type TextResponseFunctionCall = {
+  name: string;
+  args: string;
+};
+
+export type TextResponseResult = {
+  text: string;
+  role?: string;
+  name?: string;
+  id?: string;
+  functionCall?: TextResponseFunctionCall;
+  finishReason?: string;
+};
+
 export type TextResponse = {
   sessionId?: string;
   remoteId?: string;
-  results: readonly {
-    text: string;
-    role?: string;
-    id?: string;
-    finishReason?: string;
-  }[];
+  results: readonly TextResponseResult[];
   modelUsage?: TokenUsage;
   embedModelUsage?: TokenUsage;
 };
@@ -52,8 +61,7 @@ export type TextResponse = {
 export type EmbedResponse = {
   remoteId?: string;
   sessionId?: string;
-  texts: readonly string[];
-  embedding: readonly number[];
+  embeddings: readonly (readonly number[])[];
   modelUsage?: TokenUsage;
 };
 

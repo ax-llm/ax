@@ -1,4 +1,8 @@
-import { AIPrompt } from '../text/text.js';
+import { AIPrompt, PromptValues } from '../text/text.js';
+
+const SYSTEM_PROMPT = `
+Extract the following entities mentioned in the text below. Use N/A if entity is not found:
+`;
 
 export enum BusinessInfo {
   // Product stuff
@@ -31,7 +35,7 @@ export enum BusinessInfo {
   Feedback = 'Feedback',
   OrderDetailsIncluded = 'Order Details Included',
   ShippingDetailsIncluded = 'Shipping Details Included',
-  Priority = 'Priority',
+  Priority = 'Priority'
 }
 
 /**
@@ -53,7 +57,7 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
   constructor(entities: readonly ExtractEntity[]) {
     super({
       stopSequences: ['Text:'],
-      response: { keyValue: true },
+      response: { keyValue: true }
     });
 
     if (entities.length === 0) {
@@ -68,7 +72,7 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
       // For each entity, trim any non-alphabetical character from the name
       .map((v: Readonly<ExtractEntity>) => ({
         ...v,
-        name: v.name?.trim().replace(/[^a-zA-Z ]+/, ''),
+        name: v.name?.trim().replace(/[^a-zA-Z ]+/, '')
       }))
 
       // Remove duplicate entities based on the name
@@ -82,7 +86,7 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
       // if classes don't exist, an empty string is used
       .map((v: Readonly<ExtractEntity>): [string, string] => [
         v.name || '',
-        v.classes ? Array.from(new Set(v.classes)).join(',') : '',
+        v.classes ? Array.from(new Set(v.classes)).join(',') : ''
       ])
 
       // Transform the arrays into strings in the format `name: [classes]`
@@ -93,13 +97,13 @@ export class ExtractInfoPrompt extends AIPrompt<Map<string, string[]>> {
       .join('\n');
   }
 
-  override prompt(query: string): string {
-    return `
-Extract the following entities mentioned in the text below. Use N/A if entity is not found::
-${this.entityValue}
-
-Text: 
-${query}
-`;
+  override prompt(query: string): PromptValues {
+    return [
+      {
+        role: 'system',
+        text: `${SYSTEM_PROMPT}\nEntities:\n${this.entityValue}`
+      },
+      { role: 'user', text: query }
+    ];
   }
 }

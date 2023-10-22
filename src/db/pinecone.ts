@@ -1,17 +1,12 @@
-import { API, apiCall } from '../util/apicall.js';
+import { apiCall } from '../util/apicall.js';
 
 import {
   DBQueryRequest,
   DBQueryResponse,
   DBService,
   DBUpsertRequest,
-  DBUpsertResponse,
+  DBUpsertResponse
 } from './types.js';
-
-const enum PineconeApi {
-  Insert = '/vectors/upsert',
-  Query = '/query',
-}
 
 // For upsert
 
@@ -56,7 +51,7 @@ const createPineconeQueryRequest = (
     includeValues: true,
     includeMetadata: true,
     vector: req.values ?? [],
-    id: req.id,
+    id: req.id
   };
 
   return pineconeQueryRequest;
@@ -87,11 +82,15 @@ export class Pinecone implements DBService {
     batchReq: Readonly<DBUpsertRequest[]>
   ): Promise<DBUpsertResponse[]> {
     await apiCall<PineconeUpsertRequest[], PineconeUpsertResponse[]>(
-      this.createAPI(PineconeApi.Insert),
+      {
+        url: this.apiURL,
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+        name: '/vectors/upsert'
+      },
       batchReq.map(({ id, values = [], metadata }) => ({
         id,
         values,
-        metadata,
+        metadata
       }))
     );
 
@@ -104,7 +103,11 @@ export class Pinecone implements DBService {
     }
 
     const res = await apiCall<PineconeQueryRequest, PineconeQueryResponse>(
-      this.createAPI(PineconeApi.Query),
+      {
+        url: this.apiURL,
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+        name: '/query'
+      },
       createPineconeQueryRequest(req)
     );
 
@@ -113,15 +116,5 @@ export class Pinecone implements DBService {
     });
 
     return { matches };
-  }
-
-  private createAPI(name: Readonly<string>): API {
-    return {
-      url: this.apiURL,
-      name,
-      headers: {
-        'Api-Key': this.apiKey,
-      },
-    };
   }
 }

@@ -34,8 +34,8 @@ if (!(await index.isIndexCreated())) {
 }
 
 // Query
-const query = await ai.embed('fruits');
-const results = await index.queryItems(query.embedding, 3);
+const query = await ai.embed({ texts: ['fruits'] });
+const results = await index.queryItems(query.embeddings.at(0), 3);
 
 // Console print the id, value and the match score
 console.log(

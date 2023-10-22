@@ -53,22 +53,23 @@ const fixResultSyntax = async <T>(
   value: string,
   expectedSchema?: Readonly<JSONSchemaType<T>>
 ): Promise<string> => {
-  let prompt = [
+  let systemPrompt = [
     `Result JSON:\n"""${value}"""`,
-    `Syntax error in result JSON:\n${errorMessage}`,
+    `Syntax error in result JSON:\n${errorMessage}`
   ];
 
   const jschema = JSON.stringify(expectedSchema, null, 2);
 
   if (expectedSchema) {
-    prompt = [
-      ...prompt,
+    systemPrompt = [
+      ...systemPrompt,
       `Expected result must follow below JSON-Schema:\n${jschema}`,
-      `Result JSON:`,
+      `Result JSON:`
     ];
   }
 
-  const res = await ai.generate(prompt.join('\n\n'), options);
+  const chatPrompt = [{ role: 'system', text: systemPrompt.join('\n\n') }];
+  const res = await ai.chat({ chatPrompt }, options);
   const fixedValue = res.results.at(0)?.text?.trim() ?? '';
 
   if (fixedValue.length === 0) {

@@ -1,6 +1,6 @@
 import {
   TextRequestBuilder,
-  TextResponseBuilder,
+  TextResponseBuilder
 } from '../../tracing/index.js';
 import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
@@ -14,7 +14,7 @@ import {
   OpenAICompletionRequest,
   OpenAICompletionResponse,
   OpenAICompletionResponseDelta,
-  OpenAILogprob,
+  OpenAILogprob
 } from './types.js';
 
 export class OpenAICompletionMiddleware extends BaseAIMiddleware<
@@ -46,7 +46,7 @@ export class OpenAICompletionMiddleware extends BaseAIMiddleware<
       frequency_penalty,
       logit_bias,
       user,
-      organization,
+      organization
     } = this.req;
 
     // Fetching model info
@@ -62,14 +62,14 @@ export class OpenAICompletionMiddleware extends BaseAIMiddleware<
       stream: stream,
       presencePenalty: presence_penalty,
       frequencyPenalty: frequency_penalty,
-      logitBias: logit_bias,
+      logitBias: logit_bias
     };
 
     const identity = user || organization ? { user, organization } : undefined;
 
     this.sb.setRequest(
       new TextRequestBuilder()
-        .setStep(prompt, modelConfig, modelInfo)
+        .setCompletionStep({ prompt }, modelConfig, modelInfo)
         .setIdentity(identity)
     );
   };
@@ -93,13 +93,13 @@ export class OpenAICompletionMiddleware extends BaseAIMiddleware<
       ? {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
+          totalTokens: usage.total_tokens
         }
       : undefined;
 
     const results = choices.map((choice) => ({
       text: choice.text,
-      finishReason: choice.finish_reason,
+      finishReason: choice.finish_reason
     }));
 
     this.sb.setResponse(
@@ -125,12 +125,12 @@ export class OpenAIChatMiddleware
     if (fn) {
       const memory = await fn({
         prompt: this.req.messages.at(-1)?.content,
-        user: this.req.user,
+        user: this.req.user
       });
 
       const prompt = memory.map(({ role = '', text: content }) => ({
         role,
-        content,
+        content
       }));
 
       const system = this.req.messages.filter(({ role }) => role === 'system');
@@ -161,7 +161,7 @@ export class OpenAIChatMiddleware
       frequency_penalty,
       logit_bias,
       user,
-      organization,
+      organization
     } = this.req;
 
     // Fetching model info
@@ -170,11 +170,11 @@ export class OpenAIChatMiddleware
 
     // Building the prompt string from messages array
     const chatPrompt = messages.map(
-      ({ content: text, role, name, function_call: functionCall }) => ({
+      ({ content: text, role, name, function_call: fc }) => ({
         text,
         role,
         name,
-        functionCall,
+        functionCall: fc ? { name: fc.name, args: fc.arguments } : undefined
       })
     );
 
@@ -191,14 +191,14 @@ export class OpenAIChatMiddleware
       stream: stream,
       presencePenalty: presence_penalty,
       frequencyPenalty: frequency_penalty,
-      logitBias: logit_bias,
+      logitBias: logit_bias
     };
 
     const identity = user || organization ? { user, organization } : undefined;
 
     this.sb.setRequest(
       new TextRequestBuilder()
-        .setChatStep(chatPrompt, modelConfig, modelInfo)
+        .setChatStep({ chatPrompt }, modelConfig, modelInfo)
         .setSystemPrompt(systemPrompt)
         .setFunctions(functions)
         .setFunctionCall(function_call as string)
@@ -225,7 +225,7 @@ export class OpenAIChatMiddleware
       ? {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
+          totalTokens: usage.total_tokens
         }
       : undefined;
 
@@ -233,7 +233,7 @@ export class OpenAIChatMiddleware
       id: `${choice.index}`,
       text: choice.message.content,
       role: choice.message.role,
-      finishReason: choice.finish_reason,
+      finishReason: choice.finish_reason
     }));
 
     this.sb.setResponse(
@@ -264,7 +264,7 @@ function mergeChatResponseDeltas(
       md.set(index, {
         content: (value?.content ?? '') + delta.content,
         role: value?.role ?? delta.role ?? '',
-        finish_reason: value?.finish_reason ?? finish_reason ?? '',
+        finish_reason: value?.finish_reason ?? finish_reason ?? ''
       });
     });
   });
@@ -282,11 +282,11 @@ function mergeChatResponseDeltas(
       index,
       message: {
         role: v.role,
-        content: v.content,
+        content: v.content
       },
-      finish_reason: v.finish_reason,
+      finish_reason: v.finish_reason
     })),
-    usage: chunk.usage,
+    usage: chunk.usage
   };
 }
 
@@ -308,7 +308,7 @@ function mergeCompletionResponseDeltas(
       md.set(index, {
         text: (value?.text ?? '') + delta.text,
         logprobs: value?.logprobs,
-        finish_reason: value?.finish_reason ?? finish_reason ?? '',
+        finish_reason: value?.finish_reason ?? finish_reason ?? ''
       });
     });
   });
@@ -326,9 +326,9 @@ function mergeCompletionResponseDeltas(
       index,
       text: v.text,
       logprobs: v.logprobs,
-      finish_reason: v.finish_reason,
+      finish_reason: v.finish_reason
     })),
-    usage: chunk.usage,
+    usage: chunk.usage
   };
 }
 

@@ -17,17 +17,17 @@ export const JSInterpreterFunction = (
     properties: {
       code: {
         type: 'string',
-        description: 'JS code with a return value in the end.',
-      },
+        description: 'JS code with a return value in the end.'
+      }
     },
-    required: ['code'],
+    required: ['code']
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   func: ({ code }: Readonly<{ code: string }>): Promise<any> => {
     return new Promise((resolve) => {
       resolve(codeInterpreterJavascript(code, permissions));
     });
-  },
+  }
 });
 
 export enum CodeInterpreterPermission {
@@ -35,7 +35,7 @@ export enum CodeInterpreterPermission {
   NET = 'net',
   OS = 'os',
   CRYPTO = 'crypto',
-  PROCESS = 'process',
+  PROCESS = 'process'
 }
 
 export const codeInterpreterJavascript = (
@@ -46,7 +46,7 @@ export const codeInterpreterJavascript = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const context: { [key: string]: any } = {
     // require: require,
-    console: console,
+    console: console
   };
 
   if (permissions.includes(CodeInterpreterPermission.FS)) {

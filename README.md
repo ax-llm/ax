@@ -44,12 +44,12 @@ import OpenAI from 'openai';
 // Point the openai client to the proxy
 const openai = new OpenAI({
   baseURL: 'http://localhost:8081/openai/v1',
-  apiKey: process.env.OPENAI_APIKEY,
+  apiKey: process.env.OPENAI_APIKEY
 });
 
 const chatCompletion = await openai.chat.completions.create({
   messages: [{ role: 'user', content: 'Say this is a test' }],
-  model: 'gpt-3.5-turbo',
+  model: 'gpt-3.5-turbo'
 });
 
 console.log(chatCompletion);
@@ -131,7 +131,7 @@ const memory = new AIMemory();
 
 // Execute the prompt
 const res = await prompt.generate(ai, `What is your name?`, {
-  memory,
+  memory
   // sessionID,
   // rateLimiter
 });
@@ -181,7 +181,7 @@ You can truly build your entire backend with LLMs using this capability. To me t
 const productDB = [
   { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
   { name: 'Macbook Pro', description: 'M2, 96GB', in_stock: 2 },
-  { name: 'iPad M1', description: 'M1, 8GB', in_stock: 0 },
+  { name: 'iPad M1', description: 'M1, 8GB', in_stock: 0 }
 ];
 
 const inventorySearch = ({ name, count }) => {
@@ -200,17 +200,17 @@ const functions = [
       properties: {
         name: {
           type: 'string',
-          description: 'name of the product',
+          description: 'name of the product'
         },
         count: {
           type: 'number',
-          description: 'number of products to search for',
-        },
+          description: 'number of products to search for'
+        }
       },
-      required: ['name', 'count'],
+      required: ['name', 'count']
     },
-    func: inventorySearch,
-  },
+    func: inventorySearch
+  }
 ];
 
 const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
@@ -221,9 +221,9 @@ const resultSchema = {
   properties: {
     message: {
       type: 'string',
-      description: 'response message for the sender',
-    },
-  },
+      description: 'response message for the sender'
+    }
+  }
 };
 
 // Setup the prompt with the response schema and functions
@@ -287,7 +287,7 @@ const entities = [
   { name: BusinessInfo.ProductName },
   { name: BusinessInfo.IssueDescription },
   { name: BusinessInfo.IssueSummary },
-  { name: BusinessInfo.PaymentMethod, classes: ['Cash', 'Credit Card'] },
+  { name: BusinessInfo.PaymentMethod, classes: ['Cash', 'Credit Card'] }
 ];
 
 const prompt = new ExtractInfoPrompt(entities);
@@ -352,11 +352,16 @@ const prompt = new SPrompt(resultSchema, functions);
 ### 4. Engage the AI
 
 ```js
-// Query the AI
+// Query the AI directly
+const res = await ai.chat([
+  { role: "system", text: "Help the customer with his questions" }
+  { role: "user", text: "I'm looking for a Macbook Pro M2 With 96GB RAM?" }
+]);
+
+// Or Query the AI with a Prompt
 const res = await prompt.generate(
   ai,
-  `Do we have the product the email referes to in stock? 
-  Email: I'm looking for a Macbook Pro M2 With 96GB RAM.`
+  `I'm looking for a Macbook Pro M2 With 96GB RAM?`
 );
 
 // Get the response
@@ -394,18 +399,18 @@ const functions = [
       properties: {
         name: {
           type: 'string',
-          description: 'name of the product',
+          description: 'name of the product'
         },
         count: {
           type: 'number',
-          description: 'number of products to search for',
-        },
+          description: 'number of products to search for'
+        }
       },
-      required: ['name', 'count'],
+      required: ['name', 'count']
     },
     // the js function to call
-    func: inventorySearch,
-  },
+    func: inventorySearch
+  }
 ];
 ```
 
@@ -423,11 +428,11 @@ const resultSchema = {
         properties: {
           name: { type: 'string' },
           units: { type: 'number' },
-          desc: { type: 'string' },
-        },
-      },
-    },
-  },
+          desc: { type: 'string' }
+        }
+      }
+    }
+  }
 };
 
 const prompt = new SPrompt(resultSchema, functions);
@@ -438,47 +443,6 @@ const prompt = new SPrompt(resultSchema, functions);
 ```js
 const prompt = new SPrompt(restaurant, funcs);
 prompt.setDebug(true);
-```
-
-```console
-🔎 Trace 1
-____________________________________________
-  Trace ID: 2e7-25db-4b40-95b6-0c6a48f03683
-  Session ID: <not-set>
-
-📘 Model Info:
-  ID: gpt-3.5-turbo-0613
-  Currency: usd
-  Character Is Token: <not-set>
-  Prompt Token Cost Per 1K: 0.002
-  Completion Token Cost Per 1K: 0.002
-  Max Tokens: 4096
-  One TPM: 1
-
-🛠️  Model Config:
-  maxTokens: 1000
-  temperature: 0
-  topP: 1
-  n: <not-set>
-  stream: <not-set>
-  logprobs: <not-set>
-  echo: <not-set>
-  presencePenalty: <not-set>
-  frequencyPenalty: <not-set>
-  bestOf: <not-set>
-  logitBias: <not-set>
-
-📝 Response:
-  Model Response Time: 1894
-  Embed Model Response Time: <not-set>
-
-🚀 Function Executions:
-  Function 1: findRestaurants
-  Arguments: {"location":"San Francisco","outdoor":true,"cuisine":"sushi","priceRange":"$$"}
-  Result: ...
-  Result Value: <not-set>
-  Reasoning: I have found some restaurants in San Francisco that have outdoor seating and serve sushi., I need to choose a restaurant based on my preferences.
-  Reasoning: <not-set>
 ```
 
 ## Troubleshooting

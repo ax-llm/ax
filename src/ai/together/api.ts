@@ -1,29 +1,39 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import { AITextCompletionRequest } from '../../tracing/types.js';
+import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoTogether } from './info.js';
-import { generateReq } from './req.js';
 import {
-  apiURLTogether,
-  TogetherApi,
   TogetherCompletionRequest,
   TogetherCompletionResponse,
   TogetherLanguageModel,
-  TogetherOptions,
+  TogetherOptions
 } from './types.js';
 
 export const TogetherDefaultOptions = (): TogetherOptions => ({
   model: TogetherLanguageModel.Llama270B,
-  maxTokens: 1000,
+  maxTokens: 500,
   temperature: 0.1,
   topK: 40,
   topP: 0.9,
-  repetitionPenalty: 1.5,
+  repetitionPenalty: 1.5
 });
 
-export class Together extends BaseAI {
-  private apiKey: string;
+/**
+ * Together: AI Service
+ * @export
+ */
+
+export class Together extends BaseAI<
+  TogetherCompletionRequest,
+  unknown,
+  unknown,
+  TogetherCompletionResponse,
+  unknown,
+  unknown
+> {
   private options: TogetherOptions;
 
   constructor(
@@ -31,19 +41,17 @@ export class Together extends BaseAI {
     options: Readonly<TogetherOptions> = TogetherDefaultOptions(),
     otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super(
-      'Together',
-      modelInfoTogether,
-      {
-        model: options.model as string,
-      },
-      otherOptions
-    );
-
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
     }
-    this.apiKey = apiKey;
+    super(
+      'Together',
+      'https://api.together.xyz/',
+      { Authorization: `Bearer ${apiKey}` },
+      modelInfoTogether,
+      { model: options.model as string },
+      otherOptions
+    );
     this.options = options;
   }
 
@@ -54,35 +62,49 @@ export class Together extends BaseAI {
       temperature: options.temperature,
       topP: options.topP,
       topK: options.topK,
-      stream: options.stream,
+      stream: options.stream
     } as TextModelConfig;
   }
 
-  async _generate(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    const res = await this.apiCall<
-      TogetherCompletionRequest,
-      TogetherCompletionResponse
-    >(
-      {
-        key: this.apiKey,
-        name: TogetherApi.Completion,
-        url: apiURLTogether,
-      },
-      generateReq(prompt, this.options, options?.stopSequences)
-    );
+  generateCompletionReq = (
+    req: Readonly<AITextCompletionRequest>,
+    config: Readonly<AIPromptConfig>
+  ): [API, TogetherCompletionRequest] => {
+    const model = req.modelInfo?.name ?? this.options.model;
+    const functionsList = req.functions
+      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
+      : '';
+    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
+      req.prompt || ''
+    }`.trim();
 
-    const {
-      output: { choices },
-    } = res;
-
-    return {
-      results: choices.map((v) => ({
-        text: v.text,
-        finishReason: v.finish_reason,
-      })),
+    const apiConfig = {
+      name: 'inference'
     };
-  }
+
+    const reqValue: TogetherCompletionRequest = {
+      model,
+      prompt,
+      max_tokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
+      repetition_penalty:
+        req.modelConfig?.presencePenalty ?? this.options.repetitionPenalty,
+      temperature: req.modelConfig?.temperature ?? this.options.temperature,
+      top_p: req.modelConfig?.topP ?? this.options.topP,
+      top_k: req.modelConfig?.topK ?? this.options.topK,
+      stop: this.options.stopSequences ?? config.stopSequences,
+      stream_tokens: this.options.stream
+    };
+
+    return [apiConfig, reqValue];
+  };
+
+  generateCompletionResp = (
+    resp: Readonly<TogetherCompletionResponse>
+  ): TextResponse => {
+    return {
+      results: resp.output.choices.map((choice) => ({
+        text: choice.text
+      }))
+    };
+  };
 }

@@ -1,3 +1,7 @@
+import { TextResponseResult } from '../ai/types.js';
+import { convertToChatPromptItem } from '../ai/util.js';
+import { AITextChatPromptItem } from '../tracing/types.js';
+
 import { AIMemory } from './types.js';
 
 /**
@@ -5,8 +9,8 @@ import { AIMemory } from './types.js';
  * @export
  */
 export class Memory implements AIMemory {
-  private data: string[] = [];
-  private sdata = new Map<string, string[]>();
+  private data: TextResponseResult[] = [];
+  private sdata = new Map<string, TextResponseResult[]>();
   private limit: number;
 
   constructor(limit = 50) {
@@ -16,17 +20,16 @@ export class Memory implements AIMemory {
     this.limit = limit;
   }
 
-  add(text: string, sessionId?: string): void {
+  add(value: Readonly<TextResponseResult>, sessionId?: string): void {
     const d = this.get(sessionId);
-
-    d.push(text) > this.limit ? d.shift() : null;
+    d.push(value) > this.limit ? d.shift() : null;
   }
 
-  history(sessionId?: string): string {
-    return this.get(sessionId).reduce((a, v) => a + v, '');
+  history(sessionId?: string): Readonly<AITextChatPromptItem[]> {
+    return this.get(sessionId).map(convertToChatPromptItem);
   }
 
-  peek(sessionId?: string): Readonly<string[]> {
+  peek(sessionId?: string): Readonly<TextResponseResult[]> {
     return this.get(sessionId);
   }
 
@@ -38,7 +41,7 @@ export class Memory implements AIMemory {
     }
   }
 
-  private get(sessionId?: string): string[] {
+  private get(sessionId?: string): TextResponseResult[] {
     if (!sessionId) {
       return this.data;
     }

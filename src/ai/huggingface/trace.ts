@@ -52,7 +52,7 @@ export class HuggingFaceCompletionMiddleware
     };
 
     this.sb.setRequest(
-      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
+      new TextRequestBuilder().setCompletionStep({ prompt }, modelConfig, modelInfo)
     );
   };
 

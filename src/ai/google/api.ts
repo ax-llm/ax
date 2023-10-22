@@ -1,10 +1,14 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import {
+  AITextChatRequest,
+  AITextCompletionRequest,
+  AITextEmbedRequest
+} from '../../tracing/types.js';
 import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoGoogle } from './info.js';
-import { generateChatReq, generateReq } from './req.js';
 import {
   apiURLGoogle,
   GoogleChatRequest,
@@ -14,7 +18,7 @@ import {
   GoogleEmbedModels,
   GoogleEmbedRequest,
   GoogleEmbedResponse,
-  GoogleModel,
+  GoogleModel
 } from './types.js';
 
 /**
@@ -37,10 +41,10 @@ export type GoogleOptions = {
 export const GoogleDefaultOptions = (): GoogleOptions => ({
   model: GoogleModel.PaLMTextBison,
   embedModel: GoogleEmbedModels.PaLMTextEmbeddingGecko,
-  maxTokens: 300,
+  maxTokens: 500,
   temperature: 0.45,
   topP: 1,
-  topK: 40,
+  topK: 40
 });
 
 /**
@@ -50,7 +54,7 @@ export const GoogleDefaultOptions = (): GoogleOptions => ({
 export const GoogleCreativeOptions = (): GoogleOptions => ({
   ...GoogleDefaultOptions(),
   model: GoogleModel.PaLMTextBison,
-  temperature: 0.9,
+  temperature: 0.9
 });
 
 /**
@@ -60,16 +64,25 @@ export const GoogleCreativeOptions = (): GoogleOptions => ({
 export const GoogleFastOptions = (): GoogleOptions => ({
   ...GoogleDefaultOptions(),
   model: GoogleModel.PaLMTextBison,
-  temperature: 0.45,
+  temperature: 0.45
 });
 
 /**
  * Google: AI Service
  * @export
  */
-export class Google extends BaseAI {
-  private apiKey: string;
-  private apiURL: string;
+/**
+ * Google: AI Service
+ * @export
+ */
+export class Google extends BaseAI<
+  GoogleCompletionRequest,
+  GoogleChatRequest,
+  GoogleEmbedRequest,
+  GoogleCompletionResponse,
+  GoogleChatResponse,
+  GoogleEmbedResponse
+> {
   private options: GoogleOptions;
 
   constructor(
@@ -78,144 +91,157 @@ export class Google extends BaseAI {
     options: Readonly<GoogleOptions> = GoogleDefaultOptions(),
     otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super(
-      'Google',
-      modelInfoGoogle,
-      {
-        model: options.model,
-        embedModel: options.embedModel,
-      },
-      otherOptions
-    );
-
     if (!apiKey || apiKey === '') {
-      throw new Error('Google API key not set');
-    }
-    if (!projectId || projectId === '') {
-      throw new Error('Google Project ID not set (projectId)');
+      throw new Error('Google AI API key not set');
     }
 
-    this.apiKey = apiKey;
-    this.options = options;
-
-    this.apiURL = new URL(
+    const apiURL = new URL(
       `${projectId}/locations/us-central1/publishers/google/models/${options.model}:predict`,
       apiURLGoogle
     ).href;
+
+    super(
+      'GoogleAI',
+      apiURL,
+      { Authorization: `Bearer ${apiKey}` },
+      modelInfoGoogle,
+      { model: options.model, embedModel: options.embedModel },
+      otherOptions
+    );
+    this.options = options;
   }
 
-  getModelConfig(): TextModelConfig {
+  override getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
       temperature: options.temperature,
       topP: options.topP,
-      topK: options.topK,
+      topK: options.topK
     } as TextModelConfig;
   }
 
-  async _generate(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    if (
-      [GoogleModel.PaLMChatBison].includes(this.options.model as GoogleModel)
-    ) {
-      return await this._generateChat(prompt, options);
+  generateCompletionReq = (
+    req: Readonly<AITextCompletionRequest>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _config: Readonly<AIPromptConfig>
+  ): [API, GoogleCompletionRequest] => {
+    const model = req.modelInfo?.name ?? this.options.model;
+    const functionsList = req.functions
+      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
+      : '';
+    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
+      req.prompt || ''
+    }`.trim();
+
+    const apiConfig = {
+      name: `/v1/models/${model}:predict`
+    };
+
+    const reqValue: GoogleCompletionRequest = {
+      instances: [{ prompt }],
+      parameters: {
+        maxOutputTokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
+        temperature: req.modelConfig?.temperature ?? this.options.temperature,
+        topP: req.modelConfig?.topP ?? this.options.topP,
+        topK: req.modelConfig?.topK ?? this.options.topK
+      }
+    };
+
+    return [apiConfig, reqValue];
+  };
+
+  generateCompletionResp = (
+    resp: Readonly<GoogleCompletionResponse>
+  ): TextResponse => {
+    const results = resp.predictions.map((prediction) => ({
+      text: prediction.content,
+      safetyAttributes: prediction.safetyAttributes
+    }));
+
+    return {
+      results
+    };
+  };
+
+  generateChatReq = (
+    req: Readonly<AITextChatRequest>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _config: Readonly<AIPromptConfig>
+  ): [API, GoogleChatRequest] => {
+    const model = req.modelInfo?.name ?? this.options.model;
+
+    if (!req.chatPrompt || req.chatPrompt.length === 0) {
+      throw new Error('Chat prompt is empty');
     }
-    return await this._generateDefault(prompt, options);
-  }
 
-  private async _generateDefault(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    const res = await this.apiCall<
-      GoogleCompletionRequest,
-      GoogleCompletionResponse
-    >(
-      this.createAPI(),
-      generateReq(prompt, this.options, options?.stopSequences ?? [])
-    );
+    const apiConfig = {
+      name: `/v1/models/${model}:predict`
+    };
 
-    const { predictions } = res;
-    const promptTokens = prompt.length;
-    const completionTokens = predictions.reduce(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (a: any, { content: v }: Readonly<{ content: any }>) => a + v.length,
-      0
-    );
-    const totalTokens = promptTokens + completionTokens;
+    const reqValue: GoogleChatRequest = {
+      instances: [
+        {
+          context: req.functions
+            ? `Functions:\n${JSON.stringify(req.functions, null, 2)}`
+            : '',
+          examples: [], // You might need to adjust how you get examples
+          messages: req.chatPrompt.map((v) => ({
+            author: v.role,
+            content: v.text
+          }))
+        }
+      ],
+      parameters: {
+        maxOutputTokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
+        temperature: req.modelConfig?.temperature ?? this.options.temperature,
+        topP: req.modelConfig?.topP ?? this.options.topP,
+        topK: req.modelConfig?.topK ?? this.options.topK
+      }
+    };
+
+    return [apiConfig, reqValue];
+  };
+
+  generateEmbedReq = (
+    req: Readonly<AITextEmbedRequest>
+  ): [API, GoogleEmbedRequest] => {
+    const model = req.embedModelInfo?.name ?? this.options.embedModel;
+
+    if (!req.texts || req.texts.length === 0) {
+      throw new Error('Embed texts is empty');
+    }
+
+    const apiConfig = {
+      name: `/v1/models/${model}:predict`
+    };
+
+    const reqValue: GoogleEmbedRequest = {
+      instances: req.texts.map((text) => ({ content: text }))
+    };
+
+    return [apiConfig, reqValue];
+  };
+
+  generateChatResp = (resp: Readonly<GoogleChatResponse>): TextResponse => {
+    const results = resp.predictions.map((prediction, index) => ({
+      id: `${index}`,
+      text: prediction.candidates[0]?.content || '',
+      safetyAttributes: prediction.safetyAttributes
+    }));
 
     return {
-      results: predictions.map((p) => ({ id: '', text: p.content })),
-      modelUsage: {
-        promptTokens,
-        completionTokens,
-        totalTokens,
-      },
+      results
     };
-  }
+  };
 
-  private async _generateChat(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    const res = await this.apiCall<GoogleChatRequest, GoogleChatResponse>(
-      this.createAPI(),
-      generateChatReq(prompt, this.options, options?.stopSequences ?? [])
+  generateEmbedResp = (resp: Readonly<GoogleEmbedResponse>): EmbedResponse => {
+    const embeddings = resp.predictions.map(
+      (prediction) => prediction.embeddings.values
     );
 
-    const { predictions } = res;
-    const promptTokens = prompt.length;
-    const completionTokens = predictions
-      .map((p) => p.candidates.map((c) => c.content))
-      .flat()
-      .reduce((a, v) => a + v.length, 0);
-    const totalTokens = promptTokens + completionTokens;
-
     return {
-      results: predictions.map((p) => ({
-        id: '',
-        text: p.candidates[0].content,
-      })),
-      modelUsage: {
-        promptTokens,
-        completionTokens,
-        totalTokens,
-      },
+      embeddings
     };
-  }
-
-  async _embed(
-    textToEmbed: Readonly<string[] | string>
-  ): Promise<EmbedResponse> {
-    const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
-
-    const embedReq = { instances: [{ content: texts.at(0) ?? '' }] };
-    const res = await this.apiCall<GoogleEmbedRequest, GoogleEmbedResponse>(
-      this.createAPI(),
-      embedReq
-    );
-
-    const { predictions } = res;
-    const promptTokens = texts.at(0)?.length ?? 0;
-
-    return {
-      texts,
-      embedding: predictions.at(0)?.embeddings.values ?? [],
-      modelUsage: {
-        promptTokens,
-        completionTokens: 0,
-        totalTokens: promptTokens,
-      },
-    };
-  }
-
-  private createAPI(): API {
-    return {
-      url: this.apiURL,
-      key: this.apiKey,
-    };
-  }
+  };
 }

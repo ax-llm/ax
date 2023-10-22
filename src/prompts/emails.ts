@@ -1,9 +1,9 @@
-import { AIPrompt } from '../text/text.js';
+import { AIPrompt, PromptValues } from '../text/text.js';
 import { PromptConfig } from '../text/types.js';
 
 export enum MessageType {
   Email = 'promotion email',
-  Text = 'SMS promotion',
+  Text = 'SMS promotion'
 }
 
 export type MessageReceiver = {
@@ -51,18 +51,10 @@ export class MessagePrompt extends AIPrompt<string> {
     this.messageInfo = mi;
   }
 
-  override prompt(query: string): string {
-    return `
-Using the below information to write an effective ${this.messageInfo.type}.
-
-Product information:
-${this.product}
-
-Receiver Information:
-${this.receiver}
-
-Context:
-${query}
-`;
+  override prompt(query: string): PromptValues {
+    return {
+      systemPrompt: `Using the below information to write an effective ${this.messageInfo.type}.`,
+      prompt: `Product information:\n${this.product}\nReceiver Information:\n${this.receiver}\nContext:\n${query}`
+    };
   }
 }

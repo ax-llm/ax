@@ -1,6 +1,6 @@
 import {
   TextRequestBuilder,
-  TextResponseBuilder,
+  TextResponseBuilder
 } from '../../tracing/index.js';
 import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
@@ -39,11 +39,15 @@ export class CohereCompletionMiddleware
       maxTokens: max_tokens,
       temperature: temperature,
       topP: p,
-      topK: k,
+      topK: k
     };
 
     this.sb.setRequest(
-      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
+      new TextRequestBuilder().setCompletionStep(
+        { prompt },
+        modelConfig,
+        modelInfo
+      )
     );
   };
 
@@ -56,7 +60,7 @@ export class CohereCompletionMiddleware
 
     const results = this.resp.generations.map((gen) => ({
       text: gen.text,
-      finishReason: gen.id, // Changed completion to generation and stop_reason to id
+      finishReason: gen.id // Changed completion to generation and stop_reason to id
     }));
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));

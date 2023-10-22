@@ -1,19 +1,21 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import {
+  AITextCompletionRequest,
+  AITextEmbedRequest
+} from '../../tracing/types.js';
+import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoCohere } from './info.js';
-import { generateReq } from './req.js';
 import {
-  apiURLCohere,
-  CohereApi,
   CohereCompletionRequest,
   CohereCompletionResponse,
   CohereEmbedModel,
   CohereEmbedRequest,
   CohereEmbedResponse,
   CohereModel,
-  CohereOptions,
+  CohereOptions
 } from './types.js';
 
 /**
@@ -23,15 +25,15 @@ import {
 export const CohereDefaultOptions = (): CohereOptions => ({
   model: CohereModel.CommandNightly,
   embedModel: CohereEmbedModel.EmbedEnglishLightV20,
-  maxTokens: 2000,
+  maxTokens: 500,
   temperature: 0.1,
   topK: 40,
   topP: 0.9,
   frequencyPenalty: 0.8,
   logitBias: new Map([
     ['98', 9],
-    ['5449', 9],
-  ]),
+    ['5449', 9]
+  ])
 });
 
 /**
@@ -41,15 +43,21 @@ export const CohereDefaultOptions = (): CohereOptions => ({
 export const CohereCreativeOptions = (): CohereOptions => ({
   ...CohereDefaultOptions(),
   temperature: 0.7,
-  logitBias: undefined,
+  logitBias: undefined
 });
 
 /**
  * Cohere: AI Service
  * @export
  */
-export class Cohere extends BaseAI {
-  private apiKey: string;
+export class Cohere extends BaseAI<
+  CohereCompletionRequest,
+  unknown,
+  CohereEmbedRequest,
+  CohereCompletionResponse,
+  unknown,
+  CohereEmbedResponse
+> {
   private options: CohereOptions;
 
   constructor(
@@ -57,78 +65,104 @@ export class Cohere extends BaseAI {
     options: Readonly<CohereOptions> = CohereDefaultOptions(),
     otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super(
-      'Cohere',
-      modelInfoCohere,
-      {
-        model: options.model,
-        embedModel: options.embedModel,
-      },
-      otherOptions
-    );
-
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
     }
-    this.apiKey = apiKey;
+    super(
+      'Cohere',
+      'https://api.cohere.ai',
+      { Authorization: `Bearer ${apiKey}` },
+      modelInfoCohere,
+      { model: options.model },
+      otherOptions
+    );
     this.options = options;
   }
 
-  getModelConfig(): TextModelConfig {
+  override getModelConfig(): TextModelConfig {
     const { options } = this;
     return {
       maxTokens: options.maxTokens,
       temperature: options.temperature,
       topP: options.topP,
-      presencePenalty: options.presencePenalty,
+      topK: options.topK,
       frequencyPenalty: options.frequencyPenalty,
-      logitBias: options.logitBias,
+      presencePenalty: options.presencePenalty,
+      endSequences: options.endSequences,
+      stopSequences: options.stopSequences,
+      returnLikelihoods: options.returnLikelihoods,
+      logitBias: options.logitBias
     } as TextModelConfig;
   }
 
-  async _generate(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    const res = await this.apiCall<
-      CohereCompletionRequest,
-      CohereCompletionResponse
-    >(
-      {
-        key: this.apiKey,
-        name: CohereApi.Completion,
-        url: apiURLCohere,
-      },
-      generateReq(prompt, this.options, options?.stopSequences)
-    );
+  generateCompletionReq = (
+    req: Readonly<AITextCompletionRequest>,
+    config: Readonly<AIPromptConfig>
+  ): [API, CohereCompletionRequest] => {
+    const model = req.modelInfo?.name ?? this.options.model;
+    const functionsList = req.functions
+      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
+      : '';
+    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
+      req.prompt || ''
+    }`.trim();
 
-    const { id, generations } = res;
-
-    return {
-      remoteId: id,
-      results: generations.map(({ id, text }) => ({ id, text })),
+    const apiConfig = {
+      name: '/v1/generate'
     };
-  }
 
-  async _embed(
-    textToEmbed: readonly string[] | string
-  ): Promise<EmbedResponse> {
-    const texts = typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
-
-    const res = await this.apiCall<CohereEmbedRequest, CohereEmbedResponse>(
-      {
-        key: this.apiKey,
-        name: CohereApi.Embed,
-        url: apiURLCohere,
-      },
-      { texts, model: this.options.embedModel, truncate: 'NONE' }
-    );
-
-    const { id, embeddings } = res;
-    return {
-      remoteId: id,
-      texts,
-      embedding: embeddings.at(0) || [],
+    const reqValue: CohereCompletionRequest = {
+      model,
+      prompt,
+      max_tokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
+      temperature: req.modelConfig?.temperature ?? this.options.temperature,
+      k: req.modelConfig?.topK ?? this.options.topK,
+      p: req.modelConfig?.topP ?? this.options.topP,
+      frequency_penalty:
+        req.modelConfig?.frequencyPenalty ?? this.options.frequencyPenalty,
+      presence_penalty:
+        req.modelConfig?.presencePenalty ?? this.options.presencePenalty,
+      end_sequences: this.options.endSequences,
+      stop_sequences: this.options.stopSequences ?? config.stopSequences,
+      return_likelihoods: this.options.returnLikelihoods,
+      logit_bias: this.options.logitBias
     };
-  }
+
+    return [apiConfig, reqValue];
+  };
+
+  generateEmbedReq = (
+    req: Readonly<AITextEmbedRequest>
+  ): [API, CohereEmbedRequest] => {
+    const model = req.embedModelInfo?.name ?? this.options.embedModel;
+
+    const apiConfig = {
+      name: '/v1/embed'
+    };
+
+    const reqValue = {
+      model,
+      texts: req.texts ?? [],
+      truncate: this.options.truncate ?? ''
+    };
+
+    return [apiConfig, reqValue];
+  };
+
+  generateCompletionResp = (
+    resp: Readonly<CohereCompletionResponse>
+  ): TextResponse => {
+    return {
+      results: resp.generations.map((generation) => ({
+        text: generation.text
+      }))
+    };
+  };
+
+  generateEmbedResp = (resp: Readonly<CohereEmbedResponse>): EmbedResponse => {
+    return {
+      remoteId: resp.id,
+      embeddings: resp.embeddings
+    };
+  };
 }

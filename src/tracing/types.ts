@@ -1,6 +1,6 @@
 import { JSONSchemaType } from 'ajv';
 
-import { TextModelConfig, TextResponse, TextModelInfo } from '../ai/types';
+import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types';
 
 export type APIError = {
   pathname: string;
@@ -22,14 +22,18 @@ export type AITextChatPromptItem = {
   text: string;
   role: string;
   name?: string;
-  // eslint-disable-next-line functional/functional-parameters
-  functionCall?: { name: string; arguments: string }[];
+  functionCall?: AITextRequestFunctionCall;
 };
 
 export type AITextRequestFunction = {
   name: string;
   description?: string;
   parameters: JSONSchemaType<unknown>;
+};
+
+export type AITextRequestFunctionCall = {
+  name: string;
+  args?: string;
 };
 
 export type AITextResponseFunction = {
@@ -43,18 +47,36 @@ export type AITextRequestIdentity = {
   organization?: string;
 };
 
-export type AITextTraceStepRequest = {
-  prompt?: string;
-  chatPrompt?: Readonly<AITextChatPromptItem>[];
-  systemPrompt?: string;
-  texts?: readonly string[];
-  functions?: Readonly<AITextRequestFunction>[];
-  functionCall?: string;
-  modelConfig?: Readonly<TextModelConfig>;
-  modelInfo?: Readonly<TextModelInfoWithProvider>;
-  embedModelInfo?: Readonly<TextModelInfoWithProvider>;
+export type AITextBaseRequest = {
   identity?: Readonly<AITextRequestIdentity>;
 };
+
+export type AITextCompletionRequest = {
+  systemPrompt?: string;
+  prompt?: string;
+  functions?: Readonly<AITextRequestFunction>[];
+  functionCall?: string | { name: string };
+  modelConfig?: Readonly<TextModelConfig>;
+  modelInfo?: Readonly<TextModelInfoWithProvider>;
+} & AITextBaseRequest;
+
+export type AITextChatRequest = {
+  chatPrompt?: Readonly<AITextChatPromptItem>[];
+  functions?: Readonly<AITextRequestFunction>[];
+  functionCall?: string | { name: string };
+  modelConfig?: Readonly<TextModelConfig>;
+  modelInfo?: Readonly<TextModelInfoWithProvider>;
+} & AITextBaseRequest;
+
+export type AITextEmbedRequest = {
+  texts?: readonly string[];
+  embedModelInfo?: Readonly<TextModelInfoWithProvider>;
+} & AITextBaseRequest;
+
+export type AITextTraceStepRequest =
+  | AITextCompletionRequest
+  | AITextChatRequest
+  | AITextEmbedRequest;
 
 export type AITextTraceStepResponse = Omit<TextResponse, 'sessionId'> & {
   modelResponseTime?: number;

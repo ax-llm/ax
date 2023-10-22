@@ -1,15 +1,3 @@
-import { API } from '../../util/apicall';
-
-export type AnthropicApiConfig = API & {
-  headers: { 'Anthropic-Version': string };
-};
-
-export const apiURLAnthropic = 'https://api.anthropic.com/';
-
-export enum AnthropicApi {
-  Completion = 'v1/complete',
-}
-
 /**
  * Anthropic: Models for text generation
  * @export

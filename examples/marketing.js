@@ -29,8 +29,13 @@ const to = {
   company: 'Blue Yonder Inc.',
 };
 
+// process.on("unhandledRejection", (error) => {
+//   console.error(error); // This prints error with stack included (as for normal errors)
+//   throw error; // Following best practices re-throw error and let the process exit with error code
+// });
+
 const prompt = new MessagePrompt({ type: MessageType.Text }, product, to);
-// prompt.setDebug(true);
+prompt.setDebug(true);
 
 const context = `
 1. Under 160 characters
@@ -38,5 +43,9 @@ const context = `
 3. Employs emojis and friendly language
 `;
 
-const res = await prompt.generate(ai, context);
-console.log(res.value());
+try {
+  const res = await prompt.generate(ai, context);
+  console.log(res.value());
+} catch (error) {
+  console.dir(error)
+}

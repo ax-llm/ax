@@ -1,4 +1,4 @@
-import { SPrompt, Anthropic, Cohere, OpenAI, Together } from 'llmclient';
+import { SPrompt, Anthropic, Cohere, OpenAI, Together, OpenAIDefaultOptions, OpenAIBestModelOptions } from 'llmclient';
 
 import 'dotenv/config';
 
@@ -6,7 +6,8 @@ const InitAI = () => {
   if (process.env.COHERE_APIKEY) {
     return new Cohere(process.env.COHERE_APIKEY);
   } else if (process.env.OPENAI_APIKEY) {
-    return new OpenAI(process.env.OPENAI_APIKEY);
+    const config = OpenAIBestModelOptions()
+    return new OpenAI(process.env.OPENAI_APIKEY, config);
   } else if (process.env.ANTHROPIC_APIKEY) {
     return new Anthropic(process.env.ANTHROPIC_APIKEY);
   } else if (process.env.TOGETHER_APIKEY) {
@@ -153,8 +154,13 @@ const funcs = [
 ];
 
 const restaurant = {
-  type: 'array',
-  items: { $ref: '#/definitions/restaurant' },
+  type: 'object',
+  properties: {
+    value: {
+     type: 'array',
+     items: { $ref: '#/definitions/restaurant' },
+    }
+  },
   definitions: {
     restaurant: {
       type: 'object',
@@ -173,5 +179,10 @@ const prompt = new SPrompt(restaurant, funcs);
 const customerQuery =
   "I'm looking for ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
 
-const res = await prompt.generate(ai, customerQuery);
-console.log('>', res.value());
+
+try {  
+  const res = await prompt.generate(ai, customerQuery);
+  console.log('>', res.value());
+} catch(e) {
+  console.dir(e)
+}

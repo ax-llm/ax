@@ -2,7 +2,7 @@ import { PromptFunction } from '../prompts';
 import {
   AIService,
   PromptFunctionExtraOptions,
-  PromptFunctionFunc,
+  PromptFunctionFunc
 } from '../text/types';
 
 export const EmbedAdapter = (
@@ -25,10 +25,10 @@ export const EmbedAdapter = (
     properties: {
       text: {
         type: 'string',
-        description: info.argumentDescription,
-      },
+        description: info.argumentDescription
+      }
     },
-    required: ['text'],
+    required: ['text']
   },
 
   func: (
@@ -39,7 +39,7 @@ export const EmbedAdapter = (
     return new Promise((resolve) => {
       resolve(embedAdapter(ai, text, func, extra));
     });
-  },
+  }
 });
 
 export const embedAdapter = async (
@@ -49,8 +49,11 @@ export const embedAdapter = async (
   extra?: Readonly<PromptFunctionExtraOptions>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> => {
-  const embedRes = await ai.embed(text, { sessionId: extra?.sessionId });
-  const embeds = embedRes.embedding;
+  const embedRes = await ai.embed(
+    { texts: [text] },
+    { sessionId: extra?.sessionId }
+  );
+  const embeds = embedRes.embeddings.at(0);
 
   return func.length === 2 ? func(embeds, extra) : func(embeds);
 };

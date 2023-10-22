@@ -1,10 +1,3 @@
-export const apiURLCohere = 'https://api.cohere.ai/';
-
-export const enum CohereApi {
-  Completion = '/v1/generate',
-  Embed = '/v1/embed',
-}
-
 /**
  * Cohere: Models for text generation
  * @export
@@ -50,8 +43,10 @@ export type CohereOptions = {
   frequencyPenalty?: number;
   presencePenalty?: number;
   stopSequences?: string[];
+  endSequences?: string[];
   returnLikelihoods?: CohereReturnLikelihoods;
   logitBias?: Map<string, number>;
+  truncate?: string,
 };
 
 export type CohereCompletionRequest = {

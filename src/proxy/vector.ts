@@ -61,11 +61,14 @@ export class VectorMemoryStore {
           ? `${defaultQueryRewritePrompt}: ${prompt}\nQuery:`
           : `${rewriteQueryPrompt}: ${prompt}\nQuery:`;
 
-      const { results } = await ai.generate(rqPrompt, {
-        traceId: req.traceId,
-        sessionId: req.sessionId,
-        stopSequences: ['\n'],
-      });
+      const { results } = await ai.chat(
+        { chatPrompt: [{ role: 'system', text: rqPrompt }] },
+        {
+          traceId: req.traceId,
+          sessionId: req.sessionId,
+          stopSequences: ['\n']
+        }
+      );
       const newPrompt = results.at(0)?.text;
 
       if (newPrompt && newPrompt !== '') {
@@ -73,16 +76,19 @@ export class VectorMemoryStore {
       }
     }
 
-    const { embedding } = await ai.embed(dbQuery, {
-      traceId: req.traceId,
-      sessionId: req.sessionId,
-    });
+    const embedRes = await ai.embed(
+      { texts: [dbQuery] },
+      {
+        traceId: req.traceId,
+        sessionId: req.sessionId
+      }
+    );
 
     const res = await db.query({
       namespace,
       table,
-      values: embedding,
-      columns: values.split(','),
+      values: embedRes.embeddings.at(0),
+      columns: values.split(',')
     });
 
     const result = res.matches
@@ -95,6 +101,6 @@ export class VectorMemoryStore {
       console.log('- vector db result:', result);
     }
 
-    return [{ role: 'system', text: result ?? '' }];
+    return [{ role: 'user', text: result ?? '' }];
   };
 }

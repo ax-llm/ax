@@ -1,29 +1,8 @@
 import { JSONSchemaType } from 'ajv/dist/types/json-schema';
 
-import { API } from '../../util/apicall';
 import { TextModelConfig } from '../types';
 
-/**
- * OpenAI: API call details
- * @export
- */
-export type OpenAIApiConfig = API & {
-  headers: { 'OpenAI-Organization'?: string };
-};
-
-export const apiURLOpenAI = 'https://api.openai.com/';
-
-/**
- * OpenAI: API
- * @export
- */
-
-export const enum OpenAIApi {
-  Completion = '/v1/completions',
-  Chat = '/v1/chat/completions',
-  Embed = '/v1/embeddings',
-  Transcribe = '/v1/audio/transcriptions',
-}
+// Transcribe = '/v1/audio/transcriptions',
 
 /**
  * OpenAI: Models for text generation
@@ -33,13 +12,14 @@ export enum OpenAIModel {
   GPT4 = 'gpt-4',
   GPT432K = 'gpt-4-32k',
   GPT35Turbo = 'gpt-3.5-turbo',
+  GPT35TurboInstruct = 'gpt-3.5-turbo-instruct',
   GPT35Turbo16K = 'gpt-3.5-turbo-16k',
   GPT35TextDavinci003 = 'text-davinci-003',
   GPT35TextDavinci002 = 'text-davinci-002',
   GPT35CodeDavinci002 = 'code-davinci-002',
   GPT3TextCurie001 = 'text-curie-001',
   GPT3TextBabbage001 = 'text-babbage-001',
-  GPT3TextAda001 = 'text-ada-001',
+  GPT3TextAda001 = 'text-ada-001'
 }
 
 /**
@@ -47,7 +27,7 @@ export enum OpenAIModel {
  * @export
  */
 export enum OpenAIEmbedModels {
-  GPT3TextEmbeddingAda002 = 'text-embedding-ada-002',
+  GPT3TextEmbeddingAda002 = 'text-embedding-ada-002'
 }
 
 /**
@@ -55,7 +35,7 @@ export enum OpenAIEmbedModels {
  * @export
  */
 export enum OpenAIAudioModel {
-  Whisper1 = 'whisper-1',
+  Whisper1 = 'whisper-1'
 }
 
 /**
@@ -72,7 +52,6 @@ export type OpenAIOptions = Omit<TextModelConfig, 'topK'> & {
 export type OpenAICompletionRequest = {
   model: string;
   prompt: string;
-  suffix: string | null;
   max_tokens: number;
   temperature: number;
   top_p: number;
@@ -142,7 +121,7 @@ export type OpenAIChatRequest = {
     content: string;
     name?: string;
     // eslint-disable-next-line functional/functional-parameters
-    function_call?: { name: string; arguments: string }[];
+    function_call?: { name: string; arguments: string };
   }[];
   functions?: {
     name: string;
@@ -173,6 +152,8 @@ export type OpenAIChatResponse = {
     message: {
       role: string;
       content: string;
+      // eslint-disable-next-line functional/functional-parameters
+      function_call?: { name: string; arguments: string };
     };
     finish_reason: string;
   }[];

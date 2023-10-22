@@ -1,17 +1,12 @@
 import {
-  AnthropicApi,
   AnthropicCompletionMiddleware,
-  CohereApi,
   CohereCompletionMiddleware,
   GoogleMiddleware,
-  HuggingFaceApi,
   HuggingFaceCompletionMiddleware,
-  OpenAIApi,
   OpenAIChatMiddleware,
   OpenAICompletionMiddleware,
-  TogetherCompletionMiddleware,
+  TogetherCompletionMiddleware
 } from '../ai/index.js';
-import { TogetherApi } from '../ai/together/types.js';
 import { AIMiddleware } from '../ai/types.js';
 
 import { ExtendedIncomingMessage } from './types.js';
@@ -32,49 +27,49 @@ export const routes: Routes[] = [
     target: 'https://api.openai.com',
     routes: [
       {
-        path: OpenAIApi.Completion,
-        middleware: (req) => new OpenAICompletionMiddleware(req),
+        path: '/v1/completions',
+        middleware: (req) => new OpenAICompletionMiddleware(req)
       },
       {
-        path: OpenAIApi.Chat,
-        middleware: (req) => new OpenAIChatMiddleware(req),
-      },
-    ],
+        path: '/v1/chat/completions',
+        middleware: (req) => new OpenAIChatMiddleware(req)
+      }
+    ]
   },
   {
     name: 'azure-openai',
-    target: (host?: string) => `https://${host}.openai.azure.com/`,
+    target: (host?: string) => `https://${host}.openai.azure.com`,
     hostRequired: true,
     routes: [
       {
-        path: OpenAIApi.Completion,
-        middleware: (req) => new OpenAICompletionMiddleware(req),
+        path: '/v1/completions',
+        middleware: (req) => new OpenAICompletionMiddleware(req)
       },
       {
-        path: OpenAIApi.Chat,
-        middleware: (req) => new OpenAIChatMiddleware(req),
-      },
-    ],
+        path: '/v1/chat/completions',
+        middleware: (req) => new OpenAIChatMiddleware(req)
+      }
+    ]
   },
   {
     name: 'huggingface',
-    target: 'https://api-inference.huggingface.co/',
+    target: 'https://api-inference.huggingface.co',
     routes: [
       {
-        path: HuggingFaceApi.Completion,
-        middleware: (req) => new HuggingFaceCompletionMiddleware(req),
-      },
-    ],
+        path: '/models',
+        middleware: (req) => new HuggingFaceCompletionMiddleware(req)
+      }
+    ]
   },
   {
     name: 'together',
-    target: 'https://api.together.xyz/',
+    target: 'https://api.together.xyz',
     routes: [
       {
-        path: TogetherApi.Completion,
-        middleware: (req) => new TogetherCompletionMiddleware(req),
-      },
-    ],
+        path: '/inference',
+        middleware: (req) => new TogetherCompletionMiddleware(req)
+      }
+    ]
   },
   {
     name: 'google',
@@ -83,30 +78,30 @@ export const routes: Routes[] = [
     routes: [
       {
         path: `/v1/projects`,
-        middleware: (req) => new GoogleMiddleware(req),
-      },
-    ],
+        middleware: (req) => new GoogleMiddleware(req)
+      }
+    ]
   },
   {
     name: 'anthropic',
     target: 'https://api.anthropic.com',
     routes: [
       {
-        path: AnthropicApi.Completion,
-        middleware: (req) => new AnthropicCompletionMiddleware(req),
-      },
-    ],
+        path: '/v1/complete',
+        middleware: (req) => new AnthropicCompletionMiddleware(req)
+      }
+    ]
   },
   {
     name: 'cohere',
-    target: 'https://api.cohere.ai/',
+    target: 'https://api.cohere.ai',
     routes: [
       {
-        path: CohereApi.Completion,
-        middleware: (req) => new CohereCompletionMiddleware(req),
-      },
-    ],
-  },
+        path: '/v1/generate',
+        middleware: (req) => new CohereCompletionMiddleware(req)
+      }
+    ]
+  }
 ];
 
 export const parserMap = new Map<string, Routes>(

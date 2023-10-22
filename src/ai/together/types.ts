@@ -1,9 +1,3 @@
-export const apiURLTogether = 'https://api.together.xyz/';
-
-export const enum TogetherApi {
-  Completion = 'inference',
-}
-
 /**
  * Together: Models for text generation
  * @export
@@ -20,13 +14,13 @@ export enum TogetherChatModel {
   // MosaiclMPT7BChat = 'mosaicml/mpt-7b-chat',
   // MosaiclMPT30BChat = 'togethercomputer/mpt-30b-chat',
   // TatsuLabAlpaca7BWdiff = 'tatsu-lab/alpaca-7b-wdiff',
-  Falcon7BInstruct = 'togethercomputer/falcon-7b-instruct',
+  Falcon7BInstruct = 'togethercomputer/falcon-7b-instruct'
 }
 
 export enum TogetherLanguageModel {
   Llama27B = 'togethercomputer/llama-2-7b',
   Llama213B = 'togethercomputer/llama-2-13b',
-  Llama270B = 'togethercomputer/llama-2-70b',
+  Llama270B = 'togethercomputer/llama-2-70b'
   // TogetherComputerMPT30BInstruct = 'togethercomputer/mpt-30b-instruct',
 }
 // TogetherComputerRedPajamaInciteInstruct3BV1 = 'togethercomputer/RedPajama-INCITE-Instruct-3B-v1',

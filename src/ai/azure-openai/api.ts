@@ -1,20 +1,11 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import { AIServiceOptions } from '../../text/types.js';
 import { API } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
-import { modelInfoOpenAI } from '../openai/info.js';
-import { generateChatReq, generateReq } from '../openai/req.js';
+import { OpenAI } from '../openai/api.js';
 import {
-  OpenAIChatRequest,
-  OpenAIChatResponse,
-  OpenAICompletionRequest,
-  OpenAICompletionResponse,
   OpenAIEmbedModels,
-  OpenAIEmbedRequest,
-  OpenAIEmbedResponse,
   OpenAIModel,
-  OpenAIOptions,
+  OpenAIOptions
 } from '../openai/types.js';
-import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 /**
  * AzureOpenAI: API call details
@@ -28,7 +19,7 @@ export const enum AzureOpenAIApi {
   Completion = '/completions',
   Chat = '/chat/completions',
   Embed = '/embeddings',
-  Transcribe = '/audio/transcriptions',
+  Transcribe = '/audio/transcriptions'
 }
 
 /**
@@ -38,9 +29,9 @@ export const enum AzureOpenAIApi {
 export const AzureOpenAIDefaultOptions = (): OpenAIOptions => ({
   model: OpenAIModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
-  maxTokens: 300,
+  maxTokens: 500,
   temperature: 0.45,
-  topP: 1,
+  topP: 1
 });
 
 /**
@@ -50,7 +41,7 @@ export const AzureOpenAIDefaultOptions = (): OpenAIOptions => ({
 export const AzureOpenAICreativeOptions = (): OpenAIOptions => ({
   ...AzureOpenAIDefaultOptions(),
   model: OpenAIModel.GPT35Turbo,
-  temperature: 0.9,
+  temperature: 0.9
 });
 
 /**
@@ -60,18 +51,14 @@ export const AzureOpenAICreativeOptions = (): OpenAIOptions => ({
 export const AzureOpenAIFastOptions = (): OpenAIOptions => ({
   ...AzureOpenAIDefaultOptions(),
   model: OpenAIModel.GPT35Turbo,
-  temperature: 0.45,
+  temperature: 0.45
 });
 
 /**
  * AzureOpenAI: AI Service
  * @export
  */
-export class AzureOpenAI extends BaseAI {
-  private apiKey: string;
-  private apiURL: string;
-  private options: OpenAIOptions;
-
+export class AzureOpenAI extends OpenAI {
   constructor(
     apiKey: string,
     host: string,
@@ -79,16 +66,6 @@ export class AzureOpenAI extends BaseAI {
     options: Readonly<OpenAIOptions> = AzureOpenAIDefaultOptions(),
     otherOptions?: Readonly<AIServiceOptions>
   ) {
-    super(
-      'Azure OpenAI',
-      modelInfoOpenAI,
-      {
-        model: options.model,
-        embedModel: options.embedModel,
-      },
-      otherOptions
-    );
-
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
     }
@@ -98,141 +75,14 @@ export class AzureOpenAI extends BaseAI {
     if (!deploymentName || deploymentName === '') {
       throw new Error('Azure OpenAPI deployment name not set (deploymentName)');
     }
-
-    this.apiKey = apiKey;
-    this.options = options;
+    super(apiKey, options, otherOptions);
 
     if (!host.includes('://')) {
       host = `https://${host}.openai.azure.com/`;
     }
-    this.apiURL = new URL(`/openai/deployments/${deploymentName}`, host).href;
-  }
 
-  getModelConfig(): TextModelConfig {
-    const { options } = this;
-    return {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      n: options.n,
-      stream: options.stream,
-      logprobs: options.logprobs,
-      echo: options.echo,
-      presencePenalty: options.presencePenalty,
-      frequencyPenalty: options.frequencyPenalty,
-      bestOf: options.bestOf,
-      logitBias: options.logitBias,
-    } as TextModelConfig;
-  }
-
-  async _generate(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    if (
-      [OpenAIModel.GPT35Turbo, OpenAIModel.GPT4].includes(
-        this.options.model as OpenAIModel
-      )
-    ) {
-      return await this._generateChat(prompt, options);
-    }
-    return await this._generateDefault(prompt, options);
-  }
-
-  private async _generateDefault(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    const res = await this.apiCall<
-      OpenAICompletionRequest,
-      OpenAICompletionResponse,
-      AzureOpenAIApiConfig
-    >(
-      this.createAPI(AzureOpenAIApi.Completion),
-      generateReq(prompt, this.options, options?.stopSequences ?? [])
-    );
-
-    const { id, choices: c, usage: u } = res;
-    return {
-      remoteId: id.toString(),
-      results: c.map((v) => ({
-        id: v.index.toString(),
-        text: v.text,
-        finishReason: v.finish_reason,
-      })),
-      modelUsage: u
-        ? {
-            promptTokens: u.prompt_tokens,
-            completionTokens: u.completion_tokens,
-            totalTokens: u.total_tokens,
-          }
-        : undefined,
-    };
-  }
-
-  private async _generateChat(
-    prompt: string,
-    options?: Readonly<AIPromptConfig>
-  ): Promise<TextResponse> {
-    const res = await this.apiCall<
-      OpenAIChatRequest,
-      OpenAIChatResponse,
-      AzureOpenAIApiConfig
-    >(
-      this.createAPI(AzureOpenAIApi.Chat),
-      generateChatReq(prompt, this.options, options?.stopSequences ?? [])
-    );
-
-    const { id, choices: c, usage: u } = res;
-    return {
-      remoteId: id.toString(),
-      results: c.map((v) => ({
-        id: v.index.toString(),
-        text: v.message.content,
-        finishReason: v.finish_reason,
-      })),
-      modelUsage: u
-        ? {
-            promptTokens: u.prompt_tokens,
-            completionTokens: u.completion_tokens,
-            totalTokens: u.total_tokens,
-          }
-        : undefined,
-    };
-  }
-
-  async _embed(
-    textToEmbed: Readonly<string[] | string>
-  ): Promise<EmbedResponse> {
-    const texts: readonly string[] =
-      typeof textToEmbed === 'string' ? [textToEmbed] : textToEmbed;
-
-    const embedReq = { input: texts, model: this.options.embedModel };
-    const res = await this.apiCall<
-      OpenAIEmbedRequest,
-      OpenAIEmbedResponse,
-      AzureOpenAIApiConfig
-    >(this.createAPI(AzureOpenAIApi.Embed), embedReq);
-
-    const { data, usage: u } = res;
-    return {
-      texts,
-      embedding: data.at(0)?.embedding || [],
-      modelUsage: {
-        promptTokens: u.prompt_tokens,
-        completionTokens: u.completion_tokens,
-        totalTokens: u.total_tokens,
-      },
-    };
-  }
-
-  private createAPI(name: AzureOpenAIApi): AzureOpenAIApiConfig {
-    return {
-      url: new URL(name, this.apiURL).href,
-      name,
-      headers: {
-        'api-key': this.apiKey,
-      },
-    };
+    super.aiName = 'Azure OpenAI';
+    super.apiURL = new URL(`/openai/deployments/${deploymentName}`, host).href;
+    super.headers = { 'api-key': apiKey };
   }
 }

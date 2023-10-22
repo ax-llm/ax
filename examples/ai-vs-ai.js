@@ -1,29 +1,31 @@
-import { Cohere, OpenAI, Memory, AssistantPrompt } from 'llmclient';
+import { Cohere, OpenAI, Memory} from 'llmclient';
 
 import 'dotenv/config';
 
 import chalk from 'chalk';
-import { createInterface } from 'readline';
 
-const mem1 = new Memory();
-const mem2 = new Memory();
+const mem = new Memory(5)
 
-const aiOpenAI = new OpenAI(process.env.OPENAI_APIKEY);
-const aiCoHere = new Cohere(process.env.COHERE_APIKEY);
+const openAI = new OpenAI(process.env.OPENAI_APIKEY);
+const cohere = new Cohere(process.env.COHERE_APIKEY);
 
-const prompt = new AssistantPrompt();
 // prompt.setDebug(true)
+
+const system = `The following is a conversation with an AI assistant. The assistant is helpful, creative, clever, and very friendly.`
 
 const start =
   'Hi OpenAI my name is Cohere. I was wondering if you know what the meaning of life is?';
 
-let openAIRes = await prompt.generate(aiOpenAI, start, { mem1 });
-let cohereRes = await prompt.generate(aiCoHere, openAIRes.value, { mem2 });
+mem.add({ role:"system", text: system})
+mem.add({ role: "assistant", text: start })
 
-for (let i = 0; i < 3; i++) {
-  console.log(chalk.green('OpenAI: ', openAIRes.value()) + '\n');
-  console.log(chalk.magenta('Cohere: ', cohereRes.value()) + '\n');
+for (let i = 0; i < 10; i++) {
+  const res1 = await openAI.chat({ chatPrompt: mem.history() });
+  mem.add(res1.results.at(0))
 
-  openAIRes = await openAI.generate(cohereRes.value(), prompt);
-  cohereRes = await cohere.generate(openAIRes.value(), prompt);
+  const res2 = await cohere.chat({ chatPrompt: mem.history() });
+  mem.add(res2.results.at(0))
+
+  console.log(chalk.green('OpenAI: ', res1.results.at(0).text) + '\n');
+  console.log(chalk.magenta('Cohere: ', res2.results.at(0).text) + '\n');
 }

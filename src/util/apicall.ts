@@ -4,21 +4,14 @@ import superagent from 'superagent';
  * @export
  */
 export type API = {
-  url: string;
   name?: string;
-  key?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  headers?: any;
+  headers?: Record<string, string>;
   put?: boolean;
 };
 
-export const apiCall = async <
-  Request extends object,
-  Response,
-  APIType extends API = API
->(
-  api: APIType,
-  json: Request | string
+export const apiCall = async <Request = unknown, Response = unknown>(
+  api: Readonly<API & { url: string }>,
+  json: Request
 ): Promise<Response> => {
   const useProxy =
     process.env.LLMCLIENT_PROXY ?? process.env.LLMC_PROXY === 'true';
@@ -33,26 +26,29 @@ export const apiCall = async <
   const apiPath = api.name ?? '/';
   const apiUrl = new URL(apiPath, baseUrl).toString();
 
-  const headers = {
-    ...api.headers,
-    Authorization: api.key ? `Bearer ${api.key}` : undefined,
-  };
-
+  const headers = api.headers;
   const request = api.put ? superagent.put(apiUrl) : superagent.post(apiUrl);
 
-  const res = await request
-    .send(json)
-    .set(headers)
-    .type('json')
-    .accept('json')
-    .retry(3)
-    .catch(httpError(apiUrl, json));
-
-  return res.body;
+  try {
+    const res = await request
+      .send(json as object)
+      .set(headers ?? {})
+      .type('json')
+      .accept('json')
+      .retry(3);
+    return res.body;
+  } catch (e) {
+    const err = e as SuperAgentError;
+    throw httpError(`apiCall:`, apiUrl, json, err);
+  }
 };
 
-export const apiCallWithUpload = async <Request, Response, APIType extends API>(
-  api: APIType,
+export const apiCallWithUpload = async <
+  Request,
+  Response,
+  APIType extends API & { url: string }
+>(
+  api: Readonly<APIType>,
   json: Request,
   file: string
 ): Promise<Response> => {
@@ -60,58 +56,62 @@ export const apiCallWithUpload = async <Request, Response, APIType extends API>(
     throw new Error('File is required');
   }
 
-  const headers = {
-    ...api.headers,
-    Authorization: api.key ? `Bearer ${api.key}` : undefined,
-  };
-
+  const headers = api.headers;
   const baseUrl = api.url;
   const apiPath = api.name ?? '/';
   const apiUrl = new URL(apiPath, baseUrl).toString();
 
-  const data = await superagent
-    .post(apiUrl)
-    .retry(3)
-    .attach('file', file)
-    .set(headers)
-    .field(json as { [fieldName: string]: string })
-    .catch(httpError(apiUrl));
+  try {
+    const data = await superagent
+      .post(apiUrl)
+      .retry(3)
+      .attach('file', file)
+      .set(headers ?? {})
+      .field(json as { [fieldName: string]: string });
 
-  return data.body;
+    return data.body;
+  } catch (e) {
+    throw httpError('apiCallWithUpload', apiUrl, null, e as SuperAgentError);
+  }
 };
 
-export const httpError =
-  (apiUrl: string, json?: unknown) =>
-  ({
-    response,
-    code,
-    syscall,
-    address,
-    port,
-  }: Readonly<{
-    response: superagent.Response;
-    code: unknown;
-    syscall: unknown;
-    address: unknown;
-    port: unknown;
-  }>) => {
-    if (!response) {
-      throw {
-        apiUrl,
-        code,
-        syscall,
-        address,
-        port,
-        request: json,
-      };
-    }
+export type SuperAgentError = {
+  response: superagent.Response;
+  code: unknown;
+  syscall: unknown;
+  address: unknown;
+  port: unknown;
+  request: unknown;
+};
 
-    const { headers, status, body } = response;
-    throw {
+export const httpError = (
+  message: string,
+  apiUrl: string,
+  json: unknown,
+  { response, code, syscall, address, port }: Readonly<SuperAgentError>
+) => {
+  const err = new Error(message) as Error & { data: unknown };
+
+  if (!response) {
+    err.data = {
       apiUrl,
-      statusCode: status,
-      headers,
-      request: json,
-      response: body,
+      code,
+      syscall,
+      address,
+      port,
+      request: json
     };
+    return err;
+  }
+
+  const { headers, status, body } = response;
+  err.data = {
+    apiUrl,
+    statusCode: status,
+    headers,
+    request: json,
+    response: body,
+    error: body.error
   };
+  return err;
+};

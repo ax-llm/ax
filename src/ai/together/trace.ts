@@ -1,6 +1,6 @@
 import {
   TextRequestBuilder,
-  TextResponseBuilder,
+  TextResponseBuilder
 } from '../../tracing/index.js';
 import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
@@ -9,7 +9,7 @@ import { findItemByNameOrAlias } from '../util.js';
 import { modelInfoTogether } from './info.js';
 import {
   TogetherCompletionRequest,
-  TogetherCompletionResponse,
+  TogetherCompletionResponse
 } from './types.js';
 
 export class TogetherCompletionMiddleware
@@ -38,7 +38,7 @@ export class TogetherCompletionMiddleware
       max_tokens: max_tokens,
       temperature,
       top_p,
-      repetition_penalty: presence_penalty,
+      repetition_penalty: presence_penalty
     } = this.req;
 
     // Fetching model info
@@ -46,7 +46,7 @@ export class TogetherCompletionMiddleware
     const modelInfo = {
       ...mi,
       name: model.toString(),
-      provider: 'together',
+      provider: 'together'
     };
 
     // Configure TextModel based on TogetherCompletionRequest
@@ -54,11 +54,15 @@ export class TogetherCompletionMiddleware
       maxTokens: max_tokens ?? 0,
       temperature: temperature,
       topP: top_p,
-      presencePenalty: presence_penalty,
+      presencePenalty: presence_penalty
     };
 
     this.sb.setRequest(
-      new TextRequestBuilder().setStep(prompt, modelConfig, modelInfo)
+      new TextRequestBuilder().setCompletionStep(
+        { prompt },
+        modelConfig,
+        modelInfo
+      )
     );
   };
 
@@ -70,7 +74,7 @@ export class TogetherCompletionMiddleware
     }
 
     const results = this.resp.output.choices.map((choice) => ({
-      text: choice.text,
+      text: choice.text
     }));
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));

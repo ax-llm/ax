@@ -2,7 +2,12 @@ import chalk from 'chalk';
 
 import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types';
 import { FunctionExec } from '../text/types';
-import { AITextTraceStep } from '../tracing/types';
+import {
+  AITextChatRequest,
+  AITextCompletionRequest,
+  AITextEmbedRequest,
+  AITextTraceStep
+} from '../tracing/types';
 
 export class ConsoleLogger {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -69,14 +74,28 @@ export class ConsoleLogger {
   }
 
   public log(trace: Readonly<AITextTraceStep>): void {
+    const completionRequest = trace.request as AITextCompletionRequest;
+    const chatRequest = trace.request as AITextChatRequest;
+    const embedRequest = trace.request as AITextEmbedRequest;
+
     console.log(chalk.bold.cyan(`\n🔎 Trace\n` + '_'.repeat(50)));
     this.print('Trace Id', trace.traceId, 1);
     this.print('Session Id', trace.sessionId, 1);
-    this.print('Prompt', trace.request.prompt, 1);
 
-    this.printModelInfo(trace.request.modelInfo);
-    this.printModelConfig(trace.request.modelConfig);
-    this.printModelInfo(trace.request.embedModelInfo);
+    if (chatRequest.chatPrompt) {
+      this.print('ChatPrompt', chatRequest.chatPrompt, 1);
+    }
+
+    if (completionRequest.prompt) {
+      this.print('Prompt', completionRequest.prompt, 1);
+    }
+
+    if (embedRequest.texts) {
+      this.printModelInfo(embedRequest.embedModelInfo);
+    } else {
+      this.printModelConfig(chatRequest.modelConfig);
+      this.printModelInfo(chatRequest.modelInfo);
+    }
 
     if (trace.response) {
       console.log(chalk.magenta(`\n📝 Response:`));
