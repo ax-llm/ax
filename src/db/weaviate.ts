@@ -10,13 +10,13 @@ import {
 
 // For upsert
 
-type WeaviateUpsertRequest = {
-  id?: string;
-  class: string;
-  vector?: readonly number[];
-  tenant?: string;
-  properties: Record<string, string>;
-};
+// type WeaviateUpsertRequest = {
+//   id?: string;
+//   class: string;
+//   vector?: readonly number[];
+//   tenant?: string;
+//   properties: Record<string, string>;
+// };
 
 type WeaviateUpsertResponse = {
   id: string;
@@ -25,9 +25,9 @@ type WeaviateUpsertResponse = {
 
 // For query
 
-type WeaviateQueryRequest = {
-  query: string;
-};
+// type WeaviateQueryRequest = {
+//   query: string;
+// };
 
 type WeaviateQueryResponse = {
   errors?: { location: string; message: string; path: string }[];
@@ -60,7 +60,7 @@ export class Weaviate implements DBService {
     req: Readonly<DBUpsertRequest>,
     update?: boolean
   ): Promise<DBUpsertResponse> {
-    const res = await apiCall<WeaviateUpsertRequest, WeaviateUpsertResponse>(
+    const res = await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -76,9 +76,10 @@ export class Weaviate implements DBService {
       }
     );
 
+    const data = res as unknown as WeaviateUpsertResponse;
     return {
-      id: res.id,
-      errors: res.result?.errors?.error.map(({ message }) => message)
+      id: data.id,
+      errors: data.result?.errors?.error.map(({ message }) => message)
     };
   }
 
@@ -97,10 +98,7 @@ export class Weaviate implements DBService {
       properties: req.metadata ?? {}
     }));
 
-    const res = await apiCall<
-      { objects: WeaviateUpsertRequest[] },
-      WeaviateUpsertResponse[]
-    >(
+    const res = await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -109,7 +107,8 @@ export class Weaviate implements DBService {
       { objects }
     );
 
-    return res.map(({ id, result }) => ({
+    const data = res as unknown as WeaviateUpsertResponse[];
+    return data.map(({ id, result }) => ({
       id: id,
       errors: result?.errors?.error.map(({ message }) => message)
     }));
@@ -130,7 +129,7 @@ export class Weaviate implements DBService {
       throw new Error('Weaviate requires either text or values');
     }
 
-    const res = await apiCall<WeaviateQueryRequest, WeaviateQueryResponse>(
+    const res = await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -150,11 +149,13 @@ export class Weaviate implements DBService {
       }
     );
 
-    if (res?.errors) {
-      throw res.errors;
+    const data = res as unknown as WeaviateQueryResponse;
+
+    if (data?.errors) {
+      throw data.errors;
     }
 
-    const matches = res?.data?.Get[req.table]?.map(
+    const matches = data?.data?.Get[req.table]?.map(
       ({ id, score, ...metadata }) => {
         return { id, score, metadata };
       }

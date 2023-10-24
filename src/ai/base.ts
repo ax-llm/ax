@@ -21,6 +21,7 @@ import {
   TextModelInfoWithProvider
 } from '../tracing/types.js';
 import { API, apiCall } from '../util/apicall.js';
+import { RespTransformStream } from '../util/transform.js';
 
 import {
   EmbedResponse,
@@ -32,24 +33,18 @@ import {
 import {
   convertToChatRequest,
   convertToCompletionRequest,
+  mergeTextResponses,
   parseAndAddFunction
 } from './util.js';
-
-// AIServiceBase<
-// TCompletionRequest,
-// TChatRequest,
-// TEmbedRequest,
-// TCompletionResponse,
-// TChatResponse,
-// TEmbedResponse
-// >
 
 export class BaseAI<
   TCompletionRequest,
   TChatRequest,
   TEmbedRequest,
   TCompletionResponse,
+  TCompletionResponseDelta,
   TChatResponse,
+  TChatResponseDelta,
   TEmbedResponse
 > implements AIService
 {
@@ -65,7 +60,11 @@ export class BaseAI<
   generateCompletionResp?: (
     resp: Readonly<TCompletionResponse>
   ) => TextResponse;
+  generateCompletionStreamResp?: (
+    resp: Readonly<TCompletionResponseDelta>
+  ) => TextResponse;
   generateChatResp?: (resp: Readonly<TChatResponse>) => TextResponse;
+  generateChatStreamResp?: (resp: Readonly<TChatResponseDelta>) => TextResponse;
   generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => EmbedResponse;
 
   // private consoleLog = new ConsoleLogger();
@@ -208,15 +207,13 @@ export class BaseAI<
   }
 
   async completion(
-    req: Readonly<AITextCompletionRequest>,
+    _req: Readonly<AITextCompletionRequest>,
     options: Readonly<AIPromptConfig & AIServiceActionOptions> = {
       stopSequences: []
     }
-  ): Promise<TextResponse> {
-    let modelResponseTime;
-
-    if (!this.generateCompletionReq && this.generateChatResp) {
-      return await this.chat(convertToChatRequest(req), options);
+  ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    if (!this.generateCompletionReq && this.generateChatReq) {
+      return await this.chat(convertToChatRequest(_req), options);
     }
     if (!this.generateCompletionReq) {
       throw new Error('generateCompletionReq not implemented');
@@ -225,15 +222,20 @@ export class BaseAI<
       throw new Error('generateCompletionResp not implemented');
     }
 
-    const fn = async () => {
-      const st = new Date().getTime();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const [apiConfig, reqValue] = this.generateCompletionReq!(
-        req,
-        options as AIPromptConfig
-      );
+    let startTime = 0;
 
-      const res = await apiCall<TCompletionRequest, TCompletionResponse>(
+    const reqFn = this.generateCompletionReq;
+    const stream = options.stream ?? _req.modelConfig?.stream;
+    const req = {
+      ..._req,
+      modelConfig: { ..._req.modelConfig, stream }
+    } as Readonly<AITextChatRequest>;
+
+    const fn = async () => {
+      startTime = new Date().getTime();
+      const [apiConfig, reqValue] = reqFn(req, options as AIPromptConfig);
+
+      const res = await apiCall(
         {
           name: apiConfig.name,
           url: this.apiURL,
@@ -241,92 +243,99 @@ export class BaseAI<
         },
         reqValue
       );
-      modelResponseTime = new Date().getTime() - st;
       return res;
     };
 
-    this.traceStepBuilder = new AITextTraceStepBuilder()
-      .setTraceId(options?.traceId)
-      .setSessionId(options?.sessionId);
-
+    this.setStep(options);
     this.traceStepReqBuilder = new TextRequestBuilder().setCompletionStep(
       req,
       this.getModelConfig(),
-      this.getModelInfo()
+      this.getEmbedModelInfo()
     );
 
     if (this.debug) {
       logCompletionRequest(req);
     }
 
-    const respValue = this.rt
-      ? await this.rt<Promise<TCompletionResponse>>(fn)
-      : await fn();
+    const rv = this.rt ? await this.rt(fn) : await fn();
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const res = this.generateCompletionResp!(respValue);
+    if (stream) {
+      if (!this.generateCompletionStreamResp) {
+        throw new Error('generateCompletionStreamResp not implemented');
+      }
+
+      const respFn = this.generateCompletionStreamResp;
+      const wrappedRespFn = (resp: Readonly<TCompletionResponseDelta>) => {
+        const res = respFn(resp);
+        res.sessionId = options?.sessionId;
+        return res;
+      };
+
+      const doneCb = (values: readonly TextResponse[]) => {
+        const res = mergeTextResponses(values);
+        parseAndAddFunction(res);
+        this.setStepTextResponse(res, startTime);
+      };
+
+      const st = (rv as ReadableStream<TCompletionResponseDelta>).pipeThrough(
+        new RespTransformStream<TCompletionResponseDelta, TextResponse>(
+          wrappedRespFn,
+          doneCb
+        )
+      );
+      return st;
+    }
+
+    if (!this.generateCompletionResp) {
+      throw new Error('generateCompletionResp not implemented');
+    }
+    const res = this.generateCompletionResp(rv as TCompletionResponse);
     parseAndAddFunction(res);
 
-    if (this.debug) {
-      logResponse(res);
-    }
-
-    this.traceStepRespBuilder = new TextResponseBuilder()
-      .setResults(res.results)
-      .setModelUsage(res.modelUsage)
-      .setModelResponseTime(modelResponseTime);
-
-    if (!this.disableLog) {
-      this.logTrace();
-    }
-
+    this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
     return res;
   }
 
   async chat(
-    req: Readonly<AITextChatRequest>,
+    _req: Readonly<AITextChatRequest>,
     options: Readonly<AIPromptConfig & AIServiceActionOptions> = {
       stopSequences: []
     }
-  ): Promise<TextResponse> {
-    let modelResponseTime;
-
-    if (!this.generateChatReq && this.generateCompletionResp) {
-      return await this.completion(convertToCompletionRequest(req), options);
+  ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    if (!this.generateChatReq && this.generateCompletionReq) {
+      return await this.completion(convertToCompletionRequest(_req), options);
     }
     if (!this.generateChatReq) {
       throw new Error('generateChatReq not implemented');
     }
-    if (!this.generateChatResp) {
-      throw new Error('generateChatResp not implemented');
-    }
+
+    let startTime = 0;
+
+    const reqFn = this.generateChatReq;
+    const stream = options.stream ?? _req.modelConfig?.stream;
+    const req = {
+      ..._req,
+      modelConfig: { ..._req.modelConfig, stream }
+    } as Readonly<AITextChatRequest>;
 
     const fn = async () => {
-      const st = new Date().getTime();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const [apiConfig, reqValue] = this.generateChatReq!(
-        req,
-        options as AIPromptConfig
-      );
+      startTime = new Date().getTime();
+      const [apiConfig, reqValue] = reqFn(req, options as AIPromptConfig);
 
-      const res = await apiCall<TChatRequest, TChatResponse>(
+      const res = await apiCall(
         {
           name: apiConfig.name,
           url: this.apiURL,
-          headers: this.buildHeaders(apiConfig.headers)
+          headers: this.buildHeaders(apiConfig.headers),
+          stream
         },
         reqValue
       );
-
-      modelResponseTime = new Date().getTime() - st;
       return res;
     };
 
-    this.traceStepBuilder = new AITextTraceStepBuilder()
-      .setTraceId(options?.traceId)
-      .setSessionId(options?.sessionId);
-
+    this.setStep(options);
     this.traceStepReqBuilder = new TextRequestBuilder().setChatStep(
       req,
       this.getModelConfig(),
@@ -337,27 +346,42 @@ export class BaseAI<
       logChatRequest(req);
     }
 
-    const respValue = this.rt
-      ? await this.rt<Promise<TChatResponse>>(fn)
-      : await fn();
+    const rv = this.rt ? await this.rt(fn) : await fn();
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const res = this.generateChatResp!(respValue);
+    if (stream) {
+      if (!this.generateChatStreamResp) {
+        throw new Error('generateChatResp not implemented');
+      }
+
+      const respFn = this.generateChatStreamResp;
+      const wrappedRespFn = (resp: Readonly<TChatResponseDelta>) => {
+        const res = respFn(resp);
+        res.sessionId = options?.sessionId;
+        return res;
+      };
+
+      const doneCb = (values: readonly TextResponse[]) => {
+        const res = mergeTextResponses(values);
+        parseAndAddFunction(res);
+        this.setStepTextResponse(res, startTime);
+      };
+
+      const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
+        new RespTransformStream<TChatResponseDelta, TextResponse>(
+          wrappedRespFn,
+          doneCb
+        )
+      );
+      return st;
+    }
+
+    if (!this.generateChatResp) {
+      throw new Error('generateChatResp not implemented');
+    }
+    const res = this.generateChatResp(rv as TChatResponse);
     parseAndAddFunction(res);
 
-    if (this.debug) {
-      logResponse(res);
-    }
-
-    this.traceStepRespBuilder = new TextResponseBuilder()
-      .setResults(res.results)
-      .setModelUsage(res.modelUsage)
-      .setModelResponseTime(modelResponseTime);
-
-    if (!this.disableLog) {
-      this.logTrace();
-    }
-
+    this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
     return res;
   }
@@ -379,7 +403,7 @@ export class BaseAI<
       const st = new Date().getTime();
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const [apiConfig, reqValue] = this.generateEmbedReq!(req);
-      const respValue = await apiCall<TEmbedRequest, TEmbedResponse>(
+      const res = await apiCall(
         {
           name: apiConfig.name,
           url: this.apiURL,
@@ -387,32 +411,24 @@ export class BaseAI<
         },
         reqValue
       );
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const res = this.generateEmbedResp!(respValue);
       modelResponseTime = new Date().getTime() - st;
       return res;
     };
 
-    this.traceStepBuilder = new AITextTraceStepBuilder()
-      .setTraceId(options?.traceId)
-      .setSessionId(options?.sessionId);
-
+    this.setStep(options);
     this.traceStepReqBuilder = new TextRequestBuilder().setEmbedStep(
       req,
       this.getEmbedModelInfo()
     );
 
-    const res = this.rt
-      ? await this.rt<Promise<EmbedResponse>>(async () => fn())
-      : await fn();
+    const resValue = this.rt ? await this.rt(async () => fn()) : await fn();
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const res = this.generateEmbedResp!(resValue as TEmbedResponse);
 
     this.traceStepRespBuilder = new TextResponseBuilder()
-      .setEmbedModelUsage(res.modelUsage)
-      .setEmbedModelResponseTime(modelResponseTime);
-
-    if (!this.disableLog) {
-      this.logTrace();
-    }
+      .setModelUsage(res.modelUsage)
+      .setModelResponseTime(modelResponseTime);
 
     res.sessionId = options?.sessionId;
     return res;
@@ -452,29 +468,26 @@ export class BaseAI<
   // return apiCallWithUpload<Request, Response, APIType>(this.mergeAPIConfig<APIType>(api), json, file);
   // }
 
-  // private mergeAPIConfig<APIType extends API = API>(_api: APIType) : APIType {
-  //   if (!this.apiConfig) {
-  //     return _api
-  //   }
-  //   const api = {..._api}
+  setStep(options?: Readonly<AIServiceActionOptions>) {
+    this.traceStepBuilder = new AITextTraceStepBuilder()
+      .setTraceId(options?.traceId)
+      .setSessionId(options?.sessionId);
+  }
 
-  //   if (this.apiConfig.key) {
-  //     api.key = this.apiConfig.key;
-  //   }
-  //   if (this.apiConfig.url) {
-  //     api.url = this.apiConfig.url;
-  //   }
-  //   if (this.apiConfig.name) {
-  //     api.name = this.apiConfig.name;
-  //   }
-  //   if (this.apiConfig.headers) {
-  //     api.headers = [...api.headers, this.apiConfig.headers]
-  //   }
-  //   if (this.apiConfig.url !== "") {
-  //     api.url = this.apiConfig.url;
-  //   }
-  //   return api
-  // }
+  setStepTextResponse(res: Readonly<TextResponse>, startTime: number) {
+    if (this.debug) {
+      logResponse(res as TextResponse);
+    }
+
+    this.traceStepRespBuilder = new TextResponseBuilder()
+      .setResults(res.results)
+      .setModelUsage(res.modelUsage)
+      .setModelResponseTime(new Date().getTime() - startTime);
+
+    if (!this.disableLog) {
+      this.logTrace();
+    }
+  }
 
   private buildHeaders(
     headers: Record<string, string> = {}

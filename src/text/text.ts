@@ -4,7 +4,7 @@ import { JSONSchemaType } from 'ajv';
 
 import { TextResponse } from '../ai/types.js';
 import { convertToChatRequest } from '../ai/util.js';
-import { DBService } from '../db/types.js';
+import { DBQueryService } from '../db/types.js';
 import {
   AITextChatPromptItem,
   AITextRequestFunction,
@@ -31,10 +31,10 @@ export type PromptValues =
 
 export type Options = {
   memory?: AIMemory;
-  db?: DBService;
+  db?: DBQueryService;
 };
 
-type InternalOptions = { db?: DBService } & AIPromptConfig &
+type InternalOptions = { db?: DBQueryService } & AIPromptConfig &
   AIServiceActionOptions;
 
 /**
@@ -95,7 +95,7 @@ export class AIPrompt<T> {
 
   async fetchContext(
     ai: AIService,
-    db: DBService,
+    db: DBQueryService,
     query: string,
     options: Readonly<Options & AIServiceActionOptions> = {}
   ): Promise<AITextChatPromptItem | undefined> {
@@ -218,14 +218,14 @@ export class AIPrompt<T> {
 
       const history = mem.history(options?.sessionId);
       const chatPrompt = [...prompt, ...history];
-      const res = await ai.chat(
+      const res = (await ai.chat(
         {
           chatPrompt,
           functions: this.funcList,
           functionCall: this.conf.functionCall
         },
-        options
-      );
+        { ...options, stream: false }
+      )) as TextResponse;
 
       const result = res.results.at(0);
       if (!result) {

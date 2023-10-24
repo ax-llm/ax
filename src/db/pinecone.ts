@@ -10,15 +10,15 @@ import {
 
 // For upsert
 
-type PineconeUpsertRequest = {
-  id: string;
-  values: readonly number[];
-  metadata?: Record<string, string>;
-};
+// type PineconeUpsertRequest = {
+//   id: string;
+//   values: readonly number[];
+//   metadata?: Record<string, string>;
+// };
 
-type PineconeUpsertResponse = {
-  upsertedCount: number;
-};
+// type PineconeUpsertResponse = {
+//   upsertedCount: number;
+// };
 
 // For query
 
@@ -81,7 +81,7 @@ export class Pinecone implements DBService {
   async batchUpsert(
     batchReq: Readonly<DBUpsertRequest[]>
   ): Promise<DBUpsertResponse[]> {
-    await apiCall<PineconeUpsertRequest[], PineconeUpsertResponse[]>(
+    await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -102,7 +102,7 @@ export class Pinecone implements DBService {
       throw new Error('Pinecone does not support text');
     }
 
-    const res = await apiCall<PineconeQueryRequest, PineconeQueryResponse>(
+    const res = await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -111,7 +111,8 @@ export class Pinecone implements DBService {
       createPineconeQueryRequest(req)
     );
 
-    const matches = res?.matches?.map(({ id, score, metadata }) => {
+    const data = res as unknown as PineconeQueryResponse;
+    const matches = data?.matches?.map(({ id, score, metadata }) => {
       return { id, score, metadata };
     });
 

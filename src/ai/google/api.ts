@@ -80,7 +80,9 @@ export class Google extends BaseAI<
   GoogleChatRequest,
   GoogleEmbedRequest,
   GoogleCompletionResponse,
+  unknown,
   GoogleChatResponse,
+  unknown,
   GoogleEmbedResponse
 > {
   private options: GoogleOptions;

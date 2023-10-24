@@ -74,6 +74,7 @@ export type PromptConfig<T> = AIPromptConfig & {
 
 export type AIPromptConfig = {
   stopSequences: string[];
+  stream?: boolean;
 };
 
 export type AITranscribeConfig = {
@@ -130,11 +131,11 @@ export interface AIService {
   completion(
     req: Readonly<AITextCompletionRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<TextResponse>;
+  ): Promise<TextResponse | ReadableStream<TextResponse>>;
   chat(
     req: Readonly<AITextChatRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<TextResponse>;
+  ): Promise<TextResponse | ReadableStream<TextResponse>>;
   embed(
     req: Readonly<AITextEmbedRequest>,
     options?: Readonly<AIServiceActionOptions & AIServiceActionOptions>

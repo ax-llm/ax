@@ -4,7 +4,13 @@ import {
   AITextCompletionRequest
 } from '../tracing/types';
 
-import { TextModelInfo, TextResponse, TextResponseResult } from './types';
+import {
+  TextModelInfo,
+  TextResponse,
+  TextResponseFunctionCall,
+  TextResponseResult,
+  TokenUsage
+} from './types';
 
 export const findItemByNameOrAlias = (
   list: readonly TextModelInfo[],
@@ -119,3 +125,54 @@ export const parseAndAddFunction = (res: Readonly<TextResponse>) => {
     }
   });
 };
+
+export function mergeTextResponses(
+  responses: readonly TextResponse[]
+): TextResponse {
+  let concatenatedText = '';
+  const concatenatedFunctionCalls: TextResponseFunctionCall[] = [];
+
+  // Variables to store the other overwritten values
+  let lastSessionId: string | undefined;
+  let lastRemoteId: string | undefined;
+  let lastModelUsage: TokenUsage | undefined;
+  let lastEmbedModelUsage: TokenUsage | undefined;
+  let lastResults: readonly TextResponseResult[] = [];
+
+  for (const response of responses) {
+    for (const result of response.results) {
+      if (result.text) {
+        concatenatedText += result.text;
+      }
+      if (result.functionCall) {
+        concatenatedFunctionCalls.push(result.functionCall);
+      }
+    }
+
+    // Overwrite other values
+    lastSessionId = response.sessionId;
+    lastRemoteId = response.remoteId;
+    lastModelUsage = response.modelUsage;
+    lastEmbedModelUsage = response.embedModelUsage;
+    lastResults = response.results;
+  }
+
+  return {
+    sessionId: lastSessionId,
+    remoteId: lastRemoteId,
+    results: [
+      {
+        ...lastResults[0],
+        text: concatenatedText,
+        functionCall: concatenatedFunctionCalls.length
+          ? {
+              name: concatenatedFunctionCalls.map((fc) => fc.name).join(','),
+              args: concatenatedFunctionCalls.map((fc) => fc.args).join(',')
+            }
+          : undefined
+      }
+    ],
+    modelUsage: lastModelUsage,
+    embedModelUsage: lastEmbedModelUsage
+  };
+}

@@ -18,8 +18,10 @@ import {
   OpenAIAudioModel,
   OpenAIChatRequest,
   OpenAIChatResponse,
+  OpenAIChatResponseDelta,
   OpenAICompletionRequest,
   OpenAICompletionResponse,
+  OpenAICompletionResponseDelta,
   OpenAIEmbedModels,
   OpenAIEmbedRequest,
   OpenAIEmbedResponse,
@@ -35,6 +37,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   model: OpenAIModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
+  stream: false,
   suffix: null,
   maxTokens: 500,
   temperature: 0.1,
@@ -85,7 +88,9 @@ export class OpenAI extends BaseAI<
   OpenAIChatRequest,
   OpenAIEmbedRequest,
   OpenAICompletionResponse,
+  OpenAICompletionResponseDelta,
   OpenAIChatResponse,
+  OpenAIChatResponseDelta,
   OpenAIEmbedResponse
 > {
   private options: OpenAIOptions;
@@ -294,6 +299,31 @@ export class OpenAI extends BaseAI<
     };
   };
 
+  generateCompletionStreamResp = (
+    resp: Readonly<OpenAICompletionResponseDelta>
+  ): TextResponse => {
+    const { id, usage, choices } = resp;
+
+    const modelUsage = usage
+      ? {
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens
+        }
+      : undefined;
+
+    return {
+      results: choices.map(
+        ({ delta: { text = '' }, finish_reason: finishReason }) => ({
+          text,
+          finishReason,
+          id
+        })
+      ),
+      modelUsage
+    };
+  };
+
   generateChatResp = (resp: Readonly<OpenAIChatResponse>): TextResponse => {
     const { id, usage, choices } = resp;
 
@@ -327,6 +357,38 @@ export class OpenAI extends BaseAI<
       modelUsage,
       results,
       remoteId: id
+    };
+  };
+
+  generateChatStreamResp = (
+    resp: Readonly<OpenAIChatResponseDelta>
+  ): TextResponse => {
+    const { id, usage, choices } = resp;
+
+    const modelUsage = usage
+      ? {
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          totalTokens: usage.total_tokens
+        }
+      : undefined;
+
+    return {
+      results: choices.map(
+        ({
+          delta: { content, role, function_call: fc },
+          finish_reason: finishReason
+        }) => ({
+          text: content ?? '',
+          role: role,
+          functionCall: fc
+            ? { name: fc.name, args: fc.arguments ?? '' }
+            : undefined,
+          finishReason,
+          id
+        })
+      ),
+      modelUsage
     };
   };
 

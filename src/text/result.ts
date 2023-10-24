@@ -1,6 +1,8 @@
 import Ajv, { JSONSchemaType } from 'ajv';
 import JSON5 from 'json5';
 
+import { TextResponse } from '../ai/types';
+
 import { AIPromptConfig, AIService, AIServiceActionOptions } from './types';
 
 const ajv = new Ajv();
@@ -69,7 +71,10 @@ const fixResultSyntax = async <T>(
   }
 
   const chatPrompt = [{ role: 'system', text: systemPrompt.join('\n\n') }];
-  const res = await ai.chat({ chatPrompt }, options);
+  const res = (await ai.chat(
+    { chatPrompt },
+    { ...options, stream: false }
+  )) as TextResponse;
   const fixedValue = res.results.at(0)?.text?.trim() ?? '';
 
   if (fixedValue.length === 0) {

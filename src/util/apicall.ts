@@ -1,4 +1,10 @@
+// import axios from 'axios';
+// import { AxiosResponse } from 'axios';
+// import fetch from 'node-fetch';
+
 import superagent from 'superagent';
+
+import { JSONStringifyStream } from './transform.js';
 /**
  * Util: API details
  * @export
@@ -9,10 +15,10 @@ export type API = {
   put?: boolean;
 };
 
-export const apiCall = async <Request = unknown, Response = unknown>(
-  api: Readonly<API & { url: string }>,
-  json: Request
-): Promise<Response> => {
+export const apiCall = async <TRequest = unknown, TResponse = unknown>(
+  api: Readonly<API & { url: string; stream?: boolean }>,
+  json: TRequest
+): Promise<TResponse | ReadableStream<TResponse>> => {
   const useProxy =
     process.env.LLMCLIENT_PROXY ?? process.env.LLMC_PROXY === 'true';
 
@@ -24,25 +30,58 @@ export const apiCall = async <Request = unknown, Response = unknown>(
       : 'https://proxy.llmclient.com'
     : api.url;
   const apiPath = api.name ?? '/';
-  const apiUrl = new URL(apiPath, baseUrl).toString();
+  const apiUrl = new URL(apiPath, baseUrl);
 
-  const headers = api.headers;
-  const request = api.put ? superagent.put(apiUrl) : superagent.post(apiUrl);
+  // try {
 
-  try {
-    const res = await request
-      .send(json as object)
-      .set(headers ?? {})
-      .type('json')
-      .accept('json')
-      .retry(3);
-    return res.body;
-  } catch (e) {
-    const err = e as SuperAgentError;
-    throw httpError(`apiCall:`, apiUrl, json, err);
+  const res = await fetch(apiUrl, {
+    method: api.put ? 'PUT' : 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...api.headers
+    },
+    body: JSON.stringify(json)
+  });
+
+  if (!res.body) {
+    throw new Error('Response body is null');
   }
+
+  if (!api.stream) {
+    return await res.json();
+  }
+
+  const st = res.body
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new JSONStringifyStream<TResponse>());
+
+  return st;
 };
 
+// for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+//   console.log('CHUNK', decoder.decode(chunk));
+// }
+
+// const res = await axios.post(apiUrl, json, {
+//   headers: api.headers,
+//   responseType: 'stream'
+//   // responseType: api.stream ? 'stream' : 'json'
+// });
+
+// const res = await request
+//   .send(json as object)
+//   .set(headers ?? {})
+//   .type('json')
+//   .accept('json')
+//   .retry(3);
+// return res.body;
+
+// } catch (e) {
+//   const err = e as SuperAgentError;
+//   throw httpError(`apiCall:`, apiUrl, json, err);
+// }
+
+/*
 export const apiCallWithUpload = async <
   Request,
   Response,
@@ -74,6 +113,7 @@ export const apiCallWithUpload = async <
     throw httpError('apiCallWithUpload', apiUrl, null, e as SuperAgentError);
   }
 };
+*/
 
 export type SuperAgentError = {
   response: superagent.Response;

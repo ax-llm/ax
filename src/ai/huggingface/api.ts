@@ -43,6 +43,8 @@ export class HuggingFace extends BaseAI<
   unknown,
   HuggingFaceResponse,
   unknown,
+  unknown,
+  unknown,
   unknown
 > {
   private options: HuggingFaceOptions;

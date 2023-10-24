@@ -29,6 +29,8 @@ export class Anthropic extends BaseAI<
   unknown,
   AnthropicCompletionResponse,
   unknown,
+  unknown,
+  unknown,
   unknown
 > {
   private options: AnthropicOptions;

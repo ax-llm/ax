@@ -1,5 +1,6 @@
 import { AI } from '../ai/index.js';
 import { Prompt, PromptUpdaterArgs } from '../ai/middleware.js';
+import { TextResponse } from '../ai/types.js';
 import { Pinecone } from '../db/pinecone.js';
 import { DBService } from '../db/types.js';
 import { Weaviate } from '../db/weaviate.js';
@@ -61,14 +62,15 @@ export class VectorMemoryStore {
           ? `${defaultQueryRewritePrompt}: ${prompt}\nQuery:`
           : `${rewriteQueryPrompt}: ${prompt}\nQuery:`;
 
-      const { results } = await ai.chat(
+      const { results } = (await ai.chat(
         { chatPrompt: [{ role: 'system', text: rqPrompt }] },
         {
           traceId: req.traceId,
           sessionId: req.sessionId,
-          stopSequences: ['\n']
+          stopSequences: ['\n'],
+          stream: false
         }
-      );
+      )) as TextResponse;
       const newPrompt = results.at(0)?.text;
 
       if (newPrompt && newPrompt !== '') {

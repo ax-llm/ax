@@ -32,6 +32,8 @@ export class Together extends BaseAI<
   unknown,
   TogetherCompletionResponse,
   unknown,
+  unknown,
+  unknown,
   unknown
 > {
   private options: TogetherOptions;

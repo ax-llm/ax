@@ -56,6 +56,8 @@ export class Cohere extends BaseAI<
   CohereEmbedRequest,
   CohereCompletionResponse,
   unknown,
+  unknown,
+  unknown,
   CohereEmbedResponse
 > {
   private options: CohereOptions;

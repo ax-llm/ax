@@ -110,7 +110,6 @@ export type OpenAICompletionResponse = {
 
 export type OpenAICompletionResponseDelta = OpenAIResponseDelta<{
   text: string;
-  finish_reason: string;
   logprobs?: OpenAILogprob;
 }>;
 
@@ -163,6 +162,8 @@ export type OpenAIChatResponse = {
 export type OpenAIChatResponseDelta = OpenAIResponseDelta<{
   content: string;
   role?: string;
+  // eslint-disable-next-line functional/functional-parameters
+  function_call?: { name: string; arguments: string };
 }>;
 
 export type OpenAIEmbedRequest = {

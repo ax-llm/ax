@@ -34,7 +34,7 @@ export type DBQueryResponse = {
   }[];
 };
 
-export interface DBService {
+export interface DBService extends DBQueryService {
   upsert(
     req: Readonly<DBUpsertRequest>,
     update?: boolean
@@ -43,5 +43,8 @@ export interface DBService {
     batchReq: Readonly<DBUpsertRequest[]>,
     update?: boolean
   ): Promise<DBUpsertResponse[]>;
+}
+
+export interface DBQueryService {
   query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse>;
 }
