@@ -1,5 +1,3 @@
-import superagent from 'superagent';
-
 import { AI } from '../ai/index.js';
 import { DB, DBService } from '../db/index.js';
 import { AIService } from '../text/types.js';
@@ -96,11 +94,16 @@ export class Crawler {
       if (!this.visited[url]) {
         this.visited[url] = true;
         try {
-          const res = await superagent.get(url);
-          if (res.status !== 200 || res.type !== 'text/html') {
+          const res = await fetch(url);
+          const data = await res.text();
+
+          if (
+            res.status !== 200 ||
+            res.headers.get('content-type') !== 'text/html'
+          ) {
             continue;
           }
-          const chunks = this.handleRequest(this.queueUrl, res.text, depth + 1);
+          const chunks = this.handleRequest(this.queueUrl, data, depth + 1);
           await this.vectorizeChunks(url, chunks);
         } catch (e) {
           console.error(e);

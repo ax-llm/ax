@@ -1,9 +1,3 @@
-// import axios from 'axios';
-// import { AxiosResponse } from 'axios';
-// import fetch from 'node-fetch';
-
-import superagent from 'superagent';
-
 import { JSONStringifyStream } from './transform.js';
 /**
  * Util: API details
@@ -115,43 +109,43 @@ export const apiCallWithUpload = async <
 };
 */
 
-export type SuperAgentError = {
-  response: superagent.Response;
-  code: unknown;
-  syscall: unknown;
-  address: unknown;
-  port: unknown;
-  request: unknown;
-};
+// export type SuperAgentError = {
+//   response: superagent.Response;
+//   code: unknown;
+//   syscall: unknown;
+//   address: unknown;
+//   port: unknown;
+//   request: unknown;
+// };
 
-export const httpError = (
-  message: string,
-  apiUrl: string,
-  json: unknown,
-  { response, code, syscall, address, port }: Readonly<SuperAgentError>
-) => {
-  const err = new Error(message) as Error & { data: unknown };
+// export const httpError = (
+//   message: string,
+//   apiUrl: string,
+//   json: unknown,
+//   { response, code, syscall, address, port }: Readonly<SuperAgentError>
+// ) => {
+//   const err = new Error(message) as Error & { data: unknown };
 
-  if (!response) {
-    err.data = {
-      apiUrl,
-      code,
-      syscall,
-      address,
-      port,
-      request: json
-    };
-    return err;
-  }
+//   if (!response) {
+//     err.data = {
+//       apiUrl,
+//       code,
+//       syscall,
+//       address,
+//       port,
+//       request: json
+//     };
+//     return err;
+//   }
 
-  const { headers, status, body } = response;
-  err.data = {
-    apiUrl,
-    statusCode: status,
-    headers,
-    request: json,
-    response: body,
-    error: body.error
-  };
-  return err;
-};
+//   const { headers, status, body } = response;
+//   err.data = {
+//     apiUrl,
+//     statusCode: status,
+//     headers,
+//     request: json,
+//     response: body,
+//     error: body.error
+//   };
+//   return err;
+// };

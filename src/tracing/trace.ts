@@ -1,9 +1,6 @@
 import crypto from 'crypto';
 
-import superagent from 'superagent';
-
 import { TextModelConfig, TextModelInfo, TokenUsage } from '../ai/types.js';
-import { httpError, SuperAgentError } from '../util/apicall.js';
 
 import {
   AITextChatPromptItem,
@@ -374,24 +371,16 @@ export const sendTrace = async (
   const baseUrl = devMode
     ? 'http://localhost:3000'
     : 'https://api.llmclient.com';
-  const apiUrl = new URL(`/api/t/traces`, baseUrl).toString();
+  const apiUrl = new URL(`/api/t/traces`, baseUrl);
 
-  try {
-    await superagent
-      .post(apiUrl)
-      .set('x-api-key', apiKey)
-      .send({ traceId, sessionId, step })
-      .type('json')
-      .accept('json')
-      .retry(3);
-  } catch (e: unknown) {
-    throw httpError(
-      'sendTrace',
-      apiUrl,
-      { traceId, sessionId, step },
-      e as SuperAgentError
-    );
-  }
+  await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey
+    },
+    body: JSON.stringify({ traceId, sessionId, step })
+  });
 };
 
 export const getMemory = async (
@@ -402,23 +391,17 @@ export const getMemory = async (
   const baseUrl = devMode
     ? 'http://localhost:3000'
     : 'https://api.llmclient.com';
-  const apiUrl = new URL(`/api/t/traces/memory`, baseUrl).toString();
+  const apiUrl = new URL(`/api/t/traces/memory`, baseUrl);
 
-  try {
-    const res = await superagent
-      .get(apiUrl)
-      .set('x-api-key', apiKey)
-      .query({ ...filter, limit: filter.limit ?? 10 })
-      .type('json')
-      .accept('json')
-      .retry(3);
-    return res.body?.memory ?? [];
-  } catch (e: unknown) {
-    throw httpError(
-      'getMemory',
-      apiUrl,
-      { ...filter, limit: filter.limit ?? 10 },
-      e as SuperAgentError
-    );
-  }
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey
+    },
+    body: JSON.stringify({ ...filter, limit: filter.limit ?? 10 })
+  });
+
+  const json = await res.json();
+  return json.memory ?? [];
 };
