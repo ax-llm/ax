@@ -1,13 +1,13 @@
 import chalk from 'chalk';
 
-import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types';
-import { FunctionExec } from '../text/types';
+import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types.js';
+import { FunctionExec } from '../text/types.js';
 import {
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest,
   AITextTraceStep
-} from '../tracing/types';
+} from '../tracing/types.js';
 
 export class ConsoleLogger {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

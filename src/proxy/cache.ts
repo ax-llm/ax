@@ -1,4 +1,4 @@
-import { Cache, CacheValue } from './types';
+import { Cache, CacheValue } from './types.js';
 
 /**
  * MemoryCache
@@ -8,7 +8,11 @@ import { Cache, CacheValue } from './types';
 export class MemoryCache<T> implements Cache<T> {
   private store: Map<string, CacheValue<T>> = new Map();
 
-  async set(key: string, value: Readonly<T>, maxAgeSeconds: number): Promise<void> {
+  async set(
+    key: string,
+    value: Readonly<T>,
+    maxAgeSeconds: number
+  ): Promise<void> {
     const expiry = new Date(Date.now() + maxAgeSeconds * 1000);
 
     this.store.set(key, { value, expiry });

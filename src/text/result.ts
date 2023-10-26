@@ -1,9 +1,9 @@
 import Ajv, { JSONSchemaType } from 'ajv';
 import JSON5 from 'json5';
 
-import { TextResponse } from '../ai/types';
+import { TextResponse } from '../ai/types.js';
 
-import { AIPromptConfig, AIService, AIServiceActionOptions } from './types';
+import { AIPromptConfig, AIService, AIServiceActionOptions } from './types.js';
 
 const ajv = new Ajv();
 

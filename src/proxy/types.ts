@@ -1,7 +1,7 @@
 import { IncomingMessage } from 'http';
 
-import { AIMiddleware } from '../ai/types';
-import { AITextTraceStep, APIError } from '../tracing/types';
+import { AIMiddleware } from '../ai/types.js';
+import { AITextTraceStep, APIError } from '../tracing/types.js';
 
 export type ExtendedIncomingMessage = IncomingMessage & {
   reqHash: string;

@@ -1,6 +1,6 @@
-import { JSONSchemaType } from 'ajv/dist/types/json-schema';
+import { JSONSchemaType } from 'ajv';
 
-import { TextModelConfig } from '../types';
+import { TextModelConfig } from '../types.js';
 
 // Transcribe = '/v1/audio/transcriptions',
 

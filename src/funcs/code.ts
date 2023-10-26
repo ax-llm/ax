@@ -5,7 +5,7 @@ import https from 'https';
 import os from 'os';
 import vm from 'vm';
 
-import { PromptFunction } from '../prompts';
+import { PromptFunction } from '../prompts/index.js';
 
 export const JSInterpreterFunction = (
   permissions: readonly CodeInterpreterPermission[] = []

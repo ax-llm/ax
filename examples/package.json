@@ -10,7 +10,7 @@
     "chalk": "^5.2.0",
     "chrono-node": "^2.6.4",
     "dotenv": "^16.3.1",
-    "llmclient": "6.0.2",
+    "llmclient": "6.0.3",
     "superagent": "^8.0.9",
     "vectra": "^0.1.2"
   }

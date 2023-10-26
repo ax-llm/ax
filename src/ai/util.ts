@@ -2,7 +2,7 @@ import {
   AITextChatPromptItem,
   AITextChatRequest,
   AITextCompletionRequest
-} from '../tracing/types';
+} from '../tracing/types.js';
 
 import {
   TextModelInfo,
@@ -10,7 +10,7 @@ import {
   TextResponseFunctionCall,
   TextResponseResult,
   TokenUsage
-} from './types';
+} from './types.js';
 
 export const findItemByNameOrAlias = (
   list: readonly TextModelInfo[],

@@ -1,6 +1,6 @@
 import { JSONSchemaType } from 'ajv';
 
-import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types';
+import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types.js';
 
 export type APIError = {
   pathname: string;

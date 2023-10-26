@@ -1,9 +1,9 @@
 import { IncomingMessage } from 'http';
 import zlib from 'zlib';
 
-import { APIError } from '../tracing/types';
+import { APIError } from '../tracing/types.js';
 
-import { ExtendedIncomingMessage } from './types';
+import { ExtendedIncomingMessage } from './types.js';
 
 export function convertToAPIError(
   req: Readonly<ExtendedIncomingMessage>,
@@ -22,7 +22,7 @@ export function convertToAPIError(
     statusMessage,
     headers: JSON.stringify(headers),
     request: JSON.stringify(req.reqBody),
-    response: JSON.stringify(resBody),
+    response: JSON.stringify(resBody)
   };
 }
 

@@ -1,4 +1,4 @@
-import { TogetherCompletionRequest, TogetherOptions } from './types';
+import { TogetherCompletionRequest, TogetherOptions } from './types.js';
 
 export const generateReq = (
   prompt: string,
@@ -13,5 +13,5 @@ export const generateReq = (
   temperature: opt.temperature,
   top_p: opt.topP,
   top_k: opt.topK,
-  repetition_penalty: opt.repetitionPenalty,
+  repetition_penalty: opt.repetitionPenalty
 });

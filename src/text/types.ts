@@ -7,16 +7,16 @@ import {
   TextModelInfo,
   TextResponse,
   TextResponseResult
-} from '../ai/types';
-import { TextRequestBuilder, TextResponseBuilder } from '../tracing/trace';
+} from '../ai/types.js';
+import { TextRequestBuilder, TextResponseBuilder } from '../tracing/trace.js';
 import {
   AITextChatPromptItem,
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest,
   AITextTraceStep
-} from '../tracing/types';
-import { API } from '../util/apicall';
+} from '../tracing/types.js';
+import { API } from '../util/apicall.js';
 
 export type FunctionExec = {
   name: string;

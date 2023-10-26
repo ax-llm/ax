@@ -1,7 +1,7 @@
-import { ExtendedIncomingMessage } from '../proxy/types';
-import { AITextTraceStep } from '../tracing/types';
+import { ExtendedIncomingMessage } from '../proxy/types.js';
+import { AITextTraceStep } from '../tracing/types.js';
 
-import { PromptUpdater } from './middleware';
+import { PromptUpdater } from './middleware.js';
 
 export type TextModelInfo = {
   name: string;

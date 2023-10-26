@@ -1,9 +1,9 @@
-import { PromptFunction } from '../prompts';
+import { PromptFunction } from '../prompts/index.js';
 import {
   AIService,
   PromptFunctionExtraOptions,
   PromptFunctionFunc
-} from '../text/types';
+} from '../text/types.js';
 
 export const EmbedAdapter = (
   ai: AIService,
