@@ -26,8 +26,6 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const apiPath = api.name ?? '/';
   const apiUrl = new URL(apiPath, baseUrl);
 
-  // try {
-
   const res = await fetch(apiUrl, {
     method: api.put ? 'PUT' : 'POST',
     headers: {

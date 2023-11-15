@@ -1,7 +1,5 @@
 import crypto from 'crypto';
 
-import { JSONSchemaType } from 'ajv';
-
 import { TextResponse } from '../ai/types.js';
 import { convertToChatRequest } from '../ai/util.js';
 import { DBQueryService } from '../db/types.js';
@@ -41,7 +39,7 @@ type InternalOptions = { db?: DBQueryService } & AIPromptConfig &
  * The main class for various text generation tasks
  * @export
  */
-export class AIPrompt<T> {
+export class AIPrompt<T = string> {
   private conf: PromptConfig<T>;
   private funcList?: AITextRequestFunction[];
   private funcProcessor?: FunctionProcessor;
@@ -76,7 +74,7 @@ export class AIPrompt<T> {
       this.funcList = functions.map((f) => ({
         name: f.name,
         description: f.description,
-        parameters: f.inputSchema as JSONSchemaType<unknown>
+        parameters: f.inputSchema
       }));
     }
   }
@@ -89,7 +87,7 @@ export class AIPrompt<T> {
     this.debug = debug;
   }
 
-  prompt(query: string): PromptValues {
+  prompt(query: string): Readonly<PromptValues> {
     return query;
   }
 
@@ -129,18 +127,31 @@ export class AIPrompt<T> {
   async generate(
     ai: AIService,
     query: string,
-    options: Readonly<Options & AIServiceActionOptions> = {}
-  ): Promise<AITextResponse<string | Map<string, string[]> | T>> {
+    options: Readonly<
+      Options & AIServiceActionOptions & { fullResponse?: boolean }
+    > = {}
+  ): Promise<
+    TextResponse | AITextResponse<string | Map<string, string[]> | T>
+  > {
     ai.setOptions({ debug: this.debug });
     const { sessionId, memory, db } = options;
     const { stopSequences } = this.conf;
     const traceId = options.traceId ?? crypto.randomUUID();
 
-    const [, value] = await this._generate(ai, memory || new Memory(), query, {
-      db,
-      traceId,
-      stopSequences
-    });
+    const [res, value] = await this._generate(
+      ai,
+      memory || new Memory(),
+      query,
+      {
+        db,
+        traceId,
+        stopSequences
+      }
+    );
+
+    if (options.fullResponse) {
+      return res;
+    }
 
     return {
       sessionId,
@@ -217,7 +228,7 @@ export class AIPrompt<T> {
       }
 
       const history = mem.history(options?.sessionId);
-      const chatPrompt = [...prompt, ...history];
+      const chatPrompt = [...history, ...prompt];
       const res = (await ai.chat(
         {
           chatPrompt,
@@ -232,7 +243,12 @@ export class AIPrompt<T> {
         throw { message: `No result found`, value: res };
       }
 
-      mem.add(result, options.sessionId);
+      mem.add(
+        prompt.filter((v) => v.role !== 'system'),
+        options.sessionId
+      );
+
+      mem.addResult(result, options.sessionId);
 
       if (!result.functionCall) {
         return [res, result.text ?? ''];
@@ -241,12 +257,11 @@ export class AIPrompt<T> {
       const fc = result.functionCall;
       const fe = await this.funcProcessor?.processFunction(fc, ai, options);
       if (!fe) {
-        throw { message: `Function ${fc.name} not found`, value: res };
+        return [res, result.text ?? ''];
       }
 
       mem.add(
         {
-          id: result.id,
           role: 'function',
           name: fc.name,
           text: fe.result ?? ''

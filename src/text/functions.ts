@@ -2,7 +2,6 @@ import Ajv, { JSONSchemaType } from 'ajv';
 
 import { TextResponseFunctionCall } from '../ai/types.js';
 
-import { parseResult } from './result.js';
 import {
   AIPromptConfig,
   AIService,
@@ -23,39 +22,38 @@ export class FunctionProcessor {
     this.funcList = funcList;
   }
 
-  private executeFunction = async <T = unknown>(
-    fn: Readonly<PromptFunction>,
-    funcArgJSON: string,
+  private executeFunction = async (
+    fnSpec: Readonly<PromptFunction>,
+    func: Readonly<TextResponseFunctionCall>,
     ai: AIService,
     options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<FunctionExec> => {
     const extra = { ai, session: options };
 
-    if (!fn.inputSchema) {
-      const res = fn.func.length === 1 ? await fn.func(extra) : await fn.func();
+    if (!fnSpec.func) {
+      throw new Error(`Function handler for ${fnSpec.name} not implemented`);
+    }
+
+    if (!fnSpec.inputSchema) {
+      const res =
+        fnSpec.func.length === 1
+          ? await fnSpec.func(extra)
+          : await fnSpec.func();
 
       return {
-        name: fn.name,
+        name: fnSpec.name,
         result: JSON.stringify(res, null, 2)
       };
     }
 
-    const funcArgs = await parseResult<T>(
-      ai,
-      options,
-      funcArgJSON,
-      false,
-      fn.inputSchema as JSONSchemaType<T>
-    );
-
     const res =
-      fn.func.length === 2
-        ? await fn.func(funcArgs, extra)
-        : await fn.func(funcArgs);
+      fnSpec.func.length === 2
+        ? await fnSpec.func(func.args, extra)
+        : await fnSpec.func(func.args);
 
     return {
-      name: fn.name,
-      args: funcArgs,
+      name: func.name,
+      args: func.args,
       result: JSON.stringify(res, null, 2)
     };
   };
@@ -64,25 +62,19 @@ export class FunctionProcessor {
     func: Readonly<TextResponseFunctionCall>,
     ai: AIService,
     options: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<FunctionExec> => {
-    const fn = this.funcList.find((v) => v.name.localeCompare(func.name) === 0);
-
-    let funcArgJSON = func.args;
-    if (
-      fn &&
-      (fn.inputSchema as JSONSchemaType<object>)?.type === 'object' &&
-      !funcArgJSON.startsWith('{') &&
-      !funcArgJSON.startsWith('[')
-    ) {
-      funcArgJSON = `{${funcArgJSON}}`;
-    }
-
-    if (!fn) {
+  ): Promise<FunctionExec | undefined> => {
+    const fnSpec = this.funcList.find(
+      (v) => v.name.localeCompare(func.name) === 0
+    );
+    if (!fnSpec) {
       throw new Error(`Function ${func.name} not found`);
+    }
+    if (!fnSpec.func) {
+      return;
     }
 
     // execute value function calls
-    const funcExec = await this.executeFunction(fn, funcArgJSON, ai, options);
+    const funcExec = await this.executeFunction(fnSpec, func, ai, options);
 
     // // signal error if no data returned
     // if (!funcExec.result || funcExec.result.length === 0) {

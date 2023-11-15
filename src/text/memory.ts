@@ -9,8 +9,8 @@ import { AIMemory } from './types.js';
  * @export
  */
 export class Memory implements AIMemory {
-  private data: TextResponseResult[] = [];
-  private sdata = new Map<string, TextResponseResult[]>();
+  private data: AITextChatPromptItem[] = [];
+  private sdata = new Map<string, AITextChatPromptItem[]>();
   private limit: number;
 
   constructor(limit = 50) {
@@ -20,16 +20,31 @@ export class Memory implements AIMemory {
     this.limit = limit;
   }
 
-  add(value: Readonly<TextResponseResult>, sessionId?: string): void {
+  add(
+    value: Readonly<AITextChatPromptItem | AITextChatPromptItem[]>,
+    sessionId?: string
+  ): void {
     const d = this.get(sessionId);
-    d.push(value) > this.limit ? d.shift() : null;
+    let n = 0;
+    if (Array.isArray(value)) {
+      n = d.push(...value);
+    } else {
+      n = d.push(value as AITextChatPromptItem);
+    }
+    if (d.length > this.limit) {
+      d.splice(0, this.limit + n - this.limit);
+    }
+  }
+
+  addResult(result: Readonly<TextResponseResult>, sessionId?: string): void {
+    this.add(convertToChatPromptItem(result), sessionId);
   }
 
   history(sessionId?: string): Readonly<AITextChatPromptItem[]> {
-    return this.get(sessionId).map(convertToChatPromptItem);
+    return this.get(sessionId);
   }
 
-  peek(sessionId?: string): Readonly<TextResponseResult[]> {
+  peek(sessionId?: string): Readonly<AITextChatPromptItem[]> {
     return this.get(sessionId);
   }
 
@@ -41,7 +56,7 @@ export class Memory implements AIMemory {
     }
   }
 
-  private get(sessionId?: string): TextResponseResult[] {
+  private get(sessionId?: string): AITextChatPromptItem[] {
     if (!sessionId) {
       return this.data;
     }

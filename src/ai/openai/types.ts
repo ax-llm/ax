@@ -1,5 +1,3 @@
-import { JSONSchemaType } from 'ajv';
-
 import { TextModelConfig } from '../types.js';
 
 // Transcribe = '/v1/audio/transcriptions',
@@ -10,8 +8,9 @@ import { TextModelConfig } from '../types.js';
  */
 export enum OpenAIModel {
   GPT4 = 'gpt-4',
+  GPT4Turbo = 'gpt-4-1106-preview',
   GPT432K = 'gpt-4-32k',
-  GPT35Turbo = 'gpt-3.5-turbo',
+  GPT35Turbo = 'gpt-3.5-turbo-1106',
   GPT35TurboInstruct = 'gpt-3.5-turbo-instruct',
   GPT35Turbo16K = 'gpt-3.5-turbo-16k',
   GPT35TextDavinci003 = 'text-davinci-003',
@@ -106,6 +105,12 @@ export type OpenAICompletionResponse = {
     logprobs?: OpenAILogprob;
   }[];
   usage?: OpenAIUsage;
+  error?: {
+    message: string;
+    type: string;
+    param: string;
+    code: number;
+  };
 };
 
 export type OpenAICompletionResponseDelta = OpenAIResponseDelta<{
@@ -125,7 +130,7 @@ export type OpenAIChatRequest = {
   functions?: {
     name: string;
     description?: string;
-    parameters: JSONSchemaType<unknown>;
+    parameters: unknown;
   }[];
   function_call?: 'none' | 'auto' | { name: string };
   max_tokens: number;
@@ -157,6 +162,12 @@ export type OpenAIChatResponse = {
     finish_reason: string;
   }[];
   usage?: OpenAIUsage;
+  error?: {
+    message: string;
+    type: string;
+    param: string;
+    code: number;
+  };
 };
 
 export type OpenAIChatResponseDelta = OpenAIResponseDelta<{

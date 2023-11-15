@@ -1,7 +1,13 @@
+import crypto from 'crypto';
+
+import Ajv, { JSONSchemaType, Schema } from 'ajv';
+import JSON5 from 'json5';
+
 import {
   AITextChatPromptItem,
   AITextChatRequest,
-  AITextCompletionRequest
+  AITextCompletionRequest,
+  AITextRequestFunction
 } from '../tracing/types.js';
 
 import {
@@ -11,6 +17,8 @@ import {
   TextResponseResult,
   TokenUsage
 } from './types.js';
+
+const ajv = new Ajv();
 
 export const findItemByNameOrAlias = (
   list: readonly TextModelInfo[],
@@ -85,7 +93,7 @@ export function convertToChatPromptItem(
   const functionCall = responseResult.functionCall
     ? {
         name: responseResult.functionCall.name,
-        args: responseResult.functionCall.args
+        args: JSON.stringify(responseResult.functionCall.args)
       }
     : undefined;
 
@@ -114,15 +122,58 @@ export const parseFunction = (
   return;
 };
 
-export const parseAndAddFunction = (res: Readonly<TextResponse>) => {
+export const parseAndAddFunction = (
+  functions: Readonly<AITextRequestFunction[]>,
+  res: Readonly<TextResponse>
+) => {
   res.results.forEach((v) => {
+    console.log('##', JSON.stringify(v, null, 2));
+
+    // if (!v.functionCall) {
+    //   const _fn = parseFunction(v.text);
+    //   if (_fn) {
+    //     v.functionCall = _fn;
+    //     v.role = 'assistant';
+    //   }
+    // }
+
     if (!v.functionCall) {
-      const _fn = parseFunction(v.text);
-      if (_fn) {
-        v.functionCall = _fn;
-        v.role = 'assistant';
-      }
+      return;
     }
+
+    const fnSpec = functions.find((f) => f.name === v.functionCall?.name);
+    if (!fnSpec) {
+      throw new Error(`Function ${v.functionCall?.name} not found`);
+    }
+
+    let funcArgJSON = v.functionCall.args as string;
+
+    if (
+      fnSpec &&
+      (fnSpec.parameters as JSONSchemaType<object>)?.type === 'object' &&
+      !funcArgJSON.startsWith('{') &&
+      !funcArgJSON.startsWith('[')
+    ) {
+      funcArgJSON = `{${funcArgJSON}}`;
+    }
+
+    let obj: object;
+
+    console.log('>>', v.functionCall.name, funcArgJSON);
+
+    try {
+      obj = JSON5.parse<object>(funcArgJSON);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
+      throw new Error((e as Error).message.replace(/^JSON5:/, ''));
+    }
+
+    const valid = ajv.validate(fnSpec.parameters as Schema, obj);
+    if (!valid) {
+      throw new Error(ajv.errorsText());
+    }
+
+    v.functionCall.args = obj;
   });
 };
 
@@ -176,3 +227,9 @@ export function mergeTextResponses(
     embedModelUsage: lastEmbedModelUsage
   };
 }
+
+export const hashObject = (obj: object) => {
+  const hash = crypto.createHash('sha256');
+  hash.update(JSON.stringify(obj));
+  return hash.digest('hex');
+};

@@ -1,5 +1,3 @@
-import { JSONSchemaType } from 'ajv';
-
 import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types.js';
 
 export type APIError = {
@@ -28,7 +26,7 @@ export type AITextChatPromptItem = {
 export type AITextRequestFunction = {
   name: string;
   description?: string;
-  parameters: JSONSchemaType<unknown>;
+  parameters: unknown;
 };
 
 export type AITextRequestFunctionCall = {

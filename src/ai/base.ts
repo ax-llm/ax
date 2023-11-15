@@ -23,6 +23,7 @@ import {
 import { API, apiCall } from '../util/apicall.js';
 import { RespTransformStream } from '../util/transform.js';
 
+import { MemoryCache } from './cache.js';
 import {
   EmbedResponse,
   RateLimiterFunction,
@@ -33,9 +34,12 @@ import {
 import {
   convertToChatRequest,
   convertToCompletionRequest,
+  hashObject,
   mergeTextResponses,
   parseAndAddFunction
 } from './util.js';
+
+const cache = new MemoryCache<TextResponse>();
 
 export class BaseAI<
   TCompletionRequest,
@@ -138,10 +142,10 @@ export class BaseAI<
 
     if (options.llmClientAPIKey) {
       this.remoteLog.setAPIKey(options.llmClientAPIKey);
-    }
 
-    if (this.debug) {
-      this.remoteLog.printDebugInfo();
+      if (this.debug) {
+        this.remoteLog.printDebugInfo();
+      }
     }
   }
 
@@ -212,6 +216,16 @@ export class BaseAI<
       stopSequences: []
     }
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    let hashKey: string | undefined;
+
+    if (options.cache) {
+      hashKey = hashObject(_req);
+      const cached = await cache.get(hashKey);
+      if (cached) {
+        return cached;
+      }
+    }
+
     if (!this.generateCompletionReq && this.generateChatReq) {
       return await this.chat(convertToChatRequest(_req), options);
     }
@@ -273,8 +287,14 @@ export class BaseAI<
 
       const doneCb = (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
-        parseAndAddFunction(res);
+        if (req.functions) {
+          parseAndAddFunction(req.functions, res);
+        }
         this.setStepTextResponse(res, startTime);
+
+        if (options.cache && hashKey) {
+          cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+        }
       };
 
       const st = (rv as ReadableStream<TCompletionResponseDelta>).pipeThrough(
@@ -289,11 +309,18 @@ export class BaseAI<
     if (!this.generateCompletionResp) {
       throw new Error('generateCompletionResp not implemented');
     }
+
     const res = this.generateCompletionResp(rv as TCompletionResponse);
-    parseAndAddFunction(res);
+    if (req.functions) {
+      parseAndAddFunction(req.functions, res);
+    }
 
     this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
+
+    if (options.cache && hashKey) {
+      cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+    }
     return res;
   }
 
@@ -303,6 +330,16 @@ export class BaseAI<
       stopSequences: []
     }
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    let hashKey: string | undefined;
+
+    if (options.cache) {
+      hashKey = hashObject(_req);
+      const cached = await cache.get(hashKey);
+      if (cached) {
+        return cached;
+      }
+    }
+
     if (!this.generateChatReq && this.generateCompletionReq) {
       return await this.completion(convertToCompletionRequest(_req), options);
     }
@@ -362,8 +399,13 @@ export class BaseAI<
 
       const doneCb = (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
-        parseAndAddFunction(res);
+        if (req.functions) {
+          parseAndAddFunction(req.functions, res);
+        }
         this.setStepTextResponse(res, startTime);
+        if (options.cache && hashKey) {
+          cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+        }
       };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
@@ -379,10 +421,16 @@ export class BaseAI<
       throw new Error('generateChatResp not implemented');
     }
     const res = this.generateChatResp(rv as TChatResponse);
-    parseAndAddFunction(res);
+    if (req.functions) {
+      parseAndAddFunction(req.functions, res);
+    }
 
     this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
+
+    if (options.cache && hashKey) {
+      cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+    }
     return res;
   }
 
@@ -503,6 +551,15 @@ const logCompletionRequest = (req: Readonly<AITextCompletionRequest>) => {
       'prompt'
     )}: ${req.prompt}`
   );
+  if (req.functions) {
+    console.log(
+      `${chalk.blueBright('functions')}: ${JSON.stringify(
+        req.functions,
+        null,
+        2
+      )}`
+    );
+  }
 };
 
 const logChatRequest = (req: Readonly<AITextChatRequest>) => {
@@ -512,6 +569,15 @@ const logChatRequest = (req: Readonly<AITextChatRequest>) => {
       (v) => `${chalk.blueBright('> ' + v.role)}: ${v.text}`
     ) ?? [];
   console.log(items.join('\n'));
+  if (req.functions) {
+    console.log(
+      `${chalk.blueBright('functions')}: ${JSON.stringify(
+        req.functions,
+        null,
+        2
+      )}`
+    );
+  }
 };
 
 const logResponse = (res: Readonly<TextResponse>) => {

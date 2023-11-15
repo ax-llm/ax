@@ -32,12 +32,13 @@ export class SPrompt<S> extends AIPrompt<S> {
     super({
       functions,
       stopSequences: ['Result:'],
-      response: { schema: resultSchema }
+      response: { schema: resultSchema },
+      cache: true
     });
     this.useFunctions = functions.length > 0;
   }
 
-  override prompt(query: string): PromptValues {
+  override prompt(query: string): Readonly<PromptValues> {
     if (this.useFunctions) {
       return [
         { role: 'system', text: COT_SYSTEM_PROMPT },

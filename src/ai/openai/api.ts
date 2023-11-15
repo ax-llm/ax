@@ -42,11 +42,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
   maxTokens: 500,
   temperature: 0.1,
   topP: 0.9,
-  frequencyPenalty: 0.5,
-  logitBias: new Map([
-    ['90', 70],
-    ['1298', 70]
-  ])
+  frequencyPenalty: 0.5
 });
 
 /**
@@ -55,7 +51,7 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
  */
 export const OpenAIBestModelOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
-  model: OpenAIModel.GPT4
+  model: OpenAIModel.GPT4Turbo
 });
 
 /**
@@ -65,8 +61,7 @@ export const OpenAIBestModelOptions = (): OpenAIOptions => ({
 export const OpenAICreativeOptions = (): OpenAIOptions => ({
   ...OpenAIDefaultOptions(),
   model: OpenAIModel.GPT35Turbo,
-  temperature: 0.9,
-  logitBias: undefined
+  temperature: 0.9
 });
 
 /**
@@ -277,7 +272,11 @@ export class OpenAI extends BaseAI<
   generateCompletionResp = (
     resp: Readonly<OpenAICompletionResponse>
   ): TextResponse => {
-    const { id, usage, choices } = resp;
+    const { id, usage, choices, error } = resp;
+
+    if (error) {
+      throw error;
+    }
 
     const modelUsage = usage
       ? {
@@ -325,7 +324,11 @@ export class OpenAI extends BaseAI<
   };
 
   generateChatResp = (resp: Readonly<OpenAIChatResponse>): TextResponse => {
-    const { id, usage, choices } = resp;
+    const { id, usage, choices, error } = resp;
+
+    if (error) {
+      throw error;
+    }
 
     const modelUsage = usage
       ? {

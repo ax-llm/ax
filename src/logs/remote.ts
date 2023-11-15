@@ -32,6 +32,7 @@ export class RemoteLogger {
     if (!this.apiKey || this.apiKey.length === 0) {
       return;
     }
+    console.log(chalk.greenBright(JSON.stringify(trace, null, 2)));
     await sendTrace(trace, this.apiKey);
   }
 }

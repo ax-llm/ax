@@ -38,7 +38,7 @@ export type TextModelConfig = {
 
 export type TextResponseFunctionCall = {
   name: string;
-  args: string;
+  args: unknown;
 };
 
 export type TextResponseResult = {

@@ -34,9 +34,13 @@ export type AITextResponse<T> = {
 };
 
 export interface AIMemory {
-  add(result: Readonly<TextResponseResult>, sessionId?: string): void;
+  add(
+    result: Readonly<AITextChatPromptItem | AITextChatPromptItem[]>,
+    sessionId?: string
+  ): void;
+  addResult(result: Readonly<TextResponseResult>, sessionId?: string): void;
   history(sessionId?: string): Readonly<AITextChatPromptItem[]>;
-  peek(sessionId?: string): Readonly<TextResponseResult[]>;
+  peek(sessionId?: string): Readonly<AITextChatPromptItem[]>;
   reset(sessionId?: string): void;
 }
 
@@ -56,7 +60,7 @@ export type PromptFunction = {
   readonly name: string;
   readonly description: string;
   readonly inputSchema?: unknown;
-  func: PromptFunctionFunc;
+  func?: PromptFunctionFunc;
 };
 
 export type PromptResponseConfig<T> = {
@@ -75,6 +79,8 @@ export type PromptConfig<T> = AIPromptConfig & {
 export type AIPromptConfig = {
   stopSequences: string[];
   stream?: boolean;
+  cache?: boolean;
+  cacheMaxAgeSeconds?: number;
 };
 
 export type AITranscribeConfig = {
