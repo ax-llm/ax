@@ -1,4 +1,4 @@
-# LLMClient - An LLM Proxy with Tracing, Long-Term Memory and Vector DB Integration.
+# LLMClient - An LLM Framework for bulding Agents
 
 🌵 🦙 🔥 ❤️ 🖖🏼
 
