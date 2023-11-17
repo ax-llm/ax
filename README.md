@@ -8,99 +8,8 @@
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-## Log all your LLM interactions
 
-<div>
-  <img src="http://llmclient.com/images/providers/openai.png" alt="OpenAI" height="80" align="middle">
-  <img src="http://llmclient.com/images/providers/huggingface.png" alt="HuggingFace" height="80" align="middle">
-  <img src="http://llmclient.com/images/providers/anthropic.png" alt="Anthropic" height="50" align="middle">
-  <img src="http://llmclient.com/images/providers/cohere.png" alt="Cohere" height="50" align="middle">
-  <img src="http://llmclient.com/images/providers/together.png" alt="Together" height="50" align="middle">
-  <img src="http://llmclient.com/images/providers/google.png" alt="Google" height="50" align="middle">
-</div>
-
-A quick proxy server to help debug and trace all your llm interactions while you develop your prompts and LLM powered apps. The proxy has builtin caching to speedup your dev workflows and to save you from paying token costs. **The proxy works with any llm api in any language you don't even have to use llmclient.**
-
-> If you want to view your traces to the hosted web ui then just set the `LLMC_APIKEY` environment variable to your app key from llmclient.com
-
-Start local dev proxy server on port 8081
-
-```console
-npx llmclient:latest proxy
-```
-
-Point your code to local dev proxy server
-
-```
-http://localhost:8081/openai/v1
-```
-
-Connect your LLM code to the proxy server
-
-```javascript
-// Example using openai client library
-import OpenAI from 'openai';
-
-// Point the openai client to the proxy
-const openai = new OpenAI({
-  baseURL: 'http://localhost:8081/openai/v1',
-  apiKey: process.env.OPENAI_APIKEY
-});
-
-const chatCompletion = await openai.chat.completions.create({
-  messages: [{ role: 'user', content: 'Say this is a test' }],
-  model: 'gpt-3.5-turbo'
-});
-
-console.log(chatCompletion);
-```
-
-## Web UI for Debugging, Tracing and Metrics
-
-A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
-
-> Sign-up at https://llmclient.com and get your API Key
-
-### Long Term Memory
-
-Automatically have the previous conversation added to the prompt to provide a long running context. To enable set the below http header fetch the previous conversation based on `session id` or `user`. An LLM client API key is required to fetch previous logged chats.
-
-```
-# LLMClient API Key from https://lmclient.com
-x-llmclient-apikey: lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32
-
-# Use the value of the openai api `user` field to fetch previous conversations
-x-llmclient-memory: user
-
-# Use the value of the `session id` field to fetch previous conversations
-x-llmclient-sessionid: 1234
-x-llmclient-memory: session
-```
-
-### Vector DB Support (Builtin RAG)
-
-Retrieval augmented generation (RAG) is a very common LLM uscase where you need to fetch data similiar to the prompt from vector db store and merge it with the prompt to help the LLM answer the provided question. You can now automatically have RAG handled for you when using this proxy just by setting the below headers. Pinecone and Weaviate vector databases are both supported. RAG does not need an LLMClient API key.
-
-```
-x-llmclient-db-host: <weaviate-host-url>
-x-llmclient-db-apikey: <weaviate-api-key>
-x-llmclient-db-table: <weaviate-class-name>
-x-llmclient-db-values: <weaviate-metadata-fieldnames> (comma seperated)
-```
-
-Optional values for additional features like RAG query rewriting. We will use the provided prompt (or a default one) to rewrite the query to improve the vector db search results.
-
-```
-x-llmclient-db-namespace: <weaviate-namespace-name>
-x-llmclient-db-rewrite-query: true
-x-llmclient-db-rewrite-query-prompt: <prompt text to use to reframe rag query> (optional)
-```
-
-![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
-
----
-
-## A simple library to build with all supported LLMs
+## A simple library to build RAG + Reasoning + Function calling Agents
 
 LLMClient is also a simple library to build chain of though and function calling workflows with all LLMs. Built in support for error-correction, structured data extraction, guardrails, etc
 
@@ -461,6 +370,99 @@ prompt.setDebug(true);
 
 5. **How do I get debug logs**
    You have to enable it on the the prompt object `const prompt = new SPrompt(restaurant, funcs); prompt.setDebug(true);` and the logs will be displayed on the console.
+
+---
+
+## LLM Proxy
+
+<div>
+  <img src="http://llmclient.com/images/providers/openai.png" alt="OpenAI" height="80" align="middle">
+  <img src="http://llmclient.com/images/providers/huggingface.png" alt="HuggingFace" height="80" align="middle">
+  <img src="http://llmclient.com/images/providers/anthropic.png" alt="Anthropic" height="50" align="middle">
+  <img src="http://llmclient.com/images/providers/cohere.png" alt="Cohere" height="50" align="middle">
+  <img src="http://llmclient.com/images/providers/together.png" alt="Together" height="50" align="middle">
+  <img src="http://llmclient.com/images/providers/google.png" alt="Google" height="50" align="middle">
+</div>
+
+A quick proxy server to help debug and trace all your llm interactions while you develop your prompts and LLM powered apps. The proxy has builtin caching to speedup your dev workflows and to save you from paying token costs. **The proxy works with any llm api in any language you don't even have to use llmclient.**
+
+> If you want to view your traces to the hosted web ui then just set the `LLMC_APIKEY` environment variable to your app key from llmclient.com
+
+Start local dev proxy server on port 8081
+
+```console
+npx llmclient:latest proxy
+```
+
+Point your code to local dev proxy server
+
+```
+http://localhost:8081/openai/v1
+```
+
+Connect your LLM code to the proxy server
+
+```javascript
+// Example using openai client library
+import OpenAI from 'openai';
+
+// Point the openai client to the proxy
+const openai = new OpenAI({
+  baseURL: 'http://localhost:8081/openai/v1',
+  apiKey: process.env.OPENAI_APIKEY
+});
+
+const chatCompletion = await openai.chat.completions.create({
+  messages: [{ role: 'user', content: 'Say this is a test' }],
+  model: 'gpt-3.5-turbo'
+});
+
+console.log(chatCompletion);
+```
+
+## Web UI for Debugging, Tracing and Metrics
+
+A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
+
+> Sign-up at https://llmclient.com and get your API Key
+
+### Long Term Memory
+
+Automatically have the previous conversation added to the prompt to provide a long running context. To enable set the below http header fetch the previous conversation based on `session id` or `user`. An LLM client API key is required to fetch previous logged chats.
+
+```
+# LLMClient API Key from https://lmclient.com
+x-llmclient-apikey: lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32
+
+# Use the value of the openai api `user` field to fetch previous conversations
+x-llmclient-memory: user
+
+# Use the value of the `session id` field to fetch previous conversations
+x-llmclient-sessionid: 1234
+x-llmclient-memory: session
+```
+
+### Vector DB Support (Builtin RAG)
+
+Retrieval augmented generation (RAG) is a very common LLM uscase where you need to fetch data similiar to the prompt from vector db store and merge it with the prompt to help the LLM answer the provided question. You can now automatically have RAG handled for you when using this proxy just by setting the below headers. Pinecone and Weaviate vector databases are both supported. RAG does not need an LLMClient API key.
+
+```
+x-llmclient-db-host: <weaviate-host-url>
+x-llmclient-db-apikey: <weaviate-api-key>
+x-llmclient-db-table: <weaviate-class-name>
+x-llmclient-db-values: <weaviate-metadata-fieldnames> (comma seperated)
+```
+
+Optional values for additional features like RAG query rewriting. We will use the provided prompt (or a default one) to rewrite the query to improve the vector db search results.
+
+```
+x-llmclient-db-namespace: <weaviate-namespace-name>
+x-llmclient-db-rewrite-query: true
+x-llmclient-db-rewrite-query-prompt: <prompt text to use to reframe rag query> (optional)
+```
+
+![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
+
 
 ## Reach out
 
