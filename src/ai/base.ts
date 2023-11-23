@@ -183,7 +183,7 @@ export class BaseAI<
     );
   }
 
-  logTrace(): void {
+  async logTrace(): Promise<void> {
     if (
       !this.traceStepBuilder ||
       !this.traceStepReqBuilder ||
@@ -198,7 +198,7 @@ export class BaseAI<
       .build();
 
     if (this.remoteLog) {
-      this.remoteLog?.log?.(traceStep);
+      await this.remoteLog?.log?.(traceStep);
     }
 
     if (this.log) {
@@ -285,12 +285,12 @@ export class BaseAI<
         return res;
       };
 
-      const doneCb = (values: readonly TextResponse[]) => {
+      const doneCb = async (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
         if (req.functions) {
           parseAndAddFunction(req.functions, res);
         }
-        this.setStepTextResponse(res, startTime);
+        await this.setStepTextResponse(res, startTime);
 
         if (options.cache && hashKey) {
           cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
@@ -315,7 +315,7 @@ export class BaseAI<
       parseAndAddFunction(req.functions, res);
     }
 
-    this.setStepTextResponse(res, new Date().getTime() - startTime);
+    await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
 
     if (options.cache && hashKey) {
@@ -397,12 +397,12 @@ export class BaseAI<
         return res;
       };
 
-      const doneCb = (values: readonly TextResponse[]) => {
+      const doneCb = async (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
         if (req.functions) {
           parseAndAddFunction(req.functions, res);
         }
-        this.setStepTextResponse(res, startTime);
+        await this.setStepTextResponse(res, startTime);
         if (options.cache && hashKey) {
           cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
         }
@@ -425,7 +425,7 @@ export class BaseAI<
       parseAndAddFunction(req.functions, res);
     }
 
-    this.setStepTextResponse(res, new Date().getTime() - startTime);
+    await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
 
     if (options.cache && hashKey) {
@@ -522,7 +522,7 @@ export class BaseAI<
       .setSessionId(options?.sessionId);
   }
 
-  setStepTextResponse(res: Readonly<TextResponse>, startTime: number) {
+  async setStepTextResponse(res: Readonly<TextResponse>, startTime: number) {
     if (this.debug) {
       logResponse(res as TextResponse);
     }
@@ -533,7 +533,7 @@ export class BaseAI<
       .setModelResponseTime(new Date().getTime() - startTime);
 
     if (!this.disableLog) {
-      this.logTrace();
+      await this.logTrace();
     }
   }
 

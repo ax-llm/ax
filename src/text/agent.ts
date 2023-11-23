@@ -34,8 +34,17 @@ export type StepAgentRequest = {
 export type AgentOptions = {
   agentPrompt?: string;
   contextLabel?: string;
-  trimResult?: boolean;
+  historyUpdater?: HistoryUpdater;
+  functionsUpdater?: FunctionsUpdater;
 };
+
+export type HistoryUpdater = (
+  arg0: Readonly<AITextChatPromptItem>
+) => AITextChatPromptItem | null;
+
+export type FunctionsUpdater = (
+  arg0: Readonly<AITextChatRequest>
+) => Readonly<AITextRequestFunction>[];
 
 export class Agent {
   private readonly ai: AIService;
@@ -43,8 +52,9 @@ export class Agent {
 
   private readonly agentPrompt: string;
   private readonly contextLabel: string;
-  private readonly trimResult: boolean;
   private readonly agentFuncs: Readonly<AITextRequestFunction>[];
+  private readonly historyUpdater?: HistoryUpdater;
+  private readonly functionsUpdater?: FunctionsUpdater;
 
   constructor(
     ai: AIService,
@@ -58,12 +68,13 @@ export class Agent {
     this.agentFuncs = agentFuncs;
     this.contextLabel = options?.contextLabel ?? 'Context';
     this.agentPrompt = options?.agentPrompt ?? agentPrompt;
-    this.trimResult = options?.trimResult ?? false;
+    this.historyUpdater = options?.historyUpdater;
+    this.functionsUpdater = options?.functionsUpdater;
   }
 
   agentRequest = (
     item: readonly AITextChatPromptItem[]
-  ): Readonly<AITextChatRequest> => ({
+  ): AITextChatRequest => ({
     chatPrompt: [{ role: 'system', text: this.agentPrompt }, ...item],
     functions: this.agentFuncs,
     functionCall: 'auto'
@@ -76,13 +87,24 @@ export class Agent {
   ) => {
     let history = this.memory.history(traceId);
 
-    if (this.trimResult) {
-      history = history.map((v) =>
-        v.role === 'function' ? { ...v, text: 'success' } : v
-      );
+    if (this.historyUpdater) {
+      history = history
+        .map(this.historyUpdater)
+        .filter(Boolean) as AITextChatPromptItem[];
     }
 
     const req = this.agentRequest([...history, item]);
+
+    if (this.functionsUpdater) {
+      const res = this.functionsUpdater(req);
+      if (res.length === 0) {
+        req.functions = undefined;
+        req.functionCall = undefined;
+      } else {
+        req.functions = res;
+        req.functionCall = 'auto';
+      }
+    }
 
     const res = (await this.ai.chat(req, {
       stopSequences: [],

@@ -140,7 +140,8 @@ export class TextResponseBuilder {
   setResults(
     results?: Readonly<{ text: string; id?: string; finishReason?: string }[]>
   ): this {
-    this.response.results = results ?? [];
+    this.response.results =
+      results?.map((v) => ({ ...v, text: v.text ?? '' })) ?? [];
     return this;
   }
 
@@ -305,6 +306,15 @@ export class TextRequestBuilder {
   }
 
   build(): Readonly<AITextTraceStepRequest> {
+    const chatReq = this.request as AITextChatRequest;
+    if (chatReq.chatPrompt) {
+      const chatPrompt = chatReq.chatPrompt.map((v) => ({
+        ...v,
+        text: v.text ?? '',
+        role: v.role ?? 'system'
+      }));
+      chatReq.chatPrompt = chatPrompt;
+    }
     return this.request;
   }
 }
@@ -373,7 +383,7 @@ export const sendTrace = async (
     : 'https://api.llmclient.com';
   const apiUrl = new URL(`/api/t/traces`, baseUrl);
 
-  await fetch(apiUrl, {
+  const res = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -381,6 +391,22 @@ export const sendTrace = async (
     },
     body: JSON.stringify({ traceId, sessionId, step })
   });
+
+  const respText = await res.text();
+  let respVal: string;
+
+  try {
+    const json = JSON.parse(respText);
+    respVal = JSON.stringify(json, null, 2);
+
+    if (json.error) {
+      throw new Error(`Sending trace to ${apiUrl}:\n${respVal}`);
+    }
+  } catch (e) {
+    throw new Error(`Sending trace to ${apiUrl}:\n${respText}`);
+  }
+
+  console.log(`Sent trace to ${apiUrl}:\n${respVal}`);
 };
 
 export const getMemory = async (

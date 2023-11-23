@@ -32,7 +32,13 @@ export class RemoteLogger {
     if (!this.apiKey || this.apiKey.length === 0) {
       return;
     }
-    console.log(chalk.greenBright(JSON.stringify(trace, null, 2)));
-    await sendTrace(trace, this.apiKey);
+    // console.log(chalk.greenBright(JSON.stringify(trace, null, 2)));
+    try {
+      await sendTrace(trace, this.apiKey);
+    } catch (e) {
+      console.log(
+        chalk.redBright(`Failed to send trace to remote server: ${e}`)
+      );
+    }
   }
 }

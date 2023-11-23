@@ -127,8 +127,6 @@ export const parseAndAddFunction = (
   res: Readonly<TextResponse>
 ) => {
   res.results.forEach((v) => {
-    console.log('##', JSON.stringify(v, null, 2));
-
     // if (!v.functionCall) {
     //   const _fn = parseFunction(v.text);
     //   if (_fn) {
@@ -158,8 +156,6 @@ export const parseAndAddFunction = (
     }
 
     let obj: object;
-
-    console.log('>>', v.functionCall.name, funcArgJSON);
 
     try {
       obj = JSON5.parse<object>(funcArgJSON);
