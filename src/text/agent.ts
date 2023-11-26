@@ -36,6 +36,7 @@ export type AgentOptions = {
   contextLabel?: string;
   historyUpdater?: HistoryUpdater;
   functionsUpdater?: FunctionsUpdater;
+  cache?: boolean;
 };
 
 export type HistoryUpdater = (
@@ -55,6 +56,7 @@ export class Agent {
   private readonly agentFuncs: Readonly<AITextRequestFunction>[];
   private readonly historyUpdater?: HistoryUpdater;
   private readonly functionsUpdater?: FunctionsUpdater;
+  private readonly cache: boolean;
 
   constructor(
     ai: AIService,
@@ -70,6 +72,7 @@ export class Agent {
     this.agentPrompt = options?.agentPrompt ?? agentPrompt;
     this.historyUpdater = options?.historyUpdater;
     this.functionsUpdater = options?.functionsUpdater;
+    this.cache = options?.cache ?? false;
   }
 
   agentRequest = (
@@ -109,7 +112,7 @@ export class Agent {
     const res = (await this.ai.chat(req, {
       stopSequences: [],
       traceId,
-      cache: true
+      cache: this.cache
     })) as TextResponse;
     const result = res.results.at(0);
 
