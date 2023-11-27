@@ -132,14 +132,10 @@ export class Agent {
     return null;
   };
 
-  start = async (req: Readonly<NewAgentRequest>) => {
-    const { traceId, task, context } = req;
-
-    const item = {
-      role: 'user',
-      text: `Task:\n${task}\n\n${this.contextLabel}:\n${context}`
-    };
-
+  private chatExpectFunction = async (
+    item: Readonly<AITextChatPromptItem>,
+    traceId: string
+  ) => {
     try {
       for (let i = 0; i < 3; i++) {
         const generateMore = i > 0;
@@ -159,6 +155,17 @@ export class Agent {
     throw new Error('No function defined in response');
   };
 
+  start = async (req: Readonly<NewAgentRequest>) => {
+    const { traceId, task, context } = req;
+
+    const item = {
+      role: 'user',
+      text: `Task:\n${task}\n\n${this.contextLabel}:\n${context}`
+    };
+
+    return this.chatExpectFunction(item, traceId);
+  };
+
   next = async (traceId: string, req: Readonly<StepAgentRequest>) => {
     const { functionCall } = req;
     const { name, result: text } = functionCall;
@@ -169,12 +176,6 @@ export class Agent {
       text
     };
 
-    try {
-      const res = await this.chat(item, traceId, false);
-      return res;
-    } catch (error) {
-      console.error('ERROR', error);
-      return { error };
-    }
+    return this.chatExpectFunction(item, traceId);
   };
 }
