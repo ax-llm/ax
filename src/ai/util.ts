@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-import Ajv, { JSONSchemaType, Schema } from 'ajv';
+import Ajv, { Schema } from 'ajv';
 import JSON5 from 'json5';
 
 import {
@@ -144,16 +144,16 @@ export const parseAndAddFunction = (
       throw new Error(`Function ${v.functionCall?.name} not found`);
     }
 
-    let funcArgJSON = v.functionCall.args as string;
+    const funcArgJSON = v.functionCall.args as string;
 
-    if (
-      fnSpec &&
-      (fnSpec.parameters as JSONSchemaType<object>)?.type === 'object' &&
-      !funcArgJSON.startsWith('{') &&
-      !funcArgJSON.startsWith('[')
-    ) {
-      funcArgJSON = `{${funcArgJSON}}`;
-    }
+    // if (
+    //   fnSpec &&
+    //   (fnSpec.parameters as JSONSchemaType<object>)?.type === 'object' &&
+    //   !funcArgJSON.startsWith('{') &&
+    //   !funcArgJSON.startsWith('[')
+    // ) {
+    //   funcArgJSON = `{${funcArgJSON}}`;
+    // }
 
     let obj: object;
 
@@ -161,7 +161,8 @@ export const parseAndAddFunction = (
       obj = JSON5.parse<object>(funcArgJSON);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) {
-      throw new Error((e as Error).message.replace(/^JSON5:/, ''));
+      const parseError = (e as Error).message.replace(/^JSON5:/, '');
+      throw new Error(`Error parsing function:\n${funcArgJSON}\n${parseError}`);
     }
 
     const valid = ajv.validate(fnSpec.parameters as Schema, obj);

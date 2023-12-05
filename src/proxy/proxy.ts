@@ -22,7 +22,7 @@ export class LLMProxy {
     this.proxy = httpProxy.createProxyServer({
       secure: false,
       prependPath: true,
-      changeOrigin: true,
+      changeOrigin: true
     });
     addHandlers(this.proxy, cache, this.debug);
   }

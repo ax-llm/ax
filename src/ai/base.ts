@@ -552,39 +552,38 @@ const logCompletionRequest = (req: Readonly<AITextCompletionRequest>) => {
     )}: ${req.prompt}`
   );
   if (req.functions) {
-    console.log(
-      `${chalk.blueBright('functions')}: ${JSON.stringify(
-        req.functions,
-        null,
-        2
-      )}`
-    );
+    const funcs = req.functions.map((v) => v.name).join(', ');
+    console.log(`${chalk.blueBright('functions')}: ${funcs}`);
   }
 };
 
 const logChatRequest = (req: Readonly<AITextChatRequest>) => {
-  console.log(chalk.whiteBright('Request: '));
   const items =
-    req.chatPrompt?.map(
-      (v) => `${chalk.blueBright('> ' + v.role)}: ${v.text}`
-    ) ?? [];
-  console.log(items.join('\n'));
+    req.chatPrompt?.map((v) => `${chalk.blueBright(v.role)}: ${v.text}`) ?? [];
+
+  console.log(`${chalk.whiteBright('Request:')}\n${items.join('\n')}`);
+
   if (req.functions) {
-    console.log(
-      `${chalk.blueBright('functions')}: ${JSON.stringify(
-        req.functions,
-        null,
-        2
-      )}`
-    );
+    const funcs = req.functions.map((v) => v.name).join(', ');
+    console.log(`${chalk.blueBright('Functions:')} ${funcs}`);
   }
 };
 
 const logResponse = (res: Readonly<TextResponse>) => {
-  console.log(chalk.whiteBright('Response:'));
-  const prefix = res.results.length > 1 ? '> ' : '';
+  const items = res.results
+    .map((v) => ({
+      text: v.text ?? '<empty-response>',
+      sreason: v.finishReason ?? '<not-set>',
+      fname: v.functionCall?.name ?? '<not-set>',
+      fargs: v.functionCall?.args ? JSON.stringify(v.functionCall?.args) : ''
+    }))
+    .map((v) => {
+      return `${v.text}\n${chalk.blueBright('Finish Reason:')} ${
+        v.sreason
+      }\n${chalk.blueBright('Function Call:')} ${v.fname}(${v.fargs})`;
+    });
+
   console.log(
-    chalk.green(res.results.map((v) => `${prefix}${v.text}`).join('\n')),
-    '\n---\n\n'
+    `${chalk.whiteBright('Response:')}\n${items.join('\n')}\n---\n\n`
   );
 };

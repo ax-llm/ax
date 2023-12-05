@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "6.0.7",
+  "version": "6.0.8",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
