@@ -1,4 +1,8 @@
-import { TextResponse } from '../ai';
+import {
+  TextResponse,
+  TextResponseFunctionCall,
+  TextResponseResult
+} from '../ai';
 import {
   AITextChatPromptItem,
   AITextChatRequest,
@@ -33,18 +37,34 @@ export type StepAgentRequest = {
   response?: string;
 };
 
-export type AgentOptions = {
+export type AgentResponse<T> = {
+  functionCall?: TextResponseFunctionCall;
+  response: string | T;
+};
+
+export type AgentOptions<T> = {
   agentPrompt?: string;
   contextLabel?: string;
   historyUpdater?: HistoryUpdater;
+  responseHandler?: ResponseHandler<T>;
   cache?: boolean;
 };
 
 export type HistoryUpdater = (
-  arg0: Readonly<AITextChatPromptItem>
+  chatPromptItem: Readonly<AITextChatPromptItem>
 ) => AITextChatPromptItem | null;
 
-export class Agent {
+export type ResponseHandlerResponse<T> = {
+  response: string | T;
+  append?: boolean;
+  description?: string;
+};
+export type ResponseHandler<T> = (
+  value: string,
+  traceId?: string
+) => ResponseHandlerResponse<T> | Promise<ResponseHandlerResponse<T>>;
+
+export class Agent<T = string> {
   private readonly ai: AIService;
   private readonly memory: AIMemory;
 
@@ -52,6 +72,7 @@ export class Agent {
   private readonly contextLabel: string;
   private readonly agentFuncs: Readonly<AITextRequestFunction>[];
   private readonly historyUpdater?: HistoryUpdater;
+  private readonly responseHandler?: ResponseHandler<T>;
   private readonly cache: boolean;
 
   constructor(
@@ -59,7 +80,7 @@ export class Agent {
     memory: Readonly<AIMemory>,
     // eslint-disable-next-line functional/prefer-immutable-types
     agentFuncs: Readonly<AITextRequestFunction>[],
-    options?: Readonly<AgentOptions>
+    options?: Readonly<AgentOptions<T>>
   ) {
     this.ai = ai;
     this.memory = memory;
@@ -67,6 +88,7 @@ export class Agent {
     this.contextLabel = options?.contextLabel ?? 'Context';
     this.agentPrompt = options?.agentPrompt ?? agentPrompt;
     this.historyUpdater = options?.historyUpdater;
+    this.responseHandler = options?.responseHandler;
     this.cache = options?.cache ?? false;
   }
 
@@ -81,8 +103,9 @@ export class Agent {
   private chat = async (
     item: Readonly<AITextChatPromptItem>,
     traceId: string
-  ) => {
+  ): Promise<AgentResponse<T>> => {
     let response = '';
+
     for (let i = 0; i < 10; i++) {
       const res = await this._chat(item, traceId, i > 0);
       response += res.text;
@@ -101,14 +124,30 @@ export class Agent {
 
       break;
     }
-    return { response };
+
+    if (!this.responseHandler) {
+      return { response };
+    }
+
+    const {
+      response: newRes,
+      append,
+      description
+    } = await this.responseHandler(response, traceId);
+    if (append) {
+      const text = [description, JSON.stringify(newRes, null, 2)]
+        .filter(Boolean)
+        .join('\n\n');
+      this.memory.add({ text, role: 'user' }, traceId);
+    }
+    return { response: newRes };
   };
 
   private _chat = async (
     item: Readonly<AITextChatPromptItem>,
     traceId: string,
     continued: boolean
-  ) => {
+  ): Promise<TextResponseResult> => {
     let history = this.memory.history(traceId);
 
     if (this.historyUpdater) {
@@ -138,7 +177,7 @@ export class Agent {
     return result;
   };
 
-  start = async (req: Readonly<NewAgentRequest>) => {
+  start = async (req: Readonly<NewAgentRequest>): Promise<AgentResponse<T>> => {
     const { traceId, task, context } = req;
 
     const item = {
@@ -147,14 +186,17 @@ export class Agent {
     };
 
     try {
-      return this.chat(item, traceId);
+      return await this.chat(item, traceId);
     } catch (e) {
       await sleep(500);
       throw e;
     }
   };
 
-  next = async (traceId: string, req: Readonly<StepAgentRequest>) => {
+  next = async (
+    traceId: string,
+    req: Readonly<StepAgentRequest>
+  ): Promise<AgentResponse<T>> => {
     let item: AITextChatPromptItem;
 
     if (req.functionCall) {
@@ -174,7 +216,7 @@ export class Agent {
     }
 
     try {
-      return this.chat(item, traceId);
+      return await this.chat(item, traceId);
     } catch (e) {
       await sleep(500);
       throw e;

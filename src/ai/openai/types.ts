@@ -46,6 +46,7 @@ export type OpenAIOptions = Omit<TextModelConfig, 'topK'> & {
   embedModel: OpenAIEmbedModels;
   audioModel?: OpenAIAudioModel;
   user?: string;
+  responseFormat?: string;
 };
 
 export type OpenAICompletionRequest = {
@@ -132,6 +133,7 @@ export type OpenAIChatRequest = {
     description?: string;
     parameters: unknown;
   }[];
+  response_format?: { type: string };
   function_call?: 'none' | 'auto' | { name: string };
   max_tokens: number;
   temperature: number;

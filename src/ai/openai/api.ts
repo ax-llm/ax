@@ -210,6 +210,9 @@ export class OpenAI extends BaseAI<
 
     const reqValue = {
       model,
+      response_format: this.options.responseFormat
+        ? { type: this.options.responseFormat }
+        : undefined,
       messages: req.chatPrompt.map(
         ({ role, text: content, name, functionCall: fc }) => ({
           role,
