@@ -56,8 +56,7 @@ export type HistoryUpdater = (
 
 export type ResponseHandlerResponse<T> = {
   response: string | T;
-  append?: boolean;
-  description?: string;
+  appendText?: string;
 };
 export type ResponseHandler<T> = (
   value: string,
@@ -129,17 +128,14 @@ export class Agent<T = string> {
       return { response };
     }
 
-    const {
-      response: newRes,
-      append,
-      description
-    } = await this.responseHandler(response, traceId);
-    if (append) {
-      const text = [description, JSON.stringify(newRes, null, 2)]
-        .filter(Boolean)
-        .join('\n\n');
-      this.memory.add({ text, role: 'user' }, traceId);
+    const { response: newRes, appendText: text } = await this.responseHandler(
+      response,
+      traceId
+    );
+    if (text && text.length > 0) {
+      this.memory.add({ text, role: 'assistant' }, traceId);
     }
+
     return { response: newRes };
   };
 
