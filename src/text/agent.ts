@@ -45,6 +45,7 @@ export type AgentResponse<T> = {
 export type AgentOptions<T> = {
   agentPrompt?: string;
   contextLabel?: string;
+  extractMatch?: ExtractMatch;
   historyUpdater?: HistoryUpdater;
   responseHandler?: ResponseHandler<T>;
   cache?: boolean;
@@ -58,10 +59,13 @@ export type ResponseHandlerResponse<T> = {
   response: string | T;
   appendText?: string;
 };
+
 export type ResponseHandler<T> = (
   value: string,
   traceId?: string
 ) => ResponseHandlerResponse<T> | Promise<ResponseHandlerResponse<T>>;
+
+export type ExtractMatch = { pattern: RegExp; notFoundPrompt: string };
 
 export class Agent<T = string> {
   private readonly ai: AIService;
@@ -69,6 +73,7 @@ export class Agent<T = string> {
 
   private readonly agentPrompt: string;
   private readonly contextLabel: string;
+  private readonly extractMatch?: ExtractMatch;
   private readonly agentFuncs: Readonly<AITextRequestFunction>[];
   private readonly historyUpdater?: HistoryUpdater;
   private readonly responseHandler?: ResponseHandler<T>;
@@ -85,6 +90,7 @@ export class Agent<T = string> {
     this.memory = memory;
     this.agentFuncs = agentFuncs;
     this.contextLabel = options?.contextLabel ?? 'Context';
+    this.extractMatch = options?.extractMatch;
     this.agentPrompt = options?.agentPrompt ?? agentPrompt;
     this.historyUpdater = options?.historyUpdater;
     this.responseHandler = options?.responseHandler;
@@ -103,14 +109,25 @@ export class Agent<T = string> {
     item: Readonly<AITextChatPromptItem>,
     traceId: string
   ): Promise<AgentResponse<T>> => {
+    const chatPrompt = { ...item } as AITextChatPromptItem;
     let response = '';
 
-    for (let i = 0; i < 10; i++) {
-      const res = await this._chat(item, traceId, i > 0);
+    for (let i = 0; i < 3; i++) {
+      const res = await this._chat(chatPrompt, traceId, i > 0);
       response += res.text;
 
       if (res.finishReason === 'length') {
         continue;
+      }
+
+      if (this.extractMatch) {
+        const match = this.extractMatch.pattern.exec(response)?.[1]?.trim();
+        if (!match) {
+          chatPrompt.text = this.extractMatch.notFoundPrompt;
+          i = 0;
+          continue;
+        }
+        response = match;
       }
 
       if (this.agentFuncs?.length > 0 && !res.functionCall) {
