@@ -110,66 +110,72 @@ export class Agent<T = string> {
     traceId: string
   ): Promise<AgentResponse<T>> => {
     const chatPrompt = { ...item } as AITextChatPromptItem;
-    let response = '';
 
-    for (let i = 0; i < 3; i++) {
-      const res = await this._chat(chatPrompt, traceId, i > 0);
-      response += res.text;
+    let functionCall: TextResponseFunctionCall | undefined;
+    let resBuff = '';
+    let response: string | T;
+
+    for (let i = 0; i < 5; i++) {
+      const res = await this._chat(chatPrompt, traceId, i == 0);
+      resBuff += res.text;
 
       if (res.finishReason === 'length') {
         continue;
       }
 
       if (this.extractMatch) {
-        const match = this.extractMatch.pattern.exec(response)?.[1]?.trim();
-        if (!match) {
+        const match = this.extractMatch.pattern.exec(resBuff)?.[1]?.trim();
+        if (!match || match.length === 0) {
           chatPrompt.text = this.extractMatch.notFoundPrompt;
-          i = 0;
           continue;
         }
-        response = match;
+        resBuff = match;
       }
 
       if (this.agentFuncs?.length > 0 && !res.functionCall) {
         throw new Error('No function in response');
       }
 
-      if (res.functionCall) {
-        return { response, functionCall: res.functionCall };
+      functionCall = res.functionCall;
+
+      if (this.responseHandler) {
+        try {
+          const res = await this.responseHandler(resBuff, traceId);
+          const { appendText: text } = res;
+
+          if (text && text.length > 0) {
+            this.memory.add({ text, role: 'assistant' }, traceId);
+          }
+
+          response = res.response;
+        } catch (e) {
+          chatPrompt.text = (e as Error).message;
+          continue;
+        }
+      } else {
+        response = resBuff;
       }
 
-      break;
+      return { response, functionCall };
     }
 
-    if (!this.responseHandler) {
-      return { response };
-    }
-
-    const { response: newRes, appendText: text } = await this.responseHandler(
-      response,
-      traceId
-    );
-    if (text && text.length > 0) {
-      this.memory.add({ text, role: 'assistant' }, traceId);
-    }
-
-    return { response: newRes };
+    throw new Error('Failed to get valid response from AI');
   };
 
   private _chat = async (
     item: Readonly<AITextChatPromptItem>,
     traceId: string,
-    continued: boolean
+    notContinued: boolean
   ): Promise<TextResponseResult> => {
     let history = this.memory.history(traceId);
 
-    if (this.historyUpdater) {
+    if (this.historyUpdater && notContinued) {
       history = history
         .map(this.historyUpdater)
         .filter(Boolean) as AITextChatPromptItem[];
     }
 
-    const req = this.agentRequest([...history, item]);
+    const req = this.agentRequest(notContinued ? [...history, item] : history);
 
     const res = (await this.ai.chat(req, {
       stopSequences: [],
@@ -182,7 +188,7 @@ export class Agent<T = string> {
       throw new Error('No result defined in response');
     }
 
-    if (!continued) {
+    if (notContinued) {
       this.memory.add(item, traceId);
     }
 
