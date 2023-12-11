@@ -1,4 +1,4 @@
-# LLMClient - An LLM Framework for bulding Agents
+# LLMClient - LLM Framework for Building Agents
 
 🌵 🦙 🔥 ❤️ 🖖🏼
 
