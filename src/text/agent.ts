@@ -39,7 +39,7 @@ export type StepAgentRequest = {
 
 export type AgentResponse<T> = {
   functionCall?: TextResponseFunctionCall;
-  response: string | T;
+  response: T;
 };
 
 export type AgentOptions<T> = {
@@ -56,7 +56,7 @@ export type HistoryUpdater = (
 ) => AITextChatPromptItem | null;
 
 export type ResponseHandlerResponse<T> = {
-  response: string | T;
+  response: T;
   appendText?: string;
 };
 
@@ -113,7 +113,7 @@ export class Agent<T = string> {
 
     let functionCall: TextResponseFunctionCall | undefined;
     let resBuff = '';
-    let response: string | T;
+    let response: T;
 
     for (let i = 0; i < 5; i++) {
       const res = await this._chat(chatPrompt, traceId, i == 0);
@@ -124,12 +124,14 @@ export class Agent<T = string> {
       }
 
       if (this.extractMatch) {
-        const match = this.extractMatch.pattern.exec(resBuff)?.[1]?.trim();
-        if (!match || match.length === 0) {
+        const match = this.extractMatch.pattern.exec(resBuff);
+
+        if (!match || !match[1] || match[1].trim().length === 0) {
+          // throw new Error('Failed to extract match from: ' + resBuff);
           chatPrompt.text = this.extractMatch.notFoundPrompt;
           continue;
         }
-        resBuff = match;
+        resBuff = match[1].trim();
       }
 
       if (this.agentFuncs?.length > 0 && !res.functionCall) {
@@ -149,11 +151,13 @@ export class Agent<T = string> {
 
           response = res.response;
         } catch (e) {
-          chatPrompt.text = (e as Error).message;
+          chatPrompt.text = `Please fix the following error: ${
+            (e as Error).message
+          }`;
           continue;
         }
       } else {
-        response = resBuff;
+        response = resBuff as T;
       }
 
       return { response, functionCall };
