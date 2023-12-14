@@ -130,7 +130,7 @@ export type OpenAIChatRequest = {
   }[];
   functions?: {
     name: string;
-    description?: string;
+    description: string;
     parameters: unknown;
   }[];
   response_format?: { type: string };

@@ -10,6 +10,7 @@ import {
 } from '../tracing/types';
 import { sleep } from '../util/other';
 
+import { processFunction, validateFunctions } from './fnutil';
 import { AIMemory, AIService } from './types';
 
 const agentPrompt = `
@@ -49,6 +50,8 @@ export type AgentOptions<T> = {
   historyUpdater?: HistoryUpdater;
   responseHandler?: ResponseHandler<T>;
   cache?: boolean;
+  maxContinueSteps?: number;
+  maxFunctionSteps?: number;
 };
 
 export type HistoryUpdater = (
@@ -79,6 +82,9 @@ export class Agent<T = string> {
   private readonly responseHandler?: ResponseHandler<T>;
   private readonly cache: boolean;
 
+  private readonly maxContinueSteps: number;
+  private readonly maxFunctionSteps: number;
+
   constructor(
     ai: AIService,
     memory: Readonly<AIMemory>,
@@ -95,28 +101,34 @@ export class Agent<T = string> {
     this.historyUpdater = options?.historyUpdater;
     this.responseHandler = options?.responseHandler;
     this.cache = options?.cache ?? false;
+    this.maxContinueSteps = options?.maxContinueSteps ?? 5;
+    this.maxFunctionSteps = options?.maxFunctionSteps ?? 10;
+    validateFunctions(this.agentFuncs);
   }
 
   agentRequest = (
-    item: readonly AITextChatPromptItem[]
+    item: readonly Readonly<AITextChatPromptItem>[],
+    funcs?: readonly Readonly<AITextRequestFunction>[]
   ): AITextChatRequest => ({
     chatPrompt: [{ role: 'system', text: this.agentPrompt }, ...item],
-    functions: this.agentFuncs?.length === 0 ? undefined : this.agentFuncs,
-    functionCall: this.agentFuncs?.length === 0 ? undefined : 'auto'
+    functions:
+      funcs?.length === 0
+        ? undefined
+        : (funcs as Readonly<AITextRequestFunction>[]),
+    functionCall: funcs?.length === 0 ? undefined : 'auto'
   });
 
   private chat = async (
+    traceId: string,
     item: Readonly<AITextChatPromptItem>,
-    traceId: string
+    funcs?: readonly Readonly<AITextRequestFunction>[]
   ): Promise<AgentResponse<T>> => {
-    const chatPrompt = { ...item } as AITextChatPromptItem;
-
     let functionCall: TextResponseFunctionCall | undefined;
     let resBuff = '';
     let response: T;
 
-    for (let i = 0; i < 5; i++) {
-      const res = await this._chat(chatPrompt, traceId, i == 0);
+    for (let i = 0; i < this.maxContinueSteps; i++) {
+      const res = await this._chat(traceId, i == 0, item, funcs);
       resBuff += res.text;
 
       if (res.finishReason === 'length') {
@@ -128,17 +140,18 @@ export class Agent<T = string> {
 
         if (!match || !match[1] || match[1].trim().length === 0) {
           // throw new Error('Failed to extract match from: ' + resBuff);
-          chatPrompt.text = this.extractMatch.notFoundPrompt;
+          this.memory.add(
+            { role: 'user', text: this.extractMatch.notFoundPrompt },
+            traceId
+          );
           continue;
         }
         resBuff = match[1].trim();
       }
 
-      if (this.agentFuncs?.length > 0 && !res.functionCall) {
-        throw new Error('No function in response');
+      if (res.functionCall) {
+        functionCall = res.functionCall;
       }
-
-      functionCall = res.functionCall;
 
       if (this.responseHandler) {
         try {
@@ -151,9 +164,11 @@ export class Agent<T = string> {
 
           response = res.response;
         } catch (e) {
-          chatPrompt.text = `Please fix the following error: ${
-            (e as Error).message
-          }`;
+          const errMsg = (e as Error).message;
+          this.memory.add(
+            { role: 'user', text: `Please fix this error: ${errMsg}` },
+            traceId
+          );
           continue;
         }
       } else {
@@ -167,9 +182,10 @@ export class Agent<T = string> {
   };
 
   private _chat = async (
-    item: Readonly<AITextChatPromptItem>,
     traceId: string,
-    notContinued: boolean
+    notContinued: boolean,
+    item: Readonly<AITextChatPromptItem>,
+    funcs?: readonly Readonly<AITextRequestFunction>[]
   ): Promise<TextResponseResult> => {
     let history = this.memory.history(traceId);
 
@@ -179,7 +195,10 @@ export class Agent<T = string> {
         .filter(Boolean) as AITextChatPromptItem[];
     }
 
-    const req = this.agentRequest(notContinued ? [...history, item] : history);
+    const req = this.agentRequest(
+      notContinued ? [...history, item] : history,
+      funcs
+    );
 
     const res = (await this.ai.chat(req, {
       stopSequences: [],
@@ -200,7 +219,40 @@ export class Agent<T = string> {
     return result;
   };
 
-  start = async (req: Readonly<NewAgentRequest>): Promise<AgentResponse<T>> => {
+  private processReq = async (
+    traceId: string,
+    count: number,
+    item: Readonly<AITextChatPromptItem>,
+    funcs?: readonly Readonly<AITextRequestFunction>[]
+  ): Promise<AgentResponse<T>> => {
+    if (count === 0) {
+      validateFunctions(funcs);
+    }
+    const funcList = funcs && funcs.length > 0 ? funcs : this.agentFuncs;
+
+    try {
+      const res = await this.chat(traceId, item, funcList);
+      const option = { ai: this.ai, traceId };
+
+      if (res.functionCall) {
+        const fres = await processFunction(funcList, res.functionCall, option);
+
+        if (fres) {
+          this._next(traceId, count, { functionCall: fres });
+        }
+      }
+
+      return res;
+    } catch (e) {
+      await sleep(500);
+      throw e;
+    }
+  };
+
+  start = async (
+    req: Readonly<NewAgentRequest>,
+    funcs?: readonly Readonly<AITextRequestFunction>[]
+  ): Promise<AgentResponse<T>> => {
     const { traceId, task, context } = req;
 
     const item = {
@@ -208,19 +260,20 @@ export class Agent<T = string> {
       text: `Task:\n${task}\n\n${this.contextLabel}:\n${context}`
     };
 
-    try {
-      return await this.chat(item, traceId);
-    } catch (e) {
-      await sleep(500);
-      throw e;
-    }
+    return this.processReq(traceId, 0, item, funcs);
   };
 
-  next = async (
+  private _next = async (
     traceId: string,
-    req: Readonly<StepAgentRequest>
+    count: number,
+    req: Readonly<StepAgentRequest>,
+    funcs?: readonly Readonly<AITextRequestFunction>[]
   ): Promise<AgentResponse<T>> => {
     let item: AITextChatPromptItem;
+
+    if (count >= this.maxFunctionSteps) {
+      throw new Error('Max function steps reached');
+    }
 
     if (req.functionCall) {
       const { name, result: text } = req.functionCall;
@@ -238,11 +291,12 @@ export class Agent<T = string> {
       throw new Error('No functionCall or response defined');
     }
 
-    try {
-      return await this.chat(item, traceId);
-    } catch (e) {
-      await sleep(500);
-      throw e;
-    }
+    return this.processReq(traceId, count, item, funcs);
   };
+
+  next = async (
+    traceId: string,
+    req: Readonly<StepAgentRequest>,
+    funcs?: readonly Readonly<AITextRequestFunction>[]
+  ): Promise<AgentResponse<T>> => this._next(traceId, 0, req, funcs);
 }

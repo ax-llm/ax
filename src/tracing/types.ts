@@ -1,4 +1,5 @@
 import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types.js';
+import { PromptFunctionFunc } from '../text/types.js';
 
 export type APIError = {
   pathname: string;
@@ -25,8 +26,9 @@ export type AITextChatPromptItem = {
 
 export type AITextRequestFunction = {
   name: string;
-  description?: string;
+  description: string;
   parameters: unknown;
+  func?: PromptFunctionFunc;
 };
 
 export type AITextRequestFunctionCall = {
