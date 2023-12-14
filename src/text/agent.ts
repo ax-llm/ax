@@ -13,6 +13,11 @@ import { sleep } from '../util/other';
 import { processFunction, validateFunctions } from './fnutil';
 import { AIMemory, AIService } from './types';
 
+/**
+ * A framework for building LLM powered agents.
+ * @export
+ */
+
 const agentPrompt = `
 Think step-by-step. Use functions. Do not create new functions. Stick to the defined format and function schemas.
 

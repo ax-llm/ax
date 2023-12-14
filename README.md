@@ -8,7 +8,6 @@
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-
 ## A simple library to build RAG + Reasoning + Function calling Agents
 
 LLMClient is also a simple library to build chain of though and function calling workflows with all LLMs. Built in support for error-correction, structured data extraction, guardrails, etc
@@ -25,6 +24,8 @@ LLMClient is also a simple library to build chain of though and function calling
 | Hugging Face | Llama 2                              | ✅    | 🟡 90%          |
 | Cohere       | Command, Command Nightly             | ✅    | 🟡 40%          |
 | AlephaAlpha  | Luminous: Control, Supreme, Extended | No    | 🔴 N/A          |
+
+## An example of using the Prompts API
 
 ```javascript
 import { OpenAI, AIMemory, AIPrompt } from 'llmclient';
@@ -47,6 +48,46 @@ const res = await prompt.generate(ai, `What is your name?`, {
 
 // Print the result
 console.log(res.value());
+```
+
+## An example of using the Agents API
+
+```javascript
+import {
+  Memory,
+  OpenAI,
+  Agent,
+  OpenAIBestModelOptions,
+} from "llmclient";
+
+const gpt4Conf = OpenAIBestModelOptions();
+gpt4Conf.maxTokens = 1000;
+
+const gpt4 = new OpenAI(process.env.OPENAI_APIKEY as string, gpt4Conf);
+gpt4.setOptions({ debug: true });
+
+const memory = new Memory();
+
+const agentPrompt = `...`
+
+const agent = new Agent(gpt4, memory, [/* functions */], {
+  contextLabel: "JSON",
+  agentPrompt,
+});
+
+const traceId = "123"
+
+// start the agent
+const { response } = await agent.start({
+  task:,
+  context: jsonData,
+  traceId,
+});
+
+// keep looping till your agent completes
+// feed response back into the next call
+const { response } = await agent.next(traceId, { response });
+
 ```
 
 ## Code Examples (Apps)
@@ -462,7 +503,6 @@ x-llmclient-db-rewrite-query-prompt: <prompt text to use to reframe rag query> (
 ```
 
 ![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
-
 
 ## Reach out
 
