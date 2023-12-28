@@ -75,6 +75,11 @@ export type ResponseHandler<T> = (
 
 export type ExtractMatch = { pattern: RegExp; notFoundPrompt: string };
 
+export type AgentReqOptions<T> = {
+  funcs?: readonly Readonly<AITextRequestFunction>[];
+  responseHandler?: ResponseHandler<T>;
+};
+
 export class Agent<T = string> {
   private readonly ai: AIService;
   private readonly memory: AIMemory;
@@ -126,14 +131,14 @@ export class Agent<T = string> {
   private chat = async (
     traceId: string,
     item: Readonly<AITextChatPromptItem>,
-    funcs?: readonly Readonly<AITextRequestFunction>[]
+    options: Readonly<AgentReqOptions<T>>
   ): Promise<AgentResponse<T>> => {
     let functionCall: TextResponseFunctionCall | undefined;
     let resBuff = '';
     let response: T;
 
     for (let i = 0; i < this.maxContinueSteps; i++) {
-      const res = await this._chat(traceId, i == 0, item, funcs);
+      const res = await this._chat(traceId, i == 0, item, options.funcs);
       resBuff += res.text;
 
       if (res.finishReason === 'length') {
@@ -158,9 +163,10 @@ export class Agent<T = string> {
         functionCall = res.functionCall;
       }
 
-      if (this.responseHandler) {
+      const responseHandler = options.responseHandler ?? this.responseHandler;
+      if (responseHandler) {
         try {
-          const res = await this.responseHandler(resBuff, traceId);
+          const res = await responseHandler(resBuff, traceId);
           const { appendText: text } = res;
 
           if (text && text.length > 0) {
@@ -228,22 +234,21 @@ export class Agent<T = string> {
     traceId: string,
     count: number,
     item: Readonly<AITextChatPromptItem>,
-    funcs?: readonly Readonly<AITextRequestFunction>[]
+    options: Readonly<AgentReqOptions<T>>
   ): Promise<AgentResponse<T>> => {
     if (count === 0) {
-      validateFunctions(funcs);
+      validateFunctions(options.funcs);
     }
-    const funcList = funcs && funcs.length > 0 ? funcs : this.agentFuncs;
-
+    const funcs = options.funcs ?? this.agentFuncs;
     try {
-      const res = await this.chat(traceId, item, funcList);
+      const res = await this.chat(traceId, item, { ...options, funcs });
       const option = { ai: this.ai, traceId };
 
       if (res.functionCall) {
-        const fres = await processFunction(funcList, res.functionCall, option);
+        const funcRes = await processFunction(funcs, res.functionCall, option);
 
-        if (fres) {
-          this._next(traceId, count, { functionCall: fres });
+        if (funcRes) {
+          this._next(traceId, count, { functionCall: funcRes }, options);
         }
       }
 
@@ -256,7 +261,7 @@ export class Agent<T = string> {
 
   start = async (
     req: Readonly<NewAgentRequest>,
-    funcs?: readonly Readonly<AITextRequestFunction>[]
+    options?: Readonly<AgentReqOptions<T>>
   ): Promise<AgentResponse<T>> => {
     const { traceId, task, context } = req;
 
@@ -265,14 +270,14 @@ export class Agent<T = string> {
       text: `Task:\n${task}\n\n${this.contextLabel}:\n${context}`
     };
 
-    return this.processReq(traceId, 0, item, funcs);
+    return this.processReq(traceId, 0, item, options ?? {});
   };
 
   private _next = async (
     traceId: string,
     count: number,
     req: Readonly<StepAgentRequest>,
-    funcs?: readonly Readonly<AITextRequestFunction>[]
+    options: Readonly<AgentReqOptions<T>>
   ): Promise<AgentResponse<T>> => {
     let item: AITextChatPromptItem;
 
@@ -296,12 +301,12 @@ export class Agent<T = string> {
       throw new Error('No functionCall or response defined');
     }
 
-    return this.processReq(traceId, count, item, funcs);
+    return this.processReq(traceId, count, item, options);
   };
 
   next = async (
     traceId: string,
     req: Readonly<StepAgentRequest>,
-    funcs?: readonly Readonly<AITextRequestFunction>[]
-  ): Promise<AgentResponse<T>> => this._next(traceId, 0, req, funcs);
+    options?: Readonly<AgentReqOptions<T>>
+  ): Promise<AgentResponse<T>> => this._next(traceId, 0, req, options ?? {});
 }

@@ -8,3 +8,4 @@ export * from './data/index.js';
 export * from './proxy/index.js';
 export * from './tracing/types.js';
 export * from './text/types.js';
+export * from './ai/types.js';
