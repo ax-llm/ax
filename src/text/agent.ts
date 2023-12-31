@@ -2,16 +2,16 @@ import {
   TextResponse,
   TextResponseFunctionCall,
   TextResponseResult
-} from '../ai';
+} from '../ai/index.js';
 import {
   AITextChatPromptItem,
   AITextChatRequest,
   AITextRequestFunction
-} from '../tracing/types';
-import { sleep } from '../util/other';
+} from '../tracing/types.js';
+import { sleep } from '../util/other.js';
 
-import { processFunction, validateFunctions } from './fnutil';
-import { AIMemory, AIService } from './types';
+import { processFunction, validateFunctions } from './fnutil.js';
+import { AIMemory, AIService } from './types.js';
 
 /**
  * A framework for building LLM powered agents.
