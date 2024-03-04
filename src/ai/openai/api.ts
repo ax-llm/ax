@@ -22,18 +22,18 @@ import {
   OpenAICompletionRequest,
   OpenAICompletionResponse,
   OpenAICompletionResponseDelta,
+  OpenAIConfig,
   OpenAIEmbedModels,
   OpenAIEmbedRequest,
   OpenAIEmbedResponse,
-  OpenAIModel,
-  OpenAIOptions
+  OpenAIModel
 } from './types.js';
 
 /**
  * OpenAI: Default Model options for text generation
  * @export
  */
-export const OpenAIDefaultOptions = (): OpenAIOptions => ({
+export const OpenAIDefaultConfig = (): OpenAIConfig => ({
   model: OpenAIModel.GPT35Turbo,
   embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
@@ -49,8 +49,8 @@ export const OpenAIDefaultOptions = (): OpenAIOptions => ({
  * OpenAI: Default model options to use the more advanced model
  * @export
  */
-export const OpenAIBestModelOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+export const OpenAIBestConfig = (): OpenAIConfig => ({
+  ...OpenAIDefaultConfig(),
   model: OpenAIModel.GPT4Turbo
 });
 
@@ -58,8 +58,8 @@ export const OpenAIBestModelOptions = (): OpenAIOptions => ({
  * OpenAI: Default model options for more creative text generation
  * @export
  */
-export const OpenAICreativeOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+export const OpenAICreativeConfig = (): OpenAIConfig => ({
+  ...OpenAIDefaultConfig(),
   model: OpenAIModel.GPT35Turbo,
   temperature: 0.9
 });
@@ -68,11 +68,17 @@ export const OpenAICreativeOptions = (): OpenAIOptions => ({
  * OpenAI: Default model options for more fast text generation
  * @export
  */
-export const OpenAIFastOptions = (): OpenAIOptions => ({
-  ...OpenAIDefaultOptions(),
+export const OpenAIFastConfig = (): OpenAIConfig => ({
+  ...OpenAIDefaultConfig(),
   model: OpenAIModel.GPT35Turbo,
   temperature: 0.45
 });
+
+export interface OpenAIArgs {
+  apiKey: string;
+  config?: Readonly<OpenAIConfig>;
+  options?: Readonly<AIServiceOptions>;
+}
 
 /**
  * OpenAI: AI Service
@@ -88,53 +94,53 @@ export class OpenAI extends BaseAI<
   OpenAIChatResponseDelta,
   OpenAIEmbedResponse
 > {
-  private options: OpenAIOptions;
+  private config: OpenAIConfig;
 
-  constructor(
-    apiKey: string,
-    options: Readonly<OpenAIOptions> = OpenAIDefaultOptions(),
-    otherOptions?: Readonly<AIServiceOptions>
-  ) {
+  constructor({
+    apiKey,
+    config = OpenAIDefaultConfig(),
+    options
+  }: Readonly<OpenAIArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
     }
     super(
       'OpenAI',
-      'https://api.openai.com/',
+      'https://api.openai.com/v1',
       { Authorization: `Bearer ${apiKey}` },
       modelInfoOpenAI,
-      { model: options.model, embedModel: options.embedModel },
-      otherOptions
+      { model: config.model, embedModel: config.embedModel },
+      options
     );
-    this.options = options;
+    this.config = config;
   }
 
-  override getModelConfig(): TextModelConfig {
-    const { options } = this;
+  getModelConfig(): TextModelConfig {
+    const { config } = this;
     return {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      n: options.n,
-      stream: options.stream,
-      logprobs: options.logprobs,
-      echo: options.echo,
-      presencePenalty: options.presencePenalty,
-      frequencyPenalty: options.frequencyPenalty,
-      bestOf: options.bestOf,
-      logitBias: options.logitBias
-    } as TextModelConfig;
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+      topP: config.topP,
+      n: config.n,
+      stream: config.stream,
+      logprobs: config.logprobs,
+      echo: config.echo,
+      presencePenalty: config.presencePenalty,
+      frequencyPenalty: config.frequencyPenalty,
+      bestOf: config.bestOf,
+      logitBias: config.logitBias
+    };
   }
 
   generateCompletionReq = (
     req: Readonly<AITextCompletionRequest>,
     config: Readonly<AIPromptConfig>
   ): [API, OpenAICompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.options.model;
+    const model = req.modelInfo?.name ?? this.config.model;
     const prompt = `${req.systemPrompt || ''} ${req.prompt || ''}`.trim();
 
     const apiConfig = {
-      name: '/v1/completions',
+      name: '/completions',
       headers: {
         ...(req.identity?.organization
           ? { 'OpenAI-Organization': req.identity?.organization }
@@ -151,22 +157,22 @@ export class OpenAI extends BaseAI<
         | { name: string }
         | undefined,
       functions: req.functions,
-      max_tokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.options.temperature,
-      top_p: req.modelConfig?.topP ?? this.options.topP ?? 1,
-      suffix: req.modelConfig?.suffix ?? this.options.suffix ?? null,
-      n: req.modelConfig?.n ?? this.options.n,
-      stream: req.modelConfig?.stream ?? this.options.stream,
-      logprobs: req.modelConfig?.logprobs ?? this.options.logprobs,
-      echo: req.modelConfig?.echo ?? this.options.echo,
-      stop: this.options.stop ?? config.stopSequences,
+      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
+      suffix: req.modelConfig?.suffix ?? this.config.suffix ?? null,
+      n: req.modelConfig?.n ?? this.config.n,
+      stream: req.modelConfig?.stream ?? this.config.stream,
+      logprobs: req.modelConfig?.logprobs ?? this.config.logprobs,
+      echo: req.modelConfig?.echo ?? this.config.echo,
+      stop: this.config.stop ?? config.stopSequences,
       presence_penalty:
-        req.modelConfig?.presencePenalty ?? this.options.presencePenalty,
+        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       frequency_penalty:
-        req.modelConfig?.frequencyPenalty ?? this.options.frequencyPenalty,
-      best_of: req.modelConfig?.bestOf ?? this.options.bestOf,
-      logit_bias: req.modelConfig?.logitBias ?? this.options.logitBias,
-      user: req.identity?.user ?? this.options.user,
+        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
+      best_of: req.modelConfig?.bestOf ?? this.config.bestOf,
+      logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,
+      user: req.identity?.user ?? this.config.user,
       organization: req.identity?.organization
     };
 
@@ -177,14 +183,14 @@ export class OpenAI extends BaseAI<
     req: Readonly<AITextChatRequest>,
     config: Readonly<AIPromptConfig>
   ): [API, OpenAIChatRequest] => {
-    const model = req.modelInfo?.name ?? this.options.model;
+    const model = req.modelInfo?.name ?? this.config.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
     }
 
     const apiConfig = {
-      name: '/v1/chat/completions',
+      name: '/chat/completions?api-version=2023-03-15-preview',
       headers: {
         ...(req.identity?.organization
           ? { 'OpenAI-Organization': req.identity?.organization }
@@ -210,8 +216,8 @@ export class OpenAI extends BaseAI<
 
     const reqValue = {
       model,
-      response_format: this.options.responseFormat
-        ? { type: this.options.responseFormat }
+      response_format: this.config.responseFormat
+        ? { type: this.config.responseFormat }
         : undefined,
       messages: req.chatPrompt.map(
         ({ role, text: content, name, functionCall: fc }) => ({
@@ -225,21 +231,21 @@ export class OpenAI extends BaseAI<
       ),
       function_call: functionCall,
       functions: req.functions,
-      max_tokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.options.temperature,
-      top_p: req.modelConfig?.topP ?? this.options.topP ?? 1,
-      n: req.modelConfig?.n ?? this.options.n,
-      stream: req.modelConfig?.stream ?? this.options.stream,
-      logprobs: req.modelConfig?.logprobs ?? this.options.logprobs,
-      echo: req.modelConfig?.echo ?? this.options.echo,
+      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
+      n: req.modelConfig?.n ?? this.config.n,
+      stream: req.modelConfig?.stream ?? this.config.stream,
+      logprobs: req.modelConfig?.logprobs ?? this.config.logprobs,
+      echo: req.modelConfig?.echo ?? this.config.echo,
       stop: config.stopSequences,
       presence_penalty:
-        req.modelConfig?.presencePenalty ?? this.options.presencePenalty,
+        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       frequency_penalty:
-        req.modelConfig?.frequencyPenalty ?? this.options.frequencyPenalty,
-      best_of: req.modelConfig?.bestOf ?? this.options.bestOf,
-      logit_bias: req.modelConfig?.logitBias ?? this.options.logitBias,
-      user: req.identity?.user ?? this.options.user,
+        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
+      best_of: req.modelConfig?.bestOf ?? this.config.bestOf,
+      logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,
+      user: req.identity?.user ?? this.config.user,
       organization: req.identity?.organization
     };
 
@@ -249,14 +255,14 @@ export class OpenAI extends BaseAI<
   generateEmbedReq = (
     req: Readonly<AITextEmbedRequest>
   ): [API, OpenAIEmbedRequest] => {
-    const model = req.embedModelInfo?.name ?? this.options.embedModel;
+    const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!req.texts || req.texts.length === 0) {
       throw new Error('Embed texts is empty');
     }
 
     const apiConfig = {
-      name: '/v1/embeddings',
+      name: '/embeddings',
       headers: {
         ...(req.identity?.organization
           ? { 'OpenAI-Organization': req.identity?.organization }
@@ -444,7 +450,7 @@ export class OpenAI extends BaseAI<
 }
 
 // export const generateAudioReq = (
-//   opt: Readonly<OpenAIOptions>,
+//   opt: Readonly<OpenAIConfig>,
 //   prompt?: string,
 //   language?: string
 // ): OpenAIAudioRequest => {

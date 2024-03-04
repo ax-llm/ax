@@ -1,6 +1,6 @@
 import {
   TextRequestBuilder,
-  TextResponseBuilder,
+  TextResponseBuilder
 } from '../../tracing/index.js';
 import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
@@ -10,7 +10,8 @@ import { modelInfoAnthropic } from './info.js';
 import {
   AnthropicCompletionRequest,
   AnthropicCompletionResponse,
-  AnthropicResponseDelta,
+  ContentBlockDeltaEvent,
+  ContentBlockStartEvent
 } from './types.js';
 
 export class AnthropicCompletionMiddleware
@@ -30,7 +31,7 @@ export class AnthropicCompletionMiddleware
     if (fn) {
       const memory = await fn({
         prompt: this.req.prompt,
-        user: this.req.metadata?.user_id,
+        user: this.req.metadata?.user_id
       });
 
       this.req.prompt += memory.map(({ text }) => text).join('\n');
@@ -45,7 +46,7 @@ export class AnthropicCompletionMiddleware
       temperature,
       top_p,
       top_k,
-      stream,
+      stream
     } = this.req;
 
     // Fetching model info
@@ -59,11 +60,15 @@ export class AnthropicCompletionMiddleware
       temperature: temperature,
       topP: top_p,
       topK: top_k,
-      stream: stream,
+      stream: stream
     };
 
     this.sb.setRequest(
-      new TextRequestBuilder().setCompletionStep({ prompt }, modelConfig, modelInfo)
+      new TextRequestBuilder().setCompletionStep(
+        { prompt },
+        modelConfig,
+        modelInfo
+      )
     );
   };
 
@@ -85,8 +90,8 @@ export class AnthropicCompletionMiddleware
     const results = [
       {
         text: completion,
-        finishReason: stop_reason ?? undefined,
-      },
+        finishReason: stop_reason ?? undefined
+      }
     ];
 
     this.sb.setResponse(new TextResponseBuilder().setResults(results));
@@ -99,19 +104,31 @@ function mergeCompletionResponseDeltas(
   let value = {
     completion: '',
     stop_reason: '',
-    model: '',
+    model: ''
   };
 
-  let chunk: AnthropicResponseDelta | undefined;
+  let chunk;
 
   parseStream(dataStream).forEach((data) => {
-    chunk = JSON.parse(data) as AnthropicResponseDelta;
-    const { completion, stop_reason, model } = chunk;
-    value = {
-      completion: (value.completion ?? '') + completion,
-      stop_reason: value?.stop_reason ?? stop_reason ?? null,
-      model: model,
-    };
+    chunk = JSON.parse(data);
+    if ('content_block' in chunk) {
+      const { content_block } = chunk as ContentBlockStartEvent;
+      value = {
+        completion: (value.completion ?? '') + content_block,
+        stop_reason: value?.stop_reason ?? null,
+        model: value?.model ?? null
+      };
+      return;
+    }
+    if ('delta' in chunk) {
+      const { delta } = chunk as ContentBlockDeltaEvent;
+      value = {
+        completion: (value.completion ?? '') + delta,
+        stop_reason: value?.stop_reason ?? null,
+        model: value?.model ?? null
+      };
+      return;
+    }
   });
 
   if (!chunk) {

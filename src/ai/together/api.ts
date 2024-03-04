@@ -4,22 +4,27 @@ import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { TextModelConfig, TextResponse } from '../types.js';
 
-import { modelInfoTogether } from './info.js';
+import { modelInfo } from './info.js';
 import {
   TogetherCompletionRequest,
   TogetherCompletionResponse,
-  TogetherLanguageModel,
-  TogetherOptions
+  TogetherConfig
 } from './types.js';
 
-export const TogetherDefaultOptions = (): TogetherOptions => ({
-  model: TogetherLanguageModel.Llama270B,
+export const TogetherDefaultConfig = (): TogetherConfig => ({
+  model: 'NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO',
   maxTokens: 500,
   temperature: 0.1,
   topK: 40,
   topP: 0.9,
   repetitionPenalty: 1.5
 });
+
+export interface TogetherArgs {
+  apiKey: string;
+  config?: Readonly<TogetherConfig>;
+  options?: Readonly<AIServiceOptions>;
+}
 
 /**
  * Together: AI Service
@@ -36,13 +41,13 @@ export class Together extends BaseAI<
   unknown,
   unknown
 > {
-  private options: TogetherOptions;
+  private config: TogetherConfig;
 
-  constructor(
-    apiKey: string,
-    options: Readonly<TogetherOptions> = TogetherDefaultOptions(),
-    otherOptions?: Readonly<AIServiceOptions>
-  ) {
+  constructor({
+    apiKey,
+    config = TogetherDefaultConfig(),
+    options
+  }: Readonly<TogetherArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
     }
@@ -50,21 +55,21 @@ export class Together extends BaseAI<
       'Together',
       'https://api.together.xyz/',
       { Authorization: `Bearer ${apiKey}` },
-      modelInfoTogether,
-      { model: options.model as string },
-      otherOptions
+      modelInfo,
+      { model: config.model as string },
+      options
     );
-    this.options = options;
+    this.config = config;
   }
 
   getModelConfig(): TextModelConfig {
-    const { options } = this;
+    const { config } = this;
     return {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      topK: options.topK,
-      stream: options.stream
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+      topP: config.topP,
+      topK: config.topK,
+      stream: config.stream
     } as TextModelConfig;
   }
 
@@ -72,7 +77,7 @@ export class Together extends BaseAI<
     req: Readonly<AITextCompletionRequest>,
     config: Readonly<AIPromptConfig>
   ): [API, TogetherCompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.options.model;
+    const model = req.modelInfo?.name ?? this.config.model;
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
       : '';
@@ -87,14 +92,14 @@ export class Together extends BaseAI<
     const reqValue: TogetherCompletionRequest = {
       model,
       prompt,
-      max_tokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
+      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       repetition_penalty:
-        req.modelConfig?.presencePenalty ?? this.options.repetitionPenalty,
-      temperature: req.modelConfig?.temperature ?? this.options.temperature,
-      top_p: req.modelConfig?.topP ?? this.options.topP,
-      top_k: req.modelConfig?.topK ?? this.options.topK,
-      stop: this.options.stopSequences ?? config.stopSequences,
-      stream_tokens: this.options.stream
+        req.modelConfig?.presencePenalty ?? this.config.repetitionPenalty,
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      top_p: req.modelConfig?.topP ?? this.config.topP,
+      top_k: req.modelConfig?.topK ?? this.config.topK,
+      stop: this.config.stopSequences ?? config.stopSequences,
+      stream_tokens: this.config.stream
     };
 
     return [apiConfig, reqValue];

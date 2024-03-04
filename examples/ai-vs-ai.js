@@ -1,13 +1,11 @@
-import { Cohere, OpenAI, Memory} from 'llmclient';
+import { OpenAI, Memory} from 'llmclient';
 
 import 'dotenv/config';
 
 import chalk from 'chalk';
 
 const mem = new Memory(5)
-
-const openAI = new OpenAI(process.env.OPENAI_APIKEY);
-const cohere = new Cohere(process.env.COHERE_APIKEY);
+const openAI = new OpenAI({apiKey: process.env.APIKEY });
 
 // prompt.setDebug(true)
 

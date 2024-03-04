@@ -1,68 +1,84 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { AITextCompletionRequest } from '../../tracing/types.js';
+import {
+  AITextChatRequest,
+  AITextCompletionRequest
+} from '../../tracing/types.js';
 import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import { TextModelConfig, TextResponse } from '../types.js';
+import { TextModelConfig, TextResponse, TextResponseResult } from '../types.js';
 
 import { modelInfoAnthropic } from './info.js';
 import {
+  AnthropicChatRequest,
+  AnthropicChatResponse,
+  AnthropicChatResponseDelta,
   AnthropicCompletionRequest,
   AnthropicCompletionResponse,
+  AnthropicConfig,
   AnthropicModel,
-  AnthropicOptions
+  ContentBlockDeltaEvent,
+  ContentBlockStartEvent,
+  MessageDeltaEvent,
+  MessageStartEvent
 } from './types.js';
 
 /**
  * Anthropic: Default Model options for text generation
  * @export
  */
-export const AnthropicDefaultOptions = (): AnthropicOptions => ({
+export const AnthropicDefaultConfig = (): AnthropicConfig => ({
   model: AnthropicModel.Claude2,
   maxTokens: 500,
   temperature: 0,
   topP: 1
 });
 
+export interface AnthropicArgs {
+  apiKey: string;
+  config?: Readonly<AnthropicConfig>;
+  options?: Readonly<AIServiceOptions>;
+}
+
 export class Anthropic extends BaseAI<
   AnthropicCompletionRequest,
-  unknown,
+  AnthropicChatRequest,
   unknown,
   AnthropicCompletionResponse,
   unknown,
-  unknown,
-  unknown,
+  AnthropicChatResponse,
+  AnthropicChatResponseDelta,
   unknown
 > {
-  private options: AnthropicOptions;
+  private config: AnthropicConfig;
 
-  constructor(
-    apiKey: string,
-    options: Readonly<AnthropicOptions> = AnthropicDefaultOptions(),
-    otherOptions?: Readonly<AIServiceOptions>
-  ) {
+  constructor({
+    apiKey,
+    config = AnthropicDefaultConfig(),
+    options
+  }: Readonly<AnthropicArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Anthropic API key not set');
     }
     super(
       'Together',
-      'https://api.anthropic.com/',
+      'https://api.anthropic.com/v1',
       { 'Anthropic-Version': '2023-06-01', Authorization: `Bearer ${apiKey}` },
       modelInfoAnthropic,
-      { model: options.model as string },
-      otherOptions
+      { model: config.model as string },
+      options
     );
 
-    this.options = options;
+    this.config = config;
   }
 
   getModelConfig(): TextModelConfig {
-    const { options } = this;
+    const { config } = this;
     return {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      topK: options.topK,
-      stream: options.stream
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+      topP: config.topP,
+      topK: config.topK,
+      stream: config.stream
     } as TextModelConfig;
   }
 
@@ -71,7 +87,7 @@ export class Anthropic extends BaseAI<
 
     config: Readonly<AIPromptConfig>
   ): [API, AnthropicCompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.options.model;
+    const model = req.modelInfo?.name ?? this.config.model;
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
       : '';
@@ -80,19 +96,18 @@ export class Anthropic extends BaseAI<
     }`.trim();
 
     const apiConfig = {
-      name: 'v1/complete'
+      name: '/complete'
     };
 
     const reqValue: AnthropicCompletionRequest = {
       model,
       prompt,
-      max_tokens_to_sample:
-        req.modelConfig?.maxTokens ?? this.options.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.options.temperature,
-      top_p: req.modelConfig?.topP ?? this.options.topP,
-      top_k: req.modelConfig?.topK ?? this.options.topK,
-      stop_sequences: this.options.stopSequences ?? config.stopSequences,
-      stream: this.options.stream
+      max_tokens_to_sample: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      top_p: req.modelConfig?.topP ?? this.config.topP,
+      top_k: req.modelConfig?.topK ?? this.config.topK,
+      stop_sequences: this.config.stopSequences ?? config.stopSequences,
+      stream: this.config.stream
     };
 
     return [apiConfig, reqValue];
@@ -107,6 +122,111 @@ export class Anthropic extends BaseAI<
           text: resp.completion
         }
       ]
+    };
+  };
+
+  generateChatReq = (
+    req: Readonly<AITextChatRequest>
+  ): [API, AnthropicChatRequest] => {
+    const apiConfig = {
+      name: '/messages'
+    };
+
+    const messages =
+      req.chatPrompt?.map((msg) => ({
+        type: 'text',
+        role: msg.role as 'user' | 'assistant',
+        content: msg.text
+      })) ?? [];
+
+    const reqValue: AnthropicChatRequest = {
+      model: req.modelInfo?.name ?? this.config.model,
+      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      metadata: {
+        stop_sequences: this.config.stopSequences,
+        temperature: req.modelConfig?.temperature ?? this.config.temperature,
+        top_p: req.modelConfig?.topP ?? this.config.topP,
+        top_k: req.modelConfig?.topK ?? this.config.topK
+      },
+      messages
+    };
+
+    return [apiConfig, reqValue];
+  };
+
+  generateChatResp = (resp: Readonly<AnthropicChatResponse>): TextResponse => {
+    const results = resp.content.map((msg) => ({
+      text: msg.type === 'text' ? msg.text : '',
+      role: resp.role,
+      id: resp.id,
+      finishReason: resp.stop_reason
+    }));
+
+    const modelUsage = {
+      promptTokens: resp.usage.input_tokens,
+      completionTokens: resp.usage.output_tokens,
+      totalTokens: resp.usage.input_tokens + resp.usage.output_tokens
+    };
+
+    return {
+      results,
+      modelUsage
+    };
+  };
+
+  generateChatStreamResp = (
+    resp: Readonly<AnthropicChatResponseDelta>
+  ): TextResponse => {
+    let results: TextResponseResult[] = [];
+    let modelUsage;
+
+    if ('message' in resp) {
+      const { message } = resp as unknown as MessageStartEvent;
+      results = [
+        {
+          text: '',
+          role: message.role,
+          id: message.id
+        }
+      ];
+      modelUsage = {
+        promptTokens: resp.usage?.input_tokens ?? 0,
+        completionTokens: resp.usage?.output_tokens ?? 0,
+        totalTokens:
+          (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0)
+      };
+    }
+
+    if ('content_block' in resp) {
+      const { content_block: cb } = resp as unknown as ContentBlockStartEvent;
+      results = [{ text: cb.text }];
+    }
+
+    if (
+      'delta' in resp &&
+      'text' in (resp as unknown as ContentBlockDeltaEvent).delta
+    ) {
+      const { delta: cb } = resp as unknown as ContentBlockDeltaEvent;
+      results = [{ text: cb.text }];
+    }
+
+    if (
+      'delta' in resp &&
+      'stop_reason' in (resp as unknown as MessageDeltaEvent).delta
+    ) {
+      const { delta } = resp as unknown as MessageDeltaEvent;
+      results = [{ text: '', finishReason: delta.stop_reason ?? '' }];
+      modelUsage = {
+        promptTokens: resp.usage?.input_tokens ?? 0,
+        completionTokens: resp.usage?.output_tokens ?? 0,
+        totalTokens:
+          (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0)
+      };
+    }
+
+    return {
+      results,
+      modelUsage
     };
   };
 }

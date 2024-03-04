@@ -1,11 +1,12 @@
 import { AIServiceOptions } from '../../text/types.js';
 import { API } from '../../util/apicall.js';
-import { OpenAI } from '../openai/api.js';
 import {
-  OpenAIEmbedModels,
-  OpenAIModel,
-  OpenAIOptions
-} from '../openai/types.js';
+  OpenAI,
+  OpenAICreativeConfig,
+  OpenAIDefaultConfig,
+  OpenAIFastConfig
+} from '../openai/api.js';
+import { OpenAIConfig } from '../openai/types.js';
 
 /**
  * AzureOpenAI: API call details
@@ -15,74 +16,66 @@ export type AzureOpenAIApiConfig = API & {
   headers: { 'api-key'?: string };
 };
 
-export const enum AzureOpenAIApi {
-  Completion = '/completions',
-  Chat = '/chat/completions',
-  Embed = '/embeddings',
-  Transcribe = '/audio/transcriptions'
-}
-
 /**
  * AzureOpenAI: Default Model options for text generation
  * @export
  */
-export const AzureOpenAIDefaultOptions = (): OpenAIOptions => ({
-  model: OpenAIModel.GPT35Turbo,
-  embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
-  maxTokens: 500,
-  temperature: 0.45,
-  topP: 1
-});
+export const AzureOpenAIDefaultConfig = OpenAIDefaultConfig;
 
 /**
  * AzureOpenAI: Default model options for more creative text generation
  * @export
  */
-export const AzureOpenAICreativeOptions = (): OpenAIOptions => ({
-  ...AzureOpenAIDefaultOptions(),
-  model: OpenAIModel.GPT35Turbo,
-  temperature: 0.9
-});
+export const AzureOpenAICreativeConfig = OpenAICreativeConfig;
 
 /**
  * AzureOpenAI: Default model options for more fast text generation
  * @export
  */
-export const AzureOpenAIFastOptions = (): OpenAIOptions => ({
-  ...AzureOpenAIDefaultOptions(),
-  model: OpenAIModel.GPT35Turbo,
-  temperature: 0.45
-});
+export const AzureOpenAIFastConfig = OpenAIFastConfig;
+
+export interface AzureOpenAIArgs {
+  apiKey: string;
+  resourceName: string;
+  deploymentName: string;
+  version?: string;
+  config: Readonly<OpenAIConfig>;
+  options?: Readonly<AIServiceOptions>;
+}
 
 /**
  * AzureOpenAI: AI Service
  * @export
  */
 export class AzureOpenAI extends OpenAI {
-  constructor(
-    apiKey: string,
-    host: string,
-    deploymentName: string,
-    options: Readonly<OpenAIOptions> = AzureOpenAIDefaultOptions(),
-    otherOptions?: Readonly<AIServiceOptions>
-  ) {
+  constructor({
+    apiKey,
+    resourceName,
+    deploymentName,
+    version = 'api-version=2024-02-15-preview',
+    config,
+    options
+  }: Readonly<AzureOpenAIArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
     }
-    if (!host || host === '') {
-      throw new Error('Azure OpenAPI host not set (host)');
+    if (!resourceName || resourceName === '') {
+      throw new Error('Azure OpenAPI resource name not set');
     }
     if (!deploymentName || deploymentName === '') {
-      throw new Error('Azure OpenAPI deployment name not set (deploymentName)');
+      throw new Error('Azure OpenAPI deployment id not set');
     }
-    super(apiKey, options, otherOptions);
+    super({ apiKey, config, options });
 
-    if (!host.includes('://')) {
-      host = `https://${host}.openai.azure.com/`;
-    }
+    const host = resourceName.includes('://')
+      ? resourceName
+      : `https://${resourceName}.openai.azure.com/`;
 
     super.aiName = 'Azure OpenAI';
-    super.apiURL = new URL(`/openai/deployments/${deploymentName}`, host).href;
+    super.apiURL = new URL(
+      `/openai/deployments/${deploymentName}?api-version=${version}`,
+      host
+    ).href;
     super.headers = { 'api-key': apiKey };
   }
 }

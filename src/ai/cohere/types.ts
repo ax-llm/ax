@@ -6,7 +6,7 @@ export enum CohereModel {
   Command = 'command',
   CommandNightly = 'command-nightly',
   CommandXLarge = 'command-xlarge',
-  CommandLight = 'command-light',
+  CommandLight = 'command-light'
 }
 
 /**
@@ -16,7 +16,7 @@ export enum CohereModel {
 export enum CohereEmbedModel {
   EmbedEnglishLightV20 = 'embed-english-light-v2.0',
   EmbedEnglishV20 = 'embed-english-v2.0',
-  EmbedMultiLingualV20 = 'embed-multilingual-v2.0',
+  EmbedMultiLingualV20 = 'embed-multilingual-v2.0'
 }
 
 /**
@@ -26,14 +26,14 @@ export enum CohereEmbedModel {
 export enum CohereReturnLikelihoods {
   GENERATION = 'GENERATION',
   ALL = 'ALL',
-  NONE = 'NONE',
+  NONE = 'NONE'
 }
 
 /**
  * Cohere: Model options for text generation
  * @export
  */
-export type CohereOptions = {
+export type CohereConfig = {
   model: CohereModel;
   embedModel: CohereEmbedModel;
   maxTokens: number;
@@ -46,7 +46,7 @@ export type CohereOptions = {
   endSequences?: string[];
   returnLikelihoods?: CohereReturnLikelihoods;
   logitBias?: Map<string, number>;
-  truncate?: string,
+  truncate?: string;
 };
 
 export type CohereCompletionRequest = {

@@ -1,6 +1,5 @@
 import { Prompt, PromptUpdater } from '../ai/middleware.js';
 
-import { RemoteMemoryStore } from './memory.js';
 import { ExtendedIncomingMessage } from './types.js';
 import { VectorMemoryStore } from './vector.js';
 
@@ -10,16 +9,6 @@ const promptUpdater = (
 ): PromptUpdater | undefined => {
   return async (args) => {
     const prompt: Prompt[] = [];
-
-    const rms = new RemoteMemoryStore();
-    try {
-      const res1 = await rms.getMemory(req, args);
-      if (res1) {
-        prompt.push(...res1);
-      }
-    } catch (e) {
-      console.error('Error fetching memory from remote', e);
-    }
 
     const vms = new VectorMemoryStore(debug);
     try {

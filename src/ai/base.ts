@@ -1,7 +1,6 @@
 import chalk from 'chalk';
 
 // import { ConsoleLogger } from '../logs/console.js';
-import { RemoteLogger } from '../logs/remote.js';
 import {
   AIPromptConfig,
   AIService,
@@ -71,8 +70,6 @@ export class BaseAI<
   generateChatStreamResp?: (resp: Readonly<TChatResponseDelta>) => TextResponse;
   generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => EmbedResponse;
 
-  // private consoleLog = new ConsoleLogger();
-  private remoteLog = new RemoteLogger();
   private debug = false;
   private disableLog = false;
 
@@ -117,10 +114,6 @@ export class BaseAI<
       .at(0);
 
     this.setOptions(options);
-
-    if (this.debug) {
-      this.remoteLog.printDebugInfo();
-    }
   }
 
   setOptions(options: Readonly<AIServiceOptions>): void {
@@ -138,14 +131,6 @@ export class BaseAI<
 
     if (options.rateLimiter) {
       this.rt = options.rateLimiter;
-    }
-
-    if (options.llmClientAPIKey) {
-      this.remoteLog.setAPIKey(options.llmClientAPIKey);
-
-      if (this.debug) {
-        this.remoteLog.printDebugInfo();
-      }
     }
   }
 
@@ -196,10 +181,6 @@ export class BaseAI<
       .setRequest(this.traceStepReqBuilder)
       .setResponse(this.traceStepRespBuilder)
       .build();
-
-    if (this.remoteLog) {
-      await this.remoteLog?.log?.(traceStep);
-    }
 
     if (this.log) {
       this.log?.(traceStep);

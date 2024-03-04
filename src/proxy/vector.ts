@@ -54,7 +54,7 @@ export class VectorMemoryStore {
 
     let dbQuery = prompt;
 
-    const ai = AI(req.providerName, req.middleware.getAPIKey(), {});
+    const ai = AI(req.providerName, { apiKey: req.middleware.getAPIKey() });
 
     if (rewriteQuery && rewriteQuery.toLowerCase() === 'true') {
       const rqPrompt =

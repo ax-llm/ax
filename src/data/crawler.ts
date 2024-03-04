@@ -9,7 +9,7 @@ type RequestHandler = (
   depth: number
 ) => string[];
 
-type CrawlerConfig = {
+interface CrawlerConfig {
   llmAPIKey: string;
   llmType: string;
   llmOptions: Record<string, string>;
@@ -21,7 +21,7 @@ type CrawlerConfig = {
   startPage: string;
   handleRequest: RequestHandler;
   config: Readonly<{ depth: number; domains: string[] }>;
-};
+}
 
 export class Crawler {
   private ai: AIService;
@@ -52,7 +52,7 @@ export class Crawler {
     handleRequest,
     config
   }: Readonly<CrawlerConfig>) {
-    this.ai = AI(llmType, llmAPIKey, llmOptions);
+    this.ai = AI(llmType, { apiKey: llmAPIKey, ...llmOptions });
     this.db = DB(dbHost, dbAPIKey, dbOptions);
     this.dbTable = dbTable;
     this.dbNamespace = dbNamespace;

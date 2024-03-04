@@ -1,7 +1,7 @@
 import {
   AnthropicCompletionMiddleware,
   CohereCompletionMiddleware,
-  GoogleMiddleware,
+  GoogleVertexMiddleware,
   HuggingFaceCompletionMiddleware,
   OpenAIChatMiddleware,
   OpenAICompletionMiddleware,
@@ -78,7 +78,7 @@ export const routes: Routes[] = [
     routes: [
       {
         path: `/v1/projects`,
-        middleware: (req) => new GoogleMiddleware(req)
+        middleware: (req) => new GoogleVertexMiddleware(req)
       }
     ]
   },

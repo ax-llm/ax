@@ -6,8 +6,8 @@ import { TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoHuggingFace } from './info.js';
 import {
+  HuggingFaceConfig,
   HuggingFaceModel,
-  HuggingFaceOptions,
   HuggingFaceRequest,
   HuggingFaceResponse
 } from './types.js';
@@ -16,7 +16,7 @@ import {
  * HuggingFace: Default Model options for text generation
  * @export
  */
-export const HuggingFaceDefaultOptions = (): HuggingFaceOptions => ({
+export const HuggingFaceDefaultOptions = (): HuggingFaceConfig => ({
   model: HuggingFaceModel.MetaLlama270BChatHF,
   maxNewTokens: 500,
   temperature: 0,
@@ -27,11 +27,17 @@ export const HuggingFaceDefaultOptions = (): HuggingFaceOptions => ({
  * HuggingFace: Default model options for more creative text generation
  * @export
  */
-export const HuggingFaceCreativeOptions = (): HuggingFaceOptions => ({
+export const HuggingFaceCreativeOptions = (): HuggingFaceConfig => ({
   ...HuggingFaceDefaultOptions(),
   model: HuggingFaceModel.MetaLlama270BChatHF,
   temperature: 0.9
 });
+
+export interface HuggingFaceArgs {
+  apiKey: string;
+  config?: Readonly<HuggingFaceConfig>;
+  options?: Readonly<AIServiceOptions>;
+}
 
 /**
  * HuggingFace: AI Service
@@ -47,13 +53,13 @@ export class HuggingFace extends BaseAI<
   unknown,
   unknown
 > {
-  private options: HuggingFaceOptions;
+  private config: HuggingFaceConfig;
 
-  constructor(
-    apiKey: string,
-    options: Readonly<HuggingFaceOptions> = HuggingFaceDefaultOptions(),
-    otherOptions?: Readonly<AIServiceOptions>
-  ) {
+  constructor({
+    apiKey,
+    config = HuggingFaceDefaultOptions(),
+    options
+  }: Readonly<HuggingFaceArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('HuggingFace API key not set');
     }
@@ -62,21 +68,21 @@ export class HuggingFace extends BaseAI<
       'https://api-inference.huggingface.co',
       { Authorization: `Bearer ${apiKey}` },
       modelInfoHuggingFace,
-      { model: options.model },
-      otherOptions
+      { model: config.model },
+      options
     );
-    this.options = options;
+    this.config = config;
   }
 
   override getModelConfig(): TextModelConfig {
-    const { options } = this;
+    const { config } = this;
     return {
-      maxTokens: options.maxNewTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      topK: options.topK,
-      n: options.numReturnSequences,
-      presencePenalty: options.repetitionPenalty
+      maxTokens: config.maxNewTokens,
+      temperature: config.temperature,
+      topP: config.topP,
+      topK: config.topK,
+      n: config.numReturnSequences,
+      presencePenalty: config.repetitionPenalty
     } as TextModelConfig;
   }
 
@@ -85,7 +91,7 @@ export class HuggingFace extends BaseAI<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
   ): [API, HuggingFaceRequest] => {
-    const model = req.modelInfo?.name ?? this.options.model;
+    const model = req.modelInfo?.name ?? this.config.model;
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
       : '';
@@ -101,20 +107,20 @@ export class HuggingFace extends BaseAI<
       model,
       inputs,
       parameters: {
-        max_new_tokens: req.modelConfig?.maxTokens ?? this.options.maxNewTokens,
+        max_new_tokens: req.modelConfig?.maxTokens ?? this.config.maxNewTokens,
         repetition_penalty:
-          req.modelConfig?.presencePenalty ?? this.options.repetitionPenalty,
-        temperature: req.modelConfig?.temperature ?? this.options.temperature,
-        top_p: req.modelConfig?.topP ?? this.options.topP,
-        top_k: req.modelConfig?.topK ?? this.options.topK,
-        return_full_text: this.options.returnFullText,
-        num_return_sequences: this.options.numReturnSequences,
-        do_sample: this.options.doSample,
-        max_time: this.options.maxTime
+          req.modelConfig?.presencePenalty ?? this.config.repetitionPenalty,
+        temperature: req.modelConfig?.temperature ?? this.config.temperature,
+        top_p: req.modelConfig?.topP ?? this.config.topP,
+        top_k: req.modelConfig?.topK ?? this.config.topK,
+        return_full_text: this.config.returnFullText,
+        num_return_sequences: this.config.numReturnSequences,
+        do_sample: this.config.doSample,
+        max_time: this.config.maxTime
       },
       options: {
-        use_cache: this.options.useCache,
-        wait_for_model: this.options.waitForModel
+        use_cache: this.config.useCache,
+        wait_for_model: this.config.waitForModel
       }
     };
 

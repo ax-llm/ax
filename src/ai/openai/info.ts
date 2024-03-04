@@ -23,13 +23,6 @@ export const modelInfoOpenAI: TextModelInfo[] = [
     maxTokens: 128000
   },
   {
-    name: OpenAIModel.GPT432K,
-    currency: 'usd',
-    promptTokenCostPer1K: 0.06,
-    completionTokenCostPer1K: 0.12,
-    maxTokens: 32768
-  },
-  {
     name: OpenAIModel.GPT35Turbo,
     currency: 'usd',
     promptTokenCostPer1K: 0.001,

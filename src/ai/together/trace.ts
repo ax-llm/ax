@@ -6,7 +6,7 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware, TextModelConfig } from '../types.js';
 import { findItemByNameOrAlias } from '../util.js';
 
-import { modelInfoTogether } from './info.js';
+import { modelInfo as _modelInfo } from './info.js';
 import {
   TogetherCompletionRequest,
   TogetherCompletionResponse
@@ -42,7 +42,7 @@ export class TogetherCompletionMiddleware
     } = this.req;
 
     // Fetching model info
-    const mi = findItemByNameOrAlias(modelInfoTogether, model.toString());
+    const mi = findItemByNameOrAlias(_modelInfo, model.toString());
     const modelInfo = {
       ...mi,
       name: model.toString(),

@@ -373,21 +373,22 @@ export class AITextTraceStepBuilder {
 }
 
 export const sendTrace = async (
-  step: Readonly<AITextTraceStep>,
-  apiKey: string
+  endpoint: string,
+  headers: Readonly<Record<string, string>>,
+  step: Readonly<AITextTraceStep>
 ) => {
-  const devMode = process.env.DEV_MODE === 'true';
+  if (!endpoint || endpoint === '') {
+    throw new Error('Trace endpoint is required');
+  }
+
   const { traceId, sessionId } = step;
-  const baseUrl = devMode
-    ? 'http://localhost:3000'
-    : 'https://api.llmclient.com';
-  const apiUrl = new URL(`/api/t/traces`, baseUrl);
+  const apiUrl = new URL(`/api/t/traces`, endpoint);
 
   const res = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey
+      ...headers
     },
     body: JSON.stringify({ traceId, sessionId, step })
   });
@@ -410,20 +411,17 @@ export const sendTrace = async (
 };
 
 export const getMemory = async (
-  apiKey: string,
+  endpoint: string,
+  headers: Readonly<Record<string, string>>,
   filter: Readonly<{ sessionId?: string; user?: string; limit?: number }>
 ): Promise<{ role?: string; text: string }[]> => {
-  const devMode = process.env.DEV_MODE === 'true';
-  const baseUrl = devMode
-    ? 'http://localhost:3000'
-    : 'https://api.llmclient.com';
-  const apiUrl = new URL(`/api/t/traces/memory`, baseUrl);
+  const apiUrl = new URL(`/api/t/traces/memory`, endpoint);
 
   const res = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey
+      ...headers
     },
     body: JSON.stringify({ ...filter, limit: filter.limit ?? 10 })
   });

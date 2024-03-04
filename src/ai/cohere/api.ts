@@ -11,18 +11,18 @@ import { modelInfoCohere } from './info.js';
 import {
   CohereCompletionRequest,
   CohereCompletionResponse,
+  CohereConfig,
   CohereEmbedModel,
   CohereEmbedRequest,
   CohereEmbedResponse,
-  CohereModel,
-  CohereOptions
+  CohereModel
 } from './types.js';
 
 /**
- * Cohere: Default Model options for text generation
+ * Cohere: Default Model config for text generation
  * @export
  */
-export const CohereDefaultOptions = (): CohereOptions => ({
+export const CohereDefaultConfig = (): CohereConfig => ({
   model: CohereModel.CommandNightly,
   embedModel: CohereEmbedModel.EmbedEnglishLightV20,
   maxTokens: 500,
@@ -37,14 +37,20 @@ export const CohereDefaultOptions = (): CohereOptions => ({
 });
 
 /**
- * Cohere: Default model options for more creative text generation
+ * Cohere: Default model config for more creative text generation
  * @export
  */
-export const CohereCreativeOptions = (): CohereOptions => ({
-  ...CohereDefaultOptions(),
+export const CohereCreativeConfig = (): CohereConfig => ({
+  ...CohereDefaultConfig(),
   temperature: 0.7,
   logitBias: undefined
 });
+
+export interface CohereArgs {
+  apiKey: string;
+  config: Readonly<CohereConfig>;
+  options?: Readonly<AIServiceOptions>;
+}
 
 /**
  * Cohere: AI Service
@@ -60,13 +66,13 @@ export class Cohere extends BaseAI<
   unknown,
   CohereEmbedResponse
 > {
-  private options: CohereOptions;
+  private config: CohereConfig;
 
-  constructor(
-    apiKey: string,
-    options: Readonly<CohereOptions> = CohereDefaultOptions(),
-    otherOptions?: Readonly<AIServiceOptions>
-  ) {
+  constructor({
+    apiKey,
+    config = CohereDefaultConfig(),
+    options
+  }: Readonly<CohereArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
     }
@@ -75,25 +81,25 @@ export class Cohere extends BaseAI<
       'https://api.cohere.ai',
       { Authorization: `Bearer ${apiKey}` },
       modelInfoCohere,
-      { model: options.model },
-      otherOptions
+      { model: config.model },
+      options
     );
-    this.options = options;
+    this.config = config;
   }
 
   override getModelConfig(): TextModelConfig {
-    const { options } = this;
+    const { config } = this;
     return {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      topK: options.topK,
-      frequencyPenalty: options.frequencyPenalty,
-      presencePenalty: options.presencePenalty,
-      endSequences: options.endSequences,
-      stopSequences: options.stopSequences,
-      returnLikelihoods: options.returnLikelihoods,
-      logitBias: options.logitBias
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+      topP: config.topP,
+      topK: config.topK,
+      frequencyPenalty: config.frequencyPenalty,
+      presencePenalty: config.presencePenalty,
+      endSequences: config.endSequences,
+      stopSequences: config.stopSequences,
+      returnLikelihoods: config.returnLikelihoods,
+      logitBias: config.logitBias
     } as TextModelConfig;
   }
 
@@ -101,7 +107,7 @@ export class Cohere extends BaseAI<
     req: Readonly<AITextCompletionRequest>,
     config: Readonly<AIPromptConfig>
   ): [API, CohereCompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.options.model;
+    const model = req.modelInfo?.name ?? this.config.model;
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
       : '';
@@ -116,18 +122,18 @@ export class Cohere extends BaseAI<
     const reqValue: CohereCompletionRequest = {
       model,
       prompt,
-      max_tokens: req.modelConfig?.maxTokens ?? this.options.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.options.temperature,
-      k: req.modelConfig?.topK ?? this.options.topK,
-      p: req.modelConfig?.topP ?? this.options.topP,
+      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      k: req.modelConfig?.topK ?? this.config.topK,
+      p: req.modelConfig?.topP ?? this.config.topP,
       frequency_penalty:
-        req.modelConfig?.frequencyPenalty ?? this.options.frequencyPenalty,
+        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       presence_penalty:
-        req.modelConfig?.presencePenalty ?? this.options.presencePenalty,
-      end_sequences: this.options.endSequences,
-      stop_sequences: this.options.stopSequences ?? config.stopSequences,
-      return_likelihoods: this.options.returnLikelihoods,
-      logit_bias: this.options.logitBias
+        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
+      end_sequences: this.config.endSequences,
+      stop_sequences: this.config.stopSequences ?? config.stopSequences,
+      return_likelihoods: this.config.returnLikelihoods,
+      logit_bias: this.config.logitBias
     };
 
     return [apiConfig, reqValue];
@@ -136,7 +142,7 @@ export class Cohere extends BaseAI<
   generateEmbedReq = (
     req: Readonly<AITextEmbedRequest>
   ): [API, CohereEmbedRequest] => {
-    const model = req.embedModelInfo?.name ?? this.options.embedModel;
+    const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     const apiConfig = {
       name: '/v1/embed'
@@ -145,7 +151,7 @@ export class Cohere extends BaseAI<
     const reqValue = {
       model,
       texts: req.texts ?? [],
-      truncate: this.options.truncate ?? ''
+      truncate: this.config.truncate ?? ''
     };
 
     return [apiConfig, reqValue];

@@ -1,3 +1,5 @@
+import path from 'path';
+
 import { JSONStringifyStream } from './transform.js';
 /**
  * Util: API details
@@ -13,17 +15,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   api: Readonly<API & { url: string; stream?: boolean }>,
   json: TRequest
 ): Promise<TResponse | ReadableStream<TResponse>> => {
-  const useProxy =
-    process.env.LLMCLIENT_PROXY ?? process.env.LLMC_PROXY === 'true';
-
-  const isDev = process.env.DEV_MODE === 'true';
-
-  const baseUrl = useProxy
-    ? isDev
-      ? 'http://127.0.0.1'
-      : 'https://proxy.llmclient.com'
-    : api.url;
-  const apiPath = api.name ?? '/';
+  const baseUrl = new URL(process.env.PROXY ?? api.url);
+  const apiPath = path.join(baseUrl.pathname, api.name ?? '/');
   const apiUrl = new URL(apiPath, baseUrl);
 
   const res = await fetch(apiUrl, {
@@ -34,6 +27,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     },
     body: JSON.stringify(json)
   });
+
+  console.log('apiCall', apiUrl, api.headers, json);
 
   if (!res.body) {
     throw new Error('Response body is null');

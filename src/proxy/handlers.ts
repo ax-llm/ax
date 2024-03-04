@@ -7,7 +7,6 @@ import httpProxy from 'http-proxy';
 import { MemoryCache } from './cache.js';
 import { processAIRequest } from './prompt.js';
 import { extendRequest } from './req.js';
-import { RemoteTraceStore } from './tracing.js';
 import { CacheItem, ExtendedIncomingMessage } from './types.js';
 import { convertToAPIError, decompress } from './util.js';
 
@@ -52,7 +51,6 @@ export const requestHandler = async (
   const cachedResponse = await cache.get(hash);
   const contentEncoding = req.headers['content-encoding'];
 
-  req.llmClientAPIKey = req.headers['x-llmclient-apikey'] as string | undefined;
   req.sessionId = req.headers['x-llmclient-sessionid'] as string | undefined;
   req.host = req.headers['x-llmclient-host'] as string | undefined;
 
@@ -64,16 +62,17 @@ export const requestHandler = async (
   }
 
   if (cachedResponse) {
-    const { body, headers, trace } = cachedResponse;
+    const { body, headers } = cachedResponse;
     _res.writeHead(200, headers);
     _res.write(Buffer.concat(body));
     _res.end();
 
-    if (trace) {
-      const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
-      ts.update(req);
-      await ts.save();
-    }
+    //  await sendTrace(trace, this.apiKey);
+    // if (trace) {
+    //   const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
+    //   ts.update(req);
+    //   await ts.save();
+    // }
     return;
   }
 
@@ -147,9 +146,13 @@ export function addHandlers(
         // build the trace
         trace = req.middleware.getTrace(req);
 
+        if (debug) {
+          console.log('TRACE', JSON.stringify(trace, null, 2));
+        }
+
         // send the trace
-        const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
-        await ts.save();
+        // const ts = new RemoteTraceStore(trace, debug, req.llmClientAPIKey);
+        // await ts.save();
       } catch (err: unknown) {
         console.error('Error building trace:', (err as Error).message);
         return;

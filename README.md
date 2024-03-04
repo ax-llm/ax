@@ -14,16 +14,16 @@ LLMClient is also a simple library to build chain of though and function calling
 
 ## AI's Supported
 
-| AI           | Best Model                           | Proxy | Functions + CoT |
-| ------------ | ------------------------------------ | ----- | --------------- |
-| OpenAI       | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
-| Anthropic    | Claude Instant, Claude 2             | ✅    | 🟢 100%         |
-| Azure OpenAI | GPT: 3.5, 3.5-16K, 4, 4-32K          | ✅    | 🟢 100%         |
-| Google AI    | Text Bison, Chat Bison, Gecko        | ✅    | 🟢 100%         |
-| Together     | Llama 2                              | ✅    | 🟢 90%          |
-| Hugging Face | Llama 2                              | ✅    | 🟡 90%          |
-| Cohere       | Command, Command Nightly             | ✅    | 🟡 40%          |
-| AlephaAlpha  | Luminous: Control, Supreme, Extended | No    | 🔴 N/A          |
+| AI            | Best Model               | Tested  |
+| ------------- | ------------------------ | ------- |
+| OpenAI        | GPT: 4, 3.5/4-Turbo      | 🟢 100% |
+| Azure OpenAI  | GPT: 4, 3.5/4-Turbo      | 🟢 100% |
+| Together      | Several OSS Models       | 🟢 100% |
+| Cohere        | Command, Command Nightly | 🟡 100% |
+| Anthropic     | Claude 2, Claude 3       | 🟡 50%  |
+| Google Vertex | Palm, Bison              | 🟡 50%  |
+| Google Gemini | Gemini 1.0               | 🟡 50%  |
+| Hugging Face  | OSS Model                | 🟡 50%  |
 
 ## An example of using the Prompts API
 

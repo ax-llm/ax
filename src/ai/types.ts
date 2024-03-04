@@ -76,6 +76,8 @@ export type TranscriptResponse = {
   }[];
 };
 
+export type LoggerFuction = (traceStep: Readonly<AITextTraceStep>) => void;
+
 export type RateLimiterFunction = <T>(func: unknown) => T;
 
 /**

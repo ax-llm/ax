@@ -13,7 +13,6 @@ export type ExtendedIncomingMessage = IncomingMessage & {
 
   traceId: string;
   sessionId?: string;
-  llmClientAPIKey?: string;
   host?: string;
 };
 

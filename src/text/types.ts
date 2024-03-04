@@ -2,6 +2,7 @@ import { JSONSchemaType } from 'ajv';
 
 import {
   EmbedResponse,
+  LoggerFuction,
   RateLimiterFunction,
   TextModelConfig,
   TextModelInfo,
@@ -86,12 +87,10 @@ export type AITranscribeConfig = {
   language?: string;
 };
 
-// eslint-disable-next-line functional/no-mixed-types
 export type AIServiceOptions = {
   debug?: boolean;
   disableLog?: boolean;
-  llmClientAPIKey?: string;
-  log?: (traceStep: Readonly<AITextTraceStep>) => void;
+  log?: LoggerFuction;
   rateLimiter?: RateLimiterFunction;
 };
 

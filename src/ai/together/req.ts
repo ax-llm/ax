@@ -1,8 +1,8 @@
-import { TogetherCompletionRequest, TogetherOptions } from './types.js';
+import { TogetherCompletionRequest, TogetherConfig } from './types.js';
 
 export const generateReq = (
   prompt: string,
-  opt: Readonly<TogetherOptions>,
+  opt: Readonly<TogetherConfig>,
   stopSequences?: readonly string[]
 ): TogetherCompletionRequest => ({
   stream_tokens: opt.stream,

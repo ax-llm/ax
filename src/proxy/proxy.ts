@@ -3,8 +3,6 @@ import http from 'http';
 import chalk from 'chalk';
 import httpProxy from 'http-proxy';
 
-import { RemoteLogger } from '../logs/remote.js';
-
 import { MemoryCache } from './cache.js';
 import { addHandlers, errMsg, requestHandler } from './handlers.js';
 import { CacheItem } from './types.js';
@@ -38,10 +36,7 @@ export class LLMProxy {
       })
       .listen(this.port, () => {
         const msg = `🌵 LLMClient caching proxy listening on port ${this.port}`;
-        const remoteLog = new RemoteLogger();
-
         console.log(chalk.greenBright(msg));
-        remoteLog.printDebugInfo();
         console.log('🔥 ❤️  🖖🏼');
       });
   }

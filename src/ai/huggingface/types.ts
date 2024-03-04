@@ -3,14 +3,14 @@
  * @export
  */
 export enum HuggingFaceModel {
-  MetaLlama270BChatHF = 'meta-llama/Llama-2-70b-chat-hf',
+  MetaLlama270BChatHF = 'meta-llama/Llama-2-70b-chat-hf'
 }
 
 /**
  * HuggingFace: Model options for text generation
  * @export
  */
-export type HuggingFaceOptions = {
+export type HuggingFaceConfig = {
   model: HuggingFaceModel;
   temperature: number;
   topP: number;
