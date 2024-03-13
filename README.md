@@ -24,6 +24,7 @@ LLMClient is also a simple library to build chain of though and function calling
 | Google Vertex | Palm, Bison              | 🟡 50%  |
 | Google Gemini | Gemini 1.0               | 🟡 50%  |
 | Hugging Face  | OSS Model                | 🟡 50%  |
+| Groq          | Lama2-70B, Mixtral-8x7b  | 🟡 50%  |
 
 ## An example of using the Prompts API
 

@@ -76,6 +76,7 @@ export const OpenAIFastConfig = (): OpenAIConfig => ({
 
 export interface OpenAIArgs {
   apiKey: string;
+  apiURL?: string;
   config?: Readonly<OpenAIConfig>;
   options?: Readonly<AIServiceOptions>;
 }
@@ -99,14 +100,15 @@ export class OpenAI extends BaseAI<
   constructor({
     apiKey,
     config = OpenAIDefaultConfig(),
-    options
+    options,
+    apiURL
   }: Readonly<OpenAIArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
     }
     super(
       'OpenAI',
-      'https://api.openai.com/v1',
+      apiURL ? apiURL : 'https://api.openai.com/v1',
       { Authorization: `Bearer ${apiKey}` },
       modelInfoOpenAI,
       { model: config.model, embedModel: config.embedModel },

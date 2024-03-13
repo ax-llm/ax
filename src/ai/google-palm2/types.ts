@@ -1,29 +1,29 @@
 /**
- * GoogleVertex: API call details
+ * GooglePalm2: API call details
  * @export
  */
 
-export const apiURLGoogleVertex =
+export const apiURLGooglePalm2 =
   'https://us-central1-aiplatform.googleapis.com/v1/projects/';
 
 /**
- * GoogleVertex: Models for text generation
+ * GooglePalm2: Models for text generation
  * @export
  */
-export enum GoogleVertexModel {
+export enum GooglePalm2Model {
   PaLMTextBison = `text-bison`,
   PaLMChatBison = `chat-bison`
 }
 
 /**
- * GoogleVertex: Models for use in embeddings
+ * GooglePalm2: Models for use in embeddings
  * @export
  */
-export enum GoogleVertexEmbedModels {
+export enum GooglePalm2EmbedModels {
   PaLMTextEmbeddingGecko = 'textembedding-gecko'
 }
 
-export type GoogleVertexCompletionRequest = {
+export type GooglePalm2CompletionRequest = {
   instances: {
     prompt: string;
   }[];
@@ -35,7 +35,7 @@ export type GoogleVertexCompletionRequest = {
   };
 };
 
-export type GoogleVertexCompletionResponse = {
+export type GooglePalm2CompletionResponse = {
   predictions: {
     content: string;
     safetyAttributes: {
@@ -48,7 +48,7 @@ export type GoogleVertexCompletionResponse = {
   }[];
 };
 
-export type GoogleVertexChatRequest = {
+export type GooglePalm2ChatRequest = {
   instances: {
     context: string;
     examples: { input: { content: string }; output: { content: string } }[];
@@ -62,7 +62,7 @@ export type GoogleVertexChatRequest = {
   };
 };
 
-export type GoogleVertexChatResponse = {
+export type GooglePalm2ChatResponse = {
   predictions: {
     candidates: { content: string }[];
     citationMetadata: { citations: string[] }[];
@@ -76,11 +76,11 @@ export type GoogleVertexChatResponse = {
   }[];
 };
 
-export type GoogleVertexEmbedRequest = {
+export type GooglePalm2EmbedRequest = {
   instances: { content: string }[];
 };
 
-export type GoogleVertexEmbedResponse = {
+export type GooglePalm2EmbedResponse = {
   model: string;
   predictions: {
     embeddings: { values: number[] };
@@ -88,12 +88,12 @@ export type GoogleVertexEmbedResponse = {
 };
 
 /**
- * GoogleVertex: Model options for text generation
+ * GooglePalm2: Model options for text generation
  * @export
  */
-export type GoogleVertexConfig = {
-  model: GoogleVertexModel;
-  embedModel: GoogleVertexEmbedModels;
+export type GooglePalm2Config = {
+  model: GooglePalm2Model;
+  embedModel: GooglePalm2EmbedModels;
   maxTokens: number;
   temperature: number;
   topP: number;

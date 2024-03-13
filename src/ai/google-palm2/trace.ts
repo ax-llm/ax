@@ -6,18 +6,18 @@ import { BaseAIMiddleware, PromptUpdater } from '../middleware.js';
 import { AIMiddleware } from '../types.js';
 import { findItemByNameOrAlias, uniqBy } from '../util.js';
 
-import { modelInfoGoogleVertex } from './info.js';
+import { modelInfoGooglePalm2 } from './info.js';
 import {
-  GoogleVertexChatRequest,
-  GoogleVertexChatResponse,
-  GoogleVertexCompletionRequest,
-  GoogleVertexCompletionResponse
+  GooglePalm2ChatRequest,
+  GooglePalm2ChatResponse,
+  GooglePalm2CompletionRequest,
+  GooglePalm2CompletionResponse
 } from './types.js';
 
-class GoogleVertexCompletionMiddleware
+class GooglePalm2CompletionMiddleware
   extends BaseAIMiddleware<
-    GoogleVertexCompletionRequest,
-    GoogleVertexCompletionResponse
+    GooglePalm2CompletionRequest,
+    GooglePalm2CompletionResponse
   >
   implements AIMiddleware
 {
@@ -51,10 +51,10 @@ class GoogleVertexCompletionMiddleware
     } = this.req;
 
     // Fetching model info
-    const mi = findItemByNameOrAlias(modelInfoGoogleVertex, 'google');
+    const mi = findItemByNameOrAlias(modelInfoGooglePalm2, 'google');
     const modelInfo = { ...mi, name: 'google', provider: 'google' };
 
-    // Configure TextModel based on GoogleVertexCompletionRequest
+    // Configure TextModel based on GooglePalm2CompletionRequest
     const modelConfig = {
       maxTokens: max_tokens ?? 0,
       temperature: temperature,
@@ -87,8 +87,8 @@ class GoogleVertexCompletionMiddleware
   embed = async (_text: string): Promise<readonly number[]> => [];
 }
 
-class GoogleVertexChatMiddleware
-  extends BaseAIMiddleware<GoogleVertexChatRequest, GoogleVertexChatResponse>
+class GooglePalm2ChatMiddleware
+  extends BaseAIMiddleware<GooglePalm2ChatRequest, GooglePalm2ChatResponse>
   implements AIMiddleware
 {
   addRequest = async (request: string, fn?: PromptUpdater) => {
@@ -128,7 +128,7 @@ class GoogleVertexChatMiddleware
       .join('\n');
 
     // Fetching model info
-    const mi = findItemByNameOrAlias(modelInfoGoogleVertex, 'google');
+    const mi = findItemByNameOrAlias(modelInfoGooglePalm2, 'google');
     const modelInfo = { ...mi, name: 'google', provider: 'google' };
 
     // Context Prompt
@@ -145,7 +145,7 @@ class GoogleVertexChatMiddleware
         name: role // assuming author is same as name
       })) ?? [];
 
-    // Configure TextModel based on GoogleVertexChatRequest
+    // Configure TextModel based on GooglePalm2ChatRequest
     const modelConfig = {
       maxTokens: maxOutputTokens,
       temperature: temperature,
@@ -180,10 +180,10 @@ class GoogleVertexChatMiddleware
   embed = async (_text: string): Promise<readonly number[]> => [];
 }
 
-export class GoogleVertexMiddleware
+export class GooglePalm2Middleware
   extends BaseAIMiddleware<
-    GoogleVertexChatRequest | GoogleVertexCompletionRequest,
-    GoogleVertexChatResponse | GoogleVertexCompletionResponse
+    GooglePalm2ChatRequest | GooglePalm2CompletionRequest,
+    GooglePalm2ChatResponse | GooglePalm2CompletionResponse
   >
   implements AIMiddleware
 {
@@ -199,12 +199,12 @@ export class GoogleVertexMiddleware
       throw new Error('Invalid request: no instances');
     }
 
-    const rq = this.req as GoogleVertexCompletionRequest;
+    const rq = this.req as GooglePalm2CompletionRequest;
 
     if (rq.instances.at(0)?.prompt) {
-      this.mw = new GoogleVertexCompletionMiddleware(this.exReq);
+      this.mw = new GooglePalm2CompletionMiddleware(this.exReq);
     } else {
-      this.mw = new GoogleVertexChatMiddleware(this.exReq);
+      this.mw = new GooglePalm2ChatMiddleware(this.exReq);
     }
     this.mw.addRequest(request, fn);
   };
@@ -222,10 +222,10 @@ export class GoogleVertexMiddleware
   //   ] as string;
   //   if (!projectId) {
   //     throw new Error(
-  //       'Missing GoogleVertex project ID header: x-llmclient-google-project-id'
+  //       'Missing GooglePalm2 project ID header: x-llmclient-google-project-id'
   //     );
   //   }
-  //   const ai = new GoogleVertex(this.apiKey, projectId);
+  //   const ai = new GooglePalm2(this.apiKey, projectId);
   //   const res = await ai.embed(text, {
   //     traceId: this.exReq?.traceId,
   //     sessionId: this.exReq?.sessionId,

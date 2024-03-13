@@ -18,7 +18,7 @@ export enum GoogleGeminiModel {
  * @export
  */
 export enum GoogleGeminiEmbedModels {}
-// Assuming embedding models would be specified here, similar to GoogleVertexEmbedModels
+// Assuming embedding models would be specified here, similar to GooglePalm2EmbedModels
 
 export type GoogleGeminiPart = {
   text?: string;
@@ -50,7 +50,7 @@ export type GoogleGeminiContent = {
 export type GoogleGeminiToolFunctionDeclaration = {
   name: string;
   description?: string;
-  parameters: any; // OpenAPI Object Schema, needs to be defined based on external specification
+  parameters: unknown; // OpenAPI Object Schema, needs to be defined based on external specification
 };
 
 export type GoogleGeminiTool = {

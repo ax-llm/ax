@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "7.0.0",
+  "version": "7.0.2",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -44,7 +44,8 @@
     "doc:publish": "gh-pages -m \"[ci skip] Updates\" -d docs",
     "version": "standard-version",
     "reset-hard": "git clean -dfx && git reset --hard && npm i",
-    "prepare-release": "run-s reset-hard test cov:check doc:html version doc:publish"
+    "prepare-release": "run-s reset-hard test cov:check doc:html version doc:publish",
+    "build-parser": "npx peggy --plugin ts-pegjs --extra-options-file src/dspy/parser.json --cache --output src/dspy/parser.ts src/dspy/parser.peggy"
   },
   "engines": {
     "node": ">=21"
@@ -88,6 +89,7 @@
     "prettier": "^2.8.4",
     "standard-version": "^9.0.0",
     "ts-node": "^10.9.1",
+    "ts-pegjs": "^4.2.1",
     "typedoc": "^0.23.25",
     "typescript": "^4.9.5"
   },

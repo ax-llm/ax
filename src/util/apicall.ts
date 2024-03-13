@@ -28,8 +28,6 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     body: JSON.stringify(json)
   });
 
-  console.log('apiCall', apiUrl, api.headers, json);
-
   if (!res.body) {
     throw new Error('Response body is null');
   }

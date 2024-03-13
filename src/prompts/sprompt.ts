@@ -3,7 +3,7 @@ import { JSONSchemaType } from 'ajv';
 import { AIPrompt, PromptValues } from '../text/text.js';
 import { PromptFunction } from '../text/types.js';
 
-const COT_SYSTEM_PROMPT = `
+const REACT_SYSTEM_PROMPT = `
 Think step-by-step. Use functions. Do not create new functions. Stick to the defined format and function schemas.
 
 Format:
@@ -41,7 +41,7 @@ export class SPrompt<S> extends AIPrompt<S> {
   override prompt(query: string): Readonly<PromptValues> {
     if (this.useFunctions) {
       return [
-        { role: 'system', text: COT_SYSTEM_PROMPT },
+        { role: 'system', text: REACT_SYSTEM_PROMPT },
         { role: 'user', text: `Task:\n${query}\nThought:\n` }
       ];
     }

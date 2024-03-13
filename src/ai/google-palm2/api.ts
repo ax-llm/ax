@@ -8,27 +8,27 @@ import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
-import { modelInfoGoogleVertex } from './info.js';
+import { modelInfoGooglePalm2 } from './info.js';
 import {
-  apiURLGoogleVertex,
-  GoogleVertexChatRequest,
-  GoogleVertexChatResponse,
-  GoogleVertexCompletionRequest,
-  GoogleVertexCompletionResponse,
-  GoogleVertexConfig,
-  GoogleVertexEmbedModels,
-  GoogleVertexEmbedRequest,
-  GoogleVertexEmbedResponse,
-  GoogleVertexModel
+  apiURLGooglePalm2,
+  GooglePalm2ChatRequest,
+  GooglePalm2ChatResponse,
+  GooglePalm2CompletionRequest,
+  GooglePalm2CompletionResponse,
+  GooglePalm2Config,
+  GooglePalm2EmbedModels,
+  GooglePalm2EmbedRequest,
+  GooglePalm2EmbedResponse,
+  GooglePalm2Model
 } from './types.js';
 
 /**
- * GoogleVertex: Default Model options for text generation
+ * GooglePalm2: Default Model options for text generation
  * @export
  */
-export const GoogleVertexDefaultOptions = (): GoogleVertexConfig => ({
-  model: GoogleVertexModel.PaLMTextBison,
-  embedModel: GoogleVertexEmbedModels.PaLMTextEmbeddingGecko,
+export const GooglePalm2DefaultOptions = (): GooglePalm2Config => ({
+  model: GooglePalm2Model.PaLMTextBison,
+  embedModel: GooglePalm2EmbedModels.PaLMTextEmbeddingGecko,
   maxTokens: 500,
   temperature: 0.45,
   topP: 1,
@@ -36,68 +36,68 @@ export const GoogleVertexDefaultOptions = (): GoogleVertexConfig => ({
 });
 
 /**
- * GoogleVertex: Default model options for more creative text generation
+ * GooglePalm2: Default model options for more creative text generation
  * @export
  */
-export const GoogleVertexCreativeOptions = (): GoogleVertexConfig => ({
-  ...GoogleVertexDefaultOptions(),
-  model: GoogleVertexModel.PaLMTextBison,
+export const GooglePalm2CreativeOptions = (): GooglePalm2Config => ({
+  ...GooglePalm2DefaultOptions(),
+  model: GooglePalm2Model.PaLMTextBison,
   temperature: 0.9
 });
 
 /**
- * GoogleVertex: Default model options for more fast text generation
+ * GooglePalm2: Default model options for more fast text generation
  * @export
  */
-export const GoogleVertexFastOptions = (): GoogleVertexConfig => ({
-  ...GoogleVertexDefaultOptions(),
-  model: GoogleVertexModel.PaLMTextBison,
+export const GooglePalm2FastOptions = (): GooglePalm2Config => ({
+  ...GooglePalm2DefaultOptions(),
+  model: GooglePalm2Model.PaLMTextBison,
   temperature: 0.45
 });
 
-export interface GoogleVertexArgs {
+export interface GooglePalm2Args {
   apiKey: string;
   projectId: string;
-  config: Readonly<GoogleVertexConfig>;
+  config: Readonly<GooglePalm2Config>;
   options?: Readonly<AIServiceOptions>;
 }
 
 /**
- * GoogleVertex: AI Service
+ * GooglePalm2: AI Service
  * @export
  */
-export class GoogleVertex extends BaseAI<
-  GoogleVertexCompletionRequest,
-  GoogleVertexChatRequest,
-  GoogleVertexEmbedRequest,
-  GoogleVertexCompletionResponse,
+export class GooglePalm2 extends BaseAI<
+  GooglePalm2CompletionRequest,
+  GooglePalm2ChatRequest,
+  GooglePalm2EmbedRequest,
+  GooglePalm2CompletionResponse,
   unknown,
-  GoogleVertexChatResponse,
+  GooglePalm2ChatResponse,
   unknown,
-  GoogleVertexEmbedResponse
+  GooglePalm2EmbedResponse
 > {
-  private config: GoogleVertexConfig;
+  private config: GooglePalm2Config;
 
   constructor({
     apiKey,
     projectId,
-    config = GoogleVertexDefaultOptions(),
+    config = GooglePalm2DefaultOptions(),
     options
-  }: Readonly<GoogleVertexArgs>) {
+  }: Readonly<GooglePalm2Args>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('GoogleVertex AI API key not set');
+      throw new Error('GooglePalm2 AI API key not set');
     }
 
     const apiURL = new URL(
       `${projectId}/locations/us-central1/publishers/google/models/${config.model}:predict`,
-      apiURLGoogleVertex
+      apiURLGooglePalm2
     ).href;
 
     super(
-      'GoogleVertexAI',
+      'GooglePalm2AI',
       apiURL,
       { Authorization: `Bearer ${apiKey}` },
-      modelInfoGoogleVertex,
+      modelInfoGooglePalm2,
       { model: config.model, embedModel: config.embedModel },
       options
     );
@@ -118,7 +118,7 @@ export class GoogleVertex extends BaseAI<
     req: Readonly<AITextCompletionRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
-  ): [API, GoogleVertexCompletionRequest] => {
+  ): [API, GooglePalm2CompletionRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
@@ -131,7 +131,7 @@ export class GoogleVertex extends BaseAI<
       name: `/v1/models/${model}:predict`
     };
 
-    const reqValue: GoogleVertexCompletionRequest = {
+    const reqValue: GooglePalm2CompletionRequest = {
       instances: [{ prompt }],
       parameters: {
         maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
@@ -145,7 +145,7 @@ export class GoogleVertex extends BaseAI<
   };
 
   generateCompletionResp = (
-    resp: Readonly<GoogleVertexCompletionResponse>
+    resp: Readonly<GooglePalm2CompletionResponse>
   ): TextResponse => {
     const results = resp.predictions.map((prediction) => ({
       text: prediction.content,
@@ -161,7 +161,7 @@ export class GoogleVertex extends BaseAI<
     req: Readonly<AITextChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
-  ): [API, GoogleVertexChatRequest] => {
+  ): [API, GooglePalm2ChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -172,7 +172,7 @@ export class GoogleVertex extends BaseAI<
       name: `/v1/models/${model}:predict`
     };
 
-    const reqValue: GoogleVertexChatRequest = {
+    const reqValue: GooglePalm2ChatRequest = {
       instances: [
         {
           context: req.functions
@@ -198,7 +198,7 @@ export class GoogleVertex extends BaseAI<
 
   generateEmbedReq = (
     req: Readonly<AITextEmbedRequest>
-  ): [API, GoogleVertexEmbedRequest] => {
+  ): [API, GooglePalm2EmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!req.texts || req.texts.length === 0) {
@@ -209,7 +209,7 @@ export class GoogleVertex extends BaseAI<
       name: `/v1/models/${model}:predict`
     };
 
-    const reqValue: GoogleVertexEmbedRequest = {
+    const reqValue: GooglePalm2EmbedRequest = {
       instances: req.texts.map((text) => ({ content: text }))
     };
 
@@ -217,7 +217,7 @@ export class GoogleVertex extends BaseAI<
   };
 
   generateChatResp = (
-    resp: Readonly<GoogleVertexChatResponse>
+    resp: Readonly<GooglePalm2ChatResponse>
   ): TextResponse => {
     const results = resp.predictions.map((prediction, index) => ({
       id: `${index}`,
@@ -231,7 +231,7 @@ export class GoogleVertex extends BaseAI<
   };
 
   generateEmbedResp = (
-    resp: Readonly<GoogleVertexEmbedResponse>
+    resp: Readonly<GooglePalm2EmbedResponse>
   ): EmbedResponse => {
     const embeddings = resp.predictions.map(
       (prediction) => prediction.embeddings.values
