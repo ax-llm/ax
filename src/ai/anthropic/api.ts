@@ -110,7 +110,7 @@ export class Anthropic extends BaseAI<
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,
-      stop_sequences: this.config.stopSequences ?? config.stopSequences,
+      stop_sequences: this.config.stopSequences ?? config.stopSequences ?? [],
       stream: this.config.stream
     };
 

@@ -1,6 +1,5 @@
 import chalk from 'chalk';
 
-// import { ConsoleLogger } from '../logs/console.js';
 import {
   AIPromptConfig,
   AIService,

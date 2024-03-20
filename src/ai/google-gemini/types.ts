@@ -78,7 +78,7 @@ export type GoogleGeminiContent = {
 export type GoogleGeminiToolFunctionDeclaration = {
   name: string;
   description?: string;
-  parameters: unknown; // OpenAPI Object Schema, needs to be defined based on external specification
+  parameters?: object;
 };
 
 export type GoogleGeminiTool = {
@@ -204,7 +204,7 @@ export type GoogleGeminiCompletionRequest = {
     functionDeclarations: {
       name: string;
       description?: string;
-      parameters: unknown;
+      parameters?: object;
     }[];
   }[];
   safetySettings?: {

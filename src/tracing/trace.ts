@@ -140,7 +140,9 @@ export class TextResponseBuilder {
   private response: AITextTraceStepResponse = {} as AITextTraceStepResponse;
 
   setResults(results?: readonly TextResponseResult[]): this {
-    this.response.results = results;
+    if (results) {
+      this.response.results = results;
+    }
     return this;
   }
 

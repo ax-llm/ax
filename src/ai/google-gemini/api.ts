@@ -113,7 +113,7 @@ export class GoogleGemini extends BaseAI<
           role: 'USER',
           parts: [
             {
-              content: prompt
+              text: prompt
             }
           ]
         }
@@ -143,11 +143,18 @@ export class GoogleGemini extends BaseAI<
     const results =
       resp.candidates.at(0)?.content.parts.map((part, index) => ({
         id: `${index}`,
-        text: part.text || '',
+        content: part.text || '',
         ...(part.function_call
           ? {
               functionCalls: [
-                { name: part.function_call.name, args: part.function_call.args }
+                {
+                  id: `${index}`,
+                  type: 'function' as const,
+                  function: {
+                    name: part.function_call.name,
+                    args: part.function_call.args
+                  }
+                }
               ]
             }
           : {})
@@ -175,7 +182,7 @@ export class GoogleGemini extends BaseAI<
     const reqValue: GoogleGeminiChatRequest = {
       contents: req.chatPrompt.map((prompt) => ({
         role: prompt.role as 'USER' | 'MODEL',
-        parts: [{ text: prompt.content }]
+        parts: [{ text: prompt.content ?? undefined }]
       })),
       tools: req.functions
         ? [
@@ -226,11 +233,18 @@ export class GoogleGemini extends BaseAI<
     const results =
       resp.candidates.at(0)?.content.parts.map((part, index) => ({
         id: `${index}`,
-        text: part.text || '',
+        content: part.text || '',
         ...(part.function_call
           ? {
               functionCalls: [
-                { name: part.function_call.name, args: part.function_call.args }
+                {
+                  id: `${index}`,
+                  type: 'function' as const,
+                  function: {
+                    name: part.function_call.name,
+                    args: part.function_call.args
+                  }
+                }
               ]
             }
           : {})

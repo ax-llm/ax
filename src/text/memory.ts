@@ -1,6 +1,6 @@
 import { TextResponseResult } from '../ai/types.js';
 import { convertToChatPromptItem } from '../ai/util.js';
-import { AITextChatPromptItem } from '../tracing/types.js';
+import { AITextChatRequest } from '../tracing/types.js';
 
 import { AIMemory } from './types.js';
 
@@ -9,8 +9,8 @@ import { AIMemory } from './types.js';
  * @export
  */
 export class Memory implements AIMemory {
-  private data: AITextChatPromptItem[] = [];
-  private sdata = new Map<string, AITextChatPromptItem[]>();
+  private data: AITextChatRequest['chatPrompt'] = [];
+  private sdata = new Map<string, AITextChatRequest['chatPrompt']>();
   private limit: number;
 
   constructor(limit = 50) {
@@ -21,7 +21,9 @@ export class Memory implements AIMemory {
   }
 
   add(
-    value: Readonly<AITextChatPromptItem | AITextChatPromptItem[]>,
+    value: Readonly<
+      AITextChatRequest['chatPrompt'][0] | AITextChatRequest['chatPrompt']
+    >,
     sessionId?: string
   ): void {
     const d = this.get(sessionId);
@@ -29,7 +31,7 @@ export class Memory implements AIMemory {
     if (Array.isArray(value)) {
       n = d.push(...value);
     } else {
-      n = d.push(value as AITextChatPromptItem);
+      n = d.push(value as AITextChatRequest['chatPrompt'][0]);
     }
     if (d.length > this.limit) {
       d.splice(0, this.limit + n - this.limit);
@@ -40,11 +42,11 @@ export class Memory implements AIMemory {
     this.add(convertToChatPromptItem(result), sessionId);
   }
 
-  history(sessionId?: string): Readonly<AITextChatPromptItem[]> {
+  history(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']> {
     return this.get(sessionId);
   }
 
-  peek(sessionId?: string): Readonly<AITextChatPromptItem[]> {
+  peek(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']> {
     return this.get(sessionId);
   }
 
@@ -56,7 +58,7 @@ export class Memory implements AIMemory {
     }
   }
 
-  private get(sessionId?: string): AITextChatPromptItem[] {
+  private get(sessionId?: string): AITextChatRequest['chatPrompt'] {
     if (!sessionId) {
       return this.data;
     }
