@@ -1,17 +1,8 @@
 import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import {
-  AITextChatRequest,
-  AITextCompletionRequest,
-  AITextEmbedRequest
-} from '../../tracing/types.js';
+import { AITextChatRequest, AITextEmbedRequest } from '../../tracing/types.js';
 import { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import {
-  EmbedResponse,
-  TextModelConfig,
-  TextResponse,
-  TextResponseResult
-} from '../types.js';
+import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {
@@ -106,14 +97,15 @@ export class OpenAI extends BaseAI<
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
     }
-    super(
-      'OpenAI',
-      apiURL ? apiURL : 'https://api.openai.com/v1',
-      { Authorization: `Bearer ${apiKey}` },
-      modelInfoOpenAI,
-      { model: config.model, embedModel: config.embedModel },
-      options
-    );
+    super({
+      name: 'OpenAI',
+      apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      modelInfo: modelInfoOpenAI,
+      models: { model: config.model, embedModel: config.embedModel },
+      options,
+      supportFor: { functions: true }
+    });
     this.config = config;
   }
 
@@ -134,53 +126,6 @@ export class OpenAI extends BaseAI<
     };
   }
 
-  generateCompletionReq = (
-    req: Readonly<AITextCompletionRequest>,
-    config: Readonly<AIPromptConfig>
-  ): [API, OpenAICompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
-    const prompt = `${req.systemPrompt || ''} ${req.prompt || ''}`.trim();
-
-    const apiConfig = {
-      name: '/completions',
-      headers: {
-        ...(req.identity?.organization
-          ? { 'OpenAI-Organization': req.identity?.organization }
-          : null)
-      }
-    };
-
-    const reqValue = {
-      model,
-      prompt,
-      function_call: req.functionCall as
-        | 'none'
-        | 'auto'
-        | { name: string }
-        | undefined,
-      functions: req.functions,
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
-      suffix: req.modelConfig?.suffix ?? this.config.suffix ?? null,
-      n: req.modelConfig?.n ?? this.config.n,
-      stream: req.modelConfig?.stream ?? this.config.stream,
-      logprobs: req.modelConfig?.logprobs ?? this.config.logprobs,
-      echo: req.modelConfig?.echo ?? this.config.echo,
-      stop: this.config.stop ?? config.stopSequences,
-      presence_penalty:
-        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-      frequency_penalty:
-        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-      best_of: req.modelConfig?.bestOf ?? this.config.bestOf,
-      logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,
-      user: req.identity?.user ?? this.config.user,
-      organization: req.identity?.organization
-    };
-
-    return [apiConfig, reqValue];
-  };
-
   generateChatReq = (
     req: Readonly<AITextChatRequest>,
     config: Readonly<AIPromptConfig>
@@ -200,52 +145,62 @@ export class OpenAI extends BaseAI<
       }
     };
 
-    let functionCall = req.functionCall as
-      | 'none'
-      | 'auto'
-      | { name: string }
-      | undefined;
+    const tools = req.functions?.map((v) => ({
+      type: 'function' as const,
+      function: {
+        name: v.name,
+        description: v.description,
+        parameters: v.parameters
+      }
+    }));
 
-    if (
-      !functionCall &&
-      typeof functionCall === 'string' &&
-      (functionCall as string).length === 0 &&
-      req.functions &&
-      req.functions.length > 0
-    ) {
-      functionCall = 'auto';
-    }
+    const toolsChoice =
+      !req.functionCall && req.functions && req.functions.length > 0
+        ? 'auto'
+        : req.functionCall;
 
-    const reqValue = {
+    const messages = req.chatPrompt.map((v) => {
+      switch (v.role) {
+        case 'system':
+          return { role: 'system' as const, content: v.content };
+        case 'user':
+          return { role: 'user' as const, content: v.content, name: v.name };
+        case 'assistant':
+          return {
+            role: 'assistant' as const,
+            content: v.content,
+            name: v.name,
+            tool_calls: v.functionCalls
+          };
+        case 'function':
+          return {
+            role: 'tool' as const,
+            content: v.content,
+            tool_call_id: v.functionId
+          };
+        default:
+          throw new Error('Invalid role');
+      }
+    });
+
+    const reqValue: OpenAIChatRequest = {
       model,
+      messages,
       response_format: this.config.responseFormat
         ? { type: this.config.responseFormat }
         : undefined,
-      messages: req.chatPrompt.map(
-        ({ role, text: content, name, functionCall: fc }) => ({
-          role,
-          content,
-          name,
-          function_call: fc
-            ? { name: fc.name, arguments: fc.args ?? '' }
-            : undefined
-        })
-      ),
-      function_call: functionCall,
-      functions: req.functions,
+      tools,
+      tool_choice: toolsChoice,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
       stream: req.modelConfig?.stream ?? this.config.stream,
-      logprobs: req.modelConfig?.logprobs ?? this.config.logprobs,
-      echo: req.modelConfig?.echo ?? this.config.echo,
       stop: config.stopSequences,
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       frequency_penalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-      best_of: req.modelConfig?.bestOf ?? this.config.bestOf,
       logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,
       user: req.identity?.user ?? this.config.user,
       organization: req.identity?.organization
@@ -258,6 +213,10 @@ export class OpenAI extends BaseAI<
     req: Readonly<AITextEmbedRequest>
   ): [API, OpenAIEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
+
+    if (!model) {
+      throw new Error('Embed model not set');
+    }
 
     if (!req.texts || req.texts.length === 0) {
       throw new Error('Embed texts is empty');
@@ -298,7 +257,7 @@ export class OpenAI extends BaseAI<
       : undefined;
 
     const results = choices.map((choice) => ({
-      text: choice.text,
+      content: choice.text,
       finishReason: choice.finish_reason
     }));
 
@@ -324,8 +283,8 @@ export class OpenAI extends BaseAI<
 
     return {
       results: choices.map(
-        ({ delta: { text = '' }, finish_reason: finishReason }) => ({
-          text,
+        ({ delta: { content = '' }, finish_reason: finishReason }) => ({
+          content,
           finishReason,
           id
         })
@@ -349,23 +308,13 @@ export class OpenAI extends BaseAI<
         }
       : undefined;
 
-    const results = choices.map((choice) => {
-      const value: TextResponseResult = {
-        id: `${choice.index}`,
-        text: choice.message.content,
-        role: choice.message.role,
-        finishReason: choice.finish_reason
-      };
-
-      if (choice.message.function_call) {
-        value.functionCall = {
-          name: choice.message.function_call.name,
-          args: choice.message.function_call.arguments
-        };
-      }
-
-      return value;
-    });
+    const results = choices.map((choice) => ({
+      id: `${choice.index}`,
+      content: choice.message.content,
+      role: choice.message.role,
+      finishReason: choice.finish_reason,
+      functionCalls: choice.message.tool_calls
+    }));
 
     return {
       modelUsage,
@@ -390,14 +339,12 @@ export class OpenAI extends BaseAI<
     return {
       results: choices.map(
         ({
-          delta: { content, role, function_call: fc },
+          delta: { content, role, tool_calls },
           finish_reason: finishReason
         }) => ({
-          text: content ?? '',
+          content,
           role: role,
-          functionCall: fc
-            ? { name: fc.name, args: fc.arguments ?? '' }
-            : undefined,
+          functionCalls: tool_calls,
           finishReason,
           id
         })

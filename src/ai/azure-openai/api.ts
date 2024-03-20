@@ -2,6 +2,7 @@ import { AIServiceOptions } from '../../text/types.js';
 import { API } from '../../util/apicall.js';
 import {
   OpenAI,
+  OpenAIBestConfig,
   OpenAICreativeConfig,
   OpenAIDefaultConfig,
   OpenAIFastConfig
@@ -33,6 +34,8 @@ export const AzureOpenAICreativeConfig = OpenAICreativeConfig;
  * @export
  */
 export const AzureOpenAIFastConfig = OpenAIFastConfig;
+
+export const AzureOpenAIBestConfig = OpenAIBestConfig;
 
 export interface AzureOpenAIArgs {
   apiKey: string;
@@ -71,7 +74,7 @@ export class AzureOpenAI extends OpenAI {
       ? resourceName
       : `https://${resourceName}.openai.azure.com/`;
 
-    super.aiName = 'Azure OpenAI';
+    super.name = 'Azure OpenAI';
     super.apiURL = new URL(
       `/openai/deployments/${deploymentName}?api-version=${version}`,
       host

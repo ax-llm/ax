@@ -1,14 +1,33 @@
-import { TextResponse } from '../ai';
-import { AIService } from '../text/types';
+import { AITextChatRequest } from '..';
+import { TextResponse, TextResponseFunctionCall } from '../ai';
+import { AITextFunction } from '../text/functions';
+import { AIMemory, AIService } from '../text/types';
 
-import { PromptTemplate, PromptValues } from './prompt';
+import { GenIn, GenOut, PromptTemplate } from './prompt';
 import { extractValues, IField, Signature, ValidationError } from './sig';
 
+export type FunctionSpec = {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters?: object;
+};
+
 export interface GenerateOptions {
+  functions?: AITextFunction[];
+  functionCall?: AITextChatRequest['functionCall'];
   promptTemplate?: typeof PromptTemplate;
   asserts?: Assertion[];
   maxRetries?: number;
 }
+
+export type GenerateForwardOptions = {
+  maxRetries?: number;
+  maxSteps?: number;
+  mem: AIMemory;
+  sessionId?: string;
+  traceId?: string | undefined;
+  skipSystemPrompt?: boolean;
+};
 
 export interface Assertion {
   fn(arg0: Record<string, unknown>): boolean;
@@ -16,7 +35,23 @@ export interface Assertion {
   optional?: boolean;
 }
 
-export class Generate {
+export type ForwardResult<T> = T & {
+  functions?: TextResponseFunctionCall[];
+};
+
+export interface IGenerate<
+  IN extends GenIn = GenIn,
+  OUT extends GenIn = GenOut
+> {
+  //   getSignture(): Signature;
+  //   updateSignature(setFn: (sig: Readonly<Signature>) => void): void;
+  //   addAssert(fn: Assertion['fn'], errMsg: string, optional?: boolean): void;
+  forward(values: IN): Promise<OUT>;
+}
+
+export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
+  implements IGenerate<IN, OUT>
+{
   private sig: Signature;
   private ai: AIService;
   private pt: PromptTemplate;
@@ -24,23 +59,42 @@ export class Generate {
   private options?: GenerateOptions;
 
   constructor(
-    ai: Readonly<AIService>,
-    sig: Readonly<Signature | string>,
+    ai: AIService,
+    signature: Readonly<Signature | string>,
     options?: Readonly<GenerateOptions>
   ) {
     this.ai = ai;
     this.options = options;
-    this.sig = typeof sig === 'string' ? new Signature(sig) : sig.clone();
+    this.sig = new Signature(signature);
     this.pt = new (options?.promptTemplate ?? PromptTemplate)(this.sig);
     this.asserts = this.options?.asserts ?? [];
+
+    if (this.options?.functions) {
+      if (!this.ai.getFeatures().functions) {
+        this.updateSigForFunctions(this.sig);
+      }
+    }
   }
 
-  public getSignture = () => this.sig.clone();
-
   // eslint-disable-next-line functional/prefer-immutable-types
-  public setSignature = (setFn: (sig: Signature) => void) => {
+  public updateSignature = (setFn: (sig: Signature) => void) => {
     setFn(this.sig);
     this.pt = new (this.options?.promptTemplate ?? PromptTemplate)(this.sig);
+  };
+
+  private updateSigForFunctions = (sig: Readonly<Signature>) => {
+    // These are the fields for the function call only needed when the underlying LLM API does not support function calling natively in the API.
+    sig.addOutputField({
+      name: 'functionName',
+      description: 'Name of function to call',
+      isOptional: true
+    });
+
+    sig.addOutputField({
+      name: 'functionArguments',
+      description: 'Arguments of function to call',
+      isOptional: true
+    });
   };
 
   public addAssert = (
@@ -51,46 +105,109 @@ export class Generate {
     this.asserts.push({ fn, errMsg, optional });
   };
 
-  public _forward = async (values: PromptValues, xf?: readonly IField[]) => {
-    const prompt = this.pt.toString(values, xf);
-    const aiRes = await this.ai.chat({
-      chatPrompt: [{ role: 'user', text: prompt }]
+  private _forward = async ({
+    values,
+    extraFields,
+    mem,
+    sessionId,
+    traceId,
+    skipSystemPrompt
+  }: Readonly<{
+    values: IN;
+    extraFields?: readonly IField[];
+    mem?: AIMemory;
+    sessionId?: string;
+    traceId?: string;
+    skipSystemPrompt?: boolean;
+  }>): Promise<ForwardResult<OUT>> => {
+    const prompt = this.pt.toString<IN>(values, {
+      extraFields,
+      skipSystemPrompt
     });
+    const msg = { role: 'user' as const, content: prompt };
+    const chatPrompt = [...(mem?.history(sessionId) ?? []), msg];
 
+    const functions = this.options?.functions;
+    const functionCall = this.options?.functionCall;
+
+    const aiRes = await this.ai.chat(
+      { chatPrompt, functions, functionCall },
+      {
+        stopSequences: [],
+        ...(sessionId ? { sessionId } : {}),
+        ...(traceId ? { traceId } : {})
+      }
+    );
     const res = aiRes as unknown as TextResponse;
     const result = res.results?.at(0);
 
     if (!result) {
-      throw new Error('No results from AI');
+      throw new Error('No result found');
     }
 
-    const retval = extractValues(this.sig, result.text);
+    let retval: Record<string, unknown> = {};
 
-    this.asserts.forEach((a) => {
-      if (!a.fn(retval)) {
-        throw new AssertionError({
-          message: a.errMsg,
-          value: retval,
-          optional: a.optional
-        });
-      }
-    });
+    if (result.content) {
+      retval = extractValues(this.sig, result.content);
 
-    return retval;
+      this.asserts.forEach((a) => {
+        if (!a.fn(retval)) {
+          throw new AssertionError({
+            message: a.errMsg,
+            value: retval,
+            optional: a.optional
+          });
+        }
+      });
+    }
+
+    if (this.ai.getFeatures().functions) {
+      retval['functions'] = result.functionCalls?.map((f) => ({
+        id: f.id,
+        name: f.function.name,
+        args: f.function.arguments
+      }));
+    } else if (retval.functionName) {
+      retval['functions'] = [
+        {
+          name: retval.functionName,
+          args: retval.functionArguments
+        }
+      ];
+      delete retval.functionName;
+      delete retval.functionArguments;
+    }
+
+    mem?.add(msg, sessionId);
+    mem?.addResult(result, sessionId);
+
+    return retval as ForwardResult<OUT>;
   };
 
-  public forward = async (values: PromptValues) => {
-    let xf: IField[] = [];
+  public forward = async (
+    values: IN,
+    options?: Readonly<GenerateForwardOptions>
+  ): Promise<ForwardResult<OUT>> => {
+    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 3;
+
+    let extraFields: IField[] = [];
     let err: ValidationError | AssertionError | undefined;
 
-    for (let i = 0; i < (this.options?.maxRetries ?? 3); i++) {
+    for (let i = 0; i < maxRetries; i++) {
       try {
-        return await this._forward(values, xf);
+        return await this._forward({
+          values,
+          extraFields,
+          mem: options?.mem,
+          sessionId: options?.sessionId,
+          traceId: options?.traceId,
+          skipSystemPrompt: options?.skipSystemPrompt
+        });
       } catch (e) {
         if (e instanceof ValidationError) {
           const f = e.getField();
 
-          xf = [
+          extraFields = [
             {
               name: 'past_' + f.name,
               title: 'Past ' + f.title,
@@ -106,17 +223,18 @@ export class Generate {
           err = e;
         } else if (e instanceof AssertionError) {
           const e1 = e as AssertionError;
-          xf = [];
+          extraFields = [];
+
           this.sig.getOutputFields().forEach((f) => {
             const values = e1.getValue();
-            xf.push({
+            extraFields.push({
               name: 'past_' + f.name,
               title: 'Past ' + f.title,
               description: JSON.stringify(values[f.name])
             });
           });
 
-          xf.push({
+          extraFields.push({
             name: 'instructions',
             title: 'Instructions',
             description: e1.message
@@ -129,7 +247,7 @@ export class Generate {
     }
 
     if (err instanceof AssertionError && err.getOptional()) {
-      return err.getValue();
+      return err.getValue() as ForwardResult<OUT>;
     }
 
     throw new Error('Unable to fix validation error: ' + err?.message);

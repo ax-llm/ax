@@ -73,14 +73,15 @@ export class GoogleGemini extends BaseAI<
       apiURLGoogleGemini
     ).href;
 
-    super(
-      'GoogleGeminiAI',
+    super({
+      name: 'GoogleGeminiAI',
       apiURL,
-      { Authorization: `Bearer ${apiKey}` },
-      modelInfoGoogleGemini,
-      { model: config.model, embedModel: config.embedModel },
-      options
-    );
+      headers: { Authorization: `Bearer ${apiKey}` },
+      modelInfo: modelInfoGoogleGemini,
+      models: { model: config.model, embedModel: config.embedModel },
+      options,
+      supportFor: { functions: true }
+    });
     this.config = config;
   }
 
@@ -100,12 +101,7 @@ export class GoogleGemini extends BaseAI<
     _config: Readonly<AIPromptConfig>
   ): [API, GoogleGeminiCompletionRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
-    const functionsList = req.functions
-      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
-      : '';
-    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
-      req.prompt || ''
-    }`.trim();
+    const prompt = `${req.systemPrompt || ''} ${req.prompt || ''}`.trim();
 
     const apiConfig = {
       name: `/v1/models/${model}:predict`
@@ -117,7 +113,7 @@ export class GoogleGemini extends BaseAI<
           role: 'USER',
           parts: [
             {
-              text: prompt
+              content: prompt
             }
           ]
         }
@@ -147,9 +143,15 @@ export class GoogleGemini extends BaseAI<
     const results =
       resp.candidates.at(0)?.content.parts.map((part, index) => ({
         id: `${index}`,
-        text: part.text || ''
+        text: part.text || '',
+        ...(part.function_call
+          ? {
+              functionCalls: [
+                { name: part.function_call.name, args: part.function_call.args }
+              ]
+            }
+          : {})
       })) ?? [];
-
     return {
       results
     };
@@ -173,8 +175,15 @@ export class GoogleGemini extends BaseAI<
     const reqValue: GoogleGeminiChatRequest = {
       contents: req.chatPrompt.map((prompt) => ({
         role: prompt.role as 'USER' | 'MODEL',
-        parts: [{ text: prompt.text }]
+        parts: [{ text: prompt.content }]
       })),
+      tools: req.functions
+        ? [
+            {
+              functionDeclarations: req.functions ?? []
+            }
+          ]
+        : undefined,
       generationConfig: {
         maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
         temperature: req.modelConfig?.temperature ?? this.config.temperature,
@@ -217,7 +226,14 @@ export class GoogleGemini extends BaseAI<
     const results =
       resp.candidates.at(0)?.content.parts.map((part, index) => ({
         id: `${index}`,
-        text: part.text || ''
+        text: part.text || '',
+        ...(part.function_call
+          ? {
+              functionCalls: [
+                { name: part.function_call.name, args: part.function_call.args }
+              ]
+            }
+          : {})
       })) ?? [];
 
     return {

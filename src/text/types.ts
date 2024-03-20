@@ -11,15 +11,14 @@ import {
 } from '../ai/types.js';
 import { TextRequestBuilder, TextResponseBuilder } from '../tracing/trace.js';
 import {
-  AITextChatPromptItem,
   AITextChatRequest,
   AITextCompletionRequest,
-  AITextEmbedRequest,
-  AITextTraceStep
+  AITextEmbedRequest
 } from '../tracing/types.js';
 import { API } from '../util/apicall.js';
 
 export type FunctionExec = {
+  id?: string;
   name: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args?: any;
@@ -36,48 +35,32 @@ export type AITextResponse<T> = {
 
 export interface AIMemory {
   add(
-    result: Readonly<AITextChatPromptItem | AITextChatPromptItem[]>,
+    result: Readonly<
+      AITextChatRequest['chatPrompt'] | AITextChatRequest['chatPrompt'][0]
+    >,
     sessionId?: string
   ): void;
   addResult(result: Readonly<TextResponseResult>, sessionId?: string): void;
-  history(sessionId?: string): Readonly<AITextChatPromptItem[]>;
-  peek(sessionId?: string): Readonly<AITextChatPromptItem[]>;
+  history(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']>;
+  peek(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']>;
   reset(sessionId?: string): void;
 }
-
-export type PromptFunctionExtraOptions = {
-  ai: AIService;
-  sessionId?: string;
-};
-
-export type PromptFunctionFunc = (
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  args?: any,
-  extra?: Readonly<PromptFunctionExtraOptions>
-) => unknown;
-
-export type PromptFunction = {
-  readonly name: string;
-  readonly description: string;
-  readonly inputSchema?: unknown;
-  func?: PromptFunctionFunc;
-};
 
 export type PromptResponseConfig<T> = {
   keyValue?: boolean;
   schema?: JSONSchemaType<T>;
 };
 
-export type PromptConfig<T> = AIPromptConfig & {
-  functions?: PromptFunction[];
-  functionCall?: string | { name: string };
-  response?: PromptResponseConfig<T>;
-  debug?: boolean;
-  log?: (traces: Readonly<AITextTraceStep>) => void;
-};
+// export type PromptConfig<T> = AIPromptConfig & {
+//   functions?: PromptFunction[];
+//   functionCall?: string | { name: string };
+//   response?: PromptResponseConfig<T>;
+//   debug?: boolean;
+//   log?: (traces: Readonly<AITextTraceStep>) => void;
+// };
 
 export type AIPromptConfig = {
-  stopSequences: string[];
+  stopSequences?: string[];
   stream?: boolean;
   cache?: boolean;
   cacheMaxAgeSeconds?: number;
@@ -122,10 +105,11 @@ export interface AIServiceBase<
 }
 
 export interface AIService {
-  name(): string;
+  getName(): string;
   getModelInfo(): Readonly<TextModelInfo & { provider: string }>;
   getEmbedModelInfo(): Readonly<TextModelInfo> | undefined;
   getModelConfig(): Readonly<TextModelConfig>;
+  getFeatures(): { functions: boolean };
 
   // _transcribe(
   //   file: string,

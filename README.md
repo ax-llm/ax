@@ -1,4 +1,4 @@
-# LLMClient - LLM Framework for Building Agents
+# LLMClient - A framework for building with LLMs
 
 🌵 🦙 🔥 ❤️ 🖖🏼
 
@@ -8,13 +8,29 @@
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-## A simple library to build RAG + Reasoning + Function calling Agents
+## Build LLMs powered workflows.
 
-LLMClient is also a simple library to build chain of though and function calling workflows with all LLMs. Built in support for error-correction, structured data extraction, guardrails, etc
+LLMClient is an easy to use library for building powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc. Chain together components using simple JS/TS code and build maintainable LLM powered workflows.
 
-## AI's Supported
+## Why use LLMClient?
 
-| AI            | Best Model               | Tested  |
+- Support for various LLMs and Vector DBs
+- A lite low dependecies library
+- Prompts auto-generated from simple signatures
+- Multi-Hop RAG, ReAcT, CoT, Function Calling, Agents and more
+
+## Whats a prompt signature?
+
+```typescript
+"Write a simple search query that will help answer a complex question."
+context?:string[] "may contain relevant facts", question -> query
+```
+
+Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made of a `"description" inputField:type -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper.
+
+## LLM's Supported
+
+| Provider      | Best Models              | Tested  |
 | ------------- | ------------------------ | ------- |
 | OpenAI        | GPT: 4, 3.5/4-Turbo      | 🟢 100% |
 | Azure OpenAI  | GPT: 4, 3.5/4-Turbo      | 🟢 100% |
@@ -26,98 +42,52 @@ LLMClient is also a simple library to build chain of though and function calling
 | Hugging Face  | OSS Model                | 🟡 50%  |
 | Groq          | Lama2-70B, Mixtral-8x7b  | 🟡 50%  |
 
-## An example of using the Prompts API
+## Example: Using chain-of-thought to summarize text
 
-```javascript
-import { OpenAI, AIMemory, AIPrompt } from 'llmclient';
+```typescript
+import { AI, ChainOfThought, OpenAIArgs } from 'llmclient';
 
-// Support for OpenAI, AzureAI, GoogleAI, Cohere, etc...
-const ai = new OpenAI(process.env.OPENAI_APIKEY);
+/const textToSummarize = `
+The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
 
-// Has built-in support for reasoning, function calling, error correction, etc
-const prompt = new AIPrompt();
+const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const gen = new ChainOfThought(
+  ai,
+  `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
+);
+const res = await gen.forward({ textToSummarize });
 
-// Optional state storage memory
-const memory = new AIMemory();
-
-// Execute the prompt
-const res = await prompt.generate(ai, `What is your name?`, {
-  memory
-  // sessionID,
-  // rateLimiter
-});
-
-// Print the result
-console.log(res.value());
+console.log('>', res);
 ```
 
-## An example of using the Agents API
+## Example: Building an agent
 
-```javascript
-import {
-  Memory,
-  OpenAI,
-  Agent,
-  OpenAIBestModelOptions,
-} from "llmclient";
+Work in progress.
 
-const gpt4Conf = OpenAIBestModelOptions();
-gpt4Conf.maxTokens = 1000;
+## Checkout more examples
 
-const gpt4 = new OpenAI(process.env.OPENAI_APIKEY as string, gpt4Conf);
-gpt4.setOptions({ debug: true });
-
-const memory = new Memory();
-
-const agentPrompt = `...`
-
-const agent = new Agent(gpt4, memory, [/* functions */], {
-  contextLabel: "JSON",
-  agentPrompt,
-});
-
-const traceId = "123"
-
-// start the agent
-const { response } = await agent.start({
-  task:,
-  context: jsonData,
-  traceId,
-});
-
-// keep looping till your agent completes
-// feed response back into the next call
-const { response } = await agent.next(traceId, { response });
-
+```shell
+OPENAI_APIKEY=openai_key npx tsx ./src/examples/marketing.ts
 ```
 
-## Code Examples (Apps)
+| Example             | Description                                            |
+| ------------------- | ------------------------------------------------------ |
+| customer-support.ts | Extract valuable details from customer communications  |
+| food-search.ts      | Use multiple APIs are used to find dinning options     |
+| marketing.ts        | Generate short effective marketing sms messages        |
+| fibonacci.ts        | Use the JS code interpreter to compute fibonacci       |
+| summarize.ts        | Generate a short summary of a large block of text      |
+| chain-of-thought.ts | Use chain-of-thought prompting to answer questions     |
+| rag.ts              | Use multi-hop retrieval to answer questions            |
+| react.ts            | Use function calling and reasoning to answer questions |
 
-[LLMClient Example Apps](/examples/README.md)
+## Reasoning + Function Calling
 
-| Example               | Description                                               |
-| --------------------- | --------------------------------------------------------- |
-| meetings.js           | Meeting transcript converted into multiple Trello tasks   |
-| product-search.js     | Call an API to answer product related questions           |
-| food-search.js        | Multiple APIs are used to lookup the best eating options  |
-| fibonacci.js          | Use the built-in JS code interpreter to compute fibonacci |
-| vector-search.js      | Simple example using vector db and embeddings             |
-| customer-support.js   | Extract valuable details from customer communications     |
-| marketing.js          | Use AI to generate short effective marketing sms messages |
-| transcribe-podcast.js | Transcribe multiple podcast channels into text            |
-| chat-assistant.js     | AI chat bot capable of intellegent conversations          |
-| get-summary.js        | AI to generate a short summary of a large block of text   |
-| ai-vs-ai.js           | OpenAI has a friendly chat with Cohere                    |
-
-## Function (API) Calling with reasoning (CoT)
-
-Often you need the LLM to reason through a task and fetch and update external data related to this task. This is whre reasoning meets function (API) calling. It's built-in so you get all of the magic automatically. Just define the functions you wish to you, a schema for the response object and thats it.
+Often you need the LLM to reason through a task and fetch and update external data related to this task. This is where reasoning meets function (API) calling. It's built-in so you get all of the magic automatically. Just define the functions you wish to you, a schema for the response object and thats it.
 
 There are even some useful built-in functions like a `Code Interpreter` that the LLM can use to write and execute JS code.
 
-Build a meeting notes app backed by a task management tool that figures out the decided tasks and creates and assigns the tasks correctly as cards in Trello, Asana or Jira. Or a food finding app that uses the weather and google places api to find a place to eat at.
-
-You can truly build your entire backend with LLMs using this capability. To me this feels like magic.
+We support providers like OpenAI that offer multiple parallel function calling and the standard single function calling.
 
 ## Built-in Functions
 
@@ -126,387 +96,124 @@ You can truly build your entire backend with LLMs using this capability. To me t
 | Code Interpreter   | Used by the LLM to execute JS code in a sandboxed env. |
 | Embeddings Adapter | Wrapper to fetch and pass embedding to your function   |
 
-## Example using Custom Functions
+## Our Goal
 
-```js
-const productDB = [
-  { name: 'Macbook Pro', description: 'M2, 32GB', in_stock: 4321 },
-  { name: 'Macbook Pro', description: 'M2, 96GB', in_stock: 2 },
-  { name: 'iPad M1', description: 'M1, 8GB', in_stock: 0 }
-];
-
-const inventorySearch = ({ name, count }) => {
-  return JSON.stringify(
-    productDB.filter((v) => name.includes(v.name) && v.in_stock >= count)
-  );
-};
-
-// List of functions available to the AI and the schema of the functions inputs
-const functions = [
-  {
-    name: 'inventorySearch',
-    description: 'Used to search up a products inventory by its name',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'name of the product'
-        },
-        count: {
-          type: 'number',
-          description: 'number of products to search for'
-        }
-      },
-      required: ['name', 'count']
-    },
-    func: inventorySearch
-  }
-];
-
-const customerQuery = `Do you guys have 5 Macbook Pro's M2 with 96GB RAM and 3 iPads in stock?`;
-
-// The schema of the final response you expect from this prompt
-const resultSchema = {
-  type: 'object',
-  properties: {
-    message: {
-      type: 'string',
-      description: 'response message for the sender'
-    }
-  }
-};
-
-// Setup the prompt with the response schema and functions
-const prompt = new SPrompt(resultSchema, functions);
-prompt.setDebug(true);
-
-// Execute the prompt and get the response
-const res = await prompt.generate(ai, customerQuery);
-console.log(res.value());
-```
-
-Response
-
-```json
-{
-  "data": [
-    {
-      "name": "Macbook Pro M2",
-      "units": 5,
-      "desc": "M2, 32GB"
-    },
-    {
-      "name": "iPad",
-      "units": 0
-    }
-  ],
-  "response": "We have 2 Macbook Pro's M2 with 96GB RAM and 0 iPads in stock."
-}
-```
-
-Usage Stats in Response.
-
-The usage stats are useful to be able to compute costs and usage information.
-
-```json
-[
-  {
-    "model": {
-      "id": "gpt-3.5-turbo-0613",
-      "currency": "usd",
-      "promptTokenCostPer1K": 0.002,
-      "completionTokenCostPer1K": 0.002,
-      "maxTokens": 4096,
-      "oneTPM": 1
-    },
-    "stats": {
-      "promptTokens": 1067,
-      "completionTokens": 223,
-      "totalTokens": 1290
-    }
-  }
-]
-```
-
-## Extract Details From Messages
-
-Extracting information from text is one of the most useful thing LLMs can do. You can either use the more specialized `ExtractInfoPrompt` which should work even with simpler LLMs or use the `SPrompt` with or without functions and the `resultSchema` to do the same.
-
-```js
-const entities = [
-  { name: BusinessInfo.ProductName },
-  { name: BusinessInfo.IssueDescription },
-  { name: BusinessInfo.IssueSummary },
-  { name: BusinessInfo.PaymentMethod, classes: ['Cash', 'Credit Card'] }
-];
-
-const prompt = new ExtractInfoPrompt(entities);
-
-const customerMessage = `
-I am writing to report an issue with my recent order #12345. I received the package yesterday, but 
-unfortunately, the product that I paid for with cash (XYZ Smartwatch) is not functioning properly. 
-When I tried to turn it on, the screen remained blank, and I couldn't get it to respond to any of 
-the buttons.
-
-Jane Doe`;
-
-const res = await prompt.generate(ai, customerMessage);
-```
-
-Extracted Details From Customer Message:
-
-```console
-{
-  'Product Name' => [ 'XYZ Smartwatch' ],
-  'Issue Description' => [ 'Screen remained blank and unable to respond to any buttons' ],
-  'Issue Summary' => [ 'Product is not functioning properly' ],
-  'Payment method' => [ 'Cash' ]
-}
-```
-
-## Why use LLM Client?
-
-Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However since its all cutting edge technology you have to manage a lot of complexity from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there.
+Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However there is still a lot of manage a lot of complexity to manage from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. Additionally we are using the latest research to add useful new capabilities like DSP to the library.
 
 ## How to use this library?
 
 ### 1. Pick an AI to work with
 
-```js
-// Use Cohere AI
-const ai = new Cohere(process.env.COHERE_APIKEY);
-
-// Use OpenAI
-const ai = new OpenAI(process.env.OPENAI_APIKEY);
+```ts
+// Pick a LLM
+const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 ```
 
 ### 2. Pick a memory for storing context (optional)
 
-```js
+```ts
 // Can be sub classed to build you own memory backends
-// like one that uses redis or a database (not required)
-const memory = new Memory();
+const mem = new Memory();
 ```
 
 ### 3. Pick a prompt based on your usecase
 
-```js
-// Base prompt to extend for your own usecases
-const prompt = new AIPrompt();
-
-// Or A prompt (extended from AIPrompt) to handle
-// api calling and structured responses
-const prompt = new SPrompt(resultSchema, functions);
+```ts
+const cot = new ChainOfThought(ai, `question:string -> answer:string`, { mem });
 ```
 
-### 4. Engage the AI
+### 4. Use the prompt
 
-```js
-// Query the AI directly
+```ts
+const res = await cot.forward({ question: 'Are we in a simulation?' });
+```
+
+### 5. Alternatively use the LLM directly.
+
+```ts
 const res = await ai.chat([
-  { role: "system", text: "Help the customer with his questions" }
-  { role: "user", text: "I'm looking for a Macbook Pro M2 With 96GB RAM?" }
+  { role: "system", content: "Help the customer with his questions" }
+  { role: "user", content: "I'm looking for a Macbook Pro M2 With 96GB RAM?" }
 ]);
-
-// Or Query the AI with a Prompt
-const res = await prompt.generate(
-  ai,
-  `I'm looking for a Macbook Pro M2 With 96GB RAM?`
-);
-
-// Get the response
-console.log('>', res.value());
 ```
 
-## What is Function (API) Calling?
+## How do you use function calling
 
-API calls in large language models like GPT-4 are really useful. It's like allowing these models to talk with other computer programs and services. This means they can do more than just create text. For example, they can use an API call to get new data or work with another program to do a job. This makes them much more flexible and useful in many different situations.
+### 1. Define the functions
 
-For example:
-
-**Weather App:** Let's say you're using a chatbot (powered by a language model like GPT-4) and you ask, "What's the weather like today?" The chatbot doesn't know the current weather, but it can use an API call to ask a weather service for this information. Then, it can understand the response and tell you, "It's going to be sunny and 75 degrees today."
-
-**Music Recommendation:** Imagine you ask a smart assistant (also powered by a language model) to recommend a new song you might like. The assistant could use an API call to ask a music streaming service (like Spotify) for suggestions based on your past listens. Then it could tell you, "You might enjoy the new song by your favorite artist."
-
-**Restaurant Lookup:** If you ask a chatbot, "Find me a good Italian restaurant nearby," it could use an API call to ask a service like Yelp or Google Maps to find Italian restaurants in your area. Then, it can share the results with you.
-
-```js
-const inventorySearch = ({ name, count }) => {
-  return JSON.stringify(
-    productDB.filter((v) => name.includes(v.name) && v.in_stock >= count)
-  );
-};
-
+```ts
+// define one or more functions and a function handler
 const functions = [
   {
-    // function name
-    name: 'inventorySearch',
-    // description
-    description: 'Used to search up a products inventory by its name',
-    // json schema defining the function input
-    inputSchema: {
+    name: 'getCurrentWeather',
+    description: 'get the current weather for a location',
+    parameters: {
       type: 'object',
       properties: {
-        name: {
+        location: {
           type: 'string',
-          description: 'name of the product'
+          description: 'location to get weather for'
         },
-        count: {
-          type: 'number',
-          description: 'number of products to search for'
+        units: {
+          type: 'string',
+          enum: ['imperial', 'metric'],
+          default: 'imperial',
+          description: 'units to use'
         }
       },
-      required: ['name', 'count']
+      required: ['location']
     },
-    // the js function to call
-    func: inventorySearch
+    func: async (args: Readonly<{ location: string; units: string }>) => {
+      return `The weather in ${args.location} is 72 degrees`;
+    }
   }
 ];
 ```
 
-Finally pass the functions list to the prompt.
+### 2. Pass the functions to a prompt
 
-```js
-// json schema defining the final response object
-const resultSchema = {
-  type: 'object',
-  properties: {
-    data: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          units: { type: 'number' },
-          desc: { type: 'string' }
-        }
-      }
-    }
-  }
-};
-
-const prompt = new SPrompt(resultSchema, functions);
+```ts
+const cot = new ReAct(ai, `question:string -> answer:string`, { functions });
 ```
 
-## Detailed Debug Logs
+## Enable debug logs
 
-```js
-const prompt = new SPrompt(restaurant, funcs);
-prompt.setDebug(true);
+```ts
+const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+ai.setOptions({ debug: true });
 ```
-
-## Troubleshooting
-
-1. **The LLM can't find the right function to use from the ones I've provided**
-   Improve the function naming and description be very clear on what the function does. Also ensure the function parameter's also have good descriptions. The descriptions don't have to be very long but need to be clear.
-
-2. **How do I change the configuration of the LLM used**
-   You can pass a configuration object as the second parameter when creating a new LLM object `const conf = OpenAIDefaultOptions(); const ai = new OpenAI(APIKEY, conf);`
-
-3. **My prompt is too long and is getting cut off for some reason**
-   Increase the max token length `const conf = OpenAIDefaultOptions(); conf.maxTokens = 2000;`
-
-4. **How do I change the model say I want to use GPT4 instead of the default**
-   Change it on the configuration `const conf = OpenAIDefaultOptions(); conf.model = OpenAIGenerateModel.GPT4;` another way is to use another preset instead of the default. `const conf = OpenAIBestModelOptions();`
-
-5. **How do I get debug logs**
-   You have to enable it on the the prompt object `const prompt = new SPrompt(restaurant, funcs); prompt.setDebug(true);` and the logs will be displayed on the console.
-
----
-
-## LLM Proxy
-
-<div>
-  <img src="http://llmclient.com/images/providers/openai.png" alt="OpenAI" height="80" align="middle">
-  <img src="http://llmclient.com/images/providers/huggingface.png" alt="HuggingFace" height="80" align="middle">
-  <img src="http://llmclient.com/images/providers/anthropic.png" alt="Anthropic" height="50" align="middle">
-  <img src="http://llmclient.com/images/providers/cohere.png" alt="Cohere" height="50" align="middle">
-  <img src="http://llmclient.com/images/providers/together.png" alt="Together" height="50" align="middle">
-  <img src="http://llmclient.com/images/providers/google.png" alt="Google" height="50" align="middle">
-</div>
-
-A quick proxy server to help debug and trace all your llm interactions while you develop your prompts and LLM powered apps. The proxy has builtin caching to speedup your dev workflows and to save you from paying token costs. **The proxy works with any llm api in any language you don't even have to use llmclient.**
-
-> If you want to view your traces to the hosted web ui then just set the `LLMC_APIKEY` environment variable to your app key from llmclient.com
-
-Start local dev proxy server on port 8081
-
-```console
-npx llmclient:latest proxy
-```
-
-Point your code to local dev proxy server
-
-```
-http://localhost:8081/openai/v1
-```
-
-Connect your LLM code to the proxy server
-
-```javascript
-// Example using openai client library
-import OpenAI from 'openai';
-
-// Point the openai client to the proxy
-const openai = new OpenAI({
-  baseURL: 'http://localhost:8081/openai/v1',
-  apiKey: process.env.OPENAI_APIKEY
-});
-
-const chatCompletion = await openai.chat.completions.create({
-  messages: [{ role: 'user', content: 'Say this is a test' }],
-  model: 'gpt-3.5-turbo'
-});
-
-console.log(chatCompletion);
-```
-
-## Web UI for Debugging, Tracing and Metrics
-
-A free web ui designed to help you debug and log your LLM interactions. Working with LLMs is hard since there are so many variables to control. The LLMClient web-ui makes it easy to do it by logging every detail around your LLM usage and provide you a central place to view, track, share and compare it.
-
-> Sign-up at https://llmclient.com and get your API Key
-
-### Long Term Memory
-
-Automatically have the previous conversation added to the prompt to provide a long running context. To enable set the below http header fetch the previous conversation based on `session id` or `user`. An LLM client API key is required to fetch previous logged chats.
-
-```
-# LLMClient API Key from https://lmclient.com
-x-llmclient-apikey: lc-ebcec216be72f3c7862307acc4a03e5fdc4991da6780cab312601e66e7344c32
-
-# Use the value of the openai api `user` field to fetch previous conversations
-x-llmclient-memory: user
-
-# Use the value of the `session id` field to fetch previous conversations
-x-llmclient-sessionid: 1234
-x-llmclient-memory: session
-```
-
-### Vector DB Support (Builtin RAG)
-
-Retrieval augmented generation (RAG) is a very common LLM uscase where you need to fetch data similiar to the prompt from vector db store and merge it with the prompt to help the LLM answer the provided question. You can now automatically have RAG handled for you when using this proxy just by setting the below headers. Pinecone and Weaviate vector databases are both supported. RAG does not need an LLMClient API key.
-
-```
-x-llmclient-db-host: <weaviate-host-url>
-x-llmclient-db-apikey: <weaviate-api-key>
-x-llmclient-db-table: <weaviate-class-name>
-x-llmclient-db-values: <weaviate-metadata-fieldnames> (comma seperated)
-```
-
-Optional values for additional features like RAG query rewriting. We will use the provided prompt (or a default one) to rewrite the query to improve the vector db search results.
-
-```
-x-llmclient-db-namespace: <weaviate-namespace-name>
-x-llmclient-db-rewrite-query: true
-x-llmclient-db-rewrite-query-prompt: <prompt text to use to reframe rag query> (optional)
-```
-
-![traces](https://github.com/dosco/llm-client/assets/832235/03d392fa-3513-4397-ba98-c117f9abf3c4)
 
 ## Reach out
 
 We're happy to help reach out if you have questions or join the Discord
-
 [twitter/dosco](https://twitter.com/dosco)
+
+## FAQ
+
+### 1. The LLM can't find the right function to use
+
+Improve the function naming and description be very clear on what the function does. Also ensure the function parameter's also have good descriptions. The descriptions don't have to be very long but need to be clear.
+
+### 2. How do I change the configuration of the LLM used
+
+You can pass a configuration object as the second parameter when creating a new LLM object
+
+```ts
+const apiKey = process.env.OPENAI_APIKEY;
+const conf = OpenAIBestConfig();
+const ai = new OpenAI({ apiKey, conf } as OpenAIArgs);
+```
+
+## 3. My prompt is too long and can I change the max tokens
+
+```ts
+const conf = OpenAIDefaultConfig(); // or OpenAIBestOptions()
+conf.maxTokens = 2000;
+```
+
+## 4. How do I change the model say I want to use GPT4
+
+```ts
+const conf = OpenAIDefaultConfig(); // or OpenAIBestOptions()
+conf.model = OpenAIModel.GPT4Turbo;
+```

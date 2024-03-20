@@ -1,8 +1,4 @@
-import { parse, ParsedFieldList } from './parser.js';
-
-export interface SignatureOptions {
-  description?: string;
-}
+import { parse, ParsedField, ParsedSignature } from './parser.js';
 
 export interface Field {
   name: string;
@@ -12,28 +8,46 @@ export interface Field {
     name: 'string' | 'number' | 'boolean'; // extend this as needed
     isArray: boolean;
   };
+  isOptional?: boolean;
 }
 
 export type IField = Omit<Field, 'title'> & { title: string };
 
 export class Signature {
+  private sig: ParsedSignature;
   private description?: string;
-  private signature: string;
   private inputFields: IField[];
   private outputFields: IField[];
 
-  constructor(signature: string, options?: Readonly<SignatureOptions>) {
-    if (!signature || signature.length === 0) {
-      throw new Error('Signature is required.');
+  constructor(signature: Readonly<Signature | string>) {
+    if (typeof signature === 'string') {
+      this.sig = parse(signature);
+    } else if (signature instanceof Signature) {
+      this.sig = signature.getParsedSignature();
+    } else {
+      throw new Error('invalid signature argument');
     }
-    const sig = parse(signature);
-    this.signature = signature;
-    this.description = options?.description;
-    this.inputFields = this.fieldList(sig.inputs);
-    this.outputFields = this.fieldList(sig.outputs);
+
+    this.description = this.sig.desc;
+    this.inputFields = this.sig.inputs.map((v) => this.parseParsedField(v));
+    this.outputFields = this.sig.outputs.map((v) => this.parseParsedField(v));
   }
 
-  private parseField = (field: Readonly<Field>) => {
+  private parseParsedField = (field: Readonly<ParsedField>): IField => {
+    if (!field.name || field.name.length === 0) {
+      throw new Error('Field name is required.');
+    }
+
+    const title = this.toTitle(field.name);
+    return {
+      name: field.name,
+      title,
+      isOptional: field.isOptional,
+      type: field.type
+    };
+  };
+
+  private parseField = (field: Readonly<Field>): IField => {
     if (!field.name || field.name.length === 0) {
       throw new Error('Field name is required.');
     }
@@ -50,39 +64,37 @@ export class Signature {
     return { ...field, title };
   };
 
+  public setDescription = (desc: string) => (this.description = desc);
+
   public addInputField = (field: Readonly<Field>) =>
     this.inputFields.push(this.parseField(field));
-
   public addOutputField = (field: Readonly<Field>) =>
     this.outputFields.push(this.parseField(field));
+
+  public setInputFields = (fields: readonly Field[]) =>
+    (this.inputFields = fields.map((v) => this.parseField(v)));
+  public setOutputFields = (fields: readonly Field[]) =>
+    (this.outputFields = fields.map((v) => this.parseField(v)));
 
   public getInputFields = () => this.inputFields;
   public getOutputFields = () => this.outputFields;
   public getDescription = () => this.description;
 
   private toTitle = (name: string) => {
-    // First, replace all underscores with spaces
     let result = name.replaceAll('_', ' ');
-
-    // Then, insert a space before all capital letters in camelCase words,
-    // making sure not to add a space at the beginning if the first letter is uppercase
     result = result.replace(/([A-Z])/g, ' $1').trim();
-
-    // Finally, capitalize the first letter of the entire string
     return result.charAt(0).toUpperCase() + result.slice(1);
   };
 
-  private fieldList = (list: Readonly<ParsedFieldList>) =>
-    list.map((v) => this.parseField(v));
-
   public clone = () => {
-    const sig = new Signature(this.signature, {
-      description: this.description
-    });
+    const sig = new Signature(this);
+    sig.description = this.description;
     sig.inputFields = this.inputFields.map((v) => ({ ...v }));
     sig.outputFields = this.outputFields.map((v) => ({ ...v }));
     return sig;
   };
+
+  public getParsedSignature = () => this.sig;
 }
 
 export const extractValues = (sig: Readonly<Signature>, result: string) => {
@@ -104,7 +116,6 @@ export const extractValues = (sig: Readonly<Signature>, result: string) => {
       values[field.name] = validateAndParseJson(field, val);
       return;
     }
-
     values[field.name] = val;
   });
   return values;

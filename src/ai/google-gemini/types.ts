@@ -20,8 +20,36 @@ export enum GoogleGeminiModel {
 export enum GoogleGeminiEmbedModels {}
 // Assuming embedding models would be specified here, similar to GooglePalm2EmbedModels
 
+/*
+function_call {
+    name: "get_exchange_rate"
+    args {
+      fields {
+        key: "currency_to"
+        value {
+          string_value: "SEK"
+        }
+      }
+      fields {
+        key: "currency_from"
+        value {
+          string_value: "AUD"
+        }
+      }
+      fields {
+        key: "currency_date"
+        value {
+          string_value: "latest"
+        }
+      }
+    }
+  }*/
 export type GoogleGeminiPart = {
   text?: string;
+  function_call?: {
+    name: string;
+    args: object;
+  };
   inlineData?: {
     mimeType: string;
     data: string;
@@ -87,6 +115,7 @@ export type GoogleGeminiChatResponse = {
     content: {
       parts: GoogleGeminiPart[];
     };
+
     finishReason:
       | 'FINISH_REASON_UNSPECIFIED'
       | 'FINISH_REASON_STOP'
@@ -203,9 +232,7 @@ export type GoogleGeminiCompletionRequest = {
 export type GoogleGeminiCompletionResponse = {
   candidates: {
     content: {
-      parts: {
-        text: string;
-      }[];
+      parts: GoogleGeminiPart[];
     };
     finishReason:
       | 'FINISH_REASON_UNSPECIFIED'

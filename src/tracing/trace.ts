@@ -1,15 +1,17 @@
 import crypto from 'crypto';
 
-import { TextModelConfig, TextModelInfo, TokenUsage } from '../ai/types.js';
+import {
+  TextModelConfig,
+  TextModelInfo,
+  TextResponseResult,
+  TokenUsage
+} from '../ai/types.js';
 
 import {
-  AITextChatPromptItem,
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest,
-  AITextRequestFunction,
   AITextRequestIdentity,
-  AITextResponseFunction,
   AITextTraceStep,
   AITextTraceStepRequest,
   AITextTraceStepResponse,
@@ -137,11 +139,8 @@ export class ModelConfigBuilder {
 export class TextResponseBuilder {
   private response: AITextTraceStepResponse = {} as AITextTraceStepResponse;
 
-  setResults(
-    results?: Readonly<{ text: string; id?: string; finishReason?: string }[]>
-  ): this {
-    this.response.results =
-      results?.map((v) => ({ ...v, text: v.text ?? '' })) ?? [];
+  setResults(results?: readonly TextResponseResult[]): this {
+    this.response.results = results;
     return this;
   }
 
@@ -157,19 +156,6 @@ export class TextResponseBuilder {
 
   setRemoteId(remoteId?: string): this {
     this.response.remoteId = remoteId;
-    return this;
-  }
-
-  setFunctions(funcs?: Readonly<AITextResponseFunction[]>): this {
-    this.response.functions = funcs as Readonly<AITextResponseFunction>[];
-    return this;
-  }
-
-  addFunction(func: Readonly<AITextResponseFunction>): this {
-    if (!this.response.functions) {
-      this.response.functions = [];
-    }
-    this.response.functions.push(func);
     return this;
   }
 
@@ -258,7 +244,7 @@ export class TextRequestBuilder {
     return this;
   }
 
-  addChat(chat: Readonly<AITextChatPromptItem>): this {
+  addChat(chat: Readonly<AITextChatRequest['chatPrompt'][0]>): this {
     const req = this.request as AITextChatRequest;
     if (!req.chatPrompt) {
       req.chatPrompt = [];
@@ -267,22 +253,7 @@ export class TextRequestBuilder {
     return this;
   }
 
-  setFunctions(funcs?: Readonly<AITextRequestFunction[]>): this {
-    (this.request as AITextCompletionRequest | AITextChatRequest).functions =
-      funcs as Readonly<AITextRequestFunction>[];
-    return this;
-  }
-
-  addFunction(func: Readonly<AITextRequestFunction>): this {
-    const request: AITextCompletionRequest | AITextChatRequest = this.request;
-    if (!request.functions) {
-      request.functions = [];
-    }
-    request.functions.push(func);
-    return this;
-  }
-
-  setFunctionCall(functionCall: string) {
+  setFunctionCall(functionCall: Readonly<AITextChatRequest['functionCall']>) {
     (this.request as AITextCompletionRequest | AITextChatRequest).functionCall =
       functionCall;
     return this;
@@ -306,15 +277,6 @@ export class TextRequestBuilder {
   }
 
   build(): Readonly<AITextTraceStepRequest> {
-    const chatReq = this.request as AITextChatRequest;
-    if (chatReq.chatPrompt) {
-      const chatPrompt = chatReq.chatPrompt.map((v) => ({
-        ...v,
-        text: v.text ?? '',
-        role: v.role ?? 'system'
-      }));
-      chatReq.chatPrompt = chatPrompt;
-    }
     return this.request;
   }
 }

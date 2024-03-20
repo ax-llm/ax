@@ -34,11 +34,20 @@ import {
   convertToChatRequest,
   convertToCompletionRequest,
   hashObject,
-  mergeTextResponses,
-  parseAndAddFunction
+  mergeTextResponses
 } from './util.js';
 
 const cache = new MemoryCache<TextResponse>();
+
+interface BaseAIArgs {
+  name: string;
+  apiURL: string;
+  headers: Record<string, string>;
+  modelInfo: Readonly<TextModelInfo[]>;
+  models: Readonly<{ model: string; embedModel?: string }>;
+  options?: Readonly<AIServiceOptions>;
+  supportFor: { functions: boolean };
+}
 
 export class BaseAI<
   TCompletionRequest,
@@ -59,7 +68,9 @@ export class BaseAI<
     req: Readonly<AITextChatRequest>,
     config: Readonly<AIPromptConfig>
   ) => [API, TChatRequest];
-  generateEmbedReq?: (req: Readonly<AITextChatRequest>) => [API, TEmbedRequest];
+  generateEmbedReq?: (
+    req: Readonly<AITextEmbedRequest>
+  ) => [API, TEmbedRequest];
   generateCompletionResp?: (
     resp: Readonly<TCompletionResponse>
   ) => TextResponse;
@@ -81,22 +92,25 @@ export class BaseAI<
   private traceStepRespBuilder?: TextResponseBuilder;
 
   protected apiURL: string;
-  protected aiName: string;
+  protected name: string;
   protected headers: Record<string, string>;
   protected modelInfo: TextModelInfo;
   protected embedModelInfo?: TextModelInfo;
+  protected supportFor: BaseAIArgs['supportFor'];
 
-  constructor(
-    aiName: string,
-    apiURL: string,
-    headers: Record<string, string>,
-    modelInfo: Readonly<TextModelInfo[]>,
-    models: Readonly<{ model: string; embedModel?: string }>,
-    options: Readonly<AIServiceOptions> = {}
-  ) {
-    this.aiName = aiName;
+  constructor({
+    name,
+    apiURL,
+    headers,
+    modelInfo,
+    models,
+    options = {},
+    supportFor
+  }: Readonly<BaseAIArgs>) {
+    this.name = name;
     this.apiURL = apiURL;
     this.headers = headers;
+    this.supportFor = supportFor;
 
     if (models.model.length === 0) {
       throw new Error('No model defined');
@@ -135,17 +149,21 @@ export class BaseAI<
   }
 
   getModelInfo(): Readonly<TextModelInfoWithProvider> {
-    return { ...this.modelInfo, provider: this.aiName };
+    return { ...this.modelInfo, provider: this.name };
   }
 
   getEmbedModelInfo(): TextModelInfoWithProvider | undefined {
     return this.embedModelInfo
-      ? { ...this.embedModelInfo, provider: this.aiName }
+      ? { ...this.embedModelInfo, provider: this.name }
       : undefined;
   }
 
-  name(): string {
-    return this.aiName;
+  getName(): string {
+    return this.name;
+  }
+
+  getFeatures(): BaseAIArgs['supportFor'] {
+    return this.supportFor;
   }
 
   getModelConfig(): TextModelConfig {
@@ -234,7 +252,8 @@ export class BaseAI<
         {
           name: apiConfig.name,
           url: this.apiURL,
-          headers: this.buildHeaders(apiConfig.headers)
+          headers: this.buildHeaders(apiConfig.headers),
+          debug: this.debug
         },
         reqValue
       );
@@ -268,11 +287,8 @@ export class BaseAI<
 
       const doneCb = async (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
-        if (req.functions) {
-          parseAndAddFunction(req.functions, res);
-        }
-        await this.setStepTextResponse(res, startTime);
 
+        await this.setStepTextResponse(res, startTime);
         if (options.cache && hashKey) {
           cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
         }
@@ -292,10 +308,6 @@ export class BaseAI<
     }
 
     const res = this.generateCompletionResp(rv as TCompletionResponse);
-    if (req.functions) {
-      parseAndAddFunction(req.functions, res);
-    }
-
     await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
 
@@ -346,7 +358,8 @@ export class BaseAI<
           name: apiConfig.name,
           url: this.apiURL,
           headers: this.buildHeaders(apiConfig.headers),
-          stream
+          stream,
+          debug: this.debug
         },
         reqValue
       );
@@ -380,9 +393,6 @@ export class BaseAI<
 
       const doneCb = async (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
-        if (req.functions) {
-          parseAndAddFunction(req.functions, res);
-        }
         await this.setStepTextResponse(res, startTime);
         if (options.cache && hashKey) {
           cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
@@ -402,10 +412,6 @@ export class BaseAI<
       throw new Error('generateChatResp not implemented');
     }
     const res = this.generateChatResp(rv as TChatResponse);
-    if (req.functions) {
-      parseAndAddFunction(req.functions, res);
-    }
-
     await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
 
@@ -436,7 +442,8 @@ export class BaseAI<
         {
           name: apiConfig.name,
           url: this.apiURL,
-          headers: this.buildHeaders(apiConfig.headers)
+          headers: this.buildHeaders(apiConfig.headers),
+          debug: this.debug
         },
         reqValue
       );
@@ -526,45 +533,28 @@ export class BaseAI<
 }
 
 const logCompletionRequest = (req: Readonly<AITextCompletionRequest>) => {
-  console.log(chalk.whiteBright('Request:'));
-  console.log(
-    `${chalk.blueBright('system')}: ${req.systemPrompt}\n${chalk.blueBright(
-      'prompt'
-    )}: ${req.prompt}`
-  );
-  if (req.functions) {
-    const funcs = req.functions.map((v) => v.name).join(', ');
-    console.log(`${chalk.blueBright('functions')}: ${funcs}`);
-  }
+  console.log(chalk.greenBright(req.systemPrompt + '\n' + prompt));
 };
 
 const logChatRequest = (req: Readonly<AITextChatRequest>) => {
-  const items =
-    req.chatPrompt?.map((v) => `${chalk.blueBright(v.role)}: ${v.text}`) ?? [];
-
-  console.log(`${chalk.whiteBright('Request:')}\n${items.join('\n')}`);
-
-  if (req.functions) {
-    const funcs = req.functions.map((v) => v.name).join(', ');
-    console.log(`${chalk.blueBright('Functions:')} ${funcs}`);
+  const items = req.chatPrompt?.map((v) => v.content).join('\n');
+  if (items) {
+    console.log(chalk.whiteBright(items));
   }
 };
 
 const logResponse = (res: Readonly<TextResponse>) => {
-  const items = res.results
-    .map((v) => ({
-      text: v.text ?? '<empty-response>',
-      sreason: v.finishReason ?? '<not-set>',
-      fname: v.functionCall?.name ?? '<not-set>',
-      fargs: v.functionCall?.args ? JSON.stringify(v.functionCall?.args) : ''
-    }))
-    .map((v) => {
-      return `${v.text}\n${chalk.blueBright('Finish Reason:')} ${
-        v.sreason
-      }\n${chalk.blueBright('Function Call:')} ${v.fname}(${v.fargs})`;
-    });
+  const items = res.results.map((v) => v.content).join('\n');
+  if (items) {
+    console.log(chalk.greenBright(items));
+  }
 
-  console.log(
-    `${chalk.whiteBright('Response:')}\n${items.join('\n')}\n---\n\n`
-  );
+  const funcs = res.results
+    .at(0)
+    ?.functionCalls?.map((v) => v.function.name + ': ' + v.function.arguments)
+    ?.join('\n');
+
+  if (funcs) {
+    console.log(chalk.greenBright(funcs));
+  }
 };

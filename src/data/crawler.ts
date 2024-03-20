@@ -1,4 +1,4 @@
-import { AI } from '../ai/index.js';
+import { AI, AIName } from '../ai/index.js';
 import { DB, DBService } from '../db/index.js';
 import { AIService } from '../text/types.js';
 import { uuidURL, uuidv5 } from '../util/uuid.js';
@@ -11,7 +11,7 @@ type RequestHandler = (
 
 interface CrawlerConfig {
   llmAPIKey: string;
-  llmType: string;
+  llmType: AIName;
   llmOptions: Record<string, string>;
   dbAPIKey: string;
   dbHost: string;

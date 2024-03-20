@@ -2,10 +2,8 @@ import { AIServiceOptions } from '../../text/types.js';
 import { OpenAI } from '../openai/api.js';
 import { OpenAIConfig } from '../openai/types.js';
 
-type GroqAIConfig = Omit<
-  OpenAIConfig,
-  'model' | 'embedModel' | 'audioModel'
-> & { model: string };
+type GroqAIConfig = OpenAIConfig;
+
 /**
  * GroqAI: Default Model options for text generation
  * @export
@@ -20,9 +18,9 @@ export const GroqDefaultConfig = (): GroqAIConfig => ({
   frequencyPenalty: 0.5
 });
 
-export interface GroqAIArgs {
+export interface GroqArgs {
   apiKey: string;
-  config: Readonly<OpenAIConfig>;
+  config: Readonly<GroqAIConfig>;
   options?: Readonly<AIServiceOptions>;
 }
 
@@ -30,8 +28,11 @@ export interface GroqAIArgs {
  * GroqAI: AI Service
  * @export
  */
-export class GroqAI extends OpenAI {
-  constructor({ apiKey, config, options }: Readonly<GroqAIArgs>) {
+export class Groq extends OpenAI {
+  constructor({ apiKey, config, options }: Readonly<GroqArgs>) {
+    if (!apiKey || apiKey === '') {
+      throw new Error('Groq API key not set');
+    }
     super({
       apiKey,
       config,
@@ -39,6 +40,6 @@ export class GroqAI extends OpenAI {
       apiURL: 'https://api.groq.com/openai/v1'
     });
 
-    super.aiName = 'Groq';
+    super.name = 'Groq';
   }
 }

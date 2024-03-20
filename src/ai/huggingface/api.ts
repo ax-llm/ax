@@ -63,14 +63,15 @@ export class HuggingFace extends BaseAI<
     if (!apiKey || apiKey === '') {
       throw new Error('HuggingFace API key not set');
     }
-    super(
-      'HuggingFace',
-      'https://api-inference.huggingface.co',
-      { Authorization: `Bearer ${apiKey}` },
-      modelInfoHuggingFace,
-      { model: config.model },
-      options
-    );
+    super({
+      name: 'HuggingFace',
+      apiURL: 'https://api-inference.huggingface.co',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      modelInfo: modelInfoHuggingFace,
+      models: { model: config.model },
+      options,
+      supportFor: { functions: false }
+    });
     this.config = config;
   }
 
@@ -133,7 +134,7 @@ export class HuggingFace extends BaseAI<
     return {
       results: [
         {
-          text: resp.generated_text
+          content: resp.generated_text
         }
       ]
     };

@@ -1,6 +1,8 @@
 import { Field, IField, Signature } from './sig';
 
-export type PromptValues = Record<string, string | string[]>;
+export type GenIn = Record<string, unknown>;
+export type GenOut = Record<string, unknown>;
+
 export type FieldTemplateFn = (
   field: Readonly<Field>,
   value: Readonly<string | string[]>
@@ -20,13 +22,15 @@ export class PromptTemplate {
     this.sig = sig;
     this.fieldTemplates = fieldTemplates;
 
-    let task = this.sig.getDescription();
-    if (!task) {
-      const inArgs = this.renderDescFields(this.sig.getInputFields());
-      const outArgs = this.renderDescFields(this.sig.getOutputFields());
-      task = `Given the fields ${inArgs}, produce the fields ${outArgs}.`;
+    const inArgs = this.renderDescFields(this.sig.getInputFields());
+    const outArgs = this.renderDescFields(this.sig.getOutputFields());
+    const task = [`Given the fields ${inArgs}, produce the fields ${outArgs}.`];
+
+    const desc = this.sig.getDescription();
+    if (desc) {
+      task.push(desc);
     }
-    this.task = task;
+    this.task = task.join('\n');
 
     const fmtHeader = 'Follow the following format.';
     const inFmt = this.renderInFields(this.sig.getInputFields());
@@ -34,17 +38,25 @@ export class PromptTemplate {
     this.format = [fmtHeader, ...inFmt, ...outFmt].join('\n\n');
   }
 
-  public toString = (values: PromptValues, extraFields?: readonly IField[]) => {
+  public toString = <T extends Record<string, unknown>>(
+    values: T,
+    {
+      skipSystemPrompt,
+      extraFields
+    }: Readonly<{ skipSystemPrompt?: boolean; extraFields?: readonly IField[] }>
+  ) => {
     const completion = this.renderInputFields(values, extraFields);
-    this.prompt = [this.task, this.format, completion]
+    this.prompt = (
+      skipSystemPrompt ? [completion] : [this.task, this.format, completion]
+    )
       .filter(Boolean)
       .join('\n\n---\n\n');
 
     return this.prompt;
   };
 
-  public renderInputFields = (
-    values: PromptValues,
+  public renderInputFields = <T extends Record<string, unknown>>(
+    values: T,
     extraFields?: readonly IField[]
   ) => {
     const text: string[] = [];
@@ -63,7 +75,15 @@ export class PromptTemplate {
     this.sig.getInputFields().forEach((field) => {
       const fn = this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
       const value = values[field.name];
-      if (!value || value.length === 0) {
+
+      if (
+        !value ||
+        ((Array.isArray(value) || typeof value === 'string') &&
+          value.length === 0)
+      ) {
+        if (field.isOptional) {
+          return;
+        }
         throw new Error(`Value for field '${field.name}' is required.`);
       }
       if (field.type) {
@@ -81,6 +101,7 @@ export class PromptTemplate {
     value: Readonly<string | string[]>
   ) => {
     const text = [field.title, ': '];
+
     if (Array.isArray(value)) {
       text.push('\n');
       text.push(value.map((v, i) => `[${i + 1}] ${v}`).join('\n'));
@@ -98,15 +119,14 @@ export class PromptTemplate {
 
   private renderOutFields = (list: readonly Field[]) =>
     list.map((v) => {
-      const fmt = v.type
-        ? v.type.name + (v.type.isArray ? '[]' : '')
-        : undefined;
-      if (v.description) {
-        return (
-          v.title + ': ' + v.description + (fmt ? ` (format: ${fmt})` : '')
-        );
-      }
-      return v.title + ': ' + toVar(v.name + (fmt ? `:${fmt}` : ''));
+      return [
+        v.title + ':',
+        v.description,
+        toVar(v.name, v.type),
+        v.isOptional ? '[if available]' : undefined
+      ]
+        .filter(Boolean)
+        .join(' ');
     });
 }
 
@@ -152,22 +172,18 @@ const validateValue = (
   }
 };
 
-const convertValueToString = (value: unknown): string => {
+const convertValueToString = (value: unknown): string | string[] => {
   if (typeof value === 'string') {
-    // Keep strings as is
     return value;
-  } else if (Array.isArray(value)) {
-    // Convert array items to their string representations
-    // This is simplified; you might need more complex logic based on item types
-    return JSON.stringify(value.map((item) => item.toString()));
-  } else {
-    // Convert objects (and other non-string types) to JSON blobs
-    try {
-      return JSON.stringify(value);
-    } catch (error) {
-      throw new Error(`Error converting value to JSON string: ${error}`);
-    }
   }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  return JSON.stringify(value);
 };
 
-const toVar = (name: string) => '${' + name + '}';
+const toVar = (name: string, type?: Readonly<Field['type']>) => {
+  const fmt = type ? type.name + (type.isArray ? '[]' : '') : undefined;
+
+  return '${' + name + (fmt ? `:${fmt}` : '') + '}';
+};

@@ -1,117 +1,45 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { AITextCompletionRequest } from '../../tracing/types.js';
-import { API } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
-import { TextModelConfig, TextResponse } from '../types.js';
+import { AIServiceOptions } from '../../text/types.js';
+import { OpenAI } from '../openai/api.js';
+import { OpenAIConfig } from '../openai/types.js';
 
-import { modelInfo } from './info.js';
-import {
-  TogetherCompletionRequest,
-  TogetherCompletionResponse,
-  TogetherConfig
-} from './types.js';
+type TogetherAIConfig = OpenAIConfig;
 
-export const TogetherDefaultConfig = (): TogetherConfig => ({
-  model: 'NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO',
+/**
+ * TogetherAI: Default Model options for text generation
+ * @export
+ */
+export const TogetherDefaultConfig = (): TogetherAIConfig => ({
+  model: 'llama2-70b-4096',
+  stream: false,
+  suffix: null,
   maxTokens: 500,
   temperature: 0.1,
-  topK: 40,
   topP: 0.9,
-  repetitionPenalty: 1.5
+  frequencyPenalty: 0.5
 });
 
 export interface TogetherArgs {
   apiKey: string;
-  config?: Readonly<TogetherConfig>;
+  config: Readonly<TogetherAIConfig>;
   options?: Readonly<AIServiceOptions>;
 }
 
 /**
- * Together: AI Service
+ * TogetherAI: AI Service
  * @export
  */
-
-export class Together extends BaseAI<
-  TogetherCompletionRequest,
-  unknown,
-  unknown,
-  TogetherCompletionResponse,
-  unknown,
-  unknown,
-  unknown,
-  unknown
-> {
-  private config: TogetherConfig;
-
-  constructor({
-    apiKey,
-    config = TogetherDefaultConfig(),
-    options
-  }: Readonly<TogetherArgs>) {
+export class Together extends OpenAI {
+  constructor({ apiKey, config, options }: Readonly<TogetherArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
     }
-    super(
-      'Together',
-      'https://api.together.xyz/',
-      { Authorization: `Bearer ${apiKey}` },
-      modelInfo,
-      { model: config.model as string },
-      options
-    );
-    this.config = config;
+    super({
+      apiKey,
+      config,
+      options,
+      apiURL: 'https://api.together.xyz/v1'
+    });
+
+    super.name = 'Together';
   }
-
-  getModelConfig(): TextModelConfig {
-    const { config } = this;
-    return {
-      maxTokens: config.maxTokens,
-      temperature: config.temperature,
-      topP: config.topP,
-      topK: config.topK,
-      stream: config.stream
-    } as TextModelConfig;
-  }
-
-  generateCompletionReq = (
-    req: Readonly<AITextCompletionRequest>,
-    config: Readonly<AIPromptConfig>
-  ): [API, TogetherCompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
-    const functionsList = req.functions
-      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
-      : '';
-    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
-      req.prompt || ''
-    }`.trim();
-
-    const apiConfig = {
-      name: 'inference'
-    };
-
-    const reqValue: TogetherCompletionRequest = {
-      model,
-      prompt,
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      repetition_penalty:
-        req.modelConfig?.presencePenalty ?? this.config.repetitionPenalty,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP,
-      top_k: req.modelConfig?.topK ?? this.config.topK,
-      stop: this.config.stopSequences ?? config.stopSequences,
-      stream_tokens: this.config.stream
-    };
-
-    return [apiConfig, reqValue];
-  };
-
-  generateCompletionResp = (
-    resp: Readonly<TogetherCompletionResponse>
-  ): TextResponse => {
-    return {
-      results: resp.output.choices.map((choice) => ({
-        text: choice.text
-      }))
-    };
-  };
 }

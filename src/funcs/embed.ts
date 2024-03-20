@@ -1,9 +1,5 @@
-import { PromptFunction } from '../prompts/index.js';
-import {
-  AIService,
-  PromptFunctionExtraOptions,
-  PromptFunctionFunc
-} from '../text/types.js';
+import { AITextFunction, AITextFunctionHandler } from '../text/functions.js';
+import { AIService, AIServiceActionOptions } from '../text/types.js';
 
 export const EmbedAdapter = (
   ai: AIService,
@@ -14,13 +10,13 @@ export const EmbedAdapter = (
   }>,
   func: (
     args: readonly number[],
-    extra?: Readonly<PromptFunctionExtraOptions>
+    extra?: Readonly<AIServiceActionOptions>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ) => Promise<any>
-): PromptFunction => ({
+): AITextFunction => ({
   name: info.name,
   description: info.description,
-  inputSchema: {
+  parameters: {
     type: 'object',
     properties: {
       text: {
@@ -33,7 +29,7 @@ export const EmbedAdapter = (
 
   func: (
     { text }: Readonly<{ text: string }>,
-    extra?: Readonly<PromptFunctionExtraOptions>
+    extra?: Readonly<AIServiceActionOptions>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): Promise<any> => {
     return new Promise((resolve) => {
@@ -45,8 +41,8 @@ export const EmbedAdapter = (
 export const embedAdapter = async (
   ai: AIService,
   text: string,
-  func: PromptFunctionFunc,
-  extra?: Readonly<PromptFunctionExtraOptions>
+  func: AITextFunctionHandler,
+  extra?: Readonly<AIServiceActionOptions>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> => {
   const embedRes = await ai.embed(

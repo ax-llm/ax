@@ -1,5 +1,4 @@
 import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types.js';
-import { PromptFunctionFunc } from '../text/types.js';
 
 export type APIError = {
   pathname: string;
@@ -17,31 +16,6 @@ export type ParsingError = { message: string; value: string };
 
 export type TextModelInfoWithProvider = TextModelInfo & { provider: string };
 
-export type AITextChatPromptItem = {
-  text: string;
-  role: string;
-  name?: string;
-  functionCall?: AITextRequestFunctionCall;
-};
-
-export type AITextRequestFunction = {
-  name: string;
-  description: string;
-  parameters: unknown;
-  func?: PromptFunctionFunc;
-};
-
-export type AITextRequestFunctionCall = {
-  name: string;
-  args?: string;
-};
-
-export type AITextResponseFunction = {
-  name: string;
-  args?: string;
-  result?: string;
-};
-
 export type AITextRequestIdentity = {
   user?: string;
   organization?: string;
@@ -54,16 +28,45 @@ export type AITextBaseRequest = {
 export type AITextCompletionRequest = {
   systemPrompt?: string;
   prompt?: string;
-  functions?: Readonly<AITextRequestFunction>[];
-  functionCall?: string | { name: string };
+  functions?: Readonly<{
+    name: string;
+    description: string;
+    parameters?: object;
+  }>[];
+  functionCall?:
+    | 'none'
+    | 'auto'
+    | { type: 'function'; function: { name: string } };
   modelConfig?: Readonly<TextModelConfig>;
   modelInfo?: Readonly<TextModelInfoWithProvider>;
 } & AITextBaseRequest;
 
 export type AITextChatRequest = {
-  chatPrompt?: Readonly<AITextChatPromptItem>[];
-  functions?: Readonly<AITextRequestFunction>[];
-  functionCall?: string | { name: string };
+  chatPrompt: Readonly<
+    | { role: 'system'; content: string }
+    | { role: 'user'; content: string; name?: string }
+    | {
+        role: 'assistant';
+        content: string | null;
+        name?: string;
+        functionCalls?: {
+          id: string;
+          type: 'function';
+          // eslint-disable-next-line functional/functional-parameters
+          function: { name: string; arguments?: string };
+        }[];
+      }
+    | { role: 'function'; content: string; functionId: string }
+  >[];
+  functions?: Readonly<{
+    name: string;
+    description: string;
+    parameters?: object;
+  }>[];
+  functionCall?:
+    | 'none'
+    | 'auto'
+    | { type: 'function'; function: { name: string } };
   modelConfig?: Readonly<TextModelConfig>;
   modelInfo?: Readonly<TextModelInfoWithProvider>;
 } & AITextBaseRequest;
@@ -81,7 +84,6 @@ export type AITextTraceStepRequest =
 export type AITextTraceStepResponse = Omit<TextResponse, 'sessionId'> & {
   modelResponseTime?: number;
   embedModelResponseTime?: number;
-  functions?: Readonly<AITextResponseFunction>[];
   parsingError?: Readonly<ParsingError>;
   apiError?: Readonly<APIError>;
 };

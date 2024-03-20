@@ -76,14 +76,15 @@ export class Cohere extends BaseAI<
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
     }
-    super(
-      'Cohere',
-      'https://api.cohere.ai',
-      { Authorization: `Bearer ${apiKey}` },
-      modelInfoCohere,
-      { model: config.model },
+    super({
+      name: 'Cohere',
+      apiURL: 'https://api.cohere.ai',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      modelInfo: modelInfoCohere,
+      models: { model: config.model },
+      supportFor: { functions: false },
       options
-    );
+    });
     this.config = config;
   }
 
@@ -162,7 +163,7 @@ export class Cohere extends BaseAI<
   ): TextResponse => {
     return {
       results: resp.generations.map((generation) => ({
-        text: generation.text
+        content: generation.text
       }))
     };
   };

@@ -5,7 +5,7 @@ export * from './funcs/index.js';
 export * from './tracing/index.js';
 export * from './db/index.js';
 export * from './data/index.js';
-export * from './proxy/index.js';
 export * from './tracing/types.js';
 export * from './text/types.js';
 export * from './ai/types.js';
+export * from './dsp/index.js';

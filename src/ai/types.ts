@@ -1,7 +1,4 @@
-import { ExtendedIncomingMessage } from '../proxy/types.js';
 import { AITextTraceStep } from '../tracing/types.js';
-
-import { PromptUpdater } from './middleware.js';
 
 export type TextModelInfo = {
   name: string;
@@ -37,16 +34,22 @@ export type TextModelConfig = {
 };
 
 export type TextResponseFunctionCall = {
+  id?: string;
   name: string;
-  args: unknown;
+  args: string;
 };
 
 export type TextResponseResult = {
-  text: string;
+  content: string | null;
   role?: string;
   name?: string;
   id?: string;
-  functionCall?: TextResponseFunctionCall;
+  functionCalls?: Readonly<{
+    id: string;
+    type: 'function';
+    // eslint-disable-next-line functional/functional-parameters
+    function: { name: string; arguments?: string };
+  }>[];
   finishReason?: string;
 };
 
@@ -79,16 +82,3 @@ export type TranscriptResponse = {
 export type LoggerFuction = (traceStep: Readonly<AITextTraceStep>) => void;
 
 export type RateLimiterFunction = <T>(func: unknown) => T;
-
-/**
- * Middleware
- * @export
- */
-export interface AIMiddleware {
-  addRequest(request: string, fn?: PromptUpdater): void;
-  addResponse(response: string): void;
-  getTrace(req: Readonly<ExtendedIncomingMessage>): AITextTraceStep;
-  isRequestUpdated(): boolean;
-  renderRequest(): string;
-  getAPIKey(): string;
-}

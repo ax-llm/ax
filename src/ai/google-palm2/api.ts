@@ -93,14 +93,15 @@ export class GooglePalm2 extends BaseAI<
       apiURLGooglePalm2
     ).href;
 
-    super(
-      'GooglePalm2AI',
+    super({
+      name: 'GooglePalm2AI',
       apiURL,
-      { Authorization: `Bearer ${apiKey}` },
-      modelInfoGooglePalm2,
-      { model: config.model, embedModel: config.embedModel },
-      options
-    );
+      headers: { Authorization: `Bearer ${apiKey}` },
+      modelInfo: modelInfoGooglePalm2,
+      models: { model: config.model, embedModel: config.embedModel },
+      options,
+      supportFor: { functions: false }
+    });
     this.config = config;
   }
 
@@ -148,7 +149,7 @@ export class GooglePalm2 extends BaseAI<
     resp: Readonly<GooglePalm2CompletionResponse>
   ): TextResponse => {
     const results = resp.predictions.map((prediction) => ({
-      text: prediction.content,
+      content: prediction.content,
       safetyAttributes: prediction.safetyAttributes
     }));
 
@@ -181,7 +182,7 @@ export class GooglePalm2 extends BaseAI<
           examples: [], // You might need to adjust how you get examples
           messages: req.chatPrompt.map((v) => ({
             author: v.role,
-            content: v.text
+            content: v.content ?? ''
           }))
         }
       ],
@@ -221,7 +222,7 @@ export class GooglePalm2 extends BaseAI<
   ): TextResponse => {
     const results = resp.predictions.map((prediction, index) => ({
       id: `${index}`,
-      text: prediction.candidates[0]?.content || '',
+      content: prediction.candidates[0]?.content ?? '',
       safetyAttributes: prediction.safetyAttributes
     }));
 

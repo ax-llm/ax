@@ -3,6 +3,7 @@ import { AzureOpenAI, AzureOpenAIArgs } from './azure-openai/api.js';
 import { Cohere, CohereArgs } from './cohere/api.js';
 import { GoogleGemini, GoogleGeminiArgs } from './google-gemini/api.js';
 import { GooglePalm2, GooglePalm2Args } from './google-palm2/api.js';
+import { Groq, GroqArgs } from './groq/api.js';
 import { HuggingFace, HuggingFaceArgs } from './huggingface/api.js';
 import { OpenAI, OpenAIArgs } from './openai/api.js';
 import { Together, TogetherArgs } from './together/api.js';
@@ -17,8 +18,19 @@ export * from './google-gemini/index.js';
 export * from './anthropic/index.js';
 export * from './types.js';
 
+export type AIName =
+  | 'openai'
+  | 'azure-openai'
+  | 'huggingface'
+  | 'together'
+  | 'cohere'
+  | 'google-palm2'
+  | 'google-gemini'
+  | 'anthropic'
+  | 'groq';
+
 export const AI = (
-  name: string,
+  name: AIName,
   options: Readonly<
     | AzureOpenAIArgs
     | GooglePalm2Args
@@ -27,6 +39,7 @@ export const AI = (
     | AnthropicArgs
     | CohereArgs
     | HuggingFaceArgs
+    | GroqArgs
   >
 ) => {
   switch (name) {
@@ -36,6 +49,8 @@ export const AI = (
       return new AzureOpenAI(options as AzureOpenAIArgs);
     case 'huggingface':
       return new HuggingFace(options as HuggingFaceArgs);
+    case 'groq':
+      return new Groq(options as GroqArgs);
     case 'together':
       return new Together(options as TogetherArgs);
     case 'cohere':
@@ -46,6 +61,7 @@ export const AI = (
       return new GoogleGemini(options as GoogleGeminiArgs);
     case 'anthropic':
       return new Anthropic(options as AnthropicArgs);
+    default:
+      throw new Error(`Unknown AI ${name}`);
   }
-  throw new Error(`Unknown AI ${name}`);
 };

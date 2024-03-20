@@ -59,14 +59,18 @@ export class Anthropic extends BaseAI<
     if (!apiKey || apiKey === '') {
       throw new Error('Anthropic API key not set');
     }
-    super(
-      'Together',
-      'https://api.anthropic.com/v1',
-      { 'Anthropic-Version': '2023-06-01', Authorization: `Bearer ${apiKey}` },
-      modelInfoAnthropic,
-      { model: config.model as string },
-      options
-    );
+    super({
+      name: 'Together',
+      apiURL: 'https://api.anthropic.com/v1',
+      headers: {
+        'Anthropic-Version': '2023-06-01',
+        Authorization: `Bearer ${apiKey}`
+      },
+      modelInfo: modelInfoAnthropic,
+      models: { model: config.model as string },
+      options,
+      supportFor: { functions: false }
+    });
 
     this.config = config;
   }
@@ -119,7 +123,7 @@ export class Anthropic extends BaseAI<
     return {
       results: [
         {
-          text: resp.completion
+          content: resp.completion
         }
       ]
     };
@@ -134,9 +138,9 @@ export class Anthropic extends BaseAI<
 
     const messages =
       req.chatPrompt?.map((msg) => ({
-        type: 'text',
+        type: 'text' as const,
         role: msg.role as 'user' | 'assistant',
-        content: msg.text
+        content: msg.content ?? ''
       })) ?? [];
 
     const reqValue: AnthropicChatRequest = {
@@ -156,7 +160,7 @@ export class Anthropic extends BaseAI<
 
   generateChatResp = (resp: Readonly<AnthropicChatResponse>): TextResponse => {
     const results = resp.content.map((msg) => ({
-      text: msg.type === 'text' ? msg.text : '',
+      content: msg.type === 'text' ? msg.text : '',
       role: resp.role,
       id: resp.id,
       finishReason: resp.stop_reason
@@ -184,7 +188,7 @@ export class Anthropic extends BaseAI<
       const { message } = resp as unknown as MessageStartEvent;
       results = [
         {
-          text: '',
+          content: '',
           role: message.role,
           id: message.id
         }
@@ -199,7 +203,7 @@ export class Anthropic extends BaseAI<
 
     if ('content_block' in resp) {
       const { content_block: cb } = resp as unknown as ContentBlockStartEvent;
-      results = [{ text: cb.text }];
+      results = [{ content: cb.text }];
     }
 
     if (
@@ -207,7 +211,7 @@ export class Anthropic extends BaseAI<
       'text' in (resp as unknown as ContentBlockDeltaEvent).delta
     ) {
       const { delta: cb } = resp as unknown as ContentBlockDeltaEvent;
-      results = [{ text: cb.text }];
+      results = [{ content: cb.text }];
     }
 
     if (
@@ -215,7 +219,7 @@ export class Anthropic extends BaseAI<
       'stop_reason' in (resp as unknown as MessageDeltaEvent).delta
     ) {
       const { delta } = resp as unknown as MessageDeltaEvent;
-      results = [{ text: '', finishReason: delta.stop_reason ?? '' }];
+      results = [{ content: '', finishReason: delta.stop_reason ?? '' }];
       modelUsage = {
         promptTokens: resp.usage?.input_tokens ?? 0,
         completionTokens: resp.usage?.output_tokens ?? 0,

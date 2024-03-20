@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "7.0.2",
+  "version": "8.0.0",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -10,15 +10,9 @@
     "type": "git",
     "url": "git+https://github.com/dosco/llm-client.git"
   },
-  "bin": {
-    "proxy": "./build/module/proxy/index.js",
-    "llmclient": "./build/module/cmd/index.js"
-  },
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
-    "llmclient": "esrun src/cmd/index.ts",
-    "llmclient-dev": "esrun --watch=src/* --preserveConsole src/cmd/index.ts",
     "build": "run-p build:*",
     "build:module": "tsc -p tsconfig.module.json",
     "fix": "run-s fix:*",
@@ -30,22 +24,15 @@
     "test:prettier": "prettier \"src/**/*.ts\" --list-different",
     "test:spelling": "cspell \"{README.md,.github/*.md,src/**/*.ts}\"",
     "test:unit": "ava --timeout=60s",
-    "check-cli": "run-s test diff-integration-tests check-integration-tests",
-    "check-integration-tests": "run-s check-integration-test:*",
-    "diff-integration-tests": "mkdir -p diff && rm -rf diff/test && cp -r test diff/test && rm -rf diff/test/test-*/.git && cd diff && git init --quiet && git add -A && git commit --quiet --no-verify --allow-empty -m 'WIP' && echo '\\n\\nCommitted most recent integration test output in the \"diff\" directory. Review the changes with \"cd diff && git diff HEAD\" or your preferred git diff viewer.'",
     "watch:build": "tsc -p tsconfig.json -w",
     "watch:test": "ava --watch",
     "cov": "run-s build test:unit cov:html cov:lcov && open-cli coverage/index.html",
-    "cov:html": "nyc report --reporter=html",
-    "cov:lcov": "nyc report --reporter=lcov",
     "doc": "run-s doc:html && open-cli docs/index.html",
     "doc:html": "typedoc src/ --exclude **/*.spec.ts --out docs",
     "doc:json": "typedoc src/ --exclude **/*.spec.ts --json docs/typedoc.json",
     "doc:publish": "gh-pages -m \"[ci skip] Updates\" -d docs",
     "version": "standard-version",
-    "reset-hard": "git clean -dfx && git reset --hard && npm i",
-    "prepare-release": "run-s reset-hard test cov:check doc:html version doc:publish",
-    "build-parser": "npx peggy --plugin ts-pegjs --extra-options-file src/dspy/parser.json --cache --output src/dspy/parser.ts src/dspy/parser.peggy"
+    "build-parser": "npx peggy --plugin ts-pegjs --extra-options-file src/dsp/parser.json --cache --output src/dsp/parser.ts src/dsp/parser.peggy"
   },
   "engines": {
     "node": ">=21"
@@ -53,11 +40,9 @@
   "dependencies": {
     "ajv": "^8.12.0",
     "chalk": "^5.3.0",
-    "dotenv": "^16.3.1",
     "htmlparser2": "^9.0.0",
     "http-proxy": "^1.18.1",
-    "json5": "^2.2.3",
-    "yargs": "^17.7.2"
+    "json5": "^2.2.3"
   },
   "devDependencies": {
     "@ava/typescript": "^3.0.1",
@@ -84,11 +69,9 @@
     "eslint-plugin-import": "^2.27.5",
     "gh-pages": "^5.0.0",
     "npm-run-all": "^4.1.5",
-    "nyc": "^15.1.0",
     "open-cli": "^7.1.0",
     "prettier": "^2.8.4",
     "standard-version": "^9.0.0",
-    "ts-node": "^10.9.1",
     "ts-pegjs": "^4.2.1",
     "typedoc": "^0.23.25",
     "typescript": "^4.9.5"
@@ -118,12 +101,6 @@
     "commitizen": {
       "path": "cz-conventional-changelog"
     }
-  },
-  "nyc": {
-    "extends": "@istanbuljs/nyc-config-typescript",
-    "exclude": [
-      "**/*.spec.js"
-    ]
   },
   "bugs": {
     "url": "https://github.com/dosco/llm-client/issues"

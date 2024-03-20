@@ -5,14 +5,14 @@ import https from 'https';
 import os from 'os';
 import vm from 'vm';
 
-import { PromptFunction } from '../prompts/index.js';
+import { AITextFunction } from '../text/functions.js';
 
 export const JSInterpreterFunction = (
   permissions: readonly CodeInterpreterPermission[] = []
-): PromptFunction => ({
+): AITextFunction => ({
   name: 'jsInterpreter',
   description: 'Run Javascript code',
-  inputSchema: {
+  parameters: {
     type: 'object',
     properties: {
       code: {
