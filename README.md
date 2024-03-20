@@ -1,4 +1,6 @@
-# LLMClient - A framework for building with LLMs
+# LLMClient - A new way to build LLM powered workflows.
+
+JS/TS library based on the Stanford DSP paper. Create and compose efficient prompts using prompt signatures. Reasoning + Function Calling, RAG and more.
 
 🌵 🦙 🔥 ❤️ 🖖🏼
 
@@ -8,9 +10,9 @@
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-## Build LLMs powered workflows.
+## Build LLM workflows with prompt signatures
 
-LLMClient is an easy to use library for building powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc. Chain together components using simple JS/TS code and build maintainable LLM powered workflows.
+LLMClient is an easy to use library build around "Prompt Signatures" from the `Stanfoard DSP` paper. Prompt signatures like `question:string -> answer:string` are automatically compiled into complete and efficient prompts. Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want.
 
 ## Why use LLMClient?
 
@@ -47,7 +49,7 @@ Efficient type-safe prompts are auto-generated from a simple signature. A prompt
 ```typescript
 import { AI, ChainOfThought, OpenAIArgs } from 'llmclient';
 
-/const textToSummarize = `
+const textToSummarize = `
 The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
