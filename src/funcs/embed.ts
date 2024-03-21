@@ -1,5 +1,8 @@
-import { AITextFunction, AITextFunctionHandler } from '../text/functions.js';
-import { AIService, AIServiceActionOptions } from '../text/types.js';
+import type {
+  AITextFunction,
+  AITextFunctionHandler
+} from '../text/functions.js';
+import type { AIService, AIServiceActionOptions } from '../text/types.js';
 
 export const EmbedAdapter = (
   ai: AIService,

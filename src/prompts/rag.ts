@@ -1,11 +1,11 @@
 import {
   dedup,
   Generate,
-  GenerateOptions,
-  IGenerate,
+  type GenerateOptions,
+  type IGenerate,
   Signature
 } from '../dsp/index.js';
-import { AIService } from '../text/types.js';
+import type { AIService } from '../text/types.js';
 
 import { ChainOfThought } from './cot.js';
 

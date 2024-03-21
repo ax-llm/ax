@@ -1,6 +1,6 @@
-import { AIServiceOptions } from '../../text/types.js';
+import type { AIServiceOptions } from '../../text/types.js';
 import { OpenAI } from '../openai/api.js';
-import { OpenAIConfig } from '../openai/types.js';
+import type { OpenAIConfig } from '../openai/types.js';
 
 type GroqAIConfig = OpenAIConfig;
 

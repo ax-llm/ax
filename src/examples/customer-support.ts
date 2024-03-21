@@ -1,6 +1,6 @@
-import { AI, OpenAIArgs } from '../ai/index.js';
-import { Generate } from '../dsp/generate.js';
 import 'dotenv/config';
+import { AI, type OpenAIArgs } from '../ai/index.js';
+import { Generate } from '../dsp/generate.js';
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 

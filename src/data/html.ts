@@ -1,11 +1,11 @@
 import * as htmlparser2 from 'htmlparser2';
 
 export const HTMLCrawler = (chunkSize = 512) => {
-  return function (
+  return (
     queueUrl: (url: string, nextDepth: number) => void,
     data: string,
     nextDepth: number
-  ): string[] {
+  ): string[] => {
     const chunks: string[] = [];
     let textBuff = '';
     let validTag = false;
@@ -40,10 +40,10 @@ export const HTMLCrawler = (chunkSize = 512) => {
           if (textBuff.length > 10) {
             chunks.push(textBuff);
           }
-        },
+        }
       },
       {
-        decodeEntities: true,
+        decodeEntities: true
       }
     );
     parser.write(data);

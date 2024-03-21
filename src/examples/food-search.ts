@@ -1,5 +1,5 @@
-import { AI, OpenAIArgs, ReAct, Signature } from '../index.js';
 import 'dotenv/config';
+import { AI, type OpenAIArgs, ReAct, Signature } from '../index.js';
 
 const choice = Math.round(Math.random());
 

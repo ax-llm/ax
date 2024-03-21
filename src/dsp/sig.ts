@@ -1,4 +1,4 @@
-import { parse, ParsedField, ParsedSignature } from './parser.js';
+import { parse, type ParsedField, type ParsedSignature } from './parser.js';
 
 export interface Field {
   name: string;

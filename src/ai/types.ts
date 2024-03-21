@@ -1,4 +1,4 @@
-import { AITextTraceStep } from '../tracing/types.js';
+import type { AITextTraceStep } from '../tracing/types.js';
 
 export type TextModelInfo = {
   name: string;

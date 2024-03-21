@@ -1,23 +1,23 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import {
+import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import type {
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest
 } from '../../tracing/types.js';
-import { API } from '../../util/apicall.js';
+import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
+import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoGoogleGemini } from './info.js';
 import {
   apiURLGoogleGemini,
-  GoogleGeminiChatRequest,
-  GoogleGeminiChatResponse,
-  GoogleGeminiCompletionRequest,
-  GoogleGeminiCompletionResponse,
-  GoogleGeminiConfig,
-  GoogleGeminiEmbedRequest,
-  GoogleGeminiEmbedResponse,
+  type GoogleGeminiChatRequest,
+  type GoogleGeminiChatResponse,
+  type GoogleGeminiCompletionRequest,
+  type GoogleGeminiCompletionResponse,
+  type GoogleGeminiConfig,
+  type GoogleGeminiEmbedRequest,
+  type GoogleGeminiEmbedResponse,
   GoogleGeminiModel
 } from './types.js';
 

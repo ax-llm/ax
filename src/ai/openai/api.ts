@@ -1,22 +1,25 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { AITextChatRequest, AITextEmbedRequest } from '../../tracing/types.js';
-import { API } from '../../util/apicall.js';
+import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import type {
+  AITextChatRequest,
+  AITextEmbedRequest
+} from '../../tracing/types.js';
+import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
+import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {
   OpenAIAudioModel,
-  OpenAIChatRequest,
-  OpenAIChatResponse,
-  OpenAIChatResponseDelta,
-  OpenAICompletionRequest,
-  OpenAICompletionResponse,
-  OpenAICompletionResponseDelta,
-  OpenAIConfig,
+  type OpenAIChatRequest,
+  type OpenAIChatResponse,
+  type OpenAIChatResponseDelta,
+  type OpenAICompletionRequest,
+  type OpenAICompletionResponse,
+  type OpenAICompletionResponseDelta,
+  type OpenAIConfig,
   OpenAIEmbedModels,
-  OpenAIEmbedRequest,
-  OpenAIEmbedResponse,
+  type OpenAIEmbedRequest,
+  type OpenAIEmbedResponse,
   OpenAIModel
 } from './types.js';
 

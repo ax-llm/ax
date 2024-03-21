@@ -1,15 +1,15 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import { AITextCompletionRequest } from '../../tracing/types.js';
-import { API } from '../../util/apicall.js';
+import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import type { AITextCompletionRequest } from '../../tracing/types.js';
+import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import { TextModelConfig, TextResponse } from '../types.js';
+import type { TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoHuggingFace } from './info.js';
 import {
-  HuggingFaceConfig,
+  type HuggingFaceConfig,
   HuggingFaceModel,
-  HuggingFaceRequest,
-  HuggingFaceResponse
+  type HuggingFaceRequest,
+  type HuggingFaceResponse
 } from './types.js';
 
 /**

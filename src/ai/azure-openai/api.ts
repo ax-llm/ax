@@ -1,5 +1,5 @@
-import { AIServiceOptions } from '../../text/types.js';
-import { API } from '../../util/apicall.js';
+import type { AIServiceOptions } from '../../text/types.js';
+import type { API } from '../../util/apicall.js';
 import {
   OpenAI,
   OpenAIBestConfig,
@@ -7,7 +7,7 @@ import {
   OpenAIDefaultConfig,
   OpenAIFastConfig
 } from '../openai/api.js';
-import { OpenAIConfig } from '../openai/types.js';
+import type { OpenAIConfig } from '../openai/types.js';
 
 /**
  * AzureOpenAI: API call details

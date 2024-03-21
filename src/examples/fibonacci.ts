@@ -1,11 +1,11 @@
+import 'dotenv/config';
 import {
   AI,
   JSInterpreterFunction,
-  OpenAIArgs,
+  type OpenAIArgs,
   ReAct,
   Signature
 } from '../index.js';
-import 'dotenv/config';
 
 const sig = new Signature(
   `numberSeriesTask:string  -> fibonacciSeries:number[]`

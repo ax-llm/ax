@@ -5,7 +5,7 @@ import https from 'https';
 import os from 'os';
 import vm from 'vm';
 
-import { AITextFunction } from '../text/functions.js';
+import type { AITextFunction } from '../text/functions.js';
 
 export const JSInterpreterFunction = (
   permissions: readonly CodeInterpreterPermission[] = []

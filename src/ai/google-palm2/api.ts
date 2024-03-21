@@ -1,24 +1,24 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import {
+import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import type {
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest
 } from '../../tracing/types.js';
-import { API } from '../../util/apicall.js';
+import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
+import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoGooglePalm2 } from './info.js';
 import {
   apiURLGooglePalm2,
-  GooglePalm2ChatRequest,
-  GooglePalm2ChatResponse,
-  GooglePalm2CompletionRequest,
-  GooglePalm2CompletionResponse,
-  GooglePalm2Config,
+  type GooglePalm2ChatRequest,
+  type GooglePalm2ChatResponse,
+  type GooglePalm2CompletionRequest,
+  type GooglePalm2CompletionResponse,
+  type GooglePalm2Config,
   GooglePalm2EmbedModels,
-  GooglePalm2EmbedRequest,
-  GooglePalm2EmbedResponse,
+  type GooglePalm2EmbedRequest,
+  type GooglePalm2EmbedResponse,
   GooglePalm2Model
 } from './types.js';
 

@@ -11,3 +11,4 @@ yarn.lock
 *.txt
 audio
 .env
+.env.*

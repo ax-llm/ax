@@ -1,10 +1,15 @@
-import { AITextChatRequest } from '..';
-import { TextResponse, TextResponseFunctionCall } from '../ai';
-import { AITextFunction } from '../text/functions';
-import { AIMemory, AIService } from '../text/types';
+import type { TextResponse, TextResponseFunctionCall } from '../ai/index.js';
+import type { AITextChatRequest } from '../index.js';
+import type { AITextFunction } from '../text/index.js';
+import type { AIMemory, AIService } from '../text/index.js';
 
-import { GenIn, GenOut, PromptTemplate } from './prompt';
-import { extractValues, IField, Signature, ValidationError } from './sig';
+import { type GenIn, type GenOut, PromptTemplate } from './prompt.js';
+import {
+  extractValues,
+  type IField,
+  Signature,
+  ValidationError
+} from './sig.js';
 
 export type FunctionSpec = {
   readonly name: string;
@@ -150,7 +155,7 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
     if (result.content) {
       retval = extractValues(this.sig, result.content);
 
-      this.asserts.forEach((a) => {
+      for (const a of this.asserts) {
         if (!a.fn(retval)) {
           throw new AssertionError({
             message: a.errMsg,
@@ -158,24 +163,27 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
             optional: a.optional
           });
         }
-      });
+      }
     }
 
     if (this.ai.getFeatures().functions) {
-      retval['functions'] = result.functionCalls?.map((f) => ({
+      retval.functions = result.functionCalls?.map((f) => ({
         id: f.id,
         name: f.function.name,
         args: f.function.arguments
       }));
     } else if (retval.functionName) {
-      retval['functions'] = [
-        {
-          name: retval.functionName,
-          args: retval.functionArguments
-        }
-      ];
-      delete retval.functionName;
-      delete retval.functionArguments;
+      const { functionName, functionArguments, ...other } = retval;
+
+      retval = {
+        ...other,
+        functions: [
+          {
+            name: functionName,
+            args: functionArguments
+          }
+        ]
+      };
     }
 
     mem?.add(msg, sessionId);
@@ -209,8 +217,8 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
 
           extraFields = [
             {
-              name: 'past_' + f.name,
-              title: 'Past ' + f.title,
+              name: `past_${f.name}`,
+              title: `Past ${f.title}`,
               description: e.getValue()
             },
             {
@@ -225,14 +233,14 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
           const e1 = e as AssertionError;
           extraFields = [];
 
-          this.sig.getOutputFields().forEach((f) => {
+          for (const f of this.sig.getOutputFields()) {
             const values = e1.getValue();
             extraFields.push({
-              name: 'past_' + f.name,
-              title: 'Past ' + f.title,
+              name: `past_${f.name}`,
+              title: `Past ${f.title}`,
               description: JSON.stringify(values[f.name])
             });
-          });
+          }
 
           extraFields.push({
             name: 'instructions',
@@ -250,7 +258,7 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
       return err.getValue() as ForwardResult<OUT>;
     }
 
-    throw new Error('Unable to fix validation error: ' + err?.message);
+    throw new Error(`Unable to fix validation error: ${err?.message}`);
   };
 }
 

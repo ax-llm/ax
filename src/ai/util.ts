@@ -1,11 +1,11 @@
 import crypto from 'crypto';
 
-import {
+import type {
   AITextChatRequest,
   AITextCompletionRequest
 } from '../tracing/types.js';
 
-import {
+import type {
   TextModelInfo,
   TextResponse,
   TextResponseResult,

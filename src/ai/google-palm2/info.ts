@@ -1,4 +1,4 @@
-import { TextModelInfo } from '../types.js';
+import type { TextModelInfo } from '../types.js';
 
 import { GooglePalm2EmbedModels, GooglePalm2Model } from './types.js';
 

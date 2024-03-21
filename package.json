@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "8.0.1",
+  "version": "8.0.2",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -40,6 +40,7 @@
   "dependencies": {
     "ajv": "^8.12.0",
     "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
     "htmlparser2": "^9.0.0",
     "http-proxy": "^1.18.1",
     "json5": "^2.2.3"
@@ -67,6 +68,7 @@
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-functional": "^5.0.4",
     "eslint-plugin-import": "^2.27.5",
+    "eslint-plugin-require-extensions": "^0.1.3",
     "gh-pages": "^5.0.0",
     "npm-run-all": "^4.1.5",
     "open-cli": "^7.1.0",

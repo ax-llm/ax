@@ -1,4 +1,4 @@
-import { TextModelConfig } from '../types.js';
+import type { TextModelConfig } from '../types.js';
 
 // Transcribe = '/v1/audio/transcriptions',
 

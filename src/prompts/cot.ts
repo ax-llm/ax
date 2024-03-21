@@ -1,6 +1,10 @@
-import { Generate, GenerateOptions, Signature } from '../dsp/index.js';
-import { GenIn } from '../dsp/prompt.js';
-import { AIService } from '../text/types.js';
+import {
+  Generate,
+  type GenerateOptions,
+  type Signature
+} from '../dsp/index.js';
+import type { GenIn } from '../dsp/prompt.js';
+import type { AIService } from '../text/types.js';
 
 export class ChainOfThought<IN extends GenIn, OUT> extends Generate<
   IN,

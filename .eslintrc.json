@@ -4,8 +4,9 @@
   "parserOptions": { "project": "./tsconfig.json" },
   "env": { "es6": true },
   "ignorePatterns": ["node_modules", "build", "coverage", "src/dsp/parser.ts"],
-  "plugins": ["import", "eslint-comments", "functional"],
+  "plugins": ["require-extensions", "import", "eslint-comments", "functional"],
   "extends": [
+    "plugin:require-extensions/recommended",
     "eslint:recommended",
     "plugin:eslint-comments/recommended",
     "plugin:@typescript-eslint/recommended",

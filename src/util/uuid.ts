@@ -36,13 +36,12 @@ export function uuidv5(name: string, namespace: string): string {
     '-',
     uuid.slice(16, 20),
     '-',
-    uuid.slice(20, 32),
+    uuid.slice(20, 32)
   ].join('');
 }
 
 function isUUIDFormat(input: string): boolean {
-  const regex = new RegExp(
-    '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-f0-9A-F]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'
-  );
+  const regex =
+    /^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-f0-9A-F]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/;
   return regex.test(input);
 }

@@ -1,4 +1,8 @@
-import { TextModelConfig, TextModelInfo, TextResponse } from '../ai/types.js';
+import type {
+  TextModelConfig,
+  TextModelInfo,
+  TextResponse
+} from '../ai/types.js';
 
 export type APIError = {
   pathname: string;

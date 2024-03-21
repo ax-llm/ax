@@ -1,5 +1,5 @@
-import { OpenAI, OpenAIArgs, RAG, TextResponse } from '../index.js';
 import 'dotenv/config';
+import { OpenAI, type OpenAIArgs, RAG, type TextResponse } from '../index.js';
 
 const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 

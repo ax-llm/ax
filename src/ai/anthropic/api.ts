@@ -1,25 +1,29 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import {
+import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import type {
   AITextChatRequest,
   AITextCompletionRequest
 } from '../../tracing/types.js';
-import { API } from '../../util/apicall.js';
+import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import { TextModelConfig, TextResponse, TextResponseResult } from '../types.js';
+import type {
+  TextModelConfig,
+  TextResponse,
+  TextResponseResult
+} from '../types.js';
 
 import { modelInfoAnthropic } from './info.js';
 import {
-  AnthropicChatRequest,
-  AnthropicChatResponse,
-  AnthropicChatResponseDelta,
-  AnthropicCompletionRequest,
-  AnthropicCompletionResponse,
-  AnthropicConfig,
+  type AnthropicChatRequest,
+  type AnthropicChatResponse,
+  type AnthropicChatResponseDelta,
+  type AnthropicCompletionRequest,
+  type AnthropicCompletionResponse,
+  type AnthropicConfig,
   AnthropicModel,
-  ContentBlockDeltaEvent,
-  ContentBlockStartEvent,
-  MessageDeltaEvent,
-  MessageStartEvent
+  type ContentBlockDeltaEvent,
+  type ContentBlockStartEvent,
+  type MessageDeltaEvent,
+  type MessageStartEvent
 } from './types.js';
 
 /**

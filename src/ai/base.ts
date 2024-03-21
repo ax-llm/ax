@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 
-import {
+import type {
   AIPromptConfig,
   AIService,
   AIServiceActionOptions,
@@ -11,18 +11,18 @@ import {
   TextRequestBuilder,
   TextResponseBuilder
 } from '../tracing/index.js';
-import {
+import type {
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest,
   AITextTraceStep,
   TextModelInfoWithProvider
 } from '../tracing/types.js';
-import { API, apiCall } from '../util/apicall.js';
+import { type API, apiCall } from '../util/apicall.js';
 import { RespTransformStream } from '../util/transform.js';
 
 import { MemoryCache } from './cache.js';
-import {
+import type {
   EmbedResponse,
   RateLimiterFunction,
   TextModelConfig,

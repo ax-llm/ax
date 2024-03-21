@@ -1,6 +1,6 @@
 import { apiCall } from '../util/apicall.js';
 
-import {
+import type {
   DBQueryRequest,
   DBQueryResponse,
   DBService,

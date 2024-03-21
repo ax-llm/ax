@@ -1,20 +1,20 @@
-import { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import {
+import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import type {
   AITextCompletionRequest,
   AITextEmbedRequest
 } from '../../tracing/types.js';
-import { API } from '../../util/apicall.js';
+import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
+import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoCohere } from './info.js';
 import {
-  CohereCompletionRequest,
-  CohereCompletionResponse,
-  CohereConfig,
+  type CohereCompletionRequest,
+  type CohereCompletionResponse,
+  type CohereConfig,
   CohereEmbedModel,
-  CohereEmbedRequest,
-  CohereEmbedResponse,
+  type CohereEmbedRequest,
+  type CohereEmbedResponse,
   CohereModel
 } from './types.js';
 

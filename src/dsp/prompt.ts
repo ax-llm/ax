@@ -1,4 +1,4 @@
-import { Field, IField, Signature } from './sig';
+import type { Field, IField, Signature } from './sig.js';
 
 export type GenIn = Record<string, unknown>;
 export type GenOut = Record<string, unknown>;
@@ -43,7 +43,10 @@ export class PromptTemplate {
     {
       skipSystemPrompt,
       extraFields
-    }: Readonly<{ skipSystemPrompt?: boolean; extraFields?: readonly IField[] }>
+    }: Readonly<{
+      skipSystemPrompt?: boolean;
+      extraFields?: readonly IField[];
+    }>
   ) => {
     const completion = this.renderInputFields(values, extraFields);
     this.prompt = (

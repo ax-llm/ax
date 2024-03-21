@@ -1,6 +1,6 @@
-import { JSONSchemaType } from 'ajv';
+import type { JSONSchemaType } from 'ajv';
 
-import {
+import type {
   EmbedResponse,
   LoggerFuction,
   RateLimiterFunction,
@@ -9,13 +9,16 @@ import {
   TextResponse,
   TextResponseResult
 } from '../ai/types.js';
-import { TextRequestBuilder, TextResponseBuilder } from '../tracing/trace.js';
-import {
+import type {
+  TextRequestBuilder,
+  TextResponseBuilder
+} from '../tracing/trace.js';
+import type {
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest
 } from '../tracing/types.js';
-import { API } from '../util/apicall.js';
+import type { API } from '../util/apicall.js';
 
 export type FunctionExec = {
   id?: string;

@@ -1,5 +1,5 @@
-import { OpenAI, OpenAIArgs, ReAct } from '../index.js';
 import 'dotenv/config';
+import { OpenAI, type OpenAIArgs, ReAct } from '../index.js';
 
 const values = {
   question: 'What is the weather like in tokyo?'

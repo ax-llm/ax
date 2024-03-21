@@ -1,4 +1,4 @@
-import { TextModelInfo } from '../types.js';
+import type { TextModelInfo } from '../types.js';
 
 import { OpenAIEmbedModels, OpenAIModel } from './types.js';
 

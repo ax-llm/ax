@@ -1,4 +1,4 @@
-import { TextModelInfo } from '../types.js';
+import type { TextModelInfo } from '../types.js';
 
 import { HuggingFaceModel } from './types.js';
 
@@ -12,6 +12,6 @@ export const modelInfoHuggingFace: TextModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1K: 0.0,
     completionTokenCostPer1K: 0.0,
-    maxTokens: 4000,
-  },
+    maxTokens: 4000
+  }
 ];

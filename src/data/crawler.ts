@@ -1,6 +1,6 @@
-import { AI, AIName } from '../ai/index.js';
-import { DB, DBService } from '../db/index.js';
-import { AIService } from '../text/types.js';
+import { AI, type AIName } from '../ai/index.js';
+import { DB, type DBService } from '../db/index.js';
+import type { AIService } from '../text/types.js';
 import { uuidURL, uuidv5 } from '../util/uuid.js';
 
 type RequestHandler = (

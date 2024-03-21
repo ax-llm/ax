@@ -1,8 +1,8 @@
-import { TextResponseResult } from '../ai/types.js';
+import type { TextResponseResult } from '../ai/types.js';
 import { convertToChatPromptItem } from '../ai/util.js';
-import { AITextChatRequest } from '../tracing/types.js';
+import type { AITextChatRequest } from '../tracing/types.js';
 
-import { AIMemory } from './types.js';
+import type { AIMemory } from './types.js';
 
 /**
  * A memory class to store ai interactions

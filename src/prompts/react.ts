@@ -1,14 +1,14 @@
-import {
+import type {
   ForwardResult,
   GenerateForwardOptions,
   GenerateOptions,
   IGenerate,
   Signature
 } from '../dsp/index.js';
-import { GenIn, GenOut } from '../dsp/prompt.js';
-import { AITextFunction, FunctionProcessor } from '../text/functions.js';
+import type { GenIn, GenOut } from '../dsp/prompt.js';
+import { type AITextFunction, FunctionProcessor } from '../text/functions.js';
 import { Memory } from '../text/memory.js';
-import { AIService } from '../text/types.js';
+import type { AIService } from '../text/types.js';
 
 import { ChainOfThought } from './cot.js';
 

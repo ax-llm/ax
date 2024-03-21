@@ -1,13 +1,13 @@
 import crypto from 'crypto';
 
-import {
+import type {
   TextModelConfig,
   TextModelInfo,
   TextResponseResult,
   TokenUsage
 } from '../ai/types.js';
 
-import {
+import type {
   AITextChatRequest,
   AITextCompletionRequest,
   AITextEmbedRequest,
