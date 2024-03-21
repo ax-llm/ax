@@ -12,14 +12,14 @@ JS/TS library based on the Stanford DSP paper. Create and compose efficient prom
 
 ## Build LLM workflows with prompt signatures
 
-LLMClient is an easy to use library build around "Prompt Signatures" from the `Stanfoard DSP` paper. Prompt signatures like `question:string -> answer:string` are automatically compiled into complete and efficient prompts. Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want.
+LLMClient is an easy to use library build around "Prompt Signatures" from the `Stanford DSP` paper. Prompt signatures like `question:string -> answer:string` are automatically compiled into complete and efficient prompts. Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want.
 
 ## Why use LLMClient?
 
 - Support for various LLMs and Vector DBs
-- A lite low dependecies library
 - Prompts auto-generated from simple signatures
 - Multi-Hop RAG, ReAcT, CoT, Function Calling, Agents and more
+- Almost zero-dependencies
 
 ## Whats a prompt signature?
 
@@ -68,8 +68,10 @@ Work in progress.
 
 ## Checkout more examples
 
+Use the `tsx` command to run the examples it makes node run typescript code. It also support using a `.env` file to pass the AI API Keys as opposed to putting them in the commandline.
+
 ```shell
-OPENAI_APIKEY=openai_key npx tsx ./src/examples/marketing.ts
+OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 ```
 
 | Example             | Description                                            |

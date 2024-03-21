@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { AI, type OpenAIArgs } from '../ai/index.js';
 import { Generate } from '../dsp/generate.js';
 

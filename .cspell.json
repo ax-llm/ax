@@ -1,35 +1,11 @@
 {
-  "version": "0.1",
-  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/master/cspell.schema.json",
-  "language": "en",
-  "words": [
-    "llm",
-    "llm-client",
-    "llim_client",
-    "cimg",
-    "circleci",
-    "codecov",
-    "commitlint",
-    "dependabot",
-    "editorconfig",
-    "esnext",
-    "execa",
-    "exponentiate",
-    "globby",
-    "mkdir",
-    "prettierignore",
-    "sandboxed",
-    "transpiled",
-    "typedoc",
-    "untracked",
-    "xlarge"
+  "dictionaryDefinitions": [
+    {
+      "name": "project-words",
+      "path": "./.cspell/project-words.txt",
+      "addWords": true
+    }
   ],
-  "flagWords": [],
-  "ignorePaths": [
-    "package.json",
-    "package-lock.json",
-    "yarn.lock",
-    "tsconfig.json",
-    "node_modules/**"
-  ]
+  "dictionaries": ["project-words"],
+  "ignorePaths": ["node_modules", "./docs"]
 }

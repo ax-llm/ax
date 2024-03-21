@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { OpenAI, type OpenAIArgs, ReAct } from '../index.js';
 
 const values = {

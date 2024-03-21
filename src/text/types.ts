@@ -2,7 +2,7 @@ import type { JSONSchemaType } from 'ajv';
 
 import type {
   EmbedResponse,
-  LoggerFuction,
+  LoggerFunction,
   RateLimiterFunction,
   TextModelConfig,
   TextModelInfo,
@@ -76,7 +76,7 @@ export type AITranscribeConfig = {
 export type AIServiceOptions = {
   debug?: boolean;
   disableLog?: boolean;
-  log?: LoggerFuction;
+  log?: LoggerFunction;
   rateLimiter?: RateLimiterFunction;
 };
 

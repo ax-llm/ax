@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { ChainOfThought, OpenAI, type OpenAIArgs } from '../index.js';
 
 const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);

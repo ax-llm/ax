@@ -3,13 +3,13 @@ import {
   type GenerateOptions,
   type Signature
 } from '../dsp/index.js';
-import type { GenIn } from '../dsp/prompt.js';
+import type { GenIn, GenOut } from '../dsp/prompt.js';
 import type { AIService } from '../text/types.js';
 
-export class ChainOfThought<IN extends GenIn, OUT> extends Generate<
-  IN,
-  OUT & { reason: string }
-> {
+export class ChainOfThought<
+  IN extends GenIn = GenIn,
+  OUT extends GenOut = GenOut
+> extends Generate<IN, OUT & { reason: string }> {
   constructor(
     ai: AIService,
     signature: Readonly<Signature | string>,

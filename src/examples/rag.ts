@@ -1,28 +1,20 @@
-import 'dotenv/config';
-import { OpenAI, type OpenAIArgs, RAG, type TextResponse } from '../index.js';
+import { ChainOfThought, OpenAI, type OpenAIArgs, RAG } from '../index.js';
 
-const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
-
-const rag = new RAG(
-  ai,
-  async (query) => {
-    const ret = (await ai.chat({
-      chatPrompt: [{ role: 'user', content: query }]
-    })) as unknown as TextResponse;
-    const result = ret.results?.at(0)?.content;
-
-    if (!result) {
-      throw new Error('No result found');
-    }
-
-    return result;
-  },
-  { maxHops: 3 }
-);
-
-const values = {
-  question: 'List 3 of the top most important work done by Michael Stonebraker?'
+// simulated vector db call using an llm
+const fetchFromVectorDB = async (query: string) => {
+  const cot = new ChainOfThought<{ query: string }, { answer: string }>(
+    ai,
+    'query -> answer'
+  );
+  const { answer } = await cot.forward({ query });
+  return answer;
 };
 
-const res = await rag.forward(values);
+const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const rag = new RAG(ai, fetchFromVectorDB, { maxHops: 3 });
+
+const res = await rag.forward({
+  question: 'List 3 of the top most important work done by Michael Stonebraker?'
+});
+
 console.log(res);

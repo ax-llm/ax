@@ -1,5 +1,4 @@
 // import { AI, OpenAIArgs, TextResponse } from '../index';
-// import 'dotenv/config';
 
 // const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 

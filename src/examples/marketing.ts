@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { AI, Generate, type OpenAIArgs } from '../index.js';
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);

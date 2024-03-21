@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { AI, ChainOfThought, type OpenAIArgs } from '../index.js';
 
 const text = `
