@@ -447,7 +447,7 @@ export class BaseAI<
 
     const fn = async () => {
       const st = new Date().getTime();
-       
+
       const [apiConfig, reqValue] = this.generateEmbedReq!(req);
       const res = await apiCall(
         {
@@ -470,7 +470,6 @@ export class BaseAI<
 
     const resValue = this.rt ? await this.rt(async () => fn()) : await fn();
 
-     
     const res = this.generateEmbedResp!(resValue as TEmbedResponse);
 
     this.traceStepRespBuilder = new TextResponseBuilder()
