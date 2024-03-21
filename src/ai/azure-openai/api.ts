@@ -74,11 +74,15 @@ export class AzureOpenAI extends OpenAI {
       ? resourceName
       : `https://${resourceName}.openai.azure.com/`;
 
-    super.name = 'Azure OpenAI';
-    super.apiURL = new URL(
-      `/openai/deployments/${deploymentName}?api-version=${version}`,
-      host
-    ).href;
-    super.headers = { 'api-key': apiKey };
+    super.setName('Azure OpenAI');
+
+    super.setAPIURL(
+      new URL(
+        `/openai/deployments/${deploymentName}?api-version=${version}`,
+        host
+      ).href
+    );
+
+    super.setHeaders({ 'api-key': apiKey });
   }
 }

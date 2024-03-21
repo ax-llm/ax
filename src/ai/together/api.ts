@@ -40,6 +40,6 @@ export class Together extends OpenAI {
       apiURL: 'https://api.together.xyz/v1'
     });
 
-    super.name = 'Together';
+    super.setName('Together');
   }
 }

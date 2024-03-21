@@ -331,7 +331,7 @@ function peg$parse(input, options) {
 // @ts-ignore
     return { 
 // @ts-ignore
-        desc: optionalDesc ? optionalDesc.join("") : undefined,
+        desc: optionalDesc ? optionalDesc.join("").trim() : undefined,
 // @ts-ignore
         inputs, 
 // @ts-ignore
@@ -339,18 +339,13 @@ function peg$parse(input, options) {
     };
 };// @ts-ignore
 
-  var peg$f1 = function(head, tail) {
-// @ts-ignore
-      return [head, ...tail.map(([, output]) => output)];
-};// @ts-ignore
-
-  var peg$f2 = function(name, isOptional, optionalType, optionalDesc) {
+  var peg$f1 = function(name, isOptional, optionalType, optionalDesc) {
 // @ts-ignore
       return { 
 // @ts-ignore
         name, 
 // @ts-ignore
-        desc: optionalDesc ? optionalDesc.join("") : undefined,
+        desc: optionalDesc ? optionalDesc.join("").trim() : undefined,
 // @ts-ignore
         type: optionalType ? optionalType.at(-1) : undefined,
 // @ts-ignore
@@ -358,28 +353,28 @@ function peg$parse(input, options) {
     };
 };// @ts-ignore
 
-  var peg$f3 = function(chars, isArray) {
+  var peg$f2 = function(chars, isArray) {
 // @ts-ignore
     	return { name: chars.join(""), isArray: isArray ? true : false }
 };// @ts-ignore
 
-  var peg$f4 = function(chars) {
+  var peg$f3 = function(chars) {
 // @ts-ignore
     	return chars.join("")
 };// @ts-ignore
 
+  var peg$f4 = function(content) {// @ts-ignore
+ return content.join("") };// @ts-ignore
+
   var peg$f5 = function(content) {// @ts-ignore
- return content.join(""); };// @ts-ignore
+ return content .join("") };// @ts-ignore
 
-  var peg$f6 = function(content) {// @ts-ignore
- return content.join(""); };// @ts-ignore
-
-  var peg$f7 = function() {
+  var peg$f6 = function() {
 // @ts-ignore
     	return ""
 };// @ts-ignore
 
-  var peg$f8 = function() {
+  var peg$f7 = function() {
 // @ts-ignore
     	return ""
 };
@@ -773,47 +768,19 @@ peg$parseParsedFieldList() {
     }
 
 // @ts-ignore
-    s0 = peg$currPos;
+    s0 = [];
 // @ts-ignore
     s1 = peg$parseParsedField();
 // @ts-ignore
-    s2 = [];
+    while (s1 !== peg$FAILED) {
 // @ts-ignore
-    s3 = peg$currPos;
+      s0.push(s1);
 // @ts-ignore
-    if (input.charCodeAt(peg$currPos) === 44) {
+      s1 = peg$currPos;
 // @ts-ignore
-      s4 = peg$c1;
+      s2 = peg$currPos;
 // @ts-ignore
-      peg$currPos++;
-// @ts-ignore
-    } else {
-// @ts-ignore
-      s4 = peg$FAILED;
-// @ts-ignore
-      if (peg$silentFails === 0) { peg$fail(peg$e1); }
-    }
-// @ts-ignore
-    if (s4 !== peg$FAILED) {
-// @ts-ignore
-      s5 = peg$parseParsedField();
-// @ts-ignore
-      s4 = [s4, s5];
-// @ts-ignore
-      s3 = s4;
-// @ts-ignore
-    } else {
-// @ts-ignore
-      peg$currPos = s3;
-// @ts-ignore
-      s3 = peg$FAILED;
-    }
-// @ts-ignore
-    while (s3 !== peg$FAILED) {
-// @ts-ignore
-      s2.push(s3);
-// @ts-ignore
-      s3 = peg$currPos;
+      s3 = peg$parse_();
 // @ts-ignore
       if (input.charCodeAt(peg$currPos) === 44) {
 // @ts-ignore
@@ -830,23 +797,30 @@ peg$parseParsedFieldList() {
 // @ts-ignore
       if (s4 !== peg$FAILED) {
 // @ts-ignore
-        s5 = peg$parseParsedField();
+        s5 = peg$parse_();
 // @ts-ignore
-        s4 = [s4, s5];
+        s3 = [s3, s4, s5];
 // @ts-ignore
-        s3 = s4;
+        s2 = s3;
 // @ts-ignore
       } else {
 // @ts-ignore
-        peg$currPos = s3;
+        peg$currPos = s2;
 // @ts-ignore
-        s3 = peg$FAILED;
+        s2 = peg$FAILED;
+      }
+// @ts-ignore
+      if (s2 !== peg$FAILED) {
+// @ts-ignore
+        s2 = peg$parseParsedField();
+// @ts-ignore
+        s1 = s2;
+// @ts-ignore
+      } else {
+// @ts-ignore
+        s1 = s2;
       }
     }
-// @ts-ignore
-    peg$savedPos = s0;
-// @ts-ignore
-    s0 = peg$f1(s1, s2);
 
 // @ts-ignore
     peg$resultsCache[key] = { nextPos: peg$currPos, result: s0 };
@@ -947,9 +921,7 @@ peg$parseParsedField() {
 // @ts-ignore
     if (s7 !== peg$FAILED) {
 // @ts-ignore
-      s8 = peg$parse_();
-// @ts-ignore
-      s6 = [s6, s7, s8];
+      s6 = [s6, s7];
 // @ts-ignore
       s5 = s6;
 // @ts-ignore
@@ -967,7 +939,7 @@ peg$parseParsedField() {
 // @ts-ignore
     peg$savedPos = s0;
 // @ts-ignore
-    s0 = peg$f2(s2, s3, s4, s5);
+    s0 = peg$f1(s2, s3, s4, s5);
 
 // @ts-ignore
     peg$resultsCache[key] = { nextPos: peg$currPos, result: s0 };
@@ -1052,7 +1024,7 @@ peg$parseParsedType() {
 // @ts-ignore
     peg$savedPos = s0;
 // @ts-ignore
-    s0 = peg$f3(s1, s2);
+    s0 = peg$f2(s1, s2);
 
 // @ts-ignore
     peg$resultsCache[key] = { nextPos: peg$currPos, result: s0 };
@@ -1119,7 +1091,7 @@ peg$parseParsedIdentifier() {
 // @ts-ignore
     peg$savedPos = s0;
 // @ts-ignore
-    s1 = peg$f4(s1);
+    s1 = peg$f3(s1);
 // @ts-ignore
     s0 = s1;
 
@@ -1218,7 +1190,7 @@ peg$parseParsedString() {
 // @ts-ignore
         peg$savedPos = s0;
 // @ts-ignore
-        s0 = peg$f5(s2);
+        s0 = peg$f4(s2);
 // @ts-ignore
       } else {
 // @ts-ignore
@@ -1303,7 +1275,7 @@ peg$parseParsedString() {
 // @ts-ignore
           peg$savedPos = s0;
 // @ts-ignore
-          s0 = peg$f6(s2);
+          s0 = peg$f5(s2);
 // @ts-ignore
         } else {
 // @ts-ignore
@@ -1385,7 +1357,7 @@ peg$parse_() {
 // @ts-ignore
     peg$savedPos = s0;
 // @ts-ignore
-    s1 = peg$f7();
+    s1 = peg$f6();
 // @ts-ignore
     s0 = s1;
 
@@ -1463,7 +1435,7 @@ peg$parse__() {
 // @ts-ignore
       peg$savedPos = s0;
 // @ts-ignore
-      s1 = peg$f8();
+      s1 = peg$f7();
     }
 // @ts-ignore
     s0 = s1;
@@ -1607,7 +1579,7 @@ export type ParsedSignature = {
   inputs: ParsedFieldList;
   outputs: ParsedFieldList;
 };
-export type ParsedFieldList = [ParsedField, ...ParsedField[]];
+export type ParsedFieldList = ParsedField[];
 export type ParsedField = {
   name: ParsedIdentifier;
   desc: string | undefined;

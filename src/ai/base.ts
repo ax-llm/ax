@@ -129,6 +129,18 @@ export class BaseAI<
     this.setOptions(options);
   }
 
+  public setName(name: string): void {
+    this.name = name;
+  }
+
+  public setAPIURL(apiURL: string): void {
+    this.apiURL = apiURL;
+  }
+
+  public setHeaders(headers: Record<string, string>): void {
+    this.headers = headers;
+  }
+
   setOptions(options: Readonly<AIServiceOptions>): void {
     if (options.debug) {
       this.debug = options.debug;
@@ -435,7 +447,7 @@ export class BaseAI<
 
     const fn = async () => {
       const st = new Date().getTime();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+       
       const [apiConfig, reqValue] = this.generateEmbedReq!(req);
       const res = await apiCall(
         {
@@ -458,7 +470,7 @@ export class BaseAI<
 
     const resValue = this.rt ? await this.rt(async () => fn()) : await fn();
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+     
     const res = this.generateEmbedResp!(resValue as TEmbedResponse);
 
     this.traceStepRespBuilder = new TextResponseBuilder()

@@ -40,6 +40,6 @@ export class Groq extends OpenAI {
       apiURL: 'https://api.groq.com/openai/v1'
     });
 
-    super.name = 'Groq';
+    super.setName('Groq');
   }
 }
