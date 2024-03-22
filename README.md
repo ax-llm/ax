@@ -64,7 +64,20 @@ console.log('>', res);
 
 ## Example: Building an agent
 
-Work in progress.
+Use the agent prompt (framework) to build agents that work with other agents to complete tasks. Agents are easy to build with prompt signatures. Try out the agent example.
+
+```typescript
+# npm run tsx ./src/examples/agent.ts
+
+const agent = new Agent(ai, {
+  name: 'agent',
+  description: 'A an agent to research complex topics',
+  signature: `question -> answer`,
+  agents: [researcher, summarizer]
+});
+
+agent.forward({ questions: "How many atoms are there in the universe" })
+```
 
 ## Checkout more examples
 
@@ -74,16 +87,17 @@ Use the `tsx` command to run the examples it makes node run typescript code. It 
 OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 ```
 
-| Example             | Description                                            |
-| ------------------- | ------------------------------------------------------ |
-| customer-support.ts | Extract valuable details from customer communications  |
-| food-search.ts      | Use multiple APIs are used to find dinning options     |
-| marketing.ts        | Generate short effective marketing sms messages        |
-| fibonacci.ts        | Use the JS code interpreter to compute fibonacci       |
-| summarize.ts        | Generate a short summary of a large block of text      |
-| chain-of-thought.ts | Use chain-of-thought prompting to answer questions     |
-| rag.ts              | Use multi-hop retrieval to answer questions            |
-| react.ts            | Use function calling and reasoning to answer questions |
+| Example             | Description                                             |
+| ------------------- | ------------------------------------------------------- |
+| customer-support.ts | Extract valuable details from customer communications   |
+| food-search.ts      | Use multiple APIs are used to find dinning options      |
+| marketing.ts        | Generate short effective marketing sms messages         |
+| fibonacci.ts        | Use the JS code interpreter to compute fibonacci        |
+| summarize.ts        | Generate a short summary of a large block of text       |
+| chain-of-thought.ts | Use chain-of-thought prompting to answer questions      |
+| rag.ts              | Use multi-hop retrieval to answer questions             |
+| react.ts            | Use function calling and reasoning to answer questions  |
+| agent.ts            | Agent framework, agents can use other agents, tools etc |
 
 ## Reasoning + Function Calling
 
