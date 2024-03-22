@@ -250,8 +250,11 @@ export class BaseAI<
 
     const reqFn = this.generateCompletionReq;
     const stream = options.stream ?? _req.modelConfig?.stream;
+    const functions =
+      _req.functions && _req.functions.length > 0 ? _req.functions : undefined;
     const req = {
       ..._req,
+      functions,
       modelConfig: { ..._req.modelConfig, stream }
     } as Readonly<AITextChatRequest>;
 
@@ -355,8 +358,11 @@ export class BaseAI<
 
     const reqFn = this.generateChatReq;
     const stream = options.stream ?? _req.modelConfig?.stream;
+    const functions =
+      _req.functions && _req.functions.length > 0 ? _req.functions : undefined;
     const req = {
       ..._req,
+      functions,
       modelConfig: { ..._req.modelConfig, stream }
     } as Readonly<AITextChatRequest>;
 

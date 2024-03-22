@@ -42,8 +42,9 @@ export class Signature {
     return {
       name: field.name,
       title,
+      description: field.desc,
       isOptional: field.isOptional,
-      type: field.type
+      type: field.type ?? { name: 'string', isArray: false }
     };
   };
 
@@ -117,15 +118,13 @@ export class Signature {
             type: type,
             title: f.title,
             description: f.description
-          },
-          optional: f.isOptional
+          }
         };
       } else {
         properties[f.name] = {
           title: f.title,
           description: f.description,
-          type: type,
-          optional: f.isOptional
+          type: type
         };
       }
 

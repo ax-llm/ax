@@ -4,7 +4,7 @@ import {
   Signature
 } from '../dsp/index.js';
 import { GenIn, GenOut } from '../dsp/prompt.js';
-import { AITextFunction } from '../index.js';
+import { AITextFunction, ChainOfThought } from '../index.js';
 import type { AIService } from '../text/types.js';
 
 import { ReAct } from './react.js';
@@ -21,7 +21,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
   private name: string;
   private description: string;
   private sig: Signature;
-  private react: ReAct<IN, OUT>;
+  private react: GenerateI<IN, OUT>;
 
   constructor(
     ai: AIService,
@@ -29,26 +29,36 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
       name,
       description,
       signature,
-      otherAgents
+      agents,
+      functions
     }: Readonly<{
       name: string;
       description: string;
       signature: Signature | string;
-      otherAgents: AgentI[];
+      agents?: AgentI[];
+      functions?: AITextFunction[];
     }>,
-    options: Readonly<AgentOptions>
+    options?: Readonly<AgentOptions>
   ) {
     this.name = name;
     this.description = description;
     this.sig = new Signature(signature);
 
-    const functions: AITextFunction[] = otherAgents.map((a) => a.getFunction());
+    const funcs: AITextFunction[] = [
+      ...(functions ?? []),
+      ...(agents?.map((a) => a.getFunction()) ?? [])
+    ];
 
-    this.react = new ReAct(ai, this.sig, {
+    const opt = {
       promptTemplate: options?.promptTemplate,
       asserts: options?.asserts,
-      functions
-    });
+      functions: funcs
+    };
+
+    this.react =
+      funcs.length > 0
+        ? new ReAct(ai, this.sig, opt)
+        : new ChainOfThought(ai, this.sig, opt);
   }
 
   public getFunction = () => {
@@ -56,7 +66,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     return {
       name: this.name,
       description: this.description,
-      properties: s.properties,
+      parameters: s,
       func: this.forward
     };
   };

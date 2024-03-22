@@ -128,6 +128,7 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
       extraFields,
       skipSystemPrompt
     });
+
     const msg = { role: 'user' as const, content: prompt };
     const chatPrompt = [...(mem?.history(sessionId) ?? []), msg];
 
