@@ -22,7 +22,6 @@ export interface GenerateOptions {
   functionCall?: AITextChatRequest['functionCall'];
   promptTemplate?: typeof PromptTemplate;
   asserts?: Assertion[];
-  maxRetries?: number;
 }
 
 export type GenerateForwardOptions = {
@@ -44,7 +43,7 @@ export type ForwardResult<T> = T & {
   functions?: TextResponseFunctionCall[];
 };
 
-export interface IGenerate<
+export interface GenerateI<
   IN extends GenIn = GenIn,
   OUT extends GenIn = GenOut
 > {
@@ -55,7 +54,7 @@ export interface IGenerate<
 }
 
 export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
-  implements IGenerate<IN, OUT>
+  implements GenerateI<IN, OUT>
 {
   private sig: Signature;
   private ai: AIService;
@@ -196,7 +195,7 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
     values: IN,
     options?: Readonly<GenerateForwardOptions>
   ): Promise<ForwardResult<OUT>> => {
-    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 3;
+    const maxRetries = options?.maxRetries ?? 3;
 
     let extraFields: IField[] = [];
     let err: ValidationError | AssertionError | undefined;

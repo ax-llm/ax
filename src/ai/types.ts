@@ -4,9 +4,8 @@ export type TextModelInfo = {
   name: string;
   currency?: string;
   characterIsToken?: boolean;
-  promptTokenCostPer1K?: number;
-  completionTokenCostPer1K?: number;
-  maxTokens?: number;
+  promptTokenCostPer1M?: number;
+  completionTokenCostPer1M?: number;
   aliases?: string[];
 };
 

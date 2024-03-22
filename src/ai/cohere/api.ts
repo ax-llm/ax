@@ -23,8 +23,8 @@ import {
  * @export
  */
 export const CohereDefaultConfig = (): CohereConfig => ({
-  model: CohereModel.CommandNightly,
-  embedModel: CohereEmbedModel.EmbedEnglishLightV20,
+  model: CohereModel.Command,
+  embedModel: CohereEmbedModel.EmbedEnglishV30,
   maxTokens: 500,
   temperature: 0.1,
   topK: 40,

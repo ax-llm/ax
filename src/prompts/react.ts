@@ -1,8 +1,8 @@
 import type {
   ForwardResult,
   GenerateForwardOptions,
+  GenerateI,
   GenerateOptions,
-  IGenerate,
   Signature
 } from '../dsp/index.js';
 import type { GenIn, GenOut } from '../dsp/prompt.js';
@@ -13,7 +13,7 @@ import type { AIService } from '../text/types.js';
 import { ChainOfThought } from './cot.js';
 
 export class ReAct<IN extends GenIn, OUT extends GenOut>
-  implements IGenerate<IN, OUT>
+  implements GenerateI<IN, OUT>
 {
   private nativeFunctions: boolean;
   private funcProc: FunctionProcessor;

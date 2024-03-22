@@ -95,6 +95,55 @@ export class Signature {
   };
 
   public getParsedSignature = () => this.sig;
+
+  public toJSONSchema = (): {
+    title: string;
+    description: string;
+    type: string;
+    properties: Record<string, unknown>;
+    required: Array<string>;
+  } => {
+    const properties: Record<string, unknown> = {};
+    const required: Array<string> = [];
+
+    for (const f of this.inputFields) {
+      const type = f.type ? f.type.name : 'string';
+      if (f.type?.isArray) {
+        properties[f.name] = {
+          title: f.title,
+          description: f.description,
+          type: 'array',
+          items: {
+            type: type,
+            title: f.title,
+            description: f.description
+          },
+          optional: f.isOptional
+        };
+      } else {
+        properties[f.name] = {
+          title: f.title,
+          description: f.description,
+          type: type,
+          optional: f.isOptional
+        };
+      }
+
+      if (!f.isOptional) {
+        required.push(f.name);
+      }
+    }
+
+    const schema = {
+      title: '', // You might want to give a title
+      description: this.description ?? '',
+      type: 'object',
+      properties: properties,
+      required: required
+    };
+
+    return schema;
+  };
 }
 
 export const extractValues = (sig: Readonly<Signature>, result: string) => {

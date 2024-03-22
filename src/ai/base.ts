@@ -118,8 +118,8 @@ export class BaseAI<
     this.modelInfo = modelInfo.filter((v) => v.name === models.model).at(0) ?? {
       name: models.model,
       currency: 'usd',
-      promptTokenCostPer1K: 0,
-      completionTokenCostPer1K: 0
+      promptTokenCostPer1M: 0,
+      completionTokenCostPer1M: 0
     };
 
     this.embedModelInfo = modelInfo

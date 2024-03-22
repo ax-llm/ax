@@ -29,7 +29,7 @@ import {
  */
 export const OpenAIDefaultConfig = (): OpenAIConfig => ({
   model: OpenAIModel.GPT35Turbo,
-  embedModel: OpenAIEmbedModels.GPT3TextEmbeddingAda002,
+  embedModel: OpenAIEmbedModels.TextEmbeddingAda002,
   audioModel: OpenAIAudioModel.Whisper1,
   stream: false,
   suffix: null,

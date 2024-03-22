@@ -5,9 +5,9 @@
 export enum AnthropicModel {
   Claude3Opus = 'claude-3-opus-20240229',
   Claude3Sonnet = 'claude-3-sonnet-20240229',
-  Claude3Haiku = 'claude-3-haiku-20240229',
-  Claude2 = 'claude-2',
-  ClaudeInstant = 'claude-instant'
+  Claude3Haiku = 'claude-3-haiku-20240307',
+  Claude21 = 'claude-2.1',
+  ClaudeInstant12 = 'claude-instant-1.2'
 }
 
 /**
@@ -65,13 +65,14 @@ export type AnthropicChatRequest = {
   }[];
   system?: string; // Optional system prompt for providing context or instructions
   max_tokens: number; // Maximum number of tokens to generate
+  // Optional metadata about the request
+  stop_sequences?: string[]; // Custom sequences that trigger the end of generation
+  stream?: boolean; // Whether to stream the response incrementally
+  temperature?: number; // Randomness of the response
+  top_p?: number; // Nucleus sampling probability
+  top_k?: number; // Sample from the top K options
   metadata?: {
-    // Optional metadata about the request
-    stop_sequences?: string[]; // Custom sequences that trigger the end of generation
-    stream?: boolean; // Whether to stream the response incrementally
-    temperature?: number; // Randomness of the response
-    top_p?: number; // Nucleus sampling probability
-    top_k?: number; // Sample from the top K options
+    user_id: string;
   };
 };
 
@@ -91,6 +92,14 @@ export type AnthropicChatResponse = {
     // Billing and rate-limit usage information
     input_tokens: number; // The number of input tokens which were used
     output_tokens: number; // The number of output tokens generated
+  };
+};
+
+export type AnthropicChatError = {
+  type: 'error';
+  error: {
+    type: 'authentication_error';
+    message: string;
   };
 };
 

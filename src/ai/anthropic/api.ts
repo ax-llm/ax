@@ -13,6 +13,7 @@ import type {
 
 import { modelInfoAnthropic } from './info.js';
 import {
+  AnthropicChatError,
   type AnthropicChatRequest,
   type AnthropicChatResponse,
   type AnthropicChatResponseDelta,
@@ -31,7 +32,7 @@ import {
  * @export
  */
 export const AnthropicDefaultConfig = (): AnthropicConfig => ({
-  model: AnthropicModel.Claude2,
+  model: AnthropicModel.Claude3Haiku,
   maxTokens: 500,
   temperature: 0,
   topP: 1
@@ -68,7 +69,7 @@ export class Anthropic extends BaseAI<
       apiURL: 'https://api.anthropic.com/v1',
       headers: {
         'Anthropic-Version': '2023-06-01',
-        Authorization: `Bearer ${apiKey}`
+        'x-api-key': apiKey
       },
       modelInfo: modelInfoAnthropic,
       models: { model: config.model as string },
@@ -142,7 +143,6 @@ export class Anthropic extends BaseAI<
 
     const messages =
       req.chatPrompt?.map((msg) => ({
-        type: 'text' as const,
         role: msg.role as 'user' | 'assistant',
         content: msg.content ?? ''
       })) ?? [];
@@ -150,19 +150,32 @@ export class Anthropic extends BaseAI<
     const reqValue: AnthropicChatRequest = {
       model: req.modelInfo?.name ?? this.config.model,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      metadata: {
-        stop_sequences: this.config.stopSequences,
-        temperature: req.modelConfig?.temperature ?? this.config.temperature,
-        top_p: req.modelConfig?.topP ?? this.config.topP,
-        top_k: req.modelConfig?.topK ?? this.config.topK
-      },
+      stop_sequences: this.config.stopSequences,
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      top_p: req.modelConfig?.topP ?? this.config.topP,
+      top_k: req.modelConfig?.topK ?? this.config.topK,
+      ...(req.identity?.user
+        ? {
+            metadata: {
+              user_id: req.identity?.user
+            }
+          }
+        : {}),
       messages
     };
 
     return [apiConfig, reqValue];
   };
 
-  generateChatResp = (resp: Readonly<AnthropicChatResponse>): TextResponse => {
+  generateChatResp = (
+    response: Readonly<AnthropicChatResponse | AnthropicChatError>
+  ): TextResponse => {
+    const err = response as AnthropicChatError;
+    if (err.type === 'error') {
+      throw new Error(`Anthropic Chat API Error: ${err.error.message}`);
+    }
+
+    const resp = response as AnthropicChatResponse;
     const results = resp.content.map((msg) => ({
       content: msg.type === 'text' ? msg.text : '',
       role: resp.role,

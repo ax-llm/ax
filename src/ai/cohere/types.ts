@@ -3,9 +3,8 @@
  * @export
  */
 export enum CohereModel {
+  CommandR = 'command-r',
   Command = 'command',
-  CommandNightly = 'command-nightly',
-  CommandXLarge = 'command-xlarge',
   CommandLight = 'command-light'
 }
 
@@ -14,9 +13,10 @@ export enum CohereModel {
  * @export
  */
 export enum CohereEmbedModel {
-  EmbedEnglishLightV20 = 'embed-english-light-v2.0',
-  EmbedEnglishV20 = 'embed-english-v2.0',
-  EmbedMultiLingualV20 = 'embed-multilingual-v2.0'
+  EmbedEnglishV30 = 'embed-english-v3.0',
+  EmbedEnglishLightV30 = 'embed-english-light-v3.0',
+  EmbedMultiLingualV30 = 'embed-multilingual-v3.0',
+  EmbedMultiLingualLightV30 = 'embed-multilingual-light-v3.0'
 }
 
 /**

@@ -168,7 +168,7 @@
 // `;
 
 // const conf = OpenAIDefaultOptions();
-// // conf.model = OpenAIGenerateModel.GPT4;
+// // conf.model = OpenAGenerateIModel.GPT4;
 // const ai = new OpenAI(process.env.OPENAI_APIKEY, conf);
 
 // const res = await prompt.generate(ai, promptText);

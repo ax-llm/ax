@@ -1,8 +1,8 @@
 import {
   dedup,
   Generate,
+  type GenerateI,
   type GenerateOptions,
-  type IGenerate,
   Signature
 } from '../dsp/index.js';
 import type { AIService } from '../text/types.js';
@@ -10,7 +10,7 @@ import type { AIService } from '../text/types.js';
 import { ChainOfThought } from './cot.js';
 
 export class RAG
-  implements IGenerate<{ question: string }, { answer: string }>
+  implements GenerateI<{ question: string }, { answer: string }>
 {
   private genQuery: Generate<
     { context: string[]; question: string },
@@ -28,7 +28,7 @@ export class RAG
     options: Readonly<GenerateOptions & { maxHops?: number }>
   ) {
     const qsig = new Signature(
-      '"Write a simple search query that will help answer a complex question." context?:string[] "may contain relevant facts", question -> query'
+      '"Write a simple search query that will help answer a complex question." context?:string[] "may contain relevant facts", question -> query "question to further our understanding"'
     );
 
     this.genQuery = Array(options.maxHops ?? 2)

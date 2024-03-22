@@ -11,12 +11,8 @@ export enum OpenAIModel {
   GPT4Turbo = 'gpt-4-1106-preview',
   GPT35Turbo = 'gpt-3.5-turbo-0125',
   GPT35TurboInstruct = 'gpt-3.5-turbo-instruct',
-  GPT35Turbo16K = 'gpt-3.5-turbo-16k',
-  GPT35TextDavinci003 = 'text-davinci-003',
   GPT35TextDavinci002 = 'text-davinci-002',
-  GPT35CodeDavinci002 = 'code-davinci-002',
-  GPT3TextCurie001 = 'text-curie-001',
-  GPT3TextBabbage001 = 'text-babbage-001',
+  GPT3TextBabbage002 = 'text-babbage-002',
   GPT3TextAda001 = 'text-ada-001'
 }
 
@@ -25,7 +21,9 @@ export enum OpenAIModel {
  * @export
  */
 export enum OpenAIEmbedModels {
-  GPT3TextEmbeddingAda002 = 'text-embedding-ada-002'
+  TextEmbeddingAda002 = 'text-embedding-ada-002',
+  TextEmbedding3Small = 'text-embedding-3-small',
+  TextEmbedding3Large = 'text-embedding-3-large'
 }
 
 /**

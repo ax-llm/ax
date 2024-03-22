@@ -38,18 +38,13 @@ export class ModelInfoBuilder {
     return this;
   }
 
-  setPromptTokenCostPer1K(promptTokenCostPer1K: number): this {
-    this.info.promptTokenCostPer1K = promptTokenCostPer1K;
+  setPromptTokenCostPer1M(promptTokenCostPer1M: number): this {
+    this.info.promptTokenCostPer1M = promptTokenCostPer1M;
     return this;
   }
 
-  setCompletionTokenCostPer1K(completionTokenCostPer1K: number): this {
-    this.info.completionTokenCostPer1K = completionTokenCostPer1K;
-    return this;
-  }
-
-  setMaxTokens(maxTokens: number): this {
-    this.info.maxTokens = maxTokens;
+  setCompletionTokenCostPer1M(completionTokenCostPer1M: number): this {
+    this.info.completionTokenCostPer1M = completionTokenCostPer1M;
     return this;
   }
 

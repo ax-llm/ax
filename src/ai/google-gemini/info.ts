@@ -11,8 +11,7 @@ export const modelInfoGoogleGemini: TextModelInfo[] = [
     name: GoogleGeminiModel.Gemini_1_0_Pro,
     currency: 'usd',
     characterIsToken: true,
-    promptTokenCostPer1K: 0.001,
-    completionTokenCostPer1K: 0.001,
-    maxTokens: 32000
+    promptTokenCostPer1M: 0.125,
+    completionTokenCostPer1M: 0.375
   }
 ];
