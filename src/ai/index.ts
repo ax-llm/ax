@@ -5,6 +5,7 @@ import { GoogleGemini, type GoogleGeminiArgs } from './google-gemini/api.js';
 import { GooglePalm2, type GooglePalm2Args } from './google-palm2/api.js';
 import { Groq, type GroqArgs } from './groq/api.js';
 import { HuggingFace, type HuggingFaceArgs } from './huggingface/api.js';
+import { Mistral, MistralArgs } from './mistral/api.js';
 import { OpenAI, type OpenAIArgs } from './openai/api.js';
 import { Together, type TogetherArgs } from './together/api.js';
 
@@ -27,7 +28,8 @@ export type AIName =
   | 'google-palm2'
   | 'google-gemini'
   | 'anthropic'
-  | 'groq';
+  | 'groq'
+  | 'mistral';
 
 export const AI = (
   name: AIName,
@@ -40,6 +42,7 @@ export const AI = (
     | CohereArgs
     | HuggingFaceArgs
     | GroqArgs
+    | Mistral
   >
 ) => {
   switch (name) {
@@ -61,6 +64,8 @@ export const AI = (
       return new GoogleGemini(options as GoogleGeminiArgs);
     case 'anthropic':
       return new Anthropic(options as AnthropicArgs);
+    case 'mistral':
+      return new Mistral(options as MistralArgs);
     default:
       throw new Error(`Unknown AI ${name}`);
   }

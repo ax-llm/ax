@@ -12,7 +12,9 @@ JS/TS library based on the Stanford DSP paper. Create and compose efficient prom
 
 ## Build LLM workflows with prompt signatures
 
-LLMClient is an easy to use library build around "Prompt Signatures" from the `Stanford DSP` paper. Prompt signatures like `question:string -> answer:string` are automatically compiled into complete and efficient prompts. Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want.
+LLMClient is an easy to use library build around "Prompt Signatures" from the `Stanford DSP` paper. This library will automatically generate efficient and typed prompts from prompt signatures like `question:string -> answer:string`.
+
+Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want.
 
 ## Why use LLMClient?
 
@@ -39,6 +41,7 @@ Efficient type-safe prompts are auto-generated from a simple signature. A prompt
 | Together      | Several OSS Models      | 🟢 100% |
 | Cohere        | CommandR, Command       | 🟢 100% |
 | Anthropic     | Claude 2, Claude 3      | 🟢 100% |
+| Mistral       | 7B, 8x7B, S, M & L      | 🟢 100% |
 | Google Vertex | Palm, Bison             | 🟡 50%  |
 | Google Gemini | Gemini 1.0              | 🟡 50%  |
 | Hugging Face  | OSS Model               | 🟡 50%  |
