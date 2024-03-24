@@ -29,7 +29,11 @@ export interface GroqArgs {
  * @export
  */
 export class Groq extends OpenAI {
-  constructor({ apiKey, config, options }: Readonly<GroqArgs>) {
+  constructor({
+    apiKey,
+    config = GroqDefaultConfig(),
+    options
+  }: Readonly<GroqArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Groq API key not set');
     }

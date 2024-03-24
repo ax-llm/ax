@@ -28,6 +28,13 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     body: JSON.stringify(json)
   });
 
+  if (res.status >= 400) {
+    const body = JSON.stringify(await res.json(), null, 2);
+    throw new Error(
+      `API Error: ${apiUrl.href}, ${res.status}, ${res.statusText}\n${body}`
+    );
+  }
+
   if (!res.body) {
     throw new Error('Response body is null');
   }

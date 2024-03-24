@@ -4,34 +4,46 @@ import type { OpenAIConfig } from '../openai/types.js';
 
 import { MistralModel } from './types.js';
 
-type MistralAIConfig = OpenAIConfig;
+type MistralConfig = OpenAIConfig;
 
 /**
- * MistralAI: Default Model options for text generation
+ * Mistral: Default Model options for text generation
  * @export
  */
-export const MistralDefaultConfig = (): MistralAIConfig => ({
-  model: MistralModel.MistralMedium,
+export const MistralDefaultConfig = (): MistralConfig => ({
+  model: MistralModel.MistralSmall,
   stream: false,
   suffix: null,
   maxTokens: 500,
   temperature: 0.1,
-  topP: 0.9,
-  frequencyPenalty: 0.5
+  topP: 0.9
+});
+
+/**
+ * Mistral: Default model options to use the more advanced model
+ * @export
+ */
+export const MistralBestConfig = (): OpenAIConfig => ({
+  ...MistralDefaultConfig(),
+  model: MistralModel.MistralLarge
 });
 
 export interface MistralArgs {
   apiKey: string;
-  config: Readonly<MistralAIConfig>;
+  config: Readonly<MistralConfig>;
   options?: Readonly<AIServiceOptions>;
 }
 
 /**
- * MistralAI: AI Service
+ * Mistral: AI Service
  * @export
  */
 export class Mistral extends OpenAI {
-  constructor({ apiKey, config, options }: Readonly<MistralArgs>) {
+  constructor({
+    apiKey,
+    config = MistralDefaultConfig(),
+    options
+  }: Readonly<MistralArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set');
     }

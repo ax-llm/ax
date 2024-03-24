@@ -140,7 +140,7 @@ export class OpenAI extends BaseAI<
     }
 
     const apiConfig = {
-      name: '/chat/completions?api-version=2023-03-15-preview',
+      name: '/chat/completions',
       headers: {
         ...(req.identity?.organization
           ? { 'OpenAI-Organization': req.identity?.organization }
@@ -186,6 +186,9 @@ export class OpenAI extends BaseAI<
       }
     });
 
+    const frequencyPenalty =
+      req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
+
     const reqValue: OpenAIChatRequest = {
       model,
       messages,
@@ -202,11 +205,10 @@ export class OpenAI extends BaseAI<
       stop: config.stopSequences,
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-      frequency_penalty:
-        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,
       user: req.identity?.user ?? this.config.user,
-      organization: req.identity?.organization
+      organization: req.identity?.organization,
+      ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {})
     };
 
     return [apiConfig, reqValue];

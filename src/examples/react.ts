@@ -1,4 +1,4 @@
-import { OpenAI, type OpenAIArgs, ReAct } from '../index.js';
+import { AI, type OpenAIArgs, ReAct } from '../index.js';
 
 const values = {
   question: 'What is the weather like in tokyo?'
@@ -30,7 +30,7 @@ const functions = [
   }
 ];
 
-const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 const cot = new ReAct(ai, `question:string -> answer:string`, { functions });
 const res = await cot.forward(values);
 console.log(res);

@@ -1,4 +1,4 @@
-import { ChainOfThought, OpenAI, type OpenAIArgs, RAG } from '../index.js';
+import { AI, ChainOfThought, type OpenAIArgs, RAG } from '../index.js';
 
 // simulated vector db call using an llm
 const fetchFromVectorDB = async (query: string) => {
@@ -10,7 +10,7 @@ const fetchFromVectorDB = async (query: string) => {
   return answer;
 };
 
-const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 const rag = new RAG(ai, fetchFromVectorDB, { maxHops: 3 });
 
 const res = await rag.forward({
