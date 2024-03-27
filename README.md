@@ -1,4 +1,4 @@
-# LLMClient - A new way to build LLM powered workflows.
+# LLMClient - A new way to build with LLMs.
 
 JS/TS library based on the Stanford DSP paper. Create and compose efficient prompts using prompt signatures. Reasoning + Function Calling, RAG and more.
 
