@@ -10,17 +10,19 @@ JS/TS library based on the Stanford DSP paper. Create and compose efficient prom
 
 ![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
 
-## Build LLM workflows with prompt signatures
+## Build with prompt signatures
 
 LLMClient is an easy to use library build around "Prompt Signatures" from the `Stanford DSP` paper. This library will automatically generate efficient and typed prompts from prompt signatures like `question:string -> answer:string`.
 
-Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want.
+Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want. Using prompt signatures automatically gives you the ability to fine tune your prompt programs using optimizers. Tune with a larger model and have your program run efficiently on a smaller model. The tuning here is not the traditional model tuning but what we call prompt tuning.
 
 ## Why use LLMClient?
 
 - Support for various LLMs and Vector DBs
 - Prompts auto-generated from simple signatures
-- Multi-Hop RAG, ReAcT, CoT, Function Calling, Agents and more
+- Multi-Hop RAG, ReAcT, CoT, Function Calling and more
+- Build Agents that can call other agents
+- Automatic prompt tuning using optimizers
 - Almost zero-dependencies
 
 ## Whats a prompt signature?
