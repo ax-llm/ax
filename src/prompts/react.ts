@@ -1,20 +1,22 @@
-import type {
-  ForwardResult,
-  GenerateForwardOptions,
-  GenerateI,
-  GenerateOptions,
-  Signature
-} from '../dsp/index.js';
-import type { GenIn, GenOut } from '../dsp/prompt.js';
+import { TextResponseFunctionCall } from '../ai/types.js';
+import { GenerateOptions, GenerateResult } from '../dsp/generate.js';
+import {
+  GenIn,
+  GenOut,
+  Program,
+  ProgramForwardOptions
+} from '../dsp/program.js';
+import { Signature } from '../dsp/sig.js';
 import { type AITextFunction, FunctionProcessor } from '../text/functions.js';
 import { Memory } from '../text/memory.js';
 import type { AIService } from '../text/types.js';
 
 import { ChainOfThought } from './cot.js';
 
-export class ReAct<IN extends GenIn, OUT extends GenOut>
-  implements GenerateI<IN, OUT>
-{
+export class ReAct<IN extends GenIn, OUT extends GenOut> extends Program<
+  IN,
+  OUT
+> {
   private nativeFunctions: boolean;
   private funcProc: FunctionProcessor;
   private cot: ChainOfThought<
@@ -30,6 +32,7 @@ export class ReAct<IN extends GenIn, OUT extends GenOut>
     if (!options?.functions || options.functions.length === 0) {
       throw new Error('No functions provided');
     }
+    super();
 
     const functions = [
       ...options.functions,
@@ -63,8 +66,8 @@ export class ReAct<IN extends GenIn, OUT extends GenOut>
     };
 
   public processFunction = async (
-    res: Readonly<ForwardResult<OUT>>,
-    options?: Readonly<GenerateForwardOptions>
+    res: Readonly<GenerateResult<OUT>>,
+    options?: Readonly<ProgramForwardOptions>
   ): Promise<OUT | undefined> => {
     if (!res.functions || res.functions.length === 0) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -72,7 +75,7 @@ export class ReAct<IN extends GenIn, OUT extends GenOut>
       return result as OUT;
     }
 
-    for (const func of res.functions) {
+    for (const func of res.functions as TextResponseFunctionCall[]) {
       if (func.name.indexOf('task_done') !== -1) {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { functions: _skip1, ...result } = res;
@@ -99,7 +102,7 @@ export class ReAct<IN extends GenIn, OUT extends GenOut>
 
   public forward = async (
     values: IN,
-    options?: Readonly<GenerateForwardOptions>
+    options?: Readonly<ProgramForwardOptions>
   ): Promise<OUT> => {
     const mem = options?.mem ?? new Memory();
     // const observation: string[] = [];

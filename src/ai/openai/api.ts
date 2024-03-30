@@ -36,7 +36,8 @@ export const OpenAIDefaultConfig = (): OpenAIConfig => ({
   maxTokens: 500,
   temperature: 0.1,
   topP: 0.9,
-  frequencyPenalty: 0.5
+  frequencyPenalty: 0.5,
+  stop: ['---']
 });
 
 /**
@@ -125,7 +126,8 @@ export class OpenAI extends BaseAI<
       presencePenalty: config.presencePenalty,
       frequencyPenalty: config.frequencyPenalty,
       bestOf: config.bestOf,
-      logitBias: config.logitBias
+      logitBias: config.logitBias,
+      stop: config.stop
     };
   }
 
@@ -197,12 +199,12 @@ export class OpenAI extends BaseAI<
         : undefined,
       tools,
       tool_choice: toolsChoice,
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
       stream: req.modelConfig?.stream ?? this.config.stream,
-      stop: config.stopSequences,
+      stop: config.stopSequences ?? req.modelConfig?.stop ?? this.config.stop,
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,
@@ -210,7 +212,6 @@ export class OpenAI extends BaseAI<
       organization: req.identity?.organization,
       ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {})
     };
-
     return [apiConfig, reqValue];
   };
 

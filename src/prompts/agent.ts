@@ -1,9 +1,10 @@
+import { type GenerateOptions, Signature } from '../dsp/index.js';
 import {
-  type GenerateI,
-  type GenerateOptions,
-  Signature
-} from '../dsp/index.js';
-import { GenIn, GenOut } from '../dsp/prompt.js';
+  GenIn,
+  GenOut,
+  Program,
+  ProgramForwardOptions
+} from '../dsp/program.js';
 import { AITextFunction, ChainOfThought } from '../index.js';
 import type { AIService } from '../text/types.js';
 
@@ -16,12 +17,13 @@ export interface AgentI {
 type AgentOptions = Omit<GenerateOptions, 'functions' | 'functionCall'>;
 
 export class Agent<IN extends GenIn, OUT extends GenOut>
-  implements AgentI, GenerateI<IN, OUT>
+  extends Program<IN, OUT>
+  implements AgentI
 {
   private name: string;
   private description: string;
   private sig: Signature;
-  private react: GenerateI<IN, OUT>;
+  private react: Program<IN, OUT>;
 
   constructor(
     ai: AIService,
@@ -40,6 +42,8 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     }>,
     options?: Readonly<AgentOptions>
   ) {
+    super();
+
     this.name = name;
     this.description = description;
     this.sig = new Signature(signature);
@@ -71,7 +75,10 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     };
   };
 
-  public forward = async (values: IN): Promise<OUT> => {
-    return await this.react.forward(values);
+  public forward = async (
+    values: IN,
+    options?: Readonly<ProgramForwardOptions>
+  ): Promise<OUT> => {
+    return await this.react.forward(values, options);
   };
 }

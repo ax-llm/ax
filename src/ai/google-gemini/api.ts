@@ -32,7 +32,7 @@ export const GoogleGeminiDefaultOptions = (): GoogleGeminiConfig => ({
   temperature: 0.45,
   topP: 1,
   topK: 40,
-  stopSequences: []
+  stopSequences: ['---']
 });
 
 export interface GoogleGeminiArgs {

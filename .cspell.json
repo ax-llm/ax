@@ -7,5 +7,10 @@
     }
   ],
   "dictionaries": ["project-words"],
-  "ignorePaths": ["node_modules", "./docs"]
+  "ignorePaths": [
+    "node_modules",
+    "./docs",
+    "./src/dsp/stopwords.ts",
+    "./src/examples/qna-tune.ts"
+  ]
 }

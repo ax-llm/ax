@@ -82,6 +82,65 @@ const agent = new Agent(ai, {
 agent.forward({ questions: "How many atoms are there in the universe" })
 ```
 
+## Tuning the prompts (programs)
+
+You can tune your prompts using a larger model to help them run more efficiently and give you better results. This is done by using an optimizer like `BootstrapFewShot` with a few handcrafted examples. The optimizer generates demonstrations `demos` which when used with the prompt help improve its efficiency.
+
+```typescript
+const examples: { question: string; answer: string }[] = [
+  {
+    question: 'Which American actor was Candace Kita guest-starred with?',
+    answer: 'Bill Murray'
+  },
+  {
+    question:
+      'Which is taller, the Empire State Building or the Bank of America Tower?',
+    answer: 'The Empire State Building'
+  },
+  {
+    question:
+      'Which company distributed this 1977 American animated film produced by Walt Disney Productions for which Sherman Brothers wrote songs?',
+    answer: 'Buena Vista Distribution'
+  }
+];
+
+const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+
+// Setup the program to tune
+const program = new ChainOfThought<{ question: string }, { answer: string }>(
+  ai,
+  `question -> answer "in short 2 or 3 words"`
+);
+
+// Setup a Bootstrap Few Shot optimizer to tune the above program
+const optimize = new BootstrapFewShot<{ question: string }, { answer: string }>(
+  {
+    program,
+    examples
+  }
+);
+
+// Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
+const metricFn: MetricFn = ({ prediction, example }) =>
+  emScore(prediction.answer as string, example.answer as string);
+
+// Run the optimizer and save the result
+await optimize.compile(metricFn, { filename: 'demos.json' });
+```
+
+And to use the generated demos with the above `ChainOfThought` program
+
+```typescript
+// load tuning data
+program.loadDemos('demos.json');
+
+const res = await program.forward({
+  question: 'What castle did David Gregory inherit?'
+});
+
+console.log(res);
+```
+
 ## Checkout more examples
 
 Use the `tsx` command to run the examples it makes node run typescript code. It also support using a `.env` file to pass the AI API Keys as opposed to putting them in the commandline.
@@ -101,6 +160,8 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | rag.ts              | Use multi-hop retrieval to answer questions             |
 | react.ts            | Use function calling and reasoning to answer questions  |
 | agent.ts            | Agent framework, agents can use other agents, tools etc |
+| qna-tune.ts         | Use an optimizer to improve prompt efficiency           |
+| qna-use-tuned.ts    | Use the optimized tuned prompts                         |
 
 ## Reasoning + Function Calling
 

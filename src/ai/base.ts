@@ -222,9 +222,7 @@ export class BaseAI<
 
   async completion(
     _req: Readonly<AITextCompletionRequest>,
-    options: Readonly<AIPromptConfig & AIServiceActionOptions> = {
-      stopSequences: []
-    }
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
     let hashKey: string | undefined;
 
@@ -333,9 +331,7 @@ export class BaseAI<
 
   async chat(
     _req: Readonly<AITextChatRequest>,
-    options: Readonly<AIPromptConfig & AIServiceActionOptions> = {
-      stopSequences: []
-    }
+    options: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
     let hashKey: string | undefined;
 

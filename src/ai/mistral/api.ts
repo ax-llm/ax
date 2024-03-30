@@ -14,9 +14,10 @@ export const MistralDefaultConfig = (): MistralConfig => ({
   model: MistralModel.MistralSmall,
   stream: false,
   suffix: null,
-  maxTokens: 500,
+  maxTokens: 200,
   temperature: 0.1,
-  topP: 0.9
+  topP: 0.9,
+  stop: ['---']
 });
 
 /**
@@ -47,6 +48,7 @@ export class Mistral extends OpenAI {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set');
     }
+
     super({
       apiKey,
       config,

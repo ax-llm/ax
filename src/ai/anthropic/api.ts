@@ -35,7 +35,8 @@ export const AnthropicDefaultConfig = (): AnthropicConfig => ({
   model: AnthropicModel.Claude3Haiku,
   maxTokens: 500,
   temperature: 0,
-  topP: 1
+  topP: 1,
+  stopSequences: ['---']
 });
 
 export interface AnthropicArgs {

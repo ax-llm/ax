@@ -1,7 +1,5 @@
+import { validateValue, Value } from './program.js';
 import type { Field, IField, Signature } from './sig.js';
-
-export type GenIn = Record<string, unknown>;
-export type GenOut = Record<string, unknown>;
 
 export type FieldTemplateFn = (
   field: Readonly<Field>,
@@ -38,19 +36,36 @@ export class PromptTemplate {
     this.format = [fmtHeader, ...inFmt, ...outFmt].join('\n\n');
   }
 
-  public toString = <T extends Record<string, unknown>>(
+  public toString = <T extends Record<string, Value>>(
     values: T,
     {
       skipSystemPrompt,
-      extraFields
+      extraFields,
+      examples,
+      demos
     }: Readonly<{
       skipSystemPrompt?: boolean;
       extraFields?: readonly IField[];
+      examples?: Record<string, Value>[];
+      demos?: Record<string, Value>[];
     }>
   ) => {
+    const renderedExamples = examples ? this.renderExamples(examples) : null;
+
+    const renderedDemos = demos ? this.renderDemos(demos) : [];
+
     const completion = this.renderInputFields(values, extraFields);
+
     this.prompt = (
-      skipSystemPrompt ? [completion] : [this.task, this.format, completion]
+      skipSystemPrompt
+        ? [completion]
+        : [
+            this.task,
+            renderedExamples,
+            this.format,
+            ...renderedDemos,
+            completion
+          ]
     )
       .filter(Boolean)
       .join('\n\n---\n\n');
@@ -58,7 +73,45 @@ export class PromptTemplate {
     return this.prompt;
   };
 
-  public renderInputFields = <T extends Record<string, unknown>>(
+  private renderExamples = (data: Readonly<Record<string, Value>[]>) => {
+    const text: string[] = [];
+
+    const fields = [
+      ...this.sig.getInputFields(),
+      ...this.sig.getOutputFields()
+    ];
+
+    for (const item of data) {
+      const _item = fields
+        .map((field) => this.renderInField(field, item, true))
+        .filter((v): v is string => Boolean(v))
+        .join('\n');
+      text.push(_item);
+    }
+
+    return text.join('\n\n');
+  };
+
+  private renderDemos = (data: Readonly<Record<string, Value>[]>) => {
+    const text: string[] = [];
+
+    const fields = [
+      ...this.sig.getInputFields(),
+      ...this.sig.getOutputFields()
+    ];
+
+    for (const item of data) {
+      const _item = fields
+        .map((field) => this.renderInField(field, item, true))
+        .filter((v): v is string => Boolean(v))
+        .join('\n\n');
+      text.push(_item);
+    }
+
+    return text;
+  };
+
+  private renderInputFields = <T extends Record<string, Value>>(
     values: T,
     extraFields?: readonly IField[]
   ) => {
@@ -75,28 +128,42 @@ export class PromptTemplate {
       });
     }
 
-    this.sig.getInputFields().forEach((field) => {
-      const fn = this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
-      const value = values[field.name];
-
-      if (
-        !value ||
-        ((Array.isArray(value) || typeof value === 'string') &&
-          value.length === 0)
-      ) {
-        if (field.isOptional) {
-          return;
-        }
-        throw new Error(`Value for field '${field.name}' is required.`);
-      }
-      if (field.type) {
-        validateValue(field.type, value);
-      }
-      const stringValue = convertValueToString(value);
-      text.push(fn(field, stringValue));
-    });
+    this.sig
+      .getInputFields()
+      .map((field) => this.renderInField(field, values))
+      .filter((v): v is string => Boolean(v))
+      .forEach((v) => text.push(v));
 
     return text.join('\n\n');
+  };
+
+  private renderInField = (
+    field: Readonly<Field>,
+    values: Readonly<Record<string, Value>>,
+    skipMissing?: boolean
+  ) => {
+    const fn = this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
+    const value = values[field.name];
+
+    if (skipMissing && !value) {
+      return;
+    }
+
+    if (
+      !value ||
+      ((Array.isArray(value) || typeof value === 'string') &&
+        value.length === 0)
+    ) {
+      if (field.isOptional) {
+        return;
+      }
+      throw new Error(`Value for field '${field.name}' is required.`);
+    }
+    if (field.type) {
+      validateValue(field.type, value);
+    }
+    const stringValue = convertValueToString(value);
+    return fn(field, stringValue);
   };
 
   private defaultRenderInField = (
@@ -133,49 +200,7 @@ export class PromptTemplate {
     });
 }
 
-const validateValue = (
-  typeObj: Readonly<NonNullable<Field['type']>>,
-  value: unknown
-): void => {
-  const validateSingleValue = (expectedType: string, val: unknown): boolean => {
-    switch (expectedType) {
-      case 'string':
-        return typeof val === 'string';
-      case 'number':
-        return typeof val === 'number';
-      case 'boolean':
-        return typeof val === 'boolean';
-      default:
-        return false; // Unknown or unsupported type
-    }
-  };
-
-  let isValid = true;
-  if (typeObj.isArray) {
-    if (!Array.isArray(value)) {
-      isValid = false;
-    } else {
-      for (const item of value) {
-        if (!validateSingleValue(typeObj.name, item)) {
-          isValid = false;
-          break;
-        }
-      }
-    }
-  } else {
-    isValid = validateSingleValue(typeObj.name, value);
-  }
-
-  if (!isValid) {
-    throw new Error(
-      `Validation failed: Expected ${typeObj.isArray ? 'an array of ' : ''}${
-        typeObj.name
-      }.`
-    );
-  }
-};
-
-const convertValueToString = (value: unknown): string | string[] => {
+const convertValueToString = (value: Readonly<Value>): string | string[] => {
   if (typeof value === 'string') {
     return value;
   }

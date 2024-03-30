@@ -1,9 +1,10 @@
 import type { TextResponse, TextResponseFunctionCall } from '../ai/index.js';
 import type { AITextChatRequest } from '../index.js';
 import type { AITextFunction } from '../text/index.js';
-import type { AIMemory, AIService } from '../text/index.js';
+import type { AIService } from '../text/index.js';
 
-import { type GenIn, type GenOut, PromptTemplate } from './prompt.js';
+import { GenIn, GenOut, Program, ProgramForwardOptions } from './program.js';
+import { PromptTemplate } from './prompt.js';
 import {
   extractValues,
   type IField,
@@ -24,38 +25,20 @@ export interface GenerateOptions {
   asserts?: Assertion[];
 }
 
-export type GenerateForwardOptions = {
-  maxRetries?: number;
-  maxSteps?: number;
-  mem: AIMemory;
-  sessionId?: string;
-  traceId?: string | undefined;
-  skipSystemPrompt?: boolean;
-};
-
 export interface Assertion {
   fn(arg0: Record<string, unknown>): boolean;
   errMsg: string;
   optional?: boolean;
 }
 
-export type ForwardResult<T> = T & {
+export type GenerateResult<OUT extends GenOut> = Omit<OUT, 'functions'> & {
   functions?: TextResponseFunctionCall[];
 };
 
-export interface GenerateI<
+export class Generate<
   IN extends GenIn = GenIn,
-  OUT extends GenIn = GenOut
-> {
-  //   getSignture(): Signature;
-  //   updateSignature(setFn: (sig: Readonly<Signature>) => void): void;
-  //   addAssert(fn: Assertion['fn'], errMsg: string, optional?: boolean): void;
-  forward(values: IN): Promise<OUT>;
-}
-
-export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
-  implements GenerateI<IN, OUT>
-{
+  OUT extends GenerateResult<OUT> = GenOut
+> extends Program<IN, OUT> {
   private sig: Signature;
   private ai: AIService;
   private pt: PromptTemplate;
@@ -67,6 +50,8 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
     signature: Readonly<Signature | string>,
     options?: Readonly<GenerateOptions>
   ) {
+    super();
+
     this.ai = ai;
     this.options = options;
     this.sig = new Signature(signature);
@@ -79,6 +64,8 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
       }
     }
   }
+
+  public getSignature = (): Signature => this.sig;
 
   // eslint-disable-next-line functional/prefer-immutable-types
   public updateSignature = (setFn: (sig: Signature) => void) => {
@@ -115,18 +102,20 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
     mem,
     sessionId,
     traceId,
-    skipSystemPrompt
-  }: Readonly<{
-    values: IN;
-    extraFields?: readonly IField[];
-    mem?: AIMemory;
-    sessionId?: string;
-    traceId?: string;
-    skipSystemPrompt?: boolean;
-  }>): Promise<ForwardResult<OUT>> => {
+    skipSystemPrompt,
+    ai,
+    modelConfig
+  }: Readonly<
+    ProgramForwardOptions & {
+      values: IN;
+      extraFields?: readonly IField[];
+    }
+  >): Promise<OUT> => {
     const prompt = this.pt.toString<IN>(values, {
       extraFields,
-      skipSystemPrompt
+      skipSystemPrompt,
+      examples: this.examples,
+      demos: this.demos
     });
 
     const msg = { role: 'user' as const, content: prompt };
@@ -134,11 +123,11 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
 
     const functions = this.options?.functions;
     const functionCall = this.options?.functionCall;
+    const _ai = ai ?? this.ai;
 
-    const aiRes = await this.ai.chat(
-      { chatPrompt, functions, functionCall },
+    const aiRes = await _ai.chat(
+      { chatPrompt, functions, functionCall, modelConfig },
       {
-        stopSequences: [],
         ...(sessionId ? { sessionId } : {}),
         ...(traceId ? { traceId } : {})
       }
@@ -189,13 +178,15 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
     mem?.add(msg, sessionId);
     mem?.addResult(result, sessionId);
 
-    return retval as ForwardResult<OUT>;
+    this.setTrace({ ...values, ...retval });
+
+    return retval as OUT;
   };
 
-  public forward = async (
+  override forward = async (
     values: IN,
-    options?: Readonly<GenerateForwardOptions>
-  ): Promise<ForwardResult<OUT>> => {
+    options?: Readonly<ProgramForwardOptions>
+  ): Promise<OUT> => {
     const maxRetries = options?.maxRetries ?? 3;
 
     let extraFields: IField[] = [];
@@ -204,12 +195,9 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
     for (let i = 0; i < maxRetries; i++) {
       try {
         return await this._forward({
+          ...options,
           values,
-          extraFields,
-          mem: options?.mem,
-          sessionId: options?.sessionId,
-          traceId: options?.traceId,
-          skipSystemPrompt: options?.skipSystemPrompt
+          extraFields
         });
       } catch (e) {
         if (e instanceof ValidationError) {
@@ -255,7 +243,7 @@ export class Generate<IN extends GenIn = GenIn, OUT extends GenIn = GenOut>
     }
 
     if (err instanceof AssertionError && err.getOptional()) {
-      return err.getValue() as ForwardResult<OUT>;
+      return err.getValue() as OUT;
     }
 
     throw new Error(`Unable to fix validation error: ${err?.message}`);

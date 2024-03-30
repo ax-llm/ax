@@ -1,9 +1,6 @@
-import {
-  Generate,
-  type GenerateOptions,
-  type Signature
-} from '../dsp/index.js';
-import type { GenIn, GenOut } from '../dsp/prompt.js';
+import { Generate, GenerateOptions } from '../dsp/generate.js';
+import { GenIn, GenOut } from '../dsp/program.js';
+import { Signature } from '../dsp/sig.js';
 import type { AIService } from '../text/types.js';
 
 export class ChainOfThought<
@@ -27,9 +24,12 @@ export class ChainOfThought<
 
     const description = `Let's think step by step in order to produce ${outputs}. We ...`;
 
-    sig.addOutputField({
-      name: 'reason',
-      description
-    });
+    sig.setOutputFields([
+      {
+        name: 'reason',
+        description
+      },
+      ...sig.getOutputFields()
+    ]);
   };
 }
