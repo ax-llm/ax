@@ -13,16 +13,13 @@ import type { AIService } from '../text/types.js';
 
 import { ChainOfThought } from './cot.js';
 
-export class ReAct<IN extends GenIn, OUT extends GenOut> extends Program<
-  IN,
-  OUT
-> {
+export class ReAct<
+  IN extends GenIn = GenIn,
+  OUT extends GenOut = GenOut
+> extends Program<IN, OUT> {
   private nativeFunctions: boolean;
   private funcProc: FunctionProcessor;
-  private cot: ChainOfThought<
-    IN,
-    OUT & { functionName: string; functionArguments: string }
-  >;
+  private cot: ChainOfThought<IN, OUT>;
 
   constructor(
     ai: AIService,
@@ -41,8 +38,10 @@ export class ReAct<IN extends GenIn, OUT extends GenOut> extends Program<
 
     this.nativeFunctions = ai.getFeatures().functions;
     this.funcProc = new FunctionProcessor(functions);
-    this.cot = new ChainOfThought(ai, signature, options);
+    this.cot = new ChainOfThought<IN, OUT>(ai, signature, options);
     this.cot.updateSignature(this.updateSig(functions));
+
+    this.register(this.cot);
   }
 
   private updateSig =

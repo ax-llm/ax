@@ -13,12 +13,13 @@ export class RAG extends Program<{ question: string }, { answer: string }> {
   private genQuery: Generate<
     { context: string[]; question: string },
     { query: string }
-  >[];
+  >;
   private genAnswer: Generate<
     { context: string[]; question: string },
     { answer: string }
   >;
   private queryFn: (query: string) => Promise<string>;
+  private maxHops: number;
 
   constructor(
     ai: AIService,
@@ -26,20 +27,21 @@ export class RAG extends Program<{ question: string }, { answer: string }> {
     options: Readonly<GenerateOptions & { maxHops?: number }>
   ) {
     super();
+    this.maxHops = options?.maxHops ?? 3;
+
     const qsig = new Signature(
       '"Write a simple search query that will help answer a complex question." context?:string[] "may contain relevant facts", question -> query "question to further our understanding"'
     );
-
-    this.genQuery = Array(options.maxHops ?? 2)
-      .fill(0)
-      .map(() => new Generate(ai, qsig));
+    this.genQuery = new Generate(ai, qsig);
 
     const asig = new Signature(
       '"Answer questions with short factoid answers." context:string[] "may contain relevant facts", question -> answer'
     );
-
     this.genAnswer = new ChainOfThought(ai, asig);
     this.queryFn = queryFn;
+
+    this.register(this.genQuery);
+    this.register(this.genAnswer);
   }
 
   public forward = async (
@@ -48,8 +50,8 @@ export class RAG extends Program<{ question: string }, { answer: string }> {
   ): Promise<{ answer: string }> => {
     let context: string[] = [];
 
-    for (const gq of this.genQuery) {
-      const { query } = await gq.forward(
+    for (let i = 0; i < this.maxHops; i++) {
+      const { query } = await this.genQuery.forward(
         {
           context,
           question

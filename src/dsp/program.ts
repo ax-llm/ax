@@ -34,9 +34,19 @@ export type ProgramForwardOptions = {
   skipSystemPrompt?: boolean;
 };
 
-export class Program<IN extends GenIn = GenIn, OUT extends GenIn = GenOut> {
+export interface Tunable {
+  setExamples: (examples: Readonly<Record<string, Value>[]>) => void;
+  setTrace: (trace: Record<string, Value>) => void;
+  updateKey: (parentKey: string) => void;
+  getSignature: () => Signature;
+  getTraces: () => ProgramTrace[];
+  setDemos: (demos: readonly ProgramDemos[]) => void;
+  loadDemos: (filename: string) => void;
+}
+
+export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
   private key: string;
-  private reg: InstanceRegistry<Readonly<Program>>;
+  private reg: InstanceRegistry<Readonly<Tunable>>;
   protected examples?: Record<string, Value>[];
   protected demos?: Record<string, Value>[];
   protected trace?: Record<string, Value>;
@@ -46,7 +56,7 @@ export class Program<IN extends GenIn = GenIn, OUT extends GenIn = GenOut> {
     this.key = this.constructor.name;
   }
 
-  public register = (prog: Readonly<Program>) => {
+  public register = (prog: Readonly<Tunable>) => {
     if (this.key) {
       prog.updateKey(this.key);
     }
@@ -89,7 +99,7 @@ export class Program<IN extends GenIn = GenIn, OUT extends GenIn = GenOut> {
     }
   };
 
-  protected setTrace = (trace: Record<string, Value>) => {
+  public setTrace = (trace: Record<string, Value>) => {
     this.trace = trace;
   };
 

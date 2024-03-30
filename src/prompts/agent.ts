@@ -63,6 +63,8 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
       funcs.length > 0
         ? new ReAct(ai, this.sig, opt)
         : new ChainOfThought(ai, this.sig, opt);
+
+    this.register(this.react);
   }
 
   public getFunction = () => {
