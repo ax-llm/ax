@@ -30,7 +30,11 @@ export interface TogetherArgs {
  * @export
  */
 export class Together extends OpenAI {
-  constructor({ apiKey, config, options }: Readonly<TogetherArgs>) {
+  constructor({
+    apiKey,
+    config = TogetherDefaultConfig(),
+    options
+  }: Readonly<TogetherArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
     }

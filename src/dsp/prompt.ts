@@ -160,7 +160,7 @@ export class PromptTemplate {
       throw new Error(`Value for field '${field.name}' is required.`);
     }
     if (field.type) {
-      validateValue(field.type, value);
+      validateValue(field, value);
     }
     const stringValue = convertValueToString(value);
     return fn(field, stringValue);

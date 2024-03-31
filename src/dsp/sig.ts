@@ -166,6 +166,7 @@ export const extractValues = (sig: Readonly<Signature>, result: string) => {
     }
     values[field.name] = val;
   });
+
   return values;
 };
 
