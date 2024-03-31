@@ -27,12 +27,9 @@ Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Fun
 
 ## Whats a prompt signature?
 
-```typescript
-"Write a simple search query that will help answer a complex question."
-context?:string[] "may contain relevant facts", question -> query
-```
+<img width="860" alt="shapes at 24-03-31 00 05 55" src="https://github.com/dosco/llm-client/assets/832235/0f0306ea-1812-4a0a-9ed5-76cd908cd26b">
 
-Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made of a `"description" inputField:type -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper.
+Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made of a `"task description" inputField:type "field desription" -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper. You can have multiple input and output fields.
 
 ## LLM's Supported
 
