@@ -117,6 +117,9 @@ const metricFn: MetricFn = ({ prediction, example }) =>
 await optimize.compile(metricFn, { filename: 'demos.json' });
 ```
 
+<img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">
+
+
 And to use the generated demos with the above `ChainOfThought` program
 
 ```typescript
