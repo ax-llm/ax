@@ -8,6 +8,7 @@ import {
   ProgramTrace,
   Value
 } from './program.js';
+import { updateProgressBar } from './util.js';
 
 export type Example = Record<string, Value>;
 
@@ -31,6 +32,7 @@ export class BootstrapFewShot<
   private examples: Readonly<Example[]>;
   private maxRounds: number;
   private maxDemos: number;
+  private maxExamples: number;
 
   constructor({
     program,
@@ -42,30 +44,31 @@ export class BootstrapFewShot<
     }
     this.maxRounds = options?.maxRounds ?? 3;
     this.maxDemos = options?.maxDemos ?? 4;
+    this.maxExamples = options?.maxExamples ?? 16;
 
     this.program = program;
-    this.examples = examples.slice(0, options?.maxExamples ?? 16);
+    this.examples = examples;
   }
 
-  public async compileRound(
+  private async compileRound(
+    roundIndex: number,
     metricFn: MetricFn,
     options?: Readonly<OptimizerArgs<IN, OUT>['options']>
   ) {
+    const st = new Date().getTime();
     const maxDemos = options?.maxDemos ?? this.maxDemos;
     const aiOpt = { modelConfig: { temperature: 0.7 } };
+    const examples = randomSample(this.examples, this.maxExamples);
 
     let traces: ProgramTrace[] = [];
 
-    for (let i = 0; i < this.examples.length; i++) {
+    for (let i = 0; i < examples.length; i++) {
       if (i > 0) {
         aiOpt.modelConfig.temperature = 0.7 + 0.001 * i;
       }
 
-      const ex = this.examples[i];
-      const exList = [
-        ...this.examples.slice(0, i),
-        ...this.examples.slice(i + 1)
-      ];
+      const ex = examples[i];
+      const exList = [...examples.slice(0, i), ...examples.slice(i + 1)];
       this.program.setExamples(exList);
 
       const res = await this.program.forward(ex as IN, aiOpt);
@@ -73,6 +76,11 @@ export class BootstrapFewShot<
       if (success) {
         traces = [...traces, ...this.program.getTraces()];
       }
+
+      const current = i + examples.length * roundIndex;
+      const total = examples.length * this.maxRounds;
+      const et = new Date().getTime() - st;
+      updateProgressBar(current, total, traces.length, et, 30, 'Tuning Prompt');
 
       if (traces.length > maxDemos) {
         return traces;
@@ -92,7 +100,7 @@ export class BootstrapFewShot<
     let traces: ProgramTrace[] = [];
 
     for (let i = 0; i < maxRounds; i++) {
-      const _traces = await this.compileRound(metricFn, options);
+      const _traces = await this.compileRound(i, metricFn, options);
       traces = [...traces, ..._traces];
     }
 
@@ -108,6 +116,7 @@ export class BootstrapFewShot<
       fs.writeFileSync(options.filename, JSON.stringify(demos, null, 2));
     }
 
+    console.log('\n');
     return demos;
   }
 }
@@ -134,3 +143,15 @@ function groupTracesByKeys(
 
   return programDemosArray;
 }
+
+const randomSample = <T>(array: readonly T[], n: number): T[] => {
+  // Clone the array to avoid modifying the original array
+  const clonedArray = [...array];
+  // Shuffle the cloned array
+  for (let i = clonedArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [clonedArray[i], clonedArray[j]] = [clonedArray[j], clonedArray[i]];
+  }
+  // Return the first `n` items of the shuffled array
+  return clonedArray.slice(0, n);
+};

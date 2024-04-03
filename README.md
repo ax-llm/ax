@@ -81,25 +81,17 @@ agent.forward({ questions: "How many atoms are there in the universe" })
 
 ## Tuning the prompts (programs)
 
-You can tune your prompts using a larger model to help them run more efficiently and give you better results. This is done by using an optimizer like `BootstrapFewShot` with a few handcrafted examples. The optimizer generates demonstrations `demos` which when used with the prompt help improve its efficiency.
+You can tune your prompts using a larger model to help them run more efficiently and give you better results. This is done by using an optimizer like `BootstrapFewShot` with and examples from the popular `HotPotQA` dataset. The optimizer generates demonstrations `demos` which when used with the prompt help improve its efficiency.
 
 ```typescript
-const examples: { question: string; answer: string }[] = [
-  {
-    question: 'Which American actor was Candace Kita guest-starred with?',
-    answer: 'Bill Murray'
-  },
-  {
-    question:
-      'Which is taller, the Empire State Building or the Bank of America Tower?',
-    answer: 'The Empire State Building'
-  },
-  {
-    question:
-      'Which company distributed this 1977 American animated film produced by Walt Disney Productions for which Sherman Brothers wrote songs?',
-    answer: 'Buena Vista Distribution'
-  }
-];
+// Download the HotPotQA dataset from huggingface
+const hf = new HFDataLoader();
+const examples = await hf.getData<{ question: string; answer: string }>({
+  dataset: 'hotpot_qa',
+  split: 'train',
+  count: 100,
+  fields: ['question', 'answer']
+});
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 
@@ -128,6 +120,14 @@ await optimize.compile(metricFn, { filename: 'demos.json' });
 And to use the generated demos with the above `ChainOfThought` program
 
 ```typescript
+const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+
+// Setup the program to use the tuned data
+const program = new ChainOfThought<{ question: string }, { answer: string }>(
+  ai,
+  `question -> answer "in short 2 or 3 words"`
+);
+
 // load tuning data
 program.loadDemos('demos.json');
 

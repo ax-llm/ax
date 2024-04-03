@@ -155,32 +155,45 @@ export class Generate<
       }
     }
 
+    let funcs: { id?: string; name: string; args?: string }[] | undefined = [];
+
     if (this.ai.getFeatures().functions) {
-      retval.functions = result.functionCalls?.map((f) => ({
+      funcs = (result.functionCalls ?? []).map((f) => ({
         id: f.id,
         name: f.function.name,
         args: f.function.arguments
       }));
     } else if (retval.functionName) {
-      const { functionName, functionArguments, ...other } = retval;
-
-      retval = {
-        ...other,
-        functions: [
-          {
-            name: functionName,
-            args: functionArguments
-          }
-        ]
+      const { functionName, functionArguments, ...other } = retval as {
+        functionName: string;
+        functionArguments: string;
+        other: object;
       };
+      retval = { ...other };
+      funcs = [
+        {
+          name: functionName,
+          args: functionArguments
+        }
+      ];
     }
+
+    const _funcs: Record<string, string | undefined> = {};
+    for (const [i, f] of funcs.entries()) {
+      _funcs['functionName' + i] = f.name;
+      _funcs['functionArguments' + i] = f.args;
+    }
+
+    this.setTrace({
+      ...values,
+      ...retval,
+      ...(Object.keys(_funcs).length > 0 ? _funcs : {})
+    });
 
     mem?.add(msg, sessionId);
     mem?.addResult(result, sessionId);
 
-    this.setTrace({ ...values, ...retval });
-
-    return retval as OUT;
+    return { ...values, ...retval, functions: funcs } as unknown as OUT;
   };
 
   override forward = async (
