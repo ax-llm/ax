@@ -33,6 +33,7 @@ export class BootstrapFewShot<
   private maxRounds: number;
   private maxDemos: number;
   private maxExamples: number;
+  private traces: ProgramTrace[] = [];
 
   constructor({
     program,
@@ -60,8 +61,6 @@ export class BootstrapFewShot<
     const aiOpt = { modelConfig: { temperature: 0.7 } };
     const examples = randomSample(this.examples, this.maxExamples);
 
-    let traces: ProgramTrace[] = [];
-
     for (let i = 0; i < examples.length; i++) {
       if (i > 0) {
         aiOpt.modelConfig.temperature = 0.7 + 0.001 * i;
@@ -74,20 +73,25 @@ export class BootstrapFewShot<
       const res = await this.program.forward(ex as IN, aiOpt);
       const success = metricFn({ prediction: res, example: ex });
       if (success) {
-        traces = [...traces, ...this.program.getTraces()];
+        this.traces = [...this.traces, ...this.program.getTraces()];
       }
 
       const current = i + examples.length * roundIndex;
       const total = examples.length * this.maxRounds;
       const et = new Date().getTime() - st;
-      updateProgressBar(current, total, traces.length, et, 30, 'Tuning Prompt');
+      updateProgressBar(
+        current,
+        total,
+        this.traces.length,
+        et,
+        30,
+        'Tuning Prompt'
+      );
 
-      if (traces.length > maxDemos) {
-        return traces;
+      if (this.traces.length > maxDemos) {
+        return;
       }
     }
-
-    return traces;
   }
 
   public async compile(
@@ -97,20 +101,19 @@ export class BootstrapFewShot<
     >
   ) {
     const maxRounds = options?.maxRounds ?? this.maxRounds;
-    let traces: ProgramTrace[] = [];
+    this.traces = [];
 
     for (let i = 0; i < maxRounds; i++) {
-      const _traces = await this.compileRound(i, metricFn, options);
-      traces = [...traces, ..._traces];
+      await this.compileRound(i, metricFn, options);
     }
 
-    if (traces.length === 0) {
+    if (this.traces.length === 0) {
       throw new Error(
         'No demonstrations found. Either provider more examples or improve the existing ones.'
       );
     }
 
-    const demos: ProgramDemos[] = groupTracesByKeys(traces);
+    const demos: ProgramDemos[] = groupTracesByKeys(this.traces);
 
     if (options?.filename) {
       fs.writeFileSync(options.filename, JSON.stringify(demos, null, 2));

@@ -34,8 +34,8 @@ export const OpenAIDefaultConfig = (): OpenAIConfig => ({
   stream: false,
   suffix: null,
   maxTokens: 500,
-  temperature: 0.1,
-  topP: 0.9,
+  temperature: 0.0,
+  topP: 0.0,
   frequencyPenalty: 0.5,
   stop: ['---']
 });
@@ -65,8 +65,7 @@ export const OpenAICreativeConfig = (): OpenAIConfig => ({
  */
 export const OpenAIFastConfig = (): OpenAIConfig => ({
   ...OpenAIDefaultConfig(),
-  model: OpenAIModel.GPT35Turbo,
-  temperature: 0.45
+  model: OpenAIModel.GPT35Turbo
 });
 
 export interface OpenAIArgs {

@@ -11,8 +11,7 @@ export const modelInfoOpenAI: TextModelInfo[] = [
     name: OpenAIModel.GPT4,
     currency: 'usd',
     promptTokenCostPer1M: 30,
-    completionTokenCostPer1M: 60,
-    aliases: ['gpt-4-0613']
+    completionTokenCostPer1M: 60
   },
   {
     name: OpenAIModel.GPT4Turbo,
@@ -24,8 +23,7 @@ export const modelInfoOpenAI: TextModelInfo[] = [
     name: OpenAIModel.GPT35Turbo,
     currency: 'usd',
     promptTokenCostPer1M: 0.5,
-    completionTokenCostPer1M: 1.5,
-    aliases: ['gpt-3.5-turbo-0613', 'gpt-3.5-turbo']
+    completionTokenCostPer1M: 1.5
   },
   {
     name: OpenAIEmbedModels.TextEmbeddingAda002,

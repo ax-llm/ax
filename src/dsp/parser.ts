@@ -643,7 +643,7 @@ function peg$parse(input, options) {
   function // @ts-ignore
 peg$parseParsedSignature() {
 // @ts-ignore
-    var s0, s1, s2, s3, s4, s5, s6;
+    var s0, s1, s2, s3, s4, s5, s6, s7;
 
 // @ts-ignore
     var key = peg$currPos * 8 + 0;
@@ -714,6 +714,8 @@ peg$parseParsedSignature() {
         if (s5 !== peg$FAILED) {
 // @ts-ignore
           s6 = peg$parseParsedFieldList();
+// @ts-ignore
+          s7 = peg$parse_();
 // @ts-ignore
           peg$savedPos = s0;
 // @ts-ignore

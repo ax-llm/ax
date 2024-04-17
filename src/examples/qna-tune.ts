@@ -5,7 +5,8 @@ import {
   emScore,
   HFDataLoader,
   MetricFn,
-  type OpenAIArgs
+  type OpenAIArgs,
+  RAG
 } from '../index.js';
 
 const hf = new HFDataLoader();
@@ -18,11 +19,17 @@ const examples = await hf.getData<{ question: string; answer: string }>({
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 
+const fetchFromVectorDB = async (query: string) => {
+  const cot = new ChainOfThought<{ query: string }, { answer: string }>(
+    ai,
+    'query -> answer'
+  );
+  const { answer } = await cot.forward({ query });
+  return answer;
+};
+
 // Setup the program to tune
-const program = new ChainOfThought<{ question: string }, { answer: string }>(
-  ai,
-  `question -> answer "in short 2 or 3 words"`
-);
+const program = new RAG(ai, fetchFromVectorDB, { maxHops: 3 });
 
 // Setup a Bootstrap Few Shot optimizer to tune the above program
 const optimize = new BootstrapFewShot<{ question: string }, { answer: string }>(
@@ -33,8 +40,9 @@ const optimize = new BootstrapFewShot<{ question: string }, { answer: string }>(
 );
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
-const metricFn: MetricFn = ({ prediction, example }) =>
-  emScore(prediction.answer as string, example.answer as string);
+const metricFn: MetricFn = ({ prediction, example }) => {
+  return emScore(prediction.answer as string, example.answer as string);
+};
 
 // Run the optimizer and save the result
 await optimize.compile(metricFn, { filename: 'demos.json' });

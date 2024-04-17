@@ -1,5 +1,5 @@
 ParsedSignature 
-= optionalDesc:(_ ParsedString _)? inputs:ParsedFieldList __ "->" __ outputs:ParsedFieldList {
+= optionalDesc:(_ ParsedString _)? inputs:ParsedFieldList __ "->" __ outputs:ParsedFieldList _ {
     return { 
         desc: optionalDesc ? optionalDesc.join("").trim() : undefined,
         inputs, 

@@ -27,7 +27,9 @@ Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Fun
 
 <img width="860" alt="shapes at 24-03-31 00 05 55" src="https://github.com/dosco/llm-client/assets/832235/0f0306ea-1812-4a0a-9ed5-76cd908cd26b">
 
-Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made of a `"task description" inputField:type "field description" -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper. You can have multiple input and output fields.
+Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made of a `"task description" inputField:type "field description" -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper.
+
+You can have multiple input and output fields and each field has one of these types `string`, `number`, `boolean`, `json` or a array of any of these eg. `string[]`. When a type is not defined it defaults to `string`. When the `json` type if used the underlying AI is encouraged to generate correct JSON.
 
 ## LLM's Supported
 

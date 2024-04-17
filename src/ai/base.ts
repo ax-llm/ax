@@ -222,11 +222,11 @@ export class BaseAI<
 
   async completion(
     _req: Readonly<AITextCompletionRequest>,
-    options: Readonly<AIPromptConfig & AIServiceActionOptions>
+    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
     let hashKey: string | undefined;
 
-    if (options.cache) {
+    if (options?.cache) {
       hashKey = hashObject(_req);
       const cached = await cache.get(hashKey);
       if (cached) {
@@ -247,7 +247,7 @@ export class BaseAI<
     let startTime = 0;
 
     const reqFn = this.generateCompletionReq;
-    const stream = options.stream ?? _req.modelConfig?.stream;
+    const stream = options?.stream ?? _req.modelConfig?.stream;
     const functions =
       _req.functions && _req.functions.length > 0 ? _req.functions : undefined;
     const req = {
@@ -301,8 +301,8 @@ export class BaseAI<
         const res = mergeTextResponses(values);
 
         await this.setStepTextResponse(res, startTime);
-        if (options.cache && hashKey) {
-          cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+        if (options?.cache && hashKey) {
+          cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
         }
       };
 
@@ -323,19 +323,19 @@ export class BaseAI<
     await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
 
-    if (options.cache && hashKey) {
-      cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+    if (options?.cache && hashKey) {
+      cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
     }
     return res;
   }
 
   async chat(
     _req: Readonly<AITextChatRequest>,
-    options: Readonly<AIPromptConfig & AIServiceActionOptions>
+    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
     let hashKey: string | undefined;
 
-    if (options.cache) {
+    if (options?.cache) {
       hashKey = hashObject(_req);
       const cached = await cache.get(hashKey);
       if (cached) {
@@ -353,7 +353,7 @@ export class BaseAI<
     let startTime = 0;
 
     const reqFn = this.generateChatReq;
-    const stream = options.stream ?? _req.modelConfig?.stream;
+    const stream = options?.stream ?? _req.modelConfig?.stream;
     const functions =
       _req.functions && _req.functions.length > 0 ? _req.functions : undefined;
     const req = {
@@ -407,8 +407,8 @@ export class BaseAI<
       const doneCb = async (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
         await this.setStepTextResponse(res, startTime);
-        if (options.cache && hashKey) {
-          cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+        if (options?.cache && hashKey) {
+          cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
         }
       };
 
@@ -428,8 +428,8 @@ export class BaseAI<
     await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
 
-    if (options.cache && hashKey) {
-      cache.set(hashKey, res, options.cacheMaxAgeSeconds ?? 3600);
+    if (options?.cache && hashKey) {
+      cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
     }
     return res;
   }

@@ -44,6 +44,8 @@ export class RAG extends Program<{ question: string }, { answer: string }> {
     this.register(this.genAnswer);
   }
 
+  public getSignature = (): Signature => this.genAnswer.getSignature();
+
   public forward = async (
     { question }: Readonly<{ question: string }>,
     options?: Readonly<ProgramForwardOptions>

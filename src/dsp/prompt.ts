@@ -31,9 +31,9 @@ export class PromptTemplate {
     this.task = task.join('\n');
 
     const fmtHeader = 'Follow the following format.';
-    const inFmt = this.renderInFields(this.sig.getInputFields());
+    // const inFmt = this.renderInFields(this.sig.getInputFields());
     const outFmt = this.renderOutFields(this.sig.getOutputFields());
-    this.format = [fmtHeader, ...inFmt, ...outFmt].join('\n\n');
+    this.format = [fmtHeader, /*...inFmt,*/ ...outFmt].join('\n\n');
   }
 
   public toString = <T extends Record<string, Value>>(
@@ -50,7 +50,9 @@ export class PromptTemplate {
       demos?: Record<string, Value>[];
     }>
   ) => {
-    const renderedExamples = examples ? this.renderExamples(examples) : null;
+    const renderedExamples = examples
+      ? 'Examples:\n\n' + this.renderExamples(examples)
+      : null;
 
     const renderedDemos = demos ? this.renderDemos(demos) : [];
 
@@ -157,7 +159,7 @@ export class PromptTemplate {
       if (field.isOptional) {
         return;
       }
-      throw new Error(`Value for field '${field.name}' is required.`);
+      throw new Error(`Value for input field '${field.name}' is required.`);
     }
     if (field.type) {
       validateValue(field, value);
@@ -184,15 +186,15 @@ export class PromptTemplate {
   private renderDescFields = (list: readonly Field[]) =>
     list.map((v) => `\`${v.title}\``).join(', ');
 
-  private renderInFields = (list: readonly Field[]) =>
-    list.map((v) => v.title + ': ' + (v.description ?? toVar(v.name)));
+  //   private renderInFields = (list: readonly Field[]) =>
+  //     list.map((v) => v.title + ': ' + (v.description ?? toVar(v.name)));
 
   private renderOutFields = (list: readonly Field[]) =>
     list.map((v) => {
       return [
         v.title + ':',
         v.description,
-        toVar(v.name, v.type),
+        // toVar(v.name, v.type),
         v.isOptional ? '[if available]' : undefined
       ]
         .filter(Boolean)
@@ -210,8 +212,8 @@ const convertValueToString = (value: Readonly<Value>): string | string[] => {
   return JSON.stringify(value);
 };
 
-const toVar = (name: string, type?: Readonly<Field['type']>) => {
-  const fmt = type ? type.name + (type.isArray ? '[]' : '') : undefined;
+// const toVar = (name: string, type?: Readonly<Field['type']>) => {
+//   const fmt = type ? type.name + (type.isArray ? '[]' : '') : undefined;
 
-  return '${' + name + (fmt ? `:${fmt}` : '') + '}';
-};
+//   return '${' + name + (fmt ? `:${fmt}` : '') + '}';
+// };

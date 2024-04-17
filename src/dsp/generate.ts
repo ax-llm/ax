@@ -27,7 +27,7 @@ export interface GenerateOptions {
 
 export interface Assertion {
   fn(arg0: Record<string, unknown>): boolean;
-  errMsg: string;
+  errMsg?: string;
   optional?: boolean;
 }
 
@@ -90,7 +90,7 @@ export class Generate<
 
   public addAssert = (
     fn: Assertion['fn'],
-    errMsg: string,
+    errMsg?: string,
     optional?: boolean
   ) => {
     this.asserts.push({ fn, errMsg, optional });
@@ -104,7 +104,7 @@ export class Generate<
     traceId,
     skipSystemPrompt,
     ai,
-    modelConfig
+    modelConfig: mc
   }: Readonly<
     ProgramForwardOptions & {
       values: IN;
@@ -124,6 +124,16 @@ export class Generate<
     const functions = this.options?.functions;
     const functionCall = this.options?.functionCall;
     const _ai = ai ?? this.ai;
+    const hasJSON = this.sig
+      .getOutputFields()
+      .some((f) => f?.type?.name === 'json' || f?.type?.isArray);
+
+    const modelConfig = mc
+      ? {
+          ...mc,
+          ...(hasJSON ? { outputFormat: 'json_object' } : {})
+        }
+      : undefined;
 
     const aiRes = await _ai.chat(
       { chatPrompt, functions, functionCall, modelConfig },
@@ -145,9 +155,17 @@ export class Generate<
       retval = extractValues(this.sig, result.content);
 
       for (const a of this.asserts) {
-        if (!a.fn(retval)) {
+        try {
+          if (!a.fn(retval) && a.errMsg) {
+            throw new AssertionError({
+              message: a.errMsg,
+              value: retval,
+              optional: a.optional
+            });
+          }
+        } catch (e) {
           throw new AssertionError({
-            message: a.errMsg,
+            message: (e as Error).message,
             value: retval,
             optional: a.optional
           });

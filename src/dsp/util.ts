@@ -31,6 +31,6 @@ export const updateProgressBar = (
     elapsedTime > 0 ? (current / elapsedTime).toFixed(2) : '0.00';
 
   process.stdout.write(
-    `\r${msg}: ${current} / ${total}  (${chalk.yellow(percentage)}%): 100%|${filledBar}${emptyBar}| ${success}/${total} [${chalk.red(elapsedTime.toFixed(2))}, ${itemsPerSecond}it/s]`
+    `\r${msg}: ${current} / ${total}  (${chalk.yellow(percentage)}%): 100%|${filledBar}${emptyBar}| Success: ${success}/${total} [${chalk.red(elapsedTime.toFixed(2))}, ${itemsPerSecond}it/s]`
   );
 };

@@ -1,3 +1,5 @@
+import JSON5 from 'json5';
+
 import { parse, type ParsedField, type ParsedSignature } from './parser.js';
 
 export interface Field {
@@ -5,7 +7,7 @@ export interface Field {
   title?: string;
   description?: string;
   type?: {
-    name: 'string' | 'number' | 'boolean'; // extend this as needed
+    name: 'string' | 'number' | 'boolean' | 'json'; // extend this as needed
     isArray: boolean;
   };
   isOptional?: boolean;
@@ -155,9 +157,20 @@ export const extractValues = (sig: Readonly<Signature>, result: string) => {
   fields.forEach((field, i) => {
     const prefix = field.title + ':';
     const nextPrefix = fields.at(i + 1) ? fields[i + 1].title + ':' : undefined;
+    const ps = result.indexOf(prefix, s + 1);
 
-    s = result.indexOf(prefix, s + 1) + prefix.length;
-    e = nextPrefix ? result.indexOf(nextPrefix, s + 1) : result.length;
+    if (ps === -1) {
+      if (fields.length > 1) {
+        throw new Error(`Field not found: ${prefix}`);
+      } else {
+        s = 0;
+        e = result.length;
+      }
+    } else {
+      s = ps + prefix.length + 1;
+      e = nextPrefix ? result.indexOf(nextPrefix, s) : result.length;
+    }
+
     const val = result.substring(s, e).trim().replace(/---+$/, '').trim();
 
     if (field.type) {
@@ -180,19 +193,21 @@ function validateAndParseJson(
     return jsonString;
   }
 
+  const text = extractBlock(jsonString);
+
   // Attempt to parse the JSON string based on the expected type, if not a string
   let value: unknown;
   if (typeObj.name !== 'string' || typeObj.isArray) {
     try {
-      value = JSON.parse(jsonString);
+      value = JSON5.parse(text);
     } catch (e) {
       const exp = typeObj.isArray ? `array of ${typeObj.name}` : typeObj.name;
-      const message = `Error, expected '${exp}' got '${jsonString}'`;
-      throw new ValidationError({ message, field, value: jsonString });
+      const message = `Error '${(e as Error).message}', expected '${exp}' got '${text}'`;
+      throw new ValidationError({ message, field, value: text });
     }
   } else {
     // If the expected type is a string and not an array, use the jsonString directly
-    value = jsonString;
+    value = text;
   }
 
   // Now, validate the parsed value or direct string
@@ -204,6 +219,8 @@ function validateAndParseJson(
         return typeof val === 'number';
       case 'boolean':
         return typeof val === 'boolean';
+      case 'json':
+        return typeof val === 'object' || Array.isArray(val);
       default:
         return false; // Unknown type
     }
@@ -258,3 +275,18 @@ export class ValidationError extends Error {
   public getField = () => this.field;
   public getValue = () => this.value;
 }
+
+export const extractBlock = (input: string): string => {
+  const jsonBlockPattern = /```([A-Za-z]+)?\s*([\s\S]*?)\s*```/g;
+  const match = jsonBlockPattern.exec(input);
+  if (!match) {
+    return input;
+  }
+  if (match.length === 3) {
+    return match[2];
+  }
+  if (match.length === 2) {
+    return match[1];
+  }
+  return input;
+};

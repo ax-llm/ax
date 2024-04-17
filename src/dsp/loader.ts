@@ -45,7 +45,7 @@ export class HFDataLoader {
 
   public async loadData(
     dataset: string,
-    split: 'train' | 'test',
+    split: 'train' | 'validation',
     options?: Readonly<{ offset?: number; length?: number }>
   ): Promise<{ rows: Row[] }> {
     const offset = options?.offset ?? 0;
@@ -74,7 +74,7 @@ export class HFDataLoader {
     renameMap
   }: Readonly<{
     dataset: string;
-    split: 'train' | 'test';
+    split: 'train' | 'validation';
     count: number;
     fields: readonly string[];
     renameMap?: Record<string, string>;
