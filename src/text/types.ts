@@ -63,7 +63,6 @@ export type PromptResponseConfig<T> = {
 // };
 
 export type AIPromptConfig = {
-  stopSequences?: string[];
   stream?: boolean;
   cache?: boolean;
   cacheMaxAgeSeconds?: number;

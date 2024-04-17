@@ -132,7 +132,8 @@ export class OpenAI extends BaseAI<
 
   generateChatReq = (
     req: Readonly<AITextChatRequest>,
-    config: Readonly<AIPromptConfig>
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _config: Readonly<AIPromptConfig>
   ): [API, OpenAIChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
 
@@ -203,7 +204,7 @@ export class OpenAI extends BaseAI<
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
       stream: req.modelConfig?.stream ?? this.config.stream,
-      stop: config.stopSequences ?? req.modelConfig?.stop ?? this.config.stop,
+      stop: req.modelConfig?.stop ?? this.config.stop,
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,

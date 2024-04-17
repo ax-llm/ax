@@ -94,8 +94,8 @@ export class Anthropic extends BaseAI<
 
   generateCompletionReq = (
     req: Readonly<AITextCompletionRequest>,
-
-    config: Readonly<AIPromptConfig>
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _config: Readonly<AIPromptConfig>
   ): [API, AnthropicCompletionRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
     const functionsList = req.functions
@@ -116,7 +116,7 @@ export class Anthropic extends BaseAI<
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,
-      stop_sequences: this.config.stopSequences ?? config.stopSequences ?? [],
+      stop_sequences: req.modelConfig?.stop ?? this.config.stopSequences,
       stream: this.config.stream
     };
 
@@ -151,7 +151,7 @@ export class Anthropic extends BaseAI<
     const reqValue: AnthropicChatRequest = {
       model: req.modelInfo?.name ?? this.config.model,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      stop_sequences: this.config.stopSequences,
+      stop_sequences: req.modelConfig?.stop ?? this.config.stopSequences,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,

@@ -107,7 +107,8 @@ export class Cohere extends BaseAI<
 
   generateCompletionReq = (
     req: Readonly<AITextCompletionRequest>,
-    config: Readonly<AIPromptConfig>
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _config: Readonly<AIPromptConfig>
   ): [API, CohereCompletionRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
     const functionsList = req.functions
@@ -133,7 +134,7 @@ export class Cohere extends BaseAI<
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       end_sequences: this.config.endSequences,
-      stop_sequences: this.config.stopSequences ?? config.stopSequences,
+      stop_sequences: req.modelConfig?.stop ?? this.config.stopSequences,
       return_likelihoods: this.config.returnLikelihoods,
       logit_bias: this.config.logitBias
     };

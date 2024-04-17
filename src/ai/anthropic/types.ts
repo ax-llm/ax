@@ -25,7 +25,7 @@ export type AnthropicConfig = {
 };
 
 export type AnthropicCompletionRequest = {
-  stop_sequences: readonly string[];
+  stop_sequences?: string[];
   metadata?: {
     user_id?: string;
   };
