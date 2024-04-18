@@ -16,8 +16,7 @@ export const MistralDefaultConfig = (): MistralConfig => ({
   suffix: null,
   maxTokens: 200,
   temperature: 0.1,
-  topP: 0.9,
-  stop: ['---']
+  topP: 0.9
 });
 
 /**

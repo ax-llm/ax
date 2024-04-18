@@ -15,8 +15,7 @@ export const TogetherDefaultConfig = (): TogetherAIConfig => ({
   maxTokens: 500,
   temperature: 0.1,
   topP: 0.9,
-  frequencyPenalty: 0.5,
-  stop: ['---']
+  frequencyPenalty: 0.5
 });
 
 export interface TogetherArgs {

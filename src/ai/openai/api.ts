@@ -36,8 +36,7 @@ export const OpenAIDefaultConfig = (): OpenAIConfig => ({
   maxTokens: 500,
   temperature: 0.0,
   topP: 0.0,
-  frequencyPenalty: 0.5,
-  stop: ['---']
+  frequencyPenalty: 0.5
 });
 
 /**

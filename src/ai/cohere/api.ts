@@ -33,8 +33,7 @@ export const CohereDefaultConfig = (): CohereConfig => ({
   logitBias: new Map([
     ['98', 9],
     ['5449', 9]
-  ]),
-  stopSequences: ['---']
+  ])
 });
 
 /**
