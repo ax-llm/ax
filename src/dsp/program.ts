@@ -6,7 +6,7 @@ import { AIMemory, AIService } from '../text/types.js';
 import { InstanceRegistry } from './registry.js';
 import { Field, Signature } from './sig.js';
 
-export type Value = string | string[] | number | boolean;
+export type Value = string | string[] | number | boolean | object;
 
 export type GenIn = Record<string, Value>;
 export type GenOut = Record<string, Value>;
