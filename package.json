@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "8.0.16",
+  "version": "8.0.17",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -57,8 +57,8 @@
     "@types/superagent": "^8.1.5",
     "@types/uuid": "^9.0.8",
     "@types/yargs": "^17.0.32",
-    "@typescript-eslint/eslint-plugin": "^7.3.1",
-    "@typescript-eslint/parser": "^7.3.1",
+    "@typescript-eslint/eslint-plugin": "^7.7.0",
+    "@typescript-eslint/parser": "^7.7.0",
     "ava": "^6.1.2",
     "cspell": "^8.6.0",
     "cz-conventional-changelog": "^3.3.0",

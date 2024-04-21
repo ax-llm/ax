@@ -193,8 +193,7 @@ export class PromptTemplate {
     list.map((v) => {
       return [
         v.title + ':',
-        v.description,
-        // toVar(v.name, v.type),
+        v.description ?? toVarDesc(v.type),
         v.isOptional ? '[if available]' : undefined
       ]
         .filter(Boolean)
@@ -217,3 +216,28 @@ const convertValueToString = (value: Readonly<Value>): string | string[] => {
 
 //   return '${' + name + (fmt ? `:${fmt}` : '') + '}';
 // };
+
+const toVarDesc = (type?: Readonly<Field['type']>) => {
+  if (type) {
+    let description;
+    switch (type.name) {
+      case 'string':
+        description = 'a string';
+        break;
+      case 'number':
+        description = 'a number';
+        break;
+      case 'boolean':
+        description = 'a boolean';
+        break;
+      case 'json':
+        description = 'a JSON object';
+        break;
+      default:
+        description = 'an unknown type';
+        break;
+    }
+    return `${description}${type.isArray ? ' array' : ''}`;
+  }
+  return '';
+};
