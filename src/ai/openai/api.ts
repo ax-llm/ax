@@ -13,9 +13,6 @@ import {
   type OpenAIChatRequest,
   type OpenAIChatResponse,
   type OpenAIChatResponseDelta,
-  type OpenAICompletionRequest,
-  type OpenAICompletionResponse,
-  type OpenAICompletionResponseDelta,
   type OpenAIConfig,
   OpenAIEmbedModels,
   type OpenAIEmbedRequest,
@@ -79,11 +76,11 @@ export interface OpenAIArgs {
  * @export
  */
 export class OpenAI extends BaseAI<
-  OpenAICompletionRequest,
+  unknown,
   OpenAIChatRequest,
   OpenAIEmbedRequest,
-  OpenAICompletionResponse,
-  OpenAICompletionResponseDelta,
+  unknown,
+  unknown,
   OpenAIChatResponse,
   OpenAIChatResponseDelta,
   OpenAIEmbedResponse
@@ -242,60 +239,6 @@ export class OpenAI extends BaseAI<
     };
 
     return [apiConfig, reqValue];
-  };
-
-  generateCompletionResp = (
-    resp: Readonly<OpenAICompletionResponse>
-  ): TextResponse => {
-    const { id, usage, choices, error } = resp;
-
-    if (error) {
-      throw error;
-    }
-
-    const modelUsage = usage
-      ? {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens
-        }
-      : undefined;
-
-    const results = choices.map((choice) => ({
-      content: choice.text,
-      finishReason: choice.finish_reason
-    }));
-
-    return {
-      modelUsage,
-      results,
-      remoteId: id
-    };
-  };
-
-  generateCompletionStreamResp = (
-    resp: Readonly<OpenAICompletionResponseDelta>
-  ): TextResponse => {
-    const { id, usage, choices } = resp;
-
-    const modelUsage = usage
-      ? {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens
-        }
-      : undefined;
-
-    return {
-      results: choices.map(
-        ({ delta: { content = '' }, finish_reason: finishReason }) => ({
-          content,
-          finishReason,
-          id
-        })
-      ),
-      modelUsage
-    };
   };
 
   generateChatResp = (resp: Readonly<OpenAIChatResponse>): TextResponse => {

@@ -5,4 +5,4 @@ export * from './evaluate.js';
 export * from './program.js';
 export * from './eval.js';
 export * from './loader.js';
-export { dedup } from './util.js';
+export * from './strutil.js';

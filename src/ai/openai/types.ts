@@ -46,25 +46,6 @@ export type OpenAIConfig = Omit<TextModelConfig, 'topK'> & {
   responseFormat?: 'json_object';
 };
 
-export type OpenAICompletionRequest = {
-  model: string;
-  prompt: string;
-  max_tokens: number;
-  temperature: number;
-  top_p: number;
-  n?: number;
-  stream?: boolean;
-  logprobs?: number;
-  echo?: boolean;
-  stop?: readonly string[];
-  presence_penalty?: number;
-  frequency_penalty?: number;
-  best_of?: number;
-  logit_bias?: Map<string, number>;
-  user?: string;
-  organization?: string;
-};
-
 export type OpenAILogprob = {
   tokens: string[];
   token_logprobs: number[];
@@ -91,31 +72,6 @@ export interface OpenAIResponseDelta<T> {
   usage?: OpenAIUsage;
   system_fingerprint: string;
 }
-
-export type OpenAICompletionResponse = {
-  id: string;
-  object: string;
-  created: number;
-  model: string;
-  choices: {
-    index: number;
-    text: string;
-    finish_reason: string;
-    logprobs?: OpenAILogprob;
-  }[];
-  usage?: OpenAIUsage;
-  error?: {
-    message: string;
-    type: string;
-    param: string;
-    code: number;
-  };
-};
-
-export type OpenAICompletionResponseDelta = OpenAIResponseDelta<{
-  content: string;
-  logprobs?: OpenAILogprob;
-}>;
 
 export type OpenAIChatRequest = {
   model: string;

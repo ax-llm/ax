@@ -18,3 +18,17 @@ export const splitIntoTwo = (
   const secondPart = str.substring(index + matchResult[0].length);
   return [firstPart, secondPart];
 };
+
+export const dedup = (seq: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const x of seq) {
+    if (!seen.has(x)) {
+      seen.add(x);
+      result.push(x);
+    }
+  }
+
+  return result;
+};

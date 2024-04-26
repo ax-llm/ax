@@ -1,8 +1,5 @@
-import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import type {
-  AITextChatRequest,
-  AITextCompletionRequest
-} from '../../tracing/types.js';
+import type { AIServiceOptions } from '../../text/types.js';
+import type { AITextChatRequest } from '../../tracing/types.js';
 import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import type {
@@ -17,8 +14,6 @@ import {
   type AnthropicChatRequest,
   type AnthropicChatResponse,
   type AnthropicChatResponseDelta,
-  type AnthropicCompletionRequest,
-  type AnthropicCompletionResponse,
   type AnthropicConfig,
   AnthropicModel,
   type ContentBlockDeltaEvent,
@@ -45,10 +40,10 @@ export interface AnthropicArgs {
 }
 
 export class Anthropic extends BaseAI<
-  AnthropicCompletionRequest,
+  unknown,
   AnthropicChatRequest,
   unknown,
-  AnthropicCompletionResponse,
+  unknown,
   unknown,
   AnthropicChatResponse,
   AnthropicChatResponseDelta,
@@ -65,7 +60,7 @@ export class Anthropic extends BaseAI<
       throw new Error('Anthropic API key not set');
     }
     super({
-      name: 'Together',
+      name: 'Anthropic',
       apiURL: 'https://api.anthropic.com/v1',
       headers: {
         'Anthropic-Version': '2023-06-01',
@@ -74,7 +69,7 @@ export class Anthropic extends BaseAI<
       modelInfo: modelInfoAnthropic,
       models: { model: config.model as string },
       options,
-      supportFor: { functions: false }
+      supportFor: { functions: true }
     });
 
     this.config = config;
@@ -91,49 +86,6 @@ export class Anthropic extends BaseAI<
     } as TextModelConfig;
   }
 
-  generateCompletionReq = (
-    req: Readonly<AITextCompletionRequest>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AIPromptConfig>
-  ): [API, AnthropicCompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
-    const functionsList = req.functions
-      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
-      : '';
-    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
-      req.prompt || ''
-    }`.trim();
-
-    const apiConfig = {
-      name: '/complete'
-    };
-
-    const reqValue: AnthropicCompletionRequest = {
-      model,
-      prompt,
-      max_tokens_to_sample: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP,
-      top_k: req.modelConfig?.topK ?? this.config.topK,
-      stop_sequences: req.modelConfig?.stop ?? this.config.stopSequences,
-      stream: this.config.stream
-    };
-
-    return [apiConfig, reqValue];
-  };
-
-  generateCompletionResp = (
-    resp: Readonly<AnthropicCompletionResponse>
-  ): TextResponse => {
-    return {
-      results: [
-        {
-          content: resp.completion
-        }
-      ]
-    };
-  };
-
   generateChatReq = (
     req: Readonly<AITextChatRequest>
   ): [API, AnthropicChatRequest] => {
@@ -142,10 +94,25 @@ export class Anthropic extends BaseAI<
     };
 
     const messages =
-      req.chatPrompt?.map((msg) => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content ?? ''
-      })) ?? [];
+      req.chatPrompt?.map((msg) => {
+        if (msg.role === 'function') {
+          return {
+            role: 'user' as 'user' | 'assistant' | 'system',
+            content: msg.content,
+            tool_use_id: msg.functionId
+          };
+        }
+        return {
+          role: msg.role as 'user' | 'assistant' | 'system',
+          content: msg.content ?? ''
+        };
+      }) ?? [];
+
+    const tools = req.functions?.map((v) => ({
+      name: v.name,
+      description: v.description,
+      input_schema: v.parameters
+    }));
 
     const reqValue: AnthropicChatRequest = {
       model: req.modelInfo?.name ?? this.config.model,
@@ -154,6 +121,7 @@ export class Anthropic extends BaseAI<
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,
+      ...(tools && tools.length > 0 ? { tools } : {}),
       ...(req.identity?.user
         ? {
             metadata: {
@@ -176,12 +144,26 @@ export class Anthropic extends BaseAI<
     }
 
     const resp = response as AnthropicChatResponse;
-    const results = resp.content.map((msg) => ({
-      content: msg.type === 'text' ? msg.text : '',
-      role: resp.role,
-      id: resp.id,
-      finishReason: resp.stop_reason
-    }));
+    const results = resp.content.map((msg) => {
+      if (msg.type === 'tool_use') {
+        return {
+          id: msg.id,
+          type: 'function',
+          function: {
+            name: msg.name,
+            arguments: msg.input
+          },
+          content: '',
+          finishReason: 'tool_calls'
+        };
+      }
+      return {
+        content: msg.type === 'text' ? msg.text : '',
+        role: resp.role,
+        id: resp.id,
+        finishReason: resp.stop_reason
+      };
+    });
 
     const modelUsage = {
       promptTokens: resp.usage.input_tokens,
