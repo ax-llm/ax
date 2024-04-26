@@ -63,7 +63,8 @@ export class Anthropic extends BaseAI<
       name: 'Anthropic',
       apiURL: 'https://api.anthropic.com/v1',
       headers: {
-        'Anthropic-Version': '2023-06-01',
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'tools-2024-04-04',
         'x-api-key': apiKey
       },
       modelInfo: modelInfoAnthropic,
