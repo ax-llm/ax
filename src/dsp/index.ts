@@ -6,3 +6,4 @@ export * from './program.js';
 export * from './eval.js';
 export * from './loader.js';
 export * from './strutil.js';
+export * from './router.js';

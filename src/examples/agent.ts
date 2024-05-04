@@ -15,7 +15,7 @@ const summarizer = new Agent(ai, {
   signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
 });
 
-const gen = new Agent(ai, {
+const agent = new Agent(ai, {
   name: 'agent',
   description: 'Agent',
   signature: `question -> answer`,
@@ -25,6 +25,6 @@ const gen = new Agent(ai, {
 const question = `Why is gravity not a real force? Why is light pure energy? Why is physics scale invariant? Why is the centrifugal force talked about so much if it's not real?
 `;
 
-const res = await gen.forward({ question });
+const res = await agent.forward({ question });
 
 console.log('>', res);

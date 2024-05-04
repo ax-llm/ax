@@ -71,6 +71,18 @@ Use the agent prompt (framework) to build agents that work with other agents to 
 ```typescript
 # npm run tsx ./src/examples/agent.ts
 
+const researcher = new Agent(ai, {
+  name: 'researcher',
+  description: 'Researcher agent',
+  signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`
+});
+
+const summarizer = new Agent(ai, {
+  name: 'summarizer',
+  description: 'Summarizer agent',
+  signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
+});
+
 const agent = new Agent(ai, {
   name: 'agent',
   description: 'A an agent to research complex topics',
@@ -79,6 +91,47 @@ const agent = new Agent(ai, {
 });
 
 agent.forward({ questions: "How many atoms are there in the universe" })
+```
+
+## Example: Routing requests
+
+Use the Router to efficiently route user queries to specific routes designed to handle certain types of questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how input from the user should be handled use our fast "Semantic Router" that uses inexpensive and fast embedding queries.
+
+```typescript
+# npm run tsx ./src/examples/agent.ts
+
+const customerSupport = new Route('customerSupport', [
+  'how can I return a product?',
+  'where is my order?',
+  'can you help me with a refund?',
+  'I need to update my shipping address',
+  'my product arrived damaged, what should I do?'
+]);
+
+const technicalSupport = new Route('technicalSupport', [
+  'how do I install your software?',
+  'I’m having trouble logging in',
+  'can you help me configure my settings?',
+  'my application keeps crashing',
+  'how do I update to the latest version?'
+]);
+
+const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+
+const router = new Router(ai);
+await router.setRoutes(
+  [customerSupport, technicalSupport],
+  { filename: 'router.json' }
+);
+
+const tag = await router.forward('I need help with my order');
+
+if (tag === "customerSupport") {
+    ...
+}
+if (tag === "technicalSupport") {
+    ...
+}
 ```
 
 ## Tuning the prompts (programs)
@@ -120,7 +173,6 @@ await optimize.compile(metricFn, { filename: 'demos.json' });
 ```
 
 <img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">
-
 
 And to use the generated demos with the above `ChainOfThought` program
 
