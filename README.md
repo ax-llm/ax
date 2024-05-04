@@ -98,7 +98,7 @@ agent.forward({ questions: "How many atoms are there in the universe" })
 Use the Router to efficiently route user queries to specific routes designed to handle certain types of questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how input from the user should be handled use our fast "Semantic Router" that uses inexpensive and fast embedding queries.
 
 ```typescript
-# npm run tsx ./src/examples/agent.ts
+# npm run tsx ./src/examples/routing.ts
 
 const customerSupport = new Route('customerSupport', [
   'how can I return a product?',
