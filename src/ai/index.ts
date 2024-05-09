@@ -7,6 +7,7 @@ import { GooglePalm2, type GooglePalm2Args } from './google-palm2/api.js';
 import { Groq, type GroqArgs } from './groq/api.js';
 import { HuggingFace, type HuggingFaceArgs } from './huggingface/api.js';
 import { Mistral, MistralArgs } from './mistral/api.js';
+import { Ollama, OllamaArgs } from './ollama/api.js';
 import { OpenAI, type OpenAIArgs } from './openai/api.js';
 import { Together, type TogetherArgs } from './together/api.js';
 
@@ -21,6 +22,7 @@ export * from './anthropic/index.js';
 export * from './groq/index.js';
 export * from './mistral/index.js';
 export * from './deepseek/index.js';
+export * from './ollama/index.js';
 export * from './types.js';
 
 export type AIName =
@@ -34,7 +36,8 @@ export type AIName =
   | 'anthropic'
   | 'groq'
   | 'mistral'
-  | 'deepseek';
+  | 'deepseek'
+  | 'ollama';
 
 export const AI = (
   name: AIName,
@@ -49,6 +52,7 @@ export const AI = (
     | GroqArgs
     | MistralArgs
     | DeepSeekArgs
+    | OllamaArgs
   >
 ) => {
   switch (name) {
@@ -74,6 +78,8 @@ export const AI = (
       return new Mistral(options as MistralArgs);
     case 'deepseek':
       return new DeepSeek(options as DeepSeekArgs);
+    case 'ollama':
+      return new Ollama(options as OllamaArgs);
     default:
       throw new Error(`Unknown AI ${name}`);
   }
