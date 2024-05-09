@@ -141,24 +141,26 @@ export class GoogleGemini extends BaseAI<
     resp: Readonly<GoogleGeminiCompletionResponse>
   ): TextResponse => {
     const results =
-      resp.candidates.at(0)?.content.parts.map((part, index) => ({
-        id: `${index}`,
-        content: part.text || '',
-        ...(part.function_call
-          ? {
-              functionCalls: [
-                {
-                  id: `${index}`,
-                  type: 'function' as const,
-                  function: {
-                    name: part.function_call.name,
-                    args: part.function_call.args
-                  }
+      resp.candidates.at(0)?.content.parts.map((part, index) => {
+        const functionCalls = part.function_call
+          ? [
+              {
+                id: `${index}`,
+                type: 'function' as const,
+                function: {
+                  name: part.function_call.name,
+                  arguments: part.function_call.args
                 }
-              ]
-            }
-          : {})
-      })) ?? [];
+              }
+            ]
+          : undefined;
+
+        return {
+          id: `${index}`,
+          content: part.text || '',
+          functionCalls
+        };
+      }) ?? [];
     return {
       results
     };

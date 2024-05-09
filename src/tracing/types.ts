@@ -3,6 +3,7 @@ import type {
   TextModelInfo,
   TextResponse
 } from '../ai/types.js';
+import { FunctionJSONSchema } from '../text/functions.js';
 
 export type APIError = {
   pathname: string;
@@ -35,7 +36,7 @@ export type AITextCompletionRequest = {
   functions?: Readonly<{
     name: string;
     description: string;
-    parameters?: object;
+    parameters?: FunctionJSONSchema;
   }>[];
   functionCall?:
     | 'none'
@@ -57,7 +58,7 @@ export type AITextChatRequest = {
           id: string;
           type: 'function';
           // eslint-disable-next-line functional/functional-parameters
-          function: { name: string; arguments?: string };
+          function: { name: string; arguments?: string | object };
         }[];
       }
     | { role: 'function'; content: string; functionId: string }
@@ -65,7 +66,7 @@ export type AITextChatRequest = {
   functions?: Readonly<{
     name: string;
     description: string;
-    parameters?: object;
+    parameters?: FunctionJSONSchema;
   }>[];
   functionCall?:
     | 'none'

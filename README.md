@@ -41,10 +41,11 @@ You can have multiple input and output fields and each field has one of these ty
 | Cohere        | CommandR, Command       | 🟢 100% |
 | Anthropic     | Claude 2, Claude 3      | 🟢 100% |
 | Mistral       | 7B, 8x7B, S, M & L      | 🟢 100% |
+| Groq          | Lama2-70B, Mixtral-8x7b | 🟢 100% |
+| DeepSeek      | Chat and Code           | 🟢 100% |
 | Google Vertex | Palm, Bison             | 🟡 50%  |
 | Google Gemini | Gemini 1.0              | 🟡 50%  |
 | Hugging Face  | OSS Model               | 🟡 50%  |
-| Groq          | Lama2-70B, Mixtral-8x7b | 🟡 50%  |
 
 ## Example: Using chain-of-thought to summarize text
 

@@ -1,6 +1,6 @@
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type {
-  AITextCompletionRequest,
+  AITextChatRequest,
   AITextEmbedRequest
 } from '../../tracing/types.js';
 import type { API } from '../../util/apicall.js';
@@ -9,8 +9,8 @@ import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoCohere } from './info.js';
 import {
-  type CohereCompletionRequest,
-  type CohereCompletionResponse,
+  type CohereChatRequest,
+  type CohereChatResponse,
   type CohereConfig,
   CohereEmbedModel,
   type CohereEmbedRequest,
@@ -29,11 +29,7 @@ export const CohereDefaultConfig = (): CohereConfig => ({
   temperature: 0.1,
   topK: 40,
   topP: 0.9,
-  frequencyPenalty: 0.8,
-  logitBias: new Map([
-    ['98', 9],
-    ['5449', 9]
-  ])
+  frequencyPenalty: 0.8
 });
 
 /**
@@ -42,8 +38,7 @@ export const CohereDefaultConfig = (): CohereConfig => ({
  */
 export const CohereCreativeConfig = (): CohereConfig => ({
   ...CohereDefaultConfig(),
-  temperature: 0.7,
-  logitBias: undefined
+  temperature: 0.7
 });
 
 export interface CohereArgs {
@@ -57,12 +52,12 @@ export interface CohereArgs {
  * @export
  */
 export class Cohere extends BaseAI<
-  CohereCompletionRequest,
   unknown,
+  CohereChatRequest,
   CohereEmbedRequest,
-  CohereCompletionResponse,
   unknown,
   unknown,
+  CohereChatResponse,
   unknown,
   CohereEmbedResponse
 > {
@@ -104,26 +99,90 @@ export class Cohere extends BaseAI<
     } as TextModelConfig;
   }
 
-  generateCompletionReq = (
-    req: Readonly<AITextCompletionRequest>,
+  generateChatReq = (
+    req: Readonly<AITextChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
-  ): [API, CohereCompletionRequest] => {
+  ): [API, CohereChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
-    const functionsList = req.functions
-      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
-      : '';
-    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
-      req.prompt || ''
-    }`.trim();
+    // const functionsList = req.functions
+    //   ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
+
+    const lastChatMsg = req.chatPrompt.at(-1);
+    const restOfChat = req.chatPrompt.slice(0, -1);
+
+    const message = lastChatMsg?.content ?? '';
+    const chatHistory = restOfChat
+      .filter((chat) => chat.role !== 'function' || chat.content?.length > 0)
+      .map((chat) => {
+        let role: CohereChatRequest['chat_history'][0]['role'];
+        switch (chat.role) {
+          case 'user':
+            role = 'USER';
+            break;
+          case 'system':
+            role = 'SYSTEM';
+            break;
+          case 'assistant':
+            role = 'CHATBOT';
+            break;
+          default:
+            role = 'USER';
+            break;
+        }
+        return { role, message: chat.content ?? '' };
+      });
+
+    type PropValue = NonNullable<
+      CohereChatRequest['tools']
+    >[0]['parameter_definitions'][0];
+
+    const tools: CohereChatRequest['tools'] = req.functions?.map((v) => {
+      const props: Record<string, PropValue> = {};
+      if (v.parameters) {
+        for (const [key, value] of Object.entries(v.parameters.properties)) {
+          props[key].description = value.description;
+          props[key].type = value.type;
+          props[key].required = v.parameters.required?.includes(key) ?? false;
+        }
+      }
+      return {
+        name: v.name,
+        description: v.description,
+        parameter_definitions: props
+      };
+    });
+
+    type fnType = Extract<
+      AITextChatRequest['chatPrompt'][0],
+      { role: 'function' }
+    >;
+
+    const tool_results: CohereChatRequest['tool_results'] = (
+      req.chatPrompt as fnType[]
+    )
+      .filter((chat) => chat.role === 'function')
+      .map((chat) => {
+        const fn = tools?.find((t) => t.name === chat.functionId);
+        if (!fn) {
+          throw new Error('Function not found');
+        }
+        return {
+          call: { name: fn.name, parameters: fn.parameter_definitions },
+          outputs: [{ result: chat.content ?? '' }]
+        };
+      });
 
     const apiConfig = {
       name: '/v1/generate'
     };
 
-    const reqValue: CohereCompletionRequest = {
+    const reqValue: CohereChatRequest = {
       model,
-      prompt,
+      message,
+      tools,
+      tool_results,
+      chat_history: chatHistory,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       k: req.modelConfig?.topK ?? this.config.topK,
@@ -159,13 +218,44 @@ export class Cohere extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateCompletionResp = (
-    resp: Readonly<CohereCompletionResponse>
-  ): TextResponse => {
+  generateChatResp = (resp: Readonly<CohereChatResponse>): TextResponse => {
+    let finishReason: TextResponse['results'][0]['finishReason'];
+    switch (resp.finish_reason) {
+      case 'COMPLETE':
+        finishReason = 'stop';
+        break;
+      case 'MAX_TOKENS':
+        finishReason = 'length';
+        break;
+      case 'ERROR':
+        finishReason = 'error';
+        break;
+      case 'ERROR_TOXIC':
+        finishReason = 'content_filter';
+        break;
+      default:
+        finishReason = 'stop';
+        break;
+    }
+
+    const functionCalls =
+      resp.tool_calls?.map((v) => {
+        return {
+          id: v.name,
+          type: 'function' as const,
+          function: { name: v.name, args: v.parameters }
+        };
+      }) ?? [];
+
     return {
-      results: resp.generations.map((generation) => ({
-        content: generation.text
-      }))
+      results: [
+        {
+          id: resp.generation_id,
+          content: resp.text,
+          functionCalls,
+          finishReason
+        }
+      ]
     };
   };
 

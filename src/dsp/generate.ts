@@ -1,3 +1,5 @@
+import JSON5 from 'json5';
+
 import type { TextResponse, TextResponseFunctionCall } from '../ai/index.js';
 import type { AITextChatRequest } from '../index.js';
 import type { AITextFunction } from '../text/index.js';
@@ -11,12 +13,6 @@ import {
   Signature,
   ValidationError
 } from './sig.js';
-
-export type FunctionSpec = {
-  readonly name: string;
-  readonly description: string;
-  readonly parameters?: object;
-};
 
 export interface GenerateOptions {
   functions?: AITextFunction[];
@@ -173,7 +169,9 @@ export class Generate<
       }
     }
 
-    let funcs: { id?: string; name: string; args?: string }[] | undefined = [];
+    let funcs:
+      | { id?: string; name: string; args?: string | object }[]
+      | undefined = [];
 
     if (this.ai.getFeatures().functions) {
       funcs = (result.functionCalls ?? []).map((f) => ({
@@ -199,7 +197,8 @@ export class Generate<
     const _funcs: Record<string, string | undefined> = {};
     for (const [i, f] of funcs.entries()) {
       _funcs['functionName' + i] = f.name;
-      _funcs['functionArguments' + i] = f.args;
+      _funcs['functionArguments' + i] =
+        typeof f.args === 'object' ? JSON5.stringify(f.args) : f.args;
     }
 
     this.setTrace({

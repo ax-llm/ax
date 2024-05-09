@@ -17,12 +17,12 @@ export class ChainOfThought<
   }
 
   private updateSig = (sig: Readonly<Signature>) => {
-    const outputs = sig
-      .getOutputFields()
-      .map((f) => `\`${f.name}\``)
-      .join(', ');
+    // const outputs = sig
+    //   .getOutputFields()
+    //   .map((f) => `\`${f.name}\``)
+    //   .join(', ');
 
-    const description = `Let's think step by step in order to produce ${outputs}. We ...`;
+    const description = `Let's work this out in a step by step way in order to ensure we have the right answer.`;
 
     sig.setOutputFields([
       {

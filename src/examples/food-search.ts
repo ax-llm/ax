@@ -98,7 +98,7 @@ const functions = [
     description: 'get the current weather for a location',
     func: WeatherAPI,
     parameters: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         location: {
           type: 'string',
@@ -119,7 +119,7 @@ const functions = [
     description: 'find restaurants in a location',
     func: OpentableAPI,
     parameters: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         location: {
           type: 'string',

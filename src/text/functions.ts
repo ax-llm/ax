@@ -1,4 +1,4 @@
-import Ajv, { type JSONSchemaType } from 'ajv';
+import Ajv, { AnySchema } from 'ajv';
 import JSON5 from 'json5';
 
 import type { TextResponseFunctionCall } from '../ai/types.js';
@@ -11,10 +11,16 @@ export type AITextFunctionHandler = (
   extra?: Readonly<AIServiceActionOptions>
 ) => unknown;
 
+export type FunctionJSONSchema = {
+  type: 'object';
+  properties: object;
+  required?: string[];
+};
+
 export type AITextFunction = {
   name: string;
   description: string;
-  parameters?: object;
+  parameters?: FunctionJSONSchema;
   func?: AITextFunctionHandler;
 };
 
@@ -26,9 +32,7 @@ export class FunctionProcessor {
   constructor(funcList: readonly AITextFunction[]) {
     funcList
       .filter((v) => v.parameters)
-      .forEach((v) =>
-        ajv.validateSchema(v.parameters as JSONSchemaType<unknown>)
-      );
+      .forEach((v) => ajv.validateSchema(v.parameters as AnySchema));
     this.funcList = funcList;
   }
 

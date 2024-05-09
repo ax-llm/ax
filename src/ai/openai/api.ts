@@ -1,3 +1,5 @@
+import JSON5 from 'json5';
+
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type {
   AITextChatRequest,
@@ -171,7 +173,17 @@ export class OpenAI extends BaseAI<
             role: 'assistant' as const,
             content: v.content,
             name: v.name,
-            tool_calls: v.functionCalls
+            tool_calls: v.functionCalls?.map((v) => ({
+              id: v.id,
+              type: 'function' as const,
+              function: {
+                name: v.function.name,
+                arguments:
+                  typeof v.function.arguments === 'object'
+                    ? JSON5.stringify(v.function.arguments)
+                    : v.function.arguments
+              }
+            }))
           };
         case 'function':
           return {
@@ -256,13 +268,18 @@ export class OpenAI extends BaseAI<
         }
       : undefined;
 
-    const results = choices.map((choice) => ({
-      id: `${choice.index}`,
-      content: choice.message.content,
-      role: choice.message.role,
-      finishReason: choice.finish_reason,
-      functionCalls: choice.message.tool_calls
-    }));
+    const results = choices.map((choice) => {
+      const finishReason =
+        choice.finish_reason as TextResponse['results'][0]['finishReason'];
+
+      return {
+        id: `${choice.index}`,
+        content: choice.message.content,
+        role: choice.message.role,
+        functionCalls: choice.message.tool_calls,
+        finishReason
+      };
+    });
 
     return {
       modelUsage,
@@ -284,19 +301,22 @@ export class OpenAI extends BaseAI<
         }
       : undefined;
 
-    return {
-      results: choices.map(
-        ({
-          delta: { content, role, tool_calls },
-          finish_reason: finishReason
-        }) => ({
+    const results = choices.map(
+      ({ delta: { content, role, tool_calls }, finish_reason }) => {
+        const finishReason =
+          finish_reason as TextResponse['results'][0]['finishReason'];
+        return {
           content,
           role: role,
           functionCalls: tool_calls,
           finishReason,
           id
-        })
-      ),
+        };
+      }
+    );
+
+    return {
+      results,
       modelUsage
     };
   };

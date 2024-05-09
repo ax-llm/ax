@@ -1,5 +1,3 @@
-import type { JSONSchemaType } from 'ajv';
-
 import type {
   EmbedResponse,
   LoggerFunction,
@@ -48,19 +46,6 @@ export interface AIMemory {
   peek(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']>;
   reset(sessionId?: string): void;
 }
-
-export type PromptResponseConfig<T> = {
-  keyValue?: boolean;
-  schema?: JSONSchemaType<T>;
-};
-
-// export type PromptConfig<T> = AIPromptConfig & {
-//   functions?: PromptFunction[];
-//   functionCall?: string | { name: string };
-//   response?: PromptResponseConfig<T>;
-//   debug?: boolean;
-//   log?: (traces: Readonly<AITextTraceStep>) => void;
-// };
 
 export type AIPromptConfig = {
   stream?: boolean;

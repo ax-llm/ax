@@ -9,7 +9,7 @@ const functions = [
     name: 'getCurrentWeather',
     description: 'get the current weather for a location',
     parameters: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         location: {
           type: 'string',
@@ -24,6 +24,7 @@ const functions = [
       },
       required: ['location']
     },
+
     func: async (args: Readonly<{ location: string; units: string }>) => {
       return `The weather in ${args.location} is 72 degrees`;
     }
@@ -31,6 +32,8 @@ const functions = [
 ];
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
-const cot = new ReAct(ai, `question:string -> answer:string`, { functions });
+const cot = new ReAct(ai, `question:string -> answer:string`, {
+  functions
+});
 const res = await cot.forward(values);
 console.log(res);

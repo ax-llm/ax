@@ -109,7 +109,7 @@ export class Anthropic extends BaseAI<
         };
       }) ?? [];
 
-    const tools = req.functions?.map((v) => ({
+    const tools: AnthropicChatRequest['tools'] = req.functions?.map((v) => ({
       name: v.name,
       description: v.description,
       input_schema: v.parameters
@@ -146,7 +146,10 @@ export class Anthropic extends BaseAI<
 
     const resp = response as AnthropicChatResponse;
     const results = resp.content.map((msg) => {
+      let finishReason: TextResponse['results'][0]['finishReason'];
+
       if (msg.type === 'tool_use') {
+        finishReason = 'function_call';
         return {
           id: msg.id,
           type: 'function',
@@ -155,14 +158,15 @@ export class Anthropic extends BaseAI<
             arguments: msg.input
           },
           content: '',
-          finishReason: 'tool_calls'
+          finishReason
         };
       }
+      finishReason = mapFinishReason(resp.stop_reason);
       return {
         content: msg.type === 'text' ? msg.text : '',
         role: resp.role,
         id: resp.id,
-        finishReason: resp.stop_reason
+        finishReason
       };
     });
 
@@ -219,7 +223,9 @@ export class Anthropic extends BaseAI<
       'stop_reason' in (resp as unknown as MessageDeltaEvent).delta
     ) {
       const { delta } = resp as unknown as MessageDeltaEvent;
-      results = [{ content: '', finishReason: delta.stop_reason ?? '' }];
+      results = [
+        { content: '', finishReason: mapFinishReason(delta.stop_reason) }
+      ];
       modelUsage = {
         promptTokens: resp.usage?.input_tokens ?? 0,
         completionTokens: resp.usage?.output_tokens ?? 0,
@@ -233,4 +239,27 @@ export class Anthropic extends BaseAI<
       modelUsage
     };
   };
+}
+function mapFinishReason(
+  stopReason?: AnthropicChatResponse['stop_reason'] | null
+): TextResponse['results'][0]['finishReason'] | undefined {
+  if (!stopReason) {
+    return undefined;
+  }
+  switch (stopReason) {
+    case 'stop_sequence':
+      return 'stop';
+      break;
+    case 'max_tokens':
+      return 'length';
+      break;
+    case 'tool_use':
+      return 'function_call';
+      break;
+    case 'end_turn':
+      return 'stop';
+      break;
+    default:
+      return 'stop';
+  }
 }

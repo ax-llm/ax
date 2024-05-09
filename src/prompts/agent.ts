@@ -67,7 +67,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     this.register(this.react);
   }
 
-  public getFunction = () => {
+  public getFunction = (): AITextFunction => {
     const s = this.sig.toJSONSchema();
     return {
       name: this.name,

@@ -43,13 +43,18 @@ export type TextResponseResult = {
   role?: string;
   name?: string;
   id?: string;
-  functionCalls?: Readonly<{
+  functionCalls?: {
     id: string;
     type: 'function';
     // eslint-disable-next-line functional/functional-parameters
-    function: { name: string; arguments?: string };
-  }>[];
-  finishReason?: string;
+    function: { name: string; arguments?: string | object };
+  }[];
+  finishReason?:
+    | 'stop'
+    | 'length'
+    | 'function_call'
+    | 'content_filter'
+    | 'error';
 };
 
 export type TextResponse = {

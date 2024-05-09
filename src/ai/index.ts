@@ -1,6 +1,7 @@
 import { Anthropic, type AnthropicArgs } from './anthropic/api.js';
 import { AzureOpenAI, type AzureOpenAIArgs } from './azure-openai/api.js';
 import { Cohere, type CohereArgs } from './cohere/api.js';
+import { DeepSeek, DeepSeekArgs } from './deepseek/api.js';
 import { GoogleGemini, type GoogleGeminiArgs } from './google-gemini/api.js';
 import { GooglePalm2, type GooglePalm2Args } from './google-palm2/api.js';
 import { Groq, type GroqArgs } from './groq/api.js';
@@ -17,6 +18,9 @@ export * from './cohere/index.js';
 export * from './google-palm2/index.js';
 export * from './google-gemini/index.js';
 export * from './anthropic/index.js';
+export * from './groq/index.js';
+export * from './mistral/index.js';
+export * from './deepseek/index.js';
 export * from './types.js';
 
 export type AIName =
@@ -29,7 +33,8 @@ export type AIName =
   | 'google-gemini'
   | 'anthropic'
   | 'groq'
-  | 'mistral';
+  | 'mistral'
+  | 'deepseek';
 
 export const AI = (
   name: AIName,
@@ -42,7 +47,8 @@ export const AI = (
     | CohereArgs
     | HuggingFaceArgs
     | GroqArgs
-    | Mistral
+    | MistralArgs
+    | DeepSeekArgs
   >
 ) => {
   switch (name) {
@@ -66,6 +72,8 @@ export const AI = (
       return new Anthropic(options as AnthropicArgs);
     case 'mistral':
       return new Mistral(options as MistralArgs);
+    case 'deepseek':
+      return new DeepSeek(options as DeepSeekArgs);
     default:
       throw new Error(`Unknown AI ${name}`);
   }

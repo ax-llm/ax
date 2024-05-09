@@ -22,6 +22,7 @@ export const JSInterpreterFunction = (
     },
     required: ['code']
   },
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   func: ({ code }: Readonly<{ code: string }>): Promise<any> => {
     return new Promise((resolve) => {

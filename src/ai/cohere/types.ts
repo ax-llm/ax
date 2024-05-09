@@ -49,8 +49,10 @@ export type CohereConfig = {
   truncate?: string;
 };
 
-export type CohereCompletionRequest = {
-  prompt: string;
+export type CohereChatRequest = {
+  message: string;
+  preamble?: string;
+  chat_history: { role: 'CHATBOT' | 'SYSTEM' | 'USER'; message: string }[];
   model: CohereModel | string;
   max_tokens: number;
   temperature: number;
@@ -62,12 +64,41 @@ export type CohereCompletionRequest = {
   stop_sequences?: string[];
   return_likelihoods?: CohereReturnLikelihoods;
   logit_bias?: Map<string, number>;
+  tools?: {
+    name: string;
+    description: string;
+    parameter_definitions: Record<
+      string,
+      {
+        description: string;
+        type: string;
+        required: boolean;
+      }
+    >;
+  }[];
+  tool_results?: {
+    call: {
+      name: string;
+      parameters: object;
+    };
+    outputs: object[];
+  }[];
 };
 
-export type CohereCompletionResponse = {
-  id: string;
-  prompt: string;
-  generations: { id: string; text: string }[];
+export type CohereChatResponse = {
+  generation_id: string;
+  text: string;
+  finish_reason:
+    | 'COMPLETE'
+    | 'ERROR'
+    | 'ERROR_TOXIC'
+    | 'ERROR_LIMIT'
+    | 'USER_CANCEL'
+    | 'MAX_TOKENS';
+  tool_calls: {
+    name: string;
+    parameters: object;
+  }[];
 };
 
 export type CohereEmbedRequest = {

@@ -1,5 +1,7 @@
 import JSON5 from 'json5';
 
+import { FunctionJSONSchema } from '../text/functions.js';
+
 import { parse, type ParsedField, type ParsedSignature } from './parser.js';
 
 export interface Field {
@@ -99,13 +101,7 @@ export class Signature {
 
   public getParsedSignature = () => this.sig;
 
-  public toJSONSchema = (): {
-    title: string;
-    description: string;
-    type: string;
-    properties: Record<string, unknown>;
-    required: Array<string>;
-  } => {
+  public toJSONSchema = (): FunctionJSONSchema => {
     const properties: Record<string, unknown> = {};
     const required: Array<string> = [];
 
@@ -115,7 +111,7 @@ export class Signature {
         properties[f.name] = {
           title: f.title,
           description: f.description,
-          type: 'array',
+          type: 'array' as const,
           items: {
             type: type,
             title: f.title,
@@ -136,9 +132,7 @@ export class Signature {
     }
 
     const schema = {
-      title: '', // You might want to give a title
-      description: this.description ?? '',
-      type: 'object',
+      type: 'object' as const,
       properties: properties,
       required: required
     };
