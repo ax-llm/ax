@@ -35,7 +35,7 @@ You can have multiple input and output fields and each field has one of these ty
 
 | Provider      | Best Models             | Tested  |
 | ------------- | ----------------------- | ------- |
-| OpenAI        | GPT: 4, 3.5/4-Turbo     | 🟢 100% |
+| OpenAI        | GPT: 4, 3.5/4-Turbo     | c       |
 | Azure OpenAI  | GPT: 4, 3.5/4-Turbo     | 🟢 100% |
 | Together      | Several OSS Models      | 🟢 100% |
 | Cohere        | CommandR, Command       | 🟢 100% |
@@ -134,6 +134,38 @@ if (tag === "customerSupport") {
 if (tag === "technicalSupport") {
     ...
 }
+```
+
+## Vector DBs Supported
+
+Vector databases are critical to building LLM workflows. We have clean abstractions over popular vector db's as well as our own quick in memory vector database.
+
+| Provider   | Tested  |
+| ---------- | ------- |
+| In Memory  | 🟢 100% |
+| Weaviate   | 🟢 100% |
+| Cloudflare | 🟡 50%  |
+| Pinecone   | 🟡 50%  |
+
+```typescript
+// Create embeddings from text using an LLM
+const ret = await this.ai.embed({ texts: 'hello world' });
+
+// Create an in memory vector db
+const db = new DB('memory');
+
+// Insert into vector db
+await this.db.upsert({
+  id: 'abc',
+  table: 'products',
+  values: ret.embeddings[0]
+});
+
+// Query for similar entries using embeddings
+const matches = await this.db.query({
+  table: 'products',
+  values: embeddings[0]
+});
 ```
 
 ## Tuning the prompts (programs)

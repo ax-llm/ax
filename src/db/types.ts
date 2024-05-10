@@ -10,18 +10,16 @@ export type DBUpsertRequest = {
 };
 
 export type DBUpsertResponse = {
-  id: string;
-  errors?: string[];
+  ids: string[];
 };
 
 // For query
-
 export type DBQueryRequest = {
   id?: string;
   text?: string;
   values?: readonly number[];
   table: string;
-  columns: string[];
+  columns?: string[];
   limit?: number;
   namespace?: string;
 };
@@ -39,10 +37,11 @@ export interface DBService extends DBQueryService {
     req: Readonly<DBUpsertRequest>,
     update?: boolean
   ): Promise<DBUpsertResponse>;
+
   batchUpsert(
     batchReq: Readonly<DBUpsertRequest[]>,
     update?: boolean
-  ): Promise<DBUpsertResponse[]>;
+  ): Promise<DBUpsertResponse>;
 }
 
 export interface DBQueryService {

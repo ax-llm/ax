@@ -52,11 +52,8 @@ export interface CohereArgs {
  * @export
  */
 export class Cohere extends BaseAI<
-  unknown,
   CohereChatRequest,
   CohereEmbedRequest,
-  unknown,
-  unknown,
   CohereChatResponse,
   unknown,
   CohereEmbedResponse

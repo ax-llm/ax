@@ -12,7 +12,7 @@ export type API = {
 };
 
 export const apiCall = async <TRequest = unknown, TResponse = unknown>(
-  api: Readonly<API & { url: string; stream?: boolean; debug?: boolean }>,
+  api: Readonly<API & { url: string | URL; stream?: boolean; debug?: boolean }>,
   json: TRequest
 ): Promise<TResponse | ReadableStream<TResponse>> => {
   const baseUrl = new URL(process.env.PROXY ?? api.url);

@@ -9,7 +9,6 @@ import type {
 
 import type {
   AITextChatRequest,
-  AITextCompletionRequest,
   AITextEmbedRequest,
   AITextRequestIdentity,
   AITextTraceStep,
@@ -203,33 +202,12 @@ let response = new TextResponseBuilder()
 export class TextRequestBuilder {
   private request: AITextTraceStepRequest = {} as AITextTraceStepRequest;
 
-  setSystemPrompt(systemPrompt?: string): this {
-    (this.request as AITextCompletionRequest).systemPrompt = systemPrompt;
-    return this;
-  }
-
-  setCompletionStep(
-    req: Readonly<AITextCompletionRequest>,
-    modelConfig?: Readonly<TextModelConfig>,
-    modelInfo?: Readonly<TextModelInfoWithProvider>
-  ) {
-    const request: AITextCompletionRequest | AITextChatRequest = { ...req };
-    if (!req.modelConfig) {
-      request.modelConfig = modelConfig;
-    }
-    if (!req.modelInfo) {
-      request.modelInfo = modelInfo;
-    }
-    this.request = request;
-    return this;
-  }
-
   setChatStep(
     req: Readonly<AITextChatRequest>,
     modelConfig?: Readonly<TextModelConfig>,
     modelInfo?: Readonly<TextModelInfoWithProvider>
   ) {
-    const request: AITextCompletionRequest = { ...req };
+    const request: AITextChatRequest = { ...req };
     if (!req.modelConfig) {
       request.modelConfig = modelConfig;
     }
@@ -251,8 +229,7 @@ export class TextRequestBuilder {
   }
 
   setFunctionCall(functionCall: Readonly<AITextChatRequest['functionCall']>) {
-    (this.request as AITextCompletionRequest | AITextChatRequest).functionCall =
-      functionCall;
+    (this.request as AITextChatRequest).functionCall = functionCall;
     return this;
   }
 
@@ -325,8 +302,7 @@ export class AITextTraceStepBuilder {
 
   isStream(): boolean {
     return (
-      (this.traceStep.request as AITextCompletionRequest | AITextChatRequest)
-        .modelConfig?.stream ?? false
+      (this.traceStep.request as AITextChatRequest).modelConfig?.stream ?? false
     );
   }
 }

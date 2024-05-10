@@ -1,5 +1,5 @@
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import type { AITextCompletionRequest } from '../../tracing/types.js';
+import type { AITextChatRequest } from '../../tracing/types.js';
 import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import type { TextModelConfig, TextResponse } from '../types.js';
@@ -46,10 +46,7 @@ export interface HuggingFaceArgs {
 export class HuggingFace extends BaseAI<
   HuggingFaceRequest,
   unknown,
-  unknown,
   HuggingFaceResponse,
-  unknown,
-  unknown,
   unknown,
   unknown
 > {
@@ -87,18 +84,24 @@ export class HuggingFace extends BaseAI<
     } as TextModelConfig;
   }
 
-  generateCompletionReq = (
-    req: Readonly<AITextCompletionRequest>,
+  generateChatReq = (
+    req: Readonly<AITextChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
   ): [API, HuggingFaceRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
+
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
       : '';
-    const inputs = `${functionsList} ${req.systemPrompt || ''} ${
-      req.prompt || ''
-    }`.trim();
+
+    const prompt = req.chatPrompt
+      ?.map((msg) => {
+        return `${msg.role}: ${msg.content}`;
+      })
+      .join('\n');
+
+    const inputs = `${functionsList} ${prompt}`.trim();
 
     const apiConfig = {
       name: '/models'
@@ -128,9 +131,7 @@ export class HuggingFace extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateCompletionResp = (
-    resp: Readonly<HuggingFaceResponse>
-  ): TextResponse => {
+  generateChatResp = (resp: Readonly<HuggingFaceResponse>): TextResponse => {
     return {
       results: [
         {

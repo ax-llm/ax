@@ -40,10 +40,7 @@ export interface AnthropicArgs {
 }
 
 export class Anthropic extends BaseAI<
-  unknown,
   AnthropicChatRequest,
-  unknown,
-  unknown,
   unknown,
   AnthropicChatResponse,
   AnthropicChatResponseDelta,

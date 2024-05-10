@@ -78,11 +78,8 @@ export interface OpenAIArgs {
  * @export
  */
 export class OpenAI extends BaseAI<
-  unknown,
   OpenAIChatRequest,
   OpenAIEmbedRequest,
-  unknown,
-  unknown,
   OpenAIChatResponse,
   OpenAIChatResponseDelta,
   OpenAIEmbedResponse

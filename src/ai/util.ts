@@ -1,9 +1,6 @@
 import crypto from 'crypto';
 
-import type {
-  AITextChatRequest,
-  AITextCompletionRequest
-} from '../tracing/types.js';
+import type { AITextChatRequest } from '../tracing/types.js';
 
 import type {
   TextModelInfo,
@@ -40,40 +37,6 @@ export const uniqBy = <T>(
 
   return Array.from(uniqueValues.values());
 };
-
-export function convertToChatRequest(
-  req: Readonly<AITextCompletionRequest>
-): AITextChatRequest {
-  if (!req.prompt || req.prompt.length === 0) {
-    throw new Error('Prompt is required');
-  }
-  const chatPrompt = [];
-
-  if (req.systemPrompt && req.systemPrompt.length > 0) {
-    chatPrompt.push({
-      content: req.systemPrompt,
-      role: 'system' as const
-    });
-  }
-
-  chatPrompt.push({ content: req.prompt, role: 'user' as const });
-  return { ...req, chatPrompt };
-}
-
-export function convertToCompletionRequest(
-  chatRequest: Readonly<AITextChatRequest>
-): AITextCompletionRequest {
-  // Extract the text from the first chatPrompt item, if available
-  const promptContent = chatRequest.chatPrompt
-    ? chatRequest.chatPrompt.map((item) => item.content).join('\n')
-    : '';
-
-  // Create a completion request using the extracted content
-  return {
-    prompt: promptContent,
-    ...chatRequest
-  };
-}
 
 export function convertToChatPromptItem({
   content,

@@ -23,31 +23,6 @@ export enum GooglePalm2EmbedModels {
   PaLMTextEmbeddingGecko = 'textembedding-gecko'
 }
 
-export type GooglePalm2CompletionRequest = {
-  instances: {
-    prompt: string;
-  }[];
-  parameters: {
-    maxOutputTokens: number;
-    temperature: number;
-    topP: number;
-    topK: number;
-  };
-};
-
-export type GooglePalm2CompletionResponse = {
-  predictions: {
-    content: string;
-    safetyAttributes: {
-      blocked: false;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      categories: any[];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      scores: any[];
-    };
-  }[];
-};
-
 export type GooglePalm2ChatRequest = {
   instances: {
     context: string;

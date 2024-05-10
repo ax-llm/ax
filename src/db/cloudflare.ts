@@ -1,0 +1,162 @@
+import { apiCall } from '../util/apicall.js';
+
+import type {
+  DBQueryRequest,
+  DBQueryResponse,
+  DBService,
+  DBUpsertRequest,
+  DBUpsertResponse
+} from './types.js';
+
+const baseURL = 'https://api.cloudflare.com/client/v4/accounts/';
+
+type CloudflareUpsertResponse = {
+  success: boolean;
+  errors?: { message: string }[];
+  result: { ids: string[] };
+};
+
+type CloudflareQueryResponse = {
+  success: boolean;
+  errors?: { message: string }[];
+  result: {
+    matches: {
+      id: string;
+      score: number;
+      values: number[];
+      metadata: object;
+    }[];
+  };
+};
+
+export interface CloudflareArgs {
+  apiKey: string;
+  accountId: string;
+}
+
+/**
+ * Cloudflare: DB Service
+ * @export
+ */
+export class Cloudflare implements DBService {
+  private apiKey: string;
+  private accountId: string;
+
+  constructor({ apiKey, accountId }: Readonly<CloudflareArgs>) {
+    if (!apiKey || !accountId) {
+      throw new Error('Cloudflare credentials not set');
+    }
+    this.apiKey = apiKey;
+    this.accountId = accountId;
+  }
+
+  async upsert(
+    req: Readonly<DBUpsertRequest>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _update?: boolean
+  ): Promise<DBUpsertResponse> {
+    const res = (await apiCall(
+      {
+        url: new URL(
+          `${this.accountId}/vectorize/indexes/${req.table}/upsert`,
+          baseURL
+        ),
+        headers: {
+          'X-Auth-Key': this.apiKey
+        }
+      },
+      {
+        id: req.id,
+        values: req.values,
+        namespace: req.namespace,
+        metadata: req.metadata
+      }
+    )) as CloudflareUpsertResponse;
+
+    if (res.errors) {
+      throw new Error(
+        `Cloudflare upsert failed: ${res.errors.map(({ message }) => message).join(', ')}`
+      );
+    }
+
+    return {
+      ids: res.result.ids
+    };
+  }
+
+  async batchUpsert(
+    batchReq: Readonly<DBUpsertRequest[]>,
+    update?: boolean
+  ): Promise<DBUpsertResponse> {
+    if (update) {
+      throw new Error('Weaviate does not support batch update');
+    }
+    if (batchReq.length === 0) {
+      throw new Error('Batch request is empty');
+    }
+    const res = (await apiCall(
+      {
+        url: new URL(
+          `${this.accountId}/vectorize/indexes/${batchReq[0].table}/upsert`,
+          baseURL
+        ),
+        headers: {
+          'X-Auth-Key': this.apiKey
+        }
+      },
+      batchReq.map((req) => ({
+        id: req.id,
+        values: req.values,
+        namespace: req.namespace,
+        metadata: req.metadata
+      }))
+    )) as CloudflareUpsertResponse;
+
+    if (res.errors) {
+      throw new Error(
+        `Cloudflare batch upsert failed: ${res.errors
+          .map(({ message }) => message)
+          .join(', ')}`
+      );
+    }
+
+    return {
+      ids: res.result.ids
+    };
+  }
+
+  async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {
+    const res = (await apiCall(
+      {
+        url: new URL(
+          `${this.accountId}/vectorize/indexes/${req.table}/query`,
+          baseURL
+        ),
+        headers: {
+          'X-Auth-Key': this.apiKey
+        }
+      },
+      {
+        vector: req.values,
+        topK: req.limit || 10,
+        returnValues: true
+      }
+    )) as CloudflareQueryResponse;
+
+    if (res.errors) {
+      throw new Error(
+        `Cloudflare query failed: ${res.errors.map(({ message }) => message).join(', ')}`
+      );
+    }
+
+    const matches = res.result.matches.map(
+      ({ id, score, values, metadata }) => ({
+        id,
+        score,
+        values,
+        metadata
+      })
+    );
+    return { matches } as DBQueryResponse;
+  }
+}

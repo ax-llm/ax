@@ -40,6 +40,11 @@ type WeaviateQueryResponse = {
   };
 };
 
+export interface WeaviateArgs {
+  apiKey: string;
+  host: string;
+}
+
 /**
  * Weaviate: DB Service
  * @export
@@ -48,7 +53,7 @@ export class Weaviate implements DBService {
   private apiKey: string;
   private apiURL: string;
 
-  constructor(apiKey: string, host: string) {
+  constructor({ apiKey, host }: Readonly<WeaviateArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Weaviate API key not set');
     }
@@ -60,7 +65,7 @@ export class Weaviate implements DBService {
     req: Readonly<DBUpsertRequest>,
     update?: boolean
   ): Promise<DBUpsertResponse> {
-    const res = await apiCall(
+    const res = (await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -74,21 +79,30 @@ export class Weaviate implements DBService {
         vector: req.values,
         properties: req.metadata ?? {}
       }
-    );
+    )) as WeaviateUpsertResponse;
 
-    const data = res as unknown as WeaviateUpsertResponse;
+    if (res?.result?.errors) {
+      throw new Error(
+        `Weaviate upsert failed: ${res.result.errors.error
+          .map(({ message }) => message)
+          .join(', ')}`
+      );
+    }
+
     return {
-      id: data.id,
-      errors: data.result?.errors?.error.map(({ message }) => message)
+      ids: [res.id]
     };
   }
 
   async batchUpsert(
     batchReq: Readonly<DBUpsertRequest[]>,
     update?: boolean
-  ): Promise<DBUpsertResponse[]> {
+  ): Promise<DBUpsertResponse> {
     if (update) {
       throw new Error('Weaviate does not support batch update');
+    }
+    if (batchReq.length === 0) {
+      throw new Error('Batch request is empty');
     }
     const objects = batchReq.map((req) => ({
       id: req.id,
@@ -98,24 +112,36 @@ export class Weaviate implements DBService {
       properties: req.metadata ?? {}
     }));
 
-    const res = await apiCall(
+    const res = (await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/v1/batch/objects'
       },
       { objects }
-    );
+    )) as WeaviateUpsertResponse[];
 
-    const data = res as unknown as WeaviateUpsertResponse[];
-    return data.map(({ id, result }) => ({
-      id: id,
-      errors: result?.errors?.error.map(({ message }) => message)
-    }));
+    if (res?.some(({ result }) => result?.errors)) {
+      throw new Error(
+        `Weaviate batch upsert failed: ${res
+          .map(({ result }) =>
+            result?.errors?.error.map(({ message }) => message).join(', ')
+          )
+          .join(', ')}`
+      );
+    }
+
+    return {
+      ids: res.map(({ id }) => id)
+    };
   }
 
   async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {
     let filter = '';
+
+    if (req.columns && req.columns.length === 0) {
+      throw new Error('Weaviate requires at least one column');
+    }
 
     if (req.values) {
       filter = `nearVector: {
@@ -129,7 +155,7 @@ export class Weaviate implements DBService {
       throw new Error('Weaviate requires either text or values');
     }
 
-    const res = await apiCall(
+    const res = (await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -142,25 +168,28 @@ export class Weaviate implements DBService {
               limit: ${req.limit || 10},
               ${filter}
             ) {
-                ${req.columns.join('\n')}
+                ${req.columns?.join('\n')}
             }
           }
         }`
       }
-    );
+    )) as WeaviateQueryResponse;
 
-    const data = res as unknown as WeaviateQueryResponse;
-
-    if (data?.errors) {
-      throw data.errors;
+    if (res.errors) {
+      throw new Error(
+        `Weaviate query failed: ${res.errors
+          .map(({ message }) => message)
+          .join(', ')}`
+      );
     }
 
-    const matches = data?.data?.Get[req.table]?.map(
-      ({ id, score, ...metadata }) => {
-        return { id, score, metadata };
-      }
-    );
-
+    const matches = res.data.Get[req.table].map((match) => {
+      return {
+        id: match.id as string,
+        score: 1,
+        metadata: match
+      };
+    });
     return { matches } as DBQueryResponse;
   }
 }

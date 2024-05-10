@@ -1,7 +1,6 @@
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type {
   AITextChatRequest,
-  AITextCompletionRequest,
   AITextEmbedRequest
 } from '../../tracing/types.js';
 import type { API } from '../../util/apicall.js';
@@ -13,8 +12,6 @@ import {
   apiURLGoogleGemini,
   type GoogleGeminiChatRequest,
   type GoogleGeminiChatResponse,
-  type GoogleGeminiCompletionRequest,
-  type GoogleGeminiCompletionResponse,
   type GoogleGeminiConfig,
   type GoogleGeminiEmbedRequest,
   type GoogleGeminiEmbedResponse,
@@ -47,11 +44,8 @@ export interface GoogleGeminiArgs {
  * @export
  */
 export class GoogleGemini extends BaseAI<
-  GoogleGeminiCompletionRequest,
   GoogleGeminiChatRequest,
   GoogleGeminiEmbedRequest,
-  GoogleGeminiCompletionResponse,
-  unknown,
   GoogleGeminiChatResponse,
   unknown,
   GoogleGeminiEmbedResponse
@@ -94,77 +88,6 @@ export class GoogleGemini extends BaseAI<
       topK: config.topK
     } as TextModelConfig;
   }
-
-  generateCompletionReq = (
-    req: Readonly<AITextCompletionRequest>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AIPromptConfig>
-  ): [API, GoogleGeminiCompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
-    const prompt = `${req.systemPrompt || ''} ${req.prompt || ''}`.trim();
-
-    const apiConfig = {
-      name: `/v1/models/${model}:predict`
-    };
-
-    const reqValue: GoogleGeminiCompletionRequest = {
-      contents: [
-        {
-          role: 'USER',
-          parts: [
-            {
-              text: prompt
-            }
-          ]
-        }
-      ],
-      tools: req.functions
-        ? [
-            {
-              functionDeclarations: req.functions ?? []
-            }
-          ]
-        : undefined,
-      generationConfig: {
-        maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-        temperature: req.modelConfig?.temperature ?? this.config.temperature,
-        topP: req.modelConfig?.topP ?? this.config.topP,
-        topK: req.modelConfig?.topK ?? this.config.topK,
-        candidateCount: 1
-      }
-    };
-
-    return [apiConfig, reqValue];
-  };
-
-  generateCompletionResp = (
-    resp: Readonly<GoogleGeminiCompletionResponse>
-  ): TextResponse => {
-    const results =
-      resp.candidates.at(0)?.content.parts.map((part, index) => {
-        const functionCalls = part.function_call
-          ? [
-              {
-                id: `${index}`,
-                type: 'function' as const,
-                function: {
-                  name: part.function_call.name,
-                  arguments: part.function_call.args
-                }
-              }
-            ]
-          : undefined;
-
-        return {
-          id: `${index}`,
-          content: part.text || '',
-          functionCalls
-        };
-      }) ?? [];
-    return {
-      results
-    };
-  };
 
   generateChatReq = (
     req: Readonly<AITextChatRequest>,

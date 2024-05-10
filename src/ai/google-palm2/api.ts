@@ -1,7 +1,6 @@
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type {
   AITextChatRequest,
-  AITextCompletionRequest,
   AITextEmbedRequest
 } from '../../tracing/types.js';
 import type { API } from '../../util/apicall.js';
@@ -13,8 +12,6 @@ import {
   apiURLGooglePalm2,
   type GooglePalm2ChatRequest,
   type GooglePalm2ChatResponse,
-  type GooglePalm2CompletionRequest,
-  type GooglePalm2CompletionResponse,
   type GooglePalm2Config,
   GooglePalm2EmbedModels,
   type GooglePalm2EmbedRequest,
@@ -67,11 +64,8 @@ export interface GooglePalm2Args {
  * @export
  */
 export class GooglePalm2 extends BaseAI<
-  GooglePalm2CompletionRequest,
   GooglePalm2ChatRequest,
   GooglePalm2EmbedRequest,
-  GooglePalm2CompletionResponse,
-  unknown,
   GooglePalm2ChatResponse,
   unknown,
   GooglePalm2EmbedResponse
@@ -114,49 +108,6 @@ export class GooglePalm2 extends BaseAI<
       topK: config.topK
     } as TextModelConfig;
   }
-
-  generateCompletionReq = (
-    req: Readonly<AITextCompletionRequest>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AIPromptConfig>
-  ): [API, GooglePalm2CompletionRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
-    const functionsList = req.functions
-      ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
-      : '';
-    const prompt = `${functionsList} ${req.systemPrompt || ''} ${
-      req.prompt || ''
-    }`.trim();
-
-    const apiConfig = {
-      name: `/v1/models/${model}:predict`
-    };
-
-    const reqValue: GooglePalm2CompletionRequest = {
-      instances: [{ prompt }],
-      parameters: {
-        maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-        temperature: req.modelConfig?.temperature ?? this.config.temperature,
-        topP: req.modelConfig?.topP ?? this.config.topP,
-        topK: req.modelConfig?.topK ?? this.config.topK
-      }
-    };
-
-    return [apiConfig, reqValue];
-  };
-
-  generateCompletionResp = (
-    resp: Readonly<GooglePalm2CompletionResponse>
-  ): TextResponse => {
-    const results = resp.predictions.map((prediction) => ({
-      content: prediction.content,
-      safetyAttributes: prediction.safetyAttributes
-    }));
-
-    return {
-      results
-    };
-  };
 
   generateChatReq = (
     req: Readonly<AITextChatRequest>,

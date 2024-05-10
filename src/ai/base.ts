@@ -13,7 +13,6 @@ import {
 } from '../tracing/index.js';
 import type {
   AITextChatRequest,
-  AITextCompletionRequest,
   AITextEmbedRequest,
   AITextTraceStep,
   TextModelInfoWithProvider
@@ -29,12 +28,7 @@ import type {
   TextModelInfo,
   TextResponse
 } from './types.js';
-import {
-  convertToChatRequest,
-  convertToCompletionRequest,
-  hashObject,
-  mergeTextResponses
-} from './util.js';
+import { hashObject, mergeTextResponses } from './util.js';
 
 const cache = new MemoryCache<TextResponse>();
 
@@ -49,20 +43,13 @@ interface BaseAIArgs {
 }
 
 export class BaseAI<
-  TCompletionRequest,
   TChatRequest,
   TEmbedRequest,
-  TCompletionResponse,
-  TCompletionResponseDelta,
   TChatResponse,
   TChatResponseDelta,
   TEmbedResponse
 > implements AIService
 {
-  generateCompletionReq?: (
-    req: Readonly<AITextCompletionRequest>,
-    config: Readonly<AIPromptConfig>
-  ) => [API, TCompletionRequest];
   generateChatReq?: (
     req: Readonly<AITextChatRequest>,
     config: Readonly<AIPromptConfig>
@@ -70,12 +57,6 @@ export class BaseAI<
   generateEmbedReq?: (
     req: Readonly<AITextEmbedRequest>
   ) => [API, TEmbedRequest];
-  generateCompletionResp?: (
-    resp: Readonly<TCompletionResponse>
-  ) => TextResponse;
-  generateCompletionStreamResp?: (
-    resp: Readonly<TCompletionResponseDelta>
-  ) => TextResponse;
   generateChatResp?: (resp: Readonly<TChatResponse>) => TextResponse;
   generateChatStreamResp?: (resp: Readonly<TChatResponseDelta>) => TextResponse;
   generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => EmbedResponse;
@@ -220,115 +201,6 @@ export class BaseAI<
     // }
   }
 
-  async completion(
-    _req: Readonly<AITextCompletionRequest>,
-    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<TextResponse | ReadableStream<TextResponse>> {
-    let hashKey: string | undefined;
-
-    if (options?.cache) {
-      hashKey = hashObject(_req);
-      const cached = await cache.get(hashKey);
-      if (cached) {
-        return cached;
-      }
-    }
-
-    if (!this.generateCompletionReq && this.generateChatReq) {
-      return await this.chat(convertToChatRequest(_req), options);
-    }
-    if (!this.generateCompletionReq) {
-      throw new Error('generateCompletionReq not implemented');
-    }
-    if (!this.generateCompletionResp) {
-      throw new Error('generateCompletionResp not implemented');
-    }
-
-    let startTime = 0;
-
-    const reqFn = this.generateCompletionReq;
-    const stream = options?.stream ?? _req.modelConfig?.stream;
-    const functions =
-      _req.functions && _req.functions.length > 0 ? _req.functions : undefined;
-    const req = {
-      ..._req,
-      functions,
-      modelConfig: { ..._req.modelConfig, stream }
-    } as Readonly<AITextChatRequest>;
-
-    const fn = async () => {
-      startTime = new Date().getTime();
-      const [apiConfig, reqValue] = reqFn(req, options as AIPromptConfig);
-
-      const res = await apiCall(
-        {
-          name: apiConfig.name,
-          url: this.apiURL,
-          headers: this.buildHeaders(apiConfig.headers),
-          debug: this.debug
-        },
-        reqValue
-      );
-      return res;
-    };
-
-    this.setStep(options);
-    this.traceStepReqBuilder = new TextRequestBuilder().setCompletionStep(
-      req,
-      this.getModelConfig(),
-      this.getEmbedModelInfo()
-    );
-
-    if (this.debug) {
-      logCompletionRequest(req);
-    }
-
-    const rv = this.rt ? await this.rt(fn) : await fn();
-
-    if (stream) {
-      if (!this.generateCompletionStreamResp) {
-        throw new Error('generateCompletionStreamResp not implemented');
-      }
-
-      const respFn = this.generateCompletionStreamResp;
-      const wrappedRespFn = (resp: Readonly<TCompletionResponseDelta>) => {
-        const res = respFn(resp);
-        res.sessionId = options?.sessionId;
-        return res;
-      };
-
-      const doneCb = async (values: readonly TextResponse[]) => {
-        const res = mergeTextResponses(values);
-
-        await this.setStepTextResponse(res, startTime);
-        if (options?.cache && hashKey) {
-          cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
-        }
-      };
-
-      const st = (rv as ReadableStream<TCompletionResponseDelta>).pipeThrough(
-        new RespTransformStream<TCompletionResponseDelta, TextResponse>(
-          wrappedRespFn,
-          doneCb
-        )
-      );
-      return st;
-    }
-
-    if (!this.generateCompletionResp) {
-      throw new Error('generateCompletionResp not implemented');
-    }
-
-    const res = this.generateCompletionResp(rv as TCompletionResponse);
-    await this.setStepTextResponse(res, new Date().getTime() - startTime);
-    res.sessionId = options?.sessionId;
-
-    if (options?.cache && hashKey) {
-      cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
-    }
-    return res;
-  }
-
   async chat(
     _req: Readonly<AITextChatRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
@@ -343,9 +215,6 @@ export class BaseAI<
       }
     }
 
-    if (!this.generateChatReq && this.generateCompletionReq) {
-      return await this.completion(convertToCompletionRequest(_req), options);
-    }
     if (!this.generateChatReq) {
       throw new Error('generateChatReq not implemented');
     }
@@ -543,10 +412,6 @@ export class BaseAI<
     return { ...headers, ...this.headers };
   }
 }
-
-const logCompletionRequest = (req: Readonly<AITextCompletionRequest>) => {
-  console.log(chalk.greenBright(req.systemPrompt + '\n' + prompt));
-};
 
 const logChatRequest = (req: Readonly<AITextChatRequest>) => {
   const items = req.chatPrompt?.map((v) => v.content).join('\n');

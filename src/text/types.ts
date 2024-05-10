@@ -13,7 +13,6 @@ import type {
 } from '../tracing/trace.js';
 import type {
   AITextChatRequest,
-  AITextCompletionRequest,
   AITextEmbedRequest
 } from '../tracing/types.js';
 import type { API } from '../util/apicall.js';
@@ -70,23 +69,16 @@ export type AIServiceActionOptions = {
 };
 
 export interface AIServiceBase<
-  TCompletionRequest,
   TChatRequest,
   TEmbedRequest,
-  TCompletionResponse,
   TChatResponse,
   TEmbedResponse
 > {
-  generateCompletionReq?(
-    req: Readonly<AITextCompletionRequest>,
-    config: Readonly<AIPromptConfig>
-  ): [API, TCompletionRequest];
   generateChatReq?(
     req: Readonly<AITextChatRequest>,
     config: Readonly<AIPromptConfig>
   ): [API, TChatRequest];
   generateEmbedReq?(req: Readonly<AITextChatRequest>): [API, TEmbedRequest];
-  generateCompletionResp?(resp: Readonly<TCompletionResponse>): TextResponse;
   generateChatResp?(resp: Readonly<TChatResponse>): TextResponse;
   generateEmbedResp?(resp: Readonly<TEmbedResponse>): EmbedResponse;
 }
@@ -103,10 +95,6 @@ export interface AIService {
   //   prompt?: string,
   //   options?: Readonly<AITranscribeConfig>
   // ): Promise<TranscriptResponse>;
-  completion(
-    req: Readonly<AITextCompletionRequest>,
-    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<TextResponse | ReadableStream<TextResponse>>;
   chat(
     req: Readonly<AITextChatRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>

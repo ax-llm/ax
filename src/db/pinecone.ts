@@ -57,6 +57,11 @@ const createPineconeQueryRequest = (
   return pineconeQueryRequest;
 };
 
+export interface PineconeArgs {
+  apiKey: string;
+  host: string;
+}
+
 /**
  * Pinecone: DB Service
  * @export
@@ -65,7 +70,7 @@ export class Pinecone implements DBService {
   private apiKey: string;
   private apiURL: string;
 
-  constructor(apiKey: string, host: string) {
+  constructor({ apiKey, host }: Readonly<PineconeArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Pinecone API key not set');
     }
@@ -74,13 +79,16 @@ export class Pinecone implements DBService {
   }
 
   async upsert(req: Readonly<DBUpsertRequest>): Promise<DBUpsertResponse> {
-    const res = await this.batchUpsert([req]);
-    return res[0];
+    await this.batchUpsert([req]);
+    return { ids: [req.id] };
   }
 
   async batchUpsert(
     batchReq: Readonly<DBUpsertRequest[]>
-  ): Promise<DBUpsertResponse[]> {
+  ): Promise<DBUpsertResponse> {
+    if (batchReq.length === 0) {
+      throw new Error('Batch request is empty');
+    }
     await apiCall(
       {
         url: this.apiURL,
@@ -94,7 +102,7 @@ export class Pinecone implements DBService {
       }))
     );
 
-    return batchReq.map(({ id }) => ({ id }));
+    return { ids: batchReq.map(({ id }) => id) };
   }
 
   async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {
@@ -102,19 +110,21 @@ export class Pinecone implements DBService {
       throw new Error('Pinecone does not support text');
     }
 
-    const res = await apiCall(
+    const res = (await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/query'
       },
       createPineconeQueryRequest(req)
-    );
+    )) as PineconeQueryResponse;
 
-    const data = res as unknown as PineconeQueryResponse;
-    const matches = data?.matches?.map(({ id, score, metadata }) => {
-      return { id, score, metadata };
-    });
+    const matches = res.matches.map(({ id, score, values, metadata }) => ({
+      id,
+      score,
+      metadata,
+      values
+    }));
 
     return { matches };
   }

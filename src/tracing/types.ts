@@ -30,22 +30,6 @@ export type AITextBaseRequest = {
   identity?: Readonly<AITextRequestIdentity>;
 };
 
-export type AITextCompletionRequest = {
-  systemPrompt?: string;
-  prompt?: string;
-  functions?: Readonly<{
-    name: string;
-    description: string;
-    parameters?: FunctionJSONSchema;
-  }>[];
-  functionCall?:
-    | 'none'
-    | 'auto'
-    | { type: 'function'; function: { name: string } };
-  modelConfig?: Readonly<TextModelConfig>;
-  modelInfo?: Readonly<TextModelInfoWithProvider>;
-} & AITextBaseRequest;
-
 export type AITextChatRequest = {
   chatPrompt: Readonly<
     | { role: 'system'; content: string }
@@ -81,10 +65,7 @@ export type AITextEmbedRequest = {
   embedModelInfo?: Readonly<TextModelInfoWithProvider>;
 } & AITextBaseRequest;
 
-export type AITextTraceStepRequest =
-  | AITextCompletionRequest
-  | AITextChatRequest
-  | AITextEmbedRequest;
+export type AITextTraceStepRequest = AITextChatRequest | AITextEmbedRequest;
 
 export type AITextTraceStepResponse = Omit<TextResponse, 'sessionId'> & {
   modelResponseTime?: number;
