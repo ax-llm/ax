@@ -202,6 +202,14 @@ export class Cohere extends BaseAI<
   ): [API, CohereEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
+    if (!model) {
+      throw new Error('Embed model not set');
+    }
+
+    if (!req.texts || req.texts.length === 0) {
+      throw new Error('Embed texts is empty');
+    }
+
     const apiConfig = {
       name: '/v1/embed'
     };

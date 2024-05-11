@@ -111,7 +111,6 @@ const distance = (a: readonly number[], b: readonly number[]): number => {
   let zeroVectorA = true;
   let zeroVectorB = true;
 
-  // Using typed arrays for potentially better performance
   const vectorA = new Float64Array(a);
   const vectorB = new Float64Array(b);
 
@@ -127,6 +126,8 @@ const distance = (a: readonly number[], b: readonly number[]): number => {
     return 1; // Return maximum distance if one vector is zero
   }
 
-  const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const sqrtNormA = Math.sqrt(normA);
+  const sqrtNormB = Math.sqrt(normB);
+  const similarity = dotProduct / (sqrtNormA * sqrtNormB);
   return 1 - similarity; // Returning distance as 1 - cosine similarity.
 };

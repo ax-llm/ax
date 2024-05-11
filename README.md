@@ -168,6 +168,18 @@ const matches = await this.db.query({
 });
 ```
 
+Alternatively you can use the `DBManager` which handles chunking, embedding and querying for you.
+
+```typescript
+const manager = new DBManager(ai, db);
+await manager.insert(text);
+
+const res = await manager.query(
+  'John von Neumann on human intelligence and singularity.'
+);
+console.log(res);
+```
+
 ## Tuning the prompts (programs)
 
 You can tune your prompts using a larger model to help them run more efficiently and give you better results. This is done by using an optimizer like `BootstrapFewShot` with and examples from the popular `HotPotQA` dataset. The optimizer generates demonstrations `demos` which when used with the prompt help improve its efficiency.
@@ -242,6 +254,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | customer-support.ts | Extract valuable details from customer communications   |
 | food-search.ts      | Use multiple APIs are used to find dinning options      |
 | marketing.ts        | Generate short effective marketing sms messages         |
+| vectordb.ts         | Chunk, embed and search text                            |
 | fibonacci.ts        | Use the JS code interpreter to compute fibonacci        |
 | summarize.ts        | Generate a short summary of a large block of text       |
 | chain-of-thought.ts | Use chain-of-thought prompting to answer questions      |
