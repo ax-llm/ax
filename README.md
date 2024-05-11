@@ -1,6 +1,6 @@
-# LLMClient - A new way to build with LLMs.
+# LLMClient - Typescript/JS Library to build with LLMs
 
-JS/TS library based on the Stanford DSP paper. Create and compose efficient prompts using prompt signatures. Reasoning + Function Calling, RAG and more. 🌵 🦙 🔥 ❤️ 🖖🏼
+JS/TS library to make to easy to build with LLMs. Full support for various LLMs and VectorDBs, Agents, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Base on the popular Stanford DSP paper. Create and compose efficient prompts using prompt signatures. 🌵 🦙 🔥 ❤️ 🖖🏼
 
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
