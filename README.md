@@ -1,6 +1,6 @@
 # LLMClient - Typescript/JS Library to build with LLMs
 
-JS/TS library to make to easy to build with LLMs. Full support for various LLMs and VectorDBs, Agents, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Base on the popular Stanford DSP paper. Create and compose efficient prompts using prompt signatures. 🌵 🦙 🔥 ❤️ 🖖🏼
+JS/TS library to make to easy to build with LLMs. Full support for various LLMs and VectorDBs, Agents, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Create and compose efficient prompts using prompt signatures. 🌵 🦙 🔥 ❤️ 🖖🏼
 
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -20,7 +20,10 @@ Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Fun
 - Prompts auto-generated from simple signatures
 - Multi-Hop RAG, ReAcT, CoT, Function Calling and more
 - Build Agents that can call other agents
+- Convert docs of any format to text
+- RAG, smart chunking, embedding, querying
 - Automatic prompt tuning using optimizers
+- Production ready Typescript code
 - Almost zero-dependencies
 
 ## Whats a prompt signature?
@@ -35,7 +38,7 @@ You can have multiple input and output fields and each field has one of these ty
 
 | Provider      | Best Models             | Tested  |
 | ------------- | ----------------------- | ------- |
-| OpenAI        | GPT: 4, 3.5/4-Turbo     | c       |
+| OpenAI        | GPT: 4, 3.5/4-Turbo     | 🟢 100% |
 | Azure OpenAI  | GPT: 4, 3.5/4-Turbo     | 🟢 100% |
 | Together      | Several OSS Models      | 🟢 100% |
 | Cohere        | CommandR, Command       | 🟢 100% |
