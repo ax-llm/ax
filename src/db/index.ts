@@ -8,7 +8,6 @@ export * from './weaviate.js';
 export * from './pinecone.js';
 export * from './cloudflare.js';
 export * from './memory.js';
-export * from './manager.js';
 
 export type DBName = 'weaviate' | 'pinecone' | 'memory' | 'cloudflare';
 

@@ -95,7 +95,9 @@ const agent = new Agent(ai, {
 agent.forward({ questions: "How many atoms are there in the universe" })
 ```
 
-## Example: Routing requests
+## Fast LLM Router
+
+A special router that uses no LLM calls only embeddings to route user requests smartly.
 
 Use the Router to efficiently route user queries to specific routes designed to handle certain types of questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how input from the user should be handled use our fast "Semantic Router" that uses inexpensive and fast embedding queries.
 
@@ -168,16 +170,40 @@ const matches = await this.db.query({
 });
 ```
 
-Alternatively you can use the `DBManager` which handles chunking, embedding and querying for you.
+Alternatively you can use the `DBManager` which handles smart chunking, embedding and querying everything
+for you, it makes things almost too easy.
 
 ```typescript
-const manager = new DBManager(ai, db);
+const manager = new DBManager({ ai, db });
 await manager.insert(text);
 
-const res = await manager.query(
+const matches = await manager.query(
   'John von Neumann on human intelligence and singularity.'
 );
-console.log(res);
+console.log(matches);
+```
+
+## RAG Documents
+
+Using documents like PDF, DOCX, PPT, XLS, etc with LLMs is a huge pain. We make it easy with the help of Apache Tika an open source document processing engine.
+
+Launch Apache Tika
+
+```shell
+docker run -p 9998:9998 apache/tika
+```
+
+Convert documents to text and embed them for retrieval using the `DBManager`
+
+```typescript
+const tika = new ApacheTika();
+const text = await tika.convert('/path/to/document.pdf');
+
+const manager = new DBManager({ ai, db });
+await manager.insert(text);
+
+const matches = await manager.query('Find some text');
+console.log(matches);
 ```
 
 ## Tuning the prompts (programs)
@@ -259,6 +285,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | summarize.ts        | Generate a short summary of a large block of text       |
 | chain-of-thought.ts | Use chain-of-thought prompting to answer questions      |
 | rag.ts              | Use multi-hop retrieval to answer questions             |
+| rag-docs.ts         | Convert PDF to text and embed for rag search            |
 | react.ts            | Use function calling and reasoning to answer questions  |
 | agent.ts            | Agent framework, agents can use other agents, tools etc |
 | qna-tune.ts         | Use an optimizer to improve prompt efficiency           |

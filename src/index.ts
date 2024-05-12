@@ -5,3 +5,4 @@ export * from './funcs/index.js';
 export * from './tracing/index.js';
 export * from './db/index.js';
 export * from './dsp/index.js';
+export * from './docs/index.js';

@@ -10,7 +10,7 @@ One of the most successful early gastromancers was Eurykles, a prophet at Athens
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 const db = new MemoryDB();
 
-const manager = new DBManager(ai, db);
+const manager = new DBManager({ ai, db });
 await manager.insert(text);
 
 const res = await manager.query(
