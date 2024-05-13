@@ -14,6 +14,12 @@ export const modelInfoOpenAI: TextModelInfo[] = [
     completionTokenCostPer1M: 60
   },
   {
+    name: OpenAIModel.GPT4O,
+    currency: 'usd',
+    promptTokenCostPer1M: 5,
+    completionTokenCostPer1M: 15
+  },
+  {
     name: OpenAIModel.GPT4Turbo,
     currency: 'usd',
     promptTokenCostPer1M: 10,

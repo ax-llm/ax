@@ -12,12 +12,14 @@ export interface MemoryDBArgs {
   filename?: string;
 }
 
+type DBState = Record<string, Record<string, DBUpsertRequest>>;
+
 /**
  * MemoryDB: DB Service
  * @export
  */
 export class MemoryDB implements DBService {
-  private memoryDB: Record<string, Record<string, DBUpsertRequest>> = {};
+  private state: DBState = {};
   private filename?: string;
 
   constructor({ filename }: Readonly<MemoryDBArgs> = {}) {
@@ -33,10 +35,10 @@ export class MemoryDB implements DBService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _update?: boolean
   ): Promise<DBUpsertResponse> => {
-    if (!this.memoryDB[req.table]) {
-      this.memoryDB[req.table] = {};
+    if (!this.state[req.table]) {
+      this.state[req.table] = {};
     }
-    this.memoryDB[req.table][req.id] = req;
+    this.state[req.table][req.id] = req;
 
     if (this.filename) {
       await this.save();
@@ -63,7 +65,7 @@ export class MemoryDB implements DBService {
   };
 
   query = async (req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> => {
-    const table = this.memoryDB[req.table];
+    const table = this.state[req.table];
     if (!table) throw new Error(`${req.table} not found`);
 
     const matches: DBQueryResponse['matches'] = [];
@@ -87,7 +89,7 @@ export class MemoryDB implements DBService {
     if (!fn) {
       throw new Error('Filename not set');
     }
-    fs.writeFileSync(fn, JSON.stringify(this.memoryDB));
+    fs.writeFileSync(fn, JSON.stringify(this.state));
   };
 
   public load = async (fn = this.filename) => {
@@ -96,7 +98,19 @@ export class MemoryDB implements DBService {
     }
     const data = fs.readFileSync(fn, 'utf8');
     const obj = JSON.parse(data);
-    this.memoryDB = { ...this.memoryDB, ...obj };
+    this.state = { ...this.state, ...obj };
+  };
+
+  public getDB = () => {
+    return this.state;
+  };
+
+  public setDB = (state: DBState) => {
+    this.state = state;
+  };
+
+  public clearDB = () => {
+    this.state = {};
   };
 }
 

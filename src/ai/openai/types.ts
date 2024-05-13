@@ -8,6 +8,7 @@ import type { TextModelConfig } from '../types.js';
  */
 export enum OpenAIModel {
   GPT4 = 'gpt-4',
+  GPT4O = 'gpt-4o',
   GPT4Turbo = 'gpt-4-turbo',
   GPT35Turbo = 'gpt-3.5-turbo',
   GPT35TurboInstruct = 'gpt-3.5-turbo-instruct',

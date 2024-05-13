@@ -38,8 +38,8 @@ You can have multiple input and output fields and each field has one of these ty
 
 | Provider      | Best Models             | Tested  |
 | ------------- | ----------------------- | ------- |
-| OpenAI        | GPT: 4, 3.5/4-Turbo     | 🟢 100% |
-| Azure OpenAI  | GPT: 4, 3.5/4-Turbo     | 🟢 100% |
+| OpenAI        | GPT: 4o, 4T, 4, 3.5     | 🟢 100% |
+| Azure OpenAI  | GPT: 4, 4T, 3.5         | 🟢 100% |
 | Together      | Several OSS Models      | 🟢 100% |
 | Cohere        | CommandR, Command       | 🟢 100% |
 | Anthropic     | Claude 2, Claude 3      | 🟢 100% |
