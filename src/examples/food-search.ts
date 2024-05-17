@@ -1,10 +1,9 @@
 import {
   AI,
+  type AITextFunction,
   type OpenAIArgs,
   ReAct,
-  Signature,
-  type FunctionJSONSchema,
-  type AITextFunction
+  Signature
 } from '../index.js';
 
 const choice = Math.round(Math.random());

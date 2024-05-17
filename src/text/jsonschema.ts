@@ -1,10 +1,12 @@
 import type { FunctionJSONSchema } from './functions.js';
 
-export const validateJSONSchema = (schema: FunctionJSONSchema): void => {
+export const validateJSONSchema = (
+  schema: Readonly<FunctionJSONSchema>
+): void => {
   const errors: string[] = [];
 
   const validateSchemaObject = (
-    schema: FunctionJSONSchema,
+    schema: Readonly<FunctionJSONSchema>,
     path: string = ''
   ): void => {
     const validTypes = [

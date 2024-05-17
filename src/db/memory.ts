@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 
 import type {
   DBQueryRequest,
@@ -26,7 +26,7 @@ export class MemoryDB implements DBService {
     this.state = {};
     this.filename = filename;
 
-    if (filename && fs.existsSync(filename)) {
+    if (filename && existsSync(filename)) {
       this.load();
     }
   }
@@ -97,14 +97,14 @@ export class MemoryDB implements DBService {
     if (!fn) {
       throw new Error('Filename not set');
     }
-    fs.writeFileSync(fn, JSON.stringify(this.state));
+    writeFileSync(fn, JSON.stringify(this.state));
   };
 
   public load = async (fn = this.filename) => {
     if (!fn) {
       throw new Error('Filename not set');
     }
-    const data = fs.readFileSync(fn, 'utf8');
+    const data = readFileSync(fn, 'utf8');
     const obj = JSON.parse(data);
     this.state = { ...this.state, ...obj };
   };

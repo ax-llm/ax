@@ -1,9 +1,10 @@
-import crypto from 'crypto';
-import fs from 'fs';
-import http from 'http';
-import https from 'https';
-import os from 'os';
-import vm from 'vm';
+import * as _crypto from 'crypto';
+import * as _fs from 'fs';
+import * as _http from 'http';
+import * as _https from 'https';
+import * as _os from 'os';
+import * as _process from 'process';
+import { runInNewContext } from 'vm';
 
 import type { AITextFunction } from '../text/functions.js';
 
@@ -51,26 +52,26 @@ export const codeInterpreterJavascript = (
   };
 
   if (permissions.includes(CodeInterpreterPermission.FS)) {
-    context.fs = fs;
+    context.fs = _fs;
   }
 
   if (permissions.includes(CodeInterpreterPermission.NET)) {
-    context.http = http;
-    context.https = https;
+    context.http = _http;
+    context.https = _https;
   }
 
   if (permissions.includes(CodeInterpreterPermission.OS)) {
-    context.os = os;
+    context.os = _os;
   }
 
   if (permissions.includes(CodeInterpreterPermission.CRYPTO)) {
-    context.crypto = crypto;
+    context.crypto = _crypto;
   }
 
   if (permissions.includes(CodeInterpreterPermission.PROCESS)) {
-    context.process = process;
+    context.process = _process;
   }
 
   // executing code within the sandbox
-  return vm.runInNewContext(`(function() { ${code} })()`, context);
+  return runInNewContext(`(function() { ${code} })()`, context);
 };

@@ -1,4 +1,4 @@
-import JSON5 from 'json5';
+import { stringify } from 'json5';
 
 import type { TextResponse, TextResponseFunctionCall } from '../ai/index.js';
 import type { AITextChatRequest } from '../index.js';
@@ -6,9 +6,9 @@ import type { AITextFunction } from '../text/index.js';
 import type { AIService } from '../text/index.js';
 
 import {
-  Program,
   type GenIn,
   type GenOut,
+  Program,
   type ProgramForwardOptions
 } from './program.js';
 import { PromptTemplate } from './prompt.js';
@@ -204,7 +204,7 @@ export class Generate<
     for (const [i, f] of funcs.entries()) {
       _funcs['functionName' + i] = f.name;
       _funcs['functionArguments' + i] =
-        typeof f.args === 'object' ? JSON5.stringify(f.args) : f.args;
+        typeof f.args === 'object' ? stringify(f.args) : f.args;
     }
 
     this.setTrace({

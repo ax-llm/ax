@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { readFileSync } from 'fs';
 
 import type { TextModelConfig } from '../ai/types.js';
 import type { AIMemory, AIService } from '../text/types.js';
@@ -140,7 +140,7 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
   };
 
   public loadDemos = (filename: string) => {
-    const buf = fs.readFileSync(filename, 'utf-8');
+    const buf = readFileSync(filename, 'utf-8');
     this.setDemos(JSON.parse(buf));
   };
 }

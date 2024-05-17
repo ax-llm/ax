@@ -1,7 +1,7 @@
 import path from 'path';
+import { type ReadableStream, TextDecoderStream } from 'stream/web';
 
 import { JSONStringifyStream } from './transform.js';
-import { TextDecoderStream, type ReadableStream } from 'stream/web';
 /**
  * Util: API details
  * @export

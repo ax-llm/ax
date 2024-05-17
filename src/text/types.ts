@@ -1,4 +1,5 @@
 import type { ReadableStream } from 'stream/web';
+
 import type {
   EmbedResponse,
   LoggerFunction,
@@ -27,7 +28,6 @@ export type FunctionExec = {
   // reasoning?: string[];
 };
 
-// eslint-disable-next-line functional/no-mixed-types
 export type AITextResponse<T> = {
   prompt: string;
   sessionId?: string;

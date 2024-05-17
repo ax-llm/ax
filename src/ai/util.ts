@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { createHash } from 'crypto';
 
 import type { AITextChatRequest } from '../tracing/types.js';
 
@@ -114,7 +114,7 @@ export function mergeTextResponses(
 }
 
 export const hashObject = (obj: object) => {
-  const hash = crypto.createHash('sha256');
+  const hash = createHash('sha256');
   hash.update(JSON.stringify(obj));
   return hash.digest('hex');
 };

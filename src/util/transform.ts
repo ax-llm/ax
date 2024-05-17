@@ -1,7 +1,7 @@
 import {
+  type Transformer,
   TransformStream,
-  type TransformStreamDefaultController,
-  type Transformer
+  type TransformStreamDefaultController
 } from 'stream/web';
 
 class JSONTransformer<O> implements Transformer<string, O> {

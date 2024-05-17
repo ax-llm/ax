@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { existsSync } from 'fs';
 
 import { MemoryDB } from '../db/memory.js';
 import type { AIService } from '../text/index.js';
@@ -36,7 +36,7 @@ export class Router {
   ): Promise<void> => {
     const fn = options?.filename;
 
-    if (fn && fs.existsSync(fn)) {
+    if (fn && existsSync(fn)) {
       await this.db.load(fn);
     }
 

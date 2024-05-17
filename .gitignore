@@ -14,7 +14,3 @@ audio
 .env.*
 .data
 demos.json
-*.d.ts
-*.d.ts.map
-*.js
-*.js.map

@@ -1,4 +1,4 @@
-import JSON5 from 'json5';
+import { stringify } from 'json5';
 
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type {
@@ -177,7 +177,7 @@ export class OpenAI extends BaseAI<
                 name: v.function.name,
                 arguments:
                   typeof v.function.arguments === 'object'
-                    ? JSON5.stringify(v.function.arguments)
+                    ? stringify(v.function.arguments)
                     : v.function.arguments
               }
             }))

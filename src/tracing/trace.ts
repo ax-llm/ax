@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { randomUUID } from 'crypto';
 
 import type {
   TextModelConfig,
@@ -261,7 +261,7 @@ export class AITextTraceStepBuilder {
   } as AITextTraceStep;
 
   setTraceId(traceId?: string): this {
-    this.traceStep.traceId = traceId ?? crypto.randomUUID();
+    this.traceStep.traceId = traceId ?? randomUUID();
     return this;
   }
 

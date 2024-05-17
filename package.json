@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "8.0.27",
+  "version": "8.1.0",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -15,7 +15,7 @@
   "scripts": {
     "build": "run-s build:*",
     "build:parser": "npx peggy --plugin ts-pegjs --extra-options-file src/dsp/parser.json --cache --output src/dsp/parser.ts src/dsp/parser.peggy",
-    "build:module": "tsc -p tsconfig.json",
+    "build:module": "tsc -p tsconfig.module.json",
     "fix": "run-s fix:*",
     "fix:prettier": "prettier --config .prettierrc 'src/**/*.ts' --write",
     "fix:lint": "eslint src --ext .ts --fix",

@@ -1,3 +1,5 @@
+import type { ReadableStream } from 'stream/web';
+
 import type {
   AIPromptConfig,
   AIService,
@@ -28,7 +30,6 @@ import type {
   TextResponse
 } from './types.js';
 import { hashObject, mergeTextResponses } from './util.js';
-import type { ReadableStream } from 'stream/web';
 
 const cache = new MemoryCache<TextResponse>();
 const colorLog = new ColorLog();

@@ -1,8 +1,8 @@
 import { type GenerateOptions, Signature } from '../dsp/index.js';
 import {
-  Program,
   type GenIn,
   type GenOut,
+  Program,
   type ProgramForwardOptions
 } from '../dsp/program.js';
 import { type AITextFunction, ChainOfThought } from '../index.js';

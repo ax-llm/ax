@@ -1,9 +1,13 @@
 {
-  "extends": "./tsconfig",
+  "extends": "@total-typescript/tsconfig/tsc/no-dom/library",
   "compilerOptions": {
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": false,
     "target": "esnext",
     "outDir": "build/module",
-    "module": "esnext"
+    "module": "esnext",
+    "pretty": true
   },
-  "exclude": ["node_modules/**"]
+  "exclude": ["node_modules/**", "build/**"]
 }

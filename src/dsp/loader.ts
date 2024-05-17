@@ -1,5 +1,5 @@
-import crypto from 'crypto'; // Import the crypto module to generate a hash
-import fs from 'fs';
+import { createHash } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 
 import type { Value } from './program.js';
@@ -17,8 +17,8 @@ export class HFDataLoader {
   }
 
   private ensureDataFolderExists(): void {
-    if (!fs.existsSync(this.dataFolder)) {
-      fs.mkdirSync(this.dataFolder, { recursive: true });
+    if (!existsSync(this.dataFolder)) {
+      mkdirSync(this.dataFolder, { recursive: true });
     }
   }
 
@@ -41,7 +41,7 @@ export class HFDataLoader {
 
   private getFilePath(url: string): string {
     // Generate a hash of the URL to use as a filename
-    const hash = crypto.createHash('md5').update(url).digest('hex');
+    const hash = createHash('md5').update(url).digest('hex');
     return path.join(this.dataFolder, `${hash}.json`);
   }
 
@@ -58,14 +58,14 @@ export class HFDataLoader {
     const url = `${this.baseUrl}?dataset=${dataset}&config=distractor&split=${split}&offset=${offset}&length=${length}`;
     const filePath = this.getFilePath(url);
 
-    if (fs.existsSync(filePath)) {
+    if (existsSync(filePath)) {
       console.log('Loading data from local file.');
-      const data = fs.readFileSync(filePath, 'utf8');
+      const data = readFileSync(filePath, 'utf8');
       return JSON.parse(data);
     } else {
       console.log('Downloading data from API.');
       const data = (await this.fetchDataFromAPI(url)) as { rows: Row[] };
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+      writeFileSync(filePath, JSON.stringify(data, null, 2));
       return data;
     }
   }

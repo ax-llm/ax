@@ -2,8 +2,8 @@ import JSON5 from 'json5';
 
 import type { TextResponseFunctionCall } from '../ai/types.js';
 
-import type { AIServiceActionOptions, FunctionExec } from './types.js';
 import { validateJSONSchema } from './jsonschema.js';
+import type { AIServiceActionOptions, FunctionExec } from './types.js';
 
 export type AITextFunctionHandler = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

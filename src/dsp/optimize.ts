@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { writeFileSync } from 'fs';
 
 import type {
   GenIn,
@@ -119,7 +119,7 @@ export class BootstrapFewShot<
     const demos: ProgramDemos[] = groupTracesByKeys(this.traces);
 
     if (options?.filename) {
-      fs.writeFileSync(options.filename, JSON.stringify(demos, null, 2));
+      writeFileSync(options.filename, JSON.stringify(demos, null, 2));
     }
 
     console.log('\n');
@@ -156,8 +156,8 @@ const randomSample = <T>(array: readonly T[], n: number): T[] => {
   // Shuffle the cloned array
   for (let i = clonedArray.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    let ca_i = clonedArray[i];
-    let ca_j = clonedArray[j];
+    const ca_i = clonedArray[i];
+    const ca_j = clonedArray[j];
 
     if (!ca_i || !ca_j) {
       throw new Error('Invalid array elements');

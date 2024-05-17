@@ -1,9 +1,9 @@
 import { type TextResponseFunctionCall } from '../ai/types.js';
 import type { GenerateOptions, GenerateResult } from '../dsp/generate.js';
 import {
-  Program,
   type GenIn,
   type GenOut,
+  Program,
   type ProgramForwardOptions
 } from '../dsp/program.js';
 import { Signature } from '../dsp/sig.js';
