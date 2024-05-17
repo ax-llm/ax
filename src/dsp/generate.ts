@@ -1,5 +1,3 @@
-import { stringify } from 'json5';
-
 import type { TextResponse, TextResponseFunctionCall } from '../ai/index.js';
 import type { AITextChatRequest } from '../index.js';
 import type { AITextFunction } from '../text/index.js';
@@ -204,7 +202,7 @@ export class Generate<
     for (const [i, f] of funcs.entries()) {
       _funcs['functionName' + i] = f.name;
       _funcs['functionArguments' + i] =
-        typeof f.args === 'object' ? stringify(f.args) : f.args;
+        typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
     }
 
     this.setTrace({

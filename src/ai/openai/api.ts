@@ -1,5 +1,3 @@
-import { stringify } from 'json5';
-
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type {
   AITextChatRequest,
@@ -177,7 +175,7 @@ export class OpenAI extends BaseAI<
                 name: v.function.name,
                 arguments:
                   typeof v.function.arguments === 'object'
-                    ? stringify(v.function.arguments)
+                    ? JSON.stringify(v.function.arguments)
                     : v.function.arguments
               }
             }))
