@@ -1,11 +1,11 @@
 {
   "name": "llmclient",
-  "version": "8.1.2",
+  "version": "8.1.3",
   "type": "module",
   "description": "The best library to work with LLMs",
-  "typings": "build/module/index.d.ts",
-  "module": "build/module/index.js",
-  "exports": "./build/module/index.js",
+  "typings": "build/module/src/index.d.ts",
+  "module": "build/module/src/index.js",
+  "exports": "./build/module/src/index.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dosco/llm-client.git"
@@ -29,7 +29,6 @@
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
     "doc": "run-s doc:html && open docs/index.html",
     "doc:html": "typedoc src/ --tsconfig tsconfig.module.json",
-    "doc:json": "typedoc src/ --tsconfig tsconfig.module.json --json docs/typedoc.json",
     "doc:publish": "gh-pages -m \"[ci skip] Updates\" -d docs",
     "version": "standard-version",
     "prepare": "run-s test",
@@ -85,12 +84,12 @@
     "timeout": "60s",
     "typescript": {
       "rewritePaths": {
-        "src/": "build/module/"
+        "src/": "build/module/src/"
       },
       "compile": false
     },
     "files": [
-      "!build/module/**"
+      "!build/modules/src/**"
     ]
   },
   "config": {
