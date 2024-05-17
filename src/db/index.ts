@@ -1,7 +1,7 @@
-import { Cloudflare, CloudflareArgs } from './cloudflare.js';
-import { MemoryDB, MemoryDBArgs } from './memory.js';
-import { Pinecone, PineconeArgs } from './pinecone.js';
-import { Weaviate, WeaviateArgs } from './weaviate.js';
+import { Cloudflare, type CloudflareArgs } from './cloudflare.js';
+import { MemoryDB, type MemoryDBArgs } from './memory.js';
+import { Pinecone, type PineconeArgs } from './pinecone.js';
+import { Weaviate, type WeaviateArgs } from './weaviate.js';
 
 export * from './types.js';
 export * from './weaviate.js';

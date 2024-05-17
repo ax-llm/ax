@@ -1,3 +1,4 @@
+import type { ReadableStream } from 'stream/web';
 import type {
   EmbedResponse,
   LoggerFunction,

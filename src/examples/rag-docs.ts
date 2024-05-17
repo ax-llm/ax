@@ -1,4 +1,10 @@
-import { AI, ApacheTika, DBManager, MemoryDB, OpenAIArgs } from '../index.js';
+import {
+  AI,
+  ApacheTika,
+  DBManager,
+  MemoryDB,
+  type OpenAIArgs
+} from '../index.js';
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 const db = new MemoryDB();

@@ -21,6 +21,7 @@
       "ignorePackages",
       { "js": "never", "ts": "never", "tsx": "never" }
     ],
+    "functional/no-mixed-types": "off",
     "functional/no-classes": "off",
     "functional/no-return-void": "off",
     "functional/no-let": "off",

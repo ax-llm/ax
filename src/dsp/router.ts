@@ -1,7 +1,7 @@
-import fs from 'node:fs';
+import fs from 'fs';
 
 import { MemoryDB } from '../db/memory.js';
-import { AIService } from '../text/index.js';
+import type { AIService } from '../text/index.js';
 
 export class Route {
   private readonly name: string;
@@ -62,10 +62,11 @@ export class Router {
       values: embeddings[0]
     });
 
-    if (matches.matches.length === 0) {
+    const route = matches.matches.at(0);
+    if (!route) {
       return '';
     }
 
-    return matches.matches[0].id;
+    return route.id;
   };
 }

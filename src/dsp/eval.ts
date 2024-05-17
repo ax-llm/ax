@@ -88,11 +88,10 @@ export function f1Score(prediction: string, groundTruth: string): number {
 
   let numSame = 0;
   for (const token in predictionCounts) {
-    if (groundTruthCounts[token]) {
-      numSame += Math.min(predictionCounts[token], groundTruthCounts[token]);
-    }
+    const v1 = predictionCounts[token] ?? 0;
+    const v2 = groundTruthCounts[token] ?? 0;
+    numSame += Math.min(v1, v2);
   }
-
   if (numSame === 0) {
     return 0;
   }

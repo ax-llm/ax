@@ -96,7 +96,7 @@ export class Cohere extends BaseAI<
     } as TextModelConfig;
   }
 
-  generateChatReq = (
+  override generateChatReq = (
     req: Readonly<AITextChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
@@ -136,11 +136,13 @@ export class Cohere extends BaseAI<
 
     const tools: CohereChatRequest['tools'] = req.functions?.map((v) => {
       const props: Record<string, PropValue> = {};
-      if (v.parameters) {
+      if (v.parameters?.properties) {
         for (const [key, value] of Object.entries(v.parameters.properties)) {
-          props[key].description = value.description;
-          props[key].type = value.type;
-          props[key].required = v.parameters.required?.includes(key) ?? false;
+          props[key] = {
+            description: value.description,
+            type: value.type,
+            required: v.parameters.required?.includes(key) ?? false
+          };
         }
       }
       return {
@@ -197,7 +199,7 @@ export class Cohere extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateEmbedReq = (
+  override generateEmbedReq = (
     req: Readonly<AITextEmbedRequest>
   ): [API, CohereEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
@@ -223,7 +225,9 @@ export class Cohere extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateChatResp = (resp: Readonly<CohereChatResponse>): TextResponse => {
+  override generateChatResp = (
+    resp: Readonly<CohereChatResponse>
+  ): TextResponse => {
     let finishReason: TextResponse['results'][0]['finishReason'];
     switch (resp.finish_reason) {
       case 'COMPLETE':
@@ -264,7 +268,9 @@ export class Cohere extends BaseAI<
     };
   };
 
-  generateEmbedResp = (resp: Readonly<CohereEmbedResponse>): EmbedResponse => {
+  override generateEmbedResp = (
+    resp: Readonly<CohereEmbedResponse>
+  ): EmbedResponse => {
     return {
       remoteId: resp.id,
       embeddings: resp.embeddings

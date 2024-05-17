@@ -32,3 +32,26 @@ export const dedup = (seq: readonly string[]): string[] => {
 
   return result;
 };
+
+export const extractIdAndText = (
+  input: string
+): { id: number; text: string } => {
+  const match = input.match(/^(\d+)[.,\s]+(.*)$/);
+  if (!match || match.length < 3) {
+    throw new Error(
+      'line must start with a number, a dot and then text. e.g. "1. hello"'
+    );
+  }
+
+  const id = parseInt(match[1] as string, 10);
+  const text = (match[2] as string).trim();
+  return { id, text };
+};
+
+export const batchArray = <T>(arr: readonly T[], size: number): T[][] => {
+  const chunkedArr = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunkedArr.push(arr.slice(i, i + size));
+  }
+  return chunkedArr;
+};

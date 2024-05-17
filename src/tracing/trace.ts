@@ -361,6 +361,8 @@ export const getMemory = async (
     body: JSON.stringify({ ...filter, limit: filter.limit ?? 10 })
   });
 
-  const json = await res.json();
+  const json = (await res.json()) as {
+    memory?: { role?: string; text: string }[];
+  };
   return json.memory ?? [];
 };

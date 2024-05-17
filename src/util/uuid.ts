@@ -21,8 +21,8 @@ export function uuidv5(name: string, namespace: string): string {
   hash.digest().copy(uuidBuffer, 0, 0, 16);
 
   // Set version and variant fields in UUID binary buffer.
-  uuidBuffer[6] = (uuidBuffer[6] & 0x0f) | 0x50; // version
-  uuidBuffer[8] = (uuidBuffer[8] & 0x3f) | 0x80; // variant
+  (uuidBuffer as any)[6] = ((uuidBuffer as any)[6] & 0x0f) | 0x50; // version
+  (uuidBuffer as any)[8] = ((uuidBuffer as any)[8] & 0x3f) | 0x80; // variant
 
   // Convert UUID binary buffer to hex string, with or without dashes.
   const uuid = uuidBuffer.toString('hex');

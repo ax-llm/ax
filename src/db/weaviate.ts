@@ -183,7 +183,13 @@ export class Weaviate implements DBService {
       );
     }
 
-    const matches = res.data.Get[req.table].map((match) => {
+    const resMatches = res.data.Get[req.table];
+
+    if (!resMatches) {
+      return { matches: [] };
+    }
+
+    const matches = resMatches.map((match) => {
       return {
         id: match.id as string,
         score: 1,

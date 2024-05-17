@@ -4,7 +4,7 @@ import {
   ChainOfThought,
   emScore,
   HFDataLoader,
-  MetricFn,
+  type MetricFn,
   type OpenAIArgs,
   RAG
 } from '../index.js';

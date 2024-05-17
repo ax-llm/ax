@@ -1,6 +1,6 @@
 import JSON5 from 'json5';
 
-import { FunctionJSONSchema } from '../text/functions.js';
+import { type FunctionJSONSchema } from '../text/functions.js';
 
 import { parse, type ParsedField, type ParsedSignature } from './parser.js';
 
@@ -132,12 +132,12 @@ export class Signature {
     }
 
     const schema = {
-      type: 'object' as const,
+      type: 'object',
       properties: properties,
       required: required
     };
 
-    return schema;
+    return schema as FunctionJSONSchema;
   };
 }
 
@@ -150,7 +150,9 @@ export const extractValues = (sig: Readonly<Signature>, result: string) => {
 
   fields.forEach((field, i) => {
     const prefix = field.title + ':';
-    const nextPrefix = fields.at(i + 1) ? fields[i + 1].title + ':' : undefined;
+    const nextPrefix = fields.at(i + 1)
+      ? fields[i + 1]!.title + ':'
+      : undefined;
     const ps = result.indexOf(prefix, s + 1);
 
     if (ps === -1) {
@@ -277,10 +279,10 @@ export const extractBlock = (input: string): string => {
     return input;
   }
   if (match.length === 3) {
-    return match[2];
+    return match[2] as string;
   }
   if (match.length === 2) {
-    return match[1];
+    return match[1] as string;
   }
   return input;
 };

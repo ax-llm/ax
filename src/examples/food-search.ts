@@ -1,4 +1,11 @@
-import { AI, type OpenAIArgs, ReAct, Signature } from '../index.js';
+import {
+  AI,
+  type OpenAIArgs,
+  ReAct,
+  Signature,
+  type FunctionJSONSchema,
+  type AITextFunction
+} from '../index.js';
 
 const choice = Math.round(Math.random());
 
@@ -92,13 +99,13 @@ const OpentableAPI = ({
 };
 
 // List of functions available to the AI
-const functions = [
+const functions: AITextFunction[] = [
   {
     name: 'getCurrentWeather',
     description: 'get the current weather for a location',
     func: WeatherAPI,
     parameters: {
-      type: 'object' as const,
+      type: 'object',
       properties: {
         location: {
           type: 'string',
@@ -119,7 +126,7 @@ const functions = [
     description: 'find restaurants in a location',
     func: OpentableAPI,
     parameters: {
-      type: 'object' as const,
+      type: 'object',
       properties: {
         location: {
           type: 'string',

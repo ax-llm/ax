@@ -1,10 +1,10 @@
-import { TextResponseFunctionCall } from '../ai/types.js';
-import { GenerateOptions, GenerateResult } from '../dsp/generate.js';
+import { type TextResponseFunctionCall } from '../ai/types.js';
+import type { GenerateOptions, GenerateResult } from '../dsp/generate.js';
 import {
-  GenIn,
-  GenOut,
   Program,
-  ProgramForwardOptions
+  type GenIn,
+  type GenOut,
+  type ProgramForwardOptions
 } from '../dsp/program.js';
 import { Signature } from '../dsp/sig.js';
 import { type AITextFunction, FunctionProcessor } from '../text/functions.js';
@@ -99,7 +99,7 @@ export class ReAct<
     return;
   };
 
-  public forward = async (
+  override forward = async (
     values: IN,
     options?: Readonly<ProgramForwardOptions>
   ): Promise<OUT> => {

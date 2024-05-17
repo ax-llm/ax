@@ -1,3 +1,9 @@
+import {
+  TransformStream,
+  type TransformStreamDefaultController,
+  type Transformer
+} from 'stream/web';
+
 class JSONTransformer<O> implements Transformer<string, O> {
   async transform(
     obj: string,

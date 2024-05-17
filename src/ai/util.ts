@@ -50,15 +50,17 @@ const functionCallRe = /(\w+)\((.*)\)/s;
 
 export const parseFunction = (
   value: string
-): { name: string; args: string } | undefined => {
+): { name: string; args?: string } | undefined => {
   let v: string[] | null;
 
   // extract function calls
   if ((v = functionCallRe.exec(value)) !== null) {
-    return {
-      name: v[1].trim(),
-      args: v[2].trim()
-    };
+    const name = v.at(1)?.trim();
+    const args = v.at(2)?.trim();
+    if (!name || name) {
+      throw new Error(`Invalid function format: ${value}`);
+    }
+    return { name, args };
   }
   return;
 };

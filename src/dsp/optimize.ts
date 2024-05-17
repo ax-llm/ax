@@ -1,6 +1,6 @@
-import fs from 'node:fs';
+import fs from 'fs';
 
-import {
+import type {
   GenIn,
   GenOut,
   Program,
@@ -67,6 +67,9 @@ export class BootstrapFewShot<
       }
 
       const ex = examples[i];
+      if (!ex) {
+        throw new Error('Invalid example');
+      }
       const exList = [...examples.slice(0, i), ...examples.slice(i + 1)];
       this.program.setExamples(exList);
 
@@ -153,7 +156,14 @@ const randomSample = <T>(array: readonly T[], n: number): T[] => {
   // Shuffle the cloned array
   for (let i = clonedArray.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [clonedArray[i], clonedArray[j]] = [clonedArray[j], clonedArray[i]];
+    let ca_i = clonedArray[i];
+    let ca_j = clonedArray[j];
+
+    if (!ca_i || !ca_j) {
+      throw new Error('Invalid array elements');
+    }
+
+    [clonedArray[i], clonedArray[j]] = [ca_j, ca_i];
   }
   // Return the first `n` items of the shuffled array
   return clonedArray.slice(0, n);

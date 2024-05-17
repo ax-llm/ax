@@ -1,5 +1,5 @@
-import { Example, MetricFn } from './optimize.js';
-import { GenIn, GenOut, Program } from './program.js';
+import type { Example, MetricFn } from './optimize.js';
+import type { GenIn, GenOut, Program } from './program.js';
 import { updateProgressBar } from './util.js';
 
 export type EvaluateArgs<IN extends GenIn, OUT extends GenOut> = {
@@ -26,6 +26,9 @@ export class TestPrompt<IN extends GenIn = GenIn, OUT extends GenOut = GenOut> {
 
     for (let i = 0; i < total; i++) {
       const ex = this.examples[i];
+      if (!ex) {
+        throw new Error('Invalid example');
+      }
 
       const res = await this.program.forward(ex as IN);
       const success = metricFn({ prediction: res, example: ex });

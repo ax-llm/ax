@@ -1,10 +1,10 @@
-import fs from 'node:fs';
+import fs from 'fs';
 
-import { TextModelConfig } from '../ai/types.js';
-import { AIMemory, AIService } from '../text/types.js';
+import type { TextModelConfig } from '../ai/types.js';
+import type { AIMemory, AIService } from '../text/types.js';
 
 import { InstanceRegistry } from './registry.js';
-import { Field, Signature } from './sig.js';
+import { type Field, Signature } from './sig.js';
 
 export type Value = string | string[] | number | boolean | object;
 
@@ -81,9 +81,10 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
     this.examples = examples.map((e) => {
       const res: Record<string, Value> = {};
       for (const f of fields) {
-        if (e[f.name]) {
-          validateValue(f, e[f.name]);
-          res[f.name] = e[f.name];
+        const value = e[f.name] as Value;
+        if (!value) {
+          validateValue(f, value);
+          res[f.name] = value;
         }
       }
       return res;

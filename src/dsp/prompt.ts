@@ -1,4 +1,4 @@
-import { validateValue, Value } from './program.js';
+import { validateValue, type Value } from './program.js';
 import type { Field, IField, Signature } from './sig.js';
 
 export type FieldTemplateFn = (

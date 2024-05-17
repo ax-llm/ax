@@ -1,5 +1,3 @@
-import chalk from 'chalk';
-
 import type {
   AIPromptConfig,
   AIService,
@@ -18,6 +16,7 @@ import type {
   TextModelInfoWithProvider
 } from '../tracing/types.js';
 import { type API, apiCall } from '../util/apicall.js';
+import { ColorLog } from '../util/log.js';
 import { RespTransformStream } from '../util/transform.js';
 
 import { MemoryCache } from './cache.js';
@@ -29,8 +28,10 @@ import type {
   TextResponse
 } from './types.js';
 import { hashObject, mergeTextResponses } from './util.js';
+import type { ReadableStream } from 'stream/web';
 
 const cache = new MemoryCache<TextResponse>();
+const colorLog = new ColorLog();
 
 interface BaseAIArgs {
   name: string;
@@ -416,14 +417,14 @@ export class BaseAI<
 const logChatRequest = (req: Readonly<AITextChatRequest>) => {
   const items = req.chatPrompt?.map((v) => v.content).join('\n');
   if (items) {
-    console.log(chalk.whiteBright(items));
+    console.log(colorLog.whiteBright(items));
   }
 };
 
 const logResponse = (res: Readonly<TextResponse>) => {
   const items = res.results.map((v) => v.content).join('\n');
   if (items) {
-    console.log(chalk.greenBright(items));
+    console.log(colorLog.greenBright(items));
   }
 
   const funcs = res.results
@@ -432,6 +433,6 @@ const logResponse = (res: Readonly<TextResponse>) => {
     ?.join('\n');
 
   if (funcs) {
-    console.log(chalk.greenBright(funcs));
+    console.log(colorLog.greenBright(funcs));
   }
 };

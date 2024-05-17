@@ -91,13 +91,18 @@ export class Cloudflare implements DBService {
     if (update) {
       throw new Error('Weaviate does not support batch update');
     }
-    if (batchReq.length === 0) {
+    if (batchReq.length < 1) {
       throw new Error('Batch request is empty');
     }
+    if (!batchReq[0] || !batchReq[0].table) {
+      throw new Error('Table name is empty');
+    }
+    const table = batchReq[0].table;
+
     const res = (await apiCall(
       {
         url: new URL(
-          `${this.accountId}/vectorize/indexes/${batchReq[0].table}/upsert`,
+          `${this.accountId}/vectorize/indexes/${table}/upsert`,
           baseURL
         ),
         headers: {

@@ -107,7 +107,7 @@ export class OpenAI extends BaseAI<
     this.config = config;
   }
 
-  getModelConfig(): TextModelConfig {
+  override getModelConfig(): TextModelConfig {
     const { config } = this;
     return {
       maxTokens: config.maxTokens,
@@ -125,7 +125,7 @@ export class OpenAI extends BaseAI<
     };
   }
 
-  generateChatReq = (
+  override generateChatReq = (
     req: Readonly<AITextChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
@@ -199,8 +199,8 @@ export class OpenAI extends BaseAI<
     const reqValue: OpenAIChatRequest = {
       model,
       messages,
-      response_format: this.config.responseFormat
-        ? { type: this.config.responseFormat }
+      response_format: this.config?.responseFormat
+        ? { type: this.config?.responseFormat }
         : undefined,
       tools,
       tool_choice: toolsChoice,
@@ -220,7 +220,7 @@ export class OpenAI extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateEmbedReq = (
+  override generateEmbedReq = (
     req: Readonly<AITextEmbedRequest>
   ): [API, OpenAIEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
@@ -250,7 +250,9 @@ export class OpenAI extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateChatResp = (resp: Readonly<OpenAIChatResponse>): TextResponse => {
+  override generateChatResp = (
+    resp: Readonly<OpenAIChatResponse>
+  ): TextResponse => {
     const { id, usage, choices, error } = resp;
 
     if (error) {
@@ -285,7 +287,7 @@ export class OpenAI extends BaseAI<
     };
   };
 
-  generateChatStreamResp = (
+  override generateChatStreamResp = (
     resp: Readonly<OpenAIChatResponseDelta>
   ): TextResponse => {
     const { id, usage, choices } = resp;
@@ -318,7 +320,9 @@ export class OpenAI extends BaseAI<
     };
   };
 
-  generateEmbedResp = (resp: Readonly<OpenAIEmbedResponse>): EmbedResponse => {
+  override generateEmbedResp = (
+    resp: Readonly<OpenAIEmbedResponse>
+  ): EmbedResponse => {
     const { data, usage } = resp;
 
     const modelUsage = usage

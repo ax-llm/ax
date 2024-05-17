@@ -3,7 +3,7 @@ import type {
   TextModelInfo,
   TextResponse
 } from '../ai/types.js';
-import { FunctionJSONSchema } from '../text/functions.js';
+import { type FunctionJSONSchema } from '../text/functions.js';
 
 export type APIError = {
   pathname: string;

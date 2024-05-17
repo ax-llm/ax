@@ -4,7 +4,7 @@ import {
   type GenerateOptions,
   Signature
 } from '../dsp/index.js';
-import { Program, ProgramForwardOptions } from '../dsp/program.js';
+import { Program, type ProgramForwardOptions } from '../dsp/program.js';
 import type { AIService } from '../text/types.js';
 
 import { ChainOfThought } from './cot.js';
@@ -44,9 +44,9 @@ export class RAG extends Program<{ question: string }, { answer: string }> {
     this.register(this.genAnswer);
   }
 
-  public getSignature = (): Signature => this.genAnswer.getSignature();
+  override getSignature = (): Signature => this.genAnswer.getSignature();
 
-  public forward = async (
+  override forward = async (
     { question }: Readonly<{ question: string }>,
     options?: Readonly<ProgramForwardOptions>
   ): Promise<{ answer: string }> => {

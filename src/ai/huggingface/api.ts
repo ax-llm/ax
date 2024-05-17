@@ -84,7 +84,7 @@ export class HuggingFace extends BaseAI<
     } as TextModelConfig;
   }
 
-  generateChatReq = (
+  override generateChatReq = (
     req: Readonly<AITextChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
@@ -131,7 +131,9 @@ export class HuggingFace extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateChatResp = (resp: Readonly<HuggingFaceResponse>): TextResponse => {
+  override generateChatResp = (
+    resp: Readonly<HuggingFaceResponse>
+  ): TextResponse => {
     return {
       results: [
         {

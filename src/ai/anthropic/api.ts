@@ -10,7 +10,7 @@ import type {
 
 import { modelInfoAnthropic } from './info.js';
 import {
-  AnthropicChatError,
+  type AnthropicChatError,
   type AnthropicChatRequest,
   type AnthropicChatResponse,
   type AnthropicChatResponseDelta,
@@ -73,7 +73,7 @@ export class Anthropic extends BaseAI<
     this.config = config;
   }
 
-  getModelConfig(): TextModelConfig {
+  override getModelConfig(): TextModelConfig {
     const { config } = this;
     return {
       maxTokens: config.maxTokens,
@@ -84,7 +84,7 @@ export class Anthropic extends BaseAI<
     } as TextModelConfig;
   }
 
-  generateChatReq = (
+  override generateChatReq = (
     req: Readonly<AITextChatRequest>
   ): [API, AnthropicChatRequest] => {
     const apiConfig = {
@@ -133,7 +133,7 @@ export class Anthropic extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateChatResp = (
+  override generateChatResp = (
     response: Readonly<AnthropicChatResponse | AnthropicChatError>
   ): TextResponse => {
     const err = response as AnthropicChatError;
@@ -179,7 +179,7 @@ export class Anthropic extends BaseAI<
     };
   };
 
-  generateChatStreamResp = (
+  override generateChatStreamResp = (
     resp: Readonly<AnthropicChatResponseDelta>
   ): TextResponse => {
     let results: TextResponseResult[] = [];

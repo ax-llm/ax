@@ -1,4 +1,4 @@
-import { AI, OpenAIArgs, Route, Router } from '../index.js';
+import { AI, type OpenAIArgs, Route, Router } from '../index.js';
 
 const customerSupport = new Route('customerSupport', [
   'how can I return a product?',

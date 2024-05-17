@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { createReadStream } from 'fs';
 
 export interface ApacheTikaArgs {
   url?: string | URL;
@@ -17,10 +17,11 @@ export class ApacheTika {
   }
 
   private async _convert(
-    filePath: string,
+    file: string | Blob,
     options?: Readonly<ApacheTikaConvertOptions>
   ): Promise<string> {
-    const fileData = createReadStream(filePath);
+    const fileData =
+      typeof file === 'string' ? createReadStream(file) : file.stream();
 
     if (!fileData) {
       throw new Error('Failed to read file data');
@@ -30,10 +31,8 @@ export class ApacheTika {
 
     try {
       const res = await fetch(this.tikaUrl, {
-        body: fileData as unknown as BodyInit,
+        body: fileData,
         headers: { Accept: acceptValue },
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-expect-error
         duplex: 'half',
         method: 'PUT'
       });
@@ -50,16 +49,16 @@ export class ApacheTika {
   }
 
   public async convert(
-    filePaths: readonly string[],
+    files: Readonly<string[] | Blob[]>,
     options?: Readonly<{ batchSize?: number; format?: 'html' | 'text' }>
   ): Promise<string[]> {
     const results: string[] = [];
     const bs = options?.batchSize ?? 10;
 
-    for (let i = 0; i < filePaths.length; i += bs) {
-      const batch = filePaths.slice(i, i + bs);
-      const uploadPromises = batch.map((filePath) =>
-        this._convert(filePath, { format: options?.format })
+    for (let i = 0; i < files.length; i += bs) {
+      const batch = files.slice(i, i + bs);
+      const uploadPromises = batch.map((files) =>
+        this._convert(files, { format: options?.format })
       );
       const batchResults = await Promise.all(uploadPromises);
       results.push(...batchResults);

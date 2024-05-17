@@ -2,7 +2,7 @@ import crypto from 'crypto'; // Import the crypto module to generate a hash
 import fs from 'fs';
 import path from 'path';
 
-import { Value } from './program.js';
+import type { Value } from './program.js';
 
 type Row = { row: Record<string, Value> };
 
@@ -28,7 +28,11 @@ export class HFDataLoader {
       if (!response.ok) {
         throw new Error(`Error fetching data: ${response.statusText}`);
       }
-      return await response.json();
+      const data = (await response.json()) as { rows: Row[] };
+      if (!data?.rows) {
+        throw new Error('Invalid data format');
+      }
+      return data;
     } catch (error) {
       console.error('Error fetching data from API:', error);
       throw error;
@@ -106,6 +110,9 @@ export class HFDataLoader {
           }
           const resultFieldName =
             renameMap && field in renameMap ? renameMap[field] : field;
+          if (!resultFieldName) {
+            throw new Error(`Invalid field name: ${field}`);
+          }
           result[resultFieldName] = value as Value;
         });
 

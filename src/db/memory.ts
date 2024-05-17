@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fs from 'fs';
 
 import type {
   DBQueryRequest,
@@ -19,10 +19,11 @@ type DBState = Record<string, Record<string, DBUpsertRequest>>;
  * @export
  */
 export class MemoryDB implements DBService {
-  private state: DBState = {};
+  private state: DBState;
   private filename?: string;
 
   constructor({ filename }: Readonly<MemoryDBArgs> = {}) {
+    this.state = {};
     this.filename = filename;
 
     if (filename && fs.existsSync(filename)) {
@@ -36,9 +37,16 @@ export class MemoryDB implements DBService {
     _update?: boolean
   ): Promise<DBUpsertResponse> => {
     if (!this.state[req.table]) {
-      this.state[req.table] = {};
+      this.state[req.table] = {
+        [req.id]: req
+      };
+    } else {
+      const obj = this.state[req.table];
+      if (!obj) {
+        throw new Error('Table not found: ' + req.table);
+      }
+      obj[req.id] = req;
     }
-    this.state[req.table][req.id] = req;
 
     if (this.filename) {
       await this.save();
@@ -129,9 +137,9 @@ const distance = (a: readonly number[], b: readonly number[]): number => {
   const vectorB = new Float64Array(b);
 
   for (let i = 0; i < vectorA.length; i++) {
-    dotProduct += vectorA[i] * vectorB[i];
-    normA += vectorA[i] * vectorA[i];
-    normB += vectorB[i] * vectorB[i];
+    dotProduct += vectorA[i]! * vectorB[i]!;
+    normA += vectorA[i]! * vectorA[i]!;
+    normB += vectorB[i]! * vectorB[i]!;
     if (vectorA[i] !== 0) zeroVectorA = false;
     if (vectorB[i] !== 0) zeroVectorB = false;
   }

@@ -1,6 +1,5 @@
 // import * as chrono from 'chrono-node';
 // import superagent from 'superagent';
-// import chalk from 'chalk';
 
 // const trelloApiKey = process.env.TRELLO_APIKEY;
 // const trelloApiToken = process.env.TRELLO_APITOKEN;

@@ -5,7 +5,12 @@ import type { AITextChatRequest } from '../index.js';
 import type { AITextFunction } from '../text/index.js';
 import type { AIService } from '../text/index.js';
 
-import { GenIn, GenOut, Program, ProgramForwardOptions } from './program.js';
+import {
+  Program,
+  type GenIn,
+  type GenOut,
+  type ProgramForwardOptions
+} from './program.js';
 import { PromptTemplate } from './prompt.js';
 import {
   extractValues,
@@ -61,7 +66,7 @@ export class Generate<
     }
   }
 
-  public getSignature = (): Signature => this.sig;
+  public override getSignature = (): Signature => this.sig;
 
   // eslint-disable-next-line functional/prefer-immutable-types
   public updateSignature = (setFn: (sig: Signature) => void) => {
@@ -120,6 +125,7 @@ export class Generate<
     const functions = this.options?.functions;
     const functionCall = this.options?.functionCall;
     const _ai = ai ?? this.ai;
+
     const hasJSON = this.sig
       .getOutputFields()
       .some((f) => f?.type?.name === 'json' || f?.type?.isArray);
@@ -295,7 +301,7 @@ export class AssertionError extends Error {
     super(message);
     this.value = value;
     this.name = this.constructor.name;
-    Error.captureStackTrace(this, this.constructor);
+    this.stack = new Error().stack;
   }
   public getValue = () => this.value;
   public getOptional = () => this.optional;

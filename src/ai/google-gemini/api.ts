@@ -89,7 +89,7 @@ export class GoogleGemini extends BaseAI<
     } as TextModelConfig;
   }
 
-  generateChatReq = (
+  override generateChatReq = (
     req: Readonly<AITextChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AIPromptConfig>
@@ -129,7 +129,7 @@ export class GoogleGemini extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateEmbedReq = (
+  override generateEmbedReq = (
     req: Readonly<AITextEmbedRequest>
   ): [API, GoogleGeminiEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
@@ -156,7 +156,7 @@ export class GoogleGemini extends BaseAI<
     return [apiConfig, reqValue];
   };
 
-  generateChatResp = (
+  override generateChatResp = (
     resp: Readonly<GoogleGeminiChatResponse>
   ): TextResponse => {
     const results =
@@ -184,7 +184,7 @@ export class GoogleGemini extends BaseAI<
     };
   };
 
-  generateEmbedResp = (
+  override generateEmbedResp = (
     resp: Readonly<GoogleGeminiEmbedResponse>
   ): EmbedResponse => {
     const embeddings = resp.predictions.map(

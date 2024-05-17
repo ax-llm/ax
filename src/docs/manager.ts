@@ -1,4 +1,4 @@
-import { AIService, DBService } from '../index.js';
+import type { AIService, DBQueryResponse, DBService } from '../index.js';
 
 export interface DBLoaderOptions {
   chunker?: (text: string) => string[];
@@ -9,6 +9,13 @@ export interface DBManagerArgs {
   db: DBService;
   config?: DBLoaderOptions;
 }
+
+export interface Match {
+  score: number;
+  text: string;
+}
+
+const table = 'text_embeddings';
 
 export class DBManager {
   private ai: AIService;
@@ -63,12 +70,14 @@ export class DBManager {
         const ret = await this.ai.embed({ texts: batch });
 
         // Prepare batch for bulk upsert
-        const embeddings = ret.embeddings.map((embedding, index) => ({
-          id: `chunk_${Date.now() + index}`, // Unique ID for each chunk, adjusted by index
-          table: 'text_embeddings',
-          values: embedding,
-          metadata: { text: batch[index] }
-        }));
+        const embeddings = ret.embeddings
+          .map((embedding, index) => ({
+            id: `chunk_${Date.now() + index}`, // Unique ID for each chunk, adjusted by index
+            table,
+            values: embedding,
+            metadata: { text: batch[index] ?? '' }
+          }))
+          .filter((v) => v.metadata?.text && v.metadata?.text.length > 0);
 
         // Batch upsert embeddings
         await this.db.batchUpsert(embeddings);
@@ -78,25 +87,41 @@ export class DBManager {
     }
   };
 
-  query = async (query: Readonly<string | string[]>) => {
+  query = async (
+    query: Readonly<string | string[] | number | number[]>,
+    { topPercent }: Readonly<{ topPercent?: number }> | undefined = {}
+  ): Promise<Match[][]> => {
     const texts = Array.isArray(query) ? query : [query];
 
-    // Get embedding for the text
-    const ret = await this.ai.embed({ texts });
+    let queries: Promise<DBQueryResponse>[];
 
-    // Query the DB for similar embeddings
-    const { matches } = await this.db.query({
-      table: 'text_embeddings',
-      values: ret.embeddings[0]
+    if (typeof texts[0] === 'string') {
+      const embedResults = await this.ai.embed({ texts });
+      queries = embedResults.embeddings.map((values) =>
+        this.db.query({ table, values })
+      );
+    } else {
+      queries = texts.map((values) => this.db.query({ table, values }));
+    }
+
+    const queryResults = await Promise.all(queries);
+
+    const res = queryResults.map(({ matches }) => {
+      const m = matches
+        .filter((v) => v.metadata?.text && v.metadata?.text.length > 0)
+        .map(({ score, metadata }) => ({ score, text: metadata?.text ?? '' }));
+
+      const tp = topPercent && topPercent > 1 ? topPercent / 100 : topPercent;
+      return tp ? getTopInPercent(m, tp) : m;
     });
 
-    return matches;
+    return res;
   };
 }
 
 const processChunks = (
   initialChunks: readonly string[],
-  maxWordsPerChunk: number = 1000,
+  maxWordsPerChunk: number = 300,
   overagePercentage: number = 0.1
 ): string[] => {
   const chunks = [];
@@ -145,4 +170,18 @@ const processChunks = (
     chunks.push(currentChunk);
   }
   return chunks;
+};
+
+const getTopInPercent = (
+  entries: readonly Match[],
+  percent: number = 0.1
+): Match[] => {
+  // Sort entries by score in ascending order
+  const sortedEntries = [...entries].sort((a, b) => a.score - b.score);
+
+  // Calculate the number of entries to take (top 10%)
+  const topTenPercentCount = Math.ceil(sortedEntries.length * percent);
+
+  // Return the top 10% of entries
+  return sortedEntries.slice(0, topTenPercentCount);
 };

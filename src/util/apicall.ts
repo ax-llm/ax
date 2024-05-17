@@ -1,6 +1,7 @@
 import path from 'path';
 
 import { JSONStringifyStream } from './transform.js';
+import { TextDecoderStream, type ReadableStream } from 'stream/web';
 /**
  * Util: API details
  * @export
@@ -40,7 +41,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   }
 
   if (!api.stream) {
-    return await res.json();
+    return (await res.json()) as TResponse;
   }
 
   const st = res.body

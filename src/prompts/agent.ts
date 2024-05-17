@@ -1,11 +1,11 @@
 import { type GenerateOptions, Signature } from '../dsp/index.js';
 import {
-  GenIn,
-  GenOut,
   Program,
-  ProgramForwardOptions
+  type GenIn,
+  type GenOut,
+  type ProgramForwardOptions
 } from '../dsp/program.js';
-import { AITextFunction, ChainOfThought } from '../index.js';
+import { type AITextFunction, ChainOfThought } from '../index.js';
 import type { AIService } from '../text/types.js';
 
 import { ReAct } from './react.js';
@@ -77,7 +77,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     };
   };
 
-  public forward = async (
+  override forward = async (
     values: IN,
     options?: Readonly<ProgramForwardOptions>
   ): Promise<OUT> => {

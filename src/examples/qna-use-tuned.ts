@@ -3,7 +3,7 @@ import {
   ChainOfThought,
   emScore,
   HFDataLoader,
-  MetricFn,
+  type MetricFn,
   type OpenAIArgs,
   TestPrompt
 } from '../index.js';

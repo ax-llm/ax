@@ -1,9 +1,9 @@
-import Ajv, { AnySchema } from 'ajv';
 import JSON5 from 'json5';
 
 import type { TextResponseFunctionCall } from '../ai/types.js';
 
 import type { AIServiceActionOptions, FunctionExec } from './types.js';
+import { validateJSONSchema } from './jsonschema.js';
 
 export type AITextFunctionHandler = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -12,9 +12,17 @@ export type AITextFunctionHandler = (
 ) => unknown;
 
 export type FunctionJSONSchema = {
-  type: 'object';
-  properties: object;
+  type: string;
+  properties?: Record<
+    string,
+    FunctionJSONSchema & {
+      enum?: string[];
+      default?: unknown;
+      description: string;
+    }
+  >;
   required?: string[];
+  items?: FunctionJSONSchema;
 };
 
 export type AITextFunction = {
@@ -24,15 +32,13 @@ export type AITextFunction = {
   func?: AITextFunctionHandler;
 };
 
-const ajv = new Ajv();
-
 export class FunctionProcessor {
   private funcList: readonly AITextFunction[];
 
   constructor(funcList: readonly AITextFunction[]) {
     funcList
       .filter((v) => v.parameters)
-      .forEach((v) => ajv.validateSchema(v.parameters as AnySchema));
+      .forEach((v) => validateJSONSchema(v.parameters!));
     this.funcList = funcList;
   }
 
