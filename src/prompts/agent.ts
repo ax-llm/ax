@@ -14,7 +14,7 @@ export interface AgentI {
   getFunction(): AITextFunction;
 }
 
-type AgentOptions = Omit<GenerateOptions, 'functions' | 'functionCall'>;
+export type AgentOptions = Omit<GenerateOptions, 'functions' | 'functionCall'>;
 
 export class Agent<IN extends GenIn, OUT extends GenOut>
   extends Program<IN, OUT>

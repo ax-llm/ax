@@ -2,7 +2,7 @@ import type { AIServiceOptions } from '../../text/types.js';
 import { OpenAI } from '../openai/api.js';
 import type { OpenAIConfig } from '../openai/types.js';
 
-type OllamaAIConfig = OpenAIConfig;
+export type OllamaAIConfig = OpenAIConfig;
 
 /**
  * OllamaAI: Default Model options for text generation

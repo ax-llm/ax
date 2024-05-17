@@ -12,7 +12,7 @@ export interface MemoryDBArgs {
   filename?: string;
 }
 
-type DBState = Record<string, Record<string, DBUpsertRequest>>;
+export type DBState = Record<string, Record<string, DBUpsertRequest>>;
 
 /**
  * MemoryDB: DB Service

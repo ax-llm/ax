@@ -4,7 +4,7 @@ import path from 'path';
 
 import type { Value } from './program.js';
 
-type Row = { row: Record<string, Value> };
+export type Row = { row: Record<string, Value> };
 
 export class HFDataLoader {
   private baseUrl: string;

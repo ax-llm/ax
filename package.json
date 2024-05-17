@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "8.1.0",
+  "version": "8.1.1",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/index.d.ts",
@@ -26,10 +26,10 @@
     "test:unit": "ava --timeout=60s",
     "watch:build": "tsc -p tsconfig.json -w",
     "watch:test": "ava --ext ts --watch",
-    "cov": "run-s build test:unit cov:html cov:lcov && open-cli coverage/index.html",
-    "doc": "run-s doc:html && open-cli docs/index.html",
-    "doc:html": "typedoc src/ --exclude **/*.spec.ts --out docs",
-    "doc:json": "typedoc src/ --exclude **/*.spec.ts --json docs/typedoc.json",
+    "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
+    "doc": "run-s doc:html && open docs/index.html",
+    "doc:html": "typedoc src/ --tsconfig tsconfig.module.json",
+    "doc:json": "typedoc src/ --tsconfig tsconfig.module.json --json docs/typedoc.json",
     "doc:publish": "gh-pages -m \"[ci skip] Updates\" -d docs",
     "version": "standard-version",
     "prepare": "run-s test",
@@ -69,7 +69,7 @@
     "standard-version": "^9.5.0",
     "ts-pegjs": "^4.2.1",
     "tsx": "^4.7.1",
-    "typedoc": "^0.25.12",
+    "typedoc": "^0.25.13",
     "typescript": "^5.4.3"
   },
   "files": [
