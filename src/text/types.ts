@@ -49,8 +49,6 @@ export interface AIMemory {
 
 export type AIPromptConfig = {
   stream?: boolean;
-  cache?: boolean;
-  cacheMaxAgeSeconds?: number;
 };
 
 export type AITranscribeConfig = {
@@ -62,6 +60,7 @@ export type AIServiceOptions = {
   disableLog?: boolean;
   log?: LoggerFunction;
   rateLimiter?: RateLimiterFunction;
+  fetch?: typeof fetch;
 };
 
 export type AIServiceActionOptions = {

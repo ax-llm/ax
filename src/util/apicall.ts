@@ -13,14 +13,21 @@ export type API = {
 };
 
 export const apiCall = async <TRequest = unknown, TResponse = unknown>(
-  api: Readonly<API & { url: string | URL; stream?: boolean; debug?: boolean }>,
+  api: Readonly<
+    API & {
+      url: string | URL;
+      stream?: boolean;
+      debug?: boolean;
+      fetch?: typeof fetch;
+    }
+  >,
   json: TRequest
 ): Promise<TResponse | ReadableStream<TResponse>> => {
   const baseUrl = new URL(process.env.PROXY ?? api.url);
   const apiPath = path.join(baseUrl.pathname, api.name ?? '/');
   const apiUrl = new URL(apiPath, baseUrl);
 
-  const res = await fetch(apiUrl, {
+  const res = await (api.fetch ?? fetch)(apiUrl, {
     method: api.put ? 'PUT' : 'POST',
     headers: {
       'Content-Type': 'application/json',

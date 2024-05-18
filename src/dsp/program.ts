@@ -81,8 +81,8 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
     this.examples = examples.map((e) => {
       const res: Record<string, Value> = {};
       for (const f of fields) {
-        const value = e[f.name] as Value;
-        if (!value) {
+        const value = e[f.name];
+        if (value) {
           validateValue(f, value);
           res[f.name] = value;
         }

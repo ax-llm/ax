@@ -43,6 +43,7 @@ type WeaviateQueryResponse = {
 export interface WeaviateArgs {
   apiKey: string;
   host: string;
+  fetch?: typeof fetch;
 }
 
 /**
@@ -52,13 +53,15 @@ export interface WeaviateArgs {
 export class Weaviate implements DBService {
   private apiKey: string;
   private apiURL: string;
+  private fetch?: typeof fetch;
 
-  constructor({ apiKey, host }: Readonly<WeaviateArgs>) {
+  constructor({ apiKey, host, fetch }: Readonly<WeaviateArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Weaviate API key not set');
     }
     this.apiKey = apiKey;
     this.apiURL = host;
+    this.fetch = fetch;
   }
 
   async upsert(
@@ -70,7 +73,8 @@ export class Weaviate implements DBService {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: `/v1/objects/${req.table}/${req.id}`,
-        put: update ? true : false
+        put: update ? true : false,
+        fetch: this.fetch
       },
       {
         id: req.id,
@@ -116,7 +120,8 @@ export class Weaviate implements DBService {
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
-        name: '/v1/batch/objects'
+        name: '/v1/batch/objects',
+        fetch: this.fetch
       },
       { objects }
     )) as WeaviateUpsertResponse[];
@@ -159,7 +164,8 @@ export class Weaviate implements DBService {
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
-        name: '/v1/graphql'
+        name: '/v1/graphql',
+        fetch: this.fetch
       },
       {
         query: `{

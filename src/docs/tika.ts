@@ -2,6 +2,7 @@ import { createReadStream } from 'fs';
 
 export interface ApacheTikaArgs {
   url?: string | URL;
+  fetch?: typeof fetch;
 }
 
 export interface ApacheTikaConvertOptions {
@@ -10,10 +11,12 @@ export interface ApacheTikaConvertOptions {
 
 export class ApacheTika {
   private tikaUrl: URL;
+  private fetch?: typeof fetch;
 
   constructor(args?: Readonly<ApacheTikaArgs>) {
     const _args = args ?? { url: 'http://localhost:9998/' };
     this.tikaUrl = new URL('/tika', _args.url);
+    this.fetch = _args.fetch;
   }
 
   private async _convert(
@@ -30,7 +33,7 @@ export class ApacheTika {
     const acceptValue = options?.format === 'html' ? 'text/html' : 'text/plain';
 
     try {
-      const res = await fetch(this.tikaUrl, {
+      const res = await (this.fetch ?? fetch)(this.tikaUrl, {
         body: fileData,
         headers: { Accept: acceptValue },
         duplex: 'half',

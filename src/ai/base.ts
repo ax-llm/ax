@@ -14,24 +14,20 @@ import {
 import type {
   AITextChatRequest,
   AITextEmbedRequest,
-  AITextTraceStep,
   TextModelInfoWithProvider
 } from '../tracing/types.js';
 import { type API, apiCall } from '../util/apicall.js';
 import { ColorLog } from '../util/log.js';
 import { RespTransformStream } from '../util/transform.js';
 
-import { MemoryCache } from './cache.js';
 import type {
   EmbedResponse,
-  RateLimiterFunction,
   TextModelConfig,
   TextModelInfo,
   TextResponse
 } from './types.js';
-import { hashObject, mergeTextResponses } from './util.js';
+import { mergeTextResponses } from './util.js';
 
-const cache = new MemoryCache<TextResponse>();
 const colorLog = new ColorLog();
 
 interface BaseAIArgs {
@@ -66,8 +62,9 @@ export class BaseAI<
   private debug = false;
   private disableLog = false;
 
-  private rt?: RateLimiterFunction;
-  private log?: (traceStep: Readonly<AITextTraceStep>) => void;
+  private rt?: AIServiceOptions['rateLimiter'];
+  private log?: AIServiceOptions['log'];
+  private fetch?: AIServiceOptions['fetch'];
 
   private traceStepBuilder?: AITextTraceStepBuilder;
   private traceStepReqBuilder?: TextRequestBuilder;
@@ -140,6 +137,10 @@ export class BaseAI<
     if (options.rateLimiter) {
       this.rt = options.rateLimiter;
     }
+
+    if (options.fetch) {
+      this.fetch = options.fetch;
+    }
   }
 
   getModelInfo(): Readonly<TextModelInfoWithProvider> {
@@ -207,16 +208,6 @@ export class BaseAI<
     _req: Readonly<AITextChatRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
-    let hashKey: string | undefined;
-
-    if (options?.cache) {
-      hashKey = hashObject(_req);
-      const cached = await cache.get(hashKey);
-      if (cached) {
-        return cached;
-      }
-    }
-
     if (!this.generateChatReq) {
       throw new Error('generateChatReq not implemented');
     }
@@ -243,7 +234,8 @@ export class BaseAI<
           url: this.apiURL,
           headers: this.buildHeaders(apiConfig.headers),
           stream,
-          debug: this.debug
+          debug: this.debug,
+          fetch: this.fetch
         },
         reqValue
       );
@@ -278,9 +270,6 @@ export class BaseAI<
       const doneCb = async (values: readonly TextResponse[]) => {
         const res = mergeTextResponses(values);
         await this.setStepTextResponse(res, startTime);
-        if (options?.cache && hashKey) {
-          cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
-        }
       };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
@@ -299,9 +288,6 @@ export class BaseAI<
     await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
 
-    if (options?.cache && hashKey) {
-      cache.set(hashKey, res, options?.cacheMaxAgeSeconds ?? 3600);
-    }
     return res;
   }
 
@@ -327,7 +313,8 @@ export class BaseAI<
           name: apiConfig.name,
           url: this.apiURL,
           headers: this.buildHeaders(apiConfig.headers),
-          debug: this.debug
+          debug: this.debug,
+          fetch: this.fetch
         },
         reqValue
       );

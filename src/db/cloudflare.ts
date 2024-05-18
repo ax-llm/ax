@@ -32,6 +32,7 @@ type CloudflareQueryResponse = {
 export interface CloudflareArgs {
   apiKey: string;
   accountId: string;
+  fetch?: typeof fetch;
 }
 
 /**
@@ -41,13 +42,15 @@ export interface CloudflareArgs {
 export class Cloudflare implements DBService {
   private apiKey: string;
   private accountId: string;
+  private fetch?: typeof fetch;
 
-  constructor({ apiKey, accountId }: Readonly<CloudflareArgs>) {
+  constructor({ apiKey, accountId, fetch }: Readonly<CloudflareArgs>) {
     if (!apiKey || !accountId) {
       throw new Error('Cloudflare credentials not set');
     }
     this.apiKey = apiKey;
     this.accountId = accountId;
+    this.fetch = fetch;
   }
 
   async upsert(
@@ -63,7 +66,8 @@ export class Cloudflare implements DBService {
         ),
         headers: {
           'X-Auth-Key': this.apiKey
-        }
+        },
+        fetch: this.fetch
       },
       {
         id: req.id,
@@ -107,7 +111,8 @@ export class Cloudflare implements DBService {
         ),
         headers: {
           'X-Auth-Key': this.apiKey
-        }
+        },
+        fetch: this.fetch
       },
       batchReq.map((req) => ({
         id: req.id,
@@ -139,7 +144,8 @@ export class Cloudflare implements DBService {
         ),
         headers: {
           'X-Auth-Key': this.apiKey
-        }
+        },
+        fetch: this.fetch
       },
       {
         vector: req.values,

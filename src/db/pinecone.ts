@@ -60,6 +60,7 @@ const createPineconeQueryRequest = (
 export interface PineconeArgs {
   apiKey: string;
   host: string;
+  fetch?: typeof fetch;
 }
 
 /**
@@ -69,13 +70,15 @@ export interface PineconeArgs {
 export class Pinecone implements DBService {
   private apiKey: string;
   private apiURL: string;
+  private fetch?: typeof fetch;
 
-  constructor({ apiKey, host }: Readonly<PineconeArgs>) {
+  constructor({ apiKey, host, fetch }: Readonly<PineconeArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Pinecone API key not set');
     }
     this.apiKey = apiKey;
     this.apiURL = host;
+    this.fetch = fetch;
   }
 
   async upsert(req: Readonly<DBUpsertRequest>): Promise<DBUpsertResponse> {
@@ -93,7 +96,8 @@ export class Pinecone implements DBService {
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
-        name: '/vectors/upsert'
+        name: '/vectors/upsert',
+        fetch: this.fetch
       },
       batchReq.map(({ id, values = [], metadata }) => ({
         id,
@@ -114,7 +118,8 @@ export class Pinecone implements DBService {
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
-        name: '/query'
+        name: '/query',
+        fetch: this.fetch
       },
       createPineconeQueryRequest(req)
     )) as PineconeQueryResponse;
