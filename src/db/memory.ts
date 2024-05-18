@@ -74,7 +74,9 @@ export class MemoryDB implements DBService {
 
   query = async (req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> => {
     const table = this.state[req.table];
-    if (!table) throw new Error(`${req.table} not found`);
+    if (!table) {
+      return { matches: [] };
+    }
 
     const matches: DBQueryResponse['matches'] = [];
 
