@@ -48,8 +48,17 @@ export const extractIdAndText = (
   return { id, text };
 };
 
+export const extractIndexPrefixedText = (input: string): string => {
+  const match = input.match(/^(\d+)[.,\s]+(.*)$/);
+  // Check if match is not null and if the second capturing group is present
+  if (match && match[2] !== undefined) {
+    return match[2].trim();
+  }
+  return input;
+};
+
 export const batchArray = <T>(arr: readonly T[], size: number): T[][] => {
-  const chunkedArr = [];
+  const chunkedArr: T[][] = [];
   for (let i = 0; i < arr.length; i += size) {
     chunkedArr.push(arr.slice(i, i + size));
   }

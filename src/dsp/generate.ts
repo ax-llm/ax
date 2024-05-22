@@ -1,4 +1,8 @@
-import type { TextResponse, TextResponseFunctionCall } from '../ai/index.js';
+import type {
+  TextResponse,
+  TextResponseFunctionCall,
+  TextResponseResult
+} from '../ai/index.js';
 import type { AITextChatRequest } from '../index.js';
 import type { AITextFunction } from '../text/index.js';
 import type { AIService } from '../text/index.js';
@@ -95,30 +99,22 @@ export class Generate<
     this.asserts.push({ fn, errMsg, optional });
   };
 
-  private _forward = async ({
-    values,
-    extraFields,
+  private _forwardCore = async ({
+    userMsg,
     mem,
     sessionId,
     traceId,
-    skipSystemPrompt,
     ai,
     modelConfig: mc
   }: Readonly<
-    ProgramForwardOptions & {
-      values: IN;
-      extraFields?: readonly IField[];
+    Omit<
+      ProgramForwardOptions,
+      'values' | 'extraFields' | 'skipSystemPrompt'
+    > & {
+      userMsg: { role: 'user'; content: string };
     }
-  >): Promise<OUT> => {
-    const prompt = this.pt.toString<IN>(values, {
-      extraFields,
-      skipSystemPrompt,
-      examples: this.examples,
-      demos: this.demos
-    });
-
-    const msg = { role: 'user' as const, content: prompt };
-    const chatPrompt = [...(mem?.history(sessionId) ?? []), msg];
+  >): Promise<TextResponseResult> => {
+    const chatPrompt = [...(mem?.history(sessionId) ?? []), userMsg];
 
     const functions = this.options?.functions;
     const functionCall = this.options?.functionCall;
@@ -149,9 +145,74 @@ export class Generate<
       throw new Error('No result found');
     }
 
+    return result;
+  };
+
+  private _forward = async ({
+    values,
+    extraFields,
+    mem,
+    sessionId,
+    traceId,
+    skipSystemPrompt,
+    maxCompletions,
+    ai,
+    modelConfig: mc
+  }: Readonly<
+    ProgramForwardOptions & {
+      values: IN;
+      extraFields?: readonly IField[];
+    }
+  >): Promise<OUT> => {
+    const prompt = this.pt.toString<IN>(values, {
+      extraFields,
+      skipSystemPrompt,
+      examples: this.examples,
+      demos: this.demos
+    });
+
+    const userMsg = { role: 'user' as const, content: prompt };
+    mem?.add(userMsg, sessionId);
+
+    let result: TextResponseResult | undefined;
+
+    for (let i = 0; i < (maxCompletions ?? 10); i++) {
+      const res = await this._forwardCore({
+        userMsg,
+        mem,
+        sessionId,
+        traceId,
+        ai,
+        modelConfig: mc
+      });
+
+      mem?.addResult(res, sessionId);
+
+      if (!result) {
+        result = res;
+      } else if (result.content) {
+        result.content += res.content;
+      } else {
+        result = {
+          ...result,
+          content: res.content
+        };
+      }
+
+      if (res.finishReason === 'length') {
+        continue;
+      }
+
+      break;
+    }
+
+    if (!result) {
+      throw new Error('No result found');
+    }
+
     let retval: Record<string, unknown> = {};
 
-    if (result.content) {
+    if (result?.content) {
       retval = extractValues(this.sig, result.content);
 
       for (const a of this.asserts) {
@@ -210,9 +271,6 @@ export class Generate<
       ...retval,
       ...(Object.keys(_funcs).length > 0 ? _funcs : {})
     });
-
-    mem?.add(msg, sessionId);
-    mem?.addResult(result, sessionId);
 
     return { ...values, ...retval, functions: funcs } as unknown as OUT;
   };

@@ -13,7 +13,10 @@ const tika = new ApacheTika();
 const text = await tika.convert(['./README.md']);
 
 const manager = new DBManager({ ai, db });
-await manager.insert(text, { maxWordsPerChunk: 50 });
+await manager.insert(text, {
+  minWordsPerChunk: 50,
+  maxWordsPerChunk: 100
+});
 
 const matches = await manager.query('Explain semantic routing');
 const topMatch = matches.at(0);

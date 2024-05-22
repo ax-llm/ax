@@ -196,7 +196,7 @@ Launch Apache Tika
 docker run -p 9998:9998 apache/tika
 ```
 
-Convert documents to text and embed them for retrieval using the `DBManager`
+Convert documents to text and embed them for retrieval using the `DBManager` it also supports a reranker and query rewriter. Two default implementations `DefaultResultReranker` and `DefaultQueryRewriter` are available to use.
 
 ```typescript
 const tika = new ApacheTika();

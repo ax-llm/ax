@@ -24,6 +24,7 @@ export type ProgramDemos = {
 };
 
 export type ProgramForwardOptions = {
+  maxCompletions?: number;
   maxRetries?: number;
   maxSteps?: number;
   mem?: AIMemory;
@@ -38,7 +39,7 @@ export interface Tunable {
   setExamples: (examples: Readonly<Record<string, Value>[]>) => void;
   setTrace: (trace: Record<string, Value>) => void;
   updateKey: (parentKey: string) => void;
-  getSignature: () => Signature;
+  getSignature: () => Signature | undefined;
   getTraces: () => ProgramTrace[];
   setDemos: (demos: readonly ProgramDemos[]) => void;
   loadDemos: (filename: string) => void;
@@ -96,7 +97,9 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
 
     for (const inst of this.reg) {
       const sig = inst.getSignature();
-      this._setExamples(sig, examples);
+      if (sig) {
+        this._setExamples(sig, examples);
+      }
     }
   };
 

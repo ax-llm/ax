@@ -3,14 +3,15 @@ import {
   type GenIn,
   type GenOut,
   Program,
-  type ProgramForwardOptions
+  type ProgramForwardOptions,
+  type Tunable
 } from '../dsp/program.js';
 import { type AITextFunction, ChainOfThought } from '../index.js';
 import type { AIService } from '../text/types.js';
 
 import { ReAct } from './react.js';
 
-export interface AgentI {
+export interface AgentI extends Tunable {
   getFunction(): AITextFunction;
 }
 
@@ -65,6 +66,10 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
         : new ChainOfThought(ai, this.sig, opt);
 
     this.register(this.react);
+
+    for (const agent of agents ?? []) {
+      this.register(agent);
+    }
   }
 
   public getFunction = (): AITextFunction => {
