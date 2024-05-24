@@ -1,4 +1,4 @@
-# LLMClient - Typescript/JS Library to build with LLMs
+*OUR PURPOSE - By integrating the Gemini API via the customized LLMClient in Copilot Workspace, you can intelligently apply styles to your InDesign document, making nuanced decisions based on content analysis. This approach combines the power of machine learning with the automation capabilities of Adobe InDesign, streamlining your document formatting process..... BASED OFF OF = 
 
 JS/TS library to make to easy to build with LLMs. Full support for various LLMs and VectorDBs, Agents, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Create and compose efficient prompts using prompt signatures. 🌵 🦙 🔥 ❤️ 🖖🏼
 
