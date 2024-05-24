@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 
+import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
 import type {
   DBQueryRequest,
   DBQueryResponse,
-  DBService,
   DBUpsertRequest,
   DBUpsertResponse
 } from './types.js';
@@ -18,11 +18,12 @@ export type DBState = Record<string, Record<string, DBUpsertRequest>>;
  * MemoryDB: DB Service
  * @export
  */
-export class MemoryDB implements DBService {
+export class MemoryDB extends BaseDB {
   private state: DBState;
   private filename?: string;
 
-  constructor({ filename }: Readonly<MemoryDBArgs> = {}) {
+  constructor({ filename, tracer }: Readonly<MemoryDBArgs & BaseArgs> = {}) {
+    super({ name: 'Memory', tracer });
     this.state = {};
     this.filename = filename;
 
@@ -31,10 +32,12 @@ export class MemoryDB implements DBService {
     }
   }
 
-  upsert = async (
+  override _upsert = async (
     req: Readonly<DBUpsertRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _update?: boolean
+    _update?: boolean,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<BaseOpOptions>
   ): Promise<DBUpsertResponse> => {
     if (!this.state[req.table]) {
       this.state[req.table] = {
@@ -55,9 +58,11 @@ export class MemoryDB implements DBService {
     return { ids: [req.id] };
   };
 
-  batchUpsert = async (
+  override _batchUpsert = async (
     batchReq: Readonly<DBUpsertRequest[]>,
-    update?: boolean
+    update?: boolean,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<BaseOpOptions>
   ): Promise<DBUpsertResponse> => {
     const ids: string[] = [];
     for (const req of batchReq) {
@@ -72,7 +77,11 @@ export class MemoryDB implements DBService {
     return { ids };
   };
 
-  query = async (req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> => {
+  override _query = async (
+    req: Readonly<DBQueryRequest>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<BaseOpOptions>
+  ): Promise<DBQueryResponse> => {
     const table = this.state[req.table];
     if (!table) {
       return { matches: [] };

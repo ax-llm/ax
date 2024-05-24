@@ -6,7 +6,7 @@ import type {
   AIServiceActionOptions,
   AIServiceOptions
 } from '../text/types.js';
-import { SpanAttributes } from '../trace/index.js';
+import { type Span, SpanAttributes, SpanKind } from '../trace/index.js';
 import type {
   AITextChatRequest,
   AITextEmbedRequest,
@@ -22,6 +22,7 @@ import type {
   TextModelInfo,
   TextResponse
 } from './types.js';
+import { mergeTextResponses } from './util.js';
 
 const colorLog = new ColorLog();
 
@@ -80,6 +81,7 @@ export class BaseAI<
     this.apiURL = apiURL;
     this.headers = headers;
     this.supportFor = supportFor;
+    this.tracer = options.tracer;
 
     if (models.model.length === 0) {
       throw new Error('No model defined');
@@ -155,17 +157,50 @@ export class BaseAI<
     _req: Readonly<AITextChatRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    if (this.tracer) {
+      const mc = this.getModelConfig();
+      return this.tracer?.startActiveSpan(
+        'Chat Request',
+        {
+          kind: SpanKind.SERVER,
+          attributes: {
+            [SpanAttributes.LLM_SYSTEM]: this.name,
+            [SpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name,
+            [SpanAttributes.LLM_REQUEST_MAX_TOKENS]: mc.maxTokens,
+            [SpanAttributes.LLM_REQUEST_TEMPERATURE]: mc.temperature,
+            [SpanAttributes.LLM_REQUEST_TOP_P]: mc.topP,
+            [SpanAttributes.LLM_REQUEST_TOP_K]: mc.topK,
+            [SpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]: mc.frequencyPenalty,
+            [SpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]: mc.presencePenalty,
+            [SpanAttributes.LLM_REQUEST_STOP_SEQUENCES]: mc.stop?.join(', '),
+            [SpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: mc.stream
+            // [SpanAttributes.LLM_PROMPTS]: _req.chatPrompt
+            //   ?.map((v) => v.content)
+            //   .join('\n')
+          }
+        },
+        (span) => {
+          return this._chat(_req, options, span);
+        }
+      );
+    }
+    return this._chat(_req, options);
+  }
+
+  async _chat(
+    _req: Readonly<AITextChatRequest>,
+    options?: Readonly<AIPromptConfig & AIServiceActionOptions>,
+    span?: Span
+  ): Promise<TextResponse | ReadableStream<TextResponse>> {
     if (!this.generateChatReq) {
       throw new Error('generateChatReq not implemented');
     }
-
-    const mc = this.getModelConfig();
-    const stop = mc.stop && mc.stop.length > 0 ? JSON.stringify(mc.stop) : '';
 
     const reqFn = this.generateChatReq;
     const stream = options?.stream ?? _req.modelConfig?.stream;
     const functions =
       _req.functions && _req.functions.length > 0 ? _req.functions : undefined;
+
     const req = {
       ..._req,
       functions,
@@ -182,7 +217,8 @@ export class BaseAI<
           headers: this.buildHeaders(apiConfig.headers),
           stream,
           debug: this.debug,
-          fetch: this.fetch
+          fetch: this.fetch,
+          span
         },
         reqValue
       );
@@ -207,14 +243,18 @@ export class BaseAI<
         return res;
       };
 
-      //   const doneCb = async (values: readonly TextResponse[]) => {
-      //     const res = mergeTextResponses(values);
-      //   };
+      const doneCb = async (values: readonly TextResponse[]) => {
+        const res = mergeTextResponses(values);
+        if (span?.isRecording()) {
+          setResponseAttr(res, span);
+        }
+        span?.end();
+      };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
         new RespTransformStream<TChatResponseDelta, TextResponse>(
-          wrappedRespFn
-          //doneCb
+          wrappedRespFn,
+          doneCb
         )
       );
       return st;
@@ -226,42 +266,40 @@ export class BaseAI<
     const res = this.generateChatResp(rv as TChatResponse);
     res.sessionId = options?.sessionId;
 
-    if (this.tracer) {
-      let usageAttr;
-      if (res.modelUsage) {
-        usageAttr = {
-          [SpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
-            res.modelUsage.completionTokens ?? 0,
-          [SpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens,
-          [SpanAttributes.LLM_USAGE_TOTAL_TOKENS]: res.modelUsage?.totalTokens
-        };
-      }
-
-      this.tracer?.startSpan('chat', {
-        attributes: {
-          [SpanAttributes.LLM_SYSTEM]: this.name,
-          [SpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name,
-          [SpanAttributes.LLM_REQUEST_MAX_TOKENS]: mc.maxTokens,
-          [SpanAttributes.LLM_REQUEST_TEMPERATURE]: mc.temperature,
-          [SpanAttributes.LLM_REQUEST_TOP_P]: mc.topP,
-          [SpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]: mc.frequencyPenalty,
-          [SpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]: mc.presencePenalty,
-          [SpanAttributes.LLM_REQUEST_STOP_SEQUENCES]: stop,
-          [SpanAttributes.LLM_REQUEST_USER]: _req.identity?.user,
-          ...(usageAttr ?? {})
-          // [SpanAttributes.LLM_PROMPTS]: _req.chatPrompt
-          //   ?.map((v) => v.content)
-          //   .join('\n')
-        }
-      });
+    if (span?.isRecording()) {
+      setResponseAttr(res, span);
     }
 
+    span?.end();
     return res;
   }
 
   async embed(
     req: Readonly<AITextEmbedRequest>,
     options?: Readonly<AIServiceActionOptions>
+  ): Promise<EmbedResponse> {
+    if (this.tracer) {
+      return this.tracer?.startActiveSpan(
+        'Embed Request',
+        {
+          kind: SpanKind.SERVER,
+          attributes: {
+            [SpanAttributes.LLM_SYSTEM]: this.name,
+            [SpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name
+          }
+        },
+        (span) => {
+          return this._embed(req, options, span);
+        }
+      );
+    }
+    return this._embed(req, options);
+  }
+
+  async _embed(
+    req: Readonly<AITextEmbedRequest>,
+    options?: Readonly<AIServiceActionOptions>,
+    span?: Span
   ): Promise<EmbedResponse> {
     if (!this.generateEmbedReq) {
       throw new Error('generateEmbedReq not implemented');
@@ -272,16 +310,19 @@ export class BaseAI<
 
     const fn = async () => {
       const [apiConfig, reqValue] = this.generateEmbedReq!(req);
+
       const res = await apiCall(
         {
           name: apiConfig.name,
           url: this.apiURL,
           headers: this.buildHeaders(apiConfig.headers),
           debug: this.debug,
-          fetch: this.fetch
+          fetch: this.fetch,
+          span
         },
         reqValue
       );
+
       return res;
     };
 
@@ -289,6 +330,18 @@ export class BaseAI<
     const res = this.generateEmbedResp!(resValue as TEmbedResponse);
 
     res.sessionId = options?.sessionId;
+
+    if (span?.isRecording()) {
+      if (res.modelUsage) {
+        span.setAttributes({
+          [SpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
+            res.modelUsage.completionTokens ?? 0,
+          [SpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens
+        });
+      }
+    }
+
+    span?.end();
     return res;
   }
 
@@ -337,5 +390,15 @@ const logChatRequest = (req: Readonly<AITextChatRequest>) => {
   const items = req.chatPrompt?.map((v) => v.content).join('\n');
   if (items) {
     console.log(colorLog.whiteBright(items));
+  }
+};
+
+const setResponseAttr = (res: Readonly<TextResponse>, span: Span) => {
+  if (res.modelUsage) {
+    span.setAttributes({
+      [SpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
+        res.modelUsage.completionTokens ?? 0,
+      [SpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens
+    });
   }
 };

@@ -10,7 +10,6 @@ import type {
 } from '../ai/types.js';
 import type { Tracer } from '../trace/index.js';
 import type { AITextChatRequest, AITextEmbedRequest } from '../types/index.js';
-import type { API } from '../util/apicall.js';
 
 export type FunctionExec = {
   id?: string;
@@ -59,20 +58,20 @@ export type AIServiceActionOptions = {
   traceId?: string;
 };
 
-export interface AIServiceBase<
-  TChatRequest,
-  TEmbedRequest,
-  TChatResponse,
-  TEmbedResponse
-> {
-  generateChatReq?(
-    req: Readonly<AITextChatRequest>,
-    config: Readonly<AIPromptConfig>
-  ): [API, TChatRequest];
-  generateEmbedReq?(req: Readonly<AITextChatRequest>): [API, TEmbedRequest];
-  generateChatResp?(resp: Readonly<TChatResponse>): TextResponse;
-  generateEmbedResp?(resp: Readonly<TEmbedResponse>): EmbedResponse;
-}
+// export interface AIServiceBase<
+//   TChatRequest,
+//   TEmbedRequest,
+//   TChatResponse,
+//   TEmbedResponse
+// > {
+//   generateChatReq?(
+//     req: Readonly<AITextChatRequest>,
+//     config: Readonly<AIPromptConfig>
+//   ): [API, TChatRequest];
+//   generateEmbedReq?(req: Readonly<AITextChatRequest>): [API, TEmbedRequest];
+//   generateChatResp?(resp: Readonly<TChatResponse>): TextResponse;
+//   generateEmbedResp?(resp: Readonly<TEmbedResponse>): EmbedResponse;
+// }
 
 export interface AIService {
   getName(): string;

@@ -1,26 +1,12 @@
 import { apiCall } from '../util/apicall.js';
 
+import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
 import type {
   DBQueryRequest,
   DBQueryResponse,
-  DBService,
   DBUpsertRequest,
   DBUpsertResponse
 } from './types.js';
-
-// For upsert
-
-// type PineconeUpsertRequest = {
-//   id: string;
-//   values: readonly number[];
-//   metadata?: Record<string, string>;
-// };
-
-// type PineconeUpsertResponse = {
-//   upsertedCount: number;
-// };
-
-// For query
 
 type PineconeQueryRequest = {
   namespace?: string;
@@ -67,28 +53,38 @@ export interface PineconeArgs {
  * Pinecone: DB Service
  * @export
  */
-export class Pinecone implements DBService {
+export class Pinecone extends BaseDB {
   private apiKey: string;
   private apiURL: string;
-  private fetch?: typeof fetch;
 
-  constructor({ apiKey, host, fetch }: Readonly<PineconeArgs>) {
+  constructor({
+    apiKey,
+    host,
+    fetch,
+    tracer
+  }: Readonly<PineconeArgs & BaseArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Pinecone API key not set');
     }
+    super({ name: 'Pinecone', fetch, tracer });
     this.apiKey = apiKey;
     this.apiURL = host;
-    this.fetch = fetch;
   }
 
-  async upsert(req: Readonly<DBUpsertRequest>): Promise<DBUpsertResponse> {
-    await this.batchUpsert([req]);
+  override _upsert = async (
+    req: Readonly<DBUpsertRequest>,
+    update?: boolean,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBUpsertResponse> => {
+    await this._batchUpsert([req], update, options);
     return { ids: [req.id] };
-  }
+  };
 
-  async batchUpsert(
-    batchReq: Readonly<DBUpsertRequest[]>
-  ): Promise<DBUpsertResponse> {
+  override _batchUpsert = async (
+    batchReq: Readonly<DBUpsertRequest[]>,
+    _update?: boolean,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBUpsertResponse> => {
     if (batchReq.length === 0) {
       throw new Error('Batch request is empty');
     }
@@ -97,7 +93,8 @@ export class Pinecone implements DBService {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/vectors/upsert',
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       batchReq.map(({ id, values = [], metadata }) => ({
         id,
@@ -107,9 +104,12 @@ export class Pinecone implements DBService {
     );
 
     return { ids: batchReq.map(({ id }) => id) };
-  }
+  };
 
-  async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {
+  override query = async (
+    req: Readonly<DBQueryRequest>,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBQueryResponse> => {
     if (req.text) {
       throw new Error('Pinecone does not support text');
     }
@@ -119,7 +119,8 @@ export class Pinecone implements DBService {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/query',
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       createPineconeQueryRequest(req)
     )) as PineconeQueryResponse;
@@ -132,5 +133,5 @@ export class Pinecone implements DBService {
     }));
 
     return { matches };
-  }
+  };
 }

@@ -29,6 +29,7 @@ export type DBQueryResponse = {
     id: string;
     score: number;
     metadata?: Record<string, string>;
+    table?: string;
   }[];
 };
 

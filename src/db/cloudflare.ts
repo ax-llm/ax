@@ -1,9 +1,9 @@
 import { apiCall } from '../util/apicall.js';
 
+import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
 import type {
   DBQueryRequest,
   DBQueryResponse,
-  DBService,
   DBUpsertRequest,
   DBUpsertResponse
 } from './types.js';
@@ -39,25 +39,29 @@ export interface CloudflareArgs {
  * Cloudflare: DB Service
  * @export
  */
-export class Cloudflare implements DBService {
+export class Cloudflare extends BaseDB {
   private apiKey: string;
   private accountId: string;
-  private fetch?: typeof fetch;
 
-  constructor({ apiKey, accountId, fetch }: Readonly<CloudflareArgs>) {
+  constructor({
+    apiKey,
+    accountId,
+    fetch,
+    tracer
+  }: Readonly<CloudflareArgs & BaseArgs>) {
     if (!apiKey || !accountId) {
       throw new Error('Cloudflare credentials not set');
     }
+    super({ name: 'Cloudflare', fetch, tracer });
     this.apiKey = apiKey;
     this.accountId = accountId;
-    this.fetch = fetch;
   }
 
-  async upsert(
+  override _upsert = async (
     req: Readonly<DBUpsertRequest>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _update?: boolean
-  ): Promise<DBUpsertResponse> {
+    update?: boolean,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBUpsertResponse> => {
     const res = (await apiCall(
       {
         url: new URL(
@@ -67,7 +71,8 @@ export class Cloudflare implements DBService {
         headers: {
           'X-Auth-Key': this.apiKey
         },
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       {
         id: req.id,
@@ -86,12 +91,13 @@ export class Cloudflare implements DBService {
     return {
       ids: res.result.ids
     };
-  }
+  };
 
-  async batchUpsert(
+  override batchUpsert = async (
     batchReq: Readonly<DBUpsertRequest[]>,
-    update?: boolean
-  ): Promise<DBUpsertResponse> {
+    update?: boolean,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBUpsertResponse> => {
     if (update) {
       throw new Error('Weaviate does not support batch update');
     }
@@ -112,7 +118,8 @@ export class Cloudflare implements DBService {
         headers: {
           'X-Auth-Key': this.apiKey
         },
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       batchReq.map((req) => ({
         id: req.id,
@@ -133,9 +140,12 @@ export class Cloudflare implements DBService {
     return {
       ids: res.result.ids
     };
-  }
+  };
 
-  async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {
+  override query = async (
+    req: Readonly<DBQueryRequest>,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBQueryResponse> => {
     const res = (await apiCall(
       {
         url: new URL(
@@ -145,7 +155,8 @@ export class Cloudflare implements DBService {
         headers: {
           'X-Auth-Key': this.apiKey
         },
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       {
         vector: req.values,
@@ -169,5 +180,5 @@ export class Cloudflare implements DBService {
       })
     );
     return { matches } as DBQueryResponse;
-  }
+  };
 }

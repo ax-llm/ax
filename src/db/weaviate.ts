@@ -1,33 +1,17 @@
 import { apiCall } from '../util/apicall.js';
 
+import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
 import type {
   DBQueryRequest,
   DBQueryResponse,
-  DBService,
   DBUpsertRequest,
   DBUpsertResponse
 } from './types.js';
-
-// For upsert
-
-// type WeaviateUpsertRequest = {
-//   id?: string;
-//   class: string;
-//   vector?: readonly number[];
-//   tenant?: string;
-//   properties: Record<string, string>;
-// };
 
 type WeaviateUpsertResponse = {
   id: string;
   result?: { errors?: { error: { message: string }[] } };
 };
-
-// For query
-
-// type WeaviateQueryRequest = {
-//   query: string;
-// };
 
 type WeaviateQueryResponse = {
   errors?: { location: string; message: string; path: string }[];
@@ -50,31 +34,37 @@ export interface WeaviateArgs {
  * Weaviate: DB Service
  * @export
  */
-export class Weaviate implements DBService {
+export class Weaviate extends BaseDB {
   private apiKey: string;
   private apiURL: string;
-  private fetch?: typeof fetch;
 
-  constructor({ apiKey, host, fetch }: Readonly<WeaviateArgs>) {
+  constructor({
+    apiKey,
+    host,
+    fetch,
+    tracer
+  }: Readonly<WeaviateArgs & BaseArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Weaviate API key not set');
     }
+    super({ name: 'Weaviate', fetch, tracer });
     this.apiKey = apiKey;
     this.apiURL = host;
-    this.fetch = fetch;
   }
 
-  async upsert(
+  override _upsert = async (
     req: Readonly<DBUpsertRequest>,
-    update?: boolean
-  ): Promise<DBUpsertResponse> {
+    update?: boolean,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBUpsertResponse> => {
     const res = (await apiCall(
       {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: `/v1/objects/${req.table}/${req.id}`,
         put: update ? true : false,
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       {
         id: req.id,
@@ -96,12 +86,13 @@ export class Weaviate implements DBService {
     return {
       ids: [res.id]
     };
-  }
+  };
 
-  async batchUpsert(
+  override _batchUpsert = async (
     batchReq: Readonly<DBUpsertRequest[]>,
-    update?: boolean
-  ): Promise<DBUpsertResponse> {
+    update?: boolean,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBUpsertResponse> => {
     if (update) {
       throw new Error('Weaviate does not support batch update');
     }
@@ -121,7 +112,8 @@ export class Weaviate implements DBService {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/v1/batch/objects',
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       { objects }
     )) as WeaviateUpsertResponse[];
@@ -139,9 +131,12 @@ export class Weaviate implements DBService {
     return {
       ids: res.map(({ id }) => id)
     };
-  }
+  };
 
-  async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {
+  override _query = async (
+    req: Readonly<DBQueryRequest>,
+    options?: Readonly<BaseOpOptions>
+  ): Promise<DBQueryResponse> => {
     let filter = '';
 
     if (req.columns && req.columns.length === 0) {
@@ -165,7 +160,8 @@ export class Weaviate implements DBService {
         url: this.apiURL,
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/v1/graphql',
-        fetch: this.fetch
+        fetch: this.fetch,
+        span: options?.span
       },
       {
         query: `{
@@ -203,5 +199,5 @@ export class Weaviate implements DBService {
       };
     });
     return { matches } as DBQueryResponse;
-  }
+  };
 }

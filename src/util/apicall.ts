@@ -1,6 +1,8 @@
 import path from 'path';
 import { type ReadableStream, TextDecoderStream } from 'stream/web';
 
+import type { Span } from '../trace/index.js';
+
 import { JSONStringifyStream } from './transform.js';
 /**
  * Util: API details
@@ -19,6 +21,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       stream?: boolean;
       debug?: boolean;
       fetch?: typeof fetch;
+      span?: Span;
     }
   >,
   json: TRequest
@@ -27,24 +30,40 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const apiPath = path.join(baseUrl.pathname, api.name ?? '/');
   const apiUrl = new URL(apiPath, baseUrl);
 
-  const res = await (api.fetch ?? fetch)(apiUrl, {
-    method: api.put ? 'PUT' : 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...api.headers
-    },
-    body: JSON.stringify(json)
-  });
-
-  if (res.status >= 400) {
-    const body = JSON.stringify(await res.json(), null, 2);
-    throw new Error(
-      `API Error: ${apiUrl.href}, ${res.status}, ${res.statusText}\n${body}`
-    );
+  if (api.span?.isRecording()) {
+    api.span.setAttributes({
+      'http.request.method': api.put ? 'PUT' : 'POST',
+      'url.full': apiUrl.href
+    });
   }
 
-  if (!res.body) {
-    throw new Error('Response body is null');
+  let res: Response | ReadableStream<TResponse> | undefined;
+
+  try {
+    res = await (api.fetch ?? fetch)(apiUrl, {
+      method: api.put ? 'PUT' : 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...api.headers
+      },
+      body: JSON.stringify(json)
+    });
+
+    if (res.status >= 400) {
+      const body = JSON.stringify(await res.json(), null, 2);
+      throw new Error(
+        `API Error: ${apiUrl.href}, ${res.status}, ${res.statusText}\n${body}`
+      );
+    }
+
+    if (!res.body) {
+      throw new Error('Response body is null');
+    }
+  } catch (e) {
+    if (api.span?.isRecording()) {
+      api.span.recordException(e as Error);
+    }
+    throw new Error(`API Error: ${apiUrl.href}, ${e}`);
   }
 
   if (!api.stream) {
