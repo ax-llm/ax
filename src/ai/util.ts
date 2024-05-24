@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 
-import type { AITextChatRequest } from '../tracing/types.js';
+import type { AITextChatRequest } from '../types/index.js';
 
 import type {
   TextModelInfo,

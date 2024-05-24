@@ -2,7 +2,7 @@ import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type {
   AITextChatRequest,
   AITextEmbedRequest
-} from '../../tracing/types.js';
+} from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';

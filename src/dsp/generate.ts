@@ -42,7 +42,7 @@ export class Generate<
   IN extends GenIn = GenIn,
   OUT extends GenerateResult<OUT> = GenOut
 > extends Program<IN, OUT> {
-  private sig: Signature;
+  private sigHash: string;
   private ai: AIService;
   private pt: PromptTemplate;
   private asserts: Assertion[];
@@ -53,38 +53,31 @@ export class Generate<
     signature: Readonly<Signature | string>,
     options?: Readonly<GenerateOptions>
   ) {
-    super();
+    super(signature);
 
+    this.sigHash = this.signature.hash();
     this.ai = ai;
     this.options = options;
-    this.sig = new Signature(signature);
-    this.pt = new (options?.promptTemplate ?? PromptTemplate)(this.sig);
+    this.pt = new (options?.promptTemplate ?? PromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
 
     if (this.options?.functions) {
+      // add function fields to signature if not natively supported by AI
       if (!this.ai.getFeatures().functions) {
-        this.updateSigForFunctions(this.sig);
+        this.updateSigForFunctions();
       }
     }
   }
 
-  public override getSignature = (): Signature => this.sig;
-
-  // eslint-disable-next-line functional/prefer-immutable-types
-  public updateSignature = (setFn: (sig: Signature) => void) => {
-    setFn(this.sig);
-    this.pt = new (this.options?.promptTemplate ?? PromptTemplate)(this.sig);
-  };
-
-  private updateSigForFunctions = (sig: Readonly<Signature>) => {
+  private updateSigForFunctions = () => {
     // These are the fields for the function call only needed when the underlying LLM API does not support function calling natively in the API.
-    sig.addOutputField({
+    this.signature.addOutputField({
       name: 'functionName',
       description: 'Name of function to call',
       isOptional: true
     });
 
-    sig.addOutputField({
+    this.signature.addOutputField({
       name: 'functionArguments',
       description: 'Arguments of function to call',
       isOptional: true
@@ -120,7 +113,7 @@ export class Generate<
     const functionCall = this.options?.functionCall;
     const _ai = ai ?? this.ai;
 
-    const hasJSON = this.sig
+    const hasJSON = this.signature
       .getOutputFields()
       .some((f) => f?.type?.name === 'json' || f?.type?.isArray);
 
@@ -164,6 +157,10 @@ export class Generate<
       extraFields?: readonly IField[];
     }
   >): Promise<OUT> => {
+    if (this.sigHash !== this.signature.hash()) {
+      const promptTemplate = this.options?.promptTemplate ?? PromptTemplate;
+      this.pt = new promptTemplate(this.signature);
+    }
     const prompt = this.pt.toString<IN>(values, {
       extraFields,
       skipSystemPrompt,
@@ -213,7 +210,7 @@ export class Generate<
     let retval: Record<string, unknown> = {};
 
     if (result?.content) {
-      retval = extractValues(this.sig, result.content);
+      retval = extractValues(this.signature, result.content);
 
       for (const a of this.asserts) {
         try {
@@ -275,10 +272,10 @@ export class Generate<
     return { ...values, ...retval, functions: funcs } as unknown as OUT;
   };
 
-  override forward = async (
+  public override async forward(
     values: IN,
     options?: Readonly<ProgramForwardOptions>
-  ): Promise<OUT> => {
+  ): Promise<OUT> {
     const maxRetries = options?.maxRetries ?? 3;
 
     let extraFields: IField[] = [];
@@ -313,7 +310,7 @@ export class Generate<
           const e1 = e as AssertionError;
           extraFields = [];
 
-          for (const f of this.sig.getOutputFields()) {
+          for (const f of this.signature.getOutputFields()) {
             const values = e1.getValue();
             extraFields.push({
               name: `past_${f.name}`,
@@ -339,7 +336,7 @@ export class Generate<
     }
 
     throw new Error(`Unable to fix validation error: ${err?.message}`);
-  };
+  }
 }
 
 export class AssertionError extends Error {

@@ -9,7 +9,7 @@ export type RewriteIn = { query: string };
 export type RewriteOut = { rewrittenQuery: string };
 
 export type RerankerIn = { query: string; items: string[] };
-export type RerankerOut = { items: string[] };
+export type RerankerOut = { rankedItems: string[] };
 
 export interface DBLoaderOptions {
   chunker?: (text: string) => string[];
@@ -142,16 +142,16 @@ export class DBManager {
       const resultItems = tp ? getTopInPercent(m, tp) : m;
 
       if (this.reranker) {
-        const { items } = await this.reranker.forward({
+        const { rankedItems } = await this.reranker.forward({
           query: texts[0] as string,
           items: resultItems.map((item) => item.text)
         });
 
-        const rankedItems = items
+        const items = rankedItems
           .map((item) => resultItems.find((r) => r.text === item))
           .filter((v) => v !== undefined) as Match[];
 
-        res.push(rankedItems);
+        res.push(items);
       } else {
         res.push(resultItems);
       }

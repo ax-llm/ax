@@ -6,16 +6,12 @@ import type {
   AIServiceActionOptions,
   AIServiceOptions
 } from '../text/types.js';
-import {
-  AITextTraceStepBuilder,
-  TextRequestBuilder,
-  TextResponseBuilder
-} from '../tracing/index.js';
+import { SpanAttributes } from '../trace/index.js';
 import type {
   AITextChatRequest,
   AITextEmbedRequest,
   TextModelInfoWithProvider
-} from '../tracing/types.js';
+} from '../types/index.js';
 import { type API, apiCall } from '../util/apicall.js';
 import { ColorLog } from '../util/log.js';
 import { RespTransformStream } from '../util/transform.js';
@@ -26,7 +22,6 @@ import type {
   TextModelInfo,
   TextResponse
 } from './types.js';
-import { mergeTextResponses } from './util.js';
 
 const colorLog = new ColorLog();
 
@@ -60,15 +55,10 @@ export class BaseAI<
   generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => EmbedResponse;
 
   private debug = false;
-  private disableLog = false;
 
   private rt?: AIServiceOptions['rateLimiter'];
-  private log?: AIServiceOptions['log'];
   private fetch?: AIServiceOptions['fetch'];
-
-  private traceStepBuilder?: AITextTraceStepBuilder;
-  private traceStepReqBuilder?: TextRequestBuilder;
-  private traceStepRespBuilder?: TextResponseBuilder;
+  private tracer?: AIServiceOptions['tracer'];
 
   protected apiURL: string;
   protected name: string;
@@ -126,20 +116,16 @@ export class BaseAI<
       this.debug = options.debug;
     }
 
-    if (options.disableLog) {
-      this.disableLog = options.disableLog;
-    }
-
-    if (options.log) {
-      this.log = options.log;
-    }
-
     if (options.rateLimiter) {
       this.rt = options.rateLimiter;
     }
 
     if (options.fetch) {
       this.fetch = options.fetch;
+    }
+
+    if (options.tracer) {
+      this.tracer = options.tracer;
     }
   }
 
@@ -165,45 +151,6 @@ export class BaseAI<
     throw new Error('getModelConfig not implemented');
   }
 
-  getTraceRequest(): Readonly<TextRequestBuilder> | undefined {
-    return this.traceStepReqBuilder;
-  }
-
-  getTraceResponse(): Readonly<TextResponseBuilder> | undefined {
-    return this.traceStepRespBuilder;
-  }
-
-  traceExists(): boolean {
-    return (
-      this.traceStepBuilder !== undefined &&
-      this.traceStepReqBuilder !== undefined &&
-      this.traceStepRespBuilder !== undefined
-    );
-  }
-
-  async logTrace(): Promise<void> {
-    if (
-      !this.traceStepBuilder ||
-      !this.traceStepReqBuilder ||
-      !this.traceStepRespBuilder
-    ) {
-      throw new Error('Trace not initialized');
-    }
-
-    const traceStep = this.traceStepBuilder
-      .setRequest(this.traceStepReqBuilder)
-      .setResponse(this.traceStepRespBuilder)
-      .build();
-
-    if (this.log) {
-      this.log?.(traceStep);
-    }
-
-    // if (this.debug) {
-    //   this.consoleLog.log(traceStep);
-    // }
-  }
-
   async chat(
     _req: Readonly<AITextChatRequest>,
     options?: Readonly<AIPromptConfig & AIServiceActionOptions>
@@ -212,7 +159,8 @@ export class BaseAI<
       throw new Error('generateChatReq not implemented');
     }
 
-    let startTime = 0;
+    const mc = this.getModelConfig();
+    const stop = mc.stop && mc.stop.length > 0 ? JSON.stringify(mc.stop) : '';
 
     const reqFn = this.generateChatReq;
     const stream = options?.stream ?? _req.modelConfig?.stream;
@@ -225,7 +173,6 @@ export class BaseAI<
     } as Readonly<AITextChatRequest>;
 
     const fn = async () => {
-      startTime = new Date().getTime();
       const [apiConfig, reqValue] = reqFn(req, options as AIPromptConfig);
 
       const res = await apiCall(
@@ -241,13 +188,6 @@ export class BaseAI<
       );
       return res;
     };
-
-    this.setStep(options);
-    this.traceStepReqBuilder = new TextRequestBuilder().setChatStep(
-      req,
-      this.getModelConfig(),
-      this.getModelInfo()
-    );
 
     if (this.debug) {
       logChatRequest(req);
@@ -267,15 +207,14 @@ export class BaseAI<
         return res;
       };
 
-      const doneCb = async (values: readonly TextResponse[]) => {
-        const res = mergeTextResponses(values);
-        await this.setStepTextResponse(res, startTime);
-      };
+      //   const doneCb = async (values: readonly TextResponse[]) => {
+      //     const res = mergeTextResponses(values);
+      //   };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
         new RespTransformStream<TChatResponseDelta, TextResponse>(
-          wrappedRespFn,
-          doneCb
+          wrappedRespFn
+          //doneCb
         )
       );
       return st;
@@ -285,8 +224,37 @@ export class BaseAI<
       throw new Error('generateChatResp not implemented');
     }
     const res = this.generateChatResp(rv as TChatResponse);
-    await this.setStepTextResponse(res, new Date().getTime() - startTime);
     res.sessionId = options?.sessionId;
+
+    if (this.tracer) {
+      let usageAttr;
+      if (res.modelUsage) {
+        usageAttr = {
+          [SpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
+            res.modelUsage.completionTokens ?? 0,
+          [SpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens,
+          [SpanAttributes.LLM_USAGE_TOTAL_TOKENS]: res.modelUsage?.totalTokens
+        };
+      }
+
+      this.tracer?.startSpan('chat', {
+        attributes: {
+          [SpanAttributes.LLM_SYSTEM]: this.name,
+          [SpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name,
+          [SpanAttributes.LLM_REQUEST_MAX_TOKENS]: mc.maxTokens,
+          [SpanAttributes.LLM_REQUEST_TEMPERATURE]: mc.temperature,
+          [SpanAttributes.LLM_REQUEST_TOP_P]: mc.topP,
+          [SpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]: mc.frequencyPenalty,
+          [SpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]: mc.presencePenalty,
+          [SpanAttributes.LLM_REQUEST_STOP_SEQUENCES]: stop,
+          [SpanAttributes.LLM_REQUEST_USER]: _req.identity?.user,
+          ...(usageAttr ?? {})
+          // [SpanAttributes.LLM_PROMPTS]: _req.chatPrompt
+          //   ?.map((v) => v.content)
+          //   .join('\n')
+        }
+      });
+    }
 
     return res;
   }
@@ -295,8 +263,6 @@ export class BaseAI<
     req: Readonly<AITextEmbedRequest>,
     options?: Readonly<AIServiceActionOptions>
   ): Promise<EmbedResponse> {
-    let modelResponseTime;
-
     if (!this.generateEmbedReq) {
       throw new Error('generateEmbedReq not implemented');
     }
@@ -305,8 +271,6 @@ export class BaseAI<
     }
 
     const fn = async () => {
-      const st = new Date().getTime();
-
       const [apiConfig, reqValue] = this.generateEmbedReq!(req);
       const res = await apiCall(
         {
@@ -318,23 +282,11 @@ export class BaseAI<
         },
         reqValue
       );
-      modelResponseTime = new Date().getTime() - st;
       return res;
     };
 
-    this.setStep(options);
-    this.traceStepReqBuilder = new TextRequestBuilder().setEmbedStep(
-      req,
-      this.getEmbedModelInfo()
-    );
-
     const resValue = this.rt ? await this.rt(async () => fn()) : await fn();
-
     const res = this.generateEmbedResp!(resValue as TEmbedResponse);
-
-    this.traceStepRespBuilder = new TextResponseBuilder()
-      .setModelUsage(res.modelUsage)
-      .setModelResponseTime(modelResponseTime);
 
     res.sessionId = options?.sessionId;
     return res;
@@ -374,27 +326,6 @@ export class BaseAI<
   // return apiCallWithUpload<Request, Response, APIType>(this.mergeAPIConfig<APIType>(api), json, file);
   // }
 
-  setStep(options?: Readonly<AIServiceActionOptions>) {
-    this.traceStepBuilder = new AITextTraceStepBuilder()
-      .setTraceId(options?.traceId)
-      .setSessionId(options?.sessionId);
-  }
-
-  async setStepTextResponse(res: Readonly<TextResponse>, startTime: number) {
-    if (this.debug) {
-      logResponse(res as TextResponse);
-    }
-
-    this.traceStepRespBuilder = new TextResponseBuilder()
-      .setResults(res.results)
-      .setModelUsage(res.modelUsage)
-      .setModelResponseTime(new Date().getTime() - startTime);
-
-    if (!this.disableLog) {
-      await this.logTrace();
-    }
-  }
-
   private buildHeaders(
     headers: Record<string, string> = {}
   ): Record<string, string> {
@@ -406,21 +337,5 @@ const logChatRequest = (req: Readonly<AITextChatRequest>) => {
   const items = req.chatPrompt?.map((v) => v.content).join('\n');
   if (items) {
     console.log(colorLog.whiteBright(items));
-  }
-};
-
-const logResponse = (res: Readonly<TextResponse>) => {
-  const items = res.results.map((v) => v.content).join('\n');
-  if (items) {
-    console.log(colorLog.greenBright(items));
-  }
-
-  const funcs = res.results
-    .at(0)
-    ?.functionCalls?.map((v) => v.function.name + ': ' + v.function.arguments)
-    ?.join('\n');
-
-  if (funcs) {
-    console.log(colorLog.greenBright(funcs));
   }
 };

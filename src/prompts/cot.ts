@@ -12,16 +12,7 @@ export class ChainOfThought<
     signature: Readonly<Signature | string>,
     options?: Readonly<GenerateOptions>
   ) {
-    super(ai, signature, options);
-    this.updateSignature(this.updateSig);
-  }
-
-  private updateSig = (sig: Readonly<Signature>) => {
-    // const outputs = sig
-    //   .getOutputFields()
-    //   .map((f) => `\`${f.name}\``)
-    //   .join(', ');
-
+    const sig = new Signature(signature);
     const description = `Let's work this out in a step by step way in order to ensure we have the right answer.`;
 
     sig.setOutputFields([
@@ -31,5 +22,7 @@ export class ChainOfThought<
       },
       ...sig.getOutputFields()
     ]);
-  };
+
+    super(ai, sig, options);
+  }
 }

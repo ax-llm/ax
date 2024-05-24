@@ -48,35 +48,38 @@ export interface Tunable {
 export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
   private key: string;
   private reg: InstanceRegistry<Readonly<Tunable>>;
+
+  protected signature: Signature;
   protected examples?: Record<string, Value>[];
   protected demos?: Record<string, Value>[];
   protected trace?: Record<string, Value>;
 
-  constructor() {
+  constructor(signature: Readonly<Signature | string>) {
     this.reg = new InstanceRegistry();
     this.key = this.constructor.name;
+    this.signature = new Signature(signature);
   }
 
-  public register = (prog: Readonly<Tunable>) => {
+  public register(prog: Readonly<Tunable>) {
     if (this.key) {
       prog.updateKey(this.key);
     }
     this.reg.register(prog);
-  };
+  }
 
-  public forward = (
+  public async forward(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _arg0: IN,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<ProgramForwardOptions>
-  ): Promise<OUT> => {
-    throw new Error('Not implemented');
-  };
+  ): Promise<OUT> {
+    throw new Error('forward() not implemented');
+  }
 
-  private _setExamples = (
+  private _setExamples(
     sig: Readonly<Signature>,
     examples: Readonly<Record<string, Value>[]>
-  ) => {
+  ) {
     const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
 
     this.examples = examples.map((e) => {
@@ -90,9 +93,9 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
       }
       return res;
     });
-  };
+  }
 
-  public setExamples = (examples: Readonly<Record<string, Value>[]>) => {
+  public setExamples(examples: Readonly<Record<string, Value>[]>) {
     this._setExamples(this.getSignature(), examples);
 
     for (const inst of this.reg) {
@@ -101,21 +104,21 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
         this._setExamples(sig, examples);
       }
     }
-  };
+  }
 
-  public setTrace = (trace: Record<string, Value>) => {
+  public setTrace(trace: Record<string, Value>) {
     this.trace = trace;
-  };
+  }
 
-  public updateKey = (parentKey: string) => {
+  public updateKey(parentKey: string) {
     this.key = [parentKey, this.key].join('/');
-  };
+  }
 
-  public getSignature = (): Signature => {
-    throw new Error('Not implemented');
-  };
+  public getSignature(): Signature {
+    return this.signature;
+  }
 
-  public getTraces = (): ProgramTrace[] => {
+  public getTraces(): ProgramTrace[] {
     let traces: ProgramTrace[] = [];
 
     if (this.trace) {
@@ -131,21 +134,21 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
       traces = [...traces, ..._traces];
     }
     return traces;
-  };
+  }
 
-  public setDemos = (demos: readonly ProgramDemos[]) => {
+  public setDemos(demos: readonly ProgramDemos[]) {
     const ourDemos = demos.find((v) => v.key === this.key);
     this.demos = ourDemos?.traces;
 
     for (const inst of this.reg) {
       inst.setDemos(demos);
     }
-  };
+  }
 
-  public loadDemos = (filename: string) => {
+  public loadDemos(filename: string) {
     const buf = readFileSync(filename, 'utf-8');
     this.setDemos(JSON.parse(buf));
-  };
+  }
 }
 
 export const validateValue = (

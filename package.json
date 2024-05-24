@@ -1,6 +1,6 @@
 {
   "name": "llmclient",
-  "version": "8.1.7",
+  "version": "8.1.8",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/src/index.d.ts",
@@ -23,7 +23,7 @@
     "test:lint": "eslint src --ext .ts",
     "test:prettier": "prettier \"src/**/*.ts\" --config .prettierrc --check",
     "test:spelling": "cspell \"{README.md,.github/*.md,src/**/*.ts}\"",
-    "test:unit": "ava --timeout=60s",
+    "test:unit": "ava --timeout=60s --verbose",
     "watch:build": "tsc -p tsconfig.json -w",
     "watch:test": "ava --ext ts --watch",
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",

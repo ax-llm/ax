@@ -1,5 +1,5 @@
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import type { AITextChatRequest } from '../../tracing/types.js';
+import type { AITextChatRequest } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
 import type { TextModelConfig, TextResponse } from '../types.js';

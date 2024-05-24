@@ -2,21 +2,14 @@ import type { ReadableStream } from 'stream/web';
 
 import type {
   EmbedResponse,
-  LoggerFunction,
   RateLimiterFunction,
   TextModelConfig,
   TextModelInfo,
   TextResponse,
   TextResponseResult
 } from '../ai/types.js';
-import type {
-  TextRequestBuilder,
-  TextResponseBuilder
-} from '../tracing/trace.js';
-import type {
-  AITextChatRequest,
-  AITextEmbedRequest
-} from '../tracing/types.js';
+import type { Tracer } from '../trace/index.js';
+import type { AITextChatRequest, AITextEmbedRequest } from '../types/index.js';
 import type { API } from '../util/apicall.js';
 
 export type FunctionExec = {
@@ -25,7 +18,6 @@ export type FunctionExec = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args?: any;
   result?: string;
-  // reasoning?: string[];
 };
 
 export type AITextResponse<T> = {
@@ -57,10 +49,9 @@ export type AITranscribeConfig = {
 
 export type AIServiceOptions = {
   debug?: boolean;
-  disableLog?: boolean;
-  log?: LoggerFunction;
   rateLimiter?: RateLimiterFunction;
   fetch?: typeof fetch;
+  tracer?: Tracer;
 };
 
 export type AIServiceActionOptions = {
@@ -109,25 +100,4 @@ export interface AIService {
   //   options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
   // ): Promise<TranscriptResponse>;
   setOptions(options: Readonly<AIServiceOptions>): void;
-  getTraceRequest(): Readonly<TextRequestBuilder> | undefined;
-  getTraceResponse(): Readonly<TextResponseBuilder> | undefined;
-  traceExists(): boolean;
-  logTrace(): void;
 }
-
-/*
-Magic isn't always unicorns and fairy dust␊
-Sometimes it's computer code and technology that's quite a bit of work␊
-But if you learn the tricks and the trades␊
-You'll find there's a wonder that awaits␊
-
-With a computer and some basic coding␊
-You can make anything your heart desires␊
-From games that you'll play for hours on end␊
-To apps that will make life much more fun␊
-
-So don't be afraid of the unknown␊
-Embrace the magic of computer code␊
-And you'll find that your dreams can come true␊
-With just a little bit of coding, you can do anything too!
-*/

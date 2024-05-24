@@ -1,6 +1,6 @@
 import type { TextResponseResult } from '../ai/types.js';
 import { convertToChatPromptItem } from '../ai/util.js';
-import type { AITextChatRequest } from '../tracing/types.js';
+import type { AITextChatRequest } from '../types/index.js';
 
 import type { AIMemory } from './types.js';
 

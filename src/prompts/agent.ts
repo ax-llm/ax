@@ -23,7 +23,6 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
 {
   private name: string;
   private description: string;
-  private sig: Signature;
   private react: Program<IN, OUT>;
 
   constructor(
@@ -43,11 +42,9 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     }>,
     options?: Readonly<AgentOptions>
   ) {
-    super();
-
+    super(signature);
     this.name = name;
     this.description = description;
-    this.sig = new Signature(signature);
 
     const funcs: AITextFunction[] = [
       ...(functions ?? []),
@@ -62,8 +59,8 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
 
     this.react =
       funcs.length > 0
-        ? new ReAct(ai, this.sig, opt)
-        : new ChainOfThought(ai, this.sig, opt);
+        ? new ReAct(ai, this.signature, opt)
+        : new ChainOfThought(ai, this.signature, opt);
 
     this.register(this.react);
 
@@ -73,7 +70,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
   }
 
   public getFunction = (): AITextFunction => {
-    const s = this.sig.toJSONSchema();
+    const s = this.signature.toJSONSchema();
     return {
       name: this.name,
       description: this.description,

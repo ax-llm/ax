@@ -1,6 +1,7 @@
 import { AI, ChainOfThought, type OpenAIArgs } from '../index.js';
 
 const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+ai.setOptions({ debug: true });
 const cot = new ChainOfThought(
   ai,
   `

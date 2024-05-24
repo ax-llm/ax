@@ -1,8 +1,10 @@
+import { createHash } from 'crypto';
+
 import JSON5 from 'json5';
 
 import { type FunctionJSONSchema } from '../text/functions.js';
 
-import { parse, type ParsedField, type ParsedSignature } from './parser.js';
+import { parse, type ParsedField } from './parser.js';
 
 export interface Field {
   name: string;
@@ -18,23 +20,31 @@ export interface Field {
 export type IField = Omit<Field, 'title'> & { title: string };
 
 export class Signature {
-  private sig: ParsedSignature;
   private description?: string;
   private inputFields: IField[];
   private outputFields: IField[];
 
+  private sigHash: string | undefined;
+
   constructor(signature: Readonly<Signature | string>) {
     if (typeof signature === 'string') {
-      this.sig = parse(signature);
+      const sig = parse(signature);
+      this.description = sig.desc;
+      this.inputFields = sig.inputs.map((v) => this.parseParsedField(v));
+      this.outputFields = sig.outputs.map((v) => this.parseParsedField(v));
     } else if (signature instanceof Signature) {
-      this.sig = signature.getParsedSignature();
+      this.description = signature.getDescription();
+      this.inputFields = structuredClone(
+        signature.getInputFields()
+      ) as IField[];
+      this.outputFields = structuredClone(
+        signature.getOutputFields()
+      ) as IField[];
     } else {
       throw new Error('invalid signature argument');
     }
 
-    this.description = this.sig.desc;
-    this.inputFields = this.sig.inputs.map((v) => this.parseParsedField(v));
-    this.outputFields = this.sig.outputs.map((v) => this.parseParsedField(v));
+    this.updateHash();
   }
 
   private parseParsedField = (field: Readonly<ParsedField>): IField => {
@@ -69,20 +79,33 @@ export class Signature {
     return { ...field, title };
   };
 
-  public setDescription = (desc: string) => (this.description = desc);
+  public setDescription = (desc: string) => {
+    this.description = desc;
+    this.updateHash();
+  };
 
-  public addInputField = (field: Readonly<Field>) =>
+  public addInputField = (field: Readonly<Field>) => {
     this.inputFields.push(this.parseField(field));
-  public addOutputField = (field: Readonly<Field>) =>
+    this.updateHash();
+  };
+
+  public addOutputField = (field: Readonly<Field>) => {
     this.outputFields.push(this.parseField(field));
+    this.updateHash();
+  };
 
-  public setInputFields = (fields: readonly Field[]) =>
-    (this.inputFields = fields.map((v) => this.parseField(v)));
-  public setOutputFields = (fields: readonly Field[]) =>
-    (this.outputFields = fields.map((v) => this.parseField(v)));
+  public setInputFields = (fields: readonly Field[]) => {
+    this.inputFields = fields.map((v) => this.parseField(v));
+    this.updateHash();
+  };
 
-  public getInputFields = () => this.inputFields;
-  public getOutputFields = () => this.outputFields;
+  public setOutputFields = (fields: readonly Field[]) => {
+    this.outputFields = fields.map((v) => this.parseField(v));
+    this.updateHash();
+  };
+
+  public getInputFields = (): Readonly<IField[]> => this.inputFields;
+  public getOutputFields = (): Readonly<IField[]> => this.outputFields;
   public getDescription = () => this.description;
 
   private toTitle = (name: string) => {
@@ -90,16 +113,6 @@ export class Signature {
     result = result.replace(/([A-Z])/g, ' $1').trim();
     return result.charAt(0).toUpperCase() + result.slice(1);
   };
-
-  public clone = () => {
-    const sig = new Signature(this);
-    sig.description = this.description;
-    sig.inputFields = this.inputFields.map((v) => ({ ...v }));
-    sig.outputFields = this.outputFields.map((v) => ({ ...v }));
-    return sig;
-  };
-
-  public getParsedSignature = () => this.sig;
 
   public toJSONSchema = (): FunctionJSONSchema => {
     const properties: Record<string, unknown> = {};
@@ -138,6 +151,21 @@ export class Signature {
     };
 
     return schema as FunctionJSONSchema;
+  };
+
+  private updateHash = () => {
+    this.sigHash = createHash('sha256')
+      .update(this.description ?? '')
+      .update(JSON.stringify(this.inputFields))
+      .update(JSON.stringify(this.outputFields))
+      .digest('hex');
+  };
+
+  public hash = () => {
+    if (!this.sigHash) {
+      throw new Error('Signature hash not available');
+    }
+    return this.sigHash;
   };
 }
 
