@@ -9,10 +9,10 @@ import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoGoogleGemini } from './info.js';
 import {
-  apiURLGoogleGemini,
   type GoogleGeminiChatRequest,
   type GoogleGeminiChatResponse,
   type GoogleGeminiConfig,
+  GoogleGeminiEmbedModels,
   type GoogleGeminiEmbedRequest,
   type GoogleGeminiEmbedResponse,
   GoogleGeminiModel
@@ -23,8 +23,8 @@ import {
  * @export
  */
 export const GoogleGeminiDefaultOptions = (): GoogleGeminiConfig => ({
-  model: GoogleGeminiModel.Gemini_1_0_Pro,
-  embedModel: GoogleGeminiModel.Gemini_1_0_Pro,
+  model: GoogleGeminiModel.Gemini15Flash,
+  embedModel: GoogleGeminiEmbedModels.Embedding001,
   maxTokens: 500,
   temperature: 0.45,
   topP: 1,
@@ -34,7 +34,6 @@ export const GoogleGeminiDefaultOptions = (): GoogleGeminiConfig => ({
 
 export interface GoogleGeminiArgs {
   apiKey: string;
-  projectId: string;
   config: Readonly<GoogleGeminiConfig>;
   options?: Readonly<AIServiceOptions>;
 }
@@ -51,10 +50,10 @@ export class GoogleGemini extends BaseAI<
   GoogleGeminiEmbedResponse
 > {
   private config: GoogleGeminiConfig;
+  private apiKey: string;
 
   constructor({
     apiKey,
-    projectId,
     config = GoogleGeminiDefaultOptions(),
     options
   }: Readonly<GoogleGeminiArgs>) {
@@ -62,21 +61,17 @@ export class GoogleGemini extends BaseAI<
       throw new Error('GoogleGemini AI API key not set');
     }
 
-    const apiURL = new URL(
-      `${projectId}/locations/us-central1/publishers/google/models/${config.model}:predict`,
-      apiURLGoogleGemini
-    ).href;
-
     super({
       name: 'GoogleGeminiAI',
-      apiURL,
-      headers: { Authorization: `Bearer ${apiKey}` },
+      apiURL: 'https://generativelanguage.googleapis.com/v1beta',
+      headers: {},
       modelInfo: modelInfoGoogleGemini,
       models: { model: config.model, embedModel: config.embedModel },
       options,
       supportFor: { functions: true }
     });
     this.config = config;
+    this.apiKey = apiKey;
   }
 
   override getModelConfig(): TextModelConfig {
@@ -101,7 +96,7 @@ export class GoogleGemini extends BaseAI<
     }
 
     const apiConfig = {
-      name: `/v1/models/${model}:predict`
+      name: `/models/${model}:generateContent?key=${this.apiKey}`
     };
 
     const reqValue: GoogleGeminiChatRequest = {
@@ -143,7 +138,7 @@ export class GoogleGemini extends BaseAI<
     }
 
     const apiConfig = {
-      name: `/v1/models/${model}:predict`
+      name: `/models/${model}:embedContent?key=${this.apiKey}`
     };
 
     const reqValue: GoogleGeminiEmbedRequest = {

@@ -2,48 +2,25 @@
  * apiURLGoogleGemini: Base URL for Google Gemini API calls
  * @export
  */
-export const apiURLGoogleGemini =
-  'https://{REGION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{REGION}/publishers/google/models/gemini-1.0-pro:streamGenerateContent';
 
 /**
  * GoogleGeminiModel: Enum for specifying the model version
  * @export
  */
 export enum GoogleGeminiModel {
-  Gemini_1_0_Pro = 'gemini-1.0-pro'
+  Gemini1Pro = 'gemini-1.0-pro',
+  Gemini15Flash = 'gemini-1.5-flash',
+  Gemini15Pro = 'gemini-1.5-pro'
 }
 
 /**
  * GoogleGeminiEmbedModels: Enum for specifying embedding models
  * @export
  */
-export enum GoogleGeminiEmbedModels {}
-// Assuming embedding models would be specified here, similar to GooglePalm2EmbedModels
+export enum GoogleGeminiEmbedModels {
+  Embedding001 = 'embedding-001'
+}
 
-/*
-function_call {
-    name: "get_exchange_rate"
-    args {
-      fields {
-        key: "currency_to"
-        value {
-          string_value: "SEK"
-        }
-      }
-      fields {
-        key: "currency_from"
-        value {
-          string_value: "AUD"
-        }
-      }
-      fields {
-        key: "currency_date"
-        value {
-          string_value: "latest"
-        }
-      }
-    }
-  }*/
 export type GoogleGeminiPart = {
   text?: string;
   function_call?: {
@@ -161,7 +138,7 @@ export type GoogleGeminiChatResponse = {
  */
 export type GoogleGeminiConfig = {
   model: GoogleGeminiModel;
-  embedModel: GoogleGeminiModel;
+  embedModel: GoogleGeminiEmbedModels;
   maxTokens: number;
   temperature: number;
   topP: number;
