@@ -23,8 +23,9 @@ Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Fun
 - Convert docs of any format to text
 - RAG, smart chunking, embedding, querying
 - Automatic prompt tuning using optimizers
+- OpenTelemetry tracing / observability
 - Production ready Typescript code
-- Almost zero-dependencies
+- Lite weight, zero-dependencies
 
 ## Whats a prompt signature?
 
@@ -206,6 +207,73 @@ const manager = new DBManager({ ai, db });
 await manager.insert(text);
 
 const matches = await manager.query('Find some text');
+console.log(matches);
+```
+
+## OpenTelemetry support
+
+Ability to trace and observe your llm workflow is critical to building production workflows. OpenTelemetry is an industry standard and we support the new `gen_ai` attribute namespace.
+```typescript
+import { trace } from "@opentelemetry/api";
+import {
+  BasicTracerProvider,
+  ConsoleSpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+const provider = new BasicTracerProvider();
+provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
+trace.setGlobalTracerProvider(provider);
+
+const tracer = trace.getTracer("test");
+
+const ai = AI("ollama", {
+  model: "nous-hermes2",
+  options: { tracer },
+} as unknown as OllamaArgs);
+
+const gen = new ChainOfThought(
+  ai,
+  `text -> shortSummary "summarize in 5 to 10 words"`
+);
+
+const res = await gen.forward({ text });
+```
+
+```json
+{
+  "traceId": "ddc7405e9848c8c884e53b823e120845",
+  "name": "Chat Request",
+  "id": "d376daad21da7a3c",
+  "kind": "SERVER",
+  "timestamp": 1716622997025000,
+  "duration": 14190456.542,
+  "attributes": {
+    "gen_ai.system": "Ollama",
+    "gen_ai.request.model": "nous-hermes2",
+    "gen_ai.request.max_tokens": 500,
+    "gen_ai.request.temperature": 0.1,
+    "gen_ai.request.top_p": 0.9,
+    "gen_ai.request.frequency_penalty": 0.5,
+    "gen_ai.request.llm_is_streaming": false,
+    "http.request.method": "POST",
+    "url.full": "http://localhost:11434/v1/chat/completions",
+    "gen_ai.usage.completion_tokens": 160,
+    "gen_ai.usage.prompt_tokens": 290
+  },
+}
+```
+
+Alternatively you can use the `DBManager` which handles smart chunking, embedding and querying everything
+for you, it makes things almost too easy.
+
+```typescript
+const manager = new DBManager({ ai, db });
+await manager.insert(text);
+
+const matches = await manager.query(
+  'John von Neumann on human intelligence and singularity.'
+);
 console.log(matches);
 ```
 
