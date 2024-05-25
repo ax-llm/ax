@@ -48,8 +48,7 @@ You can have multiple input and output fields and each field has one of these ty
 | Groq          | Lama2-70B, Mixtral-8x7b | 🟢 100% |
 | DeepSeek      | Chat and Code           | 🟢 100% |
 | Ollama        | All models              | 🟢 100% |
-| Google Vertex | Palm, Bison             | 🟡 50%  |
-| Google Gemini | Gemini 1.0              | 🟡 50%  |
+| Google Gemini | Gemini: Flash, Pro      | 🟢 100% |
 | Hugging Face  | OSS Model               | 🟡 50%  |
 
 ## Example: Using chain-of-thought to summarize text
