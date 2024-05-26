@@ -1,9 +1,5 @@
 import type { GenerateOptions } from '../dsp/generate.js';
-import {
-  type GenIn,
-  type GenOut,
-  type ProgramForwardOptions
-} from '../dsp/program.js';
+import { type GenIn, type GenOut } from '../dsp/program.js';
 import { Signature } from '../dsp/sig.js';
 import type { AIService } from '../text/types.js';
 
@@ -47,11 +43,4 @@ export class ReAct<
 
     super(ai, sig, options);
   }
-
-  override forward = async (
-    values: IN,
-    options?: Readonly<ProgramForwardOptions>
-  ): Promise<OUT & { reason: string }> => {
-    return await super.forward(values, options);
-  };
 }

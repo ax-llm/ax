@@ -3,13 +3,14 @@ import type {
   TextResponseFunctionCall,
   TextResponseResult
 } from '../ai/index.js';
-import type { AITextChatRequest } from '../index.js';
 import {
   type AITextFunction,
   FunctionProcessor,
   Memory
 } from '../text/index.js';
 import type { AIService } from '../text/index.js';
+import { type Span, SpanKind } from '../trace/index.js';
+import { type AITextChatRequest } from '../types/index.js';
 
 import {
   type GenIn,
@@ -52,6 +53,7 @@ export class Generate<
   private asserts: Assertion[];
   private options?: GenerateOptions;
   private funcProc?: FunctionProcessor;
+  private functionList?: string;
 
   constructor(
     ai: AIService,
@@ -65,6 +67,7 @@ export class Generate<
     this.options = options;
     this.pt = new (options?.promptTemplate ?? PromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
+    this.functionList = this.options?.functions?.map((f) => f.name).join(', ');
 
     if (this.options?.functions) {
       this.funcProc = new FunctionProcessor(this.options?.functions);
@@ -101,13 +104,13 @@ export class Generate<
     this.asserts.push({ fn, errMsg, optional });
   };
 
-  private _forwardCore = async ({
+  private async _forwardSendRequest({
     mem,
     sessionId,
     traceId,
     ai,
     modelConfig: mc
-  }: Readonly<ProgramForwardOptions>): Promise<TextResponseResult> => {
+  }: Readonly<ProgramForwardOptions>): Promise<TextResponseResult> {
     const chatPrompt = mem?.history(sessionId) ?? [];
 
     if (chatPrompt.length === 0) {
@@ -144,20 +147,20 @@ export class Generate<
     }
 
     return result;
-  };
+  }
 
-  private _forward = async ({
+  private async _forwardCore({
     mem,
     sessionId,
     traceId,
     maxCompletions,
     ai,
     modelConfig: mc
-  }: Readonly<ProgramForwardOptions>): Promise<OUT> => {
+  }: Readonly<ProgramForwardOptions>): Promise<OUT> {
     let result: TextResponseResult | undefined;
 
     for (let i = 0; i < (maxCompletions ?? 10); i++) {
-      const res = await this._forwardCore({
+      const res = await this._forwardSendRequest({
         mem,
         sessionId,
         traceId,
@@ -241,11 +244,12 @@ export class Generate<
     }
 
     return { ...retval, functions: funcs } as unknown as OUT;
-  };
+  }
 
-  public override async forward(
+  private async _forward(
     values: IN,
-    options?: Readonly<ProgramForwardOptions>
+    options?: Readonly<ProgramForwardOptions>,
+    span?: Span
   ): Promise<OUT> {
     const maxRetries = options?.maxRetries ?? 3;
     const mem = options?.mem ?? new Memory();
@@ -270,7 +274,7 @@ export class Generate<
     for (let i = 0; i < maxRetries; i++) {
       try {
         for (let n = 0; n < (options?.maxSteps ?? 10); n++) {
-          const res = await this._forward({
+          const res = await this._forwardCore({
             ...options,
             mem
           });
@@ -291,41 +295,14 @@ export class Generate<
         }
         throw new Error('Could not complete task within maximum allowed steps');
       } catch (e) {
+        span?.recordException(e as Error);
+
         if (e instanceof ValidationError) {
-          const f = e.getField();
-
-          extraFields = [
-            {
-              name: `past_${f.name}`,
-              title: `Past ${f.title}`,
-              description: e.getValue()
-            },
-            {
-              name: 'instructions',
-              title: 'Instructions',
-              description: e.message
-            }
-          ];
-
+          extraFields = e.getFixingInstructions();
           err = e;
         } else if (e instanceof AssertionError) {
           const e1 = e as AssertionError;
-          extraFields = [];
-
-          for (const f of this.signature.getOutputFields()) {
-            const values = e1.getValue();
-            extraFields.push({
-              name: `past_${f.name}`,
-              title: `Past ${f.title}`,
-              description: JSON.stringify(values[f.name])
-            });
-          }
-
-          extraFields.push({
-            name: 'instructions',
-            title: 'Instructions',
-            description: e1.message
-          });
+          extraFields = e1.getFixingInstructions(this.signature);
           err = e;
         } else {
           throw e;
@@ -338,6 +315,33 @@ export class Generate<
     }
 
     throw new Error(`Unable to fix validation error: ${err?.message}`);
+  }
+
+  public override async forward(
+    values: IN,
+    options?: Readonly<ProgramForwardOptions>
+  ): Promise<OUT> {
+    if (!options?.tracer) {
+      return await this._forward(values, options);
+    }
+
+    const attributes = {
+      ['generate.signature']: this.signature.toString(),
+      ['generate.functions']: this.functionList ?? 'none'
+    };
+
+    return await options?.tracer.startActiveSpan(
+      'Generate',
+      {
+        kind: SpanKind.SERVER,
+        attributes
+      },
+      async (span) => {
+        const res = this._forward(values, options, span);
+        span.end();
+        return res;
+      }
+    );
   }
 
   public processResult = async (
@@ -399,4 +403,23 @@ export class AssertionError extends Error {
   }
   public getValue = () => this.value;
   public getOptional = () => this.optional;
+
+  public getFixingInstructions = (sig: Readonly<Signature>) => {
+    const extraFields = [];
+
+    for (const f of sig.getOutputFields()) {
+      extraFields.push({
+        name: `past_${f.name}`,
+        title: `Past ${f.title}`,
+        description: JSON.stringify(this.value[f.name])
+      });
+    }
+
+    extraFields.push({
+      name: 'instructions',
+      title: 'Instructions',
+      description: this.message
+    });
+    return extraFields;
+  };
 }

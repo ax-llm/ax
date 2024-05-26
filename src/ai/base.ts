@@ -159,7 +159,7 @@ export class BaseAI<
   ): Promise<TextResponse | ReadableStream<TextResponse>> {
     if (this.tracer) {
       const mc = this.getModelConfig();
-      return this.tracer?.startActiveSpan(
+      return await this.tracer?.startActiveSpan(
         'Chat Request',
         {
           kind: SpanKind.SERVER,
@@ -179,12 +179,14 @@ export class BaseAI<
             //   .join('\n')
           }
         },
-        (span) => {
-          return this._chat(_req, options, span);
+        async (span) => {
+          const res = await this._chat(_req, options, span);
+          span.end();
+          return res;
         }
       );
     }
-    return this._chat(_req, options);
+    return await this._chat(_req, options);
   }
 
   async _chat(
@@ -287,7 +289,7 @@ export class BaseAI<
     options?: Readonly<AIServiceActionOptions>
   ): Promise<EmbedResponse> {
     if (this.tracer) {
-      return this.tracer?.startActiveSpan(
+      return await this.tracer?.startActiveSpan(
         'Embed Request',
         {
           kind: SpanKind.SERVER,
@@ -296,8 +298,10 @@ export class BaseAI<
             [SpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name
           }
         },
-        (span) => {
-          return this._embed(req, options, span);
+        async (span) => {
+          const res = await this._embed(req, options, span);
+          span.end();
+          return res;
         }
       );
     }

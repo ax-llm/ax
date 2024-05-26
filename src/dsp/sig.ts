@@ -24,7 +24,8 @@ export class Signature {
   private inputFields: IField[];
   private outputFields: IField[];
 
-  private sigHash: string | undefined;
+  private sigHash: string;
+  private sigString: string;
 
   constructor(signature: Readonly<Signature | string>) {
     if (typeof signature === 'string') {
@@ -32,6 +33,7 @@ export class Signature {
       this.description = sig.desc;
       this.inputFields = sig.inputs.map((v) => this.parseParsedField(v));
       this.outputFields = sig.outputs.map((v) => this.parseParsedField(v));
+      [this.sigHash, this.sigString] = this.updateHash();
     } else if (signature instanceof Signature) {
       this.description = signature.getDescription();
       this.inputFields = structuredClone(
@@ -40,11 +42,11 @@ export class Signature {
       this.outputFields = structuredClone(
         signature.getOutputFields()
       ) as IField[];
+      this.sigHash = signature.hash();
+      this.sigString = signature.toString();
     } else {
       throw new Error('invalid signature argument');
     }
-
-    this.updateHash();
   }
 
   private parseParsedField = (field: Readonly<ParsedField>): IField => {
@@ -151,20 +153,61 @@ export class Signature {
     return schema as FunctionJSONSchema;
   };
 
-  private updateHash = () => {
+  private updateHash = (): [string, string] => {
     this.sigHash = createHash('sha256')
       .update(this.description ?? '')
       .update(JSON.stringify(this.inputFields))
       .update(JSON.stringify(this.outputFields))
       .digest('hex');
+
+    this.sigString = renderSignature(
+      this.description,
+      this.inputFields,
+      this.outputFields
+    );
+
+    return [this.sigHash, this.sigString];
   };
 
-  public hash = () => {
-    if (!this.sigHash) {
-      throw new Error('Signature hash not available');
+  public hash = () => this.sigHash;
+
+  public toString = () => this.sigString;
+}
+
+function renderField(field: Readonly<Field>): string {
+  let result = field.name;
+  if (field.isOptional) {
+    result += '?';
+  }
+  if (field.type) {
+    result += ':' + field.type.name;
+    if (field.type.isArray) {
+      result += '[]';
     }
-    return this.sigHash;
-  };
+  }
+  // Check if description exists and append it.
+  if (field.description) {
+    result += ` "${field.description}"`;
+  }
+  return result;
+}
+
+function renderSignature(
+  description: string | undefined,
+  inputFields: readonly Field[],
+  outputFields: readonly Field[]
+): string {
+  // Prepare the description part of the signature.
+  const descriptionPart = description ? `"${description}"` : '';
+
+  // Render each input field into a comma-separated list.
+  const inputFieldsRendered = inputFields.map(renderField).join(', ');
+
+  // Render each output field into a comma-separated list.
+  const outputFieldsRendered = outputFields.map(renderField).join(', ');
+
+  // Combine all parts into the final signature.
+  return `${descriptionPart} ${inputFieldsRendered} -> ${outputFieldsRendered}`;
 }
 
 export const extractValues = (sig: Readonly<Signature>, result: string) => {
@@ -296,6 +339,25 @@ export class ValidationError extends Error {
 
   public getField = () => this.field;
   public getValue = () => this.value;
+
+  public getFixingInstructions = () => {
+    const f = this.field;
+
+    const extraFields = [
+      {
+        name: `past_${f.name}`,
+        title: `Past ${f.title}`,
+        description: this.value
+      },
+      {
+        name: 'instructions',
+        title: 'Instructions',
+        description: this.message
+      }
+    ];
+
+    return extraFields;
+  };
 }
 
 export const extractBlock = (input: string): string => {

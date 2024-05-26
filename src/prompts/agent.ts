@@ -6,9 +6,11 @@ import {
   type ProgramForwardOptions,
   type Tunable
 } from '../dsp/program.js';
-import { type AITextFunction, ChainOfThought } from '../index.js';
+import { type AITextFunction } from '../text/index.js';
 import type { AIService } from '../text/types.js';
+import { SpanKind } from '../trace/index.js';
 
+import { ChainOfThought } from './cot.js';
 import { ReAct } from './react.js';
 
 export interface AgentI extends Tunable {
@@ -21,9 +23,11 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
   extends Program<IN, OUT>
   implements AgentI
 {
+  private gen: Program<IN, OUT>;
+
   private name: string;
   private description: string;
-  private prog: Program<IN, OUT>;
+  private subAgentList?: string;
 
   constructor(
     ai: AIService,
@@ -43,8 +47,6 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     options?: Readonly<AgentOptions>
   ) {
     super(signature);
-    this.name = name;
-    this.description = description;
 
     const funcs: AITextFunction[] = [
       ...(functions ?? []),
@@ -57,32 +59,57 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
       functions: funcs
     };
 
-    this.prog =
+    this.gen =
       funcs.length > 0
-        ? new ReAct(ai, this.signature, opt)
-        : new ChainOfThought(ai, this.signature, opt);
+        ? new ReAct<IN, OUT>(ai, this.signature, opt)
+        : new ChainOfThought<IN, OUT>(ai, this.signature, opt);
 
-    this.register(this.prog);
+    this.name = name;
+    this.description = description;
+    this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ');
+
+    this.register(this.gen);
 
     for (const agent of agents ?? []) {
       this.register(agent);
     }
   }
 
-  public getFunction = (): AITextFunction => {
+  public getFunction(): AITextFunction {
     const s = this.signature.toJSONSchema();
     return {
       name: this.name,
       description: this.description,
       parameters: s,
-      func: this.forward
+      func: () => this.forward
     };
-  };
+  }
 
-  override forward = async (
+  public override async forward(
     values: IN,
     options?: Readonly<ProgramForwardOptions>
-  ): Promise<OUT> => {
-    return await this.prog.forward(values, options);
-  };
+  ): Promise<OUT> {
+    if (!options?.tracer) {
+      return await this.gen.forward(values, options);
+    }
+
+    const attributes = {
+      ['agent.name']: this.name,
+      ['agent.description']: this.description,
+      ['agent.subAgents']: this.subAgentList ?? 'none'
+    };
+
+    return await options?.tracer.startActiveSpan(
+      'Agent',
+      {
+        kind: SpanKind.SERVER,
+        attributes
+      },
+      async (span) => {
+        const res = await this.gen.forward(values, options);
+        span.end();
+        return res;
+      }
+    );
+  }
 }

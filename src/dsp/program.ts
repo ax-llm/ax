@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 
 import type { TextModelConfig } from '../ai/types.js';
 import type { AIMemory, AIService } from '../text/types.js';
+import type { Tracer } from '../trace/index.js';
 
 import { InstanceRegistry } from './registry.js';
 import { type Field, Signature } from './sig.js';
@@ -32,6 +33,7 @@ export type ProgramForwardOptions = {
   modelConfig?: TextModelConfig;
   sessionId?: string;
   traceId?: string | undefined;
+  tracer?: Tracer;
 };
 
 export interface Tunable {

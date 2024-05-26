@@ -63,7 +63,7 @@ export class BaseDB implements DBService {
       return await _upsert(req, update);
     }
 
-    return this.tracer?.startActiveSpan(
+    return await this.tracer?.startActiveSpan(
       'DB Upsert Request',
       {
         kind: SpanKind.SERVER,
@@ -103,7 +103,7 @@ export class BaseDB implements DBService {
       return await _batchUpsert(req, update);
     }
 
-    return this.tracer?.startActiveSpan(
+    return await this.tracer?.startActiveSpan(
       'DB Batch Upsert Request',
       {
         kind: SpanKind.SERVER,
@@ -133,7 +133,7 @@ export class BaseDB implements DBService {
       return await _query(req);
     }
 
-    return this.tracer?.startActiveSpan(
+    return await this.tracer?.startActiveSpan(
       'DB Query Request',
       {
         kind: SpanKind.SERVER,
