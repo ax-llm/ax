@@ -58,9 +58,7 @@ test('generate prompt', async (t) => {
   const res = await gen.forward({ text });
 
   t.deepEqual(res, {
-    functions: [],
     reason: 'Blah blah blah',
-    shortSummary: 'More blah blah blah',
-    text: 'The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.'
+    shortSummary: 'More blah blah blah'
   });
 });

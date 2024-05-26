@@ -105,61 +105,83 @@ export class GoogleGemini extends BaseAI<
       name: `/models/${model}:generateContent?key=${this.apiKey}`
     };
 
-    const contents = req.chatPrompt.map(({ role, ...prompt }, i) => {
-      if (role === 'user') {
-        if (!prompt.content) {
-          throw new Error(`Chat prompt content is empty (index: ${i})`);
-        }
-        return {
-          role: 'user' as const,
-          parts: [{ text: prompt.content }]
-        };
-      }
+    const systemPrompts = req.chatPrompt
+      .filter((p) => p.role === 'system')
+      .map((p) => p.content);
 
-      if (role === 'assistant') {
-        const text = prompt.content ? [{ text: prompt.content }] : [];
+    const systemInstruction =
+      systemPrompts.length > 0
+        ? {
+            role: 'user' as const,
+            parts: [{ text: systemPrompts.join(' ') }]
+          }
+        : undefined;
 
-        let functionCalls: {
-          functionCall: {
-            name: string;
-            args: object;
-          };
-        }[] = [];
-
-        if ('functionCalls' in prompt) {
-          functionCalls =
-            prompt.functionCalls?.map((f) => ({
-              functionCall: {
-                name: f.function.name,
-                args: f.function.arguments ?? {}
-              }
-            })) ?? [];
-        }
-        return {
-          role: 'model' as const,
-          parts: text ? text : functionCalls
-        };
-      }
-
-      if (role === 'function') {
-        if ('functionId' in prompt) {
+    const contents = req.chatPrompt
+      .filter((p) => p.role !== 'system')
+      .map(({ role, ...prompt }, i) => {
+        if (role === 'user') {
+          if (!prompt.content) {
+            throw new Error(`Chat prompt content is empty (index: ${i})`);
+          }
           return {
-            role: 'function' as const,
-            parts: [
-              {
-                functionResponse: {
-                  name: prompt.functionId,
-                  response: { result: prompt.content }
-                }
-              }
-            ]
+            role: 'user' as const,
+            parts: [{ text: prompt.content }]
           };
         }
-        throw new Error(`Chat prompt functionId is empty (index: ${i})`);
-      }
 
-      throw new Error(`Chat prompt role not supported: ${role} (index: ${i})`);
-    });
+        if (role === 'assistant') {
+          const text = prompt.content ? [{ text: prompt.content }] : [];
+
+          let functionCalls: {
+            functionCall: {
+              name: string;
+              args: object;
+            };
+          }[] = [];
+
+          if ('functionCalls' in prompt) {
+            functionCalls =
+              prompt.functionCalls?.map((f) => {
+                const args =
+                  typeof f.function.arguments === 'string'
+                    ? JSON.parse(f.function.arguments)
+                    : f.function.arguments;
+                return {
+                  functionCall: {
+                    name: f.function.name,
+                    args: args
+                  }
+                };
+              }) ?? [];
+          }
+          return {
+            role: 'model' as const,
+            parts: text ? text : functionCalls
+          };
+        }
+
+        if (role === 'function') {
+          if ('functionId' in prompt) {
+            return {
+              role: 'function' as const,
+              parts: [
+                {
+                  functionResponse: {
+                    name: prompt.functionId,
+                    response: { result: prompt.content }
+                  }
+                }
+              ]
+            };
+          }
+          throw new Error(`Chat prompt functionId is empty (index: ${i})`);
+        }
+
+        throw new Error(
+          `Chat prompt role not supported: ${role} (index: ${i})`
+        );
+      });
 
     const tools = req.functions
       ? [
@@ -202,6 +224,7 @@ export class GoogleGemini extends BaseAI<
       contents,
       tools,
       tool_config,
+      systemInstruction,
       generationConfig
     };
 

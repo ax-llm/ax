@@ -1,7 +1,5 @@
 import { createHash } from 'crypto';
 
-import type { AITextChatRequest } from '../types/index.js';
-
 import type {
   TextModelInfo,
   TextResponse,
@@ -37,27 +35,6 @@ export const uniqBy = <T>(
 
   return Array.from(uniqueValues.values());
 };
-
-export function convertToChatPromptItem({
-  content,
-  name,
-  functionCalls: fc
-}: Readonly<TextResponseResult>): AITextChatRequest['chatPrompt'][0] {
-  const functionCalls = fc?.map(({ function: f }) => {
-    const args =
-      typeof f.arguments === 'string' ? JSON.parse(f.arguments) : f.arguments;
-
-    return {
-      id: f.name,
-      type: 'function' as const,
-      function: {
-        name: f.name,
-        arguments: args
-      }
-    };
-  });
-  return { content, role: 'assistant', name, functionCalls };
-}
 
 const functionCallRe = /(\w+)\((.*)\)/s;
 

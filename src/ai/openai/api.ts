@@ -5,7 +5,12 @@ import type {
 } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
+import type {
+  EmbedResponse,
+  TextModelConfig,
+  TextResponse,
+  TextResponseResult
+} from '../types.js';
 
 import { modelInfoOpenAI } from './info.js';
 import {
@@ -215,6 +220,7 @@ export class OpenAI extends BaseAI<
       organization: req.identity?.organization,
       ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {})
     };
+
     return [apiConfig, reqValue];
   };
 
@@ -266,13 +272,11 @@ export class OpenAI extends BaseAI<
       : undefined;
 
     const results = choices.map((choice) => {
-      const finishReason =
-        choice.finish_reason as TextResponse['results'][0]['finishReason'];
+      const finishReason = mapFinishReason(choice.finish_reason);
 
       return {
         id: `${choice.index}`,
         content: choice.message.content,
-        role: choice.message.role,
         functionCalls: choice.message.tool_calls,
         finishReason
       };
@@ -300,8 +304,7 @@ export class OpenAI extends BaseAI<
 
     const results = choices.map(
       ({ delta: { content, role, tool_calls }, finish_reason }) => {
-        const finishReason =
-          finish_reason as TextResponse['results'][0]['finishReason'];
+        const finishReason = mapFinishReason(finish_reason);
         return {
           content,
           role: role,
@@ -336,34 +339,49 @@ export class OpenAI extends BaseAI<
       modelUsage
     };
   };
-
-  // async _transcribe(
-  //   file: string,
-  //   prompt?: string,
-  //   options?: Readonly<AITranscribeConfig>
-  // ): Promise<TranscriptResponse> {
-  //   const res = await this.apiCallWithUpload<
-  //     OpenAIAudioRequest,
-  //     OpenAIAudioResponse,
-  //     OpenAIApiConfig
-  //   >(
-  //     this.createAPI(OpenAIApi.Transcribe),
-  //     generateAudioReq(this.options, prompt, options?.language),
-  //     file
-  //   );
-
-  //   const { duration, segments } = res;
-  //   return {
-  //     duration,
-  //     segments: segments.map((v) => ({
-  //       id: v.id,
-  //       start: v.start,
-  //       end: v.end,
-  //       text: v.text,
-  //     })),
-  //   };
-  // }
 }
+
+const mapFinishReason = (
+  finishReason: OpenAIChatResponse['choices'][0]['finish_reason']
+): TextResponseResult['finishReason'] => {
+  switch (finishReason) {
+    case 'stop':
+      return 'stop' as const;
+    case 'length':
+      return 'length' as const;
+    case 'content_filter':
+      return 'error' as const;
+    case 'tool_calls':
+      return 'function_call' as const;
+  }
+};
+
+// async _transcribe(
+//   file: string,
+//   prompt?: string,
+//   options?: Readonly<AITranscribeConfig>
+// ): Promise<TranscriptResponse> {
+//   const res = await this.apiCallWithUpload<
+//     OpenAIAudioRequest,
+//     OpenAIAudioResponse,
+//     OpenAIApiConfig
+//   >(
+//     this.createAPI(OpenAIApi.Transcribe),
+//     generateAudioReq(this.options, prompt, options?.language),
+//     file
+//   );
+
+//   const { duration, segments } = res;
+//   return {
+//     duration,
+//     segments: segments.map((v) => ({
+//       id: v.id,
+//       start: v.start,
+//       end: v.end,
+//       text: v.text,
+//     })),
+//   };
+// }
 
 // export const generateAudioReq = (
 //   opt: Readonly<OpenAIConfig>,

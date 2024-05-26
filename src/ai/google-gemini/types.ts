@@ -88,6 +88,7 @@ export type GoogleGeminiChatRequest = {
   contents: GoogleGeminiContent[];
   tools?: GoogleGeminiTool[];
   tool_config?: GoogleGeminiToolConfig;
+  systemInstruction?: GoogleGeminiContent;
   generationConfig: GoogleGeminiGenerationConfig;
 };
 

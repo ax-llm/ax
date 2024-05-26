@@ -1,5 +1,4 @@
 import type { TextResponseResult } from '../ai/types.js';
-import { convertToChatPromptItem } from '../ai/util.js';
 import type { AITextChatRequest } from '../types/index.js';
 
 import type { AIMemory } from './types.js';
@@ -31,22 +30,28 @@ export class Memory implements AIMemory {
     if (Array.isArray(value)) {
       n = d.push(...value);
     } else {
-      n = d.push(value as AITextChatRequest['chatPrompt'][0]);
+      n = d.push({ ...value } as AITextChatRequest['chatPrompt'][0]);
     }
     if (d.length > this.limit) {
       d.splice(0, this.limit + n - this.limit);
     }
   }
 
-  addResult(result: Readonly<TextResponseResult>, sessionId?: string): void {
-    this.add(convertToChatPromptItem(result), sessionId);
+  addResult(
+    { content, name, functionCalls }: Readonly<TextResponseResult>,
+    sessionId?: string
+  ): void {
+    return this.add(
+      { content, name, role: 'assistant', functionCalls },
+      sessionId
+    );
   }
 
-  history(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']> {
+  history(sessionId?: string): AITextChatRequest['chatPrompt'] {
     return this.get(sessionId);
   }
 
-  peek(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']> {
+  peek(sessionId?: string): AITextChatRequest['chatPrompt'] {
     return this.get(sessionId);
   }
 

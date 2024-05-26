@@ -32,7 +32,6 @@ export type ProgramForwardOptions = {
   modelConfig?: TextModelConfig;
   sessionId?: string;
   traceId?: string | undefined;
-  skipSystemPrompt?: boolean;
 };
 
 export interface Tunable {

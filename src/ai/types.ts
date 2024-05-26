@@ -40,7 +40,6 @@ export type TextResponseFunctionCall = {
 
 export type TextResponseResult = {
   content: string | null;
-  role?: string;
   name?: string;
   id?: string;
   functionCalls?: {

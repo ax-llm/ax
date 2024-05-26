@@ -23,7 +23,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
 {
   private name: string;
   private description: string;
-  private react: Program<IN, OUT>;
+  private prog: Program<IN, OUT>;
 
   constructor(
     ai: AIService,
@@ -57,12 +57,12 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
       functions: funcs
     };
 
-    this.react =
+    this.prog =
       funcs.length > 0
         ? new ReAct(ai, this.signature, opt)
         : new ChainOfThought(ai, this.signature, opt);
 
-    this.register(this.react);
+    this.register(this.prog);
 
     for (const agent of agents ?? []) {
       this.register(agent);
@@ -83,6 +83,6 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     values: IN,
     options?: Readonly<ProgramForwardOptions>
   ): Promise<OUT> => {
-    return await this.react.forward(values, options);
+    return await this.prog.forward(values, options);
   };
 }

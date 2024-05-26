@@ -190,7 +190,6 @@ export class Anthropic extends BaseAI<
       results = [
         {
           content: '',
-          role: message.role,
           id: message.id
         }
       ];

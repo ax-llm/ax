@@ -33,8 +33,8 @@ export interface AIMemory {
     sessionId?: string
   ): void;
   addResult(result: Readonly<TextResponseResult>, sessionId?: string): void;
-  history(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']>;
-  peek(sessionId?: string): Readonly<AITextChatRequest['chatPrompt']>;
+  history(sessionId?: string): AITextChatRequest['chatPrompt'];
+  peek(sessionId?: string): AITextChatRequest['chatPrompt'];
   reset(sessionId?: string): void;
 }
 

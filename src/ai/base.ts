@@ -249,6 +249,10 @@ export class BaseAI<
           setResponseAttr(res, span);
         }
         span?.end();
+
+        if (this.debug) {
+          logResponse(res);
+        }
       };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
@@ -268,6 +272,10 @@ export class BaseAI<
 
     if (span?.isRecording()) {
       setResponseAttr(res, span);
+    }
+
+    if (this.debug) {
+      logResponse(res);
     }
 
     span?.end();
@@ -390,6 +398,19 @@ const logChatRequest = (req: Readonly<AITextChatRequest>) => {
   const items = req.chatPrompt?.map((v) => v.content).join('\n');
   if (items) {
     console.log(colorLog.whiteBright(items));
+  }
+};
+
+const logResponse = (resp: Readonly<TextResponse>) => {
+  for (const r of resp.results) {
+    if (r.content) {
+      console.log(colorLog.greenBright(r.content));
+    }
+    if (r.functionCalls) {
+      for (const f of r.functionCalls) {
+        console.log(colorLog.yellow(JSON.stringify(f.function, null, 2)));
+      }
+    }
   }
 };
 

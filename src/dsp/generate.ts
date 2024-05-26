@@ -4,7 +4,11 @@ import type {
   TextResponseResult
 } from '../ai/index.js';
 import type { AITextChatRequest } from '../index.js';
-import type { AITextFunction } from '../text/index.js';
+import {
+  type AITextFunction,
+  FunctionProcessor,
+  Memory
+} from '../text/index.js';
 import type { AIService } from '../text/index.js';
 
 import {
@@ -34,19 +38,20 @@ export interface Assertion {
   optional?: boolean;
 }
 
-export type GenerateResult<OUT extends GenOut> = Omit<OUT, 'functions'> & {
+export type GenerateResult<OUT extends GenOut> = OUT & {
   functions?: TextResponseFunctionCall[];
 };
 
 export class Generate<
   IN extends GenIn = GenIn,
-  OUT extends GenerateResult<OUT> = GenOut
+  OUT extends GenerateResult<GenOut> = GenerateResult<GenOut>
 > extends Program<IN, OUT> {
   private sigHash: string;
   private ai: AIService;
   private pt: PromptTemplate;
   private asserts: Assertion[];
   private options?: GenerateOptions;
+  private funcProc?: FunctionProcessor;
 
   constructor(
     ai: AIService,
@@ -62,14 +67,18 @@ export class Generate<
     this.asserts = this.options?.asserts ?? [];
 
     if (this.options?.functions) {
-      // add function fields to signature if not natively supported by AI
-      if (!this.ai.getFeatures().functions) {
-        this.updateSigForFunctions();
-      }
+      this.funcProc = new FunctionProcessor(this.options?.functions);
+      this.updateSigForFunctions();
     }
   }
 
   private updateSigForFunctions = () => {
+    // AI supports function calling natively so
+    // no need to add fields for function call
+    if (this.ai.getFeatures().functions) {
+      return;
+    }
+
     // These are the fields for the function call only needed when the underlying LLM API does not support function calling natively in the API.
     this.signature.addOutputField({
       name: 'functionName',
@@ -93,21 +102,17 @@ export class Generate<
   };
 
   private _forwardCore = async ({
-    userMsg,
     mem,
     sessionId,
     traceId,
     ai,
     modelConfig: mc
-  }: Readonly<
-    Omit<
-      ProgramForwardOptions,
-      'values' | 'extraFields' | 'skipSystemPrompt'
-    > & {
-      userMsg: { role: 'user'; content: string };
+  }: Readonly<ProgramForwardOptions>): Promise<TextResponseResult> => {
+    const chatPrompt = mem?.history(sessionId) ?? [];
+
+    if (chatPrompt.length === 0) {
+      throw new Error('No chat prompt found');
     }
-  >): Promise<TextResponseResult> => {
-    const chatPrompt = [...(mem?.history(sessionId) ?? []), userMsg];
 
     const functions = this.options?.functions;
     const functionCall = this.options?.functionCall;
@@ -142,40 +147,17 @@ export class Generate<
   };
 
   private _forward = async ({
-    values,
-    extraFields,
     mem,
     sessionId,
     traceId,
-    skipSystemPrompt,
     maxCompletions,
     ai,
     modelConfig: mc
-  }: Readonly<
-    ProgramForwardOptions & {
-      values: IN;
-      extraFields?: readonly IField[];
-    }
-  >): Promise<OUT> => {
-    if (this.sigHash !== this.signature.hash()) {
-      const promptTemplate = this.options?.promptTemplate ?? PromptTemplate;
-      this.pt = new promptTemplate(this.signature);
-    }
-    const prompt = this.pt.toString<IN>(values, {
-      extraFields,
-      skipSystemPrompt,
-      examples: this.examples,
-      demos: this.demos
-    });
-
-    const userMsg = { role: 'user' as const, content: prompt };
-    mem?.add(userMsg, sessionId);
-
+  }: Readonly<ProgramForwardOptions>): Promise<OUT> => {
     let result: TextResponseResult | undefined;
 
     for (let i = 0; i < (maxCompletions ?? 10); i++) {
       const res = await this._forwardCore({
-        userMsg,
         mem,
         sessionId,
         traceId,
@@ -183,17 +165,10 @@ export class Generate<
         modelConfig: mc
       });
 
-      mem?.addResult(res, sessionId);
-
       if (!result) {
         result = res;
       } else if (result.content) {
         result.content += res.content;
-      } else {
-        result = {
-          ...result,
-          content: res.content
-        };
       }
 
       if (res.finishReason === 'length') {
@@ -206,6 +181,8 @@ export class Generate<
     if (!result) {
       throw new Error('No result found');
     }
+
+    mem?.addResult(result, sessionId);
 
     let retval: Record<string, unknown> = {};
 
@@ -263,13 +240,7 @@ export class Generate<
         typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
     }
 
-    this.setTrace({
-      ...values,
-      ...retval,
-      ...(Object.keys(_funcs).length > 0 ? _funcs : {})
-    });
-
-    return { ...values, ...retval, functions: funcs } as unknown as OUT;
+    return { ...retval, functions: funcs } as unknown as OUT;
   };
 
   public override async forward(
@@ -277,17 +248,48 @@ export class Generate<
     options?: Readonly<ProgramForwardOptions>
   ): Promise<OUT> {
     const maxRetries = options?.maxRetries ?? 3;
+    const mem = options?.mem ?? new Memory();
 
     let extraFields: IField[] = [];
     let err: ValidationError | AssertionError | undefined;
 
+    if (this.sigHash !== this.signature.hash()) {
+      const promptTemplate = this.options?.promptTemplate ?? PromptTemplate;
+      this.pt = new promptTemplate(this.signature);
+    }
+
+    const prompt = this.pt.toString<IN>(values, {
+      extraFields,
+      examples: this.examples,
+      demos: this.demos
+    });
+
+    const userMsg = { role: 'user' as const, content: prompt };
+    mem?.add(userMsg, options?.sessionId);
+
     for (let i = 0; i < maxRetries; i++) {
       try {
-        return await this._forward({
-          ...options,
-          values,
-          extraFields
-        });
+        for (let n = 0; n < (options?.maxSteps ?? 10); n++) {
+          const res = await this._forward({
+            ...options,
+            mem
+          });
+
+          const result = await this.processResult(res, {
+            ...options,
+            mem
+          });
+
+          if (result) {
+            this.setTrace({
+              ...values,
+              ...res
+            });
+
+            return result;
+          }
+        }
+        throw new Error('Could not complete task within maximum allowed steps');
       } catch (e) {
         if (e instanceof ValidationError) {
           const f = e.getField();
@@ -337,6 +339,45 @@ export class Generate<
 
     throw new Error(`Unable to fix validation error: ${err?.message}`);
   }
+
+  public processResult = async (
+    res: Readonly<OUT & { functions?: TextResponseFunctionCall[] }>,
+    options?: Readonly<ProgramForwardOptions>
+  ): Promise<(OUT & { reason: string }) | undefined> => {
+    if (res.functions === undefined) {
+      return res as OUT & { reason: string };
+    }
+
+    if (res.functions.length === 0) {
+      delete (res as Record<string, unknown>).functions;
+      return res as OUT & { reason: string };
+    }
+
+    for (const func of res.functions) {
+      if (func.name.indexOf('task_done') !== -1) {
+        delete (res as Record<string, unknown>).functions;
+        return res as OUT & { reason: string };
+      }
+
+      const fres = await this.funcProc?.execute(func, {
+        sessionId: options?.sessionId,
+        traceId: options?.traceId
+      });
+
+      if (fres?.id) {
+        options?.mem?.add(
+          [
+            {
+              role: 'function' as const,
+              content: fres.result ?? '',
+              functionId: fres.id
+            }
+          ],
+          options.sessionId
+        );
+      }
+    }
+  };
 }
 
 export class AssertionError extends Error {

@@ -39,7 +39,6 @@ export class PromptTemplate {
   public toString = <T extends Record<string, Value>>(
     values: T,
     {
-      skipSystemPrompt,
       extraFields,
       examples,
       demos
@@ -55,20 +54,15 @@ export class PromptTemplate {
       : null;
 
     const renderedDemos = demos ? this.renderDemos(demos) : [];
-
     const completion = this.renderInputFields(values, extraFields);
 
-    this.prompt = (
-      skipSystemPrompt
-        ? [completion]
-        : [
-            this.task,
-            renderedExamples,
-            this.format,
-            ...renderedDemos,
-            completion
-          ]
-    )
+    this.prompt = [
+      this.task,
+      renderedExamples,
+      this.format,
+      ...renderedDemos,
+      completion
+    ]
       .filter(Boolean)
       .join('\n\n---\n\n');
 

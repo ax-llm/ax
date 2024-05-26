@@ -42,7 +42,7 @@ export type AITextChatRequest = {
           id: string;
           type: 'function';
           // eslint-disable-next-line functional/functional-parameters
-          function: { name: string; arguments?: object };
+          function: { name: string; arguments?: string | object };
         }[];
       }
     | { role: 'function'; content: string; functionId: string }

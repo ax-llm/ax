@@ -68,7 +68,7 @@ export interface OpenAIResponseDelta<T> {
   choices: {
     index: number;
     delta: T;
-    finish_reason: string;
+    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
   }[];
   usage?: OpenAIUsage;
   system_fingerprint: string;
