@@ -5,16 +5,22 @@ import type {
 } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import { BaseAI } from '../base.js';
-import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
+import type {
+  EmbedResponse,
+  TextModelConfig,
+  TextResponse,
+  TextResponseResult,
+  TokenUsage
+} from '../types.js';
 
 import { modelInfoGoogleGemini } from './info.js';
 import {
+  type GoogleGeminiBatchEmbedRequest,
+  type GoogleGeminiBatchEmbedResponse,
   type GoogleGeminiChatRequest,
   type GoogleGeminiChatResponse,
   type GoogleGeminiConfig,
   GoogleGeminiEmbedModels,
-  type GoogleGeminiEmbedRequest,
-  type GoogleGeminiEmbedResponse,
   GoogleGeminiModel
 } from './types.js';
 
@@ -44,10 +50,10 @@ export interface GoogleGeminiArgs {
  */
 export class GoogleGemini extends BaseAI<
   GoogleGeminiChatRequest,
-  GoogleGeminiEmbedRequest,
+  GoogleGeminiBatchEmbedRequest,
   GoogleGeminiChatResponse,
   unknown,
-  GoogleGeminiEmbedResponse
+  GoogleGeminiBatchEmbedResponse
 > {
   private config: GoogleGeminiConfig;
   private apiKey: string;
@@ -99,26 +105,104 @@ export class GoogleGemini extends BaseAI<
       name: `/models/${model}:generateContent?key=${this.apiKey}`
     };
 
-    const reqValue: GoogleGeminiChatRequest = {
-      contents: req.chatPrompt.map((prompt) => ({
-        role: prompt.role as 'USER' | 'MODEL',
-        parts: [{ text: prompt.content ?? undefined }]
-      })),
-      tools: req.functions
-        ? [
-            {
-              functionDeclarations: req.functions ?? []
-            }
-          ]
-        : undefined,
-      generationConfig: {
-        maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-        temperature: req.modelConfig?.temperature ?? this.config.temperature,
-        topP: req.modelConfig?.topP ?? this.config.topP,
-        topK: req.modelConfig?.topK ?? this.config.topK,
-        candidateCount: 1,
-        stopSequences: req.modelConfig?.stop ?? this.config.stopSequences
+    const contents = req.chatPrompt.map(({ role, ...prompt }, i) => {
+      if (role === 'user') {
+        if (!prompt.content) {
+          throw new Error(`Chat prompt content is empty (index: ${i})`);
+        }
+        return {
+          role: 'user' as const,
+          parts: [{ text: prompt.content }]
+        };
       }
+
+      if (role === 'assistant') {
+        const text = prompt.content ? [{ text: prompt.content }] : [];
+
+        let functionCalls: {
+          functionCall: {
+            name: string;
+            args: object;
+          };
+        }[] = [];
+
+        if ('functionCalls' in prompt) {
+          functionCalls =
+            prompt.functionCalls?.map((f) => ({
+              functionCall: {
+                name: f.function.name,
+                args: f.function.arguments ?? {}
+              }
+            })) ?? [];
+        }
+        return {
+          role: 'model' as const,
+          parts: text ? text : functionCalls
+        };
+      }
+
+      if (role === 'function') {
+        if ('functionId' in prompt) {
+          return {
+            role: 'function' as const,
+            parts: [
+              {
+                functionResponse: {
+                  name: prompt.functionId,
+                  response: { result: prompt.content }
+                }
+              }
+            ]
+          };
+        }
+        throw new Error(`Chat prompt functionId is empty (index: ${i})`);
+      }
+
+      throw new Error(`Chat prompt role not supported: ${role} (index: ${i})`);
+    });
+
+    const tools = req.functions
+      ? [
+          {
+            functionDeclarations: req.functions ?? []
+          }
+        ]
+      : undefined;
+
+    let tool_config;
+    if (req.functionCall) {
+      if (req.functionCall === 'none') {
+        tool_config = { function_calling_config: { mode: 'NONE' as const } };
+      } else if (req.functionCall === 'auto') {
+        tool_config = { function_calling_config: { mode: 'AUTO' as const } };
+      } else if (req.functionCall === 'required') {
+        tool_config = {
+          function_calling_config: { mode: 'ANY' as const }
+        };
+      } else {
+        tool_config = {
+          function_calling_config: {
+            mode: 'ANY' as const,
+            allowed_function_names: [req.functionCall.function.name]
+          }
+        };
+      }
+    }
+
+    const generationConfig = {
+      maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      topP: req.modelConfig?.topP ?? this.config.topP,
+      topK: req.modelConfig?.topK ?? this.config.topK,
+      candidateCount: 1,
+      stopSequences: req.modelConfig?.stop ?? this.config.stopSequences
+    };
+
+    const reqValue: GoogleGeminiChatRequest = {
+      contents,
+      tools,
+      tool_config,
+      generationConfig
     };
 
     return [apiConfig, reqValue];
@@ -126,7 +210,7 @@ export class GoogleGemini extends BaseAI<
 
   override generateEmbedReq = (
     req: Readonly<AITextEmbedRequest>
-  ): [API, GoogleGeminiEmbedRequest] => {
+  ): [API, GoogleGeminiBatchEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!model) {
@@ -138,14 +222,11 @@ export class GoogleGemini extends BaseAI<
     }
 
     const apiConfig = {
-      name: `/models/${model}:embedContent?key=${this.apiKey}`
+      name: `/models/${model}:batchEmbedText?key=${this.apiKey}`
     };
 
-    const reqValue: GoogleGeminiEmbedRequest = {
-      contents: req.texts.map((text) => ({
-        role: 'USER',
-        parts: [{ text }]
-      }))
+    const reqValue: GoogleGeminiBatchEmbedRequest = {
+      requests: req.texts.map((text) => ({ model, text }))
     };
 
     return [apiConfig, reqValue];
@@ -154,37 +235,63 @@ export class GoogleGemini extends BaseAI<
   override generateChatResp = (
     resp: Readonly<GoogleGeminiChatResponse>
   ): TextResponse => {
-    const results =
-      resp.candidates.at(0)?.content.parts.map((part, index) => ({
-        id: `${index}`,
-        content: part.text || '',
-        ...(part.function_call
-          ? {
-              functionCalls: [
-                {
-                  id: `${index}`,
-                  type: 'function' as const,
-                  function: {
-                    name: part.function_call.name,
-                    args: part.function_call.args
-                  }
-                }
-              ]
-            }
-          : {})
-      })) ?? [];
+    const results: TextResponseResult[] = resp.candidates.map((candidate) => {
+      const result: TextResponseResult = { content: null };
 
+      switch (candidate.finishReason) {
+        case 'MAX_TOKENS':
+          result.finishReason = 'length';
+          break;
+        case 'STOP':
+          result.finishReason = 'stop';
+          break;
+        case 'SAFETY':
+          result.finishReason = 'error';
+          break;
+        case 'RECITATION':
+          result.finishReason = 'error';
+          break;
+      }
+
+      for (const part of candidate.content.parts) {
+        if ('text' in part) {
+          result.content = part.text;
+          continue;
+        }
+        if ('functionCall' in part) {
+          result.functionCalls = [
+            {
+              id: part.functionCall.name,
+              type: 'function',
+              function: {
+                name: part.functionCall.name,
+                arguments: part.functionCall.args
+              }
+            }
+          ];
+        }
+      }
+      return result;
+    });
+
+    let modelUsage: TokenUsage | undefined;
+    if (resp.usageMetadata) {
+      modelUsage = {
+        totalTokens: resp.usageMetadata.totalTokenCount,
+        promptTokens: resp.usageMetadata.promptTokenCount,
+        completionTokens: resp.usageMetadata.candidatesTokenCount
+      };
+    }
     return {
-      results
+      results,
+      modelUsage
     };
   };
 
   override generateEmbedResp = (
-    resp: Readonly<GoogleGeminiEmbedResponse>
+    resp: Readonly<GoogleGeminiBatchEmbedResponse>
   ): EmbedResponse => {
-    const embeddings = resp.predictions.map(
-      (prediction) => prediction.embeddings.values
-    );
+    const embeddings = resp.embeddings.map((embedding) => embedding.value);
 
     return {
       embeddings

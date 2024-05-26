@@ -41,8 +41,21 @@ export const uniqBy = <T>(
 export function convertToChatPromptItem({
   content,
   name,
-  functionCalls
+  functionCalls: fc
 }: Readonly<TextResponseResult>): AITextChatRequest['chatPrompt'][0] {
+  const functionCalls = fc?.map(({ function: f }) => {
+    const args =
+      typeof f.arguments === 'string' ? JSON.parse(f.arguments) : f.arguments;
+
+    return {
+      id: f.name,
+      type: 'function' as const,
+      function: {
+        name: f.name,
+        arguments: args
+      }
+    };
+  });
   return { content, role: 'assistant', name, functionCalls };
 }
 

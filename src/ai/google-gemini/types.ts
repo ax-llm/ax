@@ -21,36 +21,42 @@ export enum GoogleGeminiEmbedModels {
   Embedding001 = 'embedding-001'
 }
 
-export type GoogleGeminiPart = {
-  text?: string;
-  function_call?: {
-    name: string;
-    args: object;
-  };
-  inlineData?: {
-    mimeType: string;
-    data: string;
-  };
-  fileData?: {
-    mimeType: string;
-    fileUri: string;
-  };
-  videoMetadata?: {
-    startOffset: {
-      seconds: number;
-      nanos: number;
+export type GoogleGeminiContent =
+  | {
+      role: 'user';
+      parts:
+        | {
+            text: string;
+          }[]
+        | {
+            fileData: {
+              mimeType: string;
+              fileUri: string;
+            };
+          }[];
+    }
+  | {
+      role: 'model';
+      parts:
+        | {
+            text: string;
+          }[]
+        | {
+            functionCall: {
+              name: string;
+              args: object;
+            };
+          }[];
+    }
+  | {
+      role: 'function';
+      parts: {
+        functionResponse: {
+          name: string;
+          response: object;
+        };
+      }[];
     };
-    endOffset: {
-      seconds: number;
-      nanos: number;
-    };
-  };
-};
-
-export type GoogleGeminiContent = {
-  role: 'USER' | 'MODEL';
-  parts: GoogleGeminiPart[];
-};
 
 export type GoogleGeminiToolFunctionDeclaration = {
   name: string;
@@ -62,13 +68,11 @@ export type GoogleGeminiTool = {
   functionDeclarations: GoogleGeminiToolFunctionDeclaration[];
 };
 
-export type GoogleGeminiSafetySetting = {
-  category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT' | string; // Assuming other categories can be added here
-  threshold:
-    | 'BLOCK_NONE'
-    | 'BLOCK_LOW_AND_ABOVE'
-    | 'BLOCK_MED_AND_ABOVE'
-    | 'BLOCK_ONLY_HIGH';
+export type GoogleGeminiToolConfig = {
+  function_calling_config: {
+    mode: 'ANY' | 'NONE' | 'AUTO';
+    allowed_function_names?: string[];
+  };
 };
 
 export type GoogleGeminiGenerationConfig = {
@@ -83,33 +87,15 @@ export type GoogleGeminiGenerationConfig = {
 export type GoogleGeminiChatRequest = {
   contents: GoogleGeminiContent[];
   tools?: GoogleGeminiTool[];
-  safetySettings?: GoogleGeminiSafetySetting[];
+  tool_config?: GoogleGeminiToolConfig;
   generationConfig: GoogleGeminiGenerationConfig;
 };
 
 export type GoogleGeminiChatResponse = {
   candidates: {
-    content: {
-      parts: GoogleGeminiPart[];
-    };
+    content: GoogleGeminiContent;
 
-    finishReason:
-      | 'FINISH_REASON_UNSPECIFIED'
-      | 'FINISH_REASON_STOP'
-      | 'FINISH_REASON_MAX_TOKENS'
-      | 'FINISH_REASON_SAFETY'
-      | 'FINISH_REASON_RECITATION'
-      | 'FINISH_REASON_OTHER';
-    safetyRatings: {
-      category: string;
-      probability:
-        | 'HARM_PROBABILITY_UNSPECIFIED'
-        | 'NEGLIGIBLE'
-        | 'LOW'
-        | 'MEDIUM'
-        | 'HIGH';
-      blocked: boolean;
-    }[];
+    finishReason: 'STOP' | 'MAX_TOKENS' | 'SAFETY' | 'RECITATION' | 'OTHER';
     citationMetadata: {
       citations: {
         startIndex: number;
@@ -150,22 +136,10 @@ export type GoogleGeminiConfig = {
  * GoogleGeminiEmbedRequest: Structure for making an embedding request to the Google Gemini API.
  * @export
  */
-export type GoogleGeminiEmbedRequest = {
-  contents: {
-    role: 'USER' | 'MODEL'; // Assuming embedding might also consider the role for context
-    parts: {
-      // Assuming text is the primary content for embeddings as per documentation
-      text: string; // The text for which embeddings are requested
-      // For embedding, typically, the focus is on text, but including provisions for multimedia embedding if supported
-      inlineData?: {
-        mimeType: string; // MIME type of the inline data
-        data: string; // Base64 encoded data
-      };
-      fileData?: {
-        mimeType: string; // MIME type of the file data
-        fileUri: string; // URI for the file data
-      };
-    }[];
+export type GoogleGeminiBatchEmbedRequest = {
+  requests: {
+    model: string;
+    text: string;
   }[];
 };
 
@@ -173,13 +147,8 @@ export type GoogleGeminiEmbedRequest = {
  * GoogleGeminiEmbedResponse: Structure for handling responses from the Google Gemini API embedding requests.
  * @export
  */
-export type GoogleGeminiEmbedResponse = {
-  model: string; // Model used for generating embeddings, providing context for interpreting the embeddings
-  predictions: [
-    {
-      embeddings: {
-        values: number[]; // The embedding vector
-      };
-    }
-  ];
+export type GoogleGeminiBatchEmbedResponse = {
+  embeddings: {
+    value: number[];
+  }[];
 };

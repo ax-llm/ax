@@ -102,10 +102,10 @@ export type OpenAIChatRequest = {
       parameters?: object;
     };
   }[];
-  function_call?: 'none' | 'auto' | { name: string };
   tool_choice?:
     | 'none'
     | 'auto'
+    | 'required'
     | { type: 'function'; function: { name: string } };
   response_format?: { type: string };
   max_tokens: number;

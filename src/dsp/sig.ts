@@ -127,13 +127,11 @@ export class Signature {
           type: 'array' as const,
           items: {
             type: type,
-            title: f.title,
             description: f.description
           }
         };
       } else {
         properties[f.name] = {
-          title: f.title,
           description: f.description,
           type: type
         };
