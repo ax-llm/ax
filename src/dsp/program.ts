@@ -5,7 +5,7 @@ import type { AIMemory, AIService } from '../text/types.js';
 import type { Tracer } from '../trace/index.js';
 
 import { InstanceRegistry } from './registry.js';
-import { type Field, Signature } from './sig.js';
+import { type Field } from './sig.js';
 
 export type Value = string | string[] | number | boolean | object;
 
@@ -36,32 +36,29 @@ export type ProgramForwardOptions = {
   tracer?: Tracer;
 };
 
-export interface Tunable {
+export interface ITunable {
   setExamples: (examples: Readonly<Record<string, Value>[]>) => void;
   setTrace: (trace: Record<string, Value>) => void;
   updateKey: (parentKey: string) => void;
-  getSignature: () => Signature | undefined;
   getTraces: () => ProgramTrace[];
   setDemos: (demos: readonly ProgramDemos[]) => void;
   loadDemos: (filename: string) => void;
 }
 
-export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
+export class Program<IN extends GenIn, OUT extends GenOut> implements ITunable {
   private key: string;
-  private reg: InstanceRegistry<Readonly<Tunable>>;
+  private reg: InstanceRegistry<Readonly<ITunable>>;
 
-  protected signature: Signature;
   protected examples?: Record<string, Value>[];
   protected demos?: Record<string, Value>[];
   protected trace?: Record<string, Value>;
 
-  constructor(signature: Readonly<Signature | string>) {
+  constructor() {
     this.reg = new InstanceRegistry();
     this.key = this.constructor.name;
-    this.signature = new Signature(signature);
   }
 
-  public register(prog: Readonly<Tunable>) {
+  public register(prog: Readonly<ITunable>) {
     if (this.key) {
       prog.updateKey(this.key);
     }
@@ -77,33 +74,9 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
     throw new Error('forward() not implemented');
   }
 
-  private _setExamples(
-    sig: Readonly<Signature>,
-    examples: Readonly<Record<string, Value>[]>
-  ) {
-    const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
-
-    this.examples = examples.map((e) => {
-      const res: Record<string, Value> = {};
-      for (const f of fields) {
-        const value = e[f.name];
-        if (value) {
-          validateValue(f, value);
-          res[f.name] = value;
-        }
-      }
-      return res;
-    });
-  }
-
   public setExamples(examples: Readonly<Record<string, Value>[]>) {
-    this._setExamples(this.getSignature(), examples);
-
     for (const inst of this.reg) {
-      const sig = inst.getSignature();
-      if (sig) {
-        this._setExamples(sig, examples);
-      }
+      inst.setExamples(examples);
     }
   }
 
@@ -113,10 +86,6 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements Tunable {
 
   public updateKey(parentKey: string) {
     this.key = [parentKey, this.key].join('/');
-  }
-
-  public getSignature(): Signature {
-    return this.signature;
   }
 
   public getTraces(): ProgramTrace[] {

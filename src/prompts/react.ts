@@ -1,5 +1,5 @@
 import type { GenerateOptions } from '../dsp/generate.js';
-import { type GenIn, type GenOut } from '../dsp/program.js';
+import type { GenIn, GenOut } from '../dsp/program.js';
 import { Signature } from '../dsp/sig.js';
 import type { AIService } from '../text/types.js';
 

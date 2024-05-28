@@ -28,7 +28,7 @@ import {
  * GoogleGemini: Default Model options for text generation
  * @export
  */
-export const GoogleGeminiDefaultOptions = (): GoogleGeminiConfig => ({
+export const GoogleGeminiDefaultConfig = (): GoogleGeminiConfig => ({
   model: GoogleGeminiModel.Gemini15Flash,
   embedModel: GoogleGeminiEmbedModels.Embedding001,
   maxTokens: 500,
@@ -60,7 +60,7 @@ export class GoogleGemini extends BaseAI<
 
   constructor({
     apiKey,
-    config = GoogleGeminiDefaultOptions(),
+    config = GoogleGeminiDefaultConfig(),
     options
   }: Readonly<GoogleGeminiArgs>) {
     if (!apiKey || apiKey === '') {

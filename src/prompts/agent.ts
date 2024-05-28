@@ -2,9 +2,9 @@ import { type GenerateOptions, Signature } from '../dsp/index.js';
 import {
   type GenIn,
   type GenOut,
+  type ITunable,
   Program,
-  type ProgramForwardOptions,
-  type Tunable
+  type ProgramForwardOptions
 } from '../dsp/program.js';
 import { type AITextFunction } from '../text/index.js';
 import type { AIService } from '../text/types.js';
@@ -13,7 +13,7 @@ import { SpanKind } from '../trace/index.js';
 import { ChainOfThought } from './cot.js';
 import { ReAct } from './react.js';
 
-export interface AgentI extends Tunable {
+export interface AgentI extends ITunable {
   getFunction(): AITextFunction;
 }
 
@@ -28,6 +28,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
   private name: string;
   private description: string;
   private subAgentList?: string;
+  private func: AITextFunction;
 
   constructor(
     ai: AIService,
@@ -46,7 +47,9 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     }>,
     options?: Readonly<AgentOptions>
   ) {
-    super(signature);
+    super();
+
+    const sig = new Signature(signature);
 
     const funcs: AITextFunction[] = [
       ...(functions ?? []),
@@ -61,12 +64,18 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
 
     this.gen =
       funcs.length > 0
-        ? new ReAct<IN, OUT>(ai, this.signature, opt)
-        : new ChainOfThought<IN, OUT>(ai, this.signature, opt);
+        ? new ReAct<IN, OUT>(ai, sig, opt)
+        : new ChainOfThought<IN, OUT>(ai, sig, opt);
 
     this.name = name;
     this.description = description;
     this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ');
+    this.func = {
+      name: this.name,
+      description: this.description,
+      parameters: sig.toJSONSchema(),
+      func: () => this.forward
+    };
 
     this.register(this.gen);
 
@@ -76,13 +85,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
   }
 
   public getFunction(): AITextFunction {
-    const s = this.signature.toJSONSchema();
-    return {
-      name: this.name,
-      description: this.description,
-      parameters: s,
-      func: () => this.forward
-    };
+    return this.func;
   }
 
   public override async forward(

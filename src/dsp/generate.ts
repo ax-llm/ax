@@ -16,7 +16,9 @@ import {
   type GenIn,
   type GenOut,
   Program,
-  type ProgramForwardOptions
+  type ProgramForwardOptions,
+  validateValue,
+  type Value
 } from './program.js';
 import { PromptTemplate } from './prompt.js';
 import {
@@ -47,6 +49,7 @@ export class Generate<
   IN extends GenIn = GenIn,
   OUT extends GenerateResult<GenOut> = GenerateResult<GenOut>
 > extends Program<IN, OUT> {
+  private signature: Signature;
   private sigHash: string;
   private ai: AIService;
   private pt: PromptTemplate;
@@ -60,8 +63,9 @@ export class Generate<
     signature: Readonly<Signature | string>,
     options?: Readonly<GenerateOptions>
   ) {
-    super(signature);
+    super();
 
+    this.signature = new Signature(signature);
     this.sigHash = this.signature.hash();
     this.ai = ai;
     this.options = options;
@@ -95,6 +99,28 @@ export class Generate<
       isOptional: true
     });
   };
+
+  private _setExamples(examples: Readonly<Record<string, Value>[]>) {
+    const sig = this.signature;
+    const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
+
+    this.examples = examples.map((e) => {
+      const res: Record<string, Value> = {};
+      for (const f of fields) {
+        const value = e[f.name];
+        if (value) {
+          validateValue(f, value);
+          res[f.name] = value;
+        }
+      }
+      return res;
+    });
+  }
+
+  public override setExamples(examples: Readonly<Record<string, Value>[]>) {
+    this._setExamples(examples);
+    super.setExamples(examples);
+  }
 
   public addAssert = (
     fn: Assertion['fn'],

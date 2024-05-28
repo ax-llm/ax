@@ -45,7 +45,7 @@ export class Signature {
       this.sigHash = signature.hash();
       this.sigString = signature.toString();
     } else {
-      throw new Error('invalid signature argument');
+      throw new Error('invalid signature argument: ' + signature);
     }
   }
 

@@ -16,7 +16,7 @@ import {
  * HuggingFace: Default Model options for text generation
  * @export
  */
-export const HuggingFaceDefaultOptions = (): HuggingFaceConfig => ({
+export const HuggingFaceDefaultConfig = (): HuggingFaceConfig => ({
   model: HuggingFaceModel.MetaLlama270BChatHF,
   maxNewTokens: 500,
   temperature: 0,
@@ -27,8 +27,8 @@ export const HuggingFaceDefaultOptions = (): HuggingFaceConfig => ({
  * HuggingFace: Default model options for more creative text generation
  * @export
  */
-export const HuggingFaceCreativeOptions = (): HuggingFaceConfig => ({
-  ...HuggingFaceDefaultOptions(),
+export const HuggingFaceCreativeConfig = (): HuggingFaceConfig => ({
+  ...HuggingFaceDefaultConfig(),
   model: HuggingFaceModel.MetaLlama270BChatHF,
   temperature: 0.9
 });
@@ -54,7 +54,7 @@ export class HuggingFace extends BaseAI<
 
   constructor({
     apiKey,
-    config = HuggingFaceDefaultOptions(),
+    config = HuggingFaceDefaultConfig(),
     options
   }: Readonly<HuggingFaceArgs>) {
     if (!apiKey || apiKey === '') {
