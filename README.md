@@ -51,6 +51,14 @@ You can have multiple input and output fields and each field has one of these ty
 | Google Gemini | Gemini: Flash, Pro      | 🟢 100% |
 | Hugging Face  | OSS Model               | 🟡 50%  |
 
+## Install
+
+```bash
+npm install llmclient
+# or 
+yarn add llmclient
+```
+
 ## Example: Using chain-of-thought to summarize text
 
 ```typescript
