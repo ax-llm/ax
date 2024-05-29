@@ -21,8 +21,30 @@ import {
   type GoogleGeminiChatResponse,
   type GoogleGeminiConfig,
   GoogleGeminiEmbedModels,
-  GoogleGeminiModel
+  GoogleGeminiModel,
+  GoogleGeminiSafetyCategory,
+  type GoogleGeminiSafetySettings,
+  GoogleGeminiSafetyThreshold
 } from './types.js';
+
+const safetySettings: GoogleGeminiSafetySettings = [
+  {
+    category: GoogleGeminiSafetyCategory.HarmCategoryHarassment,
+    threshold: GoogleGeminiSafetyThreshold.BlockNone
+  },
+  {
+    category: GoogleGeminiSafetyCategory.HarmCategoryHateSpeech,
+    threshold: GoogleGeminiSafetyThreshold.BlockNone
+  },
+  {
+    category: GoogleGeminiSafetyCategory.HarmCategorySexuallyExplicit,
+    threshold: GoogleGeminiSafetyThreshold.BlockNone
+  },
+  {
+    category: GoogleGeminiSafetyCategory.HarmCategoryDangerousContent,
+    threshold: GoogleGeminiSafetyThreshold.BlockNone
+  }
+];
 
 /**
  * GoogleGemini: Default Model options for text generation
@@ -35,7 +57,8 @@ export const GoogleGeminiDefaultConfig = (): GoogleGeminiConfig => ({
   temperature: 0.45,
   topP: 1,
   topK: 40,
-  stopSequences: []
+  stopSequences: [],
+  safetySettings
 });
 
 export interface GoogleGeminiArgs {
@@ -220,12 +243,15 @@ export class GoogleGemini extends BaseAI<
       stopSequences: req.modelConfig?.stop ?? this.config.stopSequences
     };
 
+    const safetySettings = this.config.safetySettings;
+
     const reqValue: GoogleGeminiChatRequest = {
       contents,
       tools,
       tool_config,
       systemInstruction,
-      generationConfig
+      generationConfig,
+      safetySettings
     };
 
     return [apiConfig, reqValue];
@@ -269,12 +295,12 @@ export class GoogleGemini extends BaseAI<
           result.finishReason = 'stop';
           break;
         case 'SAFETY':
-          result.finishReason = 'error';
-          break;
+          throw new Error('Finish reason: SAFETY');
         case 'RECITATION':
-          result.finishReason = 'error';
-          break;
+          throw new Error('Finish reason: RECITATION');
       }
+
+      console.log(JSON.stringify(candidate, null, 2));
 
       for (const part of candidate.content.parts) {
         if ('text' in part) {

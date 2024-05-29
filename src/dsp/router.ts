@@ -2,6 +2,13 @@ import { existsSync } from 'fs';
 
 import { MemoryDB } from '../db/memory.js';
 import type { AIService } from '../text/index.js';
+import { ColorLog } from '../util/log.js';
+
+const colorLog = new ColorLog();
+
+export interface RouterForwardOptions {
+  cutoff?: number;
+}
 
 export class Route {
   private readonly name: string;
@@ -24,6 +31,7 @@ export class Route {
 export class Router {
   private readonly ai: AIService;
   private db: MemoryDB;
+  private debug?: boolean;
 
   public constructor(ai: AIService) {
     this.db = new MemoryDB();
@@ -54,7 +62,10 @@ export class Router {
     }
   };
 
-  public forward = async (text: string): Promise<string> => {
+  public async forward(
+    text: string,
+    options?: Readonly<RouterForwardOptions>
+  ): Promise<string> {
     const { embeddings } = await this.ai.embed({ texts: [text] });
 
     const matches = await this.db.query({
@@ -62,11 +73,33 @@ export class Router {
       values: embeddings[0]
     });
 
-    const route = matches.matches.at(0);
+    let m = matches.matches;
+    if (typeof options?.cutoff === 'number') {
+      const { cutoff } = options;
+      m = m.filter((m) => m.score <= cutoff);
+    }
+
+    if (this.debug) {
+      console.log(
+        colorLog.whiteBright(`query: ${text}`) +
+          '\n' +
+          colorLog.greenBright(
+            JSON.stringify(m.map((m) => `${m.id}, ${m.score}`))
+          )
+      );
+    }
+
+    const route = m.at(0);
     if (!route) {
       return '';
     }
 
     return route.id;
-  };
+  }
+
+  public setOptions(options: Readonly<{ debug?: boolean }>): void {
+    if (typeof options.debug === 'boolean') {
+      this.debug = options.debug;
+    }
+  }
 }

@@ -237,11 +237,9 @@ export class Cohere extends BaseAI<
         finishReason = 'length';
         break;
       case 'ERROR':
-        finishReason = 'error';
-        break;
+        throw new Error('Finish reason: ERROR');
       case 'ERROR_TOXIC':
-        finishReason = 'content_filter';
-        break;
+        throw new Error('Finish reason: CONTENT_FILTER');
       default:
         finishReason = 'stop';
         break;

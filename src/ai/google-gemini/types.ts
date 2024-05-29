@@ -21,6 +21,21 @@ export enum GoogleGeminiEmbedModels {
   Embedding001 = 'embedding-001'
 }
 
+export enum GoogleGeminiSafetyCategory {
+  HarmCategoryHarassment = 'HARM_CATEGORY_HARASSMENT',
+  HarmCategoryHateSpeech = 'HARM_CATEGORY_HATE_SPEECH',
+  HarmCategorySexuallyExplicit = 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+  HarmCategoryDangerousContent = 'HARM_CATEGORY_DANGEROUS_CONTENT'
+}
+
+export enum GoogleGeminiSafetyThreshold {
+  BlockNone = 'BLOCK_NONE',
+  BlockOnlyHigh = 'BLOCK_ONLY_HIGH',
+  BlockMediumAndAbove = 'BLOCK_MEDIUM_AND_ABOVE',
+  BlockLowAndAbove = 'BLOCK_LOW_AND_ABOVE',
+  BlockDefault = 'HARM_BLOCK_THRESHOLD_UNSPECIFIED'
+}
+
 export type GoogleGeminiContent =
   | {
       role: 'user';
@@ -84,12 +99,18 @@ export type GoogleGeminiGenerationConfig = {
   stopSequences: readonly string[];
 };
 
+export type GoogleGeminiSafetySettings = {
+  category: GoogleGeminiSafetyCategory;
+  threshold: GoogleGeminiSafetyThreshold;
+}[];
+
 export type GoogleGeminiChatRequest = {
   contents: GoogleGeminiContent[];
   tools?: GoogleGeminiTool[];
   tool_config?: GoogleGeminiToolConfig;
   systemInstruction?: GoogleGeminiContent;
   generationConfig: GoogleGeminiGenerationConfig;
+  safetySettings?: GoogleGeminiSafetySettings;
 };
 
 export type GoogleGeminiChatResponse = {
@@ -131,6 +152,7 @@ export type GoogleGeminiConfig = {
   topP: number;
   topK: number;
   stopSequences: string[];
+  safetySettings: GoogleGeminiSafetySettings;
 };
 
 /**
