@@ -22,6 +22,7 @@ export * from './mistral/index.js';
 export * from './deepseek/index.js';
 export * from './ollama/index.js';
 export * from './types.js';
+export * from './balance.js';
 
 export type AIName =
   | 'openai'

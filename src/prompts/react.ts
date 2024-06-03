@@ -18,16 +18,12 @@ export class ReAct<
       throw new Error('No functions provided');
     }
 
-    const functions = [
-      ...options.functions,
-      { name: 'task_done', description: 'Task is complete' }
-    ];
-
+    const functions = [...options.functions];
     const funcList = functions.map((f) => `'${f.name}'`).join(', ');
 
     const sig = new Signature(signature);
     sig.setDescription(
-      `Use the provided functions ${funcList} to complete the task. Use function 'task_done' if the final result is found.`
+      `Use the provided functions ${funcList} to complete the task and return the result if any.`
     );
 
     // sig.addInputField({

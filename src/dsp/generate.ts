@@ -384,11 +384,6 @@ export class Generate<
     }
 
     for (const func of res.functions) {
-      if (func.name.indexOf('task_done') !== -1) {
-        delete (res as Record<string, unknown>).functions;
-        return res as OUT & { reason: string };
-      }
-
       const fres = await this.funcProc?.execute(func, {
         sessionId: options?.sessionId,
         traceId: options?.traceId

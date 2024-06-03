@@ -300,8 +300,6 @@ export class GoogleGemini extends BaseAI<
           throw new Error('Finish reason: RECITATION');
       }
 
-      console.log(JSON.stringify(candidate, null, 2));
-
       for (const part of candidate.content.parts) {
         if ('text' in part) {
           result.content = part.text;
