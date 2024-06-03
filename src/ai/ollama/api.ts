@@ -1,4 +1,5 @@
 import type { AIServiceOptions } from '../../text/types.js';
+import { BaseAIDefaultConfig, BaseAIDefaultCreativeConfig } from '../base.js';
 import { OpenAI } from '../openai/api.js';
 import type { OpenAIConfig } from '../openai/types.js';
 
@@ -8,14 +9,15 @@ export type OllamaAIConfig = OpenAIConfig;
  * OllamaAI: Default Model options for text generation
  * @export
  */
-export const OllamaDefaultConfig = (): Omit<OllamaAIConfig, 'model'> => ({
-  stream: false,
-  suffix: null,
-  maxTokens: 500,
-  temperature: 0.1,
-  topP: 0.9,
-  frequencyPenalty: 0.5
-});
+export const OllamaDefaultConfig = (): Omit<OllamaAIConfig, 'model'> =>
+  structuredClone({
+    ...BaseAIDefaultConfig()
+  });
+
+export const OllamaDefaultCreativeConfig = (): Omit<OllamaAIConfig, 'model'> =>
+  structuredClone({
+    ...BaseAIDefaultCreativeConfig()
+  });
 
 export type OllamaArgs = {
   model: string;

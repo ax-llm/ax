@@ -4,6 +4,12 @@ import { CohereEmbedModel, CohereModel } from './types.js';
 
 export const modelInfoCohere: TextModelInfo[] = [
   {
+    name: CohereModel.CommandRPlus,
+    currency: 'usd',
+    promptTokenCostPer1M: 3.0,
+    completionTokenCostPer1M: 15
+  },
+  {
     name: CohereModel.CommandR,
     currency: 'usd',
     promptTokenCostPer1M: 0.5,

@@ -4,7 +4,11 @@ import type {
   AITextEmbedRequest
 } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
+import {
+  BaseAI,
+  BaseAIDefaultConfig,
+  BaseAIDefaultCreativeConfig
+} from '../base.js';
 import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoCohere } from './info.js';
@@ -22,24 +26,23 @@ import {
  * Cohere: Default Model config for text generation
  * @export
  */
-export const CohereDefaultConfig = (): CohereConfig => ({
-  model: CohereModel.Command,
-  embedModel: CohereEmbedModel.EmbedEnglishV30,
-  maxTokens: 500,
-  temperature: 0.1,
-  topK: 40,
-  topP: 0.9,
-  frequencyPenalty: 0.8
-});
+export const CohereDefaultConfig = (): CohereConfig =>
+  structuredClone({
+    model: CohereModel.Command,
+    embedModel: CohereEmbedModel.EmbedEnglishV30,
+    ...BaseAIDefaultConfig()
+  });
 
 /**
  * Cohere: Default model config for more creative text generation
  * @export
  */
-export const CohereCreativeConfig = (): CohereConfig => ({
-  ...CohereDefaultConfig(),
-  temperature: 0.7
-});
+export const CohereCreativeConfig = (): CohereConfig =>
+  structuredClone({
+    model: CohereModel.CommandR,
+    embedModel: CohereEmbedModel.EmbedEnglishV30,
+    ...BaseAIDefaultCreativeConfig()
+  });
 
 export interface CohereArgs {
   apiKey: string;
@@ -90,9 +93,7 @@ export class Cohere extends BaseAI<
       frequencyPenalty: config.frequencyPenalty,
       presencePenalty: config.presencePenalty,
       endSequences: config.endSequences,
-      stopSequences: config.stopSequences,
-      returnLikelihoods: config.returnLikelihoods,
-      logitBias: config.logitBias
+      stopSequences: config.stopSequences
     } as TextModelConfig;
   }
 
@@ -191,9 +192,8 @@ export class Cohere extends BaseAI<
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       end_sequences: this.config.endSequences,
-      stop_sequences: req.modelConfig?.stop ?? this.config.stopSequences,
-      return_likelihoods: this.config.returnLikelihoods,
-      logit_bias: this.config.logitBias
+      stop_sequences:
+        req.modelConfig?.stopSequences ?? this.config.stopSequences
     };
 
     return [apiConfig, reqValue];
@@ -219,7 +219,7 @@ export class Cohere extends BaseAI<
     const reqValue = {
       model,
       texts: req.texts ?? [],
-      truncate: this.config.truncate ?? ''
+      truncate: ''
     };
 
     return [apiConfig, reqValue];

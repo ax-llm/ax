@@ -1,4 +1,5 @@
 import type { AIServiceOptions } from '../../text/types.js';
+import { BaseAIDefaultConfig } from '../base.js';
 import { OpenAI } from '../openai/api.js';
 import type { OpenAIConfig } from '../openai/types.js';
 
@@ -8,15 +9,11 @@ type GroqAIConfig = OpenAIConfig;
  * GroqAI: Default Model options for text generation
  * @export
  */
-export const GroqDefaultConfig = (): GroqAIConfig => ({
-  model: 'llama2-70b-4096',
-  stream: false,
-  suffix: null,
-  maxTokens: 500,
-  temperature: 0.1,
-  topP: 0.9,
-  frequencyPenalty: 0.5
-});
+export const GroqDefaultConfig = (): GroqAIConfig =>
+  structuredClone({
+    model: 'llama2-70b-4096',
+    ...BaseAIDefaultConfig()
+  });
 
 export interface GroqArgs {
   apiKey: string;

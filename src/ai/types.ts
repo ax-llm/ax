@@ -20,16 +20,12 @@ export type TextModelConfig = {
   temperature: number;
   topP?: number;
   topK?: number;
-  n?: number;
-  stream?: boolean;
-  logprobs?: number;
-  echo?: boolean;
   presencePenalty?: number;
   frequencyPenalty?: number;
-  bestOf?: number;
-  logitBias?: Map<string, number>;
-  suffix?: string | null;
-  stop?: string[];
+  stopSequences?: string[];
+  endSequences?: string[];
+  stream?: boolean;
+  n?: number;
 };
 
 export type TextResponseFunctionCall = {

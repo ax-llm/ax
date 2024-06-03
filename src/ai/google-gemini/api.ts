@@ -4,7 +4,7 @@ import type {
   AITextEmbedRequest
 } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
+import { BaseAI, BaseAIDefaultConfig } from '../base.js';
 import type {
   EmbedResponse,
   TextModelConfig,
@@ -50,16 +50,13 @@ const safetySettings: GoogleGeminiSafetySettings = [
  * GoogleGemini: Default Model options for text generation
  * @export
  */
-export const GoogleGeminiDefaultConfig = (): GoogleGeminiConfig => ({
-  model: GoogleGeminiModel.Gemini15Flash,
-  embedModel: GoogleGeminiEmbedModels.Embedding001,
-  maxTokens: 500,
-  temperature: 0.45,
-  topP: 1,
-  topK: 40,
-  stopSequences: [],
-  safetySettings
-});
+export const GoogleGeminiDefaultConfig = (): GoogleGeminiConfig =>
+  structuredClone({
+    model: GoogleGeminiModel.Gemini15Flash,
+    embedModel: GoogleGeminiEmbedModels.Embedding001,
+    safetySettings,
+    ...BaseAIDefaultConfig()
+  });
 
 export interface GoogleGeminiArgs {
   apiKey: string;
@@ -240,7 +237,7 @@ export class GoogleGemini extends BaseAI<
       topP: req.modelConfig?.topP ?? this.config.topP,
       topK: req.modelConfig?.topK ?? this.config.topK,
       candidateCount: 1,
-      stopSequences: req.modelConfig?.stop ?? this.config.stopSequences
+      stopSequences: req.modelConfig?.stopSequences ?? this.config.stopSequences
     };
 
     const safetySettings = this.config.safetySettings;

@@ -1,3 +1,5 @@
+import type { TextModelConfig } from '../types.js';
+
 /**
  * HuggingFace: Models for text generation
  * @export
@@ -10,15 +12,9 @@ export enum HuggingFaceModel {
  * HuggingFace: Model options for text generation
  * @export
  */
-export type HuggingFaceConfig = {
+export type HuggingFaceConfig = TextModelConfig & {
   model: HuggingFaceModel;
-  temperature: number;
-  topP: number;
-  topK?: number;
-  maxNewTokens?: number;
-  repetitionPenalty?: number;
   returnFullText?: boolean;
-  numReturnSequences?: number;
   doSample?: boolean;
   maxTime?: number;
   useCache?: boolean;
@@ -31,8 +27,8 @@ export type HuggingFaceRequest = {
   parameters: {
     max_new_tokens?: number;
     repetition_penalty?: number;
-    temperature: number;
-    top_p: number;
+    temperature?: number;
+    top_p?: number;
     top_k?: number;
     return_full_text?: boolean;
     num_return_sequences?: number;

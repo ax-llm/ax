@@ -45,6 +45,12 @@ export type OpenAIConfig = Omit<TextModelConfig, 'topK'> & {
   audioModel?: OpenAIAudioModel | string;
   user?: string;
   responseFormat?: 'json_object';
+  bestOf?: number;
+  logitBias?: Map<string, number>;
+  suffix?: string | null;
+  stop?: string[];
+  logprobs?: number;
+  echo?: boolean;
 };
 
 export type OpenAILogprob = {

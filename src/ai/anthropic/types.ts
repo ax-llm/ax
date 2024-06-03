@@ -1,3 +1,5 @@
+import type { TextModelConfig } from '../types.js';
+
 /**
  * Anthropic: Models for text generation
  * @export
@@ -14,14 +16,8 @@ export enum AnthropicModel {
  * Anthropic: Model options for text generation
  * @export
  */
-export type AnthropicConfig = {
+export type AnthropicConfig = TextModelConfig & {
   model: AnthropicModel;
-  maxTokens: number;
-  temperature: number;
-  topP: number;
-  topK?: number;
-  stream?: boolean;
-  stopSequences?: string[];
 };
 
 // Type for the request to create a message using Anthropic's Messages API
@@ -48,7 +44,7 @@ export type AnthropicChatRequest = {
     description: string;
     input_schema?: object;
   }[];
-  max_tokens: number; // Maximum number of tokens to generate
+  max_tokens?: number; // Maximum number of tokens to generate
   // Optional metadata about the request
   stop_sequences?: string[]; // Custom sequences that trigger the end of generation
   stream?: boolean; // Whether to stream the response incrementally

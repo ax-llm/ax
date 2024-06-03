@@ -3,6 +3,8 @@
  * @export
  */
 
+import type { TextModelConfig } from '../types.js';
+
 /**
  * GoogleGeminiModel: Enum for specifying the model version
  * @export
@@ -91,12 +93,12 @@ export type GoogleGeminiToolConfig = {
 };
 
 export type GoogleGeminiGenerationConfig = {
-  temperature: number;
-  topP: number;
-  topK: number;
-  candidateCount: number;
-  maxOutputTokens: number;
-  stopSequences: readonly string[];
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  candidateCount?: number;
+  maxOutputTokens?: number;
+  stopSequences?: readonly string[];
 };
 
 export type GoogleGeminiSafetySettings = {
@@ -144,14 +146,9 @@ export type GoogleGeminiChatResponse = {
  * GoogleGeminiConfig: Configuration options for Google Gemini API
  * @export
  */
-export type GoogleGeminiConfig = {
+export type GoogleGeminiConfig = TextModelConfig & {
   model: GoogleGeminiModel;
   embedModel: GoogleGeminiEmbedModels;
-  maxTokens: number;
-  temperature: number;
-  topP: number;
-  topK: number;
-  stopSequences: string[];
   safetySettings: GoogleGeminiSafetySettings;
 };
 

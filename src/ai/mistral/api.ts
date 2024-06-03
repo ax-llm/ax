@@ -1,4 +1,5 @@
 import type { AIServiceOptions } from '../../text/types.js';
+import { BaseAIDefaultConfig } from '../base.js';
 import { OpenAI } from '../openai/api.js';
 import type { OpenAIConfig } from '../openai/types.js';
 
@@ -10,23 +11,21 @@ type MistralConfig = OpenAIConfig;
  * Mistral: Default Model options for text generation
  * @export
  */
-export const MistralDefaultConfig = (): MistralConfig => ({
-  model: MistralModel.MistralSmall,
-  stream: false,
-  suffix: null,
-  maxTokens: 200,
-  temperature: 0.1,
-  topP: 0.9
-});
+export const MistralDefaultConfig = (): MistralConfig =>
+  structuredClone({
+    model: MistralModel.MistralSmall,
+    ...BaseAIDefaultConfig()
+  });
 
 /**
  * Mistral: Default model options to use the more advanced model
  * @export
  */
-export const MistralBestConfig = (): OpenAIConfig => ({
-  ...MistralDefaultConfig(),
-  model: MistralModel.MistralLarge
-});
+export const MistralBestConfig = (): OpenAIConfig =>
+  structuredClone({
+    ...MistralDefaultConfig(),
+    model: MistralModel.MistralLarge
+  });
 
 export interface MistralArgs {
   apiKey: string;

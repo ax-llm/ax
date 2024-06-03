@@ -1,7 +1,11 @@
 import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
 import type { AITextChatRequest } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
+import {
+  BaseAI,
+  BaseAIDefaultConfig,
+  BaseAIDefaultCreativeConfig
+} from '../base.js';
 import type { TextModelConfig, TextResponse } from '../types.js';
 
 import { modelInfoHuggingFace } from './info.js';
@@ -16,22 +20,21 @@ import {
  * HuggingFace: Default Model options for text generation
  * @export
  */
-export const HuggingFaceDefaultConfig = (): HuggingFaceConfig => ({
-  model: HuggingFaceModel.MetaLlama270BChatHF,
-  maxNewTokens: 500,
-  temperature: 0,
-  topP: 1
-});
+export const HuggingFaceDefaultConfig = (): HuggingFaceConfig =>
+  structuredClone({
+    model: HuggingFaceModel.MetaLlama270BChatHF,
+    ...BaseAIDefaultConfig()
+  });
 
 /**
  * HuggingFace: Default model options for more creative text generation
  * @export
  */
-export const HuggingFaceCreativeConfig = (): HuggingFaceConfig => ({
-  ...HuggingFaceDefaultConfig(),
-  model: HuggingFaceModel.MetaLlama270BChatHF,
-  temperature: 0.9
-});
+export const HuggingFaceCreativeConfig = (): HuggingFaceConfig =>
+  structuredClone({
+    model: HuggingFaceModel.MetaLlama270BChatHF,
+    ...BaseAIDefaultCreativeConfig()
+  });
 
 export interface HuggingFaceArgs {
   apiKey: string;
@@ -75,12 +78,12 @@ export class HuggingFace extends BaseAI<
   override getModelConfig(): TextModelConfig {
     const { config } = this;
     return {
-      maxTokens: config.maxNewTokens,
+      maxTokens: config.maxTokens,
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
-      n: config.numReturnSequences,
-      presencePenalty: config.repetitionPenalty
+      n: config.n,
+      presencePenalty: config.presencePenalty
     } as TextModelConfig;
   }
 
@@ -111,14 +114,14 @@ export class HuggingFace extends BaseAI<
       model,
       inputs,
       parameters: {
-        max_new_tokens: req.modelConfig?.maxTokens ?? this.config.maxNewTokens,
+        max_new_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
         repetition_penalty:
-          req.modelConfig?.presencePenalty ?? this.config.repetitionPenalty,
+          req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
         temperature: req.modelConfig?.temperature ?? this.config.temperature,
         top_p: req.modelConfig?.topP ?? this.config.topP,
         top_k: req.modelConfig?.topK ?? this.config.topK,
         return_full_text: this.config.returnFullText,
-        num_return_sequences: this.config.numReturnSequences,
+        num_return_sequences: this.config.n,
         do_sample: this.config.doSample,
         max_time: this.config.maxTime
       },

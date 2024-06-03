@@ -1,7 +1,7 @@
 import type { AIServiceOptions } from '../../text/types.js';
 import type { AITextChatRequest } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
+import { BaseAI, BaseAIDefaultConfig } from '../base.js';
 import type {
   TextModelConfig,
   TextResponse,
@@ -26,12 +26,11 @@ import {
  * Anthropic: Default Model options for text generation
  * @export
  */
-export const AnthropicDefaultConfig = (): AnthropicConfig => ({
-  model: AnthropicModel.Claude3Haiku,
-  maxTokens: 500,
-  temperature: 0,
-  topP: 1
-});
+export const AnthropicDefaultConfig = (): AnthropicConfig =>
+  structuredClone({
+    model: AnthropicModel.Claude3Haiku,
+    ...BaseAIDefaultConfig()
+  });
 
 export interface AnthropicArgs {
   apiKey: string;
@@ -115,7 +114,8 @@ export class Anthropic extends BaseAI<
     const reqValue: AnthropicChatRequest = {
       model: req.modelInfo?.name ?? this.config.model,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      stop_sequences: req.modelConfig?.stop ?? this.config.stopSequences,
+      stop_sequences:
+        req.modelConfig?.stopSequences ?? this.config.stopSequences,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,

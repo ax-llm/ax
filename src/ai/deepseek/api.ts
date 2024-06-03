@@ -1,4 +1,5 @@
 import type { AIServiceOptions } from '../../text/types.js';
+import { BaseAIDefaultConfig, BaseAIDefaultCreativeConfig } from '../base.js';
 import { OpenAI } from '../openai/api.js';
 import type { OpenAIConfig } from '../openai/types.js';
 
@@ -10,27 +11,21 @@ type DeepSeekConfig = OpenAIConfig;
  * DeepSeek: Default Model options for text generation
  * @export
  */
-export const DeepSeekDefaultConfig = (): DeepSeekConfig => ({
-  model: DeepSeekModel.DeepSeekChat,
-  stream: false,
-  suffix: null,
-  maxTokens: 200,
-  temperature: 0.1,
-  topP: 0.9
-});
+export const DeepSeekDefaultConfig = (): DeepSeekConfig =>
+  structuredClone({
+    model: DeepSeekModel.DeepSeekChat,
+    ...BaseAIDefaultConfig()
+  });
 
 /**
  * DeepSeek: Default Model options for text generation
  * @export
  */
-export const DeepSeekCodeConfig = (): DeepSeekConfig => ({
-  model: DeepSeekModel.DeepSeekCoder,
-  stream: false,
-  suffix: null,
-  maxTokens: 200,
-  temperature: 0.1,
-  topP: 0.9
-});
+export const DeepSeekCodeConfig = (): DeepSeekConfig =>
+  structuredClone({
+    model: DeepSeekModel.DeepSeekCoder,
+    ...BaseAIDefaultCreativeConfig()
+  });
 
 export interface DeepSeekArgs {
   apiKey: string;

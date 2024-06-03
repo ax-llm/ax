@@ -1,8 +1,11 @@
+import type { TextModelConfig } from '../types.js';
+
 /**
  * Cohere: Models for text generation
  * @export
  */
 export enum CohereModel {
+  CommandRPlus = 'command-r-plus',
   CommandR = 'command-r',
   Command = 'command',
   CommandLight = 'command-light'
@@ -20,33 +23,12 @@ export enum CohereEmbedModel {
 }
 
 /**
- * Cohere: Specify how and if the token likelihoods are returned with the response.
- * @export
- */
-export enum CohereReturnLikelihoods {
-  GENERATION = 'GENERATION',
-  ALL = 'ALL',
-  NONE = 'NONE'
-}
-
-/**
  * Cohere: Model options for text generation
  * @export
  */
-export type CohereConfig = {
+export type CohereConfig = TextModelConfig & {
   model: CohereModel;
   embedModel: CohereEmbedModel;
-  maxTokens: number;
-  temperature: number;
-  topK: number;
-  topP: number;
-  frequencyPenalty?: number;
-  presencePenalty?: number;
-  stopSequences?: string[];
-  endSequences?: string[];
-  returnLikelihoods?: CohereReturnLikelihoods;
-  logitBias?: Map<string, number>;
-  truncate?: string;
 };
 
 export type CohereChatRequest = {
@@ -54,16 +36,14 @@ export type CohereChatRequest = {
   preamble?: string;
   chat_history: { role: 'CHATBOT' | 'SYSTEM' | 'USER'; message: string }[];
   model: CohereModel | string;
-  max_tokens: number;
+  max_tokens?: number;
   temperature: number;
-  k: number;
-  p: number;
+  k?: number;
+  p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
   end_sequences?: readonly string[];
   stop_sequences?: string[];
-  return_likelihoods?: CohereReturnLikelihoods;
-  logit_bias?: Map<string, number>;
   tools?: {
     name: string;
     description: string;

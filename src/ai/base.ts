@@ -26,7 +26,7 @@ import { mergeTextResponses } from './util.js';
 
 const colorLog = new ColorLog();
 
-interface BaseAIArgs {
+export interface BaseAIArgs {
   name: string;
   apiURL: string;
   headers: Record<string, string>;
@@ -35,6 +35,23 @@ interface BaseAIArgs {
   options?: Readonly<AIServiceOptions>;
   supportFor: { functions: boolean };
 }
+
+export const BaseAIDefaultConfig = (): TextModelConfig =>
+  structuredClone({
+    maxTokens: 500,
+    temperature: 0,
+    topK: 40,
+    frequencyPenalty: 0.2
+  });
+
+export const BaseAIDefaultCreativeConfig = (): TextModelConfig =>
+  structuredClone({
+    maxTokens: 500,
+    temperature: 0.4,
+    topP: 0.7,
+    frequencyPenalty: 0.2,
+    presencePenalty: 0.2
+  });
 
 export class BaseAI<
   TChatRequest,
@@ -172,7 +189,8 @@ export class BaseAI<
             [SpanAttributes.LLM_REQUEST_TOP_K]: mc.topK,
             [SpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]: mc.frequencyPenalty,
             [SpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]: mc.presencePenalty,
-            [SpanAttributes.LLM_REQUEST_STOP_SEQUENCES]: mc.stop?.join(', '),
+            [SpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
+              mc.stopSequences?.join(', '),
             [SpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: mc.stream
             // [SpanAttributes.LLM_PROMPTS]: _req.chatPrompt
             //   ?.map((v) => v.content)

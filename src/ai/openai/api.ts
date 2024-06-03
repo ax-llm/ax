@@ -4,7 +4,11 @@ import type {
   AITextEmbedRequest
 } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
-import { BaseAI } from '../base.js';
+import {
+  BaseAI,
+  BaseAIDefaultConfig,
+  BaseAIDefaultCreativeConfig
+} from '../base.js';
 import type {
   EmbedResponse,
   TextModelConfig,
@@ -29,36 +33,35 @@ import {
  * OpenAI: Default Model options for text generation
  * @export
  */
-export const OpenAIDefaultConfig = (): OpenAIConfig => ({
-  model: OpenAIModel.GPT35Turbo,
-  embedModel: OpenAIEmbedModels.TextEmbedding3Small,
-  audioModel: OpenAIAudioModel.Whisper1,
-  stream: false,
-  suffix: null,
-  maxTokens: 500,
-  temperature: 0.0,
-  topP: 0.0,
-  frequencyPenalty: 0.5
-});
+export const OpenAIDefaultConfig = (): OpenAIConfig =>
+  structuredClone({
+    model: OpenAIModel.GPT35Turbo,
+    embedModel: OpenAIEmbedModels.TextEmbedding3Small,
+    audioModel: OpenAIAudioModel.Whisper1,
+    ...BaseAIDefaultConfig()
+  });
 
 /**
  * OpenAI: Default model options to use the more advanced model
  * @export
  */
-export const OpenAIBestConfig = (): OpenAIConfig => ({
-  ...OpenAIDefaultConfig(),
-  model: OpenAIModel.GPT4Turbo
-});
+export const OpenAIBestConfig = (): OpenAIConfig =>
+  structuredClone({
+    ...OpenAIDefaultConfig(),
+    model: OpenAIModel.GPT4Turbo
+  });
 
 /**
  * OpenAI: Default model options for more creative text generation
  * @export
  */
-export const OpenAICreativeConfig = (): OpenAIConfig => ({
-  ...OpenAIDefaultConfig(),
-  model: OpenAIModel.GPT35Turbo,
-  temperature: 0.9
-});
+export const OpenAICreativeConfig = (): OpenAIConfig =>
+  structuredClone({
+    model: OpenAIModel.GPT4Turbo,
+    embedModel: OpenAIEmbedModels.TextEmbedding3Small,
+    audioModel: OpenAIAudioModel.Whisper1,
+    ...BaseAIDefaultCreativeConfig()
+  });
 
 /**
  * OpenAI: Default model options for more fast text generation
@@ -115,16 +118,12 @@ export class OpenAI extends BaseAI<
     return {
       maxTokens: config.maxTokens,
       temperature: config.temperature,
-      topP: config.topP,
-      n: config.n,
-      stream: config.stream,
-      logprobs: config.logprobs,
-      echo: config.echo,
       presencePenalty: config.presencePenalty,
       frequencyPenalty: config.frequencyPenalty,
-      bestOf: config.bestOf,
-      logitBias: config.logitBias,
-      stop: config.stop
+      stopSequences: config.stopSequences,
+      topP: config.topP,
+      n: config.n,
+      stream: config.stream
     };
   }
 
@@ -212,10 +211,10 @@ export class OpenAI extends BaseAI<
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
       stream: req.modelConfig?.stream ?? this.config.stream,
-      stop: req.modelConfig?.stop ?? this.config.stop,
+      stop: req.modelConfig?.stopSequences ?? this.config.stop,
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-      logit_bias: req.modelConfig?.logitBias ?? this.config.logitBias,
+      logit_bias: this.config.logitBias,
       user: req.identity?.user ?? this.config.user,
       organization: req.identity?.organization,
       ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {})
