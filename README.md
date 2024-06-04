@@ -51,6 +51,8 @@ You can have multiple input and output fields and each field has one of these ty
 | Google Gemini | Gemini: Flash, Pro      | 🟢 100% |
 | Hugging Face  | OSS Model               | 🟡 50%  |
 
+See example below for other providers.
+
 ## Install
 
 ```bash
@@ -104,6 +106,63 @@ const agent = new Agent(ai, {
 });
 
 agent.forward({ questions: "How many atoms are there in the universe" })
+```
+
+## Example: Using a custom provider
+
+Many providers offer an API that is compatible with OpenAI's API.
+
+```typescript
+import type { OpenAIConfig, AIServiceOptions } from 'llmclient';
+import { OpenAI, ChainOfThought } from 'llmclient';
+
+const OpenRouterDefaultConfig = (): OpenAIConfig => ({
+  model: 'meta-llama/llama-3-70b-instruct',
+  maxTokens: 500,
+  temperature: 0.1,
+  topP: 0.9,
+  frequencyPenalty: 0.5
+});
+
+interface OpenRouterArgs {
+  apiKey: string;
+  config: Readonly<OpenAIConfig>;
+  options?: Readonly<AIServiceOptions>;
+}
+
+class OpenRouter extends OpenAI {
+  constructor({
+    apiKey,
+    config = OpenRouterDefaultConfig(),
+    options
+  }: Readonly<OpenRouterArgs>) {
+    if (!apiKey || apiKey === '') {
+      throw new Error('OpenRouter API key not set');
+    }
+    super({
+      apiKey,
+      config,
+      options,
+      apiURL: 'https://openrouter.ai/api/v1'
+    });
+
+    super.setName('OpenRouter');
+  }
+}
+
+const ai = new OpenRouter({ apiKey: process.env.OPENROUTER_APIKEY } as OpenRouterArgs);
+
+const textToSummarize = `
+The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
+
+const gen = new ChainOfThought(
+  ai,
+  `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
+);
+const res = await gen.forward({ textToSummarize });
+
+console.log('>', res);
+
 ```
 
 ## Fast LLM Router
