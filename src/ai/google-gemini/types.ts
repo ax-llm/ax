@@ -149,7 +149,7 @@ export type GoogleGeminiChatResponse = {
 export type GoogleGeminiConfig = TextModelConfig & {
   model: GoogleGeminiModel;
   embedModel: GoogleGeminiEmbedModels;
-  safetySettings: GoogleGeminiSafetySettings;
+  safetySettings?: GoogleGeminiSafetySettings;
 };
 
 /**

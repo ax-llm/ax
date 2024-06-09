@@ -155,8 +155,11 @@ const sig = new Signature(
   `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
 );
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = AI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
+} as OpenAIArgs);
+
 const gen = new ReAct(ai, sig, { functions });
-const res = await gen.forward({ customerQuery });
+const res = await gen.forward({ customerQuery }, { stream: true });
 
 console.log('>', res);

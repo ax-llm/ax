@@ -3,6 +3,7 @@ import {
   type GenIn,
   type GenOut,
   type ITunable,
+  type IUsable,
   Program,
   type ProgramForwardOptions
 } from '../dsp/program.js';
@@ -13,7 +14,7 @@ import { SpanKind } from '../trace/index.js';
 import { ChainOfThought } from './cot.js';
 import { ReAct } from './react.js';
 
-export interface AgentI extends ITunable {
+export interface AgentI extends ITunable, IUsable {
   getFunction(): AITextFunction;
 }
 

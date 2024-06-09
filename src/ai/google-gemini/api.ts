@@ -4,7 +4,11 @@ import type {
   AITextEmbedRequest
 } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
-import { BaseAI, BaseAIDefaultConfig } from '../base.js';
+import {
+  BaseAI,
+  BaseAIDefaultConfig,
+  BaseAIDefaultCreativeConfig
+} from '../base.js';
 import type {
   EmbedResponse,
   TextModelConfig,
@@ -52,10 +56,18 @@ const safetySettings: GoogleGeminiSafetySettings = [
  */
 export const GoogleGeminiDefaultConfig = (): GoogleGeminiConfig =>
   structuredClone({
-    model: GoogleGeminiModel.Gemini15Flash,
+    model: GoogleGeminiModel.Gemini15Pro,
     embedModel: GoogleGeminiEmbedModels.Embedding001,
     safetySettings,
     ...BaseAIDefaultConfig()
+  });
+
+export const GoogleGeminiDefaultCreativeConfig = (): GoogleGeminiConfig =>
+  structuredClone({
+    model: GoogleGeminiModel.Gemini15Flash,
+    embedModel: GoogleGeminiEmbedModels.Embedding001,
+    safetySettings,
+    ...BaseAIDefaultCreativeConfig()
   });
 
 export interface GoogleGeminiArgs {
@@ -94,7 +106,7 @@ export class GoogleGemini extends BaseAI<
       modelInfo: modelInfoGoogleGemini,
       models: { model: config.model, embedModel: config.embedModel },
       options,
-      supportFor: { functions: true }
+      supportFor: { functions: true, streaming: false }
     });
     this.config = config;
     this.apiKey = apiKey;

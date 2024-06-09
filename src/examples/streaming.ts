@@ -1,22 +1,25 @@
-// import { AI, OpenAIArgs, TextResponse } from '../index';
+import { AI, ChainOfThought, type OpenAIArgs, OpenAIModel } from '../index.js';
 
-// const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = AI('openai', {
+  apiKey: process.env.OPENAI_APIKEY,
+  model: OpenAIModel.GPT4Turbo
+} as OpenAIArgs);
 
-// try {
-//   const stream = (await ai.chat(
-//     {
-//       chatPrompt: [{ role: 'user', content: 'Tell me a joke' }]
-//     },
-//     { stream: true }
-//   )) as ReadableStream<TextResponse>;
+// setup the prompt program
+const gen = new ChainOfThought(
+  ai,
+  `startNumber:number -> next10Numbers:number[]`
+);
 
-//   for await (const v of stream) {
-//     const val = v.results[0].content;
-//     if (val && val.length > 0) {
-//       process.stdout.write(val, 'utf-8');
-//     }
-//   }
-//   console.log('\n');
-// } catch (error) {
-//   console.error('ERROR:', error);
-// }
+// add a assertion to ensure that the number 5 is not in an output field
+gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
+  return next10Numbers ? !next10Numbers.includes(5) : undefined;
+}, 'Numbers 5 is not allowed');
+
+// run the program with streaming enabled
+const res = await gen.forward(
+  { startNumber: 1 },
+  { stream: true, debug: true }
+);
+
+console.log('>', res);

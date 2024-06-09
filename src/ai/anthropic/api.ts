@@ -66,7 +66,7 @@ export class Anthropic extends BaseAI<
       modelInfo: modelInfoAnthropic,
       models: { model: config.model as string },
       options,
-      supportFor: { functions: true }
+      supportFor: { functions: true, streaming: true }
     });
 
     this.config = config;

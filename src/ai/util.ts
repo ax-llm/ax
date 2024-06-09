@@ -55,12 +55,55 @@ export const parseFunction = (
   return;
 };
 
+export function mergeFunctionCalls(
+  // eslint-disable-next-line functional/prefer-immutable-types
+  functionCalls: NonNullable<TextResponseResult['functionCalls']>,
+  functionCallDeltas: Readonly<
+    NonNullable<TextResponseResult['functionCalls']>
+  >,
+  // eslint-disable-next-line functional/prefer-immutable-types
+  state?: { lastId: string }
+): NonNullable<TextResponseResult['functionCalls']>[0] | undefined {
+  for (const _fc of functionCallDeltas) {
+    const fc = functionCalls.find((fc) => fc.id === _fc.id);
+
+    if (fc) {
+      if (typeof _fc.function.name == 'string') {
+        fc.function.name += _fc.function.name;
+      }
+
+      if (typeof _fc.function.arguments == 'string') {
+        fc.function.arguments += _fc.function.arguments;
+      }
+
+      if (typeof _fc.function.arguments == 'object') {
+        fc.function.arguments = _fc.function.arguments;
+      }
+    } else {
+      functionCalls.push(_fc);
+    }
+
+    if (!state) {
+      continue;
+    }
+
+    let retFunc;
+    if (state.lastId !== _fc.id) {
+      retFunc = functionCalls.find((fc) => fc.id === state.lastId);
+    }
+
+    state.lastId = _fc.id;
+    if (retFunc) {
+      return retFunc;
+    }
+  }
+}
+
 export function mergeTextResponses(
   responses: readonly TextResponse[]
 ): TextResponse {
-  let concatenatedText = '';
-  const concatenatedFunctionCalls: TextResponse['results'][0]['functionCalls'] =
-    [];
+  const functionCalls: NonNullable<TextResponseResult['functionCalls']> = [];
+  let content = '';
 
   // Variables to store the other overwritten values
   let lastSessionId: string | undefined;
@@ -72,11 +115,10 @@ export function mergeTextResponses(
   for (const response of responses) {
     for (const result of response.results ?? []) {
       if (result.content) {
-        concatenatedText += result.content;
+        content += result.content;
       }
-      const fc = result.functionCalls?.at(0);
-      if (fc) {
-        concatenatedFunctionCalls.push(fc);
+      if (result.functionCalls) {
+        mergeFunctionCalls(functionCalls, result.functionCalls);
       }
     }
 
@@ -94,8 +136,8 @@ export function mergeTextResponses(
     results: [
       {
         ...lastResults[0],
-        content: concatenatedText,
-        functionCalls: concatenatedFunctionCalls
+        content,
+        functionCalls
       }
     ],
     modelUsage: lastModelUsage,

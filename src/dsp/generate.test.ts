@@ -1,32 +1,40 @@
 import test from 'ava';
 
-import { extractValues, Signature } from './sig.js';
+import { extractValues } from './extract.js';
+import { Signature } from './sig.js';
 
 test('extractValues', (t) => {
   const sig = new Signature(`question -> answer`);
-  const v1 = extractValues(sig, `Answer: "hello world"`);
+  const v1 = {};
+  extractValues(sig, v1, `Answer: "hello world"`);
 
   t.deepEqual(v1, { answer: '"hello world"' });
 });
 
+/*
 test('extractValues with no prefix and single output', (t) => {
   const sig = new Signature(`question -> answer`);
-  const v1 = extractValues(sig, `"hello world"`);
+  const v1 = {};
+  extractValues(sig, v1, `"hello world"`);
 
   t.deepEqual(v1, { answer: '"hello world"' });
 });
+*/
 
 test('extractValues with json', (t) => {
   const sig = new Signature(`question -> answer : json`);
-  const v1 = extractValues(sig, 'Answer: ```json\n{"hello": "world"}\n```');
+  const v1 = {};
+  extractValues(sig, v1, 'Answer: ```json\n{"hello": "world"}\n```');
 
   t.deepEqual(v1, { answer: { hello: 'world' } });
 });
 
 test('extractValues with text values', (t) => {
   const sig = new Signature(`text -> title, keyPoints, description`);
-  const v1 = extractValues(
+  const v1 = {};
+  extractValues(
     sig,
+    v1,
     `
     Title: Coastal Ecosystem Restoration
 

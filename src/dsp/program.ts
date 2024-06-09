@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 
-import type { TextModelConfig } from '../ai/types.js';
+import type { TextModelConfig, TextResponse } from '../ai/types.js';
 import type { AIMemory, AIService } from '../text/types.js';
 import type { Tracer } from '../trace/index.js';
 
@@ -34,6 +34,8 @@ export type ProgramForwardOptions = {
   sessionId?: string;
   traceId?: string | undefined;
   tracer?: Tracer;
+  stream?: boolean;
+  debug?: boolean;
 };
 
 export interface ITunable {
@@ -45,20 +47,33 @@ export interface ITunable {
   loadDemos: (filename: string) => void;
 }
 
-export class Program<IN extends GenIn, OUT extends GenOut> implements ITunable {
+export interface IUsable {
+  getUsage: () => ProgramUsage[];
+  resetUsage: () => void;
+}
+
+export type ProgramUsage = TextResponse['modelUsage'] & {
+  ai: string;
+  model: string;
+};
+
+export class Program<IN extends GenIn, OUT extends GenOut>
+  implements ITunable, IUsable
+{
   private key: string;
-  private reg: InstanceRegistry<Readonly<ITunable>>;
+  private reg: InstanceRegistry<Readonly<ITunable & IUsable>>;
 
   protected examples?: Record<string, Value>[];
   protected demos?: Record<string, Value>[];
   protected trace?: Record<string, Value>;
+  protected usage: ProgramUsage[] = [];
 
   constructor() {
     this.reg = new InstanceRegistry();
     this.key = this.constructor.name;
   }
 
-  public register(prog: Readonly<ITunable>) {
+  public register(prog: Readonly<ITunable & IUsable>) {
     if (this.key) {
       prog.updateKey(this.key);
     }
@@ -104,6 +119,23 @@ export class Program<IN extends GenIn, OUT extends GenOut> implements ITunable {
       traces = [...traces, ..._traces];
     }
     return traces;
+  }
+
+  public getUsage(): ProgramUsage[] {
+    let usage: ProgramUsage[] = [...(this.usage ?? [])];
+
+    for (const inst of this.reg) {
+      const cu = inst.getUsage();
+      usage = [...usage, ...cu];
+    }
+    return mergeProgramUsage(usage);
+  }
+
+  public resetUsage() {
+    this.usage = [];
+    for (const inst of this.reg) {
+      inst.resetUsage();
+    }
   }
 
   public setDemos(demos: readonly ProgramDemos[]) {
@@ -167,3 +199,22 @@ export const validateValue = (
     );
   }
 };
+
+function mergeProgramUsage(usages: readonly ProgramUsage[]): ProgramUsage[] {
+  const usageMap: { [key: string]: ProgramUsage } = {};
+
+  usages.forEach((usage) => {
+    const key = `${usage.ai}:${usage.model}`;
+
+    if (!usageMap[key]) {
+      usageMap[key] = { ...usage };
+      return;
+    }
+
+    usageMap[key]!.promptTokens += usage.promptTokens;
+    usageMap[key]!.completionTokens += usage.completionTokens;
+    usageMap[key]!.totalTokens += usage.totalTokens;
+  });
+
+  return Object.values(usageMap);
+}

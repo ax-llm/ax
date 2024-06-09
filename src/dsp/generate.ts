@@ -1,17 +1,32 @@
+import { ReadableStream } from 'stream/web';
+
 import type {
   TextResponse,
   TextResponseFunctionCall,
   TextResponseResult
 } from '../ai/index.js';
+import { mergeFunctionCalls } from '../ai/util.js';
 import {
   type AITextFunction,
   FunctionProcessor,
   Memory
 } from '../text/index.js';
-import type { AIService } from '../text/index.js';
+import type { AIMemory, AIService } from '../text/index.js';
 import { type Span, SpanKind } from '../trace/index.js';
 import { type AITextChatRequest } from '../types/index.js';
 
+import {
+  assertAssertions,
+  type Assertion,
+  AssertionError,
+  assertRequiredFields
+} from './asserts.js';
+import {
+  extractValues,
+  streamingExtractFinalValue,
+  streamingExtractValues,
+  ValidationError
+} from './extract.js';
 import {
   type GenIn,
   type GenOut,
@@ -21,12 +36,7 @@ import {
   type Value
 } from './program.js';
 import { PromptTemplate } from './prompt.js';
-import {
-  extractValues,
-  type IField,
-  Signature,
-  ValidationError
-} from './sig.js';
+import { Signature } from './sig.js';
 
 export interface GenerateOptions {
   functions?: AITextFunction[];
@@ -35,15 +45,17 @@ export interface GenerateOptions {
   asserts?: Assertion[];
 }
 
-export interface Assertion {
-  fn(arg0: Record<string, unknown>): boolean;
-  errMsg?: string;
-  optional?: boolean;
-}
-
 export type GenerateResult<OUT extends GenOut> = OUT & {
   functions?: TextResponseFunctionCall[];
 };
+
+interface ResponseHandlerArgs<T> {
+  res: T;
+  usageInfo: { ai: string; model: string };
+  mem: AIMemory;
+  sessionId?: string;
+  traceId?: string;
+}
 
 export class Generate<
   IN extends GenIn = GenIn,
@@ -72,6 +84,7 @@ export class Generate<
     this.pt = new (options?.promptTemplate ?? PromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
     this.functionList = this.options?.functions?.map((f) => f.name).join(', ');
+    this.usage = [];
 
     if (this.options?.functions) {
       this.funcProc = new FunctionProcessor(this.options?.functions);
@@ -130,13 +143,16 @@ export class Generate<
     this.asserts.push({ fn, errMsg, optional });
   };
 
-  private async _forwardSendRequest({
+  private async forwardSendRequest({
     mem,
     sessionId,
     traceId,
     ai,
-    modelConfig: mc
-  }: Readonly<ProgramForwardOptions>): Promise<TextResponseResult> {
+    modelConfig: mc,
+    stream
+  }: Readonly<
+    Omit<ProgramForwardOptions, 'ai'> & { ai: AIService; stream: boolean }
+  >) {
     const chatPrompt = mem?.history(sessionId) ?? [];
 
     if (chatPrompt.length === 0) {
@@ -145,7 +161,6 @@ export class Generate<
 
     const functions = this.options?.functions;
     const functionCall = this.options?.functionCall;
-    const _ai = ai ?? this.ai;
 
     const hasJSON = this.signature
       .getOutputFields()
@@ -158,118 +173,165 @@ export class Generate<
         }
       : undefined;
 
-    const aiRes = await _ai.chat(
+    const res = await ai.chat(
       { chatPrompt, functions, functionCall, modelConfig },
       {
         ...(sessionId ? { sessionId } : {}),
-        ...(traceId ? { traceId } : {})
+        ...(traceId ? { traceId } : {}),
+        stream
       }
     );
-    const res = aiRes as unknown as TextResponse;
-    const result = res.results?.at(0);
 
-    if (!result) {
-      throw new Error('No result found');
-    }
-
-    return result;
+    return res;
   }
 
-  private async _forwardCore({
+  private async forwardCore({
     mem,
     sessionId,
     traceId,
-    maxCompletions,
     ai,
-    modelConfig: mc
-  }: Readonly<ProgramForwardOptions>): Promise<OUT> {
-    let result: TextResponseResult | undefined;
+    modelConfig,
+    stream = false
+  }: Readonly<
+    Omit<ProgramForwardOptions, 'ai' | 'mem'> & { ai: AIService; mem: AIMemory }
+  >): Promise<OUT> {
+    const usageInfo = {
+      ai: this.ai.getName(),
+      model: this.ai.getModelInfo().name
+    };
 
-    for (let i = 0; i < (maxCompletions ?? 10); i++) {
-      const res = await this._forwardSendRequest({
+    const res = await this.forwardSendRequest({
+      mem,
+      sessionId,
+      traceId,
+      ai,
+      stream,
+      modelConfig
+    });
+
+    if (res instanceof ReadableStream) {
+      return (await this.processSteamingResponse({
+        res,
+        usageInfo,
         mem,
-        sessionId,
         traceId,
-        ai,
-        modelConfig: mc
-      });
+        sessionId
+      })) as unknown as OUT;
+    }
 
+    return (await this.processResponse({
+      res,
+      usageInfo,
+      mem,
+      traceId,
+      sessionId
+    })) as unknown as OUT;
+  }
+
+  private async processSteamingResponse({
+    res,
+    usageInfo,
+    mem,
+    sessionId,
+    traceId
+  }: Readonly<
+    ResponseHandlerArgs<ReadableStream<TextResponse>>
+  >): Promise<OUT> {
+    const functionCalls: NonNullable<TextResponseResult['functionCalls']> = [];
+    const values = {};
+    const xstate = { s: -1 };
+    const fstate = { lastId: '' };
+
+    let content = '';
+
+    for await (const v of res) {
+      const result = v.results?.at(0);
       if (!result) {
-        result = res;
-      } else if (result.content) {
-        result.content += res.content;
-      }
-
-      if (res.finishReason === 'length') {
         continue;
       }
 
-      break;
+      if (v.modelUsage) {
+        this.usage.push({ ...usageInfo, ...v.modelUsage });
+      }
+
+      if (result.content) {
+        content += result.content;
+        mem.updateResult({ ...result, content, functionCalls }, sessionId);
+
+        streamingExtractValues(this.signature, values, xstate, content);
+        assertAssertions(this.asserts, values);
+      }
+
+      if (result.functionCalls) {
+        const fc = mergeFunctionCalls(
+          functionCalls,
+          result.functionCalls,
+          fstate
+        );
+
+        let funcs;
+        if (fc) {
+          funcs = parseFunctions(this.ai, [fc], values);
+        }
+
+        if (funcs) {
+          mem.updateResult({ ...result, content, functionCalls }, sessionId);
+          await this.processFunctions(funcs, mem, sessionId, traceId);
+        }
+      }
+
+      if (result.finishReason === 'length') {
+        throw new Error('Max tokens reached before completion');
+      }
     }
 
+    streamingExtractFinalValue(values, xstate, content);
+    assertAssertions(this.asserts, values);
+
+    return { ...values } as unknown as OUT;
+  }
+
+  private async processResponse({
+    res,
+    usageInfo,
+    mem,
+    sessionId,
+    traceId
+  }: Readonly<ResponseHandlerArgs<TextResponse>>): Promise<OUT> {
+    const values = {};
+
+    let content = '';
+
+    const result = res.results?.at(0);
     if (!result) {
       throw new Error('No result found');
     }
 
-    mem?.addResult(result, sessionId);
+    if (res.modelUsage) {
+      this.usage.push({ ...usageInfo, ...res.modelUsage });
+    }
 
-    let retval: Record<string, unknown> = {};
+    mem.addResult({ ...result, content }, sessionId);
 
-    if (result?.content) {
-      retval = extractValues(this.signature, result.content);
+    if (result.content) {
+      content = result.content;
+      extractValues(this.signature, values, content);
+      assertAssertions(this.asserts, values);
+    }
 
-      for (const a of this.asserts) {
-        try {
-          if (!a.fn(retval) && a.errMsg) {
-            throw new AssertionError({
-              message: a.errMsg,
-              value: retval,
-              optional: a.optional
-            });
-          }
-        } catch (e) {
-          throw new AssertionError({
-            message: (e as Error).message,
-            value: retval,
-            optional: a.optional
-          });
-        }
+    if (result.functionCalls) {
+      const funcs = parseFunctions(this.ai, result.functionCalls, values);
+
+      if (funcs) {
+        await this.processFunctions(funcs, mem, sessionId, traceId);
       }
     }
 
-    let funcs:
-      | { id?: string; name: string; args?: string | object }[]
-      | undefined = [];
-
-    if (this.ai.getFeatures().functions) {
-      funcs = (result.functionCalls ?? []).map((f) => ({
-        id: f.id,
-        name: f.function.name,
-        args: f.function.arguments
-      }));
-    } else if (retval.functionName) {
-      const { functionName, functionArguments, ...other } = retval as {
-        functionName: string;
-        functionArguments: string;
-        other: object;
-      };
-      retval = { ...other };
-      funcs = [
-        {
-          name: functionName,
-          args: functionArguments
-        }
-      ];
+    if (result.finishReason === 'length') {
+      throw new Error('Max tokens reached before completion');
     }
 
-    const _funcs: Record<string, string | undefined> = {};
-    for (const [i, f] of funcs.entries()) {
-      _funcs['functionName' + i] = f.name;
-      _funcs['functionArguments' + i] =
-        typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
-    }
-
-    return { ...retval, functions: funcs } as unknown as OUT;
+    return { ...values } as unknown as OUT;
   }
 
   private async _forward(
@@ -277,10 +339,10 @@ export class Generate<
     options?: Readonly<ProgramForwardOptions>,
     span?: Span
   ): Promise<OUT> {
-    const maxRetries = options?.maxRetries ?? 3;
+    const maxRetries = options?.maxRetries ?? 5;
     const mem = options?.mem ?? new Memory();
+    const canStream = this.ai.getFeatures().streaming;
 
-    let extraFields: IField[] = [];
     let err: ValidationError | AssertionError | undefined;
 
     if (this.sigHash !== this.signature.hash()) {
@@ -289,38 +351,42 @@ export class Generate<
     }
 
     const prompt = this.pt.toString<IN>(values, {
-      extraFields,
       examples: this.examples,
       demos: this.demos
     });
 
     const userMsg = { role: 'user' as const, content: prompt };
-    mem?.add(userMsg, options?.sessionId);
+    mem.add(userMsg, options?.sessionId);
 
     for (let i = 0; i < maxRetries; i++) {
       try {
         for (let n = 0; n < (options?.maxSteps ?? 10); n++) {
-          const res = await this._forwardCore({
-            ...options,
-            mem
+          const {
+            sessionId,
+            traceId,
+            modelConfig,
+            stream: doStream
+          } = options ?? {};
+          const stream = canStream && doStream;
+
+          const output = await this.forwardCore({
+            ai: options?.ai ?? this.ai,
+            mem,
+            sessionId,
+            traceId,
+            modelConfig,
+            stream,
+            maxSteps: options?.maxSteps
           });
 
-          const result = await this.processResult(res, {
-            ...options,
-            mem
-          });
-
-          if (result) {
-            this.setTrace({
-              ...values,
-              ...res
-            });
-
-            return result;
+          if (mem.getLast(sessionId)?.role === 'assistant') {
+            assertRequiredFields(this.signature, output);
+            return output;
           }
         }
         throw new Error('Could not complete task within maximum allowed steps');
       } catch (e) {
+        let extraFields;
         span?.recordException(e as Error);
 
         if (e instanceof ValidationError) {
@@ -332,6 +398,19 @@ export class Generate<
           err = e;
         } else {
           throw e;
+        }
+
+        if (extraFields) {
+          const fields = this.pt.renderExtraFields(extraFields);
+          const userMsg = {
+            role: 'user' as const,
+            content: fields.join('\n\n')
+          };
+
+          mem.add(userMsg, options?.sessionId);
+          if (options?.debug) {
+            console.log('Error Correction:', fields);
+          }
         }
       }
     }
@@ -370,27 +449,20 @@ export class Generate<
     );
   }
 
-  public processResult = async (
-    res: Readonly<OUT & { functions?: TextResponseFunctionCall[] }>,
-    options?: Readonly<ProgramForwardOptions>
-  ): Promise<(OUT & { reason: string }) | undefined> => {
-    if (res.functions === undefined) {
-      return res as OUT & { reason: string };
-    }
-
-    if (res.functions.length === 0) {
-      delete (res as Record<string, unknown>).functions;
-      return res as OUT & { reason: string };
-    }
-
-    for (const func of res.functions) {
+  public processFunctions = async (
+    functionCalls: readonly TextResponseFunctionCall[],
+    mem: Readonly<Memory>,
+    sessionId?: string,
+    traceId?: string
+  ) => {
+    for (const func of functionCalls) {
       const fres = await this.funcProc?.execute(func, {
-        sessionId: options?.sessionId,
-        traceId: options?.traceId
+        sessionId,
+        traceId
       });
 
       if (fres?.id) {
-        options?.mem?.add(
+        mem.add(
           [
             {
               role: 'function' as const,
@@ -398,49 +470,48 @@ export class Generate<
               functionId: fres.id
             }
           ],
-          options.sessionId
+          sessionId
         );
       }
     }
   };
 }
 
-export class AssertionError extends Error {
-  private value: Record<string, unknown>;
-  private optional?: boolean;
-
-  constructor({
-    message,
-    value
-  }: Readonly<{
-    message: string;
-    value: Record<string, unknown>;
-    optional?: boolean;
-  }>) {
-    super(message);
-    this.value = value;
-    this.name = this.constructor.name;
-    this.stack = new Error().stack;
+function parseFunctions(
+  ai: Readonly<AIService>,
+  functionCalls: Readonly<TextResponseResult['functionCalls']>,
+  values: Record<string, unknown>
+): TextResponseFunctionCall[] | undefined {
+  if (!functionCalls || functionCalls.length === 0) {
+    return;
   }
-  public getValue = () => this.value;
-  public getOptional = () => this.optional;
+  if (ai.getFeatures().functions) {
+    const funcs: TextResponseFunctionCall[] = functionCalls.map((f) => ({
+      id: f.id,
+      name: f.function.name,
+      args: f.function.arguments as string
+    }));
 
-  public getFixingInstructions = (sig: Readonly<Signature>) => {
-    const extraFields = [];
+    // for (const [i, f] of funcs.entries()) {
+    //   values['functionName' + i] = f.name;
+    //   values['functionArguments' + i] =
+    //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
+    // }
+    return funcs;
+  } else if (values.functionName) {
+    const { functionName, functionArguments } = values as {
+      functionName: string;
+      functionArguments: string;
+      other: object;
+    };
+    delete values.functionName;
+    delete values.functionArguments;
 
-    for (const f of sig.getOutputFields()) {
-      extraFields.push({
-        name: `past_${f.name}`,
-        title: `Past ${f.title}`,
-        description: JSON.stringify(this.value[f.name])
-      });
-    }
-
-    extraFields.push({
-      name: 'instructions',
-      title: 'Instructions',
-      description: this.message
-    });
-    return extraFields;
-  };
+    return [
+      {
+        name: functionName,
+        args: functionArguments
+      }
+    ];
+  }
 }

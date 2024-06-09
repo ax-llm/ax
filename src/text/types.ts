@@ -33,9 +33,13 @@ export interface AIMemory {
     sessionId?: string
   ): void;
   addResult(result: Readonly<TextResponseResult>, sessionId?: string): void;
+  updateResult(result: Readonly<TextResponseResult>, sessionId?: string): void;
+
   history(sessionId?: string): AITextChatRequest['chatPrompt'];
   peek(sessionId?: string): AITextChatRequest['chatPrompt'];
   reset(sessionId?: string): void;
+
+  getLast(sessionId?: string): AITextChatRequest['chatPrompt'][0] | undefined;
 }
 
 export type AIPromptConfig = {
@@ -78,7 +82,7 @@ export interface AIService {
   getModelInfo(): Readonly<TextModelInfo & { provider: string }>;
   getEmbedModelInfo(): Readonly<TextModelInfo> | undefined;
   getModelConfig(): Readonly<TextModelConfig>;
-  getFeatures(): { functions: boolean };
+  getFeatures(): { functions: boolean; streaming: boolean };
 
   // _transcribe(
   //   file: string,

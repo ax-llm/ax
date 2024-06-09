@@ -22,6 +22,7 @@ Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Fun
 - Build Agents that can call other agents
 - Convert docs of any format to text
 - RAG, smart chunking, embedding, querying
+- Output field processing while streaming
 - Automatic prompt tuning using optimizers
 - OpenTelemetry tracing / observability
 - Production ready Typescript code
@@ -55,7 +56,7 @@ You can have multiple input and output fields and each field has one of these ty
 
 ```bash
 npm install llmclient
-# or 
+# or
 yarn add llmclient
 ```
 
@@ -217,6 +218,27 @@ const matches = await manager.query('Find some text');
 console.log(matches);
 ```
 
+## Streaming
+
+We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without having to wait for the whole output saving tokens, cost and reducing latency. Assertions are a powerful way to ensure the output matches your requirements these work with streaming as well.
+
+````typescript
+// setup the prompt program
+const gen = new ChainOfThought(
+  ai, `startNumber:number -> next10Numbers:number[]`
+);
+
+// add a assertion to ensure that the number 5 is not in an output field
+gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
+  return next10Numbers ? !next10Numbers.includes(5) : undefined;
+}, 'Numbers 5 is not allowed');
+
+// run the program with streaming enabled
+const res = await gen.forward(
+  { startNumber: 1 },
+  { stream: true }
+);
+
 ## OpenTelemetry support
 
 Ability to trace and observe your llm workflow is critical to building production workflows. OpenTelemetry is an industry standard and we support the new `gen_ai` attribute namespace.
@@ -245,7 +267,7 @@ const gen = new ChainOfThought(
 );
 
 const res = await gen.forward({ text });
-```
+````
 
 ```json
 {
@@ -267,7 +289,7 @@ const res = await gen.forward({ text });
     "url.full": "http://localhost:11434/v1/chat/completions",
     "gen_ai.usage.completion_tokens": 160,
     "gen_ai.usage.prompt_tokens": 290
-  },
+  }
 }
 ```
 
@@ -368,6 +390,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | agent.ts            | Agent framework, agents can use other agents, tools etc |
 | qna-tune.ts         | Use an optimizer to improve prompt efficiency           |
 | qna-use-tuned.ts    | Use the optimized tuned prompts                         |
+| streaming.ts        | Assertions and output processing while streaming        |
 
 ## Reasoning + Function Calling
 

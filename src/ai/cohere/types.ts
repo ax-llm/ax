@@ -37,7 +37,7 @@ export type CohereChatRequest = {
   chat_history: { role: 'CHATBOT' | 'SYSTEM' | 'USER'; message: string }[];
   model: CohereModel | string;
   max_tokens?: number;
-  temperature: number;
+  temperature?: number;
   k?: number;
   p?: number;
   frequency_penalty?: number;

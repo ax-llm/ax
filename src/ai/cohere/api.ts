@@ -77,7 +77,7 @@ export class Cohere extends BaseAI<
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo: modelInfoCohere,
       models: { model: config.model },
-      supportFor: { functions: false },
+      supportFor: { functions: false, streaming: false },
       options
     });
     this.config = config;

@@ -17,7 +17,7 @@ export type TokenUsage = {
 
 export type TextModelConfig = {
   maxTokens?: number;
-  temperature: number;
+  temperature?: number;
   topP?: number;
   topK?: number;
   presencePenalty?: number;

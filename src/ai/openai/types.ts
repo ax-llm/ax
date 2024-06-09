@@ -115,8 +115,8 @@ export type OpenAIChatRequest = {
     | { type: 'function'; function: { name: string } };
   response_format?: { type: string };
   max_tokens: number;
-  temperature: number;
-  top_p: number;
+  temperature?: number;
+  top_p?: number;
   n?: number;
   stream?: boolean;
   stop?: readonly string[];
@@ -159,7 +159,11 @@ export type OpenAIChatResponse = {
 export type OpenAIChatResponseDelta = OpenAIResponseDelta<{
   content: string;
   role?: string;
-  tool_calls?: OpenAIChatResponse['choices'][0]['message']['tool_calls'];
+  tool_calls?: (NonNullable<
+    OpenAIChatResponse['choices'][0]['message']['tool_calls']
+  >[0] & {
+    index: number;
+  })[];
 }>;
 
 export type OpenAIEmbedRequest = {

@@ -22,7 +22,6 @@ import type {
   TextModelInfo,
   TextResponse
 } from './types.js';
-import { mergeTextResponses } from './util.js';
 
 const colorLog = new ColorLog();
 
@@ -33,7 +32,7 @@ export interface BaseAIArgs {
   modelInfo: Readonly<TextModelInfo[]>;
   models: Readonly<{ model: string; embedModel?: string }>;
   options?: Readonly<AIServiceOptions>;
-  supportFor: { functions: boolean };
+  supportFor: { functions: boolean; streaming: boolean };
 }
 
 export const BaseAIDefaultConfig = (): TextModelConfig =>
@@ -69,7 +68,10 @@ export class BaseAI<
     req: Readonly<AITextEmbedRequest>
   ) => [API, TEmbedRequest];
   generateChatResp?: (resp: Readonly<TChatResponse>) => TextResponse;
-  generateChatStreamResp?: (resp: Readonly<TChatResponseDelta>) => TextResponse;
+  generateChatStreamResp?: (
+    resp: Readonly<TChatResponseDelta>,
+    state: object
+  ) => TextResponse;
   generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => EmbedResponse;
 
   private debug = false;
@@ -257,27 +259,40 @@ export class BaseAI<
       }
 
       const respFn = this.generateChatStreamResp;
-      const wrappedRespFn = (resp: Readonly<TChatResponseDelta>) => {
-        const res = respFn(resp);
-        res.sessionId = options?.sessionId;
-        return res;
-      };
+      const wrappedRespFn =
+        (state: object) => (resp: Readonly<TChatResponseDelta>) => {
+          const res = respFn(resp, state);
+          res.sessionId = options?.sessionId;
 
-      const doneCb = async (values: readonly TextResponse[]) => {
-        const res = mergeTextResponses(values);
-        if (span?.isRecording()) {
-          setResponseAttr(res, span);
-        }
-        span?.end();
+          if (span?.isRecording()) {
+            setResponseAttr(res, span);
+          }
 
+          if (this.debug) {
+            logStreamingResponse(res);
+          }
+          return res;
+        };
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const doneCb = async (_values: readonly TextResponse[]) => {
+        //   const res = mergeTextResponses(values);
+        //   if (span?.isRecording()) {
+        //     setResponseAttr(res, span);
+        //   }
+        //   span?.end();
+
+        //   if (this.debug) {
+        //     logResponse(res);
+        //   }
         if (this.debug) {
-          logResponse(res);
+          process.stdout.write('\n');
         }
       };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
         new RespTransformStream<TChatResponseDelta, TextResponse>(
-          wrappedRespFn,
+          wrappedRespFn({}),
           doneCb
         )
       );
@@ -419,6 +434,7 @@ export class BaseAI<
 const logChatRequest = (req: Readonly<AITextChatRequest>) => {
   const items = req.chatPrompt?.map((v) => v.content).join('\n');
   if (items) {
+    console.log('==========');
     console.log(colorLog.whiteBright(items));
   }
 };
@@ -430,7 +446,26 @@ const logResponse = (resp: Readonly<TextResponse>) => {
     }
     if (r.functionCalls) {
       for (const f of r.functionCalls) {
-        console.log(colorLog.yellow(JSON.stringify(f.function, null, 2)));
+        const msg = `${f.function.name}(${f.function.arguments})`;
+        console.log(colorLog.yellow(JSON.stringify(msg)));
+      }
+    }
+  }
+};
+
+const logStreamingResponse = (resp: Readonly<TextResponse>) => {
+  for (const r of resp.results) {
+    if (r.content) {
+      process.stdout.write(colorLog.greenBright(r.content));
+    }
+    if (r.functionCalls) {
+      for (const f of r.functionCalls) {
+        if (f.function.name) {
+          process.stdout.write(colorLog.blueBright(f.function.name));
+        }
+        if (f.function.arguments) {
+          process.stdout.write(colorLog.yellow(f.function.arguments as string));
+        }
       }
     }
   }

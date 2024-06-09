@@ -23,6 +23,7 @@ export * from './deepseek/index.js';
 export * from './ollama/index.js';
 export * from './types.js';
 export * from './balance.js';
+export * from './base.js';
 
 export type AIName =
   | 'openai'

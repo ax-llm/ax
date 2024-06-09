@@ -108,7 +108,7 @@ export class OpenAI extends BaseAI<
       modelInfo: modelInfoOpenAI,
       models: { model: config.model, embedModel: config.embedModel },
       options,
-      supportFor: { functions: true }
+      supportFor: { functions: true, streaming: true }
     });
     this.config = config;
   }
@@ -198,6 +198,8 @@ export class OpenAI extends BaseAI<
     const frequencyPenalty =
       req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
 
+    const stream = req.modelConfig?.stream ?? this.config.stream;
+
     const reqValue: OpenAIChatRequest = {
       model,
       messages,
@@ -210,14 +212,16 @@ export class OpenAI extends BaseAI<
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
-      stream: req.modelConfig?.stream ?? this.config.stream,
       stop: req.modelConfig?.stopSequences ?? this.config.stop,
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       logit_bias: this.config.logitBias,
       user: req.identity?.user ?? this.config.user,
       organization: req.identity?.organization,
-      ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {})
+      ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {}),
+      ...(stream
+        ? { stream: true, stream_options: { include_usage: true } }
+        : {})
     };
 
     return [apiConfig, reqValue];
@@ -276,7 +280,14 @@ export class OpenAI extends BaseAI<
       return {
         id: `${choice.index}`,
         content: choice.message.content,
-        functionCalls: choice.message.tool_calls,
+        functionCalls: choice.message.tool_calls?.map((v) => ({
+          id: v.id,
+          type: 'function' as const,
+          function: {
+            name: v.function.name,
+            arguments: v.function.arguments
+          }
+        })),
         finishReason
       };
     });
@@ -289,7 +300,8 @@ export class OpenAI extends BaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<OpenAIChatResponseDelta>
+    resp: Readonly<OpenAIChatResponseDelta>,
+    state: object
   ): TextResponse => {
     const { id, usage, choices } = resp;
 
@@ -301,13 +313,48 @@ export class OpenAI extends BaseAI<
         }
       : undefined;
 
+    const sstate = state as {
+      indexIdMap: Record<number, string>;
+    };
+
+    if (!sstate.indexIdMap) {
+      sstate.indexIdMap = {};
+    }
+
     const results = choices.map(
       ({ delta: { content, role, tool_calls }, finish_reason }) => {
         const finishReason = mapFinishReason(finish_reason);
+
+        const functionCalls = tool_calls
+          ?.map((v) => {
+            if (
+              typeof v.id === 'string' &&
+              typeof v.index === 'number' &&
+              !sstate.indexIdMap[v.index]
+            ) {
+              sstate.indexIdMap[v.index] = v.id;
+            }
+
+            const id = sstate.indexIdMap[v.index];
+            if (!id) {
+              return null;
+            }
+
+            return {
+              id,
+              type: 'function' as const,
+              function: {
+                name: v.function.name,
+                arguments: v.function.arguments
+              }
+            };
+          })
+          .filter(Boolean) as NonNullable<TextResponseResult['functionCalls']>;
+
         return {
           content,
           role: role,
-          functionCalls: tool_calls,
+          functionCalls,
           finishReason,
           id
         };

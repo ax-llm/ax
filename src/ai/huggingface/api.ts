@@ -70,7 +70,7 @@ export class HuggingFace extends BaseAI<
       modelInfo: modelInfoHuggingFace,
       models: { model: config.model },
       options,
-      supportFor: { functions: false }
+      supportFor: { functions: false, streaming: false }
     });
     this.config = config;
   }

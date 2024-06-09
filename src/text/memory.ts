@@ -41,10 +41,23 @@ export class Memory implements AIMemory {
     { content, name, functionCalls }: Readonly<TextResponseResult>,
     sessionId?: string
   ): void {
-    return this.add(
-      { content, name, role: 'assistant', functionCalls },
-      sessionId
-    );
+    this.add({ content, name, role: 'assistant', functionCalls }, sessionId);
+  }
+
+  updateResult(
+    { content, name, functionCalls }: Readonly<TextResponseResult>,
+    sessionId?: string
+  ): void {
+    const item = this.get(sessionId);
+    if ('content' in item && content) {
+      item.content = content;
+    }
+    if ('name' in item && name) {
+      item.name = name;
+    }
+    if ('functionCalls' in item && functionCalls) {
+      item.functionCalls = functionCalls;
+    }
   }
 
   history(sessionId?: string): AITextChatRequest['chatPrompt'] {
@@ -53,6 +66,11 @@ export class Memory implements AIMemory {
 
   peek(sessionId?: string): AITextChatRequest['chatPrompt'] {
     return this.get(sessionId);
+  }
+
+  getLast(sessionId?: string): AITextChatRequest['chatPrompt'][0] | undefined {
+    const d = this.get(sessionId);
+    return d.at(-1);
   }
 
   reset(sessionId?: string) {

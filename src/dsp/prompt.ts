@@ -69,6 +69,23 @@ export class PromptTemplate {
     return this.prompt;
   };
 
+  public renderExtraFields = (extraFields: readonly IField[]) => {
+    const text: string[] = [];
+
+    if (extraFields && extraFields.length > 0) {
+      extraFields.forEach((field) => {
+        const fn =
+          this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
+        if (!field.description || field.description.length === 0) {
+          throw new Error(`Description for field '${field.name}' is required`);
+        }
+        text.push(fn(field, field.description));
+      });
+    }
+
+    return text;
+  };
+
   private renderExamples = (data: Readonly<Record<string, Value>[]>) => {
     const text: string[] = [];
 
@@ -111,17 +128,11 @@ export class PromptTemplate {
     values: T,
     extraFields?: readonly IField[]
   ) => {
-    const text: string[] = [];
+    let text: string[] = [];
 
     if (extraFields && extraFields.length > 0) {
-      extraFields.forEach((field) => {
-        const fn =
-          this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
-        if (!field.description || field.description.length === 0) {
-          throw new Error(`Description for field '${field.name}' is required`);
-        }
-        text.push(fn(field, field.description));
-      });
+      const extraFieldsText = this.renderExtraFields(extraFields);
+      text = [...text, ...extraFieldsText];
     }
 
     this.sig
@@ -231,7 +242,7 @@ const toVarDesc = (type?: Readonly<Field['type']>) => {
         description = 'an unknown type';
         break;
     }
-    return `${description}${type.isArray ? ' array' : ''}`;
+    return `${description}${type.isArray ? ' array in json notation' : ''}`;
   }
   return '';
 };

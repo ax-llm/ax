@@ -7,6 +7,8 @@ const ai = AI('openai', {
   model: OpenAIModel.GPT35Turbo
 } as OpenAIArgs);
 
+ai.setOptions({ debug: true });
+
 // const ai = AI('ollama', { model: 'nous-hermes2' });
 
 const gen = new ChainOfThought(
@@ -26,6 +28,11 @@ gen.setExamples([
   }
 ]);
 
-const res = await gen.forward({ text });
+gen.addAssert(({ reason }: Readonly<{ reason: string }>) => {
+  if (!reason) return true;
+  return !reason.includes('goat');
+}, 'Reason should not contain "the"');
+
+const res = await gen.forward({ text }, { modelConfig: { stream: true } });
 
 console.log('>', res);

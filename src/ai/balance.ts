@@ -77,7 +77,7 @@ export class AIBalancer implements AIService {
     return this.currentService.getModelConfig();
   }
 
-  getFeatures(): { functions: boolean } {
+  getFeatures() {
     return this.currentService.getFeatures();
   }
 
