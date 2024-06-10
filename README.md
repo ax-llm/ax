@@ -238,6 +238,7 @@ const res = await gen.forward(
   { startNumber: 1 },
   { stream: true }
 );
+```
 
 ## OpenTelemetry support
 
