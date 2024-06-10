@@ -222,7 +222,7 @@ console.log(matches);
 
 We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without having to wait for the whole output saving tokens, cost and reducing latency. Assertions are a powerful way to ensure the output matches your requirements these work with streaming as well.
 
-````typescript
+```typescript
 // setup the prompt program
 const gen = new ChainOfThought(
   ai, `startNumber:number -> next10Numbers:number[]`
