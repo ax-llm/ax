@@ -393,13 +393,6 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | qna-use-tuned.ts    | Use the optimized tuned prompts                         |
 | streaming.ts        | Assertions and output processing while streaming        |
 
-## Reasoning + Function Calling
-
-Often you need the LLM to reason through a task and fetch and update external data related to this task. This is where reasoning meets function (API) calling. It's built-in so you get all of the magic automatically. Just define the functions you wish to you, a schema for the response object and thats it.
-
-There are even some useful built-in functions like a `Code Interpreter` that the LLM can use to write and execute JS code.
-
-We support providers like OpenAI that offer multiple parallel function calling and the standard single function calling.
 
 ## Built-in Functions
 
@@ -410,7 +403,7 @@ We support providers like OpenAI that offer multiple parallel function calling a
 
 ## Our Goal
 
-Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However there is still a lot of manage a lot of complexity to manage from using the right prompts, models, etc. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. Additionally we are using the latest research to add useful new capabilities like DSP to the library.
+Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However there's still a lot of complexity to manage from using the right prompts, models, streaming, function calling, error-correction, and much more. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. Additionally we are using the latest research to add useful new capabilities like DSP to the library.
 
 ## How to use this library?
 
@@ -421,26 +414,21 @@ Large language models (LLMs) are getting really powerful and have reached a poin
 const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
 ```
 
-### 2. Pick a memory for storing context (optional)
+### 2. Create a prompt signature based on your usecase
 
 ```ts
-// Can be sub classed to build you own memory backends
-const mem = new Memory();
-```
-
-### 3. Pick a prompt based on your usecase
-
-```ts
+// Signature defines the inputs and outputs of your prompt program
 const cot = new ChainOfThought(ai, `question:string -> answer:string`, { mem });
 ```
 
-### 4. Use the prompt
+### 3. Execute this new prompt program
 
 ```ts
+// Pass in the input fields defined in the above signature
 const res = await cot.forward({ question: 'Are we in a simulation?' });
 ```
 
-### 5. Alternatively use the LLM directly.
+### 4. Or if you just want to directly use the LLM
 
 ```ts
 const res = await ai.chat([
