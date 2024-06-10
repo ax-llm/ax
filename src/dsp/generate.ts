@@ -137,10 +137,10 @@ export class Generate<
 
   public addAssert = (
     fn: Assertion['fn'],
-    errMsg?: string,
+    message?: string,
     optional?: boolean
   ) => {
-    this.asserts.push({ fn, errMsg, optional });
+    this.asserts.push({ fn, message, optional });
   };
 
   private async forwardSendRequest({
@@ -300,8 +300,6 @@ export class Generate<
   }: Readonly<ResponseHandlerArgs<TextResponse>>): Promise<OUT> {
     const values = {};
 
-    let content = '';
-
     const result = res.results?.at(0);
     if (!result) {
       throw new Error('No result found');
@@ -311,11 +309,10 @@ export class Generate<
       this.usage.push({ ...usageInfo, ...res.modelUsage });
     }
 
-    mem.addResult({ ...result, content }, sessionId);
+    mem.addResult(result, sessionId);
 
     if (result.content) {
-      content = result.content;
-      extractValues(this.signature, values, content);
+      extractValues(this.signature, values, result.content);
       assertAssertions(this.asserts, values);
     }
 
@@ -379,7 +376,12 @@ export class Generate<
             maxSteps: options?.maxSteps
           });
 
-          if (mem.getLast(sessionId)?.role === 'assistant') {
+          //   if (mem.getLast(sessionId)?.role === 'assistant') {
+          //     assertRequiredFields(this.signature, output);
+          //     return output;
+          //   }
+
+          if (Object.keys(output).length > 0) {
             assertRequiredFields(this.signature, output);
             return output;
           }

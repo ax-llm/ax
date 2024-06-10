@@ -81,6 +81,14 @@ export type CohereChatResponse = {
   }[];
 };
 
+export type CohereChatResponseDelta = CohereChatResponse & {
+  event_type:
+    | 'stream-start'
+    | 'text-generation'
+    | 'tool-calls-generation'
+    | 'stream-end';
+};
+
 export type CohereEmbedRequest = {
   texts: readonly string[];
   model: CohereModel | string;

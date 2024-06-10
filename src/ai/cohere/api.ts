@@ -15,6 +15,7 @@ import { modelInfoCohere } from './info.js';
 import {
   type CohereChatRequest,
   type CohereChatResponse,
+  type CohereChatResponseDelta,
   type CohereConfig,
   CohereEmbedModel,
   type CohereEmbedRequest,
@@ -58,7 +59,7 @@ export class Cohere extends BaseAI<
   CohereChatRequest,
   CohereEmbedRequest,
   CohereChatResponse,
-  unknown,
+  CohereChatResponseDelta,
   CohereEmbedResponse
 > {
   private config: CohereConfig;
@@ -77,7 +78,7 @@ export class Cohere extends BaseAI<
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo: modelInfoCohere,
       models: { model: config.model },
-      supportFor: { functions: false, streaming: false },
+      supportFor: { functions: false, streaming: true },
       options
     });
     this.config = config;
@@ -229,30 +230,36 @@ export class Cohere extends BaseAI<
     resp: Readonly<CohereChatResponse>
   ): TextResponse => {
     let finishReason: TextResponse['results'][0]['finishReason'];
-    switch (resp.finish_reason) {
-      case 'COMPLETE':
-        finishReason = 'stop';
-        break;
-      case 'MAX_TOKENS':
-        finishReason = 'length';
-        break;
-      case 'ERROR':
-        throw new Error('Finish reason: ERROR');
-      case 'ERROR_TOXIC':
-        throw new Error('Finish reason: CONTENT_FILTER');
-      default:
-        finishReason = 'stop';
-        break;
+    if ('finish_reason' in resp) {
+      switch (resp.finish_reason) {
+        case 'COMPLETE':
+          finishReason = 'stop';
+          break;
+        case 'MAX_TOKENS':
+          finishReason = 'length';
+          break;
+        case 'ERROR':
+          throw new Error('Finish reason: ERROR');
+        case 'ERROR_TOXIC':
+          throw new Error('Finish reason: CONTENT_FILTER');
+        default:
+          finishReason = 'stop';
+          break;
+      }
     }
 
-    const functionCalls =
-      resp.tool_calls?.map((v) => {
-        return {
-          id: v.name,
-          type: 'function' as const,
-          function: { name: v.name, args: v.parameters }
-        };
-      }) ?? [];
+    let functionCalls: TextResponse['results'][0]['functionCalls'];
+
+    if ('tool_calls' in resp) {
+      functionCalls =
+        resp.tool_calls?.map((v) => {
+          return {
+            id: v.name,
+            type: 'function' as const,
+            function: { name: v.name, args: v.parameters }
+          };
+        }) ?? [];
+    }
 
     return {
       results: [
@@ -264,6 +271,28 @@ export class Cohere extends BaseAI<
         }
       ]
     };
+  };
+
+  override generateChatStreamResp = (
+    resp: Readonly<CohereChatResponseDelta>,
+    state: object
+  ): TextResponse => {
+    const ss = state as {
+      generation_id?: string;
+    };
+
+    if (resp.event_type === 'stream-start') {
+      ss.generation_id = resp.generation_id;
+    }
+
+    const { results } = this.generateChatResp(resp);
+    const result = results[0];
+    if (!result) {
+      throw new Error('No result');
+    }
+
+    result.id = ss.generation_id ?? '';
+    return { results };
   };
 
   override generateEmbedResp = (

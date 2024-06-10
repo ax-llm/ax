@@ -1,8 +1,8 @@
-import { AI, ChainOfThought, type OpenAIArgs, OpenAIModel } from '../index.js';
+import { AI, ChainOfThought, type OpenAIArgs } from '../index.js';
 
-const ai = AI('openai', {
-  apiKey: process.env.OPENAI_APIKEY,
-  model: OpenAIModel.GPT4Turbo
+// const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = AI('google-gemini', {
+  apiKey: process.env.GOOGLE_APIKEY
 } as OpenAIArgs);
 
 // setup the prompt program

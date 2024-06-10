@@ -2,28 +2,28 @@ import type { Signature } from './sig.js';
 
 export interface Assertion {
   fn(arg0: Record<string, unknown>): boolean | undefined;
-  errMsg?: string;
+  message?: string;
   optional?: boolean;
 }
 
 export class AssertionError extends Error {
-  private value: Record<string, unknown>;
+  private values: Record<string, unknown>;
   private optional?: boolean;
 
   constructor({
     message,
-    value
+    values
   }: Readonly<{
     message: string;
-    value: Record<string, unknown>;
+    values: Record<string, unknown>;
     optional?: boolean;
   }>) {
     super(message);
-    this.value = value;
+    this.values = values;
     this.name = this.constructor.name;
     this.stack = new Error().stack;
   }
-  public getValue = () => this.value;
+  public getValue = () => this.values;
   public getOptional = () => this.optional;
 
   public getFixingInstructions = (sig: Readonly<Signature>) => {
@@ -33,7 +33,7 @@ export class AssertionError extends Error {
       extraFields.push({
         name: `past_${f.name}`,
         title: `Past ${f.title}`,
-        description: JSON.stringify(this.value[f.name])
+        description: JSON.stringify(this.values[f.name])
       });
     }
 
@@ -51,25 +51,21 @@ export const assertAssertions = (
   asserts: readonly Assertion[],
   values: Record<string, unknown>
 ) => {
-  for (const a of asserts) {
+  for (const assert of asserts) {
+    const { message, optional, fn } = assert;
+
     try {
-      const res = a.fn(values);
+      const res = fn(values);
       if (res === undefined) {
         continue;
       }
-      if (!res && a.errMsg) {
-        throw new AssertionError({
-          message: a.errMsg,
-          value: values,
-          optional: a.optional
-        });
+
+      if (!res && message) {
+        throw new AssertionError({ message, values, optional });
       }
     } catch (e) {
-      throw new AssertionError({
-        message: (e as Error).message,
-        value: values,
-        optional: a.optional
-      });
+      const message = (e as Error).message;
+      throw new AssertionError({ message, values, optional });
     }
   }
 };
@@ -83,7 +79,7 @@ export const assertRequiredFields = (
   if (missingFields.length > 0) {
     throw new AssertionError({
       message: `Missing required fields: ${missingFields.map((f) => f.name).join(', ')}`,
-      value: values
+      values
     });
   }
 };

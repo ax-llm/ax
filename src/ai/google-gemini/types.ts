@@ -142,6 +142,8 @@ export type GoogleGeminiChatResponse = {
   };
 };
 
+export type GoogleGeminiChatResponseDelta = GoogleGeminiChatResponse;
+
 /**
  * GoogleGeminiConfig: Configuration options for Google Gemini API
  * @export

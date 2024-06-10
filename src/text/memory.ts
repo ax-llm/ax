@@ -28,9 +28,11 @@ export class Memory implements AIMemory {
     const d = this.get(sessionId);
     let n = 0;
     if (Array.isArray(value)) {
-      n = d.push(...value);
+      n = d.push(...structuredClone(value));
     } else {
-      n = d.push({ ...value } as AITextChatRequest['chatPrompt'][0]);
+      n = d.push({
+        ...structuredClone(value)
+      } as AITextChatRequest['chatPrompt'][0]);
     }
     if (d.length > this.limit) {
       d.splice(0, this.limit + n - this.limit);

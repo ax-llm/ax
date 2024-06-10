@@ -1,4 +1,4 @@
-import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
+import type { AIServiceOptions } from '../../text/types.js';
 import type {
   AITextChatRequest,
   AITextEmbedRequest
@@ -23,6 +23,7 @@ import {
   type GoogleGeminiBatchEmbedResponse,
   type GoogleGeminiChatRequest,
   type GoogleGeminiChatResponse,
+  type GoogleGeminiChatResponseDelta,
   type GoogleGeminiConfig,
   GoogleGeminiEmbedModels,
   GoogleGeminiModel,
@@ -84,7 +85,7 @@ export class GoogleGemini extends BaseAI<
   GoogleGeminiChatRequest,
   GoogleGeminiBatchEmbedRequest,
   GoogleGeminiChatResponse,
-  unknown,
+  GoogleGeminiChatResponseDelta,
   GoogleGeminiBatchEmbedResponse
 > {
   private config: GoogleGeminiConfig;
@@ -106,7 +107,7 @@ export class GoogleGemini extends BaseAI<
       modelInfo: modelInfoGoogleGemini,
       models: { model: config.model, embedModel: config.embedModel },
       options,
-      supportFor: { functions: true, streaming: false }
+      supportFor: { functions: true, streaming: true }
     });
     this.config = config;
     this.apiKey = apiKey;
@@ -123,18 +124,19 @@ export class GoogleGemini extends BaseAI<
   }
 
   override generateChatReq = (
-    req: Readonly<AITextChatRequest>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AIPromptConfig>
+    req: Readonly<AITextChatRequest>
   ): [API, GoogleGeminiChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
+    const stream = req.modelConfig?.stream ?? this.config.stream;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
     }
 
     const apiConfig = {
-      name: `/models/${model}:generateContent?key=${this.apiKey}`
+      name: stream
+        ? `/models/${model}:streamGenerateContent?alt=sse&key=${this.apiKey}`
+        : `/models/${model}:generateContent?key=${this.apiKey}`
     };
 
     const systemPrompts = req.chatPrompt
@@ -342,6 +344,12 @@ export class GoogleGemini extends BaseAI<
       results,
       modelUsage
     };
+  };
+
+  override generateChatStreamResp = (
+    resp: Readonly<GoogleGeminiChatResponseDelta>
+  ): TextResponse => {
+    return this.generateChatResp(resp);
   };
 
   override generateEmbedResp = (

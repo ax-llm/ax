@@ -236,6 +236,7 @@ export class Anthropic extends BaseAI<
     };
   };
 }
+
 function mapFinishReason(
   stopReason?: AnthropicChatResponse['stop_reason'] | null
 ): TextResponse['results'][0]['finishReason'] | undefined {
