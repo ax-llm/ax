@@ -1,7 +1,15 @@
+import type { extractionState } from './extract.js';
 import type { Signature } from './sig.js';
 
 export interface Assertion {
-  fn(arg0: Record<string, unknown>): boolean | undefined;
+  fn(values: Record<string, unknown>): boolean | undefined;
+  message?: string;
+  optional?: boolean;
+}
+
+export interface StreamingAssertion {
+  fieldName: string;
+  fn(content: string): boolean | undefined;
   message?: string;
   optional?: boolean;
 }
@@ -12,7 +20,8 @@ export class AssertionError extends Error {
 
   constructor({
     message,
-    values
+    values,
+    optional
   }: Readonly<{
     message: string;
     values: Record<string, unknown>;
@@ -20,22 +29,24 @@ export class AssertionError extends Error {
   }>) {
     super(message);
     this.values = values;
+    this.optional = optional;
     this.name = this.constructor.name;
     this.stack = new Error().stack;
   }
   public getValue = () => this.values;
   public getOptional = () => this.optional;
 
-  public getFixingInstructions = (sig: Readonly<Signature>) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  public getFixingInstructions = (_sig: Readonly<Signature>) => {
     const extraFields = [];
 
-    for (const f of sig.getOutputFields()) {
-      extraFields.push({
-        name: `past_${f.name}`,
-        title: `Past ${f.title}`,
-        description: JSON.stringify(this.values[f.name])
-      });
-    }
+    // for (const f of sig.getOutputFields()) {
+    //   extraFields.push({
+    //     name: `past_${f.name}`,
+    //     title: `Past ${f.title}`,
+    //     description: JSON.stringify(this.values[f.name])
+    //   });
+    // }
 
     extraFields.push({
       name: 'instructions',
@@ -52,10 +63,54 @@ export const assertAssertions = (
   values: Record<string, unknown>
 ) => {
   for (const assert of asserts) {
-    const { message, optional, fn } = assert;
+    const { fn, message, optional } = assert;
 
     try {
       const res = fn(values);
+      if (res === undefined) {
+        continue;
+      }
+
+      if (!res && message) {
+        throw new AssertionError({ message, values, optional });
+      }
+    } catch (e) {
+      const message = (e as Error).message;
+      throw new AssertionError({ message, values, optional });
+    }
+  }
+};
+
+export const assertStreamingAssertions = (
+  asserts: readonly StreamingAssertion[],
+  values: Record<string, unknown>,
+  xstate: Readonly<extractionState>,
+  content: string
+) => {
+  if (
+    !xstate.currField ||
+    xstate.s === -1 ||
+    !asserts ||
+    asserts.length === 0
+  ) {
+    return;
+  }
+
+  const fieldAsserts = asserts.filter(
+    (a) => a.fieldName === xstate.currField?.name
+  );
+
+  if (fieldAsserts.length === 0) {
+    return;
+  }
+
+  const currValue = content.substring(xstate.s);
+
+  for (const assert of fieldAsserts) {
+    const { message, optional, fn } = assert;
+
+    try {
+      const res = fn(currValue);
       if (res === undefined) {
         continue;
       }

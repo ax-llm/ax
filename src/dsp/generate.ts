@@ -5,7 +5,7 @@ import type {
   TextResponseFunctionCall,
   TextResponseResult
 } from '../ai/index.js';
-import { mergeFunctionCalls } from '../ai/util.js';
+import { mergeFunctionCalls, type mergeFunctionsState } from '../ai/util.js';
 import {
   type AITextFunction,
   FunctionProcessor,
@@ -19,9 +19,12 @@ import {
   assertAssertions,
   type Assertion,
   AssertionError,
-  assertRequiredFields
+  assertRequiredFields,
+  assertStreamingAssertions,
+  type StreamingAssertion
 } from './asserts.js';
 import {
+  type extractionState,
   extractValues,
   streamingExtractFinalValue,
   streamingExtractValues,
@@ -43,6 +46,7 @@ export interface GenerateOptions {
   functionCall?: AITextChatRequest['functionCall'];
   promptTemplate?: typeof PromptTemplate;
   asserts?: Assertion[];
+  streamingAsserts?: StreamingAssertion[];
 }
 
 export type GenerateResult<OUT extends GenOut> = OUT & {
@@ -66,6 +70,7 @@ export class Generate<
   private ai: AIService;
   private pt: PromptTemplate;
   private asserts: Assertion[];
+  private streamingAsserts: StreamingAssertion[];
   private options?: GenerateOptions;
   private funcProc?: FunctionProcessor;
   private functionList?: string;
@@ -83,6 +88,7 @@ export class Generate<
     this.options = options;
     this.pt = new (options?.promptTemplate ?? PromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
+    this.streamingAsserts = this.options?.streamingAsserts ?? [];
     this.functionList = this.options?.functions?.map((f) => f.name).join(', ');
     this.usage = [];
 
@@ -141,6 +147,15 @@ export class Generate<
     optional?: boolean
   ) => {
     this.asserts.push({ fn, message, optional });
+  };
+
+  public addStreamingAssert = (
+    fieldName: string,
+    fn: StreamingAssertion['fn'],
+    message?: string,
+    optional?: boolean
+  ) => {
+    this.streamingAsserts.push({ fieldName, fn, message, optional });
   };
 
   private async forwardSendRequest({
@@ -239,8 +254,8 @@ export class Generate<
   >): Promise<OUT> {
     const functionCalls: NonNullable<TextResponseResult['functionCalls']> = [];
     const values = {};
-    const xstate = { s: -1 };
-    const fstate = { lastId: '' };
+    const xstate: extractionState = { s: -1 };
+    const fstate: mergeFunctionsState = { lastId: '' };
 
     let content = '';
 
@@ -258,6 +273,12 @@ export class Generate<
         content += result.content;
         mem.updateResult({ ...result, content, functionCalls }, sessionId);
 
+        assertStreamingAssertions(
+          this.streamingAsserts,
+          values,
+          xstate,
+          content
+        );
         streamingExtractValues(this.signature, values, xstate, content);
         assertAssertions(this.asserts, values);
       }

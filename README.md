@@ -22,7 +22,7 @@ Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Fun
 - Build Agents that can call other agents
 - Convert docs of any format to text
 - RAG, smart chunking, embedding, querying
-- Output field processing while streaming
+- Output field processing, validation while streaming
 - Automatic prompt tuning using optimizers
 - OpenTelemetry tracing / observability
 - Production ready Typescript code
@@ -225,7 +225,8 @@ We support parsing output fields and function execution while streaming. This al
 ```typescript
 // setup the prompt program
 const gen = new ChainOfThought(
-  ai, `startNumber:number -> next10Numbers:number[]`
+  ai,
+  `startNumber:number -> next10Numbers:number[]`
 );
 
 // add a assertion to ensure that the number 5 is not in an output field
@@ -234,32 +235,59 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
 }, 'Numbers 5 is not allowed');
 
 // run the program with streaming enabled
+const res = await gen.forward({ startNumber: 1 }, { stream: true });
+```
+
+The above example will allow you to validate entire output fields as they are streamed in. This validation works with streaming and when not streaming and is triggered when the entire field value is available. For true validation while streaming checkout the below example. This will massively improve performance and save tokens at scale in production
+
+```typescript
+// add a assertion to ensure all lines start with a number and a dot.
+gen.addStreamingAssert(
+  'answerInPoints',
+  (value: string) => {
+    const re = /^\d+\./;
+
+    // split the value by lines, trim each line,
+    // filter out empty lines and check if all lines match the regex
+    return value
+      .split('\n')
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0)
+      .every((x) => re.test(x));
+  },
+  'Lines must start with a number and a dot. Eg: 1. This is a line.'
+);
+
+// run the program with streaming enabled
 const res = await gen.forward(
-  { startNumber: 1 },
-  { stream: true }
+  {
+    question: 'Provide a list of optimizations to speedup LLM inference.'
+  },
+  { stream: true, debug: true }
 );
 ```
 
 ## OpenTelemetry support
 
 Ability to trace and observe your llm workflow is critical to building production workflows. OpenTelemetry is an industry standard and we support the new `gen_ai` attribute namespace.
+
 ```typescript
-import { trace } from "@opentelemetry/api";
+import { trace } from '@opentelemetry/api';
 import {
   BasicTracerProvider,
   ConsoleSpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+  SimpleSpanProcessor
+} from '@opentelemetry/sdk-trace-base';
 
 const provider = new BasicTracerProvider();
 provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
 trace.setGlobalTracerProvider(provider);
 
-const tracer = trace.getTracer("test");
+const tracer = trace.getTracer('test');
 
-const ai = AI("ollama", {
-  model: "nous-hermes2",
-  options: { tracer },
+const ai = AI('ollama', {
+  model: 'nous-hermes2',
+  options: { tracer }
 } as unknown as OllamaArgs);
 
 const gen = new ChainOfThought(
@@ -268,7 +296,7 @@ const gen = new ChainOfThought(
 );
 
 const res = await gen.forward({ text });
-````
+```
 
 ```json
 {
@@ -368,7 +396,7 @@ const res = await program.forward({
 console.log(res);
 ```
 
-## Checkout more examples
+## Checkout all the examples
 
 Use the `tsx` command to run the examples it makes node run typescript code. It also support using a `.env` file to pass the AI API Keys as opposed to putting them in the commandline.
 
@@ -391,7 +419,8 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | agent.ts            | Agent framework, agents can use other agents, tools etc |
 | qna-tune.ts         | Use an optimizer to improve prompt efficiency           |
 | qna-use-tuned.ts    | Use the optimized tuned prompts                         |
-| streaming.ts        | Assertions and output processing while streaming        |
+| streaming1.ts       | Output fields validation while streaming                |
+| streaming2.ts       | Per output field validation while streaming             |
 
 
 ## Built-in Functions

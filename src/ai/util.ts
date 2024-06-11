@@ -55,6 +55,10 @@ export const parseFunction = (
   return;
 };
 
+export interface mergeFunctionsState {
+  lastId: string;
+}
+
 export function mergeFunctionCalls(
   // eslint-disable-next-line functional/prefer-immutable-types
   functionCalls: NonNullable<TextResponseResult['functionCalls']>,
@@ -62,7 +66,7 @@ export function mergeFunctionCalls(
     NonNullable<TextResponseResult['functionCalls']>
   >,
   // eslint-disable-next-line functional/prefer-immutable-types
-  state?: { lastId: string }
+  state?: mergeFunctionsState
 ): NonNullable<TextResponseResult['functionCalls']>[0] | undefined {
   for (const _fc of functionCallDeltas) {
     const fc = functionCalls.find((fc) => fc.id === _fc.id);
