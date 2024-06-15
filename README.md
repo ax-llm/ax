@@ -1,8 +1,8 @@
-# LLMClient - Build LLMs Powered Agents (Typescript)
+# Ax - Build LLMs Powered Agents (Typescript)
 
-JS/TS library to make to easy to build with Agents and agentic workflows with LLMs. Full support for various LLMs and VectorDBs, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Build agents or teams or agents to solve complex problems 🌵 🦙 🔥 ❤️ 🖖🏼
+JS/TS library to make to easy to build with agents and agentic workflows with LLMs. Full support for various LLMs and VectorDBs, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Build agents or teams of agents to solve complex problems.
 
-[![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
+[![NPM Package](https://img.shields.io/npm/v/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
@@ -10,11 +10,11 @@ JS/TS library to make to easy to build with Agents and agentic workflows with LL
 
 ## Build with prompt signatures
 
-LLMClient is an easy to use library build around "Prompt Signatures" from the `Stanford DSP` paper. This library will automatically generate efficient and typed prompts from prompt signatures like `question:string -> answer:string`.
+Ax is an easy to use library built around "Prompt Signatures" from the `Stanford DSP` paper. This library will automatically generate efficient and typed prompts from prompt signatures like `question:string -> answer:string`.
 
 Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want. Using prompt signatures automatically gives you the ability to fine tune your prompt programs using optimizers. Tune with a larger model and have your program run efficiently on a smaller model. The tuning here is not the traditional model tuning but what we call prompt tuning.
 
-## Why use LLMClient?
+## Why use Ax?
 
 - Support for various LLMs and Vector DBs
 - Prompts auto-generated from simple signatures
@@ -55,15 +55,15 @@ You can have multiple input and output fields and each field has one of these ty
 ## Install
 
 ```bash
-npm install llmclient
+npm install ax-llm/ax
 # or
-yarn add llmclient
+yarn add ax-llm/ax
 ```
 
 ## Example: Using chain-of-thought to summarize text
 
 ```typescript
-import { AI, ChainOfThought, OpenAIArgs } from 'llmclient';
+import { AI, ChainOfThought, OpenAIArgs } from '@ax-llm/ax';
 
 const textToSummarize = `
 The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;

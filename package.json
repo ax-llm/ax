@@ -1,6 +1,6 @@
 {
-  "name": "llmclient",
-  "version": "8.1.22",
+  "name": "ax",
+  "version": "9.0.0",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/src/index.d.ts",
@@ -8,7 +8,10 @@
   "exports": "./build/module/src/index.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dosco/llm-client.git"
+    "url": "git+https://github.com/dosco/ax.git"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "Apache-2.0",
   "keywords": [],
