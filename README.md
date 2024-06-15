@@ -36,7 +36,7 @@ Efficient type-safe prompts are auto-generated from a simple signature. A prompt
 
 You can have multiple input and output fields and each field has one of these types `string`, `number`, `boolean`, `json` or a array of any of these eg. `string[]`. When a type is not defined it defaults to `string`. When the `json` type if used the underlying AI is encouraged to generate correct JSON.
 
-## LLM's Supported
+## LLMs Supported
 
 | Provider      | Best Models             | Tested  |
 | ------------- | ----------------------- | ------- |
