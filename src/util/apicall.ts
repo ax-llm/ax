@@ -1,9 +1,14 @@
 import path from 'path';
-import { type ReadableStream, TextDecoderStream } from 'stream/web';
+import {
+  type ReadableStream,
+  TextDecoderStream as TextDecoderStreamNative
+} from 'stream/web';
 
 import type { Span } from '../trace/index.js';
 
+import { TextDecoderStreamPolyfill } from './stream.js';
 import { JSONStringifyStream } from './transform.js';
+
 /**
  * Util: API details
  * @export
@@ -13,6 +18,8 @@ export type API = {
   headers?: Record<string, string>;
   put?: boolean;
 };
+
+const TextDecoderStream = TextDecoderStreamNative ?? TextDecoderStreamPolyfill;
 
 export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   api: Readonly<

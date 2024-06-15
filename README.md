@@ -1,6 +1,6 @@
-# LLMClient - Typescript/JS Library to build with LLMs
+# LLMClient - Build LLMs Powered Agents (Typescript)
 
-JS/TS library to make to easy to build with LLMs. Full support for various LLMs and VectorDBs, Agents, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Create and compose efficient prompts using prompt signatures. 🌵 🦙 🔥 ❤️ 🖖🏼
+JS/TS library to make to easy to build with Agents and agentic workflows with LLMs. Full support for various LLMs and VectorDBs, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Build agents or teams or agents to solve complex problems 🌵 🦙 🔥 ❤️ 🖖🏼
 
 [![NPM Package](https://img.shields.io/npm/v/llmclient?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -421,7 +421,6 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | qna-use-tuned.ts    | Use the optimized tuned prompts                         |
 | streaming1.ts       | Output fields validation while streaming                |
 | streaming2.ts       | Per output field validation while streaming             |
-
 
 ## Built-in Functions
 

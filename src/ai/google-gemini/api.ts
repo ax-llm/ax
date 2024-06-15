@@ -73,6 +73,8 @@ export const GoogleGeminiDefaultCreativeConfig = (): GoogleGeminiConfig =>
 
 export interface GoogleGeminiArgs {
   apiKey: string;
+  projectId?: string;
+  region?: string;
   config: Readonly<GoogleGeminiConfig>;
   options?: Readonly<AIServiceOptions>;
 }
@@ -93,6 +95,8 @@ export class GoogleGemini extends BaseAI<
 
   constructor({
     apiKey,
+    projectId,
+    region,
     config = GoogleGeminiDefaultConfig(),
     options
   }: Readonly<GoogleGeminiArgs>) {
@@ -100,9 +104,15 @@ export class GoogleGemini extends BaseAI<
       throw new Error('GoogleGemini AI API key not set');
     }
 
+    let apiURL = 'https://generativelanguage.googleapis.com/v1beta';
+
+    if (projectId && region) {
+      apiURL = `POST https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/{REGION}/publishers/google/`;
+    }
+
     super({
       name: 'GoogleGeminiAI',
-      apiURL: 'https://generativelanguage.googleapis.com/v1beta',
+      apiURL,
       headers: {},
       modelInfo: modelInfoGoogleGemini,
       models: { model: config.model, embedModel: config.embedModel },

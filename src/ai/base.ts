@@ -106,7 +106,8 @@ export class BaseAI<
       throw new Error('No model defined');
     }
 
-    this.modelInfo = modelInfo.filter((v) => v.name === models.model).at(0) ?? {
+    const mname = models.model.replace(/-0\d+$|-\d{2,}$/, '');
+    this.modelInfo = modelInfo.filter((v) => v.name === mname).at(0) ?? {
       name: models.model,
       currency: 'usd',
       promptTokenCostPer1M: 0,

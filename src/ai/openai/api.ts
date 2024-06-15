@@ -76,7 +76,7 @@ export interface OpenAIArgs {
   apiKey: string;
   apiURL?: string;
   config?: Readonly<OpenAIConfig>;
-  options?: Readonly<AIServiceOptions>;
+  options?: Readonly<AIServiceOptions & { streamingUsage: boolean }>;
 }
 
 /**
@@ -91,6 +91,7 @@ export class OpenAI extends BaseAI<
   OpenAIEmbedResponse
 > {
   private config: OpenAIConfig;
+  private streamingUsage: boolean;
 
   constructor({
     apiKey,
@@ -111,6 +112,7 @@ export class OpenAI extends BaseAI<
       supportFor: { functions: true, streaming: true }
     });
     this.config = config;
+    this.streamingUsage = options?.streamingUsage ?? true;
   }
 
   override getModelConfig(): TextModelConfig {
@@ -219,7 +221,7 @@ export class OpenAI extends BaseAI<
       user: req.identity?.user ?? this.config.user,
       organization: req.identity?.organization,
       ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {}),
-      ...(stream
+      ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {})
     };

@@ -37,7 +37,7 @@ export class Groq extends OpenAI {
     super({
       apiKey,
       config,
-      options,
+      options: { ...options, streamingUsage: false },
       apiURL: 'https://api.groq.com/openai/v1'
     });
 
