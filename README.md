@@ -2,7 +2,7 @@
 
 JS/TS library to make to easy to build with agents and agentic workflows with LLMs. Full support for various LLMs and VectorDBs, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Build agents or teams of agents to solve complex problems.
 
-[![NPM Package](https://img.shields.io/npm/v/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/llmclient)
+[![NPM Package](https://img.shields.io/npm/v/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
@@ -55,9 +55,9 @@ You can have multiple input and output fields and each field has one of these ty
 ## Install
 
 ```bash
-npm install ax-llm/ax
+npm install @ax-llm/ax
 # or
-yarn add ax-llm/ax
+yarn add @ax-llm/ax
 ```
 
 ## Example: Using chain-of-thought to summarize text
