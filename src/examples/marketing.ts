@@ -28,7 +28,7 @@ const res = await gen.forward({
   productDescription: product.description,
   toName: to.name,
   toDescription: to.title,
-  messageGuidelines: messageGuidelines
+  messageGuidelines: messageGuidelines.join(', ')
 });
 
 console.log('>', res);
