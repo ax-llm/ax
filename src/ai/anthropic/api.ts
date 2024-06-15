@@ -15,11 +15,11 @@ import {
   type AnthropicChatResponse,
   type AnthropicChatResponseDelta,
   type AnthropicConfig,
-  AnthropicModel,
-  type ContentBlockDeltaEvent,
-  type ContentBlockStartEvent,
-  type MessageDeltaEvent,
-  type MessageStartEvent
+  type AnthropicContentBlockDeltaEvent,
+  type AnthropicContentBlockStartEvent,
+  type AnthropicMessageDeltaEvent,
+  type AnthropicMessageStartEvent,
+  AnthropicModel
 } from './types.js';
 
 /**
@@ -186,7 +186,7 @@ export class Anthropic extends BaseAI<
     let modelUsage;
 
     if ('message' in resp) {
-      const { message } = resp as unknown as MessageStartEvent;
+      const { message } = resp as unknown as AnthropicMessageStartEvent;
       results = [
         {
           content: '',
@@ -202,23 +202,24 @@ export class Anthropic extends BaseAI<
     }
 
     if ('content_block' in resp) {
-      const { content_block: cb } = resp as unknown as ContentBlockStartEvent;
+      const { content_block: cb } =
+        resp as unknown as AnthropicContentBlockStartEvent;
       results = [{ content: cb.text }];
     }
 
     if (
       'delta' in resp &&
-      'text' in (resp as unknown as ContentBlockDeltaEvent).delta
+      'text' in (resp as unknown as AnthropicContentBlockDeltaEvent).delta
     ) {
-      const { delta: cb } = resp as unknown as ContentBlockDeltaEvent;
+      const { delta: cb } = resp as unknown as AnthropicContentBlockDeltaEvent;
       results = [{ content: cb.text }];
     }
 
     if (
       'delta' in resp &&
-      'stop_reason' in (resp as unknown as MessageDeltaEvent).delta
+      'stop_reason' in (resp as unknown as AnthropicMessageDeltaEvent).delta
     ) {
-      const { delta } = resp as unknown as MessageDeltaEvent;
+      const { delta } = resp as unknown as AnthropicMessageDeltaEvent;
       results = [
         { content: '', finishReason: mapFinishReason(delta.stop_reason) }
       ];

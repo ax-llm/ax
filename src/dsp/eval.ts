@@ -1,7 +1,7 @@
 import { stopwords } from './stopwords.js';
 
 // Define a simple Counter type for token counts
-type Counter = { [key: string]: number };
+export type Counter = { [key: string]: number };
 
 /**
  * Filters out tokens based on a set of exclusion tokens.

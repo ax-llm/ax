@@ -9,6 +9,8 @@ export * from './pinecone.js';
 export * from './cloudflare.js';
 export * from './memory.js';
 
+export type { BaseArgs, BaseOpOptions } from './base.js';
+
 export type DBName = 'weaviate' | 'pinecone' | 'memory' | 'cloudflare';
 
 export const DB = (

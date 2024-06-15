@@ -115,7 +115,7 @@ export interface Span {
 }
 
 // Context interface definition
-interface Context {
+export interface Context {
   /**
    * Deletes a value associated with a key from the context.
    * Returns a new context that inherits from the current context but does not contain the value for the specified key.

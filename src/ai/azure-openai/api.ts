@@ -1,5 +1,4 @@
 import type { AIServiceOptions } from '../../text/types.js';
-import type { API } from '../../util/apicall.js';
 import {
   OpenAI,
   OpenAIBestConfig,
@@ -8,14 +7,6 @@ import {
   OpenAIFastConfig
 } from '../openai/api.js';
 import type { OpenAIConfig } from '../openai/types.js';
-
-/**
- * AzureOpenAI: API call details
- * @export
- */
-export type AzureOpenAIApiConfig = API & {
-  headers: { 'api-key'?: string };
-};
 
 /**
  * AzureOpenAI: Default Model options for text generation

@@ -25,6 +25,8 @@ export * from './types.js';
 export * from './balance.js';
 export * from './base.js';
 
+export type { API } from '../util/apicall.js';
+
 export type AIName =
   | 'openai'
   | 'azure-openai'

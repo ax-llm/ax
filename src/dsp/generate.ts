@@ -53,7 +53,7 @@ export type GenerateResult<OUT extends GenOut> = OUT & {
   functions?: TextResponseFunctionCall[];
 };
 
-interface ResponseHandlerArgs<T> {
+export interface ResponseHandlerArgs<T> {
   res: T;
   usageInfo: { ai: string; model: string };
   mem: AIMemory;
