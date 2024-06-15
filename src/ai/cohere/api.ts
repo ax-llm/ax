@@ -220,6 +220,7 @@ export class Cohere extends BaseAI<
     const reqValue = {
       model,
       texts: req.texts ?? [],
+      input_type: 'classification',
       truncate: ''
     };
 
