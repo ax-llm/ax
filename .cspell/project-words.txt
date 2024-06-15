@@ -68,3 +68,4 @@ rerank
 opentelemetry
 sstate
 fstate
+agentic

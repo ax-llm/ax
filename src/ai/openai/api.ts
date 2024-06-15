@@ -76,7 +76,7 @@ export interface OpenAIArgs {
   apiKey: string;
   apiURL?: string;
   config?: Readonly<OpenAIConfig>;
-  options?: Readonly<AIServiceOptions & { streamingUsage: boolean }>;
+  options?: Readonly<AIServiceOptions & { streamingUsage?: boolean }>;
 }
 
 /**
