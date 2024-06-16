@@ -1,18 +1,18 @@
 # Ax - Build LLMs Powered Agents (Typescript)
 
-JS/TS library to make to easy to build with agents and agentic workflows with LLMs. Full support for various LLMs and VectorDBs, Function Calling, Chain-of-Thought, RAG, Semantic Router and more. Based on the popular Stanford DSP paper. Build agents or teams of agents to solve complex problems.
+Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSP paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems.
 
 [![NPM Package](https://img.shields.io/npm/v/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 
-![llama-small](https://github.com/dosco/llm-client/assets/832235/b959fdd6-c723-49b1-9fb9-bf879e75c147)
+![image](https://github.com/ax-llm/ax/assets/832235/3a250031-591c-42e0-b4fc-06afb8c351c4)
 
-## Build with prompt signatures
+## Our focus on agents
 
-Ax is an easy to use library built around "Prompt Signatures" from the `Stanford DSP` paper. This library will automatically generate efficient and typed prompts from prompt signatures like `question:string -> answer:string`.
+We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also we are big fans of the Stanford DSP paper and this library is the result of all of this coming together to build a powerful framework for you to build with. 
 
-Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Function calling, Agents, etc all built on prompt signatures and easy to compose together to build whatever you want. Using prompt signatures automatically gives you the ability to fine tune your prompt programs using optimizers. Tune with a larger model and have your program run efficiently on a smaller model. The tuning here is not the traditional model tuning but what we call prompt tuning.
+![image](https://github.com/ax-llm/ax/assets/832235/801b8110-4cba-4c50-8ec7-4d5859121fe5)
 
 ## Why use Ax?
 
@@ -32,7 +32,7 @@ Build powerful workflows using components like RAG, ReAcT, Chain of Thought, Fun
 
 <img width="860" alt="shapes at 24-03-31 00 05 55" src="https://github.com/dosco/llm-client/assets/832235/0f0306ea-1812-4a0a-9ed5-76cd908cd26b">
 
-Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made of a `"task description" inputField:type "field description" -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper.
+Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made up of a `"task description" inputField:type "field description" -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper.
 
 You can have multiple input and output fields and each field has one of these types `string`, `number`, `boolean`, `json` or a array of any of these eg. `string[]`. When a type is not defined it defaults to `string`. When the `json` type if used the underlying AI is encouraged to generate correct JSON.
 
