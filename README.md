@@ -322,19 +322,6 @@ const res = await gen.forward({ text });
 }
 ```
 
-Alternatively you can use the `DBManager` which handles smart chunking, embedding and querying everything
-for you, it makes things almost too easy.
-
-```typescript
-const manager = new DBManager({ ai, db });
-await manager.insert(text);
-
-const matches = await manager.query(
-  'John von Neumann on human intelligence and singularity.'
-);
-console.log(matches);
-```
-
 ## Tuning the prompts (programs)
 
 You can tune your prompts using a larger model to help them run more efficiently and give you better results. This is done by using an optimizer like `BootstrapFewShot` with and examples from the popular `HotPotQA` dataset. The optimizer generates demonstrations `demos` which when used with the prompt help improve its efficiency.
