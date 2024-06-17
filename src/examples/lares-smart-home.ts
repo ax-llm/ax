@@ -1,7 +1,7 @@
 /**
  *
  * This implementation showcases how to reimplement Lares using llmclient to demonstrate the ease of building such agents.
- * Lares is a simulation of a smart home assistant, powered by a simple AI agent built using.
+ * Lares is a simulation of a smart home assistant, powered by a simple AI agent.
  * It exhibits problem-solving abilities, despite its simplicity.
  *
  * For more details on emergent behavior in AI agents, see this reference:
