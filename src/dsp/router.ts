@@ -1,16 +1,16 @@
 import { existsSync } from 'fs';
 
-import { MemoryDB } from '../db/memory.js';
-import type { AIService } from '../text/index.js';
+import type { AxAIService } from '../ai/types.js';
+import { AxMemoryDB } from '../db/memory.js';
 import { ColorLog } from '../util/log.js';
 
 const colorLog = new ColorLog();
 
-export interface RouterForwardOptions {
+export interface AxRouterForwardOptions {
   cutoff?: number;
 }
 
-export class Route {
+export class AxRoute {
   private readonly name: string;
   private readonly context: readonly string[];
 
@@ -28,18 +28,18 @@ export class Route {
   }
 }
 
-export class Router {
-  private readonly ai: AIService;
-  private db: MemoryDB;
+export class AxRouter {
+  private readonly ai: AxAIService;
+  private db: AxMemoryDB;
   private debug?: boolean;
 
-  public constructor(ai: AIService) {
-    this.db = new MemoryDB();
+  public constructor(ai: AxAIService) {
+    this.db = new AxMemoryDB();
     this.ai = ai;
   }
 
   public setRoutes = async (
-    routes: readonly Route[],
+    routes: readonly AxRoute[],
     options?: Readonly<{ filename?: string }>
   ): Promise<void> => {
     const fn = options?.filename;
@@ -64,7 +64,7 @@ export class Router {
 
   public async forward(
     text: string,
-    options?: Readonly<RouterForwardOptions>
+    options?: Readonly<AxRouterForwardOptions>
   ): Promise<string> {
     const { embeddings } = await this.ai.embed({ texts: [text] });
 

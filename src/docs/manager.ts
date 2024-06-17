@@ -1,43 +1,43 @@
 import {
-  type AIService,
-  type DBQueryResponse,
-  type DBService,
-  type Program
+  type AxAIService,
+  type AxDBQueryResponse,
+  type AxDBService,
+  type AxProgram
 } from '../index.js';
 
-export type RewriteIn = { query: string };
-export type RewriteOut = { rewrittenQuery: string };
+export type AxRewriteIn = { query: string };
+export type AxRewriteOut = { rewrittenQuery: string };
 
-export type RerankerIn = { query: string; items: string[] };
-export type RerankerOut = { rankedItems: string[] };
+export type AxRerankerIn = { query: string; items: string[] };
+export type AxRerankerOut = { rankedItems: string[] };
 
-export interface DBLoaderOptions {
+export interface AxDBLoaderOptions {
   chunker?: (text: string) => string[];
-  rewriter?: Program<RewriteIn, RewriteOut>;
-  reranker?: Program<RerankerIn, RerankerOut>;
+  rewriter?: AxProgram<AxRewriteIn, AxRewriteOut>;
+  reranker?: AxProgram<AxRerankerIn, AxRerankerOut>;
 }
 
-export interface DBManagerArgs {
-  ai: AIService;
-  db: DBService;
-  config?: DBLoaderOptions;
+export interface AxDBManagerArgs {
+  ai: AxAIService;
+  db: AxDBService;
+  config?: AxDBLoaderOptions;
 }
 
-export interface Match {
+export interface AxDBMatch {
   score: number;
   text: string;
 }
 
 const table = '_internal';
 
-export class DBManager {
-  private ai: AIService;
-  private db: DBService;
+export class AxDBManager {
+  private ai: AxAIService;
+  private db: AxDBService;
   private chunker: (text: string) => string[];
-  private rewriter?: Program<RewriteIn, RewriteOut>;
-  private reranker?: Program<RerankerIn, RerankerOut>;
+  private rewriter?: AxProgram<AxRewriteIn, AxRewriteOut>;
+  private reranker?: AxProgram<AxRerankerIn, AxRerankerOut>;
 
-  constructor({ ai, db, config }: Readonly<DBManagerArgs>) {
+  constructor({ ai, db, config }: Readonly<AxDBManagerArgs>) {
     this.ai = ai;
     this.db = db;
     this.chunker = config?.chunker ?? this.defaultChunker;
@@ -107,7 +107,7 @@ export class DBManager {
   query = async (
     query: Readonly<string | string[] | number | number[]>,
     { topPercent }: Readonly<{ topPercent?: number }> | undefined = {}
-  ): Promise<Match[][]> => {
+  ): Promise<AxDBMatch[][]> => {
     const texts = Array.isArray(query) ? query : [query];
 
     if (typeof texts[0] === 'string' && this.rewriter) {
@@ -119,7 +119,7 @@ export class DBManager {
       }
     }
 
-    let queries: Promise<DBQueryResponse>[];
+    let queries: Promise<AxDBQueryResponse>[];
 
     if (typeof texts[0] === 'string') {
       const embedResults = await this.ai.embed({ texts });
@@ -131,7 +131,7 @@ export class DBManager {
     }
 
     const queryResults = await Promise.all(queries);
-    const res: Match[][] = [];
+    const res: AxDBMatch[][] = [];
 
     for (const { matches } of queryResults) {
       const m = matches
@@ -149,7 +149,7 @@ export class DBManager {
 
         const items = rankedItems
           .map((item) => resultItems.find((r) => r.text === item))
-          .filter((v) => v !== undefined) as Match[];
+          .filter((v) => v !== undefined) as AxDBMatch[];
 
         res.push(items);
       } else {
@@ -225,9 +225,9 @@ const processChunks = ({
 };
 
 const getTopInPercent = (
-  entries: readonly Match[],
+  entries: readonly AxDBMatch[],
   percent: number = 0.1
-): Match[] => {
+): AxDBMatch[] => {
   // Sort entries by score in ascending order
   const sortedEntries = [...entries].sort((a, b) => a.score - b.score);
 

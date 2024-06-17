@@ -1,65 +1,57 @@
-import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import type { AITextChatRequest } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import {
-  BaseAI,
-  BaseAIDefaultConfig,
-  BaseAIDefaultCreativeConfig
+  AxBaseAI,
+  axBaseAIDefaultConfig,
+  axBaseAIDefaultCreativeConfig
 } from '../base.js';
-import type { TextModelConfig, TextResponse } from '../types.js';
+import type {
+  AxAIPromptConfig,
+  AxAIServiceOptions,
+  AxChatRequest,
+  AxChatResponse,
+  AxModelConfig
+} from '../types.js';
 
-import { modelInfoHuggingFace } from './info.js';
+import { axModelInfoHuggingFace } from './info.js';
 import {
-  type HuggingFaceConfig,
-  HuggingFaceModel,
-  type HuggingFaceRequest,
-  type HuggingFaceResponse
+  type AxHuggingFaceConfig,
+  AxHuggingFaceModel,
+  type AxHuggingFaceRequest,
+  type AxHuggingFaceResponse
 } from './types.js';
 
-/**
- * HuggingFace: Default Model options for text generation
- * @export
- */
-export const HuggingFaceDefaultConfig = (): HuggingFaceConfig =>
+export const axHuggingFaceDefaultConfig = (): AxHuggingFaceConfig =>
   structuredClone({
-    model: HuggingFaceModel.MetaLlama270BChatHF,
-    ...BaseAIDefaultConfig()
+    model: AxHuggingFaceModel.MetaLlama270BChatHF,
+    ...axBaseAIDefaultConfig()
   });
 
-/**
- * HuggingFace: Default model options for more creative text generation
- * @export
- */
-export const HuggingFaceCreativeConfig = (): HuggingFaceConfig =>
+export const axHuggingFaceCreativeConfig = (): AxHuggingFaceConfig =>
   structuredClone({
-    model: HuggingFaceModel.MetaLlama270BChatHF,
-    ...BaseAIDefaultCreativeConfig()
+    model: AxHuggingFaceModel.MetaLlama270BChatHF,
+    ...axBaseAIDefaultCreativeConfig()
   });
 
-export interface HuggingFaceArgs {
+export interface AxHuggingFaceArgs {
   apiKey: string;
-  config?: Readonly<HuggingFaceConfig>;
-  options?: Readonly<AIServiceOptions>;
+  config?: Readonly<AxHuggingFaceConfig>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-/**
- * HuggingFace: AI Service
- * @export
- */
-export class HuggingFace extends BaseAI<
-  HuggingFaceRequest,
+export class AxHuggingFace extends AxBaseAI<
+  AxHuggingFaceRequest,
   unknown,
-  HuggingFaceResponse,
+  AxHuggingFaceResponse,
   unknown,
   unknown
 > {
-  private config: HuggingFaceConfig;
+  private config: AxHuggingFaceConfig;
 
   constructor({
     apiKey,
-    config = HuggingFaceDefaultConfig(),
+    config = axHuggingFaceDefaultConfig(),
     options
-  }: Readonly<HuggingFaceArgs>) {
+  }: Readonly<AxHuggingFaceArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('HuggingFace API key not set');
     }
@@ -67,7 +59,7 @@ export class HuggingFace extends BaseAI<
       name: 'HuggingFace',
       apiURL: 'https://api-inference.huggingface.co',
       headers: { Authorization: `Bearer ${apiKey}` },
-      modelInfo: modelInfoHuggingFace,
+      modelInfo: axModelInfoHuggingFace,
       models: { model: config.model },
       options,
       supportFor: { functions: false, streaming: false }
@@ -75,7 +67,7 @@ export class HuggingFace extends BaseAI<
     this.config = config;
   }
 
-  override getModelConfig(): TextModelConfig {
+  override getModelConfig(): AxModelConfig {
     const { config } = this;
     return {
       maxTokens: config.maxTokens,
@@ -84,14 +76,14 @@ export class HuggingFace extends BaseAI<
       topK: config.topK,
       n: config.n,
       presencePenalty: config.presencePenalty
-    } as TextModelConfig;
+    } as AxModelConfig;
   }
 
   override generateChatReq = (
-    req: Readonly<AITextChatRequest>,
+    req: Readonly<AxChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AIPromptConfig>
-  ): [API, HuggingFaceRequest] => {
+    _config: Readonly<AxAIPromptConfig>
+  ): [API, AxHuggingFaceRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
 
     const functionsList = req.functions
@@ -110,7 +102,7 @@ export class HuggingFace extends BaseAI<
       name: '/models'
     };
 
-    const reqValue: HuggingFaceRequest = {
+    const reqValue: AxHuggingFaceRequest = {
       model,
       inputs,
       parameters: {
@@ -135,8 +127,8 @@ export class HuggingFace extends BaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<HuggingFaceResponse>
-  ): TextResponse => {
+    resp: Readonly<AxHuggingFaceResponse>
+  ): AxChatResponse => {
     return {
       results: [
         {

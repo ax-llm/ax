@@ -5,5 +5,6 @@
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "typescript.format.enable": false,
-  "typescript.tsserver.watchOptions": {}
+  "typescript.tsserver.watchOptions": {},
+  "js/ts.implicitProjectConfig.target": "ESNext"
 }

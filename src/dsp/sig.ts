@@ -1,10 +1,10 @@
 import { createHash } from 'crypto';
 
-import { type FunctionJSONSchema } from '../text/functions.js';
+import type { AxFunctionJSONSchema } from '../ai/types.js';
 
 import { parse, type ParsedField } from './parser.js';
 
-export interface Field {
+export interface AxField {
   name: string;
   title?: string;
   description?: string;
@@ -15,17 +15,17 @@ export interface Field {
   isOptional?: boolean;
 }
 
-export type IField = Omit<Field, 'title'> & { title: string };
+export type AxIField = Omit<AxField, 'title'> & { title: string };
 
-export class Signature {
+export class AxSignature {
   private description?: string;
-  private inputFields: IField[];
-  private outputFields: IField[];
+  private inputFields: AxIField[];
+  private outputFields: AxIField[];
 
   private sigHash: string;
   private sigString: string;
 
-  constructor(signature: Readonly<Signature | string>) {
+  constructor(signature: Readonly<AxSignature | string>) {
     if (typeof signature === 'string') {
       let sig;
       try {
@@ -37,14 +37,14 @@ export class Signature {
       this.inputFields = sig.inputs.map((v) => this.parseParsedField(v));
       this.outputFields = sig.outputs.map((v) => this.parseParsedField(v));
       [this.sigHash, this.sigString] = this.updateHash();
-    } else if (signature instanceof Signature) {
+    } else if (signature instanceof AxSignature) {
       this.description = signature.getDescription();
       this.inputFields = structuredClone(
         signature.getInputFields()
-      ) as IField[];
+      ) as AxIField[];
       this.outputFields = structuredClone(
         signature.getOutputFields()
-      ) as IField[];
+      ) as AxIField[];
       this.sigHash = signature.hash();
       this.sigString = signature.toString();
     } else {
@@ -52,7 +52,7 @@ export class Signature {
     }
   }
 
-  private parseParsedField = (field: Readonly<ParsedField>): IField => {
+  private parseParsedField = (field: Readonly<ParsedField>): AxIField => {
     if (!field.name || field.name.length === 0) {
       throw new Error('Field name is required.');
     }
@@ -67,7 +67,7 @@ export class Signature {
     };
   };
 
-  private parseField = (field: Readonly<Field>): IField => {
+  private parseField = (field: Readonly<AxField>): AxIField => {
     if (!field.name || field.name.length === 0) {
       throw new Error('Field name is required.');
     }
@@ -89,28 +89,28 @@ export class Signature {
     this.updateHash();
   };
 
-  public addInputField = (field: Readonly<Field>) => {
+  public addInputField = (field: Readonly<AxField>) => {
     this.inputFields.push(this.parseField(field));
     this.updateHash();
   };
 
-  public addOutputField = (field: Readonly<Field>) => {
+  public addOutputField = (field: Readonly<AxField>) => {
     this.outputFields.push(this.parseField(field));
     this.updateHash();
   };
 
-  public setInputFields = (fields: readonly Field[]) => {
+  public setInputFields = (fields: readonly AxField[]) => {
     this.inputFields = fields.map((v) => this.parseField(v));
     this.updateHash();
   };
 
-  public setOutputFields = (fields: readonly Field[]) => {
+  public setOutputFields = (fields: readonly AxField[]) => {
     this.outputFields = fields.map((v) => this.parseField(v));
     this.updateHash();
   };
 
-  public getInputFields = (): Readonly<IField[]> => this.inputFields;
-  public getOutputFields = (): Readonly<IField[]> => this.outputFields;
+  public getInputFields = (): Readonly<AxIField[]> => this.inputFields;
+  public getOutputFields = (): Readonly<AxIField[]> => this.outputFields;
   public getDescription = () => this.description;
 
   private toTitle = (name: string) => {
@@ -119,7 +119,7 @@ export class Signature {
     return result.charAt(0).toUpperCase() + result.slice(1);
   };
 
-  public toJSONSchema = (): FunctionJSONSchema => {
+  public toJSONSchema = (): AxFunctionJSONSchema => {
     const properties: Record<string, unknown> = {};
     const required: Array<string> = [];
 
@@ -153,7 +153,7 @@ export class Signature {
       required: required
     };
 
-    return schema as FunctionJSONSchema;
+    return schema as AxFunctionJSONSchema;
   };
 
   private updateHash = (): [string, string] => {
@@ -177,7 +177,7 @@ export class Signature {
   public toString = () => this.sigString;
 }
 
-function renderField(field: Readonly<Field>): string {
+function renderField(field: Readonly<AxField>): string {
   let result = field.name;
   if (field.isOptional) {
     result += '?';
@@ -197,8 +197,8 @@ function renderField(field: Readonly<Field>): string {
 
 function renderSignature(
   description: string | undefined,
-  inputFields: readonly Field[],
-  outputFields: readonly Field[]
+  inputFields: readonly AxField[],
+  outputFields: readonly AxField[]
 ): string {
   // Prepare the description part of the signature.
   const descriptionPart = description ? `"${description}"` : '';

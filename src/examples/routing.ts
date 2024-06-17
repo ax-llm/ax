@@ -1,6 +1,6 @@
-import { AI, type OpenAIArgs, Route, Router } from '../index.js';
+import { axAI, type AxOpenAIArgs, AxRoute, AxRouter } from '../index.js';
 
-const customerSupport = new Route('customerSupport', [
+const customerSupport = new AxRoute('customerSupport', [
   'how can I return a product?',
   'where is my order?',
   'can you help me with a refund?',
@@ -8,7 +8,7 @@ const customerSupport = new Route('customerSupport', [
   'my product arrived damaged, what should I do?'
 ]);
 
-const employeeHR = new Route('employeeHR', [
+const employeeHR = new AxRoute('employeeHR', [
   'how do I request time off?',
   'where can I find the employee handbook?',
   'who do I contact for IT support?',
@@ -16,7 +16,7 @@ const employeeHR = new Route('employeeHR', [
   'how do I log my work hours?'
 ]);
 
-const salesInquiries = new Route('salesInquiries', [
+const salesInquiries = new AxRoute('salesInquiries', [
   'I want to buy your products',
   'can you provide a quote?',
   'what are the payment options?',
@@ -24,7 +24,7 @@ const salesInquiries = new Route('salesInquiries', [
   'who can I speak with for a bulk order?'
 ]);
 
-const technicalSupport = new Route('technicalSupport', [
+const technicalSupport = new AxRoute('technicalSupport', [
   'how do I install your software?',
   'I’m having trouble logging in',
   'can you help me configure my settings?',
@@ -32,9 +32,11 @@ const technicalSupport = new Route('technicalSupport', [
   'how do I update to the latest version?'
 ]);
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
+} as AxOpenAIArgs);
 
-const router = new Router(ai);
+const router = new AxRouter(ai);
 await router.setRoutes([
   customerSupport,
   employeeHR,

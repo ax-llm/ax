@@ -1,36 +1,30 @@
-import type { AIServiceOptions } from '../../text/types.js';
-import { BaseAIDefaultConfig } from '../base.js';
-import { OpenAI } from '../openai/api.js';
-import type { OpenAIConfig } from '../openai/types.js';
+import { axBaseAIDefaultConfig } from '../base.js';
+import { AxOpenAI } from '../openai/api.js';
+import type { AxOpenAIConfig } from '../openai/types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
-type TogetherAIConfig = OpenAIConfig;
+import { axModelInfoTogether } from './info.js';
 
-/**
- * TogetherAI: Default Model options for text generation
- * @export
- */
-export const TogetherDefaultConfig = (): TogetherAIConfig =>
+type TogetherAIConfig = AxOpenAIConfig;
+
+export const axTogetherDefaultConfig = (): TogetherAIConfig =>
   structuredClone({
     model: 'llama2-70b-4096',
-    ...BaseAIDefaultConfig()
+    ...axBaseAIDefaultConfig()
   });
 
-export interface TogetherArgs {
+export interface AxTogetherArgs {
   apiKey: string;
   config: Readonly<TogetherAIConfig>;
-  options?: Readonly<AIServiceOptions>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-/**
- * TogetherAI: AI Service
- * @export
- */
-export class Together extends OpenAI {
+export class AxTogether extends AxOpenAI {
   constructor({
     apiKey,
-    config = TogetherDefaultConfig(),
+    config = axTogetherDefaultConfig(),
     options
-  }: Readonly<TogetherArgs>) {
+  }: Readonly<AxTogetherArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
     }
@@ -38,7 +32,8 @@ export class Together extends OpenAI {
       apiKey,
       config,
       options,
-      apiURL: 'https://api.together.xyz/v1'
+      apiURL: 'https://api.together.xyz/v1',
+      modelInfo: axModelInfoTogether
     });
 
     super.setName('Together');

@@ -1,36 +1,30 @@
-import type { AIServiceOptions } from '../../text/types.js';
-import { BaseAIDefaultConfig } from '../base.js';
-import { OpenAI } from '../openai/api.js';
-import type { OpenAIConfig } from '../openai/types.js';
+import { axBaseAIDefaultConfig } from '../base.js';
+import { AxOpenAI } from '../openai/api.js';
+import type { AxOpenAIConfig } from '../openai/types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
-type GroqAIConfig = OpenAIConfig;
+import { AxGroqModel } from './types.js';
 
-/**
- * GroqAI: Default Model options for text generation
- * @export
- */
-export const GroqDefaultConfig = (): GroqAIConfig =>
+type AxAxGroqAIConfig = AxOpenAIConfig;
+
+const axGroqDefaultConfig = (): AxAxGroqAIConfig =>
   structuredClone({
-    model: 'llama3-70b-8192',
-    ...BaseAIDefaultConfig()
+    model: AxGroqModel.Llama3_70B,
+    ...axBaseAIDefaultConfig()
   });
 
-export interface GroqArgs {
+export interface AxAxGroqArgs {
   apiKey: string;
-  config: Readonly<GroqAIConfig>;
-  options?: Readonly<AIServiceOptions>;
+  config: Readonly<AxAxGroqAIConfig>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-/**
- * GroqAI: AI Service
- * @export
- */
-export class Groq extends OpenAI {
+export class AxGroq extends AxOpenAI {
   constructor({
     apiKey,
-    config = GroqDefaultConfig(),
+    config = axGroqDefaultConfig(),
     options
-  }: Readonly<GroqArgs>) {
+  }: Readonly<AxAxGroqArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Groq API key not set');
     }
@@ -38,9 +32,10 @@ export class Groq extends OpenAI {
       apiKey,
       config,
       options: { ...options, streamingUsage: false },
-      apiURL: 'https://api.groq.com/openai/v1'
+      apiURL: 'https://api.groq.com/openai/v1',
+      modelInfo: []
     });
 
-    super.setName('Groq');
+    super.setName('AxGroq');
   }
 }

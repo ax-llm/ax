@@ -1,8 +1,8 @@
-export const trimNonAlphaNum = (str: string) => {
+const trimNonAlphaNum = (str: string) => {
   return str.replace(/^\W+|\W+$/g, '');
 };
 
-export const splitIntoTwo = (
+const splitIntoTwo = (
   str: string,
   separator: Readonly<RegExp | string>
 ): string[] => {
@@ -19,7 +19,7 @@ export const splitIntoTwo = (
   return [firstPart, secondPart];
 };
 
-export const dedup = (seq: readonly string[]): string[] => {
+const dedup = (seq: readonly string[]): string[] => {
   const seen = new Set<string>();
   const result: string[] = [];
 
@@ -33,9 +33,7 @@ export const dedup = (seq: readonly string[]): string[] => {
   return result;
 };
 
-export const extractIdAndText = (
-  input: string
-): { id: number; text: string } => {
+const extractIdAndText = (input: string): { id: number; text: string } => {
   const match = input.match(/^(\d+)[.,\s]+(.*)$/);
   if (!match || match.length < 3) {
     throw new Error(
@@ -48,7 +46,7 @@ export const extractIdAndText = (
   return { id, text };
 };
 
-export const extractIndexPrefixedText = (input: string): string => {
+const extractIndexPrefixedText = (input: string): string => {
   const match = input.match(/^(\d+)[.,\s]+(.*)$/);
   // Check if match is not null and if the second capturing group is present
   if (match && match[2] !== undefined) {
@@ -57,10 +55,19 @@ export const extractIndexPrefixedText = (input: string): string => {
   return input;
 };
 
-export const batchArray = <T>(arr: readonly T[], size: number): T[][] => {
+const batchArray = <T>(arr: readonly T[], size: number): T[][] => {
   const chunkedArr: T[][] = [];
   for (let i = 0; i < arr.length; i += size) {
     chunkedArr.push(arr.slice(i, i + size));
   }
   return chunkedArr;
+};
+
+export const axStringUtil = {
+  trimNonAlphaNum,
+  splitIntoTwo,
+  dedup,
+  extractIdAndText,
+  extractIndexPrefixedText,
+  batchArray
 };

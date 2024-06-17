@@ -4,6 +4,7 @@ import {
   type TransformStreamDefaultController
 } from 'stream/web';
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export interface TextDecoderCommon {
   readonly encoding: string;
   readonly fatal: boolean;
@@ -40,6 +41,7 @@ class TextDecodeTransformer
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export class TextDecoderStreamPolyfill extends TransformStream<
   ArrayBuffer | Uint8Array,
   string

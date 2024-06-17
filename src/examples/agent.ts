@@ -1,21 +1,23 @@
-import { Agent, AI, type OpenAIArgs } from '../index.js';
+import { AxAgent, axAI, type AxOpenAIArgs } from '../index.js';
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
+} as AxOpenAIArgs);
 ai.setOptions({ debug: true });
 
-const researcher = new Agent(ai, {
+const researcher = new AxAgent(ai, {
   name: 'researcher',
   description: 'Researcher agent',
   signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`
 });
 
-const summarizer = new Agent(ai, {
+const summarizer = new AxAgent(ai, {
   name: 'summarizer',
   description: 'Summarizer agent',
   signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
 });
 
-const agent = new Agent(ai, {
+const agent = new AxAgent(ai, {
   name: 'agent',
   description: 'Agent',
   signature: `question -> answer`,

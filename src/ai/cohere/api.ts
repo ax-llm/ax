@@ -1,74 +1,65 @@
-import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import type {
-  AITextChatRequest,
-  AITextEmbedRequest
-} from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import {
-  BaseAI,
-  BaseAIDefaultConfig,
-  BaseAIDefaultCreativeConfig
+  AxBaseAI,
+  axBaseAIDefaultConfig,
+  axBaseAIDefaultCreativeConfig
 } from '../base.js';
-import type { EmbedResponse, TextModelConfig, TextResponse } from '../types.js';
+import type {
+  AxAIPromptConfig,
+  AxAIServiceOptions,
+  AxChatRequest,
+  AxChatResponse,
+  AxEmbedRequest,
+  AxEmbedResponse,
+  AxModelConfig
+} from '../types.js';
 
-import { modelInfoCohere } from './info.js';
+import { axModelInfoCohere } from './info.js';
 import {
-  type CohereChatRequest,
-  type CohereChatResponse,
-  type CohereChatResponseDelta,
-  type CohereConfig,
-  CohereEmbedModel,
-  type CohereEmbedRequest,
-  type CohereEmbedResponse,
-  CohereModel
+  type AxCohereChatRequest,
+  type AxCohereChatResponse,
+  type AxCohereChatResponseDelta,
+  type AxCohereConfig,
+  AxCohereEmbedModel,
+  type AxCohereEmbedRequest,
+  type AxCohereEmbedResponse,
+  AxCohereModel
 } from './types.js';
 
-/**
- * Cohere: Default Model config for text generation
- * @export
- */
-export const CohereDefaultConfig = (): CohereConfig =>
+export const axCohereDefaultConfig = (): AxCohereConfig =>
   structuredClone({
-    model: CohereModel.Command,
-    embedModel: CohereEmbedModel.EmbedEnglishV30,
-    ...BaseAIDefaultConfig()
+    model: AxCohereModel.Command,
+    embedModel: AxCohereEmbedModel.EmbedEnglishV30,
+    ...axBaseAIDefaultConfig()
   });
 
-/**
- * Cohere: Default model config for more creative text generation
- * @export
- */
-export const CohereCreativeConfig = (): CohereConfig =>
+export const axCohereCreativeConfig = (): AxCohereConfig =>
   structuredClone({
-    model: CohereModel.CommandR,
-    embedModel: CohereEmbedModel.EmbedEnglishV30,
-    ...BaseAIDefaultCreativeConfig()
+    model: AxCohereModel.CommandR,
+    embedModel: AxCohereEmbedModel.EmbedEnglishV30,
+    ...axBaseAIDefaultCreativeConfig()
   });
 
-export interface CohereArgs {
+export interface AxCohereArgs {
   apiKey: string;
-  config: Readonly<CohereConfig>;
-  options?: Readonly<AIServiceOptions>;
+  config: Readonly<AxCohereConfig>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-/**
- * Cohere: AI Service
- * @export
- */
-export class Cohere extends BaseAI<
-  CohereChatRequest,
-  CohereEmbedRequest,
-  CohereChatResponse,
-  CohereChatResponseDelta,
-  CohereEmbedResponse
+export class AxCohere extends AxBaseAI<
+  AxCohereChatRequest,
+  AxCohereEmbedRequest,
+  AxCohereChatResponse,
+  AxCohereChatResponseDelta,
+  AxCohereEmbedResponse
 > {
-  private config: CohereConfig;
+  private config: AxCohereConfig;
 
   constructor({
     apiKey,
-    config = CohereDefaultConfig(),
+    config = axCohereDefaultConfig(),
     options
-  }: Readonly<CohereArgs>) {
+  }: Readonly<AxCohereArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
     }
@@ -76,7 +67,7 @@ export class Cohere extends BaseAI<
       name: 'Cohere',
       apiURL: 'https://api.cohere.ai',
       headers: { Authorization: `Bearer ${apiKey}` },
-      modelInfo: modelInfoCohere,
+      modelInfo: axModelInfoCohere,
       models: { model: config.model },
       supportFor: { functions: false, streaming: true },
       options
@@ -84,7 +75,7 @@ export class Cohere extends BaseAI<
     this.config = config;
   }
 
-  override getModelConfig(): TextModelConfig {
+  override getModelConfig(): AxModelConfig {
     const { config } = this;
     return {
       maxTokens: config.maxTokens,
@@ -95,14 +86,14 @@ export class Cohere extends BaseAI<
       presencePenalty: config.presencePenalty,
       endSequences: config.endSequences,
       stopSequences: config.stopSequences
-    } as TextModelConfig;
+    } as AxModelConfig;
   }
 
   override generateChatReq = (
-    req: Readonly<AITextChatRequest>,
+    req: Readonly<AxChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AIPromptConfig>
-  ): [API, CohereChatRequest] => {
+    _config: Readonly<AxAIPromptConfig>
+  ): [API, AxCohereChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
     // const functionsList = req.functions
     //   ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
@@ -114,7 +105,7 @@ export class Cohere extends BaseAI<
     const chatHistory = restOfChat
       .filter((chat) => chat.role !== 'function' || chat.content?.length > 0)
       .map((chat) => {
-        let role: CohereChatRequest['chat_history'][0]['role'];
+        let role: AxCohereChatRequest['chat_history'][0]['role'];
         switch (chat.role) {
           case 'user':
             role = 'USER';
@@ -133,10 +124,10 @@ export class Cohere extends BaseAI<
       });
 
     type PropValue = NonNullable<
-      CohereChatRequest['tools']
+      AxCohereChatRequest['tools']
     >[0]['parameter_definitions'][0];
 
-    const tools: CohereChatRequest['tools'] = req.functions?.map((v) => {
+    const tools: AxCohereChatRequest['tools'] = req.functions?.map((v) => {
       const props: Record<string, PropValue> = {};
       if (v.parameters?.properties) {
         for (const [key, value] of Object.entries(v.parameters.properties)) {
@@ -154,19 +145,17 @@ export class Cohere extends BaseAI<
       };
     });
 
-    type fnType = Extract<
-      AITextChatRequest['chatPrompt'][0],
-      { role: 'function' }
-    >;
+    type FnType = Extract<AxChatRequest['chatPrompt'][0], { role: 'function' }>;
 
-    const tool_results: CohereChatRequest['tool_results'] = (
-      req.chatPrompt as fnType[]
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    const tool_results: AxCohereChatRequest['tool_results'] = (
+      req.chatPrompt as FnType[]
     )
       .filter((chat) => chat.role === 'function')
       .map((chat) => {
         const fn = tools?.find((t) => t.name === chat.functionId);
         if (!fn) {
-          throw new Error('Function not found');
+          throw new Error('AxFunction not found');
         }
         return {
           call: { name: fn.name, parameters: fn.parameter_definitions },
@@ -178,7 +167,7 @@ export class Cohere extends BaseAI<
       name: '/v1/generate'
     };
 
-    const reqValue: CohereChatRequest = {
+    const reqValue: AxCohereChatRequest = {
       model,
       message,
       tools,
@@ -201,8 +190,8 @@ export class Cohere extends BaseAI<
   };
 
   override generateEmbedReq = (
-    req: Readonly<AITextEmbedRequest>
-  ): [API, CohereEmbedRequest] => {
+    req: Readonly<AxEmbedRequest>
+  ): [API, AxCohereEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!model) {
@@ -228,9 +217,9 @@ export class Cohere extends BaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<CohereChatResponse>
-  ): TextResponse => {
-    let finishReason: TextResponse['results'][0]['finishReason'];
+    resp: Readonly<AxCohereChatResponse>
+  ): AxChatResponse => {
+    let finishReason: AxChatResponse['results'][0]['finishReason'];
     if ('finish_reason' in resp) {
       switch (resp.finish_reason) {
         case 'COMPLETE':
@@ -249,7 +238,7 @@ export class Cohere extends BaseAI<
       }
     }
 
-    let functionCalls: TextResponse['results'][0]['functionCalls'];
+    let functionCalls: AxChatResponse['results'][0]['functionCalls'];
 
     if ('tool_calls' in resp) {
       functionCalls =
@@ -275,9 +264,9 @@ export class Cohere extends BaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<CohereChatResponseDelta>,
+    resp: Readonly<AxCohereChatResponseDelta>,
     state: object
-  ): TextResponse => {
+  ): AxChatResponse => {
     const ss = state as {
       generation_id?: string;
     };
@@ -297,8 +286,8 @@ export class Cohere extends BaseAI<
   };
 
   override generateEmbedResp = (
-    resp: Readonly<CohereEmbedResponse>
-  ): EmbedResponse => {
+    resp: Readonly<AxCohereEmbedResponse>
+  ): AxEmbedResponse => {
     return {
       remoteId: resp.id,
       embeddings: resp.embeddings

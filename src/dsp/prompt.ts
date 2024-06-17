@@ -1,21 +1,22 @@
-import { validateValue, type Value } from './program.js';
-import type { Field, IField, Signature } from './sig.js';
+import { type AxFieldValue } from './program.js';
+import type { AxField, AxIField, AxSignature } from './sig.js';
+import { validateValue } from './util.js';
 
-export type FieldTemplateFn = (
-  field: Readonly<Field>,
+export type AxFieldTemplateFn = (
+  field: Readonly<AxField>,
   value: Readonly<string | string[]>
 ) => string;
 
-export class PromptTemplate {
-  private sig: Readonly<Signature>;
-  private fieldTemplates?: Record<string, FieldTemplateFn>;
+export class AxPromptTemplate {
+  private sig: Readonly<AxSignature>;
+  private fieldTemplates?: Record<string, AxFieldTemplateFn>;
   private task: string;
   private format: string;
   private prompt?: string;
 
   constructor(
-    sig: Readonly<Signature>,
-    fieldTemplates?: Record<string, FieldTemplateFn>
+    sig: Readonly<AxSignature>,
+    fieldTemplates?: Record<string, AxFieldTemplateFn>
   ) {
     this.sig = sig;
     this.fieldTemplates = fieldTemplates;
@@ -36,7 +37,7 @@ export class PromptTemplate {
     this.format = [fmtHeader, /*...inFmt,*/ ...outFmt].join('\n\n');
   }
 
-  public toString = <T extends Record<string, Value>>(
+  public toString = <T extends Record<string, AxFieldValue>>(
     values: T,
     {
       extraFields,
@@ -44,9 +45,9 @@ export class PromptTemplate {
       demos
     }: Readonly<{
       skipSystemPrompt?: boolean;
-      extraFields?: readonly IField[];
-      examples?: Record<string, Value>[];
-      demos?: Record<string, Value>[];
+      extraFields?: readonly AxIField[];
+      examples?: Record<string, AxFieldValue>[];
+      demos?: Record<string, AxFieldValue>[];
     }>
   ) => {
     const renderedExamples = examples
@@ -69,7 +70,7 @@ export class PromptTemplate {
     return this.prompt;
   };
 
-  public renderExtraFields = (extraFields: readonly IField[]) => {
+  public renderExtraFields = (extraFields: readonly AxIField[]) => {
     const text: string[] = [];
 
     if (extraFields && extraFields.length > 0) {
@@ -86,7 +87,7 @@ export class PromptTemplate {
     return text;
   };
 
-  private renderExamples = (data: Readonly<Record<string, Value>[]>) => {
+  private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const text: string[] = [];
 
     const fields = [
@@ -105,7 +106,7 @@ export class PromptTemplate {
     return text.join('\n\n');
   };
 
-  private renderDemos = (data: Readonly<Record<string, Value>[]>) => {
+  private renderDemos = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const text: string[] = [];
 
     const fields = [
@@ -124,9 +125,9 @@ export class PromptTemplate {
     return text;
   };
 
-  private renderInputFields = <T extends Record<string, Value>>(
+  private renderInputFields = <T extends Record<string, AxFieldValue>>(
     values: T,
-    extraFields?: readonly IField[]
+    extraFields?: readonly AxIField[]
   ) => {
     let text: string[] = [];
 
@@ -145,8 +146,8 @@ export class PromptTemplate {
   };
 
   private renderInField = (
-    field: Readonly<Field>,
-    values: Readonly<Record<string, Value>>,
+    field: Readonly<AxField>,
+    values: Readonly<Record<string, AxFieldValue>>,
     skipMissing?: boolean
   ) => {
     const fn = this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
@@ -174,7 +175,7 @@ export class PromptTemplate {
   };
 
   private defaultRenderInField = (
-    field: Readonly<Field>,
+    field: Readonly<AxField>,
     value: Readonly<string | string[]>
   ) => {
     const text = [field.title, ': '];
@@ -188,13 +189,13 @@ export class PromptTemplate {
     return text.join('');
   };
 
-  private renderDescFields = (list: readonly Field[]) =>
+  private renderDescFields = (list: readonly AxField[]) =>
     list.map((v) => `\`${v.title}\``).join(', ');
 
   //   private renderInFields = (list: readonly Field[]) =>
   //     list.map((v) => v.title + ': ' + (v.description ?? toVar(v.name)));
 
-  private renderOutFields = (list: readonly Field[]) =>
+  private renderOutFields = (list: readonly AxField[]) =>
     list.map((v) => {
       return [
         v.title + ':',
@@ -206,7 +207,9 @@ export class PromptTemplate {
     });
 }
 
-const convertValueToString = (value: Readonly<Value>): string | string[] => {
+const convertValueToString = (
+  value: Readonly<AxFieldValue>
+): string | string[] => {
   if (typeof value === 'string') {
     return value;
   }
@@ -222,7 +225,7 @@ const convertValueToString = (value: Readonly<Value>): string | string[] => {
 //   return '${' + name + (fmt ? `:${fmt}` : '') + '}';
 // };
 
-const toVarDesc = (type?: Readonly<Field['type']>) => {
+const toVarDesc = (type?: Readonly<AxField['type']>) => {
   if (type) {
     let description;
     switch (type.name) {

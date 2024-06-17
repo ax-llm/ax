@@ -1,7 +1,7 @@
-import { Cloudflare, type CloudflareArgs } from './cloudflare.js';
-import { MemoryDB, type MemoryDBArgs } from './memory.js';
-import { Pinecone, type PineconeArgs } from './pinecone.js';
-import { Weaviate, type WeaviateArgs } from './weaviate.js';
+import { AxCloudflare, type AxCloudflareArgs } from './cloudflare.js';
+import { AxMemoryDB, type AxMemoryDBArgs } from './memory.js';
+import { AxPinecone, type AxPineconeArgs } from './pinecone.js';
+import { AxWeaviate, type AxWeaviateArgs } from './weaviate.js';
 
 export * from './types.js';
 export * from './weaviate.js';
@@ -9,25 +9,23 @@ export * from './pinecone.js';
 export * from './cloudflare.js';
 export * from './memory.js';
 
-export type { BaseArgs, BaseOpOptions } from './base.js';
+export type AxDBName = 'weaviate' | 'pinecone' | 'memory' | 'cloudflare';
 
-export type DBName = 'weaviate' | 'pinecone' | 'memory' | 'cloudflare';
-
-export const DB = (
-  name: DBName,
+export const axDB = (
+  name: AxDBName,
   options: Readonly<
-    CloudflareArgs | PineconeArgs | WeaviateArgs | MemoryDBArgs
+    AxCloudflareArgs | AxPineconeArgs | AxWeaviateArgs | AxMemoryDBArgs
   > = {}
 ) => {
   switch (name) {
     case 'weaviate':
-      return new Weaviate(options as WeaviateArgs);
+      return new AxWeaviate(options as AxWeaviateArgs);
     case 'pinecone':
-      return new Pinecone(options as PineconeArgs);
+      return new AxPinecone(options as AxPineconeArgs);
     case 'cloudflare':
-      return new Cloudflare(options as CloudflareArgs);
+      return new AxCloudflare(options as AxCloudflareArgs);
     case 'memory':
-      return new MemoryDB(options as MemoryDBArgs);
+      return new AxMemoryDB(options as AxMemoryDBArgs);
   }
   throw new Error(`Unknown DB ${name}`);
 };

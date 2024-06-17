@@ -1,6 +1,6 @@
 // For upsert
 
-export type DBUpsertRequest = {
+export type AxDBUpsertRequest = {
   id: string;
   text?: string;
   values?: readonly number[];
@@ -9,12 +9,12 @@ export type DBUpsertRequest = {
   namespace?: string;
 };
 
-export type DBUpsertResponse = {
+export type AxDBUpsertResponse = {
   ids: string[];
 };
 
 // For query
-export type DBQueryRequest = {
+export type AxDBQueryRequest = {
   id?: string;
   text?: string;
   values?: readonly number[];
@@ -24,7 +24,7 @@ export type DBQueryRequest = {
   namespace?: string;
 };
 
-export type DBQueryResponse = {
+export type AxDBQueryResponse = {
   matches: {
     id: string;
     score: number;
@@ -33,18 +33,18 @@ export type DBQueryResponse = {
   }[];
 };
 
-export interface DBService extends DBQueryService {
+export interface AxDBService extends AxDBQueryService {
   upsert(
-    req: Readonly<DBUpsertRequest>,
+    req: Readonly<AxDBUpsertRequest>,
     update?: boolean
-  ): Promise<DBUpsertResponse>;
+  ): Promise<AxDBUpsertResponse>;
 
   batchUpsert(
-    batchReq: Readonly<DBUpsertRequest[]>,
+    batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean
-  ): Promise<DBUpsertResponse>;
+  ): Promise<AxDBUpsertResponse>;
 }
 
-export interface DBQueryService {
-  query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse>;
+export interface AxDBQueryService {
+  query(req: Readonly<AxDBQueryRequest>): Promise<AxDBQueryResponse>;
 }

@@ -1,26 +1,24 @@
 import type { ReadableStream } from 'stream/web';
 
 import type {
-  AIPromptConfig,
-  AIService,
-  AIServiceActionOptions,
-  AIServiceOptions
-} from '../text/index.js';
-import type { AITextChatRequest, AITextEmbedRequest } from '../types/index.js';
-
-import type {
-  EmbedResponse,
-  TextModelConfig,
-  TextModelInfo,
-  TextResponse
+  AxAIPromptConfig,
+  AxAIService,
+  AxAIServiceActionOptions,
+  AxAIServiceOptions,
+  AxChatRequest,
+  AxChatResponse,
+  AxEmbedRequest,
+  AxEmbedResponse,
+  AxModelConfig,
+  AxModelInfo
 } from './types.js';
 
-export class AIBalancer implements AIService {
-  private services: AIService[];
+export class AxBalancer implements AxAIService {
+  private services: AxAIService[];
   private currentServiceIndex: number = 0;
-  private currentService: AIService;
+  private currentService: AxAIService;
 
-  constructor(services: readonly AIService[]) {
+  constructor(services: readonly AxAIService[]) {
     if (services.length === 0) {
       throw new Error('No AI services provided.');
     }
@@ -65,15 +63,15 @@ export class AIBalancer implements AIService {
     return this.currentService.getName();
   }
 
-  getModelInfo(): Readonly<TextModelInfo & { provider: string }> {
+  getModelInfo(): Readonly<AxModelInfo & { provider: string }> {
     return this.currentService.getModelInfo();
   }
 
-  getEmbedModelInfo(): Readonly<TextModelInfo> | undefined {
+  getEmbedModelInfo(): Readonly<AxModelInfo> | undefined {
     return this.currentService.getEmbedModelInfo();
   }
 
-  getModelConfig(): Readonly<TextModelConfig> {
+  getModelConfig(): Readonly<AxModelConfig> {
     return this.currentService.getModelConfig();
   }
 
@@ -82,9 +80,9 @@ export class AIBalancer implements AIService {
   }
 
   async chat(
-    req: Readonly<AITextChatRequest>,
-    options?: Readonly<AIPromptConfig & AIServiceActionOptions> | undefined
-  ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    req: Readonly<AxChatRequest>,
+    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions> | undefined
+  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     this.reset();
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -99,9 +97,9 @@ export class AIBalancer implements AIService {
   }
 
   async embed(
-    req: Readonly<AITextEmbedRequest>,
-    options?: Readonly<AIServiceActionOptions> | undefined
-  ): Promise<EmbedResponse> {
+    req: Readonly<AxEmbedRequest>,
+    options?: Readonly<AxAIServiceActionOptions> | undefined
+  ): Promise<AxEmbedResponse> {
     this.reset();
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -115,7 +113,7 @@ export class AIBalancer implements AIService {
     }
   }
 
-  setOptions(options: Readonly<AIServiceOptions>): void {
+  setOptions(options: Readonly<AxAIServiceOptions>): void {
     this.currentService.setOptions(options);
   }
 }

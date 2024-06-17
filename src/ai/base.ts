@@ -1,41 +1,37 @@
 import type { ReadableStream } from 'stream/web';
 
-import type {
-  AIPromptConfig,
-  AIService,
-  AIServiceActionOptions,
-  AIServiceOptions
-} from '../text/types.js';
-import { type Span, SpanAttributes, SpanKind } from '../trace/index.js';
-import type {
-  AITextChatRequest,
-  AITextEmbedRequest,
-  TextModelInfoWithProvider
-} from '../types/index.js';
+import { type AxSpan, axSpanAttributes, AxSpanKind } from '../trace/index.js';
 import { type API, apiCall } from '../util/apicall.js';
 import { ColorLog } from '../util/log.js';
 import { RespTransformStream } from '../util/transform.js';
 
 import type {
-  EmbedResponse,
-  TextModelConfig,
-  TextModelInfo,
-  TextResponse
+  AxAIPromptConfig,
+  AxAIService,
+  AxAIServiceActionOptions,
+  AxAIServiceOptions,
+  AxChatRequest,
+  AxChatResponse,
+  AxEmbedRequest,
+  AxEmbedResponse,
+  AxModelConfig,
+  AxModelInfo,
+  AxModelInfoWithProvider
 } from './types.js';
 
 const colorLog = new ColorLog();
 
-export interface BaseAIArgs {
+export interface AxBaseAIArgs {
   name: string;
   apiURL: string;
   headers: Record<string, string>;
-  modelInfo: Readonly<TextModelInfo[]>;
+  modelInfo: Readonly<AxModelInfo[]>;
   models: Readonly<{ model: string; embedModel?: string }>;
-  options?: Readonly<AIServiceOptions>;
+  options?: Readonly<AxAIServiceOptions>;
   supportFor: { functions: boolean; streaming: boolean };
 }
 
-export const BaseAIDefaultConfig = (): TextModelConfig =>
+export const axBaseAIDefaultConfig = (): AxModelConfig =>
   structuredClone({
     maxTokens: 500,
     temperature: 0,
@@ -43,7 +39,7 @@ export const BaseAIDefaultConfig = (): TextModelConfig =>
     frequencyPenalty: 0.2
   });
 
-export const BaseAIDefaultCreativeConfig = (): TextModelConfig =>
+export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
     maxTokens: 500,
     temperature: 0.4,
@@ -52,40 +48,38 @@ export const BaseAIDefaultCreativeConfig = (): TextModelConfig =>
     presencePenalty: 0.2
   });
 
-export class BaseAI<
+export class AxBaseAI<
   TChatRequest,
   TEmbedRequest,
   TChatResponse,
   TChatResponseDelta,
   TEmbedResponse
-> implements AIService
+> implements AxAIService
 {
   generateChatReq?: (
-    req: Readonly<AITextChatRequest>,
-    config: Readonly<AIPromptConfig>
+    req: Readonly<AxChatRequest>,
+    config: Readonly<AxAIPromptConfig>
   ) => [API, TChatRequest];
-  generateEmbedReq?: (
-    req: Readonly<AITextEmbedRequest>
-  ) => [API, TEmbedRequest];
-  generateChatResp?: (resp: Readonly<TChatResponse>) => TextResponse;
+  generateEmbedReq?: (req: Readonly<AxEmbedRequest>) => [API, TEmbedRequest];
+  generateChatResp?: (resp: Readonly<TChatResponse>) => AxChatResponse;
   generateChatStreamResp?: (
     resp: Readonly<TChatResponseDelta>,
     state: object
-  ) => TextResponse;
-  generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => EmbedResponse;
+  ) => AxChatResponse;
+  generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => AxEmbedResponse;
 
   private debug = false;
 
-  private rt?: AIServiceOptions['rateLimiter'];
-  private fetch?: AIServiceOptions['fetch'];
-  private tracer?: AIServiceOptions['tracer'];
+  private rt?: AxAIServiceOptions['rateLimiter'];
+  private fetch?: AxAIServiceOptions['fetch'];
+  private tracer?: AxAIServiceOptions['tracer'];
 
   protected apiURL: string;
   protected name: string;
   protected headers: Record<string, string>;
-  protected modelInfo: TextModelInfo;
-  protected embedModelInfo?: TextModelInfo;
-  protected supportFor: BaseAIArgs['supportFor'];
+  protected modelInfo: AxModelInfo;
+  protected embedModelInfo?: AxModelInfo;
+  protected supportFor: AxBaseAIArgs['supportFor'];
 
   constructor({
     name,
@@ -95,7 +89,7 @@ export class BaseAI<
     models,
     options = {},
     supportFor
-  }: Readonly<BaseAIArgs>) {
+  }: Readonly<AxBaseAIArgs>) {
     this.name = name;
     this.apiURL = apiURL;
     this.headers = headers;
@@ -133,7 +127,7 @@ export class BaseAI<
     this.headers = headers;
   }
 
-  setOptions(options: Readonly<AIServiceOptions>): void {
+  setOptions(options: Readonly<AxAIServiceOptions>): void {
     if (options.debug) {
       this.debug = options.debug;
     }
@@ -151,11 +145,11 @@ export class BaseAI<
     }
   }
 
-  getModelInfo(): Readonly<TextModelInfoWithProvider> {
+  getModelInfo(): Readonly<AxModelInfoWithProvider> {
     return { ...this.modelInfo, provider: this.name };
   }
 
-  getEmbedModelInfo(): TextModelInfoWithProvider | undefined {
+  getEmbedModelInfo(): AxModelInfoWithProvider | undefined {
     return this.embedModelInfo
       ? { ...this.embedModelInfo, provider: this.name }
       : undefined;
@@ -165,37 +159,38 @@ export class BaseAI<
     return this.name;
   }
 
-  getFeatures(): BaseAIArgs['supportFor'] {
+  getFeatures(): AxBaseAIArgs['supportFor'] {
     return this.supportFor;
   }
 
-  getModelConfig(): TextModelConfig {
+  getModelConfig(): AxModelConfig {
     throw new Error('getModelConfig not implemented');
   }
 
   async chat(
-    _req: Readonly<AITextChatRequest>,
-    options?: Readonly<AIPromptConfig & AIServiceActionOptions>
-  ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    _req: Readonly<AxChatRequest>,
+    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
+  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (this.tracer) {
       const mc = this.getModelConfig();
       return await this.tracer?.startActiveSpan(
         'Chat Request',
         {
-          kind: SpanKind.SERVER,
+          kind: AxSpanKind.SERVER,
           attributes: {
-            [SpanAttributes.LLM_SYSTEM]: this.name,
-            [SpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name,
-            [SpanAttributes.LLM_REQUEST_MAX_TOKENS]: mc.maxTokens,
-            [SpanAttributes.LLM_REQUEST_TEMPERATURE]: mc.temperature,
-            [SpanAttributes.LLM_REQUEST_TOP_P]: mc.topP,
-            [SpanAttributes.LLM_REQUEST_TOP_K]: mc.topK,
-            [SpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]: mc.frequencyPenalty,
-            [SpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]: mc.presencePenalty,
-            [SpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
+            [axSpanAttributes.LLM_SYSTEM]: this.name,
+            [axSpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name,
+            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: mc.maxTokens,
+            [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: mc.temperature,
+            [axSpanAttributes.LLM_REQUEST_TOP_P]: mc.topP,
+            [axSpanAttributes.LLM_REQUEST_TOP_K]: mc.topK,
+            [axSpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]:
+              mc.frequencyPenalty,
+            [axSpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]: mc.presencePenalty,
+            [axSpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
               mc.stopSequences?.join(', '),
-            [SpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: mc.stream
-            // [SpanAttributes.LLM_PROMPTS]: _req.chatPrompt
+            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: mc.stream
+            // [AxSpanAttributes.LLM_PROMPTS]: _req.chatPrompt
             //   ?.map((v) => v.content)
             //   .join('\n')
           }
@@ -211,10 +206,10 @@ export class BaseAI<
   }
 
   async _chat(
-    _req: Readonly<AITextChatRequest>,
-    options?: Readonly<AIPromptConfig & AIServiceActionOptions>,
-    span?: Span
-  ): Promise<TextResponse | ReadableStream<TextResponse>> {
+    _req: Readonly<AxChatRequest>,
+    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>,
+    span?: AxSpan
+  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.generateChatReq) {
       throw new Error('generateChatReq not implemented');
     }
@@ -228,10 +223,10 @@ export class BaseAI<
       ..._req,
       functions,
       modelConfig: { ..._req.modelConfig, stream }
-    } as Readonly<AITextChatRequest>;
+    } as Readonly<AxChatRequest>;
 
     const fn = async () => {
-      const [apiConfig, reqValue] = reqFn(req, options as AIPromptConfig);
+      const [apiConfig, reqValue] = reqFn(req, options as AxAIPromptConfig);
 
       const res = await apiCall(
         {
@@ -276,8 +271,8 @@ export class BaseAI<
         };
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const doneCb = async (_values: readonly TextResponse[]) => {
-        //   const res = mergeTextResponses(values);
+      const doneCb = async (_values: readonly AxChatResponse[]) => {
+        //   const res = mergeChatResponses(values);
         //   if (span?.isRecording()) {
         //     setResponseAttr(res, span);
         //   }
@@ -292,7 +287,7 @@ export class BaseAI<
       };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
-        new RespTransformStream<TChatResponseDelta, TextResponse>(
+        new RespTransformStream<TChatResponseDelta, AxChatResponse>(
           wrappedRespFn({}),
           doneCb
         )
@@ -319,17 +314,17 @@ export class BaseAI<
   }
 
   async embed(
-    req: Readonly<AITextEmbedRequest>,
-    options?: Readonly<AIServiceActionOptions>
-  ): Promise<EmbedResponse> {
+    req: Readonly<AxEmbedRequest>,
+    options?: Readonly<AxAIServiceActionOptions>
+  ): Promise<AxEmbedResponse> {
     if (this.tracer) {
       return await this.tracer?.startActiveSpan(
         'Embed Request',
         {
-          kind: SpanKind.SERVER,
+          kind: AxSpanKind.SERVER,
           attributes: {
-            [SpanAttributes.LLM_SYSTEM]: this.name,
-            [SpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name
+            [axSpanAttributes.LLM_SYSTEM]: this.name,
+            [axSpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name
           }
         },
         async (span) => {
@@ -343,10 +338,10 @@ export class BaseAI<
   }
 
   async _embed(
-    req: Readonly<AITextEmbedRequest>,
-    options?: Readonly<AIServiceActionOptions>,
-    span?: Span
-  ): Promise<EmbedResponse> {
+    req: Readonly<AxEmbedRequest>,
+    options?: Readonly<AxAIServiceActionOptions>,
+    span?: AxSpan
+  ): Promise<AxEmbedResponse> {
     if (!this.generateEmbedReq) {
       throw new Error('generateEmbedReq not implemented');
     }
@@ -380,9 +375,10 @@ export class BaseAI<
     if (span?.isRecording()) {
       if (res.modelUsage) {
         span.setAttributes({
-          [SpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
+          [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
             res.modelUsage.completionTokens ?? 0,
-          [SpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens
+          [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
+            res.modelUsage.promptTokens
         });
       }
     }
@@ -391,40 +387,6 @@ export class BaseAI<
     return res;
   }
 
-  // async _transcribe(
-  //   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  //   _file: string,
-  //   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  //   _prompt?: string,
-  //   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  //   _options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
-  // ): Promise<TranscriptResponse> {
-  //   throw new Error('_transcribe not implemented');
-  // }
-
-  // async transcribe(
-  //   file: string,
-  //   prompt?: string,
-  //   options?: Readonly<AITranscribeConfig & AIServiceActionOptions>
-  // ): Promise<TranscriptResponse> {
-  //   const res = this.rt
-  //     ? await this.rt<Promise<TranscriptResponse>>(
-  //         async () => await this._transcribe(file, prompt, options)
-  //       )
-  //     : await this._transcribe(file, prompt, options);
-
-  //   res.sessionId = options?.sessionId;
-  //   return res;
-  // }
-
-  // async apiCallWithUpload<Request, Response, APIType extends API >(
-  //   api: APIType,
-  //   json: Request,
-  //   file: string
-  // ): Promise<Response> {
-  // return apiCallWithUpload<Request, Response, APIType>(this.mergeAPIConfig<APIType>(api), json, file);
-  // }
-
   private buildHeaders(
     headers: Record<string, string> = {}
   ): Record<string, string> {
@@ -432,7 +394,7 @@ export class BaseAI<
   }
 }
 
-const logChatRequest = (req: Readonly<AITextChatRequest>) => {
+const logChatRequest = (req: Readonly<AxChatRequest>) => {
   const items = req.chatPrompt?.map((v) => v.content).join('\n');
   if (items) {
     console.log('==========');
@@ -440,7 +402,7 @@ const logChatRequest = (req: Readonly<AITextChatRequest>) => {
   }
 };
 
-const logResponse = (resp: Readonly<TextResponse>) => {
+const logResponse = (resp: Readonly<AxChatResponse>) => {
   for (const r of resp.results) {
     if (r.content) {
       console.log(colorLog.greenBright(r.content));
@@ -454,7 +416,7 @@ const logResponse = (resp: Readonly<TextResponse>) => {
   }
 };
 
-const logStreamingResponse = (resp: Readonly<TextResponse>) => {
+const logStreamingResponse = (resp: Readonly<AxChatResponse>) => {
   for (const r of resp.results) {
     if (r.content) {
       process.stdout.write(colorLog.greenBright(r.content));
@@ -472,12 +434,12 @@ const logStreamingResponse = (resp: Readonly<TextResponse>) => {
   }
 };
 
-const setResponseAttr = (res: Readonly<TextResponse>, span: Span) => {
+const setResponseAttr = (res: Readonly<AxChatResponse>, span: AxSpan) => {
   if (res.modelUsage) {
     span.setAttributes({
-      [SpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
+      [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
         res.modelUsage.completionTokens ?? 0,
-      [SpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens
+      [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens
     });
   }
 };

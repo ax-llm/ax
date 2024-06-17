@@ -1,11 +1,12 @@
 import type {
-  AITextFunction,
-  AITextFunctionHandler
-} from '../text/functions.js';
-import type { AIService, AIServiceActionOptions } from '../text/types.js';
+  AxAIService,
+  AxAIServiceActionOptions,
+  AxFunction,
+  AxFunctionHandler
+} from '../ai/index.js';
 
-export const EmbedAdapter = (
-  ai: AIService,
+export const axEmbedAdapter = (
+  ai: AxAIService,
   info: Readonly<{
     name: string;
     description: string;
@@ -13,10 +14,10 @@ export const EmbedAdapter = (
   }>,
   func: (
     args: readonly number[],
-    extra?: Readonly<AIServiceActionOptions>
+    extra?: Readonly<AxAIServiceActionOptions>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ) => Promise<any>
-): AITextFunction => ({
+): AxFunction => ({
   name: info.name,
   description: info.description,
   parameters: {
@@ -32,7 +33,7 @@ export const EmbedAdapter = (
 
   func: (
     { text }: Readonly<{ text: string }>,
-    extra?: Readonly<AIServiceActionOptions>
+    extra?: Readonly<AxAIServiceActionOptions>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): Promise<any> => {
     return new Promise((resolve) => {
@@ -41,11 +42,11 @@ export const EmbedAdapter = (
   }
 });
 
-export const embedAdapter = async (
-  ai: AIService,
+const embedAdapter = async (
+  ai: AxAIService,
   text: string,
-  func: AITextFunctionHandler,
-  extra?: Readonly<AIServiceActionOptions>
+  func: AxFunctionHandler,
+  extra?: Readonly<AxAIServiceActionOptions>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> => {
   const embedRes = await ai.embed(

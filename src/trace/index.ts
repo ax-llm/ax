@@ -1,4 +1,4 @@
-export const SpanAttributes = {
+export const axSpanAttributes = {
   // LLM
   LLM_SYSTEM: 'gen_ai.system',
   LLM_REQUEST_MODEL: 'gen_ai.request.model',
@@ -39,18 +39,18 @@ export const SpanAttributes = {
   DB_QUERY_RESULT_DOCUMENT: 'db.query.result.document'
 };
 
-export const SpanEvents = {
+export const axSpanEvents = {
   LLM_PROMPT: 'gen_ai.prompt'
 };
 
-export enum LLMRequestTypeValues {
+export enum AxLLMRequestTypeValues {
   COMPLETION = 'completion',
   CHAT = 'chat',
   RERANK = 'rerank',
   UNKNOWN = 'unknown'
 }
 
-export enum SpanKindValues {
+export enum AxSpanKindValues {
   WORKFLOW = 'workflow',
   TASK = 'task',
   AGENT = 'agent',
@@ -58,71 +58,71 @@ export enum SpanKindValues {
   UNKNOWN = 'unknown'
 }
 
-export type AttributeValue = string | number | boolean | undefined | null;
+export type AxSpanAttributeValue = string | number | boolean | undefined | null;
 
-export interface Attributes {
-  [key: string]: AttributeValue;
+export interface AxSpanAttributes {
+  [key: string]: AxSpanAttributeValue;
 }
 
-export interface TimeInput {
+export interface AxSpanTimeInput {
   timestamp: number;
 }
 
-export interface Exception {
+export interface AxSpanException {
   message: string;
   name: string;
   stack?: string;
 }
 
-export interface SpanContext {
+export interface AxSpanContext {
   traceId: string;
   spanId: string;
 }
 
-export enum SpanStatusCode {
+export enum AxSpanStatusCode {
   OK = 'OK',
   ERROR = 'ERROR'
 }
 
-export interface SpanStatus {
-  code: SpanStatusCode;
+export interface AxSpanStatus {
+  code: AxSpanStatusCode;
   message?: string;
 }
 
-export interface SpanStatus {
-  code: SpanStatusCode;
+export interface AxSpanStatus {
+  code: AxSpanStatusCode;
   description?: string;
 }
 
-// Span interface as defined in the provided documentation
-export interface Span {
+// AxSpan interface as defined in the provided documentation
+export interface AxSpan {
   addEvent(
     name: string,
-    attributesOrStartTime?: Readonly<Attributes | TimeInput>,
-    startTime?: Readonly<TimeInput>
-  ): Span;
-  end(endTime?: Readonly<TimeInput>): void;
+    attributesOrStartTime?: Readonly<AxSpanAttributes | AxSpanTimeInput>,
+    startTime?: Readonly<AxSpanTimeInput>
+  ): AxSpan;
+  end(endTime?: Readonly<AxSpanTimeInput>): void;
   isRecording(): boolean;
-  recordException(
-    exception: Readonly<Exception>,
-    time?: Readonly<TimeInput>
+  recordAxSpanException(
+    exception: Readonly<AxSpanException>,
+    time?: Readonly<AxSpanTimeInput>
   ): void;
-  setAttribute(key: string, value: AttributeValue): Span;
-  setAttributes(attributes: Attributes): Span;
-  setStatus(status: Readonly<SpanStatus>): Span;
-  spanContext(): SpanContext;
-  updateName(name: string): Span;
+  setAttribute(key: string, value: AxSpanAttributeValue): AxSpan;
+  setAttributes(attributes: AxSpanAttributes): AxSpan;
+  setStatus(status: Readonly<AxSpanStatus>): AxSpan;
+  spanContext(): AxSpanContext;
+  updateName(name: string): AxSpan;
 }
 
 // Context interface definition
-export interface Context {
+export interface AxContext {
   /**
    * Deletes a value associated with a key from the context.
    * Returns a new context that inherits from the current context but does not contain the value for the specified key.
    * @param key The symbol key for which to clear the value.
    * @returns A new Context instance without the specified key.
    */
-  deleteValue(key: symbol): Context;
+  deleteValue(key: symbol): AxContext;
 
   /**
    * Retrieves a value from the context using a symbol as the key.
@@ -138,10 +138,10 @@ export interface Context {
    * @param value The value to set for the given key.
    * @returns A new Context instance with the updated key-value pair.
    */
-  setValue(key: symbol, value: unknown): Context;
+  setValue(key: symbol, value: unknown): AxContext;
 }
 
-export enum SpanKind {
+export enum AxSpanKind {
   INTERNAL = 'INTERNAL',
   SERVER = 'SERVER',
   CLIENT = 'CLIENT',
@@ -149,30 +149,30 @@ export enum SpanKind {
   CONSUMER = 'CONSUMER'
 }
 
-export interface Link {
-  context: SpanContext; // Placeholder for SpanContext type
-  attributes?: Attributes;
+export interface AxSpanLink {
+  context: AxSpanContext; // Placeholder for AxSpanContext type
+  attributes?: AxSpanAttributes;
 }
 
-// SpanOptions interface definition
-export interface SpanOptions {
+// AxSpanOptions interface definition
+export interface AxSpanOptions {
   /**
-   * Optional attributes that can be attached to the Span.
+   * Optional attributes that can be attached to the AxSpan.
    * @optional
    */
-  attributes?: Attributes;
+  attributes?: AxSpanAttributes;
 
   /**
-   * The kind of span, defaults to SpanKind.INTERNAL if not specified.
+   * The kind of span, defaults to AxSpanKind.INTERNAL if not specified.
    * @optional
    */
-  kind?: SpanKind;
+  kind?: AxSpanKind;
 
   /**
-   * Links that associate this new Span with other Spans.
+   *  AxSpanLinks that associate this new AxSpan with other AxSpans.
    * @optional
    */
-  links?: Link[];
+  links?: AxSpanLink[];
 
   /**
    * Indicates whether the span should be a root span, ignoring any parent span from the context.
@@ -184,47 +184,47 @@ export interface SpanOptions {
    * A manually specified start time for the span, if required.
    * @optional
    */
-  startTime?: TimeInput;
+  startTime?: AxSpanTimeInput;
 }
 
-export interface Span {
-  setStatus(status: Readonly<SpanStatus>): void;
+export interface AxSpan {
+  setStatus(status: Readonly<AxSpanStatus>): void;
   end(): void;
 }
 
-// Tracer interface definition
-export interface Tracer {
+//  AxTracer interface definition
+export interface AxTracer {
   /**
-   * Starts a new Span with the specified options and executes the provided function. The span is automatically closed after the function executes.
+   * Starts a new AxSpan with the specified options and executes the provided function. The span is automatically closed after the function executes.
    * @param name The name of the span.
-   * @param options Span options to apply to the span.
+   * @param options AxSpan options to apply to the span.
    * @param fn The function to execute within the span's context.
    * @returns The return value of the function.
    */
-  startActiveSpan<F extends (span: Span) => unknown>(
+  startActiveSpan<F extends (span: AxSpan) => unknown>(
     name: string,
-    options: Readonly<SpanOptions>,
+    options: Readonly<AxSpanOptions>,
     fn: F
   ): ReturnType<F>;
 
   /**
-   * Starts a new Span with the specified options and context, then executes the provided function. The span is automatically closed after the function executes.
+   * Starts a new AxSpan with the specified options and context, then executes the provided function. The span is automatically closed after the function executes.
    * @param name The name of the span.
-   * @param options Span options to apply to the span.
+   * @param options AxSpan options to apply to the span.
    * @param context Context to be used for the span.
    * @param fn The function to execute within the span's context.
    * @returns The return value of the function.
    */
-  startActiveSpan<F extends (span: Span) => unknown>(
+  startActiveSpan<F extends (span: AxSpan) => unknown>(
     name: string,
-    options: Readonly<SpanOptions>,
-    context: Context,
+    options: Readonly<AxSpanOptions>,
+    context: AxContext,
     fn: F
   ): ReturnType<F>;
 
   startSpan(
     name: string,
-    options?: Readonly<SpanOptions>,
-    context?: Context
-  ): Span;
+    options?: Readonly<AxSpanOptions>,
+    context?: AxContext
+  ): AxSpan;
 }

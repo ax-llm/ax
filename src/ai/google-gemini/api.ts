@@ -1,105 +1,103 @@
-import type { AIServiceOptions } from '../../text/types.js';
-import type {
-  AITextChatRequest,
-  AITextEmbedRequest
-} from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import {
-  BaseAI,
-  BaseAIDefaultConfig,
-  BaseAIDefaultCreativeConfig
+  AxBaseAI,
+  axBaseAIDefaultConfig,
+  axBaseAIDefaultCreativeConfig
 } from '../base.js';
 import type {
-  EmbedResponse,
-  TextModelConfig,
-  TextResponse,
-  TextResponseResult,
-  TokenUsage
+  AxAIServiceOptions,
+  AxChatRequest,
+  AxChatResponse,
+  AxChatResponseResult,
+  AxEmbedRequest,
+  AxEmbedResponse,
+  AxModelConfig,
+  AxTokenUsage
 } from '../types.js';
 
-import { modelInfoGoogleGemini } from './info.js';
+import { axModelInfoGoogleGemini } from './info.js';
 import {
-  type GoogleGeminiBatchEmbedRequest,
-  type GoogleGeminiBatchEmbedResponse,
-  type GoogleGeminiChatRequest,
-  type GoogleGeminiChatResponse,
-  type GoogleGeminiChatResponseDelta,
-  type GoogleGeminiConfig,
-  GoogleGeminiEmbedModels,
-  GoogleGeminiModel,
-  GoogleGeminiSafetyCategory,
-  type GoogleGeminiSafetySettings,
-  GoogleGeminiSafetyThreshold
+  type AxGoogleGeminiBatchEmbedRequest,
+  type AxGoogleGeminiBatchEmbedResponse,
+  type AxGoogleGeminiChatRequest,
+  type AxGoogleGeminiChatResponse,
+  type AxGoogleGeminiChatResponseDelta,
+  type AxGoogleGeminiConfig,
+  AxGoogleGeminiEmbedModels,
+  AxGoogleGeminiModel,
+  AxGoogleGeminiSafetyCategory,
+  type AxGoogleGeminiSafetySettings,
+  AxGoogleGeminiSafetyThreshold
 } from './types.js';
 
-const safetySettings: GoogleGeminiSafetySettings = [
+const safetySettings: AxGoogleGeminiSafetySettings = [
   {
-    category: GoogleGeminiSafetyCategory.HarmCategoryHarassment,
-    threshold: GoogleGeminiSafetyThreshold.BlockNone
+    category: AxGoogleGeminiSafetyCategory.HarmCategoryHarassment,
+    threshold: AxGoogleGeminiSafetyThreshold.BlockNone
   },
   {
-    category: GoogleGeminiSafetyCategory.HarmCategoryHateSpeech,
-    threshold: GoogleGeminiSafetyThreshold.BlockNone
+    category: AxGoogleGeminiSafetyCategory.HarmCategoryHateSpeech,
+    threshold: AxGoogleGeminiSafetyThreshold.BlockNone
   },
   {
-    category: GoogleGeminiSafetyCategory.HarmCategorySexuallyExplicit,
-    threshold: GoogleGeminiSafetyThreshold.BlockNone
+    category: AxGoogleGeminiSafetyCategory.HarmCategorySexuallyExplicit,
+    threshold: AxGoogleGeminiSafetyThreshold.BlockNone
   },
   {
-    category: GoogleGeminiSafetyCategory.HarmCategoryDangerousContent,
-    threshold: GoogleGeminiSafetyThreshold.BlockNone
+    category: AxGoogleGeminiSafetyCategory.HarmCategoryDangerousContent,
+    threshold: AxGoogleGeminiSafetyThreshold.BlockNone
   }
 ];
 
 /**
- * GoogleGemini: Default Model options for text generation
+ * AxGoogleGemini: Default Model options for text generation
  * @export
  */
-export const GoogleGeminiDefaultConfig = (): GoogleGeminiConfig =>
+export const axGoogleGeminiDefaultConfig = (): AxGoogleGeminiConfig =>
   structuredClone({
-    model: GoogleGeminiModel.Gemini15Pro,
-    embedModel: GoogleGeminiEmbedModels.Embedding001,
+    model: AxGoogleGeminiModel.Gemini15Pro,
+    embedModel: AxGoogleGeminiEmbedModels.Embedding001,
     safetySettings,
-    ...BaseAIDefaultConfig()
+    ...axBaseAIDefaultConfig()
   });
 
-export const GoogleGeminiDefaultCreativeConfig = (): GoogleGeminiConfig =>
+export const axGoogleGeminiDefaultCreativeConfig = (): AxGoogleGeminiConfig =>
   structuredClone({
-    model: GoogleGeminiModel.Gemini15Flash,
-    embedModel: GoogleGeminiEmbedModels.Embedding001,
+    model: AxGoogleGeminiModel.Gemini15Flash,
+    embedModel: AxGoogleGeminiEmbedModels.Embedding001,
     safetySettings,
-    ...BaseAIDefaultCreativeConfig()
+    ...axBaseAIDefaultCreativeConfig()
   });
 
-export interface GoogleGeminiArgs {
+export interface AxGoogleGeminiArgs {
   apiKey: string;
   projectId?: string;
   region?: string;
-  config: Readonly<GoogleGeminiConfig>;
-  options?: Readonly<AIServiceOptions>;
+  config: Readonly<AxGoogleGeminiConfig>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
 /**
- * GoogleGemini: AI Service
+ * AxGoogleGemini: AI Service
  * @export
  */
-export class GoogleGemini extends BaseAI<
-  GoogleGeminiChatRequest,
-  GoogleGeminiBatchEmbedRequest,
-  GoogleGeminiChatResponse,
-  GoogleGeminiChatResponseDelta,
-  GoogleGeminiBatchEmbedResponse
+export class AxGoogleGemini extends AxBaseAI<
+  AxGoogleGeminiChatRequest,
+  AxGoogleGeminiBatchEmbedRequest,
+  AxGoogleGeminiChatResponse,
+  AxGoogleGeminiChatResponseDelta,
+  AxGoogleGeminiBatchEmbedResponse
 > {
-  private config: GoogleGeminiConfig;
+  private config: AxGoogleGeminiConfig;
   private apiKey: string;
 
   constructor({
     apiKey,
     projectId,
     region,
-    config = GoogleGeminiDefaultConfig(),
+    config = axGoogleGeminiDefaultConfig(),
     options
-  }: Readonly<GoogleGeminiArgs>) {
+  }: Readonly<AxGoogleGeminiArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('GoogleGemini AI API key not set');
     }
@@ -114,7 +112,7 @@ export class GoogleGemini extends BaseAI<
       name: 'GoogleGeminiAI',
       apiURL,
       headers: {},
-      modelInfo: modelInfoGoogleGemini,
+      modelInfo: axModelInfoGoogleGemini,
       models: { model: config.model, embedModel: config.embedModel },
       options,
       supportFor: { functions: true, streaming: true }
@@ -123,19 +121,19 @@ export class GoogleGemini extends BaseAI<
     this.apiKey = apiKey;
   }
 
-  override getModelConfig(): TextModelConfig {
+  override getModelConfig(): AxModelConfig {
     const { config } = this;
     return {
       maxTokens: config.maxTokens,
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK
-    } as TextModelConfig;
+    } as AxModelConfig;
   }
 
   override generateChatReq = (
-    req: Readonly<AITextChatRequest>
-  ): [API, GoogleGeminiChatRequest] => {
+    req: Readonly<AxChatRequest>
+  ): [API, AxGoogleGeminiChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
@@ -235,6 +233,7 @@ export class GoogleGemini extends BaseAI<
         ]
       : undefined;
 
+    // eslint-disable-next-line @typescript-eslint/naming-convention
     let tool_config;
     if (req.functionCall) {
       if (req.functionCall === 'none') {
@@ -266,7 +265,7 @@ export class GoogleGemini extends BaseAI<
 
     const safetySettings = this.config.safetySettings;
 
-    const reqValue: GoogleGeminiChatRequest = {
+    const reqValue: AxGoogleGeminiChatRequest = {
       contents,
       tools,
       tool_config,
@@ -279,8 +278,8 @@ export class GoogleGemini extends BaseAI<
   };
 
   override generateEmbedReq = (
-    req: Readonly<AITextEmbedRequest>
-  ): [API, GoogleGeminiBatchEmbedRequest] => {
+    req: Readonly<AxEmbedRequest>
+  ): [API, AxGoogleGeminiBatchEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!model) {
@@ -295,7 +294,7 @@ export class GoogleGemini extends BaseAI<
       name: `/models/${model}:batchEmbedText?key=${this.apiKey}`
     };
 
-    const reqValue: GoogleGeminiBatchEmbedRequest = {
+    const reqValue: AxGoogleGeminiBatchEmbedRequest = {
       requests: req.texts.map((text) => ({ model, text }))
     };
 
@@ -303,10 +302,10 @@ export class GoogleGemini extends BaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<GoogleGeminiChatResponse>
-  ): TextResponse => {
-    const results: TextResponseResult[] = resp.candidates.map((candidate) => {
-      const result: TextResponseResult = { content: null };
+    resp: Readonly<AxGoogleGeminiChatResponse>
+  ): AxChatResponse => {
+    const results: AxChatResponseResult[] = resp.candidates.map((candidate) => {
+      const result: AxChatResponseResult = { content: null };
 
       switch (candidate.finishReason) {
         case 'MAX_TOKENS':
@@ -342,7 +341,7 @@ export class GoogleGemini extends BaseAI<
       return result;
     });
 
-    let modelUsage: TokenUsage | undefined;
+    let modelUsage: AxTokenUsage | undefined;
     if (resp.usageMetadata) {
       modelUsage = {
         totalTokens: resp.usageMetadata.totalTokenCount,
@@ -357,14 +356,14 @@ export class GoogleGemini extends BaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<GoogleGeminiChatResponseDelta>
-  ): TextResponse => {
+    resp: Readonly<AxGoogleGeminiChatResponseDelta>
+  ): AxChatResponse => {
     return this.generateChatResp(resp);
   };
 
   override generateEmbedResp = (
-    resp: Readonly<GoogleGeminiBatchEmbedResponse>
-  ): EmbedResponse => {
+    resp: Readonly<AxGoogleGeminiBatchEmbedResponse>
+  ): AxEmbedResponse => {
     const embeddings = resp.embeddings.map((embedding) => embedding.value);
 
     return {

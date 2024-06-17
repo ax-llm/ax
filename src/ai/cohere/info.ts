@@ -1,52 +1,52 @@
-import type { TextModelInfo } from '../types.js';
+import type { AxModelInfo } from '../types.js';
 
-import { CohereEmbedModel, CohereModel } from './types.js';
+import { AxCohereEmbedModel, AxCohereModel } from './types.js';
 
-export const modelInfoCohere: TextModelInfo[] = [
+export const axModelInfoCohere: AxModelInfo[] = [
   {
-    name: CohereModel.CommandRPlus,
+    name: AxCohereModel.CommandRPlus,
     currency: 'usd',
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15
   },
   {
-    name: CohereModel.CommandR,
+    name: AxCohereModel.CommandR,
     currency: 'usd',
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5
   },
   {
-    name: CohereModel.Command,
+    name: AxCohereModel.Command,
     currency: 'usd',
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5
   },
   {
-    name: CohereModel.CommandLight,
+    name: AxCohereModel.CommandLight,
     currency: 'usd',
     promptTokenCostPer1M: 0.3,
     completionTokenCostPer1M: 0.6
   },
   {
-    name: CohereEmbedModel.EmbedEnglishLightV30,
+    name: AxCohereEmbedModel.EmbedEnglishLightV30,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.1
   },
   {
-    name: CohereEmbedModel.EmbedEnglishV30,
+    name: AxCohereEmbedModel.EmbedEnglishV30,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.1
   },
   {
-    name: CohereEmbedModel.EmbedMultiLingualV30,
+    name: AxCohereEmbedModel.EmbedMultiLingualV30,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.1
   },
   {
-    name: CohereEmbedModel.EmbedMultiLingualLightV30,
+    name: AxCohereEmbedModel.EmbedMultiLingualLightV30,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.1

@@ -1,14 +1,17 @@
-import { Anthropic, type AnthropicArgs } from './anthropic/api.js';
-import { AzureOpenAI, type AzureOpenAIArgs } from './azure-openai/api.js';
-import { Cohere, type CohereArgs } from './cohere/api.js';
-import { DeepSeek, type DeepSeekArgs } from './deepseek/api.js';
-import { GoogleGemini, type GoogleGeminiArgs } from './google-gemini/api.js';
-import { Groq, type GroqArgs } from './groq/api.js';
-import { HuggingFace, type HuggingFaceArgs } from './huggingface/api.js';
-import { Mistral, type MistralArgs } from './mistral/api.js';
-import { Ollama, type OllamaArgs } from './ollama/api.js';
-import { OpenAI, type OpenAIArgs } from './openai/api.js';
-import { Together, type TogetherArgs } from './together/api.js';
+import { AxAnthropic, type AxAnthropicArgs } from './anthropic/api.js';
+import { AxAzureOpenAI, type AxAzureOpenAIArgs } from './azure-openai/api.js';
+import { AxCohere, type AxCohereArgs } from './cohere/api.js';
+import { AxDeepSeek, type AxDeepSeekArgs } from './deepseek/api.js';
+import {
+  AxGoogleGemini,
+  type AxGoogleGeminiArgs
+} from './google-gemini/api.js';
+import { type AxAxGroqArgs, AxGroq } from './groq/api.js';
+import { AxHuggingFace, type AxHuggingFaceArgs } from './huggingface/api.js';
+import { AxMistral, type AxMistralArgs } from './mistral/api.js';
+import { AxOllama, type AxOllamaArgs } from './ollama/api.js';
+import { AxOpenAI, type AxOpenAIArgs } from './openai/api.js';
+import { AxTogether, type AxTogetherArgs } from './together/api.js';
 
 export * from './openai/index.js';
 export * from './azure-openai/index.js';
@@ -27,7 +30,7 @@ export * from './base.js';
 
 export type { API } from '../util/apicall.js';
 
-export type AIName =
+export type AxAIName =
   | 'openai'
   | 'azure-openai'
   | 'huggingface'
@@ -40,44 +43,44 @@ export type AIName =
   | 'deepseek'
   | 'ollama';
 
-export const AI = (
-  name: AIName,
+export const axAI = (
+  name: AxAIName,
   options: Readonly<
-    | AzureOpenAIArgs
-    | OpenAIArgs
-    | TogetherArgs
-    | AnthropicArgs
-    | CohereArgs
-    | HuggingFaceArgs
-    | GroqArgs
-    | MistralArgs
-    | DeepSeekArgs
-    | OllamaArgs
+    | AxAzureOpenAIArgs
+    | AxOpenAIArgs
+    | AxTogetherArgs
+    | AxAnthropicArgs
+    | AxCohereArgs
+    | AxHuggingFaceArgs
+    | AxAxGroqArgs
+    | AxMistralArgs
+    | AxDeepSeekArgs
+    | AxOllamaArgs
   >
 ) => {
   switch (name) {
     case 'openai':
-      return new OpenAI(options as OpenAIArgs);
+      return new AxOpenAI(options as AxOpenAIArgs);
     case 'azure-openai':
-      return new AzureOpenAI(options as AzureOpenAIArgs);
+      return new AxAzureOpenAI(options as AxAzureOpenAIArgs);
     case 'huggingface':
-      return new HuggingFace(options as HuggingFaceArgs);
+      return new AxHuggingFace(options as AxHuggingFaceArgs);
     case 'groq':
-      return new Groq(options as GroqArgs);
+      return new AxGroq(options as AxAxGroqArgs);
     case 'together':
-      return new Together(options as TogetherArgs);
+      return new AxTogether(options as AxTogetherArgs);
     case 'cohere':
-      return new Cohere(options as CohereArgs);
+      return new AxCohere(options as AxCohereArgs);
     case 'google-gemini':
-      return new GoogleGemini(options as GoogleGeminiArgs);
+      return new AxGoogleGemini(options as AxGoogleGeminiArgs);
     case 'anthropic':
-      return new Anthropic(options as AnthropicArgs);
+      return new AxAnthropic(options as AxAnthropicArgs);
     case 'mistral':
-      return new Mistral(options as MistralArgs);
+      return new AxMistral(options as AxMistralArgs);
     case 'deepseek':
-      return new DeepSeek(options as DeepSeekArgs);
+      return new AxDeepSeek(options as AxDeepSeekArgs);
     case 'ollama':
-      return new Ollama(options as OllamaArgs);
+      return new AxOllama(options as AxOllamaArgs);
     default:
       throw new Error(`Unknown AI ${name}`);
   }

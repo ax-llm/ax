@@ -1,36 +1,23 @@
-/**
- * apiURLGoogleGemini: Base URL for Google Gemini API calls
- * @export
- */
+import type { AxModelConfig } from '../types.js';
 
-import type { TextModelConfig } from '../types.js';
-
-/**
- * GoogleGeminiModel: Enum for specifying the model version
- * @export
- */
-export enum GoogleGeminiModel {
+export enum AxGoogleGeminiModel {
   Gemini1Pro = 'gemini-1.0-pro',
   Gemini15Flash = 'gemini-1.5-flash',
   Gemini15Pro = 'gemini-1.5-pro'
 }
 
-/**
- * GoogleGeminiEmbedModels: Enum for specifying embedding models
- * @export
- */
-export enum GoogleGeminiEmbedModels {
+export enum AxGoogleGeminiEmbedModels {
   Embedding001 = 'embedding-001'
 }
 
-export enum GoogleGeminiSafetyCategory {
+export enum AxGoogleGeminiSafetyCategory {
   HarmCategoryHarassment = 'HARM_CATEGORY_HARASSMENT',
   HarmCategoryHateSpeech = 'HARM_CATEGORY_HATE_SPEECH',
   HarmCategorySexuallyExplicit = 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
   HarmCategoryDangerousContent = 'HARM_CATEGORY_DANGEROUS_CONTENT'
 }
 
-export enum GoogleGeminiSafetyThreshold {
+export enum AxGoogleGeminiSafetyThreshold {
   BlockNone = 'BLOCK_NONE',
   BlockOnlyHigh = 'BLOCK_ONLY_HIGH',
   BlockMediumAndAbove = 'BLOCK_MEDIUM_AND_ABOVE',
@@ -38,7 +25,7 @@ export enum GoogleGeminiSafetyThreshold {
   BlockDefault = 'HARM_BLOCK_THRESHOLD_UNSPECIFIED'
 }
 
-export type GoogleGeminiContent =
+export type AxGoogleGeminiContent =
   | {
       role: 'user';
       parts:
@@ -75,24 +62,24 @@ export type GoogleGeminiContent =
       }[];
     };
 
-export type GoogleGeminiToolFunctionDeclaration = {
+export type AxGoogleGeminiToolFunctionDeclaration = {
   name: string;
   description?: string;
   parameters?: object;
 };
 
-export type GoogleGeminiTool = {
-  functionDeclarations: GoogleGeminiToolFunctionDeclaration[];
+export type AxGoogleGeminiTool = {
+  functionDeclarations: AxGoogleGeminiToolFunctionDeclaration[];
 };
 
-export type GoogleGeminiToolConfig = {
+export type AxGoogleGeminiToolConfig = {
   function_calling_config: {
     mode: 'ANY' | 'NONE' | 'AUTO';
     allowed_function_names?: string[];
   };
 };
 
-export type GoogleGeminiGenerationConfig = {
+export type AxGoogleGeminiGenerationConfig = {
   temperature?: number;
   topP?: number;
   topK?: number;
@@ -101,23 +88,23 @@ export type GoogleGeminiGenerationConfig = {
   stopSequences?: readonly string[];
 };
 
-export type GoogleGeminiSafetySettings = {
-  category: GoogleGeminiSafetyCategory;
-  threshold: GoogleGeminiSafetyThreshold;
+export type AxGoogleGeminiSafetySettings = {
+  category: AxGoogleGeminiSafetyCategory;
+  threshold: AxGoogleGeminiSafetyThreshold;
 }[];
 
-export type GoogleGeminiChatRequest = {
-  contents: GoogleGeminiContent[];
-  tools?: GoogleGeminiTool[];
-  tool_config?: GoogleGeminiToolConfig;
-  systemInstruction?: GoogleGeminiContent;
-  generationConfig: GoogleGeminiGenerationConfig;
-  safetySettings?: GoogleGeminiSafetySettings;
+export type AxGoogleGeminiChatRequest = {
+  contents: AxGoogleGeminiContent[];
+  tools?: AxGoogleGeminiTool[];
+  tool_config?: AxGoogleGeminiToolConfig;
+  systemInstruction?: AxGoogleGeminiContent;
+  generationConfig: AxGoogleGeminiGenerationConfig;
+  safetySettings?: AxGoogleGeminiSafetySettings;
 };
 
-export type GoogleGeminiChatResponse = {
+export type AxGoogleGeminiChatResponse = {
   candidates: {
-    content: GoogleGeminiContent;
+    content: AxGoogleGeminiContent;
 
     finishReason: 'STOP' | 'MAX_TOKENS' | 'SAFETY' | 'RECITATION' | 'OTHER';
     citationMetadata: {
@@ -142,23 +129,23 @@ export type GoogleGeminiChatResponse = {
   };
 };
 
-export type GoogleGeminiChatResponseDelta = GoogleGeminiChatResponse;
+export type AxGoogleGeminiChatResponseDelta = AxGoogleGeminiChatResponse;
 
 /**
- * GoogleGeminiConfig: Configuration options for Google Gemini API
+ * AxGoogleGeminiConfig: Configuration options for Google Gemini API
  * @export
  */
-export type GoogleGeminiConfig = TextModelConfig & {
-  model: GoogleGeminiModel | string;
-  embedModel: GoogleGeminiEmbedModels;
-  safetySettings?: GoogleGeminiSafetySettings;
+export type AxGoogleGeminiConfig = AxModelConfig & {
+  model: AxGoogleGeminiModel | string;
+  embedModel: AxGoogleGeminiEmbedModels;
+  safetySettings?: AxGoogleGeminiSafetySettings;
 };
 
 /**
- * GoogleGeminiEmbedRequest: Structure for making an embedding request to the Google Gemini API.
+ * AxGoogleGeminiEmbedRequest: Structure for making an embedding request to the Google Gemini API.
  * @export
  */
-export type GoogleGeminiBatchEmbedRequest = {
+export type AxGoogleGeminiBatchEmbedRequest = {
   requests: {
     model: string;
     text: string;
@@ -166,10 +153,10 @@ export type GoogleGeminiBatchEmbedRequest = {
 };
 
 /**
- * GoogleGeminiEmbedResponse: Structure for handling responses from the Google Gemini API embedding requests.
+ * AxGoogleGeminiEmbedResponse: Structure for handling responses from the Google Gemini API embedding requests.
  * @export
  */
-export type GoogleGeminiBatchEmbedResponse = {
+export type AxGoogleGeminiBatchEmbedResponse = {
   embeddings: {
     value: number[];
   }[];

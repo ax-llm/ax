@@ -1,17 +1,20 @@
-import type { Example, MetricFn } from './optimize.js';
-import type { GenIn, GenOut, Program } from './program.js';
+import type { AxExample, AxMetricFn } from './optimize.js';
+import type { AxGenIn, AxGenOut, AxProgram } from './program.js';
 import { updateProgressBar } from './util.js';
 
-export type EvaluateArgs<IN extends GenIn, OUT extends GenOut> = {
-  program: Readonly<Program<IN, OUT>>;
-  examples: Readonly<Example[]>;
+export type AxEvaluateArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
+  program: Readonly<AxProgram<IN, OUT>>;
+  examples: Readonly<AxExample[]>;
 };
 
-export class TestPrompt<IN extends GenIn = GenIn, OUT extends GenOut = GenOut> {
-  private program: Readonly<Program<IN, OUT>>;
-  private examples: Readonly<Example[]>;
+export class AxTestPrompt<
+  IN extends AxGenIn = AxGenIn,
+  OUT extends AxGenOut = AxGenOut
+> {
+  private program: Readonly<AxProgram<IN, OUT>>;
+  private examples: Readonly<AxExample[]>;
 
-  constructor({ program, examples = [] }: Readonly<EvaluateArgs<IN, OUT>>) {
+  constructor({ program, examples = [] }: Readonly<AxEvaluateArgs<IN, OUT>>) {
     if (examples.length == 0) {
       throw new Error('No examples found');
     }
@@ -19,7 +22,7 @@ export class TestPrompt<IN extends GenIn = GenIn, OUT extends GenOut = GenOut> {
     this.examples = examples;
   }
 
-  public async run(metricFn: MetricFn) {
+  public async run(metricFn: AxMetricFn) {
     const st = new Date().getTime();
     const total = this.examples.length;
     let successCount = 0;

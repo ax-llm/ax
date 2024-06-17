@@ -1,4 +1,4 @@
-export class InstanceRegistry<T> {
+export class AxInstanceRegistry<T> {
   private reg: Set<T>; // To track keys for iteration
 
   constructor() {

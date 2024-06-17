@@ -1,10 +1,10 @@
-import type { TextModelConfig } from '../types.js';
+import type { AxModelConfig } from '../types.js';
 
 /**
  * Cohere: Models for text generation
  * @export
  */
-export enum CohereModel {
+export enum AxCohereModel {
   CommandRPlus = 'command-r-plus',
   CommandR = 'command-r',
   Command = 'command',
@@ -15,7 +15,7 @@ export enum CohereModel {
  * Cohere: Models for use in embeddings
  * @export
  */
-export enum CohereEmbedModel {
+export enum AxCohereEmbedModel {
   EmbedEnglishV30 = 'embed-english-v3.0',
   EmbedEnglishLightV30 = 'embed-english-light-v3.0',
   EmbedMultiLingualV30 = 'embed-multilingual-v3.0',
@@ -26,16 +26,16 @@ export enum CohereEmbedModel {
  * Cohere: Model options for text generation
  * @export
  */
-export type CohereConfig = TextModelConfig & {
-  model: CohereModel;
-  embedModel: CohereEmbedModel;
+export type AxCohereConfig = AxModelConfig & {
+  model: AxCohereModel;
+  embedModel: AxCohereEmbedModel;
 };
 
-export type CohereChatRequest = {
+export type AxCohereChatRequest = {
   message: string;
   preamble?: string;
   chat_history: { role: 'CHATBOT' | 'SYSTEM' | 'USER'; message: string }[];
-  model: CohereModel | string;
+  model: AxCohereModel | string;
   max_tokens?: number;
   temperature?: number;
   k?: number;
@@ -65,7 +65,7 @@ export type CohereChatRequest = {
   }[];
 };
 
-export type CohereChatResponse = {
+export type AxCohereChatResponse = {
   generation_id: string;
   text: string;
   finish_reason:
@@ -81,7 +81,7 @@ export type CohereChatResponse = {
   }[];
 };
 
-export type CohereChatResponseDelta = CohereChatResponse & {
+export type AxCohereChatResponseDelta = AxCohereChatResponse & {
   event_type:
     | 'stream-start'
     | 'text-generation'
@@ -89,13 +89,13 @@ export type CohereChatResponseDelta = CohereChatResponse & {
     | 'stream-end';
 };
 
-export type CohereEmbedRequest = {
+export type AxCohereEmbedRequest = {
   texts: readonly string[];
-  model: CohereModel | string;
+  model: AxCohereModel | string;
   truncate: string;
 };
 
-export type CohereEmbedResponse = {
+export type AxCohereEmbedResponse = {
   id: string;
   texts: string[];
   model: string;

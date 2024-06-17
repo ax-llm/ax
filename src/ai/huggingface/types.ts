@@ -1,19 +1,11 @@
-import type { TextModelConfig } from '../types.js';
+import type { AxModelConfig } from '../types.js';
 
-/**
- * HuggingFace: Models for text generation
- * @export
- */
-export enum HuggingFaceModel {
+export enum AxHuggingFaceModel {
   MetaLlama270BChatHF = 'meta-llama/Llama-2-70b-chat-hf'
 }
 
-/**
- * HuggingFace: Model options for text generation
- * @export
- */
-export type HuggingFaceConfig = TextModelConfig & {
-  model: HuggingFaceModel;
+export type AxHuggingFaceConfig = AxModelConfig & {
+  model: AxHuggingFaceModel;
   returnFullText?: boolean;
   doSample?: boolean;
   maxTime?: number;
@@ -21,8 +13,8 @@ export type HuggingFaceConfig = TextModelConfig & {
   waitForModel?: boolean;
 };
 
-export type HuggingFaceRequest = {
-  model: HuggingFaceModel | string;
+export type AxHuggingFaceRequest = {
+  model: AxHuggingFaceModel | string;
   inputs: string;
   parameters: {
     max_new_tokens?: number;
@@ -41,6 +33,6 @@ export type HuggingFaceRequest = {
   };
 };
 
-export type HuggingFaceResponse = {
+export type AxHuggingFaceResponse = {
   generated_text: string;
 };

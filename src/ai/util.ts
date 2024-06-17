@@ -1,16 +1,17 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import { createHash } from 'crypto';
 
 import type {
-  TextModelInfo,
-  TextResponse,
-  TextResponseResult,
-  TokenUsage
+  AxChatResponse,
+  AxChatResponseResult,
+  AxModelInfo,
+  AxTokenUsage
 } from './types.js';
 
 export const findItemByNameOrAlias = (
-  list: readonly TextModelInfo[],
+  list: readonly AxModelInfo[],
   name: string
-): TextModelInfo | undefined => {
+): AxModelInfo | undefined => {
   for (const item of list) {
     if (item.name === name || item.aliases?.includes(name)) {
       return item;
@@ -61,13 +62,13 @@ export interface mergeFunctionsState {
 
 export function mergeFunctionCalls(
   // eslint-disable-next-line functional/prefer-immutable-types
-  functionCalls: NonNullable<TextResponseResult['functionCalls']>,
+  functionCalls: NonNullable<AxChatResponseResult['functionCalls']>,
   functionCallDeltas: Readonly<
-    NonNullable<TextResponseResult['functionCalls']>
+    NonNullable<AxChatResponseResult['functionCalls']>
   >,
   // eslint-disable-next-line functional/prefer-immutable-types
   state?: mergeFunctionsState
-): NonNullable<TextResponseResult['functionCalls']>[0] | undefined {
+): NonNullable<AxChatResponseResult['functionCalls']>[0] | undefined {
   for (const _fc of functionCallDeltas) {
     const fc = functionCalls.find((fc) => fc.id === _fc.id);
 
@@ -103,18 +104,18 @@ export function mergeFunctionCalls(
   }
 }
 
-export function mergeTextResponses(
-  responses: readonly TextResponse[]
-): TextResponse {
-  const functionCalls: NonNullable<TextResponseResult['functionCalls']> = [];
+export function mergeChatResponses(
+  responses: readonly AxChatResponse[]
+): AxChatResponse {
+  const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = [];
   let content = '';
 
   // Variables to store the other overwritten values
   let lastSessionId: string | undefined;
   let lastRemoteId: string | undefined;
-  let lastModelUsage: TokenUsage | undefined;
-  let lastEmbedModelUsage: TokenUsage | undefined;
-  let lastResults: readonly TextResponseResult[] = [];
+  let lastModelUsage: AxTokenUsage | undefined;
+  let lastEmbedModelUsage: AxTokenUsage | undefined;
+  let lastResults: readonly AxChatResponseResult[] = [];
 
   for (const response of responses) {
     for (const result of response.results ?? []) {

@@ -1,19 +1,19 @@
 import { createReadStream } from 'fs';
 
-export interface ApacheTikaArgs {
+export interface AxApacheTikaArgs {
   url?: string | URL;
   fetch?: typeof fetch;
 }
 
-export interface ApacheTikaConvertOptions {
+export interface AxApacheTikaConvertOptions {
   format?: 'text' | 'html';
 }
 
-export class ApacheTika {
+export class AxApacheTika {
   private tikaUrl: URL;
   private fetch?: typeof fetch;
 
-  constructor(args?: Readonly<ApacheTikaArgs>) {
+  constructor(args?: Readonly<AxApacheTikaArgs>) {
     const _args = args ?? { url: 'http://localhost:9998/' };
     this.tikaUrl = new URL('/tika', _args.url);
     this.fetch = _args.fetch;
@@ -21,7 +21,7 @@ export class ApacheTika {
 
   private async _convert(
     file: string | Blob,
-    options?: Readonly<ApacheTikaConvertOptions>
+    options?: Readonly<AxApacheTikaConvertOptions>
   ): Promise<string> {
     const fileData =
       typeof file === 'string' ? createReadStream(file) : file.stream();
@@ -70,5 +70,3 @@ export class ApacheTika {
     return results;
   }
 }
-
-export default ApacheTika;

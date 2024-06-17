@@ -23,6 +23,7 @@ class JSONTransformer<O> implements Transformer<string, O> {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export class JSONStringifyStream<O> extends TransformStream<string, O> {
   constructor() {
     super(new JSONTransformer<O>());
@@ -57,6 +58,7 @@ class TypeTransformer<I, O> implements Transformer<I, O> {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export class RespTransformStream<I, O> extends TransformStream<I, O> {
   constructor(
     transformFn: (arg0: I) => O,

@@ -6,11 +6,11 @@ import * as _os from 'os';
 import * as _process from 'process';
 import { runInNewContext } from 'vm';
 
-import type { AITextFunction } from '../text/functions.js';
+import type { AxFunction } from '../ai/index.js';
 
-export const JSInterpreterFunction = (
-  permissions: readonly CodeInterpreterPermission[] = []
-): AITextFunction => ({
+export const axJSInterpreterFunction = (
+  permissions: readonly AxCodeInterpreterPermission[] = []
+): AxFunction => ({
   name: 'jsInterpreter',
   description: 'Run Javascript code',
   parameters: {
@@ -32,7 +32,7 @@ export const JSInterpreterFunction = (
   }
 });
 
-export enum CodeInterpreterPermission {
+export enum AxCodeInterpreterPermission {
   FS = 'fs',
   NET = 'net',
   OS = 'os',
@@ -40,9 +40,9 @@ export enum CodeInterpreterPermission {
   PROCESS = 'process'
 }
 
-export const codeInterpreterJavascript = (
+const codeInterpreterJavascript = (
   code: string,
-  permissions: readonly CodeInterpreterPermission[] = []
+  permissions: readonly AxCodeInterpreterPermission[] = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,24 +51,24 @@ export const codeInterpreterJavascript = (
     console: console
   };
 
-  if (permissions.includes(CodeInterpreterPermission.FS)) {
+  if (permissions.includes(AxCodeInterpreterPermission.FS)) {
     context.fs = _fs;
   }
 
-  if (permissions.includes(CodeInterpreterPermission.NET)) {
+  if (permissions.includes(AxCodeInterpreterPermission.NET)) {
     context.http = _http;
     context.https = _https;
   }
 
-  if (permissions.includes(CodeInterpreterPermission.OS)) {
+  if (permissions.includes(AxCodeInterpreterPermission.OS)) {
     context.os = _os;
   }
 
-  if (permissions.includes(CodeInterpreterPermission.CRYPTO)) {
+  if (permissions.includes(AxCodeInterpreterPermission.CRYPTO)) {
     context.crypto = _crypto;
   }
 
-  if (permissions.includes(CodeInterpreterPermission.PROCESS)) {
+  if (permissions.includes(AxCodeInterpreterPermission.PROCESS)) {
     context.process = _process;
   }
 

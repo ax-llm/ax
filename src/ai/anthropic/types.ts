@@ -1,10 +1,6 @@
-import type { TextModelConfig } from '../types.js';
+import type { AxModelConfig } from '../types.js';
 
-/**
- * Anthropic: Models for text generation
- * @export
- */
-export enum AnthropicModel {
+export enum AxAnthropicModel {
   Claude3Opus = 'claude-3-opus-20240229',
   Claude3Sonnet = 'claude-3-sonnet-20240229',
   Claude3Haiku = 'claude-3-haiku-20240307',
@@ -12,16 +8,12 @@ export enum AnthropicModel {
   ClaudeInstant12 = 'claude-instant-1.2'
 }
 
-/**
- * Anthropic: Model options for text generation
- * @export
- */
-export type AnthropicConfig = TextModelConfig & {
-  model: AnthropicModel;
+export type AxAnthropicConfig = AxModelConfig & {
+  model: AxAnthropicModel;
 };
 
 // Type for the request to create a message using Anthropic's Messages API
-export type AnthropicChatRequest = {
+export type AxAnthropicChatRequest = {
   model: string;
   messages: {
     role: 'user' | 'assistant' | 'system';
@@ -56,7 +48,7 @@ export type AnthropicChatRequest = {
   };
 };
 
-export type AnthropicChatResponse = {
+export type AxAnthropicChatResponse = {
   id: string; // Unique identifier for the response
   type: 'message'; // Object type, always 'message' for this API
   role: 'assistant'; // Conversational role of the generated message, always 'assistant'
@@ -76,7 +68,7 @@ export type AnthropicChatResponse = {
   };
 };
 
-export type AnthropicChatError = {
+export type AxAnthropicChatError = {
   type: 'error';
   error: {
     type: 'authentication_error';
@@ -85,12 +77,12 @@ export type AnthropicChatError = {
 };
 
 // Base interface for all event types in the stream
-export interface AnthropicStreamEvent {
+export interface AxAnthropicStreamEvent {
   type: string;
 }
 
 // Represents the start of a message with an empty content array
-export interface AnthropicMessageStartEvent extends AnthropicStreamEvent {
+export interface AxAnthropicMessageStartEvent extends AxAnthropicStreamEvent {
   message: {
     id: string;
     type: 'message';
@@ -107,7 +99,8 @@ export interface AnthropicMessageStartEvent extends AnthropicStreamEvent {
 }
 
 // Indicates the start of a content block within a message
-export interface AnthropicContentBlockStartEvent extends AnthropicStreamEvent {
+export interface AxAnthropicContentBlockStartEvent
+  extends AxAnthropicStreamEvent {
   index: number;
   content_block: {
     type: 'text';
@@ -116,7 +109,8 @@ export interface AnthropicContentBlockStartEvent extends AnthropicStreamEvent {
 }
 
 // Represents incremental updates to a content block
-export interface AnthropicContentBlockDeltaEvent extends AnthropicStreamEvent {
+export interface AxAnthropicContentBlockDeltaEvent
+  extends AxAnthropicStreamEvent {
   index: number;
   delta: {
     type: 'text_delta';
@@ -125,12 +119,13 @@ export interface AnthropicContentBlockDeltaEvent extends AnthropicStreamEvent {
 }
 
 // Marks the end of a content block within a message
-export interface AnthropicContentBlockStopEvent extends AnthropicStreamEvent {
+export interface AxAnthropicContentBlockStopEvent
+  extends AxAnthropicStreamEvent {
   index: number;
 }
 
 // Indicates top-level changes to the final message object
-export interface AnthropicMessageDeltaEvent extends AnthropicStreamEvent {
+export interface AxAnthropicMessageDeltaEvent extends AxAnthropicStreamEvent {
   delta: {
     stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | null;
     stop_sequence: string | null;
@@ -141,13 +136,13 @@ export interface AnthropicMessageDeltaEvent extends AnthropicStreamEvent {
 }
 
 // Marks the end of a message
-export type AnthropicMessageStopEvent = AnthropicStreamEvent;
+export type AxAnthropicMessageStopEvent = AxAnthropicStreamEvent;
 
 // Represents a ping event, which can occur any number of times
-export type AnthropicPingEvent = AnthropicStreamEvent;
+export type AxAnthropicPingEvent = AxAnthropicStreamEvent;
 
 // Represents an error event
-export interface AnthropicErrorEvent extends AnthropicStreamEvent {
+export interface AxAnthropicErrorEvent extends AxAnthropicStreamEvent {
   error: {
     type: 'overloaded_error' | string;
     message: string;
@@ -155,18 +150,18 @@ export interface AnthropicErrorEvent extends AnthropicStreamEvent {
 }
 
 // Union type for all possible event types in the stream
-export type AnthropicStreamEventType =
-  | AnthropicMessageStartEvent
-  | AnthropicContentBlockStartEvent
-  | AnthropicContentBlockDeltaEvent
-  | AnthropicContentBlockStopEvent
-  | AnthropicMessageDeltaEvent
-  | AnthropicMessageStopEvent
-  | AnthropicPingEvent
-  | AnthropicErrorEvent;
+export type AxAxAnthropicStreamEventType =
+  | AxAnthropicMessageStartEvent
+  | AxAnthropicContentBlockStartEvent
+  | AxAnthropicContentBlockDeltaEvent
+  | AxAnthropicContentBlockStopEvent
+  | AxAnthropicMessageDeltaEvent
+  | AxAnthropicMessageStopEvent
+  | AxAnthropicPingEvent
+  | AxAnthropicErrorEvent;
 
 // Type for the response delta in streaming mode, using generic to allow flexibility
-export interface AnthropicResponseDelta<T> {
+export interface AxAnthropicResponseDelta<T> {
   id: string;
   object: 'message';
   model: string;
@@ -178,5 +173,5 @@ export interface AnthropicResponseDelta<T> {
 }
 
 // Specific type for handling text deltas in the streaming response
-export type AnthropicChatResponseDelta =
-  AnthropicResponseDelta<AnthropicStreamEventType>;
+export type AxAnthropicChatResponseDelta =
+  AxAnthropicResponseDelta<AxAxAnthropicStreamEventType>;

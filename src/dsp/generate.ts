@@ -1,27 +1,27 @@
 import { ReadableStream } from 'stream/web';
 
 import type {
-  TextResponse,
-  TextResponseFunctionCall,
-  TextResponseResult
-} from '../ai/index.js';
+  AxAIService,
+  AxChatRequest,
+  AxChatResponse,
+  AxChatResponseResult,
+  AxFunction
+} from '../ai/types.js';
 import { mergeFunctionCalls, type mergeFunctionsState } from '../ai/util.js';
 import {
-  type AITextFunction,
-  FunctionProcessor,
-  Memory
-} from '../text/index.js';
-import type { AIMemory, AIService } from '../text/index.js';
-import { type Span, SpanKind } from '../trace/index.js';
-import { type AITextChatRequest } from '../types/index.js';
+  type AxChatResponseFunctionCall,
+  AxFunctionProcessor
+} from '../funcs/functions.js';
+import { type AxAIMemory, AxMemory } from '../mem/index.js';
+import { type AxSpan, AxSpanKind } from '../trace/index.js';
 
 import {
   assertAssertions,
-  type Assertion,
-  AssertionError,
   assertRequiredFields,
   assertStreamingAssertions,
-  type StreamingAssertion
+  type AxAssertion,
+  AxAssertionError,
+  type AxStreamingAssertion
 } from './asserts.js';
 import {
   type extractionState,
@@ -31,69 +31,69 @@ import {
   ValidationError
 } from './extract.js';
 import {
-  type GenIn,
-  type GenOut,
-  Program,
-  type ProgramForwardOptions,
-  validateValue,
-  type Value
+  type AxFieldValue,
+  type AxGenIn,
+  type AxGenOut,
+  AxProgram,
+  type AxProgramForwardOptions
 } from './program.js';
-import { PromptTemplate } from './prompt.js';
-import { Signature } from './sig.js';
+import { AxPromptTemplate } from './prompt.js';
+import { AxSignature } from './sig.js';
+import { validateValue } from './util.js';
 
-export interface GenerateOptions {
-  functions?: AITextFunction[];
-  functionCall?: AITextChatRequest['functionCall'];
-  promptTemplate?: typeof PromptTemplate;
-  asserts?: Assertion[];
-  streamingAsserts?: StreamingAssertion[];
+export interface AxGenerateOptions {
+  functions?: AxFunction[];
+  functionCall?: AxChatRequest['functionCall'];
+  promptTemplate?: typeof AxPromptTemplate;
+  asserts?: AxAssertion[];
+  streamingAsserts?: AxStreamingAssertion[];
 }
 
-export type GenerateResult<OUT extends GenOut> = OUT & {
-  functions?: TextResponseFunctionCall[];
+export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
+  functions?: AxChatResponseFunctionCall[];
 };
 
-export interface ResponseHandlerArgs<T> {
+export interface AxResponseHandlerArgs<T> {
   res: T;
   usageInfo: { ai: string; model: string };
-  mem: AIMemory;
+  mem: AxAIMemory;
   sessionId?: string;
   traceId?: string;
 }
 
-export class Generate<
-  IN extends GenIn = GenIn,
-  OUT extends GenerateResult<GenOut> = GenerateResult<GenOut>
-> extends Program<IN, OUT> {
-  private signature: Signature;
+export class AxGenerate<
+  IN extends AxGenIn = AxGenIn,
+  OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>
+> extends AxProgram<IN, OUT> {
+  private signature: AxSignature;
   private sigHash: string;
-  private ai: AIService;
-  private pt: PromptTemplate;
-  private asserts: Assertion[];
-  private streamingAsserts: StreamingAssertion[];
-  private options?: GenerateOptions;
-  private funcProc?: FunctionProcessor;
+  private ai: AxAIService;
+  private pt: AxPromptTemplate;
+  private asserts: AxAssertion[];
+  private streamingAsserts: AxStreamingAssertion[];
+  private options?: AxGenerateOptions;
+  private funcProc?: AxFunctionProcessor;
   private functionList?: string;
 
   constructor(
-    ai: AIService,
-    signature: Readonly<Signature | string>,
-    options?: Readonly<GenerateOptions>
+    ai: AxAIService,
+    signature: Readonly<AxSignature | string>,
+    options?: Readonly<AxGenerateOptions>
   ) {
     super();
 
-    this.signature = new Signature(signature);
+    this.signature = new AxSignature(signature);
     this.sigHash = this.signature.hash();
     this.ai = ai;
     this.options = options;
-    this.pt = new (options?.promptTemplate ?? PromptTemplate)(this.signature);
+    this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
     this.streamingAsserts = this.options?.streamingAsserts ?? [];
     this.functionList = this.options?.functions?.map((f) => f.name).join(', ');
     this.usage = [];
 
     if (this.options?.functions) {
-      this.funcProc = new FunctionProcessor(this.options?.functions);
+      this.funcProc = new AxFunctionProcessor(this.options?.functions);
       this.updateSigForFunctions();
     }
   }
@@ -119,12 +119,12 @@ export class Generate<
     });
   };
 
-  private _setExamples(examples: Readonly<Record<string, Value>[]>) {
+  private _setExamples(examples: Readonly<Record<string, AxFieldValue>[]>) {
     const sig = this.signature;
     const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
 
     this.examples = examples.map((e) => {
-      const res: Record<string, Value> = {};
+      const res: Record<string, AxFieldValue> = {};
       for (const f of fields) {
         const value = e[f.name];
         if (value) {
@@ -136,13 +136,15 @@ export class Generate<
     });
   }
 
-  public override setExamples(examples: Readonly<Record<string, Value>[]>) {
+  public override setExamples(
+    examples: Readonly<Record<string, AxFieldValue>[]>
+  ) {
     this._setExamples(examples);
     super.setExamples(examples);
   }
 
   public addAssert = (
-    fn: Assertion['fn'],
+    fn: AxAssertion['fn'],
     message?: string,
     optional?: boolean
   ) => {
@@ -151,7 +153,7 @@ export class Generate<
 
   public addStreamingAssert = (
     fieldName: string,
-    fn: StreamingAssertion['fn'],
+    fn: AxStreamingAssertion['fn'],
     message?: string,
     optional?: boolean
   ) => {
@@ -166,7 +168,7 @@ export class Generate<
     modelConfig: mc,
     stream
   }: Readonly<
-    Omit<ProgramForwardOptions, 'ai'> & { ai: AIService; stream: boolean }
+    Omit<AxProgramForwardOptions, 'ai'> & { ai: AxAIService; stream: boolean }
   >) {
     const chatPrompt = mem?.history(sessionId) ?? [];
 
@@ -208,7 +210,10 @@ export class Generate<
     modelConfig,
     stream = false
   }: Readonly<
-    Omit<ProgramForwardOptions, 'ai' | 'mem'> & { ai: AIService; mem: AIMemory }
+    Omit<AxProgramForwardOptions, 'ai' | 'mem'> & {
+      ai: AxAIService;
+      mem: AxAIMemory;
+    }
   >): Promise<OUT> {
     const usageInfo = {
       ai: this.ai.getName(),
@@ -250,9 +255,10 @@ export class Generate<
     sessionId,
     traceId
   }: Readonly<
-    ResponseHandlerArgs<ReadableStream<TextResponse>>
+    AxResponseHandlerArgs<ReadableStream<AxChatResponse>>
   >): Promise<OUT> {
-    const functionCalls: NonNullable<TextResponseResult['functionCalls']> = [];
+    const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> =
+      [];
     const values = {};
     const xstate: extractionState = { s: -1 };
     const fstate: mergeFunctionsState = { lastId: '' };
@@ -318,7 +324,7 @@ export class Generate<
     mem,
     sessionId,
     traceId
-  }: Readonly<ResponseHandlerArgs<TextResponse>>): Promise<OUT> {
+  }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
     const values = {};
 
     const result = res.results?.at(0);
@@ -354,17 +360,17 @@ export class Generate<
 
   private async _forward(
     values: IN,
-    options?: Readonly<ProgramForwardOptions>,
-    span?: Span
+    options?: Readonly<AxProgramForwardOptions>,
+    span?: AxSpan
   ): Promise<OUT> {
     const maxRetries = options?.maxRetries ?? 5;
-    const mem = options?.mem ?? new Memory();
+    const mem = options?.mem ?? new AxMemory();
     const canStream = this.ai.getFeatures().streaming;
 
-    let err: ValidationError | AssertionError | undefined;
+    let err: ValidationError | AxAssertionError | undefined;
 
     if (this.sigHash !== this.signature.hash()) {
-      const promptTemplate = this.options?.promptTemplate ?? PromptTemplate;
+      const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate;
       this.pt = new promptTemplate(this.signature);
     }
 
@@ -410,13 +416,13 @@ export class Generate<
         throw new Error('Could not complete task within maximum allowed steps');
       } catch (e) {
         let extraFields;
-        span?.recordException(e as Error);
+        span?.recordAxSpanException(e as Error);
 
         if (e instanceof ValidationError) {
           extraFields = e.getFixingInstructions();
           err = e;
-        } else if (e instanceof AssertionError) {
-          const e1 = e as AssertionError;
+        } else if (e instanceof AxAssertionError) {
+          const e1 = e as AxAssertionError;
           extraFields = e1.getFixingInstructions(this.signature);
           err = e;
         } else {
@@ -438,7 +444,7 @@ export class Generate<
       }
     }
 
-    if (err instanceof AssertionError && err.getOptional()) {
+    if (err instanceof AxAssertionError && err.getOptional()) {
       return err.getValue() as OUT;
     }
 
@@ -447,7 +453,7 @@ export class Generate<
 
   public override async forward(
     values: IN,
-    options?: Readonly<ProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     if (!options?.tracer) {
       return await this._forward(values, options);
@@ -461,7 +467,7 @@ export class Generate<
     return await options?.tracer.startActiveSpan(
       'Generate',
       {
-        kind: SpanKind.SERVER,
+        kind: AxSpanKind.SERVER,
         attributes
       },
       async (span) => {
@@ -473,8 +479,8 @@ export class Generate<
   }
 
   public processFunctions = async (
-    functionCalls: readonly TextResponseFunctionCall[],
-    mem: Readonly<Memory>,
+    functionCalls: readonly AxChatResponseFunctionCall[],
+    mem: Readonly<AxMemory>,
     sessionId?: string,
     traceId?: string
   ) => {
@@ -501,15 +507,15 @@ export class Generate<
 }
 
 function parseFunctions(
-  ai: Readonly<AIService>,
-  functionCalls: Readonly<TextResponseResult['functionCalls']>,
+  ai: Readonly<AxAIService>,
+  functionCalls: Readonly<AxChatResponseResult['functionCalls']>,
   values: Record<string, unknown>
-): TextResponseFunctionCall[] | undefined {
+): AxChatResponseFunctionCall[] | undefined {
   if (!functionCalls || functionCalls.length === 0) {
     return;
   }
   if (ai.getFeatures().functions) {
-    const funcs: TextResponseFunctionCall[] = functionCalls.map((f) => ({
+    const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
       id: f.id,
       name: f.function.name,
       args: f.function.arguments as string

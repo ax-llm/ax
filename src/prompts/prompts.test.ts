@@ -2,9 +2,9 @@ import { Readable } from 'stream';
 
 import test from 'ava';
 
-import { AI, type OpenAIArgs } from '../ai/index.js';
+import { axAI, type AxOpenAIArgs } from '../ai/index.js';
 
-import { ChainOfThought } from './cot.js';
+import { AxChainOfThought } from './cot.js';
 
 const text = `The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.`;
 
@@ -45,11 +45,11 @@ const mockFetch = async (): Promise<Response> => {
 
 test('generate prompt', async (t) => {
   const options = { fetch: mockFetch };
-  const ai = AI('openai', { apiKey: 'no-key', options } as OpenAIArgs);
+  const ai = axAI('openai', { apiKey: 'no-key', options } as AxOpenAIArgs);
 
   // const ai = AI('ollama', { model: 'nous-hermes2' });
 
-  const gen = new ChainOfThought(
+  const gen = new AxChainOfThought(
     ai,
     `text -> shortSummary "summarize in 5 to 10 words"`
   );

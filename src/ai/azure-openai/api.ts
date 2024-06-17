@@ -1,47 +1,31 @@
-import type { AIServiceOptions } from '../../text/types.js';
 import {
-  OpenAI,
-  OpenAIBestConfig,
-  OpenAICreativeConfig,
-  OpenAIDefaultConfig,
-  OpenAIFastConfig
+  AxOpenAI,
+  axOpenAIBestConfig,
+  axOpenAICreativeConfig,
+  axOpenAIDefaultConfig,
+  axOpenAIFastConfig
 } from '../openai/api.js';
-import type { OpenAIConfig } from '../openai/types.js';
+import type { AxOpenAIConfig } from '../openai/types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
-/**
- * AzureOpenAI: Default Model options for text generation
- * @export
- */
-export const AzureOpenAIDefaultConfig = OpenAIDefaultConfig;
+export const axAzureOpenAIDefaultConfig = axOpenAIDefaultConfig;
 
-/**
- * AzureOpenAI: Default model options for more creative text generation
- * @export
- */
-export const AzureOpenAICreativeConfig = OpenAICreativeConfig;
+export const axAzureOpenAICreativeConfig = axOpenAICreativeConfig;
 
-/**
- * AzureOpenAI: Default model options for more fast text generation
- * @export
- */
-export const AzureOpenAIFastConfig = OpenAIFastConfig;
+export const axAzureOpenAIFastConfig = axOpenAIFastConfig;
 
-export const AzureOpenAIBestConfig = OpenAIBestConfig;
+export const axAzureOpenAIBestConfig = axOpenAIBestConfig;
 
-export interface AzureOpenAIArgs {
+export interface AxAzureOpenAIArgs {
   apiKey: string;
   resourceName: string;
   deploymentName: string;
   version?: string;
-  config: Readonly<OpenAIConfig>;
-  options?: Readonly<AIServiceOptions>;
+  config: Readonly<AxOpenAIConfig>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-/**
- * AzureOpenAI: AI Service
- * @export
- */
-export class AzureOpenAI extends OpenAI {
+export class AxAzureOpenAI extends AxOpenAI {
   constructor({
     apiKey,
     resourceName,
@@ -49,7 +33,7 @@ export class AzureOpenAI extends OpenAI {
     version = 'api-version=2024-02-15-preview',
     config,
     options
-  }: Readonly<AzureOpenAIArgs>) {
+  }: Readonly<AxAzureOpenAIArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
     }

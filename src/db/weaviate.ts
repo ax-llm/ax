@@ -1,19 +1,22 @@
 import { apiCall } from '../util/apicall.js';
 
-import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
+import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
 import type {
-  DBQueryRequest,
-  DBQueryResponse,
-  DBUpsertRequest,
-  DBUpsertResponse
+  AxDBQueryRequest,
+  AxDBQueryResponse,
+  AxDBUpsertRequest,
+  AxDBUpsertResponse
 } from './types.js';
 
-type WeaviateUpsertResponse = {
+export type AxWeaviateBaseDBArgs = AxBaseDBArgs;
+export type AxWeaviateDBOpOptions = AxBaseDBOpOptions;
+
+type AxWeaviateUpsertResponse = {
   id: string;
   result?: { errors?: { error: { message: string }[] } };
 };
 
-type WeaviateQueryResponse = {
+type AxWeaviateQueryResponse = {
   errors?: { location: string; message: string; path: string }[];
   data: {
     Get: {
@@ -24,7 +27,7 @@ type WeaviateQueryResponse = {
   };
 };
 
-export interface WeaviateArgs {
+export interface AxWeaviateArgs {
   apiKey: string;
   host: string;
   fetch?: typeof fetch;
@@ -34,7 +37,7 @@ export interface WeaviateArgs {
  * Weaviate: DB Service
  * @export
  */
-export class Weaviate extends BaseDB {
+export class AxWeaviate extends AxBaseDB {
   private apiKey: string;
   private apiURL: string;
 
@@ -43,7 +46,7 @@ export class Weaviate extends BaseDB {
     host,
     fetch,
     tracer
-  }: Readonly<WeaviateArgs & BaseArgs>) {
+  }: Readonly<AxWeaviateArgs & AxWeaviateBaseDBArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Weaviate API key not set');
     }
@@ -53,10 +56,10 @@ export class Weaviate extends BaseDB {
   }
 
   override _upsert = async (
-    req: Readonly<DBUpsertRequest>,
+    req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    options?: Readonly<AxWeaviateDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     const res = (await apiCall(
       {
         url: this.apiURL,
@@ -73,7 +76,7 @@ export class Weaviate extends BaseDB {
         vector: req.values,
         properties: req.metadata ?? {}
       }
-    )) as WeaviateUpsertResponse;
+    )) as AxWeaviateUpsertResponse;
 
     if (res?.result?.errors) {
       throw new Error(
@@ -89,10 +92,10 @@ export class Weaviate extends BaseDB {
   };
 
   override _batchUpsert = async (
-    batchReq: Readonly<DBUpsertRequest[]>,
+    batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    options?: Readonly<AxWeaviateDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     if (update) {
       throw new Error('Weaviate does not support batch update');
     }
@@ -116,7 +119,7 @@ export class Weaviate extends BaseDB {
         span: options?.span
       },
       { objects }
-    )) as WeaviateUpsertResponse[];
+    )) as AxWeaviateUpsertResponse[];
 
     if (res?.some(({ result }) => result?.errors)) {
       throw new Error(
@@ -134,9 +137,9 @@ export class Weaviate extends BaseDB {
   };
 
   override _query = async (
-    req: Readonly<DBQueryRequest>,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBQueryResponse> => {
+    req: Readonly<AxDBQueryRequest>,
+    options?: Readonly<AxWeaviateDBOpOptions>
+  ): Promise<AxDBQueryResponse> => {
     let filter = '';
 
     if (req.columns && req.columns.length === 0) {
@@ -175,7 +178,7 @@ export class Weaviate extends BaseDB {
           }
         }`
       }
-    )) as WeaviateQueryResponse;
+    )) as AxWeaviateQueryResponse;
 
     if (res.errors) {
       throw new Error(
@@ -198,6 +201,6 @@ export class Weaviate extends BaseDB {
         metadata: match
       };
     });
-    return { matches } as DBQueryResponse;
+    return { matches } as AxDBQueryResponse;
   };
 }

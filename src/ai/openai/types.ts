@@ -1,12 +1,6 @@
-import type { TextModelConfig } from '../types.js';
+import type { AxModelConfig } from '../types.js';
 
-// Transcribe = '/v1/audio/transcriptions',
-
-/**
- * OpenAI: Models for text generation
- * @export
- */
-export enum OpenAIModel {
+export enum AxOpenAIModel {
   GPT4 = 'gpt-4',
   GPT4O = 'gpt-4o',
   GPT4Turbo = 'gpt-4-turbo',
@@ -17,32 +11,15 @@ export enum OpenAIModel {
   GPT3TextAda001 = 'text-ada-001'
 }
 
-/**
- * OpenAI: Models for use in embeddings
- * @export
- */
-export enum OpenAIEmbedModels {
+export enum AxOpenAIEmbedModels {
   TextEmbeddingAda002 = 'text-embedding-ada-002',
   TextEmbedding3Small = 'text-embedding-3-small',
   TextEmbedding3Large = 'text-embedding-3-large'
 }
 
-/**
- * OpenAI: Models for for audio transcription
- * @export
- */
-export enum OpenAIAudioModel {
-  Whisper1 = 'whisper-1'
-}
-
-/**
- * OpenAI: Model options for text generation
- * @export
- */
-export type OpenAIConfig = Omit<TextModelConfig, 'topK'> & {
-  model: OpenAIModel | string;
-  embedModel?: OpenAIEmbedModels | string;
-  audioModel?: OpenAIAudioModel | string;
+export type AxOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
+  model: AxOpenAIModel | string;
+  embedModel?: AxOpenAIEmbedModels | string;
   user?: string;
   responseFormat?: 'json_object';
   bestOf?: number;
@@ -53,20 +30,20 @@ export type OpenAIConfig = Omit<TextModelConfig, 'topK'> & {
   echo?: boolean;
 };
 
-export type OpenAILogprob = {
+export type AxOpenAILogprob = {
   tokens: string[];
   token_logprobs: number[];
   top_logprobs: Map<string, number>;
   text_offset: number[];
 };
 
-export type OpenAIUsage = {
+export type AxOpenAIUsage = {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
 };
 
-export interface OpenAIResponseDelta<T> {
+export interface AxOpenAIResponseDelta<T> {
   id: string;
   object: string;
   created: number;
@@ -76,15 +53,25 @@ export interface OpenAIResponseDelta<T> {
     delta: T;
     finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
   }[];
-  usage?: OpenAIUsage;
+  usage?: AxOpenAIUsage;
   system_fingerprint: string;
 }
 
-export type OpenAIChatRequest = {
+export type AxOpenAIChatRequest = {
   model: string;
   messages: (
     | { role: 'system'; content: string }
-    | { role: 'user'; content: string; name?: string }
+    | {
+        role: 'user';
+        content:
+          | string
+          | {
+              type: 'image_url' | 'text';
+              text?: string;
+              image_url?: { url: string; details?: 'high' | 'low' | 'auto' };
+            };
+        name?: string;
+      }
     | {
         role: 'assistant';
         content: string | null;
@@ -127,7 +114,7 @@ export type OpenAIChatRequest = {
   organization?: string;
 };
 
-export type OpenAIChatResponse = {
+export type AxOpenAIChatResponse = {
   id: string;
   object: 'chat.completion';
   created: number;
@@ -146,7 +133,7 @@ export type OpenAIChatResponse = {
     };
     finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
   }[];
-  usage?: OpenAIUsage;
+  usage?: AxOpenAIUsage;
   error?: {
     message: string;
     type: string;
@@ -156,45 +143,27 @@ export type OpenAIChatResponse = {
   system_fingerprint: string;
 };
 
-export type OpenAIChatResponseDelta = OpenAIResponseDelta<{
+export type AxOpenAIChatResponseDelta = AxOpenAIResponseDelta<{
   content: string;
   role?: string;
   tool_calls?: (NonNullable<
-    OpenAIChatResponse['choices'][0]['message']['tool_calls']
+    AxOpenAIChatResponse['choices'][0]['message']['tool_calls']
   >[0] & {
     index: number;
   })[];
 }>;
 
-export type OpenAIEmbedRequest = {
+export type AxOpenAIEmbedRequest = {
   input: readonly string[];
   model: string;
   user?: string;
 };
 
-export type OpenAIEmbedResponse = {
+export type AxOpenAIEmbedResponse = {
   model: string;
   data: {
     embedding: readonly number[];
     index: number;
   }[];
-  usage: OpenAIUsage;
-};
-
-export type OpenAIAudioRequest = {
-  model: string;
-  prompt?: string;
-  response_format: 'verbose_json';
-  temperature?: number;
-  language?: string;
-};
-
-export type OpenAIAudioResponse = {
-  duration: number;
-  segments: {
-    id: number;
-    start: number;
-    end: number;
-    text: string;
-  }[];
+  usage: AxOpenAIUsage;
 };

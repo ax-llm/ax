@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export class ColorLog {
   // ANSI escape codes for different colors
   private readonly ANSI_WHITE_BRIGHT = '\x1b[97m';

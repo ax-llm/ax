@@ -1,12 +1,15 @@
-import { AI, ChainOfThought, type OpenAIArgs } from '../index.js';
+import { axAI, AxChainOfThought, type AxOpenAIArgs } from '../index.js';
 
-// const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
-const ai = AI('google-gemini', {
+// const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
+const ai = axAI('google-gemini', {
   apiKey: process.env.GOOGLE_APIKEY
-} as OpenAIArgs);
+} as AxOpenAIArgs);
 
 // setup the prompt program
-const gen = new ChainOfThought(ai, `question:string -> answerInPoints:string`);
+const gen = new AxChainOfThought(
+  ai,
+  `question:string -> answerInPoints:string`
+);
 
 // add a assertion to ensure all lines start with a number and a dot.
 gen.addStreamingAssert(

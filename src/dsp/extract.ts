@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import JSON5 from 'json5';
 
-import type { Field, Signature } from './sig.js';
+import type { AxField, AxSignature } from './sig.js';
 
 export const extractValues = (
-  sig: Readonly<Signature>,
+  sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
   content: string
 ) => {
@@ -13,12 +14,12 @@ export const extractValues = (
 };
 
 export interface extractionState {
-  currField?: Field;
+  currField?: AxField;
   s: number;
 }
 
 export const streamingExtractValues = (
-  sig: Readonly<Signature>,
+  sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
   // eslint-disable-next-line functional/prefer-immutable-types
   state: extractionState,
@@ -79,7 +80,7 @@ export const streamingExtractFinalValue = (
 };
 
 function validateAndParseJson(
-  field: Readonly<NonNullable<Field>>,
+  field: Readonly<NonNullable<AxField>>,
   jsonString: string
 ): unknown {
   const typeObj = field.type;
@@ -148,7 +149,7 @@ function validateAndParseJson(
 }
 
 export class ValidationError extends Error {
-  private field: Field;
+  private field: AxField;
   private value: string;
 
   constructor({
@@ -157,7 +158,7 @@ export class ValidationError extends Error {
     value
   }: Readonly<{
     message: string;
-    field: Field;
+    field: AxField;
     value: string;
   }>) {
     super(message);

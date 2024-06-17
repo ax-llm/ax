@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export const stopwords = new Set([
   '0o',
   '0s',

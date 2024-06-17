@@ -1,9 +1,9 @@
 import {
-  AI,
-  type AITextFunction,
-  type OpenAIArgs,
-  ReAct,
-  Signature
+  axAI,
+  type AxFunction,
+  type AxOpenAIArgs,
+  AxReAct,
+  AxSignature
 } from '../index.js';
 
 const choice = Math.round(Math.random());
@@ -22,7 +22,7 @@ const badDay = {
   humidity: 70
 };
 
-const WeatherAPI = ({ location }: Readonly<{ location: string }>) => {
+const weatherAPI = ({ location }: Readonly<{ location: string }>) => {
   const data = [
     {
       city: 'san francisco',
@@ -39,7 +39,7 @@ const WeatherAPI = ({ location }: Readonly<{ location: string }>) => {
     .map((v) => v.weather);
 };
 
-const OpentableAPI = ({
+const opentableAPI = ({
   location
 }: Readonly<{
   location: string;
@@ -98,11 +98,11 @@ const OpentableAPI = ({
 };
 
 // List of functions available to the AI
-const functions: AITextFunction[] = [
+const functions: AxFunction[] = [
   {
     name: 'getCurrentWeather',
     description: 'get the current weather for a location',
-    func: WeatherAPI,
+    func: weatherAPI,
     parameters: {
       type: 'object',
       properties: {
@@ -123,7 +123,7 @@ const functions: AITextFunction[] = [
   {
     name: 'findRestaurants',
     description: 'find restaurants in a location',
-    func: OpentableAPI,
+    func: opentableAPI,
     parameters: {
       type: 'object',
       properties: {
@@ -151,15 +151,15 @@ const functions: AITextFunction[] = [
 const customerQuery =
   "Give me an ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
 
-const sig = new Signature(
+const sig = new AxSignature(
   `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
 );
 
-const ai = AI('openai', {
+const ai = axAI('openai', {
   apiKey: process.env.OPENAI_APIKEY
-} as OpenAIArgs);
+} as AxOpenAIArgs);
 
-const gen = new ReAct(ai, sig, { functions });
+const gen = new AxReAct(ai, sig, { functions });
 const res = await gen.forward({ customerQuery }, { stream: true });
 
 console.log('>', res);

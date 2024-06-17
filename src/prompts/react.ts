@@ -1,18 +1,18 @@
-import type { GenerateOptions } from '../dsp/generate.js';
-import type { GenIn, GenOut } from '../dsp/program.js';
-import { Signature } from '../dsp/sig.js';
-import type { AIService } from '../text/types.js';
+import type { AxAIService } from '../ai/index.js';
+import type { AxGenerateOptions } from '../dsp/generate.js';
+import type { AxGenIn, AxGenOut } from '../dsp/program.js';
+import { AxSignature } from '../dsp/sig.js';
 
-import { ChainOfThought } from './cot.js';
+import { AxChainOfThought } from './cot.js';
 
-export class ReAct<
-  IN extends GenIn = GenIn,
-  OUT extends GenOut = GenOut
-> extends ChainOfThought<IN, OUT> {
+export class AxReAct<
+  IN extends AxGenIn = AxGenIn,
+  OUT extends AxGenOut = AxGenOut
+> extends AxChainOfThought<IN, OUT> {
   constructor(
-    ai: AIService,
-    signature: Readonly<Signature | string>,
-    options: Readonly<GenerateOptions>
+    ai: AxAIService,
+    signature: Readonly<AxSignature | string>,
+    options: Readonly<AxGenerateOptions>
   ) {
     if (!options?.functions || options.functions.length === 0) {
       throw new Error('No functions provided');
@@ -21,7 +21,7 @@ export class ReAct<
     const functions = [...options.functions];
     const funcList = functions.map((f) => `'${f.name}'`).join(', ');
 
-    const sig = new Signature(signature);
+    const sig = new AxSignature(signature);
     sig.setDescription(
       `Use the provided functions ${funcList} to complete the task and return the result if any.`
     );

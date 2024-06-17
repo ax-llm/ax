@@ -1,16 +1,18 @@
 import {
-  AI,
-  ChainOfThought,
-  emScore,
-  HFDataLoader,
-  type MetricFn,
-  type OpenAIArgs,
-  TestPrompt
+  axAI,
+  AxChainOfThought,
+  axEvalUtil,
+  AxHFDataLoader,
+  type AxMetricFn,
+  type AxOpenAIArgs,
+  AxTestPrompt
 } from '../index.js';
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
+} as AxOpenAIArgs);
 
-const program = new ChainOfThought<{ question: string }, { answer: string }>(
+const program = new AxChainOfThought<{ question: string }, { answer: string }>(
   ai,
   `question -> answer "in short 2 or 3 words"`
 );
@@ -24,7 +26,7 @@ const program = new ChainOfThought<{ question: string }, { answer: string }>(
 // });
 
 // or test to see performance
-const hf = new HFDataLoader();
+const hf = new AxHFDataLoader();
 const examples = await hf.getData<{ question: string; answer: string }>({
   dataset: 'hotpot_qa',
   split: 'validation',
@@ -33,11 +35,14 @@ const examples = await hf.getData<{ question: string; answer: string }>({
 });
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
-const metricFn: MetricFn = ({ prediction, example }) => {
-  return emScore(prediction.answer as string, example.answer as string);
+const metricFn: AxMetricFn = ({ prediction, example }) => {
+  return axEvalUtil.emScore(
+    prediction.answer as string,
+    example.answer as string
+  );
 };
 
-const ev = new TestPrompt({ program, examples });
+const ev = new AxTestPrompt({ program, examples });
 await ev.run(metricFn);
 
 // console.log(res);

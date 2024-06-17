@@ -1,18 +1,18 @@
-import { Generate, type GenerateOptions } from '../dsp/generate.js';
-import type { GenIn, GenOut } from '../dsp/program.js';
-import { Signature } from '../dsp/sig.js';
-import type { AIService } from '../text/types.js';
+import type { AxAIService } from '../ai/types.js';
+import { AxGenerate, type AxGenerateOptions } from '../dsp/generate.js';
+import type { AxGenIn, AxGenOut } from '../dsp/program.js';
+import { AxSignature } from '../dsp/sig.js';
 
-export class ChainOfThought<
-  IN extends GenIn = GenIn,
-  OUT extends GenOut = GenOut
-> extends Generate<IN, OUT & { reason: string }> {
+export class AxChainOfThought<
+  IN extends AxGenIn = AxGenIn,
+  OUT extends AxGenOut = AxGenOut
+> extends AxGenerate<IN, OUT & { reason: string }> {
   constructor(
-    ai: AIService,
-    signature: Readonly<Signature | string>,
-    options?: Readonly<GenerateOptions>
+    ai: AxAIService,
+    signature: Readonly<AxSignature | string>,
+    options?: Readonly<AxGenerateOptions>
   ) {
-    const sig = new Signature(signature);
+    const sig = new AxSignature(signature);
     const description = `Let's work this out in a step by step way in order to ensure we have the right answer.`;
 
     sig.setOutputFields([

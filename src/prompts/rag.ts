@@ -1,19 +1,19 @@
+import type { AxAIService } from '../ai/types.js';
 import {
-  dedup,
-  Generate,
-  type GenerateOptions,
-  Signature
+  AxGenerate,
+  type AxGenerateOptions,
+  AxSignature,
+  axStringUtil
 } from '../dsp/index.js';
-import { type ProgramForwardOptions } from '../dsp/program.js';
-import type { AIService } from '../text/types.js';
+import { type AxProgramForwardOptions } from '../dsp/program.js';
 
-import { ChainOfThought } from './cot.js';
+import { AxChainOfThought } from './cot.js';
 
-export class RAG extends ChainOfThought<
+export class AxRAG extends AxChainOfThought<
   { context: string[]; question: string },
   { answer: string }
 > {
-  private genQuery: Generate<
+  private genQuery: AxGenerate<
     { context: string[]; question: string },
     { query: string }
   >;
@@ -21,9 +21,9 @@ export class RAG extends ChainOfThought<
   private maxHops: number;
 
   constructor(
-    ai: AIService,
+    ai: AxAIService,
     queryFn: (query: string) => Promise<string>,
-    options: Readonly<GenerateOptions & { maxHops?: number }>
+    options: Readonly<AxGenerateOptions & { maxHops?: number }>
   ) {
     const sig =
       '"Answer questions with short factoid answers." context:string[] "may contain relevant facts", question -> answer';
@@ -31,10 +31,10 @@ export class RAG extends ChainOfThought<
 
     this.maxHops = options?.maxHops ?? 3;
 
-    const qsig = new Signature(
+    const qsig = new AxSignature(
       '"Write a simple search query that will help answer a complex question." context?:string[] "may contain relevant facts", question -> query "question to further our understanding"'
     );
-    this.genQuery = new Generate<
+    this.genQuery = new AxGenerate<
       { context: string[]; question: string },
       { query: string }
     >(ai, qsig);
@@ -44,7 +44,7 @@ export class RAG extends ChainOfThought<
 
   public override async forward(
     { question }: Readonly<{ question: string }>,
-    options?: Readonly<ProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions>
   ): Promise<{ answer: string; reason: string }> {
     let context: string[] = [];
 
@@ -57,7 +57,7 @@ export class RAG extends ChainOfThought<
         options
       );
       const val = await this.queryFn(query);
-      context = dedup([...context, val]);
+      context = axStringUtil.dedup([...context, val]);
     }
 
     return super.forward({ context, question }, options);

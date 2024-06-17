@@ -1,79 +1,83 @@
 import { readFileSync } from 'fs';
 
-import type { TextModelConfig, TextResponse } from '../ai/types.js';
-import type { AIMemory, AIService } from '../text/types.js';
-import type { Tracer } from '../trace/index.js';
+import type {
+  AxAIService,
+  AxChatResponse,
+  AxModelConfig
+} from '../ai/types.js';
+import type { AxAIMemory } from '../mem/types.js';
+import type { AxTracer } from '../trace/index.js';
 
-import { InstanceRegistry } from './registry.js';
-import { type Field } from './sig.js';
+import { AxInstanceRegistry } from './registry.js';
+import { mergeProgramUsage } from './util.js';
 
-export type Value = string | string[] | number | boolean | object;
+export type AxFieldValue = string | string[] | number | boolean | object;
 
-export type GenIn = Record<string, Value>;
-export type GenOut = Record<string, Value>;
+export type AxGenIn = Record<string, AxFieldValue>;
+export type AxGenOut = Record<string, AxFieldValue>;
 
-export type ProgramTrace = {
+export type AxProgramTrace = {
   //   examples: Record<string, Value>[];
-  trace: Record<string, Value>;
+  trace: Record<string, AxFieldValue>;
   key: string;
 };
 
-export type ProgramDemos = {
+export type AxProgramDemos = {
   //   examples: Record<string, Value>[];
-  traces: Record<string, Value>[];
+  traces: Record<string, AxFieldValue>[];
   key: string;
 };
 
-export type ProgramForwardOptions = {
+export type AxProgramForwardOptions = {
   maxCompletions?: number;
   maxRetries?: number;
   maxSteps?: number;
-  mem?: AIMemory;
-  ai?: AIService;
-  modelConfig?: TextModelConfig;
+  mem?: AxAIMemory;
+  ai?: AxAIService;
+  modelConfig?: AxModelConfig;
   sessionId?: string;
   traceId?: string | undefined;
-  tracer?: Tracer;
+  tracer?: AxTracer;
   stream?: boolean;
   debug?: boolean;
 };
 
-export interface ITunable {
-  setExamples: (examples: Readonly<Record<string, Value>[]>) => void;
-  setTrace: (trace: Record<string, Value>) => void;
+export interface AxTunable {
+  setExamples: (examples: Readonly<Record<string, AxFieldValue>[]>) => void;
+  setTrace: (trace: Record<string, AxFieldValue>) => void;
   updateKey: (parentKey: string) => void;
-  getTraces: () => ProgramTrace[];
-  setDemos: (demos: readonly ProgramDemos[]) => void;
+  getTraces: () => AxProgramTrace[];
+  setDemos: (demos: readonly AxProgramDemos[]) => void;
   loadDemos: (filename: string) => void;
 }
 
-export interface IUsable {
-  getUsage: () => ProgramUsage[];
+export interface AxUsable {
+  getUsage: () => AxProgramUsage[];
   resetUsage: () => void;
 }
 
-export type ProgramUsage = TextResponse['modelUsage'] & {
+export type AxProgramUsage = AxChatResponse['modelUsage'] & {
   ai: string;
   model: string;
 };
 
-export class Program<IN extends GenIn, OUT extends GenOut>
-  implements ITunable, IUsable
+export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
+  implements AxTunable, AxUsable
 {
   private key: string;
-  private reg: InstanceRegistry<Readonly<ITunable & IUsable>>;
+  private reg: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>;
 
-  protected examples?: Record<string, Value>[];
-  protected demos?: Record<string, Value>[];
-  protected trace?: Record<string, Value>;
-  protected usage: ProgramUsage[] = [];
+  protected examples?: Record<string, AxFieldValue>[];
+  protected demos?: Record<string, AxFieldValue>[];
+  protected trace?: Record<string, AxFieldValue>;
+  protected usage: AxProgramUsage[] = [];
 
   constructor() {
-    this.reg = new InstanceRegistry();
+    this.reg = new AxInstanceRegistry();
     this.key = this.constructor.name;
   }
 
-  public register(prog: Readonly<ITunable & IUsable>) {
+  public register(prog: Readonly<AxTunable & AxUsable>) {
     if (this.key) {
       prog.updateKey(this.key);
     }
@@ -84,18 +88,18 @@ export class Program<IN extends GenIn, OUT extends GenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _arg0: IN,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<ProgramForwardOptions>
+    _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     throw new Error('forward() not implemented');
   }
 
-  public setExamples(examples: Readonly<Record<string, Value>[]>) {
+  public setExamples(examples: Readonly<Record<string, AxFieldValue>[]>) {
     for (const inst of this.reg) {
       inst.setExamples(examples);
     }
   }
 
-  public setTrace(trace: Record<string, Value>) {
+  public setTrace(trace: Record<string, AxFieldValue>) {
     this.trace = trace;
   }
 
@@ -103,8 +107,8 @@ export class Program<IN extends GenIn, OUT extends GenOut>
     this.key = [parentKey, this.key].join('/');
   }
 
-  public getTraces(): ProgramTrace[] {
-    let traces: ProgramTrace[] = [];
+  public getTraces(): AxProgramTrace[] {
+    let traces: AxProgramTrace[] = [];
 
     if (this.trace) {
       traces.push({
@@ -121,8 +125,8 @@ export class Program<IN extends GenIn, OUT extends GenOut>
     return traces;
   }
 
-  public getUsage(): ProgramUsage[] {
-    let usage: ProgramUsage[] = [...(this.usage ?? [])];
+  public getUsage(): AxProgramUsage[] {
+    let usage: AxProgramUsage[] = [...(this.usage ?? [])];
 
     for (const inst of this.reg) {
       const cu = inst.getUsage();
@@ -138,7 +142,7 @@ export class Program<IN extends GenIn, OUT extends GenOut>
     }
   }
 
-  public setDemos(demos: readonly ProgramDemos[]) {
+  public setDemos(demos: readonly AxProgramDemos[]) {
     const ourDemos = demos.find((v) => v.key === this.key);
     this.demos = ourDemos?.traces;
 
@@ -151,70 +155,4 @@ export class Program<IN extends GenIn, OUT extends GenOut>
     const buf = readFileSync(filename, 'utf-8');
     this.setDemos(JSON.parse(buf));
   }
-}
-
-export const validateValue = (
-  field: Readonly<Field>,
-  value: Readonly<Value>
-): void => {
-  const ft = field.type ?? { name: 'string', isArray: false };
-
-  const validateSingleValue = (
-    expectedType: string,
-    val: Readonly<Value>
-  ): boolean => {
-    switch (expectedType) {
-      case 'string':
-        return typeof val === 'string';
-      case 'number':
-        return typeof val === 'number';
-      case 'boolean':
-        return typeof val === 'boolean';
-      default:
-        return false; // Unknown or unsupported type
-    }
-  };
-
-  let isValid = true;
-  if (ft.isArray) {
-    if (!Array.isArray(value)) {
-      isValid = false;
-    } else {
-      for (const item of value) {
-        if (!validateSingleValue(ft.name, item)) {
-          isValid = false;
-          break;
-        }
-      }
-    }
-  } else {
-    isValid = validateSingleValue(ft.name, value);
-  }
-
-  if (!isValid) {
-    throw new Error(
-      `Validation failed: Expected '${field.name}' to be a ${ft.isArray ? 'an array of ' : ''}${
-        ft.name
-      } instead got '${value}'`
-    );
-  }
-};
-
-function mergeProgramUsage(usages: readonly ProgramUsage[]): ProgramUsage[] {
-  const usageMap: { [key: string]: ProgramUsage } = {};
-
-  usages.forEach((usage) => {
-    const key = `${usage.ai}:${usage.model}`;
-
-    if (!usageMap[key]) {
-      usageMap[key] = { ...usage };
-      return;
-    }
-
-    usageMap[key]!.promptTokens += usage.promptTokens;
-    usageMap[key]!.completionTokens += usage.completionTokens;
-    usageMap[key]!.totalTokens += usage.totalTokens;
-  });
-
-  return Object.values(usageMap);
 }

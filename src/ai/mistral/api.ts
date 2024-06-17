@@ -1,48 +1,37 @@
-import type { AIServiceOptions } from '../../text/types.js';
-import { BaseAIDefaultConfig } from '../base.js';
-import { OpenAI } from '../openai/api.js';
-import type { OpenAIConfig } from '../openai/types.js';
+import { axBaseAIDefaultConfig } from '../base.js';
+import { AxOpenAI } from '../openai/api.js';
+import type { AxOpenAIConfig } from '../openai/types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
-import { MistralModel } from './types.js';
+import { axModelInfoMistral } from './info.js';
+import { AxMistralModel } from './types.js';
 
-type MistralConfig = OpenAIConfig;
+type MistralConfig = AxOpenAIConfig;
 
-/**
- * Mistral: Default Model options for text generation
- * @export
- */
-export const MistralDefaultConfig = (): MistralConfig =>
+export const axMistralDefaultConfig = (): MistralConfig =>
   structuredClone({
-    model: MistralModel.MistralSmall,
-    ...BaseAIDefaultConfig()
+    model: AxMistralModel.MistralSmall,
+    ...axBaseAIDefaultConfig()
   });
 
-/**
- * Mistral: Default model options to use the more advanced model
- * @export
- */
-export const MistralBestConfig = (): OpenAIConfig =>
+export const axMistralBestConfig = (): AxOpenAIConfig =>
   structuredClone({
-    ...MistralDefaultConfig(),
-    model: MistralModel.MistralLarge
+    ...axMistralDefaultConfig(),
+    model: AxMistralModel.MistralLarge
   });
 
-export interface MistralArgs {
+export interface AxMistralArgs {
   apiKey: string;
   config: Readonly<MistralConfig>;
-  options?: Readonly<AIServiceOptions>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-/**
- * Mistral: AI Service
- * @export
- */
-export class Mistral extends OpenAI {
+export class AxMistral extends AxOpenAI {
   constructor({
     apiKey,
-    config = MistralDefaultConfig(),
+    config = axMistralDefaultConfig(),
     options
-  }: Readonly<MistralArgs>) {
+  }: Readonly<AxMistralArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set');
     }
@@ -51,7 +40,8 @@ export class Mistral extends OpenAI {
       apiKey,
       config,
       options,
-      apiURL: 'https://api.mistral.ai/v1'
+      apiURL: 'https://api.mistral.ai/v1',
+      modelInfo: axModelInfoMistral
     });
 
     super.setName('Mistral');

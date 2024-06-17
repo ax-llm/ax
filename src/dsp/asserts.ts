@@ -1,20 +1,20 @@
 import type { extractionState } from './extract.js';
-import type { Signature } from './sig.js';
+import type { AxSignature } from './sig.js';
 
-export interface Assertion {
+export interface AxAssertion {
   fn(values: Record<string, unknown>): boolean | undefined;
   message?: string;
   optional?: boolean;
 }
 
-export interface StreamingAssertion {
+export interface AxStreamingAssertion {
   fieldName: string;
   fn(content: string): boolean | undefined;
   message?: string;
   optional?: boolean;
 }
 
-export class AssertionError extends Error {
+export class AxAssertionError extends Error {
   private values: Record<string, unknown>;
   private optional?: boolean;
 
@@ -37,7 +37,7 @@ export class AssertionError extends Error {
   public getOptional = () => this.optional;
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public getFixingInstructions = (_sig: Readonly<Signature>) => {
+  public getFixingInstructions = (_sig: Readonly<AxSignature>) => {
     const extraFields = [];
 
     // for (const f of sig.getOutputFields()) {
@@ -58,8 +58,9 @@ export class AssertionError extends Error {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export const assertAssertions = (
-  asserts: readonly Assertion[],
+  asserts: readonly AxAssertion[],
   values: Record<string, unknown>
 ) => {
   for (const assert of asserts) {
@@ -72,17 +73,18 @@ export const assertAssertions = (
       }
 
       if (!res && message) {
-        throw new AssertionError({ message, values, optional });
+        throw new AxAssertionError({ message, values, optional });
       }
     } catch (e) {
       const message = (e as Error).message;
-      throw new AssertionError({ message, values, optional });
+      throw new AxAssertionError({ message, values, optional });
     }
   }
 };
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export const assertStreamingAssertions = (
-  asserts: readonly StreamingAssertion[],
+  asserts: readonly AxStreamingAssertion[],
   values: Record<string, unknown>,
   xstate: Readonly<extractionState>,
   content: string
@@ -116,23 +118,24 @@ export const assertStreamingAssertions = (
       }
 
       if (!res && message) {
-        throw new AssertionError({ message, values, optional });
+        throw new AxAssertionError({ message, values, optional });
       }
     } catch (e) {
       const message = (e as Error).message;
-      throw new AssertionError({ message, values, optional });
+      throw new AxAssertionError({ message, values, optional });
     }
   }
 };
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export const assertRequiredFields = (
-  sig: Readonly<Signature>,
+  sig: Readonly<AxSignature>,
   values: Record<string, unknown>
 ) => {
   const fields = sig.getOutputFields();
   const missingFields = fields.filter((f) => !(f.name in values));
   if (missingFields.length > 0) {
-    throw new AssertionError({
+    throw new AxAssertionError({
       message: `Missing required fields: ${missingFields.map((f) => f.name).join(', ')}`,
       values
     });

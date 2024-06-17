@@ -1,48 +1,40 @@
-import type { AIServiceOptions } from '../../text/types.js';
-import { BaseAIDefaultConfig, BaseAIDefaultCreativeConfig } from '../base.js';
-import { OpenAI } from '../openai/api.js';
-import type { OpenAIConfig } from '../openai/types.js';
+import {
+  axBaseAIDefaultConfig,
+  axBaseAIDefaultCreativeConfig
+} from '../base.js';
+import { AxOpenAI } from '../openai/api.js';
+import type { AxOpenAIConfig } from '../openai/types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
-import { DeepSeekModel } from './types.js';
+import { axModelInfoDeepSeek } from './info.js';
+import { AxDeepSeekModel } from './types.js';
 
-type DeepSeekConfig = OpenAIConfig;
+type DeepSeekConfig = AxOpenAIConfig;
 
-/**
- * DeepSeek: Default Model options for text generation
- * @export
- */
-export const DeepSeekDefaultConfig = (): DeepSeekConfig =>
+export const axDeepSeekDefaultConfig = (): DeepSeekConfig =>
   structuredClone({
-    model: DeepSeekModel.DeepSeekChat,
-    ...BaseAIDefaultConfig()
+    model: AxDeepSeekModel.DeepSeekChat,
+    ...axBaseAIDefaultConfig()
   });
 
-/**
- * DeepSeek: Default Model options for text generation
- * @export
- */
-export const DeepSeekCodeConfig = (): DeepSeekConfig =>
+export const axDeepSeekCodeConfig = (): DeepSeekConfig =>
   structuredClone({
-    model: DeepSeekModel.DeepSeekCoder,
-    ...BaseAIDefaultCreativeConfig()
+    model: AxDeepSeekModel.DeepSeekCoder,
+    ...axBaseAIDefaultCreativeConfig()
   });
 
-export interface DeepSeekArgs {
+export interface AxDeepSeekArgs {
   apiKey: string;
   config: Readonly<DeepSeekConfig>;
-  options?: Readonly<AIServiceOptions>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-/**
- * DeepSeek: AI Service
- * @export
- */
-export class DeepSeek extends OpenAI {
+export class AxDeepSeek extends AxOpenAI {
   constructor({
     apiKey,
-    config = DeepSeekDefaultConfig(),
+    config = axDeepSeekDefaultConfig(),
     options
-  }: Readonly<DeepSeekArgs>) {
+  }: Readonly<AxDeepSeekArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('DeepSeek API key not set');
     }
@@ -51,7 +43,8 @@ export class DeepSeek extends OpenAI {
       apiKey,
       config,
       options,
-      apiURL: 'https://api.deepseek.com'
+      apiURL: 'https://api.deepseek.com',
+      modelInfo: axModelInfoDeepSeek
     });
 
     super.setName('DeepSeek');

@@ -8,8 +8,8 @@ export * from './loader.js';
 export * from './strutil.js';
 export * from './router.js';
 
-export type { Assertion, StreamingAssertion } from './asserts.js';
-export type { PromptTemplate, FieldTemplateFn } from './prompt.js';
-export type { InstanceRegistry } from './registry.js';
-export type { ResponseHandlerArgs } from './generate.js';
+export type { AxAssertion, AxStreamingAssertion } from './asserts.js';
+export type { AxPromptTemplate, AxFieldTemplateFn } from './prompt.js';
+export type { AxInstanceRegistry } from './registry.js';
+export type { AxResponseHandlerArgs } from './generate.js';
 export type { ParsedField, ParsedIdentifier } from './parser.js';

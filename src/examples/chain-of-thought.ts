@@ -1,8 +1,10 @@
-import { AI, ChainOfThought, type OpenAIArgs } from '../index.js';
+import { axAI, AxChainOfThought, type AxOpenAIArgs } from '../index.js';
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
+} as AxOpenAIArgs);
 ai.setOptions({ debug: true });
-const cot = new ChainOfThought(
+const cot = new AxChainOfThought(
   ai,
   `
   context:string[] "Information to answer the question",

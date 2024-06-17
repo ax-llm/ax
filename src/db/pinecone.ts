@@ -1,14 +1,17 @@
 import { apiCall } from '../util/apicall.js';
 
-import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
+import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
 import type {
-  DBQueryRequest,
-  DBQueryResponse,
-  DBUpsertRequest,
-  DBUpsertResponse
+  AxDBQueryRequest,
+  AxDBQueryResponse,
+  AxDBUpsertRequest,
+  AxDBUpsertResponse
 } from './types.js';
 
-type PineconeQueryRequest = {
+export type AxPineconeBaseDBArgs = AxBaseDBArgs;
+export type AxPineconeDBOpOptions = AxBaseDBOpOptions;
+
+type AxPineconeQueryRequest = {
   namespace?: string;
   topK: number;
   filter?: Record<string, string>;
@@ -18,7 +21,7 @@ type PineconeQueryRequest = {
   id?: string;
 };
 
-type PineconeQueryResponse = {
+type AxPineconeQueryResponse = {
   matches: {
     id: string;
     score: number;
@@ -28,9 +31,9 @@ type PineconeQueryResponse = {
 };
 
 const createPineconeQueryRequest = (
-  req: Readonly<DBQueryRequest>
-): PineconeQueryRequest => {
-  const pineconeQueryRequest: PineconeQueryRequest = {
+  req: Readonly<AxDBQueryRequest>
+): AxPineconeQueryRequest => {
+  const pineconeQueryRequest: AxPineconeQueryRequest = {
     namespace: req.namespace,
     topK: req.limit || 10,
     filter: {},
@@ -43,7 +46,7 @@ const createPineconeQueryRequest = (
   return pineconeQueryRequest;
 };
 
-export interface PineconeArgs {
+export interface AxPineconeArgs {
   apiKey: string;
   host: string;
   fetch?: typeof fetch;
@@ -53,7 +56,7 @@ export interface PineconeArgs {
  * Pinecone: DB Service
  * @export
  */
-export class Pinecone extends BaseDB {
+export class AxPinecone extends AxBaseDB {
   private apiKey: string;
   private apiURL: string;
 
@@ -62,7 +65,7 @@ export class Pinecone extends BaseDB {
     host,
     fetch,
     tracer
-  }: Readonly<PineconeArgs & BaseArgs>) {
+  }: Readonly<AxPineconeArgs & AxPineconeBaseDBArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Pinecone API key not set');
     }
@@ -72,19 +75,19 @@ export class Pinecone extends BaseDB {
   }
 
   override _upsert = async (
-    req: Readonly<DBUpsertRequest>,
+    req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    options?: Readonly<AxPineconeDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     await this._batchUpsert([req], update, options);
     return { ids: [req.id] };
   };
 
   override _batchUpsert = async (
-    batchReq: Readonly<DBUpsertRequest[]>,
+    batchReq: Readonly<AxDBUpsertRequest[]>,
     _update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    options?: Readonly<AxPineconeDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     if (batchReq.length === 0) {
       throw new Error('Batch request is empty');
     }
@@ -107,9 +110,9 @@ export class Pinecone extends BaseDB {
   };
 
   override query = async (
-    req: Readonly<DBQueryRequest>,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBQueryResponse> => {
+    req: Readonly<AxDBQueryRequest>,
+    options?: Readonly<AxBaseDBOpOptions>
+  ): Promise<AxDBQueryResponse> => {
     if (req.text) {
       throw new Error('Pinecone does not support text');
     }
@@ -123,7 +126,7 @@ export class Pinecone extends BaseDB {
         span: options?.span
       },
       createPineconeQueryRequest(req)
-    )) as PineconeQueryResponse;
+    )) as AxPineconeQueryResponse;
 
     const matches = res.matches.map(({ id, score, values, metadata }) => ({
       id,

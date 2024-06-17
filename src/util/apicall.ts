@@ -4,7 +4,7 @@ import {
   TextDecoderStream as TextDecoderStreamNative
 } from 'stream/web';
 
-import type { Span } from '../trace/index.js';
+import type { AxSpan } from '../trace/index.js';
 
 import { TextDecoderStreamPolyfill } from './stream.js';
 import { JSONStringifyStream } from './transform.js';
@@ -13,14 +13,16 @@ import { JSONStringifyStream } from './transform.js';
  * Util: API details
  * @export
  */
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export type API = {
   name?: string;
   headers?: Record<string, string>;
   put?: boolean;
 };
 
-const TextDecoderStream = TextDecoderStreamNative ?? TextDecoderStreamPolyfill;
+const textDecoderStream = TextDecoderStreamNative ?? TextDecoderStreamPolyfill;
 
+// eslint-disable-next-line @typescript-eslint/naming-convention
 export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   api: Readonly<
     API & {
@@ -28,7 +30,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       stream?: boolean;
       debug?: boolean;
       fetch?: typeof fetch;
-      span?: Span;
+      span?: AxSpan;
     }
   >,
   json: TRequest
@@ -68,7 +70,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     }
   } catch (e) {
     if (api.span?.isRecording()) {
-      api.span.recordException(e as Error);
+      api.span.recordAxSpanException(e as Error);
     }
     throw new Error(`API Error: ${apiUrl.href}, ${e}`);
   }
@@ -78,7 +80,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   }
 
   const st = res.body
-    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new textDecoderStream())
     .pipeThrough(new JSONStringifyStream<TResponse>());
 
   return st;

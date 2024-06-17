@@ -1,8 +1,5 @@
 import { stopwords } from './stopwords.js';
 
-// Define a simple Counter type for token counts
-export type Counter = { [key: string]: number };
-
 /**
  * Filters out tokens based on a set of exclusion tokens.
  *
@@ -27,8 +24,8 @@ function filterTokens(
  * @param tokens An array of string tokens.
  * @returns A Counter object mapping each token to its count.
  */
-export function countTokens(tokens: readonly string[]): Counter {
-  const counter: Counter = {};
+function countTokens(tokens: readonly string[]): Record<string, number> {
+  const counter: Record<string, number> = {};
   for (const token of tokens) {
     counter[token] = (counter[token] || 0) + 1;
   }
@@ -45,7 +42,7 @@ export function countTokens(tokens: readonly string[]): Counter {
  * @param s A string to be normalized.
  * @returns A normalized string.
  */
-export function normalizeText(s: string): string {
+function normalizeText(s: string): string {
   s = s.normalize('NFD');
   s = s.replace(/\b(a|an|the)\b/g, ' ');
   s = s.split(/\s+/).join(' ');
@@ -63,7 +60,7 @@ export function normalizeText(s: string): string {
  * @param groundTruth The actual correct text.
  * @returns A boolean indicating if the prediction exactly matches the ground truth.
  */
-export function emScore(prediction: string, groundTruth: string): boolean {
+function emScore(prediction: string, groundTruth: string): boolean {
   return normalizeText(prediction) === normalizeText(groundTruth);
 }
 
@@ -78,7 +75,7 @@ export function emScore(prediction: string, groundTruth: string): boolean {
  * @param groundTruth The actual correct text.
  * @returns The F1 score as a number.
  */
-export function f1Score(prediction: string, groundTruth: string): number {
+function f1Score(prediction: string, groundTruth: string): number {
   const predictionTokens = normalizeText(prediction).split(' ');
   const groundTruthTokens = normalizeText(groundTruth).split(' ');
 
@@ -114,7 +111,7 @@ export function f1Score(prediction: string, groundTruth: string): number {
  * @param returnRecall Optionally return the recall score instead of F1.
  * @returns The novel F1 or recall score as a number.
  */
-export function novelF1ScoreOptimized(
+function novelF1ScoreOptimized(
   history: string,
   prediction: string,
   groundTruth: string,
@@ -142,3 +139,9 @@ export function novelF1ScoreOptimized(
 
   return returnRecall ? recall : f1;
 }
+
+export const axEvalUtil = {
+  emScore,
+  f1Score,
+  novelF1ScoreOptimized
+};

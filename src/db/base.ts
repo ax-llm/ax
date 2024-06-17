@@ -1,82 +1,85 @@
 import {
-  type Span,
-  SpanAttributes,
-  SpanKind,
-  type Tracer
+  type AxSpan,
+  axSpanAttributes,
+  AxSpanKind,
+  type AxTracer
 } from '../trace/index.js';
 
 import type {
-  DBQueryRequest,
-  DBQueryResponse,
-  DBService,
-  DBUpsertRequest,
-  DBUpsertResponse
+  AxDBQueryRequest,
+  AxDBQueryResponse,
+  AxDBService,
+  AxDBUpsertRequest,
+  AxDBUpsertResponse
 } from './types.js';
 
-export interface BaseArgs {
+export interface AxBaseDBArgs {
   fetch?: typeof fetch;
-  tracer?: Tracer;
+  tracer?: AxTracer;
 }
 
-export interface BaseOpOptions {
-  span?: Span;
+export interface AxBaseDBOpOptions {
+  span?: AxSpan;
 }
 
-export class BaseDB implements DBService {
+export class AxBaseDB implements AxDBService {
   protected name: string;
   protected fetch?: typeof fetch;
-  private tracer?: Tracer;
+  private tracer?: AxTracer;
 
   _upsert?: (
-    req: Readonly<DBUpsertRequest>,
+    req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ) => Promise<DBUpsertResponse>;
+    options?: Readonly<AxBaseDBOpOptions>
+  ) => Promise<AxDBUpsertResponse>;
 
   _batchUpsert?: (
-    batchReq: Readonly<DBUpsertRequest[]>,
+    batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ) => Promise<DBUpsertResponse>;
+    options?: Readonly<AxBaseDBOpOptions>
+  ) => Promise<AxDBUpsertResponse>;
 
   _query?: (
-    req: Readonly<DBQueryRequest>,
-    options?: Readonly<BaseOpOptions>
-  ) => Promise<DBQueryResponse>;
+    req: Readonly<AxDBQueryRequest>,
+    options?: Readonly<AxBaseDBOpOptions>
+  ) => Promise<AxDBQueryResponse>;
 
-  constructor({ name, fetch, tracer }: Readonly<BaseArgs & { name: string }>) {
+  constructor({
+    name,
+    fetch,
+    tracer
+  }: Readonly<AxBaseDBArgs & { name: string }>) {
     this.name = name;
     this.fetch = fetch;
     this.tracer = tracer;
   }
 
   async upsert(
-    req: Readonly<DBUpsertRequest>,
+    req: Readonly<AxDBUpsertRequest>,
     update?: boolean
-  ): Promise<DBUpsertResponse> {
+  ): Promise<AxDBUpsertResponse> {
     if (!this._upsert) {
       throw new Error('upsert() not implemented');
     }
-    const _upsert = this._upsert;
 
     if (!this.tracer) {
-      return await _upsert(req, update);
+      return await this._upsert(req, update);
     }
 
     return await this.tracer?.startActiveSpan(
       'DB Upsert Request',
       {
-        kind: SpanKind.SERVER,
+        kind: AxSpanKind.SERVER,
         attributes: {
-          [SpanAttributes.DB_SYSTEM]: this.name,
-          [SpanAttributes.DB_OPERATION_NAME]: 'upsert',
-          [SpanAttributes.DB_TABLE]: req.table,
-          [SpanAttributes.DB_NAMESPACE]: req.namespace,
-          [SpanAttributes.DB_OPERATION_NAME]: update ? 'update' : 'insert'
+          [axSpanAttributes.DB_SYSTEM]: this.name,
+          [axSpanAttributes.DB_OPERATION_NAME]: 'upsert',
+          [axSpanAttributes.DB_TABLE]: req.table,
+          [axSpanAttributes.DB_NAMESPACE]: req.namespace,
+          [axSpanAttributes.DB_OPERATION_NAME]: update ? 'update' : 'insert'
         }
       },
       async (span) => {
-        const res = await _upsert(req, update, { span });
+        const res = await this._upsert!(req, update, { span });
         span.end();
         return res;
       }
@@ -84,9 +87,9 @@ export class BaseDB implements DBService {
   }
 
   async batchUpsert(
-    req: Readonly<DBUpsertRequest[]>,
+    req: Readonly<AxDBUpsertRequest[]>,
     update?: boolean
-  ): Promise<DBUpsertResponse> {
+  ): Promise<AxDBUpsertResponse> {
     if (!this._batchUpsert) {
       throw new Error('batchUpsert() not implemented');
     }
@@ -97,56 +100,52 @@ export class BaseDB implements DBService {
       throw new Error('Batch request is invalid first element is undefined');
     }
 
-    const _batchUpsert = this._batchUpsert;
-
     if (!this.tracer) {
-      return await _batchUpsert(req, update);
+      return await this._batchUpsert(req, update);
     }
 
     return await this.tracer?.startActiveSpan(
       'DB Batch Upsert Request',
       {
-        kind: SpanKind.SERVER,
+        kind: AxSpanKind.SERVER,
         attributes: {
-          [SpanAttributes.DB_SYSTEM]: this.name,
-          [SpanAttributes.DB_OPERATION_NAME]: 'upsert',
-          [SpanAttributes.DB_TABLE]: req[0].table,
-          [SpanAttributes.DB_NAMESPACE]: req[0].namespace,
-          [SpanAttributes.DB_OPERATION_NAME]: update ? 'update' : 'insert'
+          [axSpanAttributes.DB_SYSTEM]: this.name,
+          [axSpanAttributes.DB_OPERATION_NAME]: 'upsert',
+          [axSpanAttributes.DB_TABLE]: req[0].table,
+          [axSpanAttributes.DB_NAMESPACE]: req[0].namespace,
+          [axSpanAttributes.DB_OPERATION_NAME]: update ? 'update' : 'insert'
         }
       },
       async (span) => {
-        const res = await _batchUpsert(req, update, { span });
+        const res = await this._batchUpsert!(req, update, { span });
         span.end();
         return res;
       }
     );
   }
 
-  async query(req: Readonly<DBQueryRequest>): Promise<DBQueryResponse> {
+  async query(req: Readonly<AxDBQueryRequest>): Promise<AxDBQueryResponse> {
     if (!this._query) {
       throw new Error('query() not implemented');
     }
-    const _query = this._query;
-
     if (!this.tracer) {
-      return await _query(req);
+      return await this._query(req);
     }
 
     return await this.tracer?.startActiveSpan(
       'DB Query Request',
       {
-        kind: SpanKind.SERVER,
+        kind: AxSpanKind.SERVER,
         attributes: {
-          [SpanAttributes.DB_SYSTEM]: this.name,
-          [SpanAttributes.DB_OPERATION_NAME]: 'upsert',
-          [SpanAttributes.DB_TABLE]: req.table,
-          [SpanAttributes.DB_NAMESPACE]: req.namespace,
-          [SpanAttributes.DB_OPERATION_NAME]: 'query'
+          [axSpanAttributes.DB_SYSTEM]: this.name,
+          [axSpanAttributes.DB_OPERATION_NAME]: 'upsert',
+          [axSpanAttributes.DB_TABLE]: req.table,
+          [axSpanAttributes.DB_NAMESPACE]: req.namespace,
+          [axSpanAttributes.DB_OPERATION_NAME]: 'query'
         }
       },
       async (span) => {
-        const res = await _query(req, { span });
+        const res = await this._query!(req, { span });
         span.end();
         return res;
       }

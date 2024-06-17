@@ -1,57 +1,53 @@
-import type { AIServiceOptions } from '../../text/types.js';
-import type { AITextChatRequest } from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
-import { BaseAI, BaseAIDefaultConfig } from '../base.js';
+import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
 import type {
-  TextModelConfig,
-  TextResponse,
-  TextResponseResult
+  AxAIServiceOptions,
+  AxChatRequest,
+  AxChatResponse,
+  AxChatResponseResult,
+  AxModelConfig
 } from '../types.js';
 
-import { modelInfoAnthropic } from './info.js';
+import { axModelInfoAnthropic } from './info.js';
 import {
-  type AnthropicChatError,
-  type AnthropicChatRequest,
-  type AnthropicChatResponse,
-  type AnthropicChatResponseDelta,
-  type AnthropicConfig,
-  type AnthropicContentBlockDeltaEvent,
-  type AnthropicContentBlockStartEvent,
-  type AnthropicMessageDeltaEvent,
-  type AnthropicMessageStartEvent,
-  AnthropicModel
+  type AxAnthropicChatError,
+  type AxAnthropicChatRequest,
+  type AxAnthropicChatResponse,
+  type AxAnthropicChatResponseDelta,
+  type AxAnthropicConfig,
+  type AxAnthropicContentBlockDeltaEvent,
+  type AxAnthropicContentBlockStartEvent,
+  type AxAnthropicMessageDeltaEvent,
+  type AxAnthropicMessageStartEvent,
+  AxAnthropicModel
 } from './types.js';
 
-/**
- * Anthropic: Default Model options for text generation
- * @export
- */
-export const AnthropicDefaultConfig = (): AnthropicConfig =>
+export const axAnthropicDefaultConfig = (): AxAnthropicConfig =>
   structuredClone({
-    model: AnthropicModel.Claude3Haiku,
-    ...BaseAIDefaultConfig()
+    model: AxAnthropicModel.Claude3Haiku,
+    ...axBaseAIDefaultConfig()
   });
 
-export interface AnthropicArgs {
+export interface AxAnthropicArgs {
   apiKey: string;
-  config?: Readonly<AnthropicConfig>;
-  options?: Readonly<AIServiceOptions>;
+  config?: Readonly<AxAnthropicConfig>;
+  options?: Readonly<AxAIServiceOptions>;
 }
 
-export class Anthropic extends BaseAI<
-  AnthropicChatRequest,
+export class AxAnthropic extends AxBaseAI<
+  AxAnthropicChatRequest,
   unknown,
-  AnthropicChatResponse,
-  AnthropicChatResponseDelta,
+  AxAnthropicChatResponse,
+  AxAnthropicChatResponseDelta,
   unknown
 > {
-  private config: AnthropicConfig;
+  private config: AxAnthropicConfig;
 
   constructor({
     apiKey,
-    config = AnthropicDefaultConfig(),
+    config = axAnthropicDefaultConfig(),
     options
-  }: Readonly<AnthropicArgs>) {
+  }: Readonly<AxAnthropicArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Anthropic API key not set');
     }
@@ -63,7 +59,7 @@ export class Anthropic extends BaseAI<
         'anthropic-beta': 'tools-2024-04-04',
         'x-api-key': apiKey
       },
-      modelInfo: modelInfoAnthropic,
+      modelInfo: axModelInfoAnthropic,
       models: { model: config.model as string },
       options,
       supportFor: { functions: true, streaming: true }
@@ -72,7 +68,7 @@ export class Anthropic extends BaseAI<
     this.config = config;
   }
 
-  override getModelConfig(): TextModelConfig {
+  override getModelConfig(): AxModelConfig {
     const { config } = this;
     return {
       maxTokens: config.maxTokens,
@@ -80,12 +76,12 @@ export class Anthropic extends BaseAI<
       topP: config.topP,
       topK: config.topK,
       stream: config.stream
-    } as TextModelConfig;
+    } as AxModelConfig;
   }
 
   override generateChatReq = (
-    req: Readonly<AITextChatRequest>
-  ): [API, AnthropicChatRequest] => {
+    req: Readonly<AxChatRequest>
+  ): [API, AxAnthropicChatRequest] => {
     const apiConfig = {
       name: '/messages'
     };
@@ -105,13 +101,13 @@ export class Anthropic extends BaseAI<
         };
       }) ?? [];
 
-    const tools: AnthropicChatRequest['tools'] = req.functions?.map((v) => ({
+    const tools: AxAnthropicChatRequest['tools'] = req.functions?.map((v) => ({
       name: v.name,
       description: v.description,
       input_schema: v.parameters
     }));
 
-    const reqValue: AnthropicChatRequest = {
+    const reqValue: AxAnthropicChatRequest = {
       model: req.modelInfo?.name ?? this.config.model,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       stop_sequences:
@@ -120,13 +116,6 @@ export class Anthropic extends BaseAI<
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,
       ...(tools && tools.length > 0 ? { tools } : {}),
-      ...(req.identity?.user
-        ? {
-            metadata: {
-              user_id: req.identity?.user
-            }
-          }
-        : {}),
       messages
     };
 
@@ -134,16 +123,16 @@ export class Anthropic extends BaseAI<
   };
 
   override generateChatResp = (
-    response: Readonly<AnthropicChatResponse | AnthropicChatError>
-  ): TextResponse => {
-    const err = response as AnthropicChatError;
+    response: Readonly<AxAnthropicChatResponse | AxAnthropicChatError>
+  ): AxChatResponse => {
+    const err = response as AxAnthropicChatError;
     if (err.type === 'error') {
       throw new Error(`Anthropic Chat API Error: ${err.error.message}`);
     }
 
-    const resp = response as AnthropicChatResponse;
+    const resp = response as AxAnthropicChatResponse;
     const results = resp.content.map((msg) => {
-      let finishReason: TextResponse['results'][0]['finishReason'];
+      let finishReason: AxChatResponse['results'][0]['finishReason'];
 
       if (msg.type === 'tool_use') {
         finishReason = 'function_call';
@@ -180,13 +169,13 @@ export class Anthropic extends BaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<AnthropicChatResponseDelta>
-  ): TextResponse => {
-    let results: TextResponseResult[] = [];
+    resp: Readonly<AxAnthropicChatResponseDelta>
+  ): AxChatResponse => {
+    let results: AxChatResponseResult[] = [];
     let modelUsage;
 
     if ('message' in resp) {
-      const { message } = resp as unknown as AnthropicMessageStartEvent;
+      const { message } = resp as unknown as AxAnthropicMessageStartEvent;
       results = [
         {
           content: '',
@@ -203,23 +192,24 @@ export class Anthropic extends BaseAI<
 
     if ('content_block' in resp) {
       const { content_block: cb } =
-        resp as unknown as AnthropicContentBlockStartEvent;
+        resp as unknown as AxAnthropicContentBlockStartEvent;
       results = [{ content: cb.text }];
     }
 
     if (
       'delta' in resp &&
-      'text' in (resp as unknown as AnthropicContentBlockDeltaEvent).delta
+      'text' in (resp as unknown as AxAnthropicContentBlockDeltaEvent).delta
     ) {
-      const { delta: cb } = resp as unknown as AnthropicContentBlockDeltaEvent;
+      const { delta: cb } =
+        resp as unknown as AxAnthropicContentBlockDeltaEvent;
       results = [{ content: cb.text }];
     }
 
     if (
       'delta' in resp &&
-      'stop_reason' in (resp as unknown as AnthropicMessageDeltaEvent).delta
+      'stop_reason' in (resp as unknown as AxAnthropicMessageDeltaEvent).delta
     ) {
-      const { delta } = resp as unknown as AnthropicMessageDeltaEvent;
+      const { delta } = resp as unknown as AxAnthropicMessageDeltaEvent;
       results = [
         { content: '', finishReason: mapFinishReason(delta.stop_reason) }
       ];
@@ -239,8 +229,8 @@ export class Anthropic extends BaseAI<
 }
 
 function mapFinishReason(
-  stopReason?: AnthropicChatResponse['stop_reason'] | null
-): TextResponse['results'][0]['finishReason'] | undefined {
+  stopReason?: AxAnthropicChatResponse['stop_reason'] | null
+): AxChatResponse['results'][0]['finishReason'] | undefined {
   if (!stopReason) {
     return undefined;
   }

@@ -1,22 +1,25 @@
 import { apiCall } from '../util/apicall.js';
 
-import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
+import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
 import type {
-  DBQueryRequest,
-  DBQueryResponse,
-  DBUpsertRequest,
-  DBUpsertResponse
+  AxDBQueryRequest,
+  AxDBQueryResponse,
+  AxDBUpsertRequest,
+  AxDBUpsertResponse
 } from './types.js';
 
 const baseURL = 'https://api.cloudflare.com/client/v4/accounts/';
 
-type CloudflareUpsertResponse = {
+export type AxCloudflareBaseDBArgs = AxBaseDBArgs;
+export type AxCloudflareDBOpOptions = AxBaseDBOpOptions;
+
+type AxCloudflareUpsertResponse = {
   success: boolean;
   errors?: { message: string }[];
   result: { ids: string[] };
 };
 
-type CloudflareQueryResponse = {
+type AxCloudflareQueryResponse = {
   success: boolean;
   errors?: { message: string }[];
   result: {
@@ -29,7 +32,7 @@ type CloudflareQueryResponse = {
   };
 };
 
-export interface CloudflareArgs {
+export interface AxCloudflareArgs {
   apiKey: string;
   accountId: string;
   fetch?: typeof fetch;
@@ -39,7 +42,7 @@ export interface CloudflareArgs {
  * Cloudflare: DB Service
  * @export
  */
-export class Cloudflare extends BaseDB {
+export class AxCloudflare extends AxBaseDB {
   private apiKey: string;
   private accountId: string;
 
@@ -48,7 +51,7 @@ export class Cloudflare extends BaseDB {
     accountId,
     fetch,
     tracer
-  }: Readonly<CloudflareArgs & BaseArgs>) {
+  }: Readonly<AxCloudflareArgs & AxCloudflareBaseDBArgs>) {
     if (!apiKey || !accountId) {
       throw new Error('Cloudflare credentials not set');
     }
@@ -58,10 +61,10 @@ export class Cloudflare extends BaseDB {
   }
 
   override _upsert = async (
-    req: Readonly<DBUpsertRequest>,
+    req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    options?: Readonly<AxCloudflareDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     const res = (await apiCall(
       {
         url: new URL(
@@ -80,7 +83,7 @@ export class Cloudflare extends BaseDB {
         namespace: req.namespace,
         metadata: req.metadata
       }
-    )) as CloudflareUpsertResponse;
+    )) as AxCloudflareUpsertResponse;
 
     if (res.errors) {
       throw new Error(
@@ -94,10 +97,10 @@ export class Cloudflare extends BaseDB {
   };
 
   override batchUpsert = async (
-    batchReq: Readonly<DBUpsertRequest[]>,
+    batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    options?: Readonly<AxCloudflareDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     if (update) {
       throw new Error('Weaviate does not support batch update');
     }
@@ -127,7 +130,7 @@ export class Cloudflare extends BaseDB {
         namespace: req.namespace,
         metadata: req.metadata
       }))
-    )) as CloudflareUpsertResponse;
+    )) as AxCloudflareUpsertResponse;
 
     if (res.errors) {
       throw new Error(
@@ -143,9 +146,9 @@ export class Cloudflare extends BaseDB {
   };
 
   override query = async (
-    req: Readonly<DBQueryRequest>,
-    options?: Readonly<BaseOpOptions>
-  ): Promise<DBQueryResponse> => {
+    req: Readonly<AxDBQueryRequest>,
+    options?: Readonly<AxCloudflareDBOpOptions>
+  ): Promise<AxDBQueryResponse> => {
     const res = (await apiCall(
       {
         url: new URL(
@@ -163,7 +166,7 @@ export class Cloudflare extends BaseDB {
         topK: req.limit || 10,
         returnValues: true
       }
-    )) as CloudflareQueryResponse;
+    )) as AxCloudflareQueryResponse;
 
     if (res.errors) {
       throw new Error(
@@ -179,6 +182,6 @@ export class Cloudflare extends BaseDB {
         metadata
       })
     );
-    return { matches } as DBQueryResponse;
+    return { matches } as AxDBQueryResponse;
   };
 }

@@ -1,38 +1,40 @@
-import { type GenerateOptions, Signature } from '../dsp/index.js';
+import type { AxAIService, AxFunction } from '../ai/types.js';
+import { type AxGenerateOptions, AxSignature } from '../dsp/index.js';
 import {
-  type GenIn,
-  type GenOut,
-  type ITunable,
-  type IUsable,
-  Program,
-  type ProgramForwardOptions
+  type AxGenIn,
+  type AxGenOut,
+  AxProgram,
+  type AxProgramForwardOptions,
+  type AxTunable,
+  type AxUsable
 } from '../dsp/program.js';
-import { type AITextFunction } from '../text/index.js';
-import type { AIService } from '../text/types.js';
-import { SpanKind } from '../trace/index.js';
+import { AxSpanKind } from '../trace/index.js';
 
-import { ChainOfThought } from './cot.js';
-import { ReAct } from './react.js';
+import { AxChainOfThought } from './cot.js';
+import { AxReAct } from './react.js';
 
-export interface AgentI extends ITunable, IUsable {
-  getFunction(): AITextFunction;
+export interface AxAgentI extends AxTunable, AxUsable {
+  getFunction(): AxFunction;
 }
 
-export type AgentOptions = Omit<GenerateOptions, 'functions' | 'functionCall'>;
+export type AxAgentOptions = Omit<
+  AxGenerateOptions,
+  'functions' | 'functionCall'
+>;
 
-export class Agent<IN extends GenIn, OUT extends GenOut>
-  extends Program<IN, OUT>
-  implements AgentI
+export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
+  extends AxProgram<IN, OUT>
+  implements AxAgentI
 {
-  private gen: Program<IN, OUT>;
+  private gen: AxProgram<IN, OUT>;
 
   private name: string;
   private description: string;
   private subAgentList?: string;
-  private func: AITextFunction;
+  private func: AxFunction;
 
   constructor(
-    ai: AIService,
+    ai: AxAIService,
     {
       name,
       description,
@@ -42,17 +44,17 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     }: Readonly<{
       name: string;
       description: string;
-      signature: Signature | string;
-      agents?: AgentI[];
-      functions?: AITextFunction[];
+      signature: AxSignature | string;
+      agents?: AxAgentI[];
+      functions?: AxFunction[];
     }>,
-    options?: Readonly<AgentOptions>
+    options?: Readonly<AxAgentOptions>
   ) {
     super();
 
-    const sig = new Signature(signature);
+    const sig = new AxSignature(signature);
 
-    const funcs: AITextFunction[] = [
+    const funcs: AxFunction[] = [
       ...(functions ?? []),
       ...(agents?.map((a) => a.getFunction()) ?? [])
     ];
@@ -65,8 +67,8 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
 
     this.gen =
       funcs.length > 0
-        ? new ReAct<IN, OUT>(ai, sig, opt)
-        : new ChainOfThought<IN, OUT>(ai, sig, opt);
+        ? new AxReAct<IN, OUT>(ai, sig, opt)
+        : new AxChainOfThought<IN, OUT>(ai, sig, opt);
 
     this.name = name;
     this.description = description;
@@ -85,13 +87,13 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     }
   }
 
-  public getFunction(): AITextFunction {
+  public getFunction(): AxFunction {
     return this.func;
   }
 
   public override async forward(
     values: IN,
-    options?: Readonly<ProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     if (!options?.tracer) {
       return await this.gen.forward(values, options);
@@ -106,7 +108,7 @@ export class Agent<IN extends GenIn, OUT extends GenOut>
     return await options?.tracer.startActiveSpan(
       'Agent',
       {
-        kind: SpanKind.SERVER,
+        kind: AxSpanKind.SERVER,
         attributes
       },
       async (span) => {

@@ -1,45 +1,45 @@
 import { writeFileSync } from 'fs';
 
 import type {
-  GenIn,
-  GenOut,
-  Program,
-  ProgramDemos,
-  ProgramTrace,
-  Value
+  AxFieldValue,
+  AxGenIn,
+  AxGenOut,
+  AxProgram,
+  AxProgramDemos,
+  AxProgramTrace
 } from './program.js';
 import { updateProgressBar } from './util.js';
 
-export type Example = Record<string, Value>;
+export type AxExample = Record<string, AxFieldValue>;
 
-export type MetricFn = <T extends GenOut = GenOut>(
-  arg0: Readonly<{ prediction: T; example: Example }>
+export type AxMetricFn = <T extends AxGenOut = AxGenOut>(
+  arg0: Readonly<{ prediction: T; example: AxExample }>
 ) => boolean;
 
-export type MetricFnArgs = Parameters<MetricFn>[0];
+export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
 
-export type OptimizerArgs<IN extends GenIn, OUT extends GenOut> = {
-  program: Readonly<Program<IN, OUT>>;
-  examples: Readonly<Example[]>;
+export type AxOptimizerArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
+  program: Readonly<AxProgram<IN, OUT>>;
+  examples: Readonly<AxExample[]>;
   options?: { maxRounds?: number; maxExamples?: number; maxDemos?: number };
 };
 
-export class BootstrapFewShot<
-  IN extends GenIn = GenIn,
-  OUT extends GenOut = GenOut
+export class AxBootstrapFewShot<
+  IN extends AxGenIn = AxGenIn,
+  OUT extends AxGenOut = AxGenOut
 > {
-  private program: Readonly<Program<IN, OUT>>;
-  private examples: Readonly<Example[]>;
+  private program: Readonly<AxProgram<IN, OUT>>;
+  private examples: Readonly<AxExample[]>;
   private maxRounds: number;
   private maxDemos: number;
   private maxExamples: number;
-  private traces: ProgramTrace[] = [];
+  private traces: AxProgramTrace[] = [];
 
   constructor({
     program,
     examples = [],
     options
-  }: Readonly<OptimizerArgs<IN, OUT>>) {
+  }: Readonly<AxOptimizerArgs<IN, OUT>>) {
     if (examples.length == 0) {
       throw new Error('No examples found');
     }
@@ -53,8 +53,8 @@ export class BootstrapFewShot<
 
   private async compileRound(
     roundIndex: number,
-    metricFn: MetricFn,
-    options?: Readonly<OptimizerArgs<IN, OUT>['options']>
+    metricFn: AxMetricFn,
+    options?: Readonly<AxOptimizerArgs<IN, OUT>['options']>
   ) {
     const st = new Date().getTime();
     const maxDemos = options?.maxDemos ?? this.maxDemos;
@@ -98,9 +98,9 @@ export class BootstrapFewShot<
   }
 
   public async compile(
-    metricFn: MetricFn,
+    metricFn: AxMetricFn,
     options?: Readonly<
-      OptimizerArgs<IN, OUT>['options'] & { filename?: string }
+      AxOptimizerArgs<IN, OUT>['options'] & { filename?: string }
     >
   ) {
     const maxRounds = options?.maxRounds ?? this.maxRounds;
@@ -116,7 +116,7 @@ export class BootstrapFewShot<
       );
     }
 
-    const demos: ProgramDemos[] = groupTracesByKeys(this.traces);
+    const demos: AxProgramDemos[] = groupTracesByKeys(this.traces);
 
     if (options?.filename) {
       writeFileSync(options.filename, JSON.stringify(demos, null, 2));
@@ -128,9 +128,9 @@ export class BootstrapFewShot<
 }
 
 function groupTracesByKeys(
-  programTraces: readonly ProgramTrace[]
-): ProgramDemos[] {
-  const groupedTraces = new Map<string, Record<string, Value>[]>();
+  programTraces: readonly AxProgramTrace[]
+): AxProgramDemos[] {
+  const groupedTraces = new Map<string, Record<string, AxFieldValue>[]>();
 
   // Group all traces by their keys
   for (const programTrace of programTraces) {
@@ -142,7 +142,7 @@ function groupTracesByKeys(
   }
 
   // Convert the Map into an array of ProgramDemos
-  const programDemosArray: ProgramDemos[] = [];
+  const programDemosArray: AxProgramDemos[] = [];
   groupedTraces.forEach((traces, key) => {
     programDemosArray.push({ traces, key });
   });
@@ -156,14 +156,14 @@ const randomSample = <T>(array: readonly T[], n: number): T[] => {
   // Shuffle the cloned array
   for (let i = clonedArray.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    const ca_i = clonedArray[i];
-    const ca_j = clonedArray[j];
+    const caI = clonedArray[i];
+    const caJ = clonedArray[j];
 
-    if (!ca_i || !ca_j) {
+    if (!caI || !caJ) {
       throw new Error('Invalid array elements');
     }
 
-    [clonedArray[i], clonedArray[j]] = [ca_j, ca_i];
+    [clonedArray[i], clonedArray[j]] = [caJ, caI];
   }
   // Return the first `n` items of the shuffled array
   return clonedArray.slice(0, n);

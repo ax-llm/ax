@@ -2,7 +2,7 @@
  * DeepSeek: Models for text generation
  * @export
  */
-export enum DeepSeekModel {
+export enum AxDeepSeekModel {
   DeepSeekChat = 'deepseek-chat',
   DeepSeekCoder = 'deepseek-coder'
 }

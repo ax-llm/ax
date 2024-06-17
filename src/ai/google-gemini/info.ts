@@ -1,28 +1,28 @@
-import type { TextModelInfo } from '../types.js';
+import type { AxModelInfo } from '../types.js';
 
-import { GoogleGeminiModel } from './types.js';
+import { AxGoogleGeminiModel } from './types.js';
 
 /**
- * GoogleGemini: Model information
+ * AxGoogleGemini: Model information
  * @export
  */
-export const modelInfoGoogleGemini: TextModelInfo[] = [
+export const axModelInfoGoogleGemini: AxModelInfo[] = [
   {
-    name: GoogleGeminiModel.Gemini15Flash,
+    name: AxGoogleGeminiModel.Gemini15Flash,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 0.35,
     completionTokenCostPer1M: 0.7
   },
   {
-    name: GoogleGeminiModel.Gemini15Pro,
+    name: AxGoogleGeminiModel.Gemini15Pro,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 3.5,
     completionTokenCostPer1M: 1.75
   },
   {
-    name: GoogleGeminiModel.Gemini1Pro,
+    name: AxGoogleGeminiModel.Gemini1Pro,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 0.5,

@@ -1,7 +1,7 @@
-import type { TextModelInfo } from '../types.js';
+import type { AxModelInfo } from '../types.js';
 
 /**
  * HuggingFace: Model information
  * @export
  */
-export const modelInfoHuggingFace: TextModelInfo[] = [];
+export const axModelInfoHuggingFace: AxModelInfo[] = [];

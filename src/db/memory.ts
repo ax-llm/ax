@@ -1,28 +1,34 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 
-import { type BaseArgs, BaseDB, type BaseOpOptions } from './base.js';
+import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
 import type {
-  DBQueryRequest,
-  DBQueryResponse,
-  DBUpsertRequest,
-  DBUpsertResponse
+  AxDBQueryRequest,
+  AxDBQueryResponse,
+  AxDBUpsertRequest,
+  AxDBUpsertResponse
 } from './types.js';
 
-export interface MemoryDBArgs {
+export type AxMemoryBaseDBArgs = AxBaseDBArgs;
+export type AxMemoryDBOpOptions = AxBaseDBOpOptions;
+
+export interface AxMemoryDBArgs {
   filename?: string;
 }
 
-export type DBState = Record<string, Record<string, DBUpsertRequest>>;
+export type AxDBState = Record<string, Record<string, AxDBUpsertRequest>>;
 
 /**
  * MemoryDB: DB Service
  * @export
  */
-export class MemoryDB extends BaseDB {
-  private state: DBState;
+export class AxMemoryDB extends AxBaseDB {
+  private state: AxDBState;
   private filename?: string;
 
-  constructor({ filename, tracer }: Readonly<MemoryDBArgs & BaseArgs> = {}) {
+  constructor({
+    filename,
+    tracer
+  }: Readonly<AxMemoryDBArgs & AxMemoryBaseDBArgs> = {}) {
     super({ name: 'Memory', tracer });
     this.state = {};
     this.filename = filename;
@@ -33,12 +39,12 @@ export class MemoryDB extends BaseDB {
   }
 
   override _upsert = async (
-    req: Readonly<DBUpsertRequest>,
+    req: Readonly<AxDBUpsertRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _update?: boolean,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    _options?: Readonly<AxMemoryDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     if (!this.state[req.table]) {
       this.state[req.table] = {
         [req.id]: req
@@ -59,11 +65,11 @@ export class MemoryDB extends BaseDB {
   };
 
   override _batchUpsert = async (
-    batchReq: Readonly<DBUpsertRequest[]>,
+    batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<BaseOpOptions>
-  ): Promise<DBUpsertResponse> => {
+    _options?: Readonly<AxMemoryDBOpOptions>
+  ): Promise<AxDBUpsertResponse> => {
     const ids: string[] = [];
     for (const req of batchReq) {
       const res = await this.upsert(req, update);
@@ -78,16 +84,16 @@ export class MemoryDB extends BaseDB {
   };
 
   override _query = async (
-    req: Readonly<DBQueryRequest>,
+    req: Readonly<AxDBQueryRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<BaseOpOptions>
-  ): Promise<DBQueryResponse> => {
+    _options?: Readonly<AxMemoryDBOpOptions>
+  ): Promise<AxDBQueryResponse> => {
     const table = this.state[req.table];
     if (!table) {
       return { matches: [] };
     }
 
-    const matches: DBQueryResponse['matches'] = [];
+    const matches: AxDBQueryResponse['matches'] = [];
 
     Object.entries(table).forEach(([id, data]) => {
       if (req.values && data.values) {
@@ -124,7 +130,7 @@ export class MemoryDB extends BaseDB {
     return this.state;
   };
 
-  public setDB = (state: DBState) => {
+  public setDB = (state: AxDBState) => {
     this.state = state;
   };
 

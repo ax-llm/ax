@@ -1,104 +1,83 @@
-import type { AIPromptConfig, AIServiceOptions } from '../../text/types.js';
-import type {
-  AITextChatRequest,
-  AITextEmbedRequest
-} from '../../types/index.js';
 import type { API } from '../../util/apicall.js';
 import {
-  BaseAI,
-  BaseAIDefaultConfig,
-  BaseAIDefaultCreativeConfig
+  AxBaseAI,
+  axBaseAIDefaultConfig,
+  axBaseAIDefaultCreativeConfig
 } from '../base.js';
 import type {
-  EmbedResponse,
-  TextModelConfig,
-  TextResponse,
-  TextResponseResult
+  AxAIPromptConfig,
+  AxAIServiceOptions,
+  AxChatRequest,
+  AxChatResponse,
+  AxChatResponseResult,
+  AxEmbedRequest,
+  AxEmbedResponse,
+  AxModelConfig,
+  AxModelInfo
 } from '../types.js';
 
-import { modelInfoOpenAI } from './info.js';
+import { axModelInfoOpenAI } from './info.js';
 import {
-  OpenAIAudioModel,
-  type OpenAIChatRequest,
-  type OpenAIChatResponse,
-  type OpenAIChatResponseDelta,
-  type OpenAIConfig,
-  OpenAIEmbedModels,
-  type OpenAIEmbedRequest,
-  type OpenAIEmbedResponse,
-  OpenAIModel
+  type AxOpenAIChatRequest,
+  type AxOpenAIChatResponse,
+  type AxOpenAIChatResponseDelta,
+  type AxOpenAIConfig,
+  AxOpenAIEmbedModels,
+  type AxOpenAIEmbedRequest,
+  type AxOpenAIEmbedResponse,
+  AxOpenAIModel
 } from './types.js';
 
-/**
- * OpenAI: Default Model options for text generation
- * @export
- */
-export const OpenAIDefaultConfig = (): OpenAIConfig =>
+export const axOpenAIDefaultConfig = (): AxOpenAIConfig =>
   structuredClone({
-    model: OpenAIModel.GPT35Turbo,
-    embedModel: OpenAIEmbedModels.TextEmbedding3Small,
-    audioModel: OpenAIAudioModel.Whisper1,
-    ...BaseAIDefaultConfig()
+    model: AxOpenAIModel.GPT35Turbo,
+    embedModel: AxOpenAIEmbedModels.TextEmbedding3Small,
+    ...axBaseAIDefaultConfig()
   });
 
-/**
- * OpenAI: Default model options to use the more advanced model
- * @export
- */
-export const OpenAIBestConfig = (): OpenAIConfig =>
+export const axOpenAIBestConfig = (): AxOpenAIConfig =>
   structuredClone({
-    ...OpenAIDefaultConfig(),
-    model: OpenAIModel.GPT4Turbo
+    ...axOpenAIDefaultConfig(),
+    model: AxOpenAIModel.GPT4Turbo
   });
 
-/**
- * OpenAI: Default model options for more creative text generation
- * @export
- */
-export const OpenAICreativeConfig = (): OpenAIConfig =>
+export const axOpenAICreativeConfig = (): AxOpenAIConfig =>
   structuredClone({
-    model: OpenAIModel.GPT4Turbo,
-    embedModel: OpenAIEmbedModels.TextEmbedding3Small,
-    audioModel: OpenAIAudioModel.Whisper1,
-    ...BaseAIDefaultCreativeConfig()
+    model: AxOpenAIModel.GPT4Turbo,
+    embedModel: AxOpenAIEmbedModels.TextEmbedding3Small,
+    ...axBaseAIDefaultCreativeConfig()
   });
 
-/**
- * OpenAI: Default model options for more fast text generation
- * @export
- */
-export const OpenAIFastConfig = (): OpenAIConfig => ({
-  ...OpenAIDefaultConfig(),
-  model: OpenAIModel.GPT35Turbo
+export const axOpenAIFastConfig = (): AxOpenAIConfig => ({
+  ...axOpenAIDefaultConfig(),
+  model: AxOpenAIModel.GPT4O
 });
 
-export interface OpenAIArgs {
+export interface AxOpenAIArgs {
   apiKey: string;
   apiURL?: string;
-  config?: Readonly<OpenAIConfig>;
-  options?: Readonly<AIServiceOptions & { streamingUsage?: boolean }>;
+  config?: Readonly<AxOpenAIConfig>;
+  options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
+  modelInfo?: Readonly<AxModelInfo[]>;
 }
 
-/**
- * OpenAI: AI Service
- * @export
- */
-export class OpenAI extends BaseAI<
-  OpenAIChatRequest,
-  OpenAIEmbedRequest,
-  OpenAIChatResponse,
-  OpenAIChatResponseDelta,
-  OpenAIEmbedResponse
+export class AxOpenAI extends AxBaseAI<
+  AxOpenAIChatRequest,
+  AxOpenAIEmbedRequest,
+  AxOpenAIChatResponse,
+  AxOpenAIChatResponseDelta,
+  AxOpenAIEmbedResponse
 > {
-  private config: OpenAIConfig;
+  private config: AxOpenAIConfig;
   private streamingUsage: boolean;
 
   constructor({
     apiKey,
-    config = OpenAIDefaultConfig(),
+    config = axOpenAIDefaultConfig(),
     options,
-    apiURL
-  }: Readonly<OpenAIArgs>) {
+    apiURL,
+    modelInfo = axModelInfoOpenAI
+  }: Readonly<AxOpenAIArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
     }
@@ -106,7 +85,7 @@ export class OpenAI extends BaseAI<
       name: 'OpenAI',
       apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
       headers: { Authorization: `Bearer ${apiKey}` },
-      modelInfo: modelInfoOpenAI,
+      modelInfo,
       models: { model: config.model, embedModel: config.embedModel },
       options,
       supportFor: { functions: true, streaming: true }
@@ -115,7 +94,7 @@ export class OpenAI extends BaseAI<
     this.streamingUsage = options?.streamingUsage ?? true;
   }
 
-  override getModelConfig(): TextModelConfig {
+  override getModelConfig(): AxModelConfig {
     const { config } = this;
     return {
       maxTokens: config.maxTokens,
@@ -130,10 +109,10 @@ export class OpenAI extends BaseAI<
   }
 
   override generateChatReq = (
-    req: Readonly<AITextChatRequest>,
+    req: Readonly<AxChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AIPromptConfig>
-  ): [API, OpenAIChatRequest] => {
+    _config: Readonly<AxAIPromptConfig>
+  ): [API, AxOpenAIChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -141,12 +120,7 @@ export class OpenAI extends BaseAI<
     }
 
     const apiConfig = {
-      name: '/chat/completions',
-      headers: {
-        ...(req.identity?.organization
-          ? { 'OpenAI-Organization': req.identity?.organization }
-          : null)
-      }
+      name: '/chat/completions'
     };
 
     const tools = req.functions?.map((v) => ({
@@ -202,7 +176,7 @@ export class OpenAI extends BaseAI<
 
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
-    const reqValue: OpenAIChatRequest = {
+    const reqValue: AxOpenAIChatRequest = {
       model,
       messages,
       response_format: this.config?.responseFormat
@@ -218,8 +192,6 @@ export class OpenAI extends BaseAI<
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       logit_bias: this.config.logitBias,
-      user: req.identity?.user ?? this.config.user,
-      organization: req.identity?.organization,
       ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {}),
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
@@ -230,8 +202,8 @@ export class OpenAI extends BaseAI<
   };
 
   override generateEmbedReq = (
-    req: Readonly<AITextEmbedRequest>
-  ): [API, OpenAIEmbedRequest] => {
+    req: Readonly<AxEmbedRequest>
+  ): [API, AxOpenAIEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!model) {
@@ -243,12 +215,7 @@ export class OpenAI extends BaseAI<
     }
 
     const apiConfig = {
-      name: '/embeddings',
-      headers: {
-        ...(req.identity?.organization
-          ? { 'OpenAI-Organization': req.identity?.organization }
-          : null)
-      }
+      name: '/embeddings'
     };
 
     const reqValue = {
@@ -260,8 +227,8 @@ export class OpenAI extends BaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<OpenAIChatResponse>
-  ): TextResponse => {
+    resp: Readonly<AxOpenAIChatResponse>
+  ): AxChatResponse => {
     const { id, usage, choices, error } = resp;
 
     if (error) {
@@ -302,9 +269,9 @@ export class OpenAI extends BaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<OpenAIChatResponseDelta>,
+    resp: Readonly<AxOpenAIChatResponseDelta>,
     state: object
-  ): TextResponse => {
+  ): AxChatResponse => {
     const { id, usage, choices } = resp;
 
     const modelUsage = usage
@@ -324,6 +291,7 @@ export class OpenAI extends BaseAI<
     }
 
     const results = choices.map(
+      // eslint-disable-next-line @typescript-eslint/naming-convention
       ({ delta: { content, role, tool_calls }, finish_reason }) => {
         const finishReason = mapFinishReason(finish_reason);
 
@@ -351,7 +319,9 @@ export class OpenAI extends BaseAI<
               }
             };
           })
-          .filter(Boolean) as NonNullable<TextResponseResult['functionCalls']>;
+          .filter(Boolean) as NonNullable<
+          AxChatResponseResult['functionCalls']
+        >;
 
         return {
           content,
@@ -370,8 +340,8 @@ export class OpenAI extends BaseAI<
   };
 
   override generateEmbedResp = (
-    resp: Readonly<OpenAIEmbedResponse>
-  ): EmbedResponse => {
+    resp: Readonly<AxOpenAIEmbedResponse>
+  ): AxEmbedResponse => {
     const { data, usage } = resp;
 
     const modelUsage = usage
@@ -390,8 +360,8 @@ export class OpenAI extends BaseAI<
 }
 
 const mapFinishReason = (
-  finishReason: OpenAIChatResponse['choices'][0]['finish_reason']
-): TextResponseResult['finishReason'] => {
+  finishReason: AxOpenAIChatResponse['choices'][0]['finish_reason']
+): AxChatResponseResult['finishReason'] => {
   switch (finishReason) {
     case 'stop':
       return 'stop' as const;
@@ -403,48 +373,3 @@ const mapFinishReason = (
       return 'function_call' as const;
   }
 };
-
-// async _transcribe(
-//   file: string,
-//   prompt?: string,
-//   options?: Readonly<AITranscribeConfig>
-// ): Promise<TranscriptResponse> {
-//   const res = await this.apiCallWithUpload<
-//     OpenAIAudioRequest,
-//     OpenAIAudioResponse,
-//     OpenAIApiConfig
-//   >(
-//     this.createAPI(OpenAIApi.Transcribe),
-//     generateAudioReq(this.options, prompt, options?.language),
-//     file
-//   );
-
-//   const { duration, segments } = res;
-//   return {
-//     duration,
-//     segments: segments.map((v) => ({
-//       id: v.id,
-//       start: v.start,
-//       end: v.end,
-//       text: v.text,
-//     })),
-//   };
-// }
-
-// export const generateAudioReq = (
-//   opt: Readonly<OpenAIConfig>,
-//   prompt?: string,
-//   language?: string
-// ): OpenAIAudioRequest => {
-//   if (!opt.audioModel) {
-//     throw new Error('OpenAI audio model not set');
-//   }
-
-//   return {
-//     model: opt.audioModel,
-//     prompt,
-//     temperature: opt.temperature,
-//     language,
-//     response_format: 'verbose_json',
-//   };
-// };

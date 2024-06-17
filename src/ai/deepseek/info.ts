@@ -1,16 +1,16 @@
-import type { TextModelInfo } from '../types.js';
+import type { AxModelInfo } from '../types.js';
 
-import { DeepSeekModel } from './types.js';
+import { AxDeepSeekModel } from './types.js';
 
-export const textModelInfos: TextModelInfo[] = [
+export const axModelInfoDeepSeek: AxModelInfo[] = [
   {
-    name: DeepSeekModel.DeepSeekChat,
+    name: AxDeepSeekModel.DeepSeekChat,
     currency: 'USD',
     promptTokenCostPer1M: 0.14,
     completionTokenCostPer1M: 0.28
   },
   {
-    name: DeepSeekModel.DeepSeekCoder,
+    name: AxDeepSeekModel.DeepSeekCoder,
     currency: 'USD',
     promptTokenCostPer1M: 0.14,
     completionTokenCostPer1M: 0.28

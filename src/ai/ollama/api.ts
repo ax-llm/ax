@@ -1,44 +1,46 @@
-import type { AIServiceOptions } from '../../text/types.js';
-import { BaseAIDefaultConfig, BaseAIDefaultCreativeConfig } from '../base.js';
-import { OpenAI } from '../openai/api.js';
-import type { OpenAIConfig } from '../openai/types.js';
+import {
+  axBaseAIDefaultConfig,
+  axBaseAIDefaultCreativeConfig
+} from '../base.js';
+import { AxOpenAI } from '../openai/api.js';
+import type { AxOpenAIConfig } from '../openai/types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
-export type OllamaAIConfig = OpenAIConfig;
+export type AxOllamaAIConfig = AxOpenAIConfig;
 
-/**
- * OllamaAI: Default Model options for text generation
- * @export
- */
-export const OllamaDefaultConfig = (): Omit<OllamaAIConfig, 'model'> =>
+export const axOllamaDefaultConfig = (): Omit<AxOllamaAIConfig, 'model'> =>
   structuredClone({
-    ...BaseAIDefaultConfig()
+    ...axBaseAIDefaultConfig()
   });
 
-export const OllamaDefaultCreativeConfig = (): Omit<OllamaAIConfig, 'model'> =>
+export const axOllamaDefaultCreativeConfig = (): Omit<
+  AxOllamaAIConfig,
+  'model'
+> =>
   structuredClone({
-    ...BaseAIDefaultCreativeConfig()
+    ...axBaseAIDefaultCreativeConfig()
   });
 
-export type OllamaArgs = {
+export type AxOllamaArgs = {
   model: string;
   url?: string;
   apiKey?: string;
-  config?: Readonly<Omit<OllamaAIConfig, 'model'>>;
-  options?: Readonly<AIServiceOptions>;
+  config?: Readonly<Omit<AxOllamaAIConfig, 'model'>>;
+  options?: Readonly<AxAIServiceOptions>;
 };
 
 /**
  * OllamaAI: AI Service
  * @export
  */
-export class Ollama extends OpenAI {
+export class AxOllama extends AxOpenAI {
   constructor({
     apiKey = 'not-set',
     url = 'http://localhost:11434',
     model,
-    config = OllamaDefaultConfig(),
+    config = axOllamaDefaultConfig(),
     options
-  }: Readonly<OllamaArgs>) {
+  }: Readonly<AxOllamaArgs>) {
     super({
       apiKey,
       options,

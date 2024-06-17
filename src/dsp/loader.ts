@@ -2,11 +2,11 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 
-import type { Value } from './program.js';
+import type { AxFieldValue } from './program.js';
 
-export type Row = { row: Record<string, Value> };
+export type AxDataRow = { row: Record<string, AxFieldValue> };
 
-export class HFDataLoader {
+export class AxHFDataLoader {
   private baseUrl: string;
   private dataFolder: string;
 
@@ -22,13 +22,13 @@ export class HFDataLoader {
     }
   }
 
-  private async fetchDataFromAPI(url: string): Promise<{ rows: Row[] }> {
+  private async fetchDataFromAPI(url: string): Promise<{ rows: AxDataRow[] }> {
     try {
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Error fetching data: ${response.statusText}`);
       }
-      const data = (await response.json()) as { rows: Row[] };
+      const data = (await response.json()) as { rows: AxDataRow[] };
       if (!data?.rows) {
         throw new Error('Invalid data format');
       }
@@ -51,7 +51,7 @@ export class HFDataLoader {
     dataset: string,
     split: 'train' | 'validation',
     options?: Readonly<{ offset?: number; length?: number }>
-  ): Promise<{ rows: Row[] }> {
+  ): Promise<{ rows: AxDataRow[] }> {
     const offset = options?.offset ?? 0;
     const length = options?.length ?? 100;
 
@@ -64,7 +64,7 @@ export class HFDataLoader {
       return JSON.parse(data);
     } else {
       console.log('Downloading data from API.');
-      const data = (await this.fetchDataFromAPI(url)) as { rows: Row[] };
+      const data = (await this.fetchDataFromAPI(url)) as { rows: AxDataRow[] };
       writeFileSync(filePath, JSON.stringify(data, null, 2));
       return data;
     }
@@ -88,12 +88,12 @@ export class HFDataLoader {
 
     return dataRows
       .map((item) => {
-        const result: Record<string, Value> = {};
+        const result: Record<string, AxFieldValue> = {};
 
         fields.forEach((field) => {
           const keys = field.split('.');
           // Initial value should match the type of the rows, and be indexable by string
-          let value: Value | unknown = item.row;
+          let value: AxFieldValue | unknown = item.row;
           for (const key of keys) {
             // Use type assertion to tell TypeScript that value will always be an object that can be indexed with string keys
             if (
@@ -113,7 +113,7 @@ export class HFDataLoader {
           if (!resultFieldName) {
             throw new Error(`Invalid field name: ${field}`);
           }
-          result[resultFieldName] = value as Value;
+          result[resultFieldName] = value as AxFieldValue;
         });
 
         return result;
