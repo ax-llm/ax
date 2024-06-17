@@ -166,7 +166,7 @@ Vector databases are critical to building LLM workflows. We have clean abstracti
 const ret = await this.ai.embed({ texts: 'hello world' });
 
 // Create an in memory vector db
-const db = new AxDB('memory');
+const db = new axDB('memory');
 
 // Insert into vector db
 await this.db.upsert({
