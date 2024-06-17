@@ -10,7 +10,7 @@ Build intelligent agents with ease, inspired by the power of "Agentic workflows"
 
 ## Our focus on agents
 
-We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also we are big fans of the Stanford DSP paper and this library is the result of all of this coming together to build a powerful framework for you to build with. 
+We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also we are big fans of the Stanford DSP paper and this library is the result of all of this coming together to build a powerful framework for you to build with.
 
 ![image](https://github.com/ax-llm/ax/assets/832235/801b8110-4cba-4c50-8ec7-4d5859121fe5)
 
@@ -63,13 +63,13 @@ yarn add @ax-llm/ax
 ## Example: Using chain-of-thought to summarize text
 
 ```typescript
-import { AI, ChainOfThought, OpenAIArgs } from '@ax-llm/ax';
+import { axAI, AxChainOfThought } from '@ax-llm/ax';
 
 const textToSummarize = `
 The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
-const gen = new ChainOfThought(
+const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
+const gen = new AxChainOfThought(
   ai,
   `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
 );
@@ -85,19 +85,19 @@ Use the agent prompt (framework) to build agents that work with other agents to 
 ```typescript
 # npm run tsx ./src/examples/agent.ts
 
-const researcher = new Agent(ai, {
+const researcher = new AxAgent(ai, {
   name: 'researcher',
   description: 'Researcher agent',
   signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`
 });
 
-const summarizer = new Agent(ai, {
+const summarizer = new AxAgent(ai, {
   name: 'summarizer',
   description: 'Summarizer agent',
   signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
 });
 
-const agent = new Agent(ai, {
+const agent = new AxAgent(ai, {
   name: 'agent',
   description: 'A an agent to research complex topics',
   signature: `question -> answer`,
@@ -116,7 +116,7 @@ Use the Router to efficiently route user queries to specific routes designed to 
 ```typescript
 # npm run tsx ./src/examples/routing.ts
 
-const customerSupport = new Route('customerSupport', [
+const customerSupport = new AxRoute('customerSupport', [
   'how can I return a product?',
   'where is my order?',
   'can you help me with a refund?',
@@ -124,7 +124,7 @@ const customerSupport = new Route('customerSupport', [
   'my product arrived damaged, what should I do?'
 ]);
 
-const technicalSupport = new Route('technicalSupport', [
+const technicalSupport = new AxRoute('technicalSupport', [
   'how do I install your software?',
   'I’m having trouble logging in',
   'can you help me configure my settings?',
@@ -132,9 +132,9 @@ const technicalSupport = new Route('technicalSupport', [
   'how do I update to the latest version?'
 ]);
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
 
-const router = new Router(ai);
+const router = new AxRouter(ai);
 await router.setRoutes(
   [customerSupport, technicalSupport],
   { filename: 'router.json' }
@@ -166,7 +166,7 @@ Vector databases are critical to building LLM workflows. We have clean abstracti
 const ret = await this.ai.embed({ texts: 'hello world' });
 
 // Create an in memory vector db
-const db = new DB('memory');
+const db = new AxDB('memory');
 
 // Insert into vector db
 await this.db.upsert({
@@ -182,11 +182,11 @@ const matches = await this.db.query({
 });
 ```
 
-Alternatively you can use the `DBManager` which handles smart chunking, embedding and querying everything
+Alternatively you can use the `AxDBManager` which handles smart chunking, embedding and querying everything
 for you, it makes things almost too easy.
 
 ```typescript
-const manager = new DBManager({ ai, db });
+const manager = new AxDBManager({ ai, db });
 await manager.insert(text);
 
 const matches = await manager.query(
@@ -205,13 +205,13 @@ Launch Apache Tika
 docker run -p 9998:9998 apache/tika
 ```
 
-Convert documents to text and embed them for retrieval using the `DBManager` it also supports a reranker and query rewriter. Two default implementations `DefaultResultReranker` and `DefaultQueryRewriter` are available to use.
+Convert documents to text and embed them for retrieval using the `AxDBManager` it also supports a reranker and query rewriter. Two default implementations `AxDefaultResultReranker` and `AxDefaultQueryRewriter` are available to use.
 
 ```typescript
-const tika = new ApacheTika();
+const tika = new AxApacheTika();
 const text = await tika.convert('/path/to/document.pdf');
 
-const manager = new DBManager({ ai, db });
+const manager = new AxDBManager({ ai, db });
 await manager.insert(text);
 
 const matches = await manager.query('Find some text');
@@ -224,7 +224,7 @@ We support parsing output fields and function execution while streaming. This al
 
 ```typescript
 // setup the prompt program
-const gen = new ChainOfThought(
+const gen = new AxChainOfThought(
   ai,
   `startNumber:number -> next10Numbers:number[]`
 );
@@ -285,12 +285,12 @@ trace.setGlobalTracerProvider(provider);
 
 const tracer = trace.getTracer('test');
 
-const ai = AI('ollama', {
+const ai = axAI('ollama', {
   model: 'nous-hermes2',
   options: { tracer }
 } as unknown as OllamaArgs);
 
-const gen = new ChainOfThought(
+const gen = new AxChainOfThought(
   ai,
   `text -> shortSummary "summarize in 5 to 10 words"`
 );
@@ -324,11 +324,11 @@ const res = await gen.forward({ text });
 
 ## Tuning the prompts (programs)
 
-You can tune your prompts using a larger model to help them run more efficiently and give you better results. This is done by using an optimizer like `BootstrapFewShot` with and examples from the popular `HotPotQA` dataset. The optimizer generates demonstrations `demos` which when used with the prompt help improve its efficiency.
+You can tune your prompts using a larger model to help them run more efficiently and give you better results. This is done by using an optimizer like `AxBootstrapFewShot` with and examples from the popular `HotPotQA` dataset. The optimizer generates demonstrations `demos` which when used with the prompt help improve its efficiency.
 
 ```typescript
 // Download the HotPotQA dataset from huggingface
-const hf = new HFDataLoader();
+const hf = new AxHFDataLoader();
 const examples = await hf.getData<{ question: string; answer: string }>({
   dataset: 'hotpot_qa',
   split: 'train',
@@ -336,24 +336,25 @@ const examples = await hf.getData<{ question: string; answer: string }>({
   fields: ['question', 'answer']
 });
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
 
 // Setup the program to tune
-const program = new ChainOfThought<{ question: string }, { answer: string }>(
+const program = new AxChainOfThought<{ question: string }, { answer: string }>(
   ai,
   `question -> answer "in short 2 or 3 words"`
 );
 
 // Setup a Bootstrap Few Shot optimizer to tune the above program
-const optimize = new BootstrapFewShot<{ question: string }, { answer: string }>(
-  {
-    program,
-    examples
-  }
-);
+const optimize = new AxBootstrapFewShot<
+  { question: string },
+  { answer: string }
+>({
+  program,
+  examples
+});
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
-const metricFn: MetricFn = ({ prediction, example }) =>
+const metricFn: AxMetricFn = ({ prediction, example }) =>
   emScore(prediction.answer as string, example.answer as string);
 
 // Run the optimizer and save the result
@@ -365,10 +366,10 @@ await optimize.compile(metricFn, { filename: 'demos.json' });
 And to use the generated demos with the above `ChainOfThought` program
 
 ```typescript
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
 
 // Setup the program to use the tuned data
-const program = new ChainOfThought<{ question: string }, { answer: string }>(
+const program = new AxChainOfThought<{ question: string }, { answer: string }>(
   ai,
   `question -> answer "in short 2 or 3 words"`
 );
@@ -408,6 +409,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | qna-use-tuned.ts    | Use the optimized tuned prompts                         |
 | streaming1.ts       | Output fields validation while streaming                |
 | streaming2.ts       | Per output field validation while streaming             |
+| smart-hone.ts       | Agent looks for dog in smart home                       |
 
 ## Built-in Functions
 
@@ -426,7 +428,7 @@ Large language models (LLMs) are getting really powerful and have reached a poin
 
 ```ts
 // Pick a LLM
-const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = new AxOpenAI({ apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
 ```
 
 ### 2. Create a prompt signature based on your usecase
@@ -488,13 +490,13 @@ const functions = [
 ### 2. Pass the functions to a prompt
 
 ```ts
-const cot = new ReAct(ai, `question:string -> answer:string`, { functions });
+const cot = new AxReAct(ai, `question:string -> answer:string`, { functions });
 ```
 
 ## Enable debug logs
 
 ```ts
-const ai = new OpenAI({ apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = new AxOpenAI({ apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
 ai.setOptions({ debug: true });
 ```
 
@@ -515,20 +517,20 @@ You can pass a configuration object as the second parameter when creating a new 
 
 ```ts
 const apiKey = process.env.OPENAI_APIKEY;
-const conf = OpenAIBestConfig();
-const ai = new OpenAI({ apiKey, conf } as OpenAIArgs);
+const conf = AxOpenAIBestConfig();
+const ai = new AxOpenAI({ apiKey, conf } as AxOpenAIArgs);
 ```
 
 ## 3. My prompt is too long and can I change the max tokens
 
 ```ts
-const conf = OpenAIDefaultConfig(); // or OpenAIBestOptions()
+const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
 conf.maxTokens = 2000;
 ```
 
 ## 4. How do I change the model say I want to use GPT4
 
 ```ts
-const conf = OpenAIDefaultConfig(); // or OpenAIBestOptions()
+const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
 conf.model = OpenAIModel.GPT4Turbo;
 ```

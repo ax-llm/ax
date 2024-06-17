@@ -8,8 +8,8 @@
  * https://interconnected.org/more/2024/lares/
  */
 
-import { Agent, AI } from '../index.js';
-import type { FunctionJSONSchema, OpenAIArgs } from '../index.js';
+import { AxAgent, axAI } from '../index.js';
+import type { AxFunctionJSONSchema, AxOpenAIArgs } from '../index.js';
 
 interface RoomState {
   light: boolean;
@@ -31,9 +31,11 @@ const state: HomeState = {
   dogLocation: 'livingRoom'
 };
 
-const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as OpenAIArgs);
+const ai = axAI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
+} as AxOpenAIArgs);
 
-const agent = new Agent(ai, {
+const agent = new AxAgent(ai, {
   name: 'lares',
   description: 'Lares smart home assistant',
   signature: `instruction -> room:string "the room where the dog is found"`,
@@ -47,7 +49,7 @@ const agent = new Agent(ai, {
           room: { type: 'string', description: 'Room to toggle light' }
         },
         required: ['room']
-      } as FunctionJSONSchema,
+      } as AxFunctionJSONSchema,
       func: async (args: Readonly<{ room: string }>) => {
         const roomState = state.rooms[args.room];
         if (roomState) {
@@ -73,7 +75,7 @@ const agent = new Agent(ai, {
           destination: { type: 'string', description: 'Destination room' }
         },
         required: ['destination']
-      } as FunctionJSONSchema,
+      } as AxFunctionJSONSchema,
       func: async (args: Readonly<{ destination: string }>) => {
         if (state.rooms[args.destination]) {
           state.robotLocation = args.destination;
@@ -90,7 +92,7 @@ const agent = new Agent(ai, {
       parameters: {
         type: 'object',
         properties: {}
-      } as FunctionJSONSchema,
+      } as AxFunctionJSONSchema,
       func: async () => {
         const location = state.robotLocation;
         const room = state.rooms[location];
@@ -110,17 +112,13 @@ const agent = new Agent(ai, {
   ]
 });
 
-async function main() {
-  // Initial state prompt for the LLM
-  const instruction = `
+// Initial state prompt for the LLM
+const instruction = `
     You are controlling a smart home with the following rooms: kitchen, livingRoom, bedroom.
     Each room has a light that can be toggled on or off. There is a robot that can move between rooms.
     Your task is to find the dog. You can turn on lights in rooms to see inside them, and move the robot to different rooms.
     The initial state is: ${JSON.stringify({ ...state, dogLocation: 'unknown' })}.
   `;
 
-  const res = await agent.forward({ instruction });
-  console.log('Response:', res);
-}
-
-main().catch(console.error);
+const res = await agent.forward({ instruction });
+console.log('Response:', res);
