@@ -116,7 +116,7 @@ async function main() {
     You are controlling a smart home with the following rooms: kitchen, livingRoom, bedroom.
     Each room has a light that can be toggled on or off. There is a robot that can move between rooms.
     Your task is to find the dog. You can turn on lights in rooms to see inside them, and move the robot to different rooms.
-    The initial state is: ${JSON.stringify(state)}.
+    The initial state is: ${JSON.stringify({ ...state, dogLocation: 'unknown' })}.
   `;
 
   const res = await agent.forward({ instruction });
