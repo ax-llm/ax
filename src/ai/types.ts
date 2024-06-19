@@ -61,7 +61,7 @@ export type AxFunction = {
 };
 
 export type AxChatResponseResult = {
-  content: string | null;
+  content?: string;
   name?: string;
   id?: string;
   functionCalls?: {
@@ -98,10 +98,27 @@ export type AxModelInfoWithProvider = AxModelInfo & { provider: string };
 export type AxChatRequest = {
   chatPrompt: Readonly<
     | { role: 'system'; content: string }
-    | { role: 'user'; content: string; name?: string }
+    | {
+        role: 'user';
+        name?: string;
+        content:
+          | string
+          | (
+              | {
+                  type: 'text';
+                  text: string;
+                }
+              | {
+                  type: 'image';
+                  mimeType: string;
+                  image: string;
+                  details?: 'high' | 'low' | 'auto';
+                }
+            )[];
+      }
     | {
         role: 'assistant';
-        content: string | null;
+        content?: string;
         name?: string;
         functionCalls?: {
           id: string;

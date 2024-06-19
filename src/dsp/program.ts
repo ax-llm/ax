@@ -11,7 +11,13 @@ import type { AxTracer } from '../trace/index.js';
 import { AxInstanceRegistry } from './registry.js';
 import { mergeProgramUsage } from './util.js';
 
-export type AxFieldValue = string | string[] | number | boolean | object;
+export type AxFieldValue =
+  | string
+  | string[]
+  | number
+  | boolean
+  | object
+  | { mimeType: string; data: string };
 
 export type AxGenIn = Record<string, AxFieldValue>;
 export type AxGenOut = Record<string, AxFieldValue>;

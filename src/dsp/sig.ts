@@ -9,7 +9,7 @@ export interface AxField {
   title?: string;
   description?: string;
   type?: {
-    name: 'string' | 'number' | 'boolean' | 'json'; // extend this as needed
+    name: 'string' | 'number' | 'boolean' | 'json' | 'image'; // extend this as needed
     isArray: boolean;
   };
   isOptional?: boolean;
@@ -157,6 +157,12 @@ export class AxSignature {
   };
 
   private updateHash = (): [string, string] => {
+    this.getOutputFields().forEach((field) => {
+      if (field.type?.name === 'image') {
+        throw new Error('Image type is not supported in output fields.');
+      }
+    });
+
     this.sigHash = createHash('sha256')
       .update(this.description ?? '')
       .update(JSON.stringify(this.inputFields))

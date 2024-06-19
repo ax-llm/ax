@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax",
-  "version": "9.0.1",
+  "version": "9.0.2",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/src/index.d.ts",
@@ -44,8 +44,6 @@
     "json5": "^2.2.3"
   },
   "devDependencies": {
-    "@ava/typescript": "^4.1.0",
-    "@digitak/esrun": "^3.2.26",
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/lodash": "^4.17.0",
@@ -72,7 +70,7 @@
     "ts-pegjs": "^4.2.1",
     "tsx": "^4.7.1",
     "typedoc": "^0.25.13",
-    "typescript": "^5.4.3"
+    "typescript": "^5.6.0-dev.20240619"
   },
   "files": [
     "build/module",

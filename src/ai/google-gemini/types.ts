@@ -28,16 +28,23 @@ export enum AxGoogleGeminiSafetyThreshold {
 export type AxGoogleGeminiContent =
   | {
       role: 'user';
-      parts:
+      parts: (
         | {
             text: string;
-          }[]
+          }
+        | {
+            inlineData: {
+              mimeType: string;
+              data: string;
+            };
+          }
         | {
             fileData: {
               mimeType: string;
               fileUri: string;
             };
-          }[];
+          }
+      )[];
     }
   | {
       role: 'model';

@@ -13,7 +13,7 @@ import { AxSpanKind } from '../trace/index.js';
 import { AxChainOfThought } from './cot.js';
 import { AxReAct } from './react.js';
 
-export interface AxAgentI extends AxTunable, AxUsable {
+export interface AxAgentic extends AxTunable, AxUsable {
   getFunction(): AxFunction;
 }
 
@@ -24,7 +24,7 @@ export type AxAgentOptions = Omit<
 
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   extends AxProgram<IN, OUT>
-  implements AxAgentI
+  implements AxAgentic
 {
   private gen: AxProgram<IN, OUT>;
 
@@ -45,7 +45,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       name: string;
       description: string;
       signature: AxSignature | string;
-      agents?: AxAgentI[];
+      agents?: AxAgentic[];
       functions?: AxFunction[];
     }>,
     options?: Readonly<AxAgentOptions>

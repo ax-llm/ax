@@ -2,7 +2,7 @@ import test from 'ava';
 
 import { parse } from './parser.js';
 
-test('new Signature() builds a signature', (t) => {
+test('signature parsing', (t) => {
   const sig = parse(
     `"hello world" context?:string "some context", query:string 'some query' -> answers:string[]`
   );
@@ -28,4 +28,10 @@ test('new Signature() builds a signature', (t) => {
     type: { name: 'string', isArray: true },
     isOptional: undefined
   });
+});
+
+test('signature parsing: invalid signature', (t) => {
+  t.throws(() =>
+    parse(`context?:string, query:boom -> test:image, answers:string[]`)
+  );
 });

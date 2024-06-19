@@ -159,70 +159,111 @@ export class AxGoogleGemini extends AxBaseAI<
           }
         : undefined;
 
-    const contents = req.chatPrompt
+    const contents: AxGoogleGeminiChatRequest['contents'] = req.chatPrompt
       .filter((p) => p.role !== 'system')
       .map(({ role, ...prompt }, i) => {
-        if (role === 'user') {
-          if (!prompt.content) {
-            throw new Error(`Chat prompt content is empty (index: ${i})`);
-          }
-          return {
-            role: 'user' as const,
-            parts: [{ text: prompt.content }]
-          };
+        if (!prompt.content) {
+          throw new Error(`Chat content is empty (index: ${i})`);
         }
 
-        if (role === 'assistant') {
-          const text = prompt.content ? [{ text: prompt.content }] : [];
-
-          let functionCalls: {
-            functionCall: {
-              name: string;
-              args: object;
-            };
-          }[] = [];
-
-          if ('functionCalls' in prompt) {
-            functionCalls =
-              prompt.functionCalls?.map((f) => {
-                const args =
-                  typeof f.function.arguments === 'string'
-                    ? JSON.parse(f.function.arguments)
-                    : f.function.arguments;
-                return {
-                  functionCall: {
-                    name: f.function.name,
-                    args: args
+        switch (role) {
+          case 'user': {
+            const parts: Extract<
+              AxGoogleGeminiChatRequest['contents'][0],
+              { role: 'user' }
+            >['parts'] = Array.isArray(prompt.content)
+              ? prompt.content.map((c, i) => {
+                  switch (c.type) {
+                    case 'text':
+                      return { text: c.text };
+                    case 'image':
+                      return {
+                        inlineData: { mimeType: c.mimeType, data: c.image }
+                      };
+                    default:
+                      throw new Error(
+                        `Chat prompt content type not supported (index: ${i})`
+                      );
                   }
-                };
-              }) ?? [];
+                })
+              : [{ text: prompt.content }];
+            return {
+              role: 'user' as const,
+              parts
+            };
           }
-          return {
-            role: 'model' as const,
-            parts: text ? text : functionCalls
-          };
-        }
 
-        if (role === 'function') {
-          if ('functionId' in prompt) {
+          case 'assistant': {
+            if ('content' in prompt && typeof prompt.content === 'string') {
+              const parts: Extract<
+                AxGoogleGeminiChatRequest['contents'][0],
+                { role: 'model' }
+              >['parts'] = [{ text: prompt.content }];
+              return {
+                role: 'model' as const,
+                parts
+              };
+            }
+
+            let functionCalls: {
+              functionCall: {
+                name: string;
+                args: object;
+              };
+            }[] = [];
+
+            if ('functionCalls' in prompt) {
+              functionCalls =
+                prompt.functionCalls?.map((f) => {
+                  const args =
+                    typeof f.function.arguments === 'string'
+                      ? JSON.parse(f.function.arguments)
+                      : f.function.arguments;
+                  return {
+                    functionCall: {
+                      name: f.function.name,
+                      args: args
+                    }
+                  };
+                }) ?? [];
+            }
+
+            const parts: Extract<
+              AxGoogleGeminiChatRequest['contents'][0],
+              { role: 'model' }
+            >['parts'] = functionCalls;
+
+            return {
+              role: 'model' as const,
+              parts
+            };
+          }
+
+          case 'function': {
+            if (!('functionId' in prompt)) {
+              throw new Error(`Chat prompt functionId is empty (index: ${i})`);
+            }
+            const parts: Extract<
+              AxGoogleGeminiChatRequest['contents'][0],
+              { role: 'function' }
+            >['parts'] = [
+              {
+                functionResponse: {
+                  name: prompt.functionId,
+                  response: { result: prompt.content }
+                }
+              }
+            ];
+
             return {
               role: 'function' as const,
-              parts: [
-                {
-                  functionResponse: {
-                    name: prompt.functionId,
-                    response: { result: prompt.content }
-                  }
-                }
-              ]
+              parts
             };
           }
-          throw new Error(`Chat prompt functionId is empty (index: ${i})`);
-        }
 
-        throw new Error(
-          `Chat prompt role not supported: ${role} (index: ${i})`
-        );
+          default:
+            throw new Error('Invalid role');
+        }
       });
 
     const tools = req.functions
@@ -305,7 +346,7 @@ export class AxGoogleGemini extends AxBaseAI<
     resp: Readonly<AxGoogleGeminiChatResponse>
   ): AxChatResponse => {
     const results: AxChatResponseResult[] = resp.candidates.map((candidate) => {
-      const result: AxChatResponseResult = { content: null };
+      const result: AxChatResponseResult = {};
 
       switch (candidate.finishReason) {
         case 'MAX_TOKENS':

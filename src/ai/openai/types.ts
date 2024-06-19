@@ -65,16 +65,21 @@ export type AxOpenAIChatRequest = {
         role: 'user';
         content:
           | string
-          | {
-              type: 'image_url' | 'text';
-              text?: string;
-              image_url?: { url: string; details?: 'high' | 'low' | 'auto' };
-            };
+          | (
+              | {
+                  type: 'text';
+                  text: string;
+                }
+              | {
+                  type: 'image_url';
+                  image_url: { url: string; details?: 'high' | 'low' | 'auto' };
+                }
+            )[];
         name?: string;
       }
     | {
         role: 'assistant';
-        content: string | null;
+        content: string;
         name?: string;
         tool_calls?: {
           type: 'function';

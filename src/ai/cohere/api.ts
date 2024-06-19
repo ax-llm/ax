@@ -101,10 +101,22 @@ export class AxCohere extends AxBaseAI<
     const lastChatMsg = req.chatPrompt.at(-1);
     const restOfChat = req.chatPrompt.slice(0, -1);
 
-    const message = lastChatMsg?.content ?? '';
-    const chatHistory = restOfChat
-      .filter((chat) => chat.role !== 'function' || chat.content?.length > 0)
-      .map((chat) => {
+    if (Array.isArray(lastChatMsg?.content)) {
+      throw new Error('Chat prompt is empty');
+    }
+
+    const message: AxCohereChatRequest['message'] = lastChatMsg?.content ?? '';
+
+    const chatHistory: AxCohereChatRequest['chat_history'] = restOfChat.map(
+      (chat) => {
+        if (chat.role === 'function') {
+          throw new Error('Function calling not supported');
+        }
+
+        if (Array.isArray(chat.content)) {
+          throw new Error('Multi-modal content not supported');
+        }
+
         let role: AxCohereChatRequest['chat_history'][0]['role'];
         switch (chat.role) {
           case 'user':
@@ -121,7 +133,8 @@ export class AxCohere extends AxBaseAI<
             break;
         }
         return { role, message: chat.content ?? '' };
-      });
+      }
+    );
 
     type PropValue = NonNullable<
       AxCohereChatRequest['tools']

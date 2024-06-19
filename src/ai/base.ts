@@ -395,7 +395,16 @@ export class AxBaseAI<
 }
 
 const logChatRequest = (req: Readonly<AxChatRequest>) => {
-  const items = req.chatPrompt?.map((v) => v.content).join('\n');
+  const items = req.chatPrompt
+    ?.map(({ content }) => {
+      if (typeof content === 'string') {
+        return content;
+      } else {
+        return JSON.stringify(content, null, 2);
+      }
+    })
+    .join('\n');
+
   if (items) {
     console.log('==========');
     console.log(colorLog.whiteBright(items));

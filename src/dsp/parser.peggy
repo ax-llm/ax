@@ -19,9 +19,12 @@ ParsedField
     };
 }
     
-ParsedType = chars:[a-zA-Z_0-9]* isArray:("[]")? {
-    	return { name: chars.join(""), isArray: isArray ? true : false }
+ParsedType = type:Type isArray:("[]")? {
+    	return { name: type, isArray: isArray ? true : false }
 }
+
+Type = "string" / "number" / "boolean" / "json" / "image"
+
 
 ParsedIdentifier = chars:[a-zA-Z_0-9]* {
     	return chars.join("")

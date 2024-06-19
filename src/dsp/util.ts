@@ -49,7 +49,26 @@ export const validateValue = (
     }
   };
 
+  if (field.type?.name === 'image') {
+    let msg;
+    if (
+      typeof value !== 'object' ||
+      !('mimeType' in value) ||
+      !('data' in value)
+    ) {
+      msg = 'object ({ mimeType: string; data: string })';
+    }
+
+    if (msg) {
+      throw new Error(
+        `Validation failed: Expected '${field.name}' to be a ${msg} instead got '${value}'`
+      );
+    }
+    return;
+  }
+
   let isValid = true;
+
   if (ft.isArray) {
     if (!Array.isArray(value)) {
       isValid = false;

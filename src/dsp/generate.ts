@@ -374,7 +374,7 @@ export class AxGenerate<
       this.pt = new promptTemplate(this.signature);
     }
 
-    const prompt = this.pt.toString<IN>(values, {
+    const prompt = this.pt.render<IN>(values, {
       examples: this.examples,
       demos: this.demos
     });
@@ -430,15 +430,15 @@ export class AxGenerate<
         }
 
         if (extraFields) {
-          const fields = this.pt.renderExtraFields(extraFields);
+          const content = this.pt.renderExtraFields(extraFields);
           const userMsg = {
             role: 'user' as const,
-            content: fields.join('\n\n')
+            content
           };
 
           mem.add(userMsg, options?.sessionId);
           if (options?.debug) {
-            console.log('Error Correction:', fields);
+            console.log('Error Correction:', content);
           }
         }
       }

@@ -70,3 +70,4 @@ export class AxApacheTika {
     return results;
   }
 }
+export default AxApacheTika;

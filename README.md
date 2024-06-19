@@ -1,6 +1,6 @@
 # Ax - Build LLMs Powered Agents (Typescript)
 
-Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSP paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems.
+Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSP paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSP, etc.
 
 [![NPM Package](https://img.shields.io/npm/v/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -18,11 +18,11 @@ We've renamed from "llmclient" to "ax" to highlight our focus on powering agenti
 
 - Support for various LLMs and Vector DBs
 - Prompts auto-generated from simple signatures
-- Multi-Hop RAG, ReAcT, CoT, Function Calling and more
 - Build Agents that can call other agents
 - Convert docs of any format to text
 - RAG, smart chunking, embedding, querying
-- Output field processing, validation while streaming
+- Output validation while streaming
+- Multi-modal DSP supported
 - Automatic prompt tuning using optimizers
 - OpenTelemetry tracing / observability
 - Production ready Typescript code
@@ -107,49 +107,6 @@ const agent = new AxAgent(ai, {
 agent.forward({ questions: "How many atoms are there in the universe" })
 ```
 
-## Fast LLM Router
-
-A special router that uses no LLM calls only embeddings to route user requests smartly.
-
-Use the Router to efficiently route user queries to specific routes designed to handle certain types of questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how input from the user should be handled use our fast "Semantic Router" that uses inexpensive and fast embedding queries.
-
-```typescript
-# npm run tsx ./src/examples/routing.ts
-
-const customerSupport = new AxRoute('customerSupport', [
-  'how can I return a product?',
-  'where is my order?',
-  'can you help me with a refund?',
-  'I need to update my shipping address',
-  'my product arrived damaged, what should I do?'
-]);
-
-const technicalSupport = new AxRoute('technicalSupport', [
-  'how do I install your software?',
-  'I’m having trouble logging in',
-  'can you help me configure my settings?',
-  'my application keeps crashing',
-  'how do I update to the latest version?'
-]);
-
-const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
-
-const router = new AxRouter(ai);
-await router.setRoutes(
-  [customerSupport, technicalSupport],
-  { filename: 'router.json' }
-);
-
-const tag = await router.forward('I need help with my order');
-
-if (tag === "customerSupport") {
-    ...
-}
-if (tag === "technicalSupport") {
-    ...
-}
-```
-
 ## Vector DBs Supported
 
 Vector databases are critical to building LLM workflows. We have clean abstractions over popular vector db's as well as our own quick in memory vector database.
@@ -218,6 +175,23 @@ const matches = await manager.query('Find some text');
 console.log(matches);
 ```
 
+## Multi-modal DSP
+
+When using models like `gpt-4o` and `gemini` that support multi-modal prompts we support using image fields and this works with the whole dsp pipeline.
+
+```typescript
+const image = fs
+  .readFileSync('./src/examples/assets/kitten.jpeg')
+  .toString('base64');
+
+const gen = new AxChainOfThought(ai, `question, animalImage:image -> answer`);
+
+const res = await gen.forward({
+  question: 'What family does this animal belong to?',
+  animalImage: { mimeType: 'image/jpeg', data: image }
+});
+```
+
 ## Streaming
 
 We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without having to wait for the whole output saving tokens, cost and reducing latency. Assertions are a powerful way to ensure the output matches your requirements these work with streaming as well.
@@ -265,6 +239,49 @@ const res = await gen.forward(
   },
   { stream: true, debug: true }
 );
+```
+
+## Fast LLM Router
+
+A special router that uses no LLM calls only embeddings to route user requests smartly.
+
+Use the Router to efficiently route user queries to specific routes designed to handle certain types of questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how input from the user should be handled use our fast "Semantic Router" that uses inexpensive and fast embedding queries.
+
+```typescript
+# npm run tsx ./src/examples/routing.ts
+
+const customerSupport = new AxRoute('customerSupport', [
+  'how can I return a product?',
+  'where is my order?',
+  'can you help me with a refund?',
+  'I need to update my shipping address',
+  'my product arrived damaged, what should I do?'
+]);
+
+const technicalSupport = new AxRoute('technicalSupport', [
+  'how do I install your software?',
+  'I’m having trouble logging in',
+  'can you help me configure my settings?',
+  'my application keeps crashing',
+  'how do I update to the latest version?'
+]);
+
+const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
+
+const router = new AxRouter(ai);
+await router.setRoutes(
+  [customerSupport, technicalSupport],
+  { filename: 'router.json' }
+);
+
+const tag = await router.forward('I need help with my order');
+
+if (tag === "customerSupport") {
+    ...
+}
+if (tag === "technicalSupport") {
+    ...
+}
 ```
 
 ## OpenTelemetry support

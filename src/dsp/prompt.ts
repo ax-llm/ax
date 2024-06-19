@@ -1,18 +1,27 @@
+import type { AxChatRequest } from '../ai/types.js';
+
 import { type AxFieldValue } from './program.js';
 import type { AxField, AxIField, AxSignature } from './sig.js';
 import { validateValue } from './util.js';
 
+type Writeable<T> = { -readonly [P in keyof T]: T[P] };
+type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
+
+type ChatRequestUserMessage = Exclude<
+  Extract<AxChatRequestChatPrompt, { role: 'user' }>['content'],
+  string
+>;
+
 export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
-  value: Readonly<string | string[]>
-) => string;
+  value: Readonly<AxFieldValue>
+) => ChatRequestUserMessage;
 
 export class AxPromptTemplate {
   private sig: Readonly<AxSignature>;
   private fieldTemplates?: Record<string, AxFieldTemplateFn>;
-  private task: string;
-  private format: string;
-  private prompt?: string;
+  private task: { type: 'text'; text: string };
+  private outputFormat: { type: 'text'; text: string };
 
   constructor(
     sig: Readonly<AxSignature>,
@@ -29,49 +38,63 @@ export class AxPromptTemplate {
     if (desc) {
       task.push(desc);
     }
-    this.task = task.join('\n');
 
-    const fmtHeader = 'Follow the following format.';
-    // const inFmt = this.renderInFields(this.sig.getInputFields());
-    const outFmt = this.renderOutFields(this.sig.getOutputFields());
-    this.format = [fmtHeader, /*...inFmt,*/ ...outFmt].join('\n\n');
+    this.task = {
+      type: 'text' as const,
+      text: task.join('\n')
+    };
+
+    this.outputFormat = {
+      type: 'text' as const,
+      text: [
+        'Follow the following format.',
+        ...this.renderOutFields(this.sig.getOutputFields()),
+        '---\n\n'
+      ].join('\n\n')
+    };
   }
 
-  public toString = <T extends Record<string, AxFieldValue>>(
+  public render = <T extends Record<string, AxFieldValue>>(
     values: T,
     {
-      extraFields,
       examples,
       demos
     }: Readonly<{
       skipSystemPrompt?: boolean;
-      extraFields?: readonly AxIField[];
       examples?: Record<string, AxFieldValue>[];
       demos?: Record<string, AxFieldValue>[];
     }>
   ) => {
     const renderedExamples = examples
-      ? 'Examples:\n\n' + this.renderExamples(examples)
-      : null;
+      ? [
+          { type: 'text' as const, text: 'Examples:\n' },
+          ...this.renderExamples(examples)
+        ]
+      : [];
 
     const renderedDemos = demos ? this.renderDemos(demos) : [];
-    const completion = this.renderInputFields(values, extraFields);
 
-    this.prompt = [
+    const completion = this.renderInputFields(values);
+
+    const promptList: ChatRequestUserMessage = [
       this.task,
-      renderedExamples,
-      this.format,
+      ...renderedExamples,
+      this.outputFormat,
       ...renderedDemos,
-      completion
-    ]
-      .filter(Boolean)
-      .join('\n\n---\n\n');
+      ...completion
+    ];
 
-    return this.prompt;
+    const prompt = promptList.filter((v) => v !== undefined);
+
+    if (prompt.every((v) => v.type === 'text')) {
+      return prompt.map((v) => v.text).join('\n');
+    }
+
+    return prompt.reduce(combineConsecutiveStrings('\n'), []);
   };
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {
-    const text: string[] = [];
+    const prompt: ChatRequestUserMessage = [];
 
     if (extraFields && extraFields.length > 0) {
       extraFields.forEach((field) => {
@@ -80,15 +103,18 @@ export class AxPromptTemplate {
         if (!field.description || field.description.length === 0) {
           throw new Error(`Description for field '${field.name}' is required`);
         }
-        text.push(fn(field, field.description));
+        prompt.push(...fn(field, field.description));
       });
     }
+    if (prompt.every((v) => v.type === 'text')) {
+      return prompt.map((v) => v.text).join('\n\n');
+    }
 
-    return text;
+    return prompt.reduce(combineConsecutiveStrings('\n'), []);
   };
 
   private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {
-    const text: string[] = [];
+    const list: ChatRequestUserMessage = [];
 
     const fields = [
       ...this.sig.getInputFields(),
@@ -96,18 +122,29 @@ export class AxPromptTemplate {
     ];
 
     for (const item of data) {
-      const _item = fields
+      const renderedItem = fields
         .map((field) => this.renderInField(field, item, true))
-        .filter((v): v is string => Boolean(v))
-        .join('\n');
-      text.push(_item);
+        .filter((v) => v !== undefined)
+        .flat();
+
+      renderedItem
+        .filter((v) => v.type === 'text')
+        .slice(0, -1)
+        .forEach((v) => {
+          v.text = v.text + '\n';
+        });
+
+      list.push(...renderedItem);
+      if (renderedItem.length > 0) {
+        list.push({ type: 'text', text: '\n' });
+      }
     }
 
-    return text.join('\n\n');
+    return list;
   };
 
   private renderDemos = (data: Readonly<Record<string, AxFieldValue>[]>) => {
-    const text: string[] = [];
+    const list: ChatRequestUserMessage = [];
 
     const fields = [
       ...this.sig.getInputFields(),
@@ -115,34 +152,43 @@ export class AxPromptTemplate {
     ];
 
     for (const item of data) {
-      const _item = fields
+      const renderedItem = fields
         .map((field) => this.renderInField(field, item, true))
-        .filter((v): v is string => Boolean(v))
-        .join('\n\n');
-      text.push(_item);
+        .filter((v) => v !== undefined)
+        .flat();
+
+      renderedItem
+        .filter((v) => v.type === 'text')
+        .slice(0, -1)
+        .forEach((v) => {
+          v.text = v.text + '\n';
+        });
+
+      list.push(...renderedItem);
+      if (renderedItem.length > 0) {
+        list.push({ type: 'text', text: '\n\n---\n\n' });
+      }
     }
 
-    return text;
+    return list;
   };
 
   private renderInputFields = <T extends Record<string, AxFieldValue>>(
-    values: T,
-    extraFields?: readonly AxIField[]
+    values: T
   ) => {
-    let text: string[] = [];
-
-    if (extraFields && extraFields.length > 0) {
-      const extraFieldsText = this.renderExtraFields(extraFields);
-      text = [...text, ...extraFieldsText];
-    }
-
-    this.sig
+    const renderedItems = this.sig
       .getInputFields()
       .map((field) => this.renderInField(field, values))
-      .filter((v): v is string => Boolean(v))
-      .forEach((v) => text.push(v));
+      .filter((v) => v !== undefined)
+      .flat();
 
-    return text.join('\n\n');
+    renderedItems
+      .filter((v) => v.type === 'text')
+      .forEach((v) => {
+        v.text = v.text + '\n\n';
+      });
+
+    return renderedItems;
   };
 
   private renderInField = (
@@ -150,7 +196,8 @@ export class AxPromptTemplate {
     values: Readonly<Record<string, AxFieldValue>>,
     skipMissing?: boolean
   ) => {
-    const fn = this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
+    const textFieldFn: AxFieldTemplateFn =
+      this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
     const value = values[field.name];
 
     if (skipMissing && !value) {
@@ -170,14 +217,26 @@ export class AxPromptTemplate {
     if (field.type) {
       validateValue(field, value);
     }
-    const stringValue = convertValueToString(value);
-    return fn(field, stringValue);
+    const processedValue = processValue(field, value);
+    return textFieldFn(field, processedValue);
   };
 
   private defaultRenderInField = (
     field: Readonly<AxField>,
-    value: Readonly<string | string[]>
-  ) => {
+    value: Readonly<AxFieldValue>
+  ): ChatRequestUserMessage => {
+    if (field.type?.name === 'image') {
+      if (typeof value !== 'object') {
+        throw new Error('Image field value must be an object.');
+      }
+      if (!('mimeType' in value)) {
+        throw new Error('Image field must have a mimeType');
+      }
+      return [
+        { type: 'text', text: `${field.title}: ` as string },
+        { type: 'image', mimeType: value.mimeType, image: value.data as string }
+      ];
+    }
     const text = [field.title, ': '];
 
     if (Array.isArray(value)) {
@@ -186,7 +245,7 @@ export class AxPromptTemplate {
     } else {
       text.push(value as string);
     }
-    return text.join('');
+    return [{ type: 'text', text: text.join('') }];
   };
 
   private renderDescFields = (list: readonly AxField[]) =>
@@ -207,9 +266,13 @@ export class AxPromptTemplate {
     });
 }
 
-const convertValueToString = (
+const processValue = (
+  field: Readonly<AxField>,
   value: Readonly<AxFieldValue>
-): string | string[] => {
+): AxFieldValue => {
+  if (field.type?.name === 'image' && typeof value === 'object') {
+    return value;
+  }
   if (typeof value === 'string') {
     return value;
   }
@@ -249,3 +312,27 @@ const toVarDesc = (type?: Readonly<AxField['type']>) => {
   }
   return '';
 };
+
+function combineConsecutiveStrings(separator: string) {
+  return (
+    // eslint-disable-next-line functional/prefer-immutable-types
+    acc: ChatRequestUserMessage,
+    // eslint-disable-next-line functional/prefer-immutable-types
+    current: ChatRequestUserMessage[0]
+  ) => {
+    if (current.type === 'text') {
+      const previous = acc.length > 0 ? acc[acc.length - 1] : null;
+      if (previous && previous.type === 'text') {
+        // If the last item in the accumulator is a string, append the current string to it with the separator
+        previous.text += separator + current.text;
+      } else {
+        // Otherwise, push the current string into the accumulator
+        acc.push(current);
+      }
+    } else {
+      // If current is not of type 'text', just add it to the accumulator
+      acc.push(current);
+    }
+    return acc;
+  };
+}

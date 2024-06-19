@@ -137,39 +137,7 @@ export class AxOpenAI extends AxBaseAI<
         ? 'auto'
         : req.functionCall;
 
-    const messages = req.chatPrompt.map((v) => {
-      switch (v.role) {
-        case 'system':
-          return { role: 'system' as const, content: v.content };
-        case 'user':
-          return { role: 'user' as const, content: v.content, name: v.name };
-        case 'assistant':
-          return {
-            role: 'assistant' as const,
-            content: v.content,
-            name: v.name,
-            tool_calls: v.functionCalls?.map((v) => ({
-              id: v.id,
-              type: 'function' as const,
-              function: {
-                name: v.function.name,
-                arguments:
-                  typeof v.function.arguments === 'object'
-                    ? JSON.stringify(v.function.arguments)
-                    : v.function.arguments
-              }
-            }))
-          };
-        case 'function':
-          return {
-            role: 'tool' as const,
-            content: v.content,
-            tool_call_id: v.functionId
-          };
-        default:
-          throw new Error('Invalid role');
-      }
-    });
+    const messages = createMessages(req);
 
     const frequencyPenalty =
       req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
@@ -373,3 +341,66 @@ const mapFinishReason = (
       return 'function_call' as const;
   }
 };
+
+function createMessages(
+  req: Readonly<AxChatRequest>
+): AxOpenAIChatRequest['messages'] {
+  return req.chatPrompt.map((v) => {
+    if (v.role !== 'user' && Array.isArray(v.content)) {
+      throw new Error('Role does not support array content:' + v.role);
+    }
+
+    switch (v.role) {
+      case 'system':
+        return { role: 'system' as const, content: v.content };
+      case 'user':
+        if (Array.isArray(v.content)) {
+          return {
+            role: 'user' as const,
+            name: v.name,
+            content: v.content.map((c) => {
+              switch (c.type) {
+                case 'text':
+                  return { type: 'text' as const, text: c.text };
+                case 'image': {
+                  const url = `data:${c.mimeType};base64,` + c.image;
+                  return {
+                    type: 'image_url' as const,
+                    image_url: { url, details: c.details ?? 'auto' }
+                  };
+                }
+                default:
+                  throw new Error('Invalid content type');
+              }
+            })
+          };
+        }
+        return { role: 'user' as const, content: v.content, name: v.name };
+      case 'assistant':
+        return {
+          role: 'assistant' as const,
+          content: v.content as string,
+          name: v.name,
+          tool_calls: v.functionCalls?.map((v) => ({
+            id: v.id,
+            type: 'function' as const,
+            function: {
+              name: v.function.name,
+              arguments:
+                typeof v.function.arguments === 'object'
+                  ? JSON.stringify(v.function.arguments)
+                  : v.function.arguments
+            }
+          }))
+        };
+      case 'function':
+        return {
+          role: 'tool' as const,
+          content: v.content,
+          tool_call_id: v.functionId
+        };
+      default:
+        throw new Error('Invalid role');
+    }
+  });
+}

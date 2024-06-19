@@ -3,6 +3,7 @@ import { Readable } from 'stream';
 import test from 'ava';
 
 import { axAI, type AxOpenAIArgs } from '../ai/index.js';
+import { AxSignature } from '../dsp/sig.js';
 
 import { AxChainOfThought } from './cot.js';
 
@@ -61,4 +62,8 @@ test('generate prompt', async (t) => {
     reason: 'Blah blah blah',
     shortSummary: 'More blah blah blah'
   });
+});
+
+test('generate prompt: invalid signature', async (t) => {
+  t.throws(() => new AxSignature(`text -> output:image`));
 });
