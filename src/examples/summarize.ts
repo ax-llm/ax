@@ -14,7 +14,7 @@ const ai = axAI('openai', {
 
 ai.setOptions({ debug: true });
 
-// const ai = AI('ollama', { model: 'nous-hermes2' });
+// const ai = axAI('ollama', { model: 'nous-hermes2' });
 
 const gen = new AxChainOfThought(
   ai,

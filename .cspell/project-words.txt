@@ -31,6 +31,7 @@ Logprob
 logprobs
 Logprobs
 Macbook
+minilm
 Mixtral
 nanos
 neumann

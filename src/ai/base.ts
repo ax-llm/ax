@@ -426,6 +426,9 @@ const logResponse = (resp: Readonly<AxChatResponse>) => {
 };
 
 const logStreamingResponse = (resp: Readonly<AxChatResponse>) => {
+  if (!resp.results) {
+    return;
+  }
   for (const r of resp.results) {
     if (r.content) {
       process.stdout.write(colorLog.greenBright(r.content));

@@ -73,11 +73,17 @@ export function mergeFunctionCalls(
     const fc = functionCalls.find((fc) => fc.id === _fc.id);
 
     if (fc) {
-      if (typeof _fc.function.name == 'string') {
+      if (
+        typeof _fc.function.name == 'string' &&
+        _fc.function.name.length > 0
+      ) {
         fc.function.name += _fc.function.name;
       }
 
-      if (typeof _fc.function.arguments == 'string') {
+      if (
+        typeof _fc.function.arguments == 'string' &&
+        _fc.function.arguments.length > 0
+      ) {
         fc.function.arguments += _fc.function.arguments;
       }
 

@@ -277,7 +277,11 @@ export class AxGenerate<
 
       if (result.content) {
         content += result.content;
-        mem.updateResult({ ...result, content, functionCalls }, sessionId);
+
+        mem.updateResult(
+          { name: result.name, content, functionCalls },
+          sessionId
+        );
 
         assertStreamingAssertions(
           this.streamingAsserts,
@@ -302,7 +306,10 @@ export class AxGenerate<
         }
 
         if (funcs) {
-          mem.updateResult({ ...result, content, functionCalls }, sessionId);
+          mem.updateResult(
+            { name: result.name, content, functionCalls },
+            sessionId
+          );
           await this.processFunctions(funcs, mem, sessionId, traceId);
         }
       }

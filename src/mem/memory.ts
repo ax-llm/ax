@@ -2,6 +2,8 @@ import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js';
 
 import type { AxAIMemory } from './types.js';
 
+type Writeable<T> = { -readonly [P in keyof T]: T[P] };
+
 export class AxMemory implements AxAIMemory {
   private data: AxChatRequest['chatPrompt'] = [];
   private sdata = new Map<string, AxChatRequest['chatPrompt']>();
@@ -22,6 +24,7 @@ export class AxMemory implements AxAIMemory {
   ): void {
     const d = this.get(sessionId);
     let n = 0;
+
     if (Array.isArray(value)) {
       n = d.push(...structuredClone(value));
     } else {
@@ -46,14 +49,23 @@ export class AxMemory implements AxAIMemory {
     sessionId?: string
   ): void {
     const item = this.get(sessionId);
-    if ('content' in item && content) {
-      item.content = content;
+
+    const lastItem = item.at(-1) as unknown as Writeable<
+      AxChatRequest['chatPrompt'][0]
+    >;
+    if (!lastItem || lastItem.role !== 'assistant') {
+      this.addResult({ content, name, functionCalls }, sessionId);
+      return;
     }
-    if ('name' in item && name) {
-      item.name = name;
+
+    if ('content' in lastItem && content) {
+      lastItem.content = content;
     }
-    if ('functionCalls' in item && functionCalls) {
-      item.functionCalls = functionCalls;
+    if ('name' in lastItem && name) {
+      lastItem.name = name;
+    }
+    if ('functionCalls' in lastItem && functionCalls) {
+      lastItem.functionCalls = functionCalls;
     }
   }
 

@@ -1,9 +1,12 @@
 import { axAI, AxChainOfThought, type AxOpenAIArgs } from '../index.js';
 
-// const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
-const ai = axAI('google-gemini', {
-  apiKey: process.env.GOOGLE_APIKEY
+const ai = axAI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
 } as AxOpenAIArgs);
+
+// const ai = axAI('google-gemini', {
+//   apiKey: process.env.GOOGLE_APIKEY
+// } as AxOpenAIArgs);
 
 // setup the prompt program
 const gen = new AxChainOfThought(

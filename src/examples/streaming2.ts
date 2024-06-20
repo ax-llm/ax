@@ -1,9 +1,12 @@
 import { axAI, AxChainOfThought, type AxOpenAIArgs } from '../index.js';
 
-// const ai = AI('openai', { apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
-const ai = axAI('google-gemini', {
-  apiKey: process.env.GOOGLE_APIKEY
+const ai = axAI('openai', {
+  apiKey: process.env.OPENAI_APIKEY
 } as AxOpenAIArgs);
+
+// const ai = axAI('anthropic', {
+//   apiKey: process.env.ANTHROPIC_APIKEY
+// } as AxAnthropicArgs);
 
 // setup the prompt program
 const gen = new AxChainOfThought(
@@ -18,11 +21,11 @@ gen.addStreamingAssert(
     const re = /^\d+\./;
 
     // split the value by lines, trim each line,
-    // filter out empty lines and check if all lines match the regex
+    // filter out very short lines and check if all lines match the regex
     return value
       .split('\n')
       .map((x) => x.trim())
-      .filter((x) => x.length > 0)
+      .filter((x) => x.length > 4)
       .every((x) => re.test(x));
   },
   'Lines must start with a number and a dot. Eg: 1. This is a line.'

@@ -95,8 +95,6 @@ export class AxCohere extends AxBaseAI<
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxCohereChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
-    // const functionsList = req.functions
-    //   ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
 
     const lastChatMsg = req.chatPrompt.at(-1);
     const restOfChat = req.chatPrompt.slice(0, -1);

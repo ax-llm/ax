@@ -345,42 +345,44 @@ export class AxGoogleGemini extends AxBaseAI<
   override generateChatResp = (
     resp: Readonly<AxGoogleGeminiChatResponse>
   ): AxChatResponse => {
-    const results: AxChatResponseResult[] = resp.candidates.map((candidate) => {
-      const result: AxChatResponseResult = {};
+    const results: AxChatResponseResult[] = resp.candidates?.map(
+      (candidate) => {
+        const result: AxChatResponseResult = {};
 
-      switch (candidate.finishReason) {
-        case 'MAX_TOKENS':
-          result.finishReason = 'length';
-          break;
-        case 'STOP':
-          result.finishReason = 'stop';
-          break;
-        case 'SAFETY':
-          throw new Error('Finish reason: SAFETY');
-        case 'RECITATION':
-          throw new Error('Finish reason: RECITATION');
-      }
-
-      for (const part of candidate.content.parts) {
-        if ('text' in part) {
-          result.content = part.text;
-          continue;
+        switch (candidate.finishReason) {
+          case 'MAX_TOKENS':
+            result.finishReason = 'length';
+            break;
+          case 'STOP':
+            result.finishReason = 'stop';
+            break;
+          case 'SAFETY':
+            throw new Error('Finish reason: SAFETY');
+          case 'RECITATION':
+            throw new Error('Finish reason: RECITATION');
         }
-        if ('functionCall' in part) {
-          result.functionCalls = [
-            {
-              id: part.functionCall.name,
-              type: 'function',
-              function: {
-                name: part.functionCall.name,
-                arguments: part.functionCall.args
+
+        for (const part of candidate.content.parts) {
+          if ('text' in part) {
+            result.content = part.text;
+            continue;
+          }
+          if ('functionCall' in part) {
+            result.functionCalls = [
+              {
+                id: part.functionCall.name,
+                type: 'function',
+                function: {
+                  name: part.functionCall.name,
+                  arguments: part.functionCall.args
+                }
               }
-            }
-          ];
+            ];
+          }
         }
+        return result;
       }
-      return result;
-    });
+    );
 
     let modelUsage: AxTokenUsage | undefined;
     if (resp.usageMetadata) {

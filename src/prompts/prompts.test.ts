@@ -48,7 +48,7 @@ test('generate prompt', async (t) => {
   const options = { fetch: mockFetch };
   const ai = axAI('openai', { apiKey: 'no-key', options } as AxOpenAIArgs);
 
-  // const ai = AI('ollama', { model: 'nous-hermes2' });
+  // const ai = axAI('ollama', { model: 'nous-hermes2' });
 
   const gen = new AxChainOfThought(
     ai,
