@@ -34,7 +34,7 @@ We've renamed from "llmclient" to "ax" to highlight our focus on powering agenti
 
 Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made up of a `"task description" inputField:type "field description" -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper.
 
-You can have multiple input and output fields and each field has one of these types `string`, `number`, `boolean`, `json` or a array of any of these eg. `string[]`. When a type is not defined it defaults to `string`. When the `json` type if used the underlying AI is encouraged to generate correct JSON.
+You can have multiple input and output fields and each field has one of these types `string`, `number`, `boolean`, `json` or an array of any of these eg. `string[]`. When a type is not defined it defaults to `string`. When the `json` type if used the underlying AI is encouraged to generate correct JSON.
 
 ## LLMs Supported
 
@@ -203,7 +203,7 @@ const gen = new AxChainOfThought(
   `startNumber:number -> next10Numbers:number[]`
 );
 
-// add a assertion to ensure that the number 5 is not in an output field
+// add an assertion to ensure that the number 5 is not in an output field
 gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
   return next10Numbers ? !next10Numbers.includes(5) : undefined;
 }, 'Numbers 5 is not allowed');
@@ -215,7 +215,7 @@ const res = await gen.forward({ startNumber: 1 }, { stream: true });
 The above example will allow you to validate entire output fields as they are streamed in. This validation works with streaming and when not streaming and is triggered when the entire field value is available. For true validation while streaming checkout the below example. This will massively improve performance and save tokens at scale in production
 
 ```typescript
-// add a assertion to ensure all lines start with a number and a dot.
+// add an assertion to ensure all lines start with a number and a dot.
 gen.addStreamingAssert(
   'answerInPoints',
   (value: string) => {
@@ -370,7 +370,7 @@ const optimize = new AxBootstrapFewShot<
   examples
 });
 
-// Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
+// Setup an evaluation metric em, f1 scores are a popular way measure retrieval performance.
 const metricFn: AxMetricFn = ({ prediction, example }) =>
   emScore(prediction.answer as string, example.answer as string);
 
