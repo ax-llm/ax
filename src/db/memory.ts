@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 
-import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
+import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
 import type {
   AxDBQueryRequest,
   AxDBQueryResponse,
@@ -8,10 +8,10 @@ import type {
   AxDBUpsertResponse
 } from './types.js';
 
-export type AxMemoryBaseDBArgs = AxBaseDBArgs;
-export type AxMemoryDBOpOptions = AxBaseDBOpOptions;
+export type AxDBMemoryOpOptions = AxDBBaseOpOptions;
 
-export interface AxMemoryDBArgs {
+export interface AxDBMemoryArgs extends AxDBBaseArgs {
+  name: 'memory';
   filename?: string;
 }
 
@@ -21,14 +21,14 @@ export type AxDBState = Record<string, Record<string, AxDBUpsertRequest>>;
  * MemoryDB: DB Service
  * @export
  */
-export class AxMemoryDB extends AxBaseDB {
+export class AxDBMemory extends AxDBBase {
   private state: AxDBState;
   private filename?: string;
 
   constructor({
     filename,
     tracer
-  }: Readonly<AxMemoryDBArgs & AxMemoryBaseDBArgs> = {}) {
+  }: Readonly<Omit<AxDBMemoryArgs, 'name'>> = {}) {
     super({ name: 'Memory', tracer });
     this.state = {};
     this.filename = filename;
@@ -43,7 +43,7 @@ export class AxMemoryDB extends AxBaseDB {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _update?: boolean,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxMemoryDBOpOptions>
+    _options?: Readonly<AxDBMemoryOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     if (!this.state[req.table]) {
       this.state[req.table] = {
@@ -68,7 +68,7 @@ export class AxMemoryDB extends AxBaseDB {
     batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxMemoryDBOpOptions>
+    _options?: Readonly<AxDBMemoryOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     const ids: string[] = [];
     for (const req of batchReq) {
@@ -86,7 +86,7 @@ export class AxMemoryDB extends AxBaseDB {
   override _query = async (
     req: Readonly<AxDBQueryRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxMemoryDBOpOptions>
+    _options?: Readonly<AxDBMemoryOpOptions>
   ): Promise<AxDBQueryResponse> => {
     const table = this.state[req.table];
     if (!table) {

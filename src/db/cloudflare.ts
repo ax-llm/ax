@@ -1,6 +1,6 @@
 import { apiCall } from '../util/apicall.js';
 
-import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
+import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
 import type {
   AxDBQueryRequest,
   AxDBQueryResponse,
@@ -10,8 +10,7 @@ import type {
 
 const baseURL = 'https://api.cloudflare.com/client/v4/accounts/';
 
-export type AxCloudflareBaseDBArgs = AxBaseDBArgs;
-export type AxCloudflareDBOpOptions = AxBaseDBOpOptions;
+export type AxDBCloudflareOpOptions = AxDBBaseOpOptions;
 
 type AxCloudflareUpsertResponse = {
   success: boolean;
@@ -32,7 +31,8 @@ type AxCloudflareQueryResponse = {
   };
 };
 
-export interface AxCloudflareArgs {
+export interface AxDBCloudflareArgs extends AxDBBaseArgs {
+  name: 'cloudflare';
   apiKey: string;
   accountId: string;
   fetch?: typeof fetch;
@@ -42,7 +42,7 @@ export interface AxCloudflareArgs {
  * Cloudflare: DB Service
  * @export
  */
-export class AxCloudflare extends AxBaseDB {
+export class AxDBCloudflare extends AxDBBase {
   private apiKey: string;
   private accountId: string;
 
@@ -51,7 +51,7 @@ export class AxCloudflare extends AxBaseDB {
     accountId,
     fetch,
     tracer
-  }: Readonly<AxCloudflareArgs & AxCloudflareBaseDBArgs>) {
+  }: Readonly<Omit<AxDBCloudflareArgs, 'name'>>) {
     if (!apiKey || !accountId) {
       throw new Error('Cloudflare credentials not set');
     }
@@ -63,7 +63,7 @@ export class AxCloudflare extends AxBaseDB {
   override _upsert = async (
     req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<AxCloudflareDBOpOptions>
+    options?: Readonly<AxDBCloudflareOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     const res = (await apiCall(
       {
@@ -99,7 +99,7 @@ export class AxCloudflare extends AxBaseDB {
   override batchUpsert = async (
     batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
-    options?: Readonly<AxCloudflareDBOpOptions>
+    options?: Readonly<AxDBCloudflareOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     if (update) {
       throw new Error('Weaviate does not support batch update');
@@ -147,7 +147,7 @@ export class AxCloudflare extends AxBaseDB {
 
   override query = async (
     req: Readonly<AxDBQueryRequest>,
-    options?: Readonly<AxCloudflareDBOpOptions>
+    options?: Readonly<AxDBCloudflareOpOptions>
   ): Promise<AxDBQueryResponse> => {
     const res = (await apiCall(
       {

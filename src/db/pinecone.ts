@@ -1,6 +1,6 @@
 import { apiCall } from '../util/apicall.js';
 
-import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
+import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
 import type {
   AxDBQueryRequest,
   AxDBQueryResponse,
@@ -8,8 +8,7 @@ import type {
   AxDBUpsertResponse
 } from './types.js';
 
-export type AxPineconeBaseDBArgs = AxBaseDBArgs;
-export type AxPineconeDBOpOptions = AxBaseDBOpOptions;
+export type AxDBPineconeOpOptions = AxDBBaseOpOptions;
 
 type AxPineconeQueryRequest = {
   namespace?: string;
@@ -46,7 +45,8 @@ const createPineconeQueryRequest = (
   return pineconeQueryRequest;
 };
 
-export interface AxPineconeArgs {
+export interface AxDBPineconeArgs extends AxDBBaseArgs {
+  name: 'pinecone';
   apiKey: string;
   host: string;
   fetch?: typeof fetch;
@@ -56,7 +56,7 @@ export interface AxPineconeArgs {
  * Pinecone: DB Service
  * @export
  */
-export class AxPinecone extends AxBaseDB {
+export class AxDBPinecone extends AxDBBase {
   private apiKey: string;
   private apiURL: string;
 
@@ -65,7 +65,7 @@ export class AxPinecone extends AxBaseDB {
     host,
     fetch,
     tracer
-  }: Readonly<AxPineconeArgs & AxPineconeBaseDBArgs>) {
+  }: Readonly<Omit<AxDBPineconeArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Pinecone API key not set');
     }
@@ -77,7 +77,7 @@ export class AxPinecone extends AxBaseDB {
   override _upsert = async (
     req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<AxPineconeDBOpOptions>
+    options?: Readonly<AxDBPineconeOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     await this._batchUpsert([req], update, options);
     return { ids: [req.id] };
@@ -86,7 +86,7 @@ export class AxPinecone extends AxBaseDB {
   override _batchUpsert = async (
     batchReq: Readonly<AxDBUpsertRequest[]>,
     _update?: boolean,
-    options?: Readonly<AxPineconeDBOpOptions>
+    options?: Readonly<AxDBPineconeOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     if (batchReq.length === 0) {
       throw new Error('Batch request is empty');
@@ -111,7 +111,7 @@ export class AxPinecone extends AxBaseDB {
 
   override query = async (
     req: Readonly<AxDBQueryRequest>,
-    options?: Readonly<AxBaseDBOpOptions>
+    options?: Readonly<AxDBPineconeOpOptions>
   ): Promise<AxDBQueryResponse> => {
     if (req.text) {
       throw new Error('Pinecone does not support text');

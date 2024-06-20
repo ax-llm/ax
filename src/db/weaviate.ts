@@ -1,6 +1,6 @@
 import { apiCall } from '../util/apicall.js';
 
-import { AxBaseDB, type AxBaseDBArgs, type AxBaseDBOpOptions } from './base.js';
+import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
 import type {
   AxDBQueryRequest,
   AxDBQueryResponse,
@@ -8,8 +8,7 @@ import type {
   AxDBUpsertResponse
 } from './types.js';
 
-export type AxWeaviateBaseDBArgs = AxBaseDBArgs;
-export type AxWeaviateDBOpOptions = AxBaseDBOpOptions;
+export type AxDBWeaviateOpOptions = AxDBBaseOpOptions;
 
 type AxWeaviateUpsertResponse = {
   id: string;
@@ -27,7 +26,8 @@ type AxWeaviateQueryResponse = {
   };
 };
 
-export interface AxWeaviateArgs {
+export interface AxDBWeaviateArgs extends AxDBBaseArgs {
+  name: 'weaviate';
   apiKey: string;
   host: string;
   fetch?: typeof fetch;
@@ -37,7 +37,7 @@ export interface AxWeaviateArgs {
  * Weaviate: DB Service
  * @export
  */
-export class AxWeaviate extends AxBaseDB {
+export class AxDBWeaviate extends AxDBBase {
   private apiKey: string;
   private apiURL: string;
 
@@ -46,7 +46,7 @@ export class AxWeaviate extends AxBaseDB {
     host,
     fetch,
     tracer
-  }: Readonly<AxWeaviateArgs & AxWeaviateBaseDBArgs>) {
+  }: Readonly<Omit<AxDBWeaviateArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Weaviate API key not set');
     }
@@ -58,7 +58,7 @@ export class AxWeaviate extends AxBaseDB {
   override _upsert = async (
     req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<AxWeaviateDBOpOptions>
+    options?: Readonly<AxDBWeaviateOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     const res = (await apiCall(
       {
@@ -94,7 +94,7 @@ export class AxWeaviate extends AxBaseDB {
   override _batchUpsert = async (
     batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
-    options?: Readonly<AxWeaviateDBOpOptions>
+    options?: Readonly<AxDBWeaviateOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     if (update) {
       throw new Error('Weaviate does not support batch update');
@@ -138,7 +138,7 @@ export class AxWeaviate extends AxBaseDB {
 
   override _query = async (
     req: Readonly<AxDBQueryRequest>,
-    options?: Readonly<AxWeaviateDBOpOptions>
+    options?: Readonly<AxDBWeaviateOpOptions>
   ): Promise<AxDBQueryResponse> => {
     let filter = '';
 

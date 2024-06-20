@@ -13,16 +13,16 @@ import type {
   AxDBUpsertResponse
 } from './types.js';
 
-export interface AxBaseDBArgs {
+export interface AxDBBaseArgs {
   fetch?: typeof fetch;
   tracer?: AxTracer;
 }
 
-export interface AxBaseDBOpOptions {
+export interface AxDBBaseOpOptions {
   span?: AxSpan;
 }
 
-export class AxBaseDB implements AxDBService {
+export class AxDBBase implements AxDBService {
   protected name: string;
   protected fetch?: typeof fetch;
   private tracer?: AxTracer;
@@ -30,25 +30,25 @@ export class AxBaseDB implements AxDBService {
   _upsert?: (
     req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
-    options?: Readonly<AxBaseDBOpOptions>
+    options?: Readonly<AxDBBaseOpOptions>
   ) => Promise<AxDBUpsertResponse>;
 
   _batchUpsert?: (
     batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
-    options?: Readonly<AxBaseDBOpOptions>
+    options?: Readonly<AxDBBaseOpOptions>
   ) => Promise<AxDBUpsertResponse>;
 
   _query?: (
     req: Readonly<AxDBQueryRequest>,
-    options?: Readonly<AxBaseDBOpOptions>
+    options?: Readonly<AxDBBaseOpOptions>
   ) => Promise<AxDBQueryResponse>;
 
   constructor({
     name,
     fetch,
     tracer
-  }: Readonly<AxBaseDBArgs & { name: string }>) {
+  }: Readonly<AxDBBaseArgs & { name: string }>) {
     this.name = name;
     this.fetch = fetch;
     this.tracer = tracer;
