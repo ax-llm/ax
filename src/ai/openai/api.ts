@@ -22,7 +22,7 @@ import {
   type AxAIOpenAIChatResponse,
   type AxAIOpenAIChatResponseDelta,
   type AxAIOpenAIConfig,
-  AxAIOpenAIEmbedModels,
+  AxAIOpenAIEmbedModel,
   type AxAIOpenAIEmbedRequest,
   type AxAIOpenAIEmbedResponse,
   AxAIOpenAIModel
@@ -31,7 +31,7 @@ import {
 export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig =>
   structuredClone({
     model: AxAIOpenAIModel.GPT35Turbo,
-    embedModel: AxAIOpenAIEmbedModels.TextEmbedding3Small,
+    embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig()
   });
 
@@ -44,7 +44,7 @@ export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig =>
 export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig =>
   structuredClone({
     model: AxAIOpenAIModel.GPT4Turbo,
-    embedModel: AxAIOpenAIEmbedModels.TextEmbedding3Small,
+    embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig()
   });
 
@@ -118,7 +118,7 @@ export class AxAIOpenAI extends AxBaseAI<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxAIOpenAIChatRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
+    const model = req.model ?? this.config.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
@@ -177,7 +177,7 @@ export class AxAIOpenAI extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
   ): [API, AxAIOpenAIEmbedRequest] => {
-    const model = req.embedModelInfo?.name ?? this.config.embedModel;
+    const model = req.embedModel ?? this.config.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

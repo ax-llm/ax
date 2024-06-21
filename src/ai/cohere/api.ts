@@ -99,7 +99,7 @@ export class AxAICohere extends AxBaseAI<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxAICohereChatRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
+    const model = req.model ?? this.config.model;
 
     const lastChatMsg = req.chatPrompt.at(-1);
     const restOfChat = req.chatPrompt.slice(0, -1);
@@ -209,7 +209,7 @@ export class AxAICohere extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
   ): [API, AxAICohereEmbedRequest] => {
-    const model = req.embedModelInfo?.name ?? this.config.embedModel;
+    const model = req.embedModel ?? this.config.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

@@ -440,6 +440,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | streaming2.ts       | Per output field validation while streaming             |
 | smart-hone.ts       | Agent looks for dog in smart home                       |
 | multi-modal.ts      | Use an image input along with other text inputs         |
+| balancer.ts         | Balance between various llm's based on cost, etc        |
 
 ## Built-in Functions
 

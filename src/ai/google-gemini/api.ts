@@ -23,7 +23,7 @@ import {
   type AxAIGoogleGeminiChatResponse,
   type AxAIGoogleGeminiChatResponseDelta,
   type AxAIGoogleGeminiConfig,
-  AxAIGoogleGeminiEmbedModels,
+  AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiSafetyCategory,
   type AxAIGoogleGeminiSafetySettings,
@@ -56,7 +56,7 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
 export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
   structuredClone({
     model: AxAIGoogleGeminiModel.Gemini15Pro,
-    embedModel: AxAIGoogleGeminiEmbedModels.Embedding001,
+    embedModel: AxAIGoogleGeminiEmbedModel.Embedding001,
     safetySettings,
     ...axBaseAIDefaultConfig()
   });
@@ -65,7 +65,7 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
     structuredClone({
       model: AxAIGoogleGeminiModel.Gemini15Flash,
-      embedModel: AxAIGoogleGeminiEmbedModels.Embedding001,
+      embedModel: AxAIGoogleGeminiEmbedModel.Embedding001,
       safetySettings,
       ...axBaseAIDefaultCreativeConfig()
     });
@@ -141,7 +141,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
   override generateChatReq = (
     req: Readonly<AxChatRequest>
   ): [API, AxAIGoogleGeminiChatRequest] => {
-    const model = req.modelInfo?.name ?? this.config.model;
+    const model = req.model ?? this.config.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -328,7 +328,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
   ): [API, AxAIGoogleGeminiBatchEmbedRequest] => {
-    const model = req.embedModelInfo?.name ?? this.config.embedModel;
+    const model = req.embedModel ?? this.config.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

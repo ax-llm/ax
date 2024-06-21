@@ -166,7 +166,8 @@ export class AxGenerate<
     traceId,
     ai,
     modelConfig: mc,
-    stream
+    stream,
+    model
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai'> & { ai: AxAIService; stream: boolean }
   >) {
@@ -191,7 +192,13 @@ export class AxGenerate<
       : undefined;
 
     const res = await ai.chat(
-      { chatPrompt, functions, functionCall, modelConfig },
+      {
+        chatPrompt,
+        functions,
+        functionCall,
+        modelConfig,
+        ...(model ? { model } : {})
+      },
       {
         ...(sessionId ? { sessionId } : {}),
         ...(traceId ? { traceId } : {}),

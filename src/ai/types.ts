@@ -140,12 +140,12 @@ export type AxChatRequest = {
     | 'required'
     | { type: 'function'; function: { name: string } };
   modelConfig?: Readonly<AxModelConfig>;
-  modelInfo?: Readonly<AxModelInfoWithProvider>;
+  model?: string;
 };
 
 export type AxEmbedRequest = {
   texts?: readonly string[];
-  embedModelInfo?: Readonly<AxModelInfoWithProvider>;
+  embedModel?: string;
 };
 
 export type AxRateLimiterFunction = <T>(func: unknown) => T;

@@ -41,6 +41,7 @@ export type AxProgramForwardOptions = {
   mem?: AxAIMemory;
   ai?: AxAIService;
   modelConfig?: AxModelConfig;
+  model?: string;
   sessionId?: string;
   traceId?: string | undefined;
   tracer?: AxTracer;

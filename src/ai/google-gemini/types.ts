@@ -6,7 +6,7 @@ export enum AxAIGoogleGeminiModel {
   Gemini15Pro = 'gemini-1.5-pro'
 }
 
-export enum AxAIGoogleGeminiEmbedModels {
+export enum AxAIGoogleGeminiEmbedModel {
   Embedding001 = 'embedding-001'
 }
 
@@ -144,7 +144,7 @@ export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse;
  */
 export type AxAIGoogleGeminiConfig = AxModelConfig & {
   model: AxAIGoogleGeminiModel | string;
-  embedModel: AxAIGoogleGeminiEmbedModels;
+  embedModel: AxAIGoogleGeminiEmbedModel;
   safetySettings?: AxAIGoogleGeminiSafetySettings;
 };
 

@@ -11,7 +11,7 @@ export enum AxAIOpenAIModel {
   GPT3TextAda001 = 'text-ada-001'
 }
 
-export enum AxAIOpenAIEmbedModels {
+export enum AxAIOpenAIEmbedModel {
   TextEmbeddingAda002 = 'text-embedding-ada-002',
   TextEmbedding3Small = 'text-embedding-3-small',
   TextEmbedding3Large = 'text-embedding-3-large'
@@ -19,7 +19,7 @@ export enum AxAIOpenAIEmbedModels {
 
 export type AxAIOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
   model: AxAIOpenAIModel | string;
-  embedModel?: AxAIOpenAIEmbedModels | string;
+  embedModel?: AxAIOpenAIEmbedModel | string;
   user?: string;
   responseFormat?: 'json_object';
   bestOf?: number;

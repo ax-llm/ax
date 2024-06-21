@@ -1,6 +1,6 @@
 import type { AxModelInfo } from '../types.js';
 
-import { AxAIOpenAIEmbedModels, AxAIOpenAIModel } from './types.js';
+import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './types.js';
 
 /**
  * OpenAI: Model information
@@ -32,19 +32,19 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     completionTokenCostPer1M: 1.5
   },
   {
-    name: AxAIOpenAIEmbedModels.TextEmbeddingAda002,
+    name: AxAIOpenAIEmbedModel.TextEmbeddingAda002,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.1
   },
   {
-    name: AxAIOpenAIEmbedModels.TextEmbedding3Small,
+    name: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     currency: 'usd',
     promptTokenCostPer1M: 0.02,
     completionTokenCostPer1M: 0.02
   },
   {
-    name: AxAIOpenAIEmbedModels.TextEmbedding3Large,
+    name: AxAIOpenAIEmbedModel.TextEmbedding3Large,
     currency: 'usd',
     promptTokenCostPer1M: 0.13,
     completionTokenCostPer1M: 0.13

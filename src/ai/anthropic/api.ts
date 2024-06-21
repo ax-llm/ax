@@ -103,7 +103,7 @@ export class AxAIAnthropic extends AxBaseAI<
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
     const reqValue: AxAIAnthropicChatRequest = {
-      model: req.modelInfo?.name ?? this.config.model,
+      model: req.model ?? this.config.model,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       stop_sequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
