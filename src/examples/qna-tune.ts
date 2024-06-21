@@ -1,11 +1,10 @@
 import {
-  axAI,
+  AxAI,
   AxBootstrapFewShot,
   AxChainOfThought,
   axEvalUtil,
   AxHFDataLoader,
   type AxMetricFn,
-  type AxOpenAIArgs,
   AxRAG
 } from '../index.js';
 
@@ -17,9 +16,10 @@ const examples = await hf.getData<{ question: string; answer: string }>({
   fields: ['question', 'answer']
 });
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const fetchFromVectorDB = async (query: string) => {
   const cot = new AxChainOfThought<{ query: string }, { answer: string }>(

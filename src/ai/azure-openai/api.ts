@@ -1,31 +1,32 @@
 import {
-  AxOpenAI,
-  axOpenAIBestConfig,
-  axOpenAICreativeConfig,
-  axOpenAIDefaultConfig,
-  axOpenAIFastConfig
+  AxAIOpenAI,
+  axAIOpenAIBestConfig,
+  axAIOpenAICreativeConfig,
+  axAIOpenAIDefaultConfig,
+  axAIOpenAIFastConfig
 } from '../openai/api.js';
-import type { AxOpenAIConfig } from '../openai/types.js';
+import type { AxAIOpenAIConfig } from '../openai/types.js';
 import type { AxAIServiceOptions } from '../types.js';
 
-export const axAzureOpenAIDefaultConfig = axOpenAIDefaultConfig;
+export const axAIAzureOpenAIDefaultConfig = axAIOpenAIDefaultConfig;
 
-export const axAzureOpenAICreativeConfig = axOpenAICreativeConfig;
+export const axAIAzureOpenAICreativeConfig = axAIOpenAICreativeConfig;
 
-export const axAzureOpenAIFastConfig = axOpenAIFastConfig;
+export const axAIAzureOpenAIFastConfig = axAIOpenAIFastConfig;
 
-export const axAzureOpenAIBestConfig = axOpenAIBestConfig;
+export const axAIAzureOpenAIBestConfig = axAIOpenAIBestConfig;
 
-export interface AxAzureOpenAIArgs {
+export interface AxAIAzureOpenAIArgs {
+  name: 'azure-openai';
   apiKey: string;
   resourceName: string;
   deploymentName: string;
   version?: string;
-  config: Readonly<AxOpenAIConfig>;
+  config?: Readonly<AxAIOpenAIConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxAzureOpenAI extends AxOpenAI {
+export class AxAIAzureOpenAI extends AxAIOpenAI {
   constructor({
     apiKey,
     resourceName,
@@ -33,7 +34,7 @@ export class AxAzureOpenAI extends AxOpenAI {
     version = 'api-version=2024-02-15-preview',
     config,
     options
-  }: Readonly<AxAzureOpenAIArgs>) {
+  }: Readonly<Omit<AxAIAzureOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
     }
@@ -43,7 +44,11 @@ export class AxAzureOpenAI extends AxOpenAI {
     if (!deploymentName || deploymentName === '') {
       throw new Error('Azure OpenAPI deployment id not set');
     }
-    super({ apiKey, config, options });
+    const _config = {
+      ...axAIAzureOpenAIDefaultConfig(),
+      ...config
+    };
+    super({ apiKey, config: _config, options });
 
     const host = resourceName.includes('://')
       ? resourceName

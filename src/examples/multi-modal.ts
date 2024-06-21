@@ -1,16 +1,12 @@
 import fs from 'fs';
 
-import {
-  axAI,
-  AxChainOfThought,
-  type AxOpenAIArgs,
-  AxOpenAIModel
-} from '../index.js';
+import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '../index.js';
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY,
-  config: { model: AxOpenAIModel.GPT4O }
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+  config: { model: AxAIOpenAIModel.GPT4O }
+});
 
 const gen = new AxChainOfThought(ai, `question, animalImage:image -> answer`);
 

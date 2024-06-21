@@ -1,44 +1,48 @@
 import { axBaseAIDefaultConfig } from '../base.js';
-import { AxOpenAI } from '../openai/api.js';
-import type { AxOpenAIConfig } from '../openai/types.js';
+import { AxAIOpenAI } from '../openai/api.js';
+import type { AxAIOpenAIConfig } from '../openai/types.js';
 import type { AxAIServiceOptions } from '../types.js';
 
 import { axModelInfoMistral } from './info.js';
-import { AxMistralModel } from './types.js';
+import { AxAIMistralModel } from './types.js';
 
-type MistralConfig = AxOpenAIConfig;
+type MistralConfig = AxAIOpenAIConfig;
 
-export const axMistralDefaultConfig = (): MistralConfig =>
+export const axAIMistralDefaultConfig = (): MistralConfig =>
   structuredClone({
-    model: AxMistralModel.MistralSmall,
+    model: AxAIMistralModel.MistralSmall,
     ...axBaseAIDefaultConfig()
   });
 
-export const axMistralBestConfig = (): AxOpenAIConfig =>
+export const axAIMistralBestConfig = (): AxAIOpenAIConfig =>
   structuredClone({
-    ...axMistralDefaultConfig(),
-    model: AxMistralModel.MistralLarge
+    ...axAIMistralDefaultConfig(),
+    model: AxAIMistralModel.MistralLarge
   });
 
-export interface AxMistralArgs {
+export interface AxAIMistralArgs {
+  name: 'mistral';
   apiKey: string;
   config: Readonly<MistralConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxMistral extends AxOpenAI {
+export class AxAIMistral extends AxAIOpenAI {
   constructor({
     apiKey,
-    config = axMistralDefaultConfig(),
+    config,
     options
-  }: Readonly<AxMistralArgs>) {
+  }: Readonly<Omit<AxAIMistralArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set');
     }
-
+    const _config = {
+      ...axAIMistralDefaultConfig(),
+      ...config
+    };
     super({
       apiKey,
-      config,
+      config: _config,
       options,
       apiURL: 'https://api.mistral.ai/v1',
       modelInfo: axModelInfoMistral

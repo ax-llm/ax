@@ -1,9 +1,10 @@
-import { axAI, type AxOpenAIArgs } from '../ai/index.js';
+import { AxAI } from '../ai/index.js';
 import { AxGenerate } from '../dsp/generate.js';
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const gen = new AxGenerate(
   ai,

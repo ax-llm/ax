@@ -1,7 +1,7 @@
 import { existsSync } from 'fs';
 
 import type { AxAIService } from '../ai/types.js';
-import { AxMemoryDB } from '../db/memory.js';
+import { AxDBMemory } from '../db/memory.js';
 import { ColorLog } from '../util/log.js';
 
 const colorLog = new ColorLog();
@@ -30,11 +30,11 @@ export class AxRoute {
 
 export class AxRouter {
   private readonly ai: AxAIService;
-  private db: AxMemoryDB;
+  private db: AxDBMemory;
   private debug?: boolean;
 
   public constructor(ai: AxAIService) {
-    this.db = new AxMemoryDB();
+    this.db = new AxDBMemory();
     this.ai = ai;
   }
 

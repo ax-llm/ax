@@ -1,16 +1,16 @@
 import {
-  axAI,
+  AxAI,
   AxChainOfThought,
   axEvalUtil,
   AxHFDataLoader,
   type AxMetricFn,
-  type AxOpenAIArgs,
   AxTestPrompt
 } from '../index.js';
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(
   ai,

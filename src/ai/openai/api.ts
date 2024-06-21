@@ -18,79 +18,84 @@ import type {
 
 import { axModelInfoOpenAI } from './info.js';
 import {
-  type AxOpenAIChatRequest,
-  type AxOpenAIChatResponse,
-  type AxOpenAIChatResponseDelta,
-  type AxOpenAIConfig,
-  AxOpenAIEmbedModels,
-  type AxOpenAIEmbedRequest,
-  type AxOpenAIEmbedResponse,
-  AxOpenAIModel
+  type AxAIOpenAIChatRequest,
+  type AxAIOpenAIChatResponse,
+  type AxAIOpenAIChatResponseDelta,
+  type AxAIOpenAIConfig,
+  AxAIOpenAIEmbedModels,
+  type AxAIOpenAIEmbedRequest,
+  type AxAIOpenAIEmbedResponse,
+  AxAIOpenAIModel
 } from './types.js';
 
-export const axOpenAIDefaultConfig = (): AxOpenAIConfig =>
+export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig =>
   structuredClone({
-    model: AxOpenAIModel.GPT35Turbo,
-    embedModel: AxOpenAIEmbedModels.TextEmbedding3Small,
+    model: AxAIOpenAIModel.GPT35Turbo,
+    embedModel: AxAIOpenAIEmbedModels.TextEmbedding3Small,
     ...axBaseAIDefaultConfig()
   });
 
-export const axOpenAIBestConfig = (): AxOpenAIConfig =>
+export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig =>
   structuredClone({
-    ...axOpenAIDefaultConfig(),
-    model: AxOpenAIModel.GPT4Turbo
+    ...axAIOpenAIDefaultConfig(),
+    model: AxAIOpenAIModel.GPT4Turbo
   });
 
-export const axOpenAICreativeConfig = (): AxOpenAIConfig =>
+export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig =>
   structuredClone({
-    model: AxOpenAIModel.GPT4Turbo,
-    embedModel: AxOpenAIEmbedModels.TextEmbedding3Small,
+    model: AxAIOpenAIModel.GPT4Turbo,
+    embedModel: AxAIOpenAIEmbedModels.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig()
   });
 
-export const axOpenAIFastConfig = (): AxOpenAIConfig => ({
-  ...axOpenAIDefaultConfig(),
-  model: AxOpenAIModel.GPT4O
+export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig => ({
+  ...axAIOpenAIDefaultConfig(),
+  model: AxAIOpenAIModel.GPT4O
 });
 
-export interface AxOpenAIArgs {
+export interface AxAIOpenAIArgs {
+  name: 'openai';
   apiKey: string;
   apiURL?: string;
-  config?: Readonly<AxOpenAIConfig>;
+  config?: Readonly<AxAIOpenAIConfig>;
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
   modelInfo?: Readonly<AxModelInfo[]>;
 }
 
-export class AxOpenAI extends AxBaseAI<
-  AxOpenAIChatRequest,
-  AxOpenAIEmbedRequest,
-  AxOpenAIChatResponse,
-  AxOpenAIChatResponseDelta,
-  AxOpenAIEmbedResponse
+export class AxAIOpenAI extends AxBaseAI<
+  AxAIOpenAIChatRequest,
+  AxAIOpenAIEmbedRequest,
+  AxAIOpenAIChatResponse,
+  AxAIOpenAIChatResponseDelta,
+  AxAIOpenAIEmbedResponse
 > {
-  private config: AxOpenAIConfig;
+  private config: AxAIOpenAIConfig;
   private streamingUsage: boolean;
 
   constructor({
     apiKey,
-    config = axOpenAIDefaultConfig(),
+    config,
     options,
     apiURL,
     modelInfo = axModelInfoOpenAI
-  }: Readonly<AxOpenAIArgs>) {
+  }: Readonly<Omit<AxAIOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
     }
+    const _config = {
+      ...axAIOpenAIDefaultConfig(),
+      ...config
+    };
     super({
       name: 'OpenAI',
       apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo,
-      models: { model: config.model, embedModel: config.embedModel },
+      models: { model: _config.model, embedModel: _config.embedModel },
       options,
       supportFor: { functions: true, streaming: true }
     });
-    this.config = config;
+    this.config = _config;
     this.streamingUsage = options?.streamingUsage ?? true;
   }
 
@@ -112,7 +117,7 @@ export class AxOpenAI extends AxBaseAI<
     req: Readonly<AxChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
-  ): [API, AxOpenAIChatRequest] => {
+  ): [API, AxAIOpenAIChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -144,7 +149,7 @@ export class AxOpenAI extends AxBaseAI<
 
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
-    const reqValue: AxOpenAIChatRequest = {
+    const reqValue: AxAIOpenAIChatRequest = {
       model,
       messages,
       response_format: this.config?.responseFormat
@@ -171,7 +176,7 @@ export class AxOpenAI extends AxBaseAI<
 
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
-  ): [API, AxOpenAIEmbedRequest] => {
+  ): [API, AxAIOpenAIEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!model) {
@@ -195,7 +200,7 @@ export class AxOpenAI extends AxBaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<AxOpenAIChatResponse>
+    resp: Readonly<AxAIOpenAIChatResponse>
   ): AxChatResponse => {
     const { id, usage, choices, error } = resp;
 
@@ -237,7 +242,7 @@ export class AxOpenAI extends AxBaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<AxOpenAIChatResponseDelta>,
+    resp: Readonly<AxAIOpenAIChatResponseDelta>,
     state: object
   ): AxChatResponse => {
     const { id, usage, choices } = resp;
@@ -307,7 +312,7 @@ export class AxOpenAI extends AxBaseAI<
   };
 
   override generateEmbedResp = (
-    resp: Readonly<AxOpenAIEmbedResponse>
+    resp: Readonly<AxAIOpenAIEmbedResponse>
   ): AxEmbedResponse => {
     const { data, usage } = resp;
 
@@ -327,7 +332,7 @@ export class AxOpenAI extends AxBaseAI<
 }
 
 const mapFinishReason = (
-  finishReason: AxOpenAIChatResponse['choices'][0]['finish_reason']
+  finishReason: AxAIOpenAIChatResponse['choices'][0]['finish_reason']
 ): AxChatResponseResult['finishReason'] => {
   switch (finishReason) {
     case 'stop':
@@ -343,7 +348,7 @@ const mapFinishReason = (
 
 function createMessages(
   req: Readonly<AxChatRequest>
-): AxOpenAIChatRequest['messages'] {
+): AxAIOpenAIChatRequest['messages'] {
   return req.chatPrompt.map((v) => {
     if (v.role !== 'user' && Array.isArray(v.content)) {
       throw new Error('Role does not support array content:' + v.role);

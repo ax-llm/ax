@@ -1,8 +1,9 @@
-import { AxAgent, axAI, type AxOpenAIArgs } from '../index.js';
+import { AxAgent, AxAI } from '../index.js';
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 ai.setOptions({ debug: true });
 
 const researcher = new AxAgent(ai, {

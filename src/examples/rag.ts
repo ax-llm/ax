@@ -1,4 +1,4 @@
-import { axAI, AxChainOfThought, type AxOpenAIArgs, AxRAG } from '../index.js';
+import { AxAI, AxChainOfThought, AxRAG } from '../index.js';
 
 // simulated vector db call using an llm
 const fetchFromVectorDB = async (query: string) => {
@@ -10,9 +10,11 @@ const fetchFromVectorDB = async (query: string) => {
   return answer;
 };
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+
 const rag = new AxRAG(ai, fetchFromVectorDB, { maxHops: 3 });
 
 const res = await rag.forward({

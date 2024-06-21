@@ -2,7 +2,7 @@ import { Readable } from 'stream';
 
 import test from 'ava';
 
-import { axAI, type AxOpenAIArgs } from '../ai/index.js';
+import { AxAI } from '../ai/index.js';
 import { AxSignature } from '../dsp/sig.js';
 
 import { AxChainOfThought } from './cot.js';
@@ -46,9 +46,13 @@ const mockFetch = async (): Promise<Response> => {
 
 test('generate prompt', async (t) => {
   const options = { fetch: mockFetch };
-  const ai = axAI('openai', { apiKey: 'no-key', options } as AxOpenAIArgs);
+  const ai = new AxAI({
+    name: 'openai',
+    apiKey: 'no-key',
+    options
+  });
 
-  // const ai = axAI('ollama', { model: 'nous-hermes2' });
+  // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
 
   const gen = new AxChainOfThought(
     ai,

@@ -1,41 +1,46 @@
 import { axBaseAIDefaultConfig } from '../base.js';
-import { AxOpenAI } from '../openai/api.js';
-import type { AxOpenAIConfig } from '../openai/types.js';
+import { AxAIOpenAI } from '../openai/api.js';
+import type { AxAIOpenAIConfig } from '../openai/types.js';
 import type { AxAIServiceOptions } from '../types.js';
 
-import { AxGroqModel } from './types.js';
+import { AxAIGroqModel } from './types.js';
 
-type AxAxGroqAIConfig = AxOpenAIConfig;
+type AxAIGroqAIConfig = AxAIOpenAIConfig;
 
-const axGroqDefaultConfig = (): AxAxGroqAIConfig =>
+const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
   structuredClone({
-    model: AxGroqModel.Llama3_70B,
+    model: AxAIGroqModel.Llama3_70B,
     ...axBaseAIDefaultConfig()
   });
 
-export interface AxAxGroqArgs {
+export interface AxAIGroqArgs {
+  name: 'groq';
   apiKey: string;
-  config: Readonly<AxAxGroqAIConfig>;
+  config: Readonly<AxAIGroqAIConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxGroq extends AxOpenAI {
+export class AxAIGroq extends AxAIOpenAI {
   constructor({
     apiKey,
-    config = axGroqDefaultConfig(),
+    config,
     options
-  }: Readonly<AxAxGroqArgs>) {
+  }: Readonly<Omit<AxAIGroqArgs, 'groq'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Groq API key not set');
     }
+    const _config = {
+      ...axAIGroqDefaultConfig(),
+      ...config
+    };
     super({
       apiKey,
-      config,
+      config: _config,
       options: { ...options, streamingUsage: false },
       apiURL: 'https://api.groq.com/openai/v1',
       modelInfo: []
     });
 
-    super.setName('AxGroq');
+    super.setName('Groq');
   }
 }

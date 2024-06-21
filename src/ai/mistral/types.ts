@@ -1,4 +1,4 @@
-export enum AxMistralModel {
+export enum AxAIMistralModel {
   Mistral7B = 'open-mistral-7b',
   Mistral8x7B = 'open-mixtral-8x7b',
   MistralSmall = 'mistral-small-latest',
@@ -6,6 +6,6 @@ export enum AxMistralModel {
   MistralLarge = 'mistral-large-latest'
 }
 
-export enum AxMistralEmbedModels {
+export enum AxAIMistralEmbedModels {
   MistralEmbed = 'mistral-embed'
 }

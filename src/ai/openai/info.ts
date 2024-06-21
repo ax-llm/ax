@@ -1,6 +1,6 @@
 import type { AxModelInfo } from '../types.js';
 
-import { AxOpenAIEmbedModels, AxOpenAIModel } from './types.js';
+import { AxAIOpenAIEmbedModels, AxAIOpenAIModel } from './types.js';
 
 /**
  * OpenAI: Model information
@@ -8,43 +8,43 @@ import { AxOpenAIEmbedModels, AxOpenAIModel } from './types.js';
  */
 export const axModelInfoOpenAI: AxModelInfo[] = [
   {
-    name: AxOpenAIModel.GPT4,
+    name: AxAIOpenAIModel.GPT4,
     currency: 'usd',
     promptTokenCostPer1M: 30,
     completionTokenCostPer1M: 60
   },
   {
-    name: AxOpenAIModel.GPT4O,
+    name: AxAIOpenAIModel.GPT4O,
     currency: 'usd',
     promptTokenCostPer1M: 5,
     completionTokenCostPer1M: 15
   },
   {
-    name: AxOpenAIModel.GPT4Turbo,
+    name: AxAIOpenAIModel.GPT4Turbo,
     currency: 'usd',
     promptTokenCostPer1M: 10,
     completionTokenCostPer1M: 30
   },
   {
-    name: AxOpenAIModel.GPT35Turbo,
+    name: AxAIOpenAIModel.GPT35Turbo,
     currency: 'usd',
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5
   },
   {
-    name: AxOpenAIEmbedModels.TextEmbeddingAda002,
+    name: AxAIOpenAIEmbedModels.TextEmbeddingAda002,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.1
   },
   {
-    name: AxOpenAIEmbedModels.TextEmbedding3Small,
+    name: AxAIOpenAIEmbedModels.TextEmbedding3Small,
     currency: 'usd',
     promptTokenCostPer1M: 0.02,
     completionTokenCostPer1M: 0.02
   },
   {
-    name: AxOpenAIEmbedModels.TextEmbedding3Large,
+    name: AxAIOpenAIEmbedModels.TextEmbedding3Large,
     currency: 'usd',
     promptTokenCostPer1M: 0.13,
     completionTokenCostPer1M: 0.13

@@ -1,8 +1,9 @@
-import { axAI, AxGenerate, type AxOpenAIArgs } from '../index.js';
+import { AxAI, AxGenerate } from '../index.js';
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const product = {
   name: 'Acme Toilet Cleaning',

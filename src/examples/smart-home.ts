@@ -8,8 +8,8 @@
  * https://interconnected.org/more/2024/lares/
  */
 
-import { AxAgent, axAI } from '../index.js';
-import type { AxFunctionJSONSchema, AxOpenAIArgs } from '../index.js';
+import { AxAgent, AxAI } from '../index.js';
+import type { AxFunctionJSONSchema } from '../index.js';
 
 interface RoomState {
   light: boolean;
@@ -31,9 +31,10 @@ const state: HomeState = {
   dogLocation: 'livingRoom'
 };
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const agent = new AxAgent(ai, {
   name: 'lares',

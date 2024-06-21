@@ -16,63 +16,68 @@ import type {
 
 import { axModelInfoCohere } from './info.js';
 import {
-  type AxCohereChatRequest,
-  type AxCohereChatResponse,
-  type AxCohereChatResponseDelta,
-  type AxCohereConfig,
-  AxCohereEmbedModel,
-  type AxCohereEmbedRequest,
-  type AxCohereEmbedResponse,
-  AxCohereModel
+  type AxAICohereChatRequest,
+  type AxAICohereChatResponse,
+  type AxAICohereChatResponseDelta,
+  type AxAICohereConfig,
+  AxAICohereEmbedModel,
+  type AxAICohereEmbedRequest,
+  type AxAICohereEmbedResponse,
+  AxAICohereModel
 } from './types.js';
 
-export const axCohereDefaultConfig = (): AxCohereConfig =>
+export const axAICohereDefaultConfig = (): AxAICohereConfig =>
   structuredClone({
-    model: AxCohereModel.Command,
-    embedModel: AxCohereEmbedModel.EmbedEnglishV30,
+    model: AxAICohereModel.Command,
+    embedModel: AxAICohereEmbedModel.EmbedEnglishV30,
     ...axBaseAIDefaultConfig()
   });
 
-export const axCohereCreativeConfig = (): AxCohereConfig =>
+export const axAICohereCreativeConfig = (): AxAICohereConfig =>
   structuredClone({
-    model: AxCohereModel.CommandR,
-    embedModel: AxCohereEmbedModel.EmbedEnglishV30,
+    model: AxAICohereModel.CommandR,
+    embedModel: AxAICohereEmbedModel.EmbedEnglishV30,
     ...axBaseAIDefaultCreativeConfig()
   });
 
-export interface AxCohereArgs {
+export interface AxAICohereArgs {
+  name: 'cohere';
   apiKey: string;
-  config: Readonly<AxCohereConfig>;
+  config: Readonly<AxAICohereConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxCohere extends AxBaseAI<
-  AxCohereChatRequest,
-  AxCohereEmbedRequest,
-  AxCohereChatResponse,
-  AxCohereChatResponseDelta,
-  AxCohereEmbedResponse
+export class AxAICohere extends AxBaseAI<
+  AxAICohereChatRequest,
+  AxAICohereEmbedRequest,
+  AxAICohereChatResponse,
+  AxAICohereChatResponseDelta,
+  AxAICohereEmbedResponse
 > {
-  private config: AxCohereConfig;
+  private config: AxAICohereConfig;
 
   constructor({
     apiKey,
-    config = axCohereDefaultConfig(),
+    config,
     options
-  }: Readonly<AxCohereArgs>) {
+  }: Readonly<Omit<AxAICohereArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
     }
+    const _config = {
+      ...axAICohereDefaultConfig(),
+      ...config
+    };
     super({
       name: 'Cohere',
       apiURL: 'https://api.cohere.ai',
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo: axModelInfoCohere,
-      models: { model: config.model },
+      models: { model: _config.model },
       supportFor: { functions: false, streaming: true },
       options
     });
-    this.config = config;
+    this.config = _config;
   }
 
   override getModelConfig(): AxModelConfig {
@@ -93,7 +98,7 @@ export class AxCohere extends AxBaseAI<
     req: Readonly<AxChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
-  ): [API, AxCohereChatRequest] => {
+  ): [API, AxAICohereChatRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
 
     const lastChatMsg = req.chatPrompt.at(-1);
@@ -103,9 +108,10 @@ export class AxCohere extends AxBaseAI<
       throw new Error('Chat prompt is empty');
     }
 
-    const message: AxCohereChatRequest['message'] = lastChatMsg?.content ?? '';
+    const message: AxAICohereChatRequest['message'] =
+      lastChatMsg?.content ?? '';
 
-    const chatHistory: AxCohereChatRequest['chat_history'] = restOfChat.map(
+    const chatHistory: AxAICohereChatRequest['chat_history'] = restOfChat.map(
       (chat) => {
         if (chat.role === 'function') {
           throw new Error('Function calling not supported');
@@ -115,7 +121,7 @@ export class AxCohere extends AxBaseAI<
           throw new Error('Multi-modal content not supported');
         }
 
-        let role: AxCohereChatRequest['chat_history'][0]['role'];
+        let role: AxAICohereChatRequest['chat_history'][0]['role'];
         switch (chat.role) {
           case 'user':
             role = 'USER';
@@ -135,10 +141,10 @@ export class AxCohere extends AxBaseAI<
     );
 
     type PropValue = NonNullable<
-      AxCohereChatRequest['tools']
+      AxAICohereChatRequest['tools']
     >[0]['parameter_definitions'][0];
 
-    const tools: AxCohereChatRequest['tools'] = req.functions?.map((v) => {
+    const tools: AxAICohereChatRequest['tools'] = req.functions?.map((v) => {
       const props: Record<string, PropValue> = {};
       if (v.parameters?.properties) {
         for (const [key, value] of Object.entries(v.parameters.properties)) {
@@ -159,7 +165,7 @@ export class AxCohere extends AxBaseAI<
     type FnType = Extract<AxChatRequest['chatPrompt'][0], { role: 'function' }>;
 
     // eslint-disable-next-line @typescript-eslint/naming-convention
-    const tool_results: AxCohereChatRequest['tool_results'] = (
+    const tool_results: AxAICohereChatRequest['tool_results'] = (
       req.chatPrompt as FnType[]
     )
       .filter((chat) => chat.role === 'function')
@@ -178,7 +184,7 @@ export class AxCohere extends AxBaseAI<
       name: '/v1/generate'
     };
 
-    const reqValue: AxCohereChatRequest = {
+    const reqValue: AxAICohereChatRequest = {
       model,
       message,
       tools,
@@ -202,7 +208,7 @@ export class AxCohere extends AxBaseAI<
 
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
-  ): [API, AxCohereEmbedRequest] => {
+  ): [API, AxAICohereEmbedRequest] => {
     const model = req.embedModelInfo?.name ?? this.config.embedModel;
 
     if (!model) {
@@ -228,7 +234,7 @@ export class AxCohere extends AxBaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<AxCohereChatResponse>
+    resp: Readonly<AxAICohereChatResponse>
   ): AxChatResponse => {
     let finishReason: AxChatResponse['results'][0]['finishReason'];
     if ('finish_reason' in resp) {
@@ -275,7 +281,7 @@ export class AxCohere extends AxBaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<AxCohereChatResponseDelta>,
+    resp: Readonly<AxAICohereChatResponseDelta>,
     state: object
   ): AxChatResponse => {
     const ss = state as {
@@ -297,7 +303,7 @@ export class AxCohere extends AxBaseAI<
   };
 
   override generateEmbedResp = (
-    resp: Readonly<AxCohereEmbedResponse>
+    resp: Readonly<AxAICohereEmbedResponse>
   ): AxEmbedResponse => {
     return {
       remoteId: resp.id,

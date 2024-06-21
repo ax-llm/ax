@@ -1,15 +1,11 @@
-import {
-  axAI,
-  AxApacheTika,
-  AxDBManager,
-  AxMemoryDB,
-  type AxOpenAIArgs
-} from '../index.js';
+import { AxAI, AxApacheTika, AxDBManager, AxDBMemory } from '../index.js';
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
-const db = new AxMemoryDB();
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+
+const db = new AxDBMemory();
 
 const tika = new AxApacheTika();
 const text = await tika.convert(['./README.md']);

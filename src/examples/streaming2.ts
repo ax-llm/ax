@@ -1,12 +1,14 @@
-import { axAI, AxChainOfThought, type AxOpenAIArgs } from '../index.js';
+import { AxAI, AxChainOfThought } from '../index.js';
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
-// const ai = axAI('anthropic', {
-//   apiKey: process.env.ANTHROPIC_APIKEY
-// } as AxAnthropicArgs);
+// const ai = new AxAI({
+//     name: 'anthropic'
+//     apiKey: process.env.ANTHROPIC_APIKEY as string
+// });
 
 // setup the prompt program
 const gen = new AxChainOfThought(

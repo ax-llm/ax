@@ -63,16 +63,21 @@ yarn add @ax-llm/ax
 ## Example: Using chain-of-thought to summarize text
 
 ```typescript
-import { axAI, AxChainOfThought } from '@ax-llm/ax';
+import { AxAI, AxChainOfThought } from '@ax-llm/ax';
 
 const textToSummarize = `
 The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
 
-const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+
 const gen = new AxChainOfThought(
   ai,
   `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
 );
+
 const res = await gen.forward({ textToSummarize });
 
 console.log('>', res);
@@ -266,7 +271,7 @@ const technicalSupport = new AxRoute('technicalSupport', [
   'how do I update to the latest version?'
 ]);
 
-const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
+const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY as string });
 
 const router = new AxRouter(ai);
 await router.setRoutes(
@@ -302,10 +307,11 @@ trace.setGlobalTracerProvider(provider);
 
 const tracer = trace.getTracer('test');
 
-const ai = axAI('ollama', {
-  model: 'nous-hermes2',
+const ai = new AxAI({
+  name: 'ollama',
+  config: { model: 'nous-hermes2' },
   options: { tracer }
-} as unknown as OllamaArgs);
+});
 
 const gen = new AxChainOfThought(
   ai,
@@ -353,7 +359,10 @@ const examples = await hf.getData<{ question: string; answer: string }>({
   fields: ['question', 'answer']
 });
 
-const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 // Setup the program to tune
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(
@@ -383,7 +392,10 @@ await optimize.compile(metricFn, { filename: 'demos.json' });
 And to use the generated demos with the above `ChainOfThought` program
 
 ```typescript
-const ai = axAI('openai', { apiKey: process.env.OPENAI_APIKEY });
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 // Setup the program to use the tuned data
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(

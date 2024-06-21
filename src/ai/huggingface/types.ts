@@ -1,11 +1,11 @@
 import type { AxModelConfig } from '../types.js';
 
-export enum AxHuggingFaceModel {
+export enum AxAIHuggingFaceModel {
   MetaLlama270BChatHF = 'meta-llama/Llama-2-70b-chat-hf'
 }
 
-export type AxHuggingFaceConfig = AxModelConfig & {
-  model: AxHuggingFaceModel;
+export type AxAIHuggingFaceConfig = AxModelConfig & {
+  model: AxAIHuggingFaceModel;
   returnFullText?: boolean;
   doSample?: boolean;
   maxTime?: number;
@@ -13,8 +13,8 @@ export type AxHuggingFaceConfig = AxModelConfig & {
   waitForModel?: boolean;
 };
 
-export type AxHuggingFaceRequest = {
-  model: AxHuggingFaceModel | string;
+export type AxAIHuggingFaceRequest = {
+  model: AxAIHuggingFaceModel | string;
   inputs: string;
   parameters: {
     max_new_tokens?: number;
@@ -33,6 +33,6 @@ export type AxHuggingFaceRequest = {
   };
 };
 
-export type AxHuggingFaceResponse = {
+export type AxAIHuggingFaceResponse = {
   generated_text: string;
 };

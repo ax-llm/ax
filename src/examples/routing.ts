@@ -1,4 +1,4 @@
-import { axAI, type AxOpenAIArgs, AxRoute, AxRouter } from '../index.js';
+import { AxAI, AxRoute, AxRouter } from '../index.js';
 
 const customerSupport = new AxRoute('customerSupport', [
   'how can I return a product?',
@@ -32,9 +32,10 @@ const technicalSupport = new AxRoute('technicalSupport', [
   'how do I update to the latest version?'
 ]);
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const router = new AxRouter(ai);
 await router.setRoutes([

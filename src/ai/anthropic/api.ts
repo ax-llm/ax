@@ -9,48 +9,53 @@ import type {
 
 import { axModelInfoAnthropic } from './info.js';
 import {
-  type AxAnthropicChatError,
-  type AxAnthropicChatRequest,
-  type AxAnthropicChatResponse,
-  type AxAnthropicChatResponseDelta,
-  type AxAnthropicConfig,
-  type AxAnthropicContentBlockDeltaEvent,
-  type AxAnthropicContentBlockStartEvent,
-  type AxAnthropicErrorEvent,
-  type AxAnthropicMessageDeltaEvent,
-  type AxAnthropicMessageStartEvent,
-  AxAnthropicModel
+  type AxAIAnthropicChatError,
+  type AxAIAnthropicChatRequest,
+  type AxAIAnthropicChatResponse,
+  type AxAIAnthropicChatResponseDelta,
+  type AxAIAnthropicConfig,
+  type AxAIAnthropicContentBlockDeltaEvent,
+  type AxAIAnthropicContentBlockStartEvent,
+  type AxAIAnthropicErrorEvent,
+  type AxAIAnthropicMessageDeltaEvent,
+  type AxAIAnthropicMessageStartEvent,
+  AxAIAnthropicModel
 } from './types.js';
 
-export const axAnthropicDefaultConfig = (): AxAnthropicConfig =>
+export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
-    model: AxAnthropicModel.Claude3Haiku,
+    model: AxAIAnthropicModel.Claude3Haiku,
     ...axBaseAIDefaultConfig()
   });
 
-export interface AxAnthropicArgs {
+export interface AxAIAnthropicArgs {
+  name: 'anthropic';
   apiKey: string;
-  config?: Readonly<AxAnthropicConfig>;
+  config?: Readonly<AxAIAnthropicConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxAnthropic extends AxBaseAI<
-  AxAnthropicChatRequest,
+export class AxAIAnthropic extends AxBaseAI<
+  AxAIAnthropicChatRequest,
   unknown,
-  AxAnthropicChatResponse,
-  AxAnthropicChatResponseDelta,
+  AxAIAnthropicChatResponse,
+  AxAIAnthropicChatResponseDelta,
   unknown
 > {
-  private config: AxAnthropicConfig;
+  private config: AxAIAnthropicConfig;
 
   constructor({
     apiKey,
-    config = axAnthropicDefaultConfig(),
+    config,
     options
-  }: Readonly<AxAnthropicArgs>) {
+  }: Readonly<Omit<AxAIAnthropicArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Anthropic API key not set');
     }
+    const _config = {
+      ...axAIAnthropicDefaultConfig(),
+      ...config
+    };
     super({
       name: 'Anthropic',
       apiURL: 'https://api.anthropic.com/v1',
@@ -59,12 +64,12 @@ export class AxAnthropic extends AxBaseAI<
         'x-api-key': apiKey
       },
       modelInfo: axModelInfoAnthropic,
-      models: { model: config.model as string },
+      models: { model: _config.model as string },
       options,
       supportFor: { functions: true, streaming: true }
     });
 
-    this.config = config;
+    this.config = _config;
   }
 
   override getModelConfig(): AxModelConfig {
@@ -80,22 +85,24 @@ export class AxAnthropic extends AxBaseAI<
 
   override generateChatReq = (
     req: Readonly<AxChatRequest>
-  ): [API, AxAnthropicChatRequest] => {
+  ): [API, AxAIAnthropicChatRequest] => {
     const apiConfig = {
       name: '/messages'
     };
 
     const messages = createMessages(req);
 
-    const tools: AxAnthropicChatRequest['tools'] = req.functions?.map((v) => ({
-      name: v.name,
-      description: v.description,
-      input_schema: v.parameters
-    }));
+    const tools: AxAIAnthropicChatRequest['tools'] = req.functions?.map(
+      (v) => ({
+        name: v.name,
+        description: v.description,
+        input_schema: v.parameters
+      })
+    );
 
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
-    const reqValue: AxAnthropicChatRequest = {
+    const reqValue: AxAIAnthropicChatRequest = {
       model: req.modelInfo?.name ?? this.config.model,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       stop_sequences:
@@ -112,7 +119,7 @@ export class AxAnthropic extends AxBaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<AxAnthropicChatResponse | AxAnthropicChatError>
+    resp: Readonly<AxAIAnthropicChatResponse | AxAIAnthropicChatError>
   ): AxChatResponse => {
     if (resp.type === 'error') {
       throw new Error(`Anthropic Chat API Error: ${resp.error.message}`);
@@ -156,7 +163,7 @@ export class AxAnthropic extends AxBaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<AxAnthropicChatResponseDelta>,
+    resp: Readonly<AxAIAnthropicChatResponseDelta>,
     state: object
   ): AxChatResponse => {
     if (!('type' in resp)) {
@@ -172,12 +179,12 @@ export class AxAnthropic extends AxBaseAI<
     }
 
     if (resp.type === 'error') {
-      const { error } = resp as unknown as AxAnthropicErrorEvent;
+      const { error } = resp as unknown as AxAIAnthropicErrorEvent;
       throw new Error(error.message);
     }
 
     if (resp.type === 'message_start') {
-      const { message } = resp as unknown as AxAnthropicMessageStartEvent;
+      const { message } = resp as unknown as AxAIAnthropicMessageStartEvent;
       const results = [{ content: '', id: message.id }];
       const modelUsage = {
         promptTokens: message.usage?.input_tokens ?? 0,
@@ -194,7 +201,7 @@ export class AxAnthropic extends AxBaseAI<
 
     if (resp.type === 'content_block_start') {
       const { content_block: contentBlock } =
-        resp as unknown as AxAnthropicContentBlockStartEvent;
+        resp as unknown as AxAIAnthropicContentBlockStartEvent;
 
       if (contentBlock.type === 'text') {
         return {
@@ -213,7 +220,7 @@ export class AxAnthropic extends AxBaseAI<
     }
 
     if (resp.type === 'content_block_delta') {
-      const { delta } = resp as unknown as AxAnthropicContentBlockDeltaEvent;
+      const { delta } = resp as unknown as AxAIAnthropicContentBlockDeltaEvent;
       if (delta.type === 'text_delta') {
         return {
           results: [{ content: delta.text }]
@@ -241,7 +248,8 @@ export class AxAnthropic extends AxBaseAI<
     }
 
     if (resp.type === 'message_delta') {
-      const { delta, usage } = resp as unknown as AxAnthropicMessageDeltaEvent;
+      const { delta, usage } =
+        resp as unknown as AxAIAnthropicMessageDeltaEvent;
       return {
         results: [
           {
@@ -265,7 +273,7 @@ export class AxAnthropic extends AxBaseAI<
 
 function createMessages(
   req: Readonly<AxChatRequest>
-): AxAnthropicChatRequest['messages'] {
+): AxAIAnthropicChatRequest['messages'] {
   return req.chatPrompt.map((msg) => {
     switch (msg.role) {
       case 'function':
@@ -338,7 +346,7 @@ function createMessages(
 }
 
 function mapFinishReason(
-  stopReason?: AxAnthropicChatResponse['stop_reason'] | null
+  stopReason?: AxAIAnthropicChatResponse['stop_reason'] | null
 ): AxChatResponse['results'][0]['finishReason'] | undefined {
   if (!stopReason) {
     return undefined;

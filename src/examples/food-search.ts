@@ -1,10 +1,4 @@
-import {
-  axAI,
-  type AxFunction,
-  type AxOpenAIArgs,
-  AxReAct,
-  AxSignature
-} from '../index.js';
+import { AxAI, type AxFunction, AxReAct, AxSignature } from '../index.js';
 
 const choice = Math.round(Math.random());
 
@@ -155,9 +149,10 @@ const sig = new AxSignature(
   `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
 );
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const gen = new AxReAct(ai, sig, { functions });
 const res = await gen.forward({ customerQuery }, { stream: true });

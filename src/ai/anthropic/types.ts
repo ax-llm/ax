@@ -1,6 +1,7 @@
 import type { AxModelConfig } from '../types.js';
 
-export enum AxAnthropicModel {
+export enum AxAIAnthropicModel {
+  Claude35Sonnet = 'claude-3-5-sonnet-20240620',
   Claude3Opus = 'claude-3-opus-20240229',
   Claude3Sonnet = 'claude-3-sonnet-20240229',
   Claude3Haiku = 'claude-3-haiku-20240307',
@@ -8,12 +9,12 @@ export enum AxAnthropicModel {
   ClaudeInstant12 = 'claude-instant-1.2'
 }
 
-export type AxAnthropicConfig = AxModelConfig & {
-  model: AxAnthropicModel;
+export type AxAIAnthropicConfig = AxModelConfig & {
+  model: AxAIAnthropicModel;
 };
 
 // Type for the request to create a message using Anthropic's Messages API
-export type AxAnthropicChatRequest = {
+export type AxAIAnthropicChatRequest = {
   model: string;
   messages: (
     | {
@@ -56,7 +57,7 @@ export type AxAnthropicChatRequest = {
   };
 };
 
-export type AxAnthropicChatResponse = {
+export type AxAIAnthropicChatResponse = {
   id: string; // Unique identifier for the response
   type: 'message'; // Object type, always 'message' for this API
   role: 'assistant'; // Conversational role of the generated message, always 'assistant'
@@ -76,7 +77,7 @@ export type AxAnthropicChatResponse = {
   };
 };
 
-export type AxAnthropicChatError = {
+export type AxAIAnthropicChatError = {
   type: 'error';
   error: {
     type: 'authentication_error';
@@ -85,7 +86,7 @@ export type AxAnthropicChatError = {
 };
 
 // Represents the start of a message with an empty content array
-export interface AxAnthropicMessageStartEvent {
+export interface AxAIAnthropicMessageStartEvent {
   type: 'message_start';
   message: {
     id: string;
@@ -103,7 +104,7 @@ export interface AxAnthropicMessageStartEvent {
 }
 
 // Indicates the start of a content block within a message
-export interface AxAnthropicContentBlockStartEvent {
+export interface AxAIAnthropicContentBlockStartEvent {
   index: number;
   type: 'content_block_start';
   content_block:
@@ -120,7 +121,7 @@ export interface AxAnthropicContentBlockStartEvent {
 }
 
 // Represents incremental updates to a content block
-export interface AxAnthropicContentBlockDeltaEvent {
+export interface AxAIAnthropicContentBlockDeltaEvent {
   index: number;
   type: 'content_block_delta';
   delta:
@@ -135,13 +136,13 @@ export interface AxAnthropicContentBlockDeltaEvent {
 }
 
 // Marks the end of a content block within a message
-export interface AxAnthropicContentBlockStopEvent {
+export interface AxAIAnthropicContentBlockStopEvent {
   type: 'content_block_stop';
   index: number;
 }
 
 // Indicates top-level changes to the final message object
-export interface AxAnthropicMessageDeltaEvent {
+export interface AxAIAnthropicMessageDeltaEvent {
   type: 'message_delta';
   delta: {
     stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | null;
@@ -153,17 +154,17 @@ export interface AxAnthropicMessageDeltaEvent {
 }
 
 // Marks the end of a message
-export interface AxAnthropicMessageStopEvent {
+export interface AxAIAnthropicMessageStopEvent {
   type: 'message_stop';
 }
 
 // Represents a ping event, which can occur any number of times
-export interface AxAnthropicPingEvent {
+export interface AxAIAnthropicPingEvent {
   type: 'ping';
 }
 
 // Represents an error event
-export interface AxAnthropicErrorEvent {
+export interface AxAIAnthropicErrorEvent {
   type: 'error';
   error: {
     type: 'overloaded_error';
@@ -172,12 +173,12 @@ export interface AxAnthropicErrorEvent {
 }
 
 // Union type for all possible event types in the stream
-export type AxAnthropicChatResponseDelta =
-  | AxAnthropicMessageStartEvent
-  | AxAnthropicContentBlockStartEvent
-  | AxAnthropicContentBlockDeltaEvent
-  | AxAnthropicContentBlockStopEvent
-  | AxAnthropicMessageDeltaEvent
-  | AxAnthropicMessageStopEvent
-  | AxAnthropicPingEvent
-  | AxAnthropicErrorEvent;
+export type AxAIAnthropicChatResponseDelta =
+  | AxAIAnthropicMessageStartEvent
+  | AxAIAnthropicContentBlockStartEvent
+  | AxAIAnthropicContentBlockDeltaEvent
+  | AxAIAnthropicContentBlockStopEvent
+  | AxAIAnthropicMessageDeltaEvent
+  | AxAIAnthropicMessageStopEvent
+  | AxAIAnthropicPingEvent
+  | AxAIAnthropicErrorEvent;

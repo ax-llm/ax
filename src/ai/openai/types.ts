@@ -1,6 +1,6 @@
 import type { AxModelConfig } from '../types.js';
 
-export enum AxOpenAIModel {
+export enum AxAIOpenAIModel {
   GPT4 = 'gpt-4',
   GPT4O = 'gpt-4o',
   GPT4Turbo = 'gpt-4-turbo',
@@ -11,15 +11,15 @@ export enum AxOpenAIModel {
   GPT3TextAda001 = 'text-ada-001'
 }
 
-export enum AxOpenAIEmbedModels {
+export enum AxAIOpenAIEmbedModels {
   TextEmbeddingAda002 = 'text-embedding-ada-002',
   TextEmbedding3Small = 'text-embedding-3-small',
   TextEmbedding3Large = 'text-embedding-3-large'
 }
 
-export type AxOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
-  model: AxOpenAIModel | string;
-  embedModel?: AxOpenAIEmbedModels | string;
+export type AxAIOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
+  model: AxAIOpenAIModel | string;
+  embedModel?: AxAIOpenAIEmbedModels | string;
   user?: string;
   responseFormat?: 'json_object';
   bestOf?: number;
@@ -30,20 +30,20 @@ export type AxOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
   echo?: boolean;
 };
 
-export type AxOpenAILogprob = {
+export type AxAIOpenAILogprob = {
   tokens: string[];
   token_logprobs: number[];
   top_logprobs: Map<string, number>;
   text_offset: number[];
 };
 
-export type AxOpenAIUsage = {
+export type AxAIOpenAIUsage = {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
 };
 
-export interface AxOpenAIResponseDelta<T> {
+export interface AxAIOpenAIResponseDelta<T> {
   id: string;
   object: string;
   created: number;
@@ -53,11 +53,11 @@ export interface AxOpenAIResponseDelta<T> {
     delta: T;
     finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
   }[];
-  usage?: AxOpenAIUsage;
+  usage?: AxAIOpenAIUsage;
   system_fingerprint: string;
 }
 
-export type AxOpenAIChatRequest = {
+export type AxAIOpenAIChatRequest = {
   model: string;
   messages: (
     | { role: 'system'; content: string }
@@ -119,7 +119,7 @@ export type AxOpenAIChatRequest = {
   organization?: string;
 };
 
-export type AxOpenAIChatResponse = {
+export type AxAIOpenAIChatResponse = {
   id: string;
   object: 'chat.completion';
   created: number;
@@ -138,7 +138,7 @@ export type AxOpenAIChatResponse = {
     };
     finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
   }[];
-  usage?: AxOpenAIUsage;
+  usage?: AxAIOpenAIUsage;
   error?: {
     message: string;
     type: string;
@@ -148,27 +148,27 @@ export type AxOpenAIChatResponse = {
   system_fingerprint: string;
 };
 
-export type AxOpenAIChatResponseDelta = AxOpenAIResponseDelta<{
+export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
   content: string;
   role?: string;
   tool_calls?: (NonNullable<
-    AxOpenAIChatResponse['choices'][0]['message']['tool_calls']
+    AxAIOpenAIChatResponse['choices'][0]['message']['tool_calls']
   >[0] & {
     index: number;
   })[];
 }>;
 
-export type AxOpenAIEmbedRequest = {
+export type AxAIOpenAIEmbedRequest = {
   input: readonly string[];
   model: string;
   user?: string;
 };
 
-export type AxOpenAIEmbedResponse = {
+export type AxAIOpenAIEmbedResponse = {
   model: string;
   data: {
     embedding: readonly number[];
     index: number;
   }[];
-  usage: AxOpenAIUsage;
+  usage: AxAIOpenAIUsage;
 };

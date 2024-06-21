@@ -1,4 +1,4 @@
-import { axAI, type AxOpenAIArgs, AxReAct } from '../index.js';
+import { AxAI, AxReAct } from '../index.js';
 
 const values = {
   question: 'What is the weather like in tokyo?'
@@ -31,9 +31,10 @@ const functions = [
   }
 ];
 
-const ai = axAI('openai', {
-  apiKey: process.env.OPENAI_APIKEY
-} as AxOpenAIArgs);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 const cot = new AxReAct(ai, `question:string -> answer:string`, {
   functions

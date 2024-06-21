@@ -14,57 +14,62 @@ import type {
 
 import { axModelInfoHuggingFace } from './info.js';
 import {
-  type AxHuggingFaceConfig,
-  AxHuggingFaceModel,
-  type AxHuggingFaceRequest,
-  type AxHuggingFaceResponse
+  type AxAIHuggingFaceConfig,
+  AxAIHuggingFaceModel,
+  type AxAIHuggingFaceRequest,
+  type AxAIHuggingFaceResponse
 } from './types.js';
 
-export const axHuggingFaceDefaultConfig = (): AxHuggingFaceConfig =>
+export const axAIHuggingFaceDefaultConfig = (): AxAIHuggingFaceConfig =>
   structuredClone({
-    model: AxHuggingFaceModel.MetaLlama270BChatHF,
+    model: AxAIHuggingFaceModel.MetaLlama270BChatHF,
     ...axBaseAIDefaultConfig()
   });
 
-export const axHuggingFaceCreativeConfig = (): AxHuggingFaceConfig =>
+export const axAIHuggingFaceCreativeConfig = (): AxAIHuggingFaceConfig =>
   structuredClone({
-    model: AxHuggingFaceModel.MetaLlama270BChatHF,
+    model: AxAIHuggingFaceModel.MetaLlama270BChatHF,
     ...axBaseAIDefaultCreativeConfig()
   });
 
-export interface AxHuggingFaceArgs {
+export interface AxAIHuggingFaceArgs {
+  name: 'huggingface';
   apiKey: string;
-  config?: Readonly<AxHuggingFaceConfig>;
+  config?: Readonly<AxAIHuggingFaceConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxHuggingFace extends AxBaseAI<
-  AxHuggingFaceRequest,
+export class AxAIHuggingFace extends AxBaseAI<
+  AxAIHuggingFaceRequest,
   unknown,
-  AxHuggingFaceResponse,
+  AxAIHuggingFaceResponse,
   unknown,
   unknown
 > {
-  private config: AxHuggingFaceConfig;
+  private config: AxAIHuggingFaceConfig;
 
   constructor({
     apiKey,
-    config = axHuggingFaceDefaultConfig(),
+    config,
     options
-  }: Readonly<AxHuggingFaceArgs>) {
+  }: Readonly<Omit<AxAIHuggingFaceArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('HuggingFace API key not set');
     }
+    const _config = {
+      ...axAIHuggingFaceDefaultConfig(),
+      ...config
+    };
     super({
       name: 'HuggingFace',
       apiURL: 'https://api-inference.huggingface.co',
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo: axModelInfoHuggingFace,
-      models: { model: config.model },
+      models: { model: _config.model },
       options,
       supportFor: { functions: false, streaming: false }
     });
-    this.config = config;
+    this.config = _config;
   }
 
   override getModelConfig(): AxModelConfig {
@@ -83,7 +88,7 @@ export class AxHuggingFace extends AxBaseAI<
     req: Readonly<AxChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
-  ): [API, AxHuggingFaceRequest] => {
+  ): [API, AxAIHuggingFaceRequest] => {
     const model = req.modelInfo?.name ?? this.config.model;
 
     const functionsList = req.functions
@@ -102,7 +107,7 @@ export class AxHuggingFace extends AxBaseAI<
       name: '/models'
     };
 
-    const reqValue: AxHuggingFaceRequest = {
+    const reqValue: AxAIHuggingFaceRequest = {
       model,
       inputs,
       parameters: {
@@ -127,7 +132,7 @@ export class AxHuggingFace extends AxBaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<AxHuggingFaceResponse>
+    resp: Readonly<AxAIHuggingFaceResponse>
   ): AxChatResponse => {
     return {
       results: [

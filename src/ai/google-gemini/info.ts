@@ -1,28 +1,28 @@
 import type { AxModelInfo } from '../types.js';
 
-import { AxGoogleGeminiModel } from './types.js';
+import { AxAIGoogleGeminiModel } from './types.js';
 
 /**
- * AxGoogleGemini: Model information
+ * AxAIGoogleGemini: Model information
  * @export
  */
 export const axModelInfoGoogleGemini: AxModelInfo[] = [
   {
-    name: AxGoogleGeminiModel.Gemini15Flash,
+    name: AxAIGoogleGeminiModel.Gemini15Flash,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 0.35,
     completionTokenCostPer1M: 0.7
   },
   {
-    name: AxGoogleGeminiModel.Gemini15Pro,
+    name: AxAIGoogleGeminiModel.Gemini15Pro,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 3.5,
     completionTokenCostPer1M: 1.75
   },
   {
-    name: AxGoogleGeminiModel.Gemini1Pro,
+    name: AxAIGoogleGeminiModel.Gemini1Pro,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 0.5,
