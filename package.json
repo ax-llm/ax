@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax",
-  "version": "9.1.0",
+  "version": "9.0.7",
   "type": "module",
   "description": "The best library to work with LLMs",
   "typings": "build/module/src/index.d.ts",
