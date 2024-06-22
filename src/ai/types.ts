@@ -45,7 +45,6 @@ export type AxFunctionJSONSchema = {
     string,
     AxFunctionJSONSchema & {
       enum?: string[];
-      default?: unknown;
       description: string;
     }
   >;
