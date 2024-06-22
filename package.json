@@ -35,7 +35,8 @@
     "doc:publish": "gh-pages -m \"[ci skip] Updates\" -d docs",
     "version": "standard-version",
     "prepare": "run-s test",
-    "release": "npx git-cz && release-it --no-npm",
+    "release": "release-it --no-npm",
+    "git-cz": "npx git-cz",
     "tsx": "node --env-file=.env --import=tsx"
   },
   "engines": {
