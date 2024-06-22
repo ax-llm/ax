@@ -11,5 +11,6 @@ yarn.lock
 audio
 .env
 .env.*
+!.env.template
 .data
 demos.json
