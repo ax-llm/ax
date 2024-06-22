@@ -4,6 +4,7 @@ import type {
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
+  AxChatResponseResult,
   AxModelConfig
 } from '../types.js';
 
@@ -24,7 +25,7 @@ import {
 
 export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
-    model: AxAIAnthropicModel.Claude3Haiku,
+    model: AxAIAnthropicModel.Claude35Sonnet,
     ...axBaseAIDefaultConfig()
   });
 
@@ -110,7 +111,9 @@ export class AxAIAnthropic extends AxBaseAI<
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,
-      ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(tools && tools.length > 0
+        ? { tools, tool_choice: { type: 'auto' } }
+        : {}),
       ...(stream ? { stream: true } : {}),
       messages
     };
@@ -125,26 +128,27 @@ export class AxAIAnthropic extends AxBaseAI<
       throw new Error(`Anthropic Chat API Error: ${resp.error.message}`);
     }
 
-    const results = resp.content.map((msg) => {
-      let finishReason: AxChatResponse['results'][0]['finishReason'];
+    const finishReason = mapFinishReason(resp.stop_reason);
 
+    const results = resp.content.map((msg): AxChatResponseResult => {
       if (msg.type === 'tool_use') {
-        finishReason = 'function_call';
         return {
           id: msg.id,
-          type: 'function',
-          function: {
-            name: msg.name,
-            arguments: msg.input
-          },
-          content: '',
+          functionCalls: [
+            {
+              id: msg.id,
+              type: 'function' as const,
+              function: {
+                name: msg.name,
+                arguments: msg.input
+              }
+            }
+          ],
           finishReason
         };
       }
-      finishReason = mapFinishReason(resp.stop_reason);
       return {
         content: msg.type === 'text' ? msg.text : '',
-        role: resp.role,
         id: resp.id,
         finishReason
       };
@@ -158,7 +162,8 @@ export class AxAIAnthropic extends AxBaseAI<
 
     return {
       results,
-      modelUsage
+      modelUsage,
+      remoteId: resp.id
     };
   };
 
@@ -215,6 +220,19 @@ export class AxAIAnthropic extends AxBaseAI<
           !sstate.indexIdMap[resp.index]
         ) {
           sstate.indexIdMap[resp.index] = contentBlock.id;
+          const functionCalls = [
+            {
+              id: contentBlock.id,
+              type: 'function' as const,
+              function: {
+                name: contentBlock.name,
+                arguments: ''
+              }
+            }
+          ];
+          return {
+            results: [{ functionCalls }]
+          };
         }
       }
     }
@@ -274,75 +292,112 @@ export class AxAIAnthropic extends AxBaseAI<
 function createMessages(
   req: Readonly<AxChatRequest>
 ): AxAIAnthropicChatRequest['messages'] {
-  return req.chatPrompt.map((msg) => {
-    switch (msg.role) {
-      case 'function':
-        return {
-          role: 'user' as const,
-          content: [
-            {
-              type: 'tool_result',
-              text: msg.content,
-              tool_use_id: msg.functionId
-            }
-          ]
-        };
-      case 'user': {
-        if (typeof msg.content === 'string') {
-          return { role: 'user' as const, content: msg.content };
-        }
-        const content = msg.content.map((v) => {
-          switch (v.type) {
-            case 'text':
-              return { type: 'text' as const, text: v.text };
-            case 'image':
-              return {
-                type: 'image' as const,
-                source: {
-                  type: 'base64' as const,
-                  media_type: v.mimeType,
-                  data: v.image
-                }
-              };
-            default:
-              throw new Error('Invalid content type');
+  const items: AxAIAnthropicChatRequest['messages'] = req.chatPrompt.map(
+    (msg) => {
+      switch (msg.role) {
+        case 'function':
+          return {
+            role: 'user' as const,
+            content: [
+              {
+                type: 'tool_result',
+                content: msg.result,
+                tool_use_id: msg.functionId
+              }
+            ]
+          };
+        case 'user': {
+          if (typeof msg.content === 'string') {
+            return { role: 'user' as const, content: msg.content };
           }
-        });
-        return {
-          role: 'user' as const,
-          content
-        };
-      }
-      case 'assistant': {
-        if (typeof msg.content === 'string') {
-          return { role: 'assistant' as const, content: msg.content };
-        }
-        if (typeof msg.functionCalls !== 'undefined') {
-          const content = msg.functionCalls.map((v) => {
-            let input;
-            if (typeof v.function.arguments === 'string') {
-              input = JSON.parse(v.function.arguments);
-            } else if (typeof v.function.arguments === 'object') {
-              input = v.function.arguments;
+          const content = msg.content.map((v) => {
+            switch (v.type) {
+              case 'text':
+                return { type: 'text' as const, text: v.text };
+              case 'image':
+                return {
+                  type: 'image' as const,
+                  source: {
+                    type: 'base64' as const,
+                    media_type: v.mimeType,
+                    data: v.image
+                  }
+                };
+              default:
+                throw new Error('Invalid content type');
             }
-            return {
-              type: 'tool_use' as const,
-              id: v.id,
-              name: v.function.name,
-              input
-            };
           });
+          return {
+            role: 'user' as const,
+            content
+          };
+        }
+        case 'assistant': {
+          let content: Extract<
+            AxAIAnthropicChatRequest['messages'][0],
+            { role: 'assistant' }
+          >['content'] = '';
+
+          if (typeof msg.content === 'string') {
+            content = msg.content;
+          }
+          if (typeof msg.functionCalls !== 'undefined') {
+            content = msg.functionCalls.map((v) => {
+              let input;
+              if (typeof v.function.arguments === 'string') {
+                input = JSON.parse(v.function.arguments);
+              } else if (typeof v.function.arguments === 'object') {
+                input = v.function.arguments;
+              }
+              return {
+                type: 'tool_use' as const,
+                id: v.id,
+                name: v.function.name,
+                input
+              };
+            });
+          }
           return {
             role: 'assistant' as const,
             content
           };
         }
-        throw new Error('Invalid content type');
+        default:
+          throw new Error('Invalid role');
       }
-      default:
-        throw new Error('Invalid role');
     }
-  });
+  );
+
+  return mergeAssistantMessages(items);
+}
+
+// Anthropic and some others need this in non-streaming mode
+function mergeAssistantMessages(
+  messages: Readonly<AxAIAnthropicChatRequest['messages']>
+): AxAIAnthropicChatRequest['messages'] {
+  const mergedMessages: AxAIAnthropicChatRequest['messages'] = [];
+
+  for (const [i, cur] of messages.entries()) {
+    // Continue if not an assistant message or first message
+    if (cur.role !== 'assistant') {
+      mergedMessages.push(cur);
+      continue;
+    }
+
+    // Merge current message with the previous one if both are from the assistant
+    if (i > 0 && messages.at(i - 1)?.role === 'assistant') {
+      const lastMessage = mergedMessages.pop();
+
+      mergedMessages.push({
+        ...(lastMessage ? lastMessage : {}),
+        ...cur
+      });
+    } else {
+      mergedMessages.push(cur);
+    }
+  }
+
+  return mergedMessages;
 }
 
 function mapFinishReason(

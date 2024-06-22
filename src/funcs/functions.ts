@@ -34,12 +34,15 @@ export class AxFunctionProcessor {
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxFunctionExec> => {
     if (!fnSpec.func) {
-      throw new Error(`AxFunction handler for ${fnSpec.name} not implemented`);
+      throw new Error(`Function handler for ${fnSpec.name} not implemented`);
     }
 
-    let argOBj;
-    if (func.args && func.args.length > 0) {
-      argOBj = JSON5.parse(func.args);
+    let args;
+
+    if (typeof func.args === 'string' && func.args.length > 0) {
+      args = JSON5.parse(func.args);
+    } else {
+      args = func.args;
     }
 
     if (!fnSpec.parameters) {
@@ -56,8 +59,8 @@ export class AxFunctionProcessor {
 
     const res =
       fnSpec.func.length === 2
-        ? await fnSpec.func(argOBj, options)
-        : await fnSpec.func(argOBj);
+        ? await fnSpec.func(args, options)
+        : await fnSpec.func(args);
 
     return {
       id: func.id,
@@ -75,7 +78,7 @@ export class AxFunctionProcessor {
       (v) => v.name.localeCompare(func.name) === 0
     );
     if (!fnSpec) {
-      throw new Error(`AxFunction not found: ` + func.name);
+      throw new Error(`Function not found: ` + func.name);
     }
     if (!fnSpec.func) {
       throw new Error('No handler for function: ' + func.name);

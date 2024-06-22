@@ -272,15 +272,6 @@ export class AxBaseAI<
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
-        //   const res = mergeChatResponses(values);
-        //   if (span?.isRecording()) {
-        //     setResponseAttr(res, span);
-        //   }
-        //   span?.end();
-
-        //   if (this.debug) {
-        //     logResponse(res);
-        //   }
         if (this.debug) {
           process.stdout.write('\n');
         }
@@ -395,19 +386,47 @@ export class AxBaseAI<
 }
 
 const logChatRequest = (req: Readonly<AxChatRequest>) => {
-  const items = req.chatPrompt
-    ?.map(({ content }) => {
-      if (typeof content === 'string') {
-        return content;
-      } else {
-        return JSON.stringify(content, null, 2);
+  const items = req.chatPrompt?.map((msg) => {
+    switch (msg.role) {
+      case 'function':
+        return `Function Result: ${colorLog.whiteBright(msg.result)}`;
+      case 'user': {
+        if (typeof msg.content === 'string') {
+          return `User: ${colorLog.whiteBright(msg.content)}`;
+        }
+        const items = msg.content.map((v) => {
+          switch (v.type) {
+            case 'text':
+              return `(Text) ${colorLog.whiteBright(v.text)}`;
+            case 'image':
+              return `(Image, ${v.mimeType}) ${colorLog.whiteBright(v.image.substring(0, 10))}`;
+            default:
+              throw new Error('Invalid content type');
+          }
+        });
+        return `User:\n${items.join('\n')}`;
       }
-    })
-    .join('\n');
+      case 'assistant': {
+        if (msg.functionCalls) {
+          const fns = msg.functionCalls?.map(({ function: fn }) => {
+            const args =
+              typeof fn.arguments !== 'string'
+                ? JSON.stringify(fn.arguments, null, 2)
+                : fn.arguments;
+            return `${fn.name}(${args})`;
+          });
+          return `Functions:\n${colorLog.whiteBright(fns.join('\n'))}`;
+        }
+        return `Assistant:\n${colorLog.whiteBright(msg.content ?? '<empty>')}`;
+      }
+      default:
+        throw new Error('Invalid role');
+    }
+  });
 
   if (items) {
-    console.log('==========');
-    console.log(colorLog.whiteBright(items));
+    console.log('\n==========');
+    console.log(items.join('\n'));
   }
 };
 
@@ -418,8 +437,11 @@ const logResponse = (resp: Readonly<AxChatResponse>) => {
     }
     if (r.functionCalls) {
       for (const f of r.functionCalls) {
-        const msg = `${f.function.name}(${f.function.arguments})`;
-        console.log(colorLog.yellow(JSON.stringify(msg)));
+        const args =
+          typeof f.function.arguments !== 'string'
+            ? JSON.stringify(f.function.arguments, null, 2)
+            : f.function.arguments;
+        console.log(colorLog.yellow(`${f.function.name}(${args})`));
       }
     }
   }

@@ -30,7 +30,7 @@ import {
 
 export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT35Turbo,
+    model: AxAIOpenAIModel.GPT4O,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig()
   });
@@ -268,32 +268,31 @@ export class AxAIOpenAI extends AxBaseAI<
       ({ delta: { content, role, tool_calls }, finish_reason }) => {
         const finishReason = mapFinishReason(finish_reason);
 
-        const functionCalls = tool_calls?.map((v) => {
-          if (
-            typeof v.id === 'string' &&
-            typeof v.index === 'number' &&
-            !sstate.indexIdMap[v.index]
-          ) {
-            sstate.indexIdMap[v.index] = v.id;
-          }
-
-          const id = sstate.indexIdMap[v.index];
-          if (!id) {
-            throw new Error('invalid streaming index no id found: ' + v.index);
-          }
-
-          return {
-            id,
-            type: 'function' as const,
-            function: {
-              name: v.function.name,
-              arguments: v.function.arguments
+        const functionCalls = tool_calls
+          ?.map((v) => {
+            if (
+              typeof v.id === 'string' &&
+              typeof v.index === 'number' &&
+              !sstate.indexIdMap[v.index]
+            ) {
+              sstate.indexIdMap[v.index] = v.id;
             }
-          };
-        });
-        //   .filter(Boolean) as NonNullable<
-        //   AxChatResponseResult['functionCalls']
-        // >;
+
+            const id = sstate.indexIdMap[v.index];
+            if (!id) {
+              return null;
+            }
+
+            return {
+              id,
+              type: 'function' as const,
+              function: {
+                name: v.function.name,
+                arguments: v.function.arguments
+              }
+            };
+          })
+          .filter((v) => v !== null);
 
         return {
           content,
@@ -349,20 +348,16 @@ const mapFinishReason = (
 function createMessages(
   req: Readonly<AxChatRequest>
 ): AxAIOpenAIChatRequest['messages'] {
-  return req.chatPrompt.map((v) => {
-    if (v.role !== 'user' && Array.isArray(v.content)) {
-      throw new Error('Role does not support array content:' + v.role);
-    }
-
-    switch (v.role) {
+  return req.chatPrompt.map((msg) => {
+    switch (msg.role) {
       case 'system':
-        return { role: 'system' as const, content: v.content };
+        return { role: 'system' as const, content: msg.content };
       case 'user':
-        if (Array.isArray(v.content)) {
+        if (Array.isArray(msg.content)) {
           return {
             role: 'user' as const,
-            name: v.name,
-            content: v.content.map((c) => {
+            name: msg.name,
+            content: msg.content.map((c) => {
               switch (c.type) {
                 case 'text':
                   return { type: 'text' as const, text: c.text };
@@ -379,13 +374,13 @@ function createMessages(
             })
           };
         }
-        return { role: 'user' as const, content: v.content, name: v.name };
+        return { role: 'user' as const, content: msg.content, name: msg.name };
       case 'assistant':
         return {
           role: 'assistant' as const,
-          content: v.content as string,
-          name: v.name,
-          tool_calls: v.functionCalls?.map((v) => ({
+          content: msg.content as string,
+          name: msg.name,
+          tool_calls: msg.functionCalls?.map((v) => ({
             id: v.id,
             type: 'function' as const,
             function: {
@@ -400,8 +395,8 @@ function createMessages(
       case 'function':
         return {
           role: 'tool' as const,
-          content: v.content,
-          tool_call_id: v.functionId
+          content: msg.result,
+          tool_call_id: msg.functionId
         };
       default:
         throw new Error('Invalid role');

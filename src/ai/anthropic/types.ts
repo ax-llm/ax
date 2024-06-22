@@ -27,7 +27,27 @@ export type AxAIAnthropicChatRequest = {
                   type: 'image';
                   source: { type: 'base64'; media_type: string; data: string };
                 }
-              | { type: 'tool_result'; text: string; tool_use_id: string }
+              | {
+                  type: 'tool_result';
+                  is_error?: boolean;
+                  tool_use_id: string;
+                  content:
+                    | string
+                    | (
+                        | {
+                            type: 'text';
+                            text: string;
+                          }
+                        | {
+                            type: 'image';
+                            source: {
+                              type: 'base64';
+                              media_type: string;
+                              data: string;
+                            };
+                          }
+                      )[];
+                }
             )[];
       }
     | {
@@ -45,6 +65,7 @@ export type AxAIAnthropicChatRequest = {
     description: string;
     input_schema?: object;
   }[];
+  tool_choice?: { type: 'auto' | 'any' } | { type: 'tool'; name?: string };
   max_tokens?: number; // Maximum number of tokens to generate
   // Optional metadata about the request
   stop_sequences?: string[]; // Custom sequences that trigger the end of generation
@@ -61,13 +82,18 @@ export type AxAIAnthropicChatResponse = {
   id: string; // Unique identifier for the response
   type: 'message'; // Object type, always 'message' for this API
   role: 'assistant'; // Conversational role of the generated message, always 'assistant'
-  content: {
-    id?: string;
-    name?: string;
-    type: 'text' | 'tool_use';
-    text: string;
-    input?: string;
-  }[];
+  content: (
+    | {
+        type: 'text';
+        text: string;
+      }
+    | {
+        id: string;
+        name: string;
+        type: 'tool_use';
+        input?: string;
+      }
+  )[];
   model: string;
   stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
   stop_sequence?: string;

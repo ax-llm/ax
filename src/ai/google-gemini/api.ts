@@ -168,18 +168,14 @@ export class AxAIGoogleGemini extends AxBaseAI<
 
     const contents: AxAIGoogleGeminiChatRequest['contents'] = req.chatPrompt
       .filter((p) => p.role !== 'system')
-      .map(({ role, ...prompt }, i) => {
-        if (!prompt.content) {
-          throw new Error(`Chat content is empty (index: ${i})`);
-        }
-
-        switch (role) {
+      .map((msg, i) => {
+        switch (msg.role) {
           case 'user': {
             const parts: Extract<
               AxAIGoogleGeminiChatRequest['contents'][0],
               { role: 'user' }
-            >['parts'] = Array.isArray(prompt.content)
-              ? prompt.content.map((c, i) => {
+            >['parts'] = Array.isArray(msg.content)
+              ? msg.content.map((c, i) => {
                   switch (c.type) {
                     case 'text':
                       return { text: c.text };
@@ -193,7 +189,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
                       );
                   }
                 })
-              : [{ text: prompt.content }];
+              : [{ text: msg.content }];
             return {
               role: 'user' as const,
               parts
@@ -201,11 +197,11 @@ export class AxAIGoogleGemini extends AxBaseAI<
           }
 
           case 'assistant': {
-            if ('content' in prompt && typeof prompt.content === 'string') {
+            if ('content' in msg && typeof msg.content === 'string') {
               const parts: Extract<
                 AxAIGoogleGeminiChatRequest['contents'][0],
                 { role: 'model' }
-              >['parts'] = [{ text: prompt.content }];
+              >['parts'] = [{ text: msg.content }];
               return {
                 role: 'model' as const,
                 parts
@@ -219,9 +215,9 @@ export class AxAIGoogleGemini extends AxBaseAI<
               };
             }[] = [];
 
-            if ('functionCalls' in prompt) {
+            if ('functionCalls' in msg) {
               functionCalls =
-                prompt.functionCalls?.map((f) => {
+                msg.functionCalls?.map((f) => {
                   const args =
                     typeof f.function.arguments === 'string'
                       ? JSON.parse(f.function.arguments)
@@ -247,7 +243,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
           }
 
           case 'function': {
-            if (!('functionId' in prompt)) {
+            if (!('functionId' in msg)) {
               throw new Error(`Chat prompt functionId is empty (index: ${i})`);
             }
             const parts: Extract<
@@ -256,8 +252,8 @@ export class AxAIGoogleGemini extends AxBaseAI<
             >['parts'] = [
               {
                 functionResponse: {
-                  name: prompt.functionId,
-                  response: { result: prompt.content }
+                  name: msg.functionId,
+                  response: { result: msg.result }
                 }
               }
             ];

@@ -41,6 +41,9 @@ export class AxMemory implements AxAIMemory {
     { content, name, functionCalls }: Readonly<AxChatResponseResult>,
     sessionId?: string
   ): void {
+    if (!content && (!functionCalls || functionCalls.length === 0)) {
+      return;
+    }
     this.add({ content, name, role: 'assistant', functionCalls }, sessionId);
   }
 
@@ -48,11 +51,12 @@ export class AxMemory implements AxAIMemory {
     { content, name, functionCalls }: Readonly<AxChatResponseResult>,
     sessionId?: string
   ): void {
-    const item = this.get(sessionId);
+    const items = this.get(sessionId);
 
-    const lastItem = item.at(-1) as unknown as Writeable<
+    const lastItem = items.at(-1) as unknown as Writeable<
       AxChatRequest['chatPrompt'][0]
     >;
+
     if (!lastItem || lastItem.role !== 'assistant') {
       this.addResult({ content, name, functionCalls }, sessionId);
       return;

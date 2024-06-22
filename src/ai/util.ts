@@ -1,12 +1,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { createHash } from 'crypto';
 
-import type {
-  AxChatResponse,
-  AxChatResponseResult,
-  AxModelInfo,
-  AxTokenUsage
-} from './types.js';
+import type { AxChatResponseResult, AxModelInfo } from './types.js';
 
 export const findItemByNameOrAlias = (
   list: readonly AxModelInfo[],
@@ -57,7 +52,7 @@ export const parseFunction = (
 };
 
 export interface mergeFunctionsState {
-  lastId: string;
+  lastId?: string;
 }
 
 export function mergeFunctionCalls(
@@ -65,10 +60,8 @@ export function mergeFunctionCalls(
   functionCalls: NonNullable<AxChatResponseResult['functionCalls']>,
   functionCallDeltas: Readonly<
     NonNullable<AxChatResponseResult['functionCalls']>
-  >,
-  // eslint-disable-next-line functional/prefer-immutable-types
-  state?: mergeFunctionsState
-): NonNullable<AxChatResponseResult['functionCalls']>[0] | undefined {
+  >
+) {
   for (const _fc of functionCallDeltas) {
     const fc = functionCalls.find((fc) => fc.id === _fc.id);
 
@@ -93,67 +86,7 @@ export function mergeFunctionCalls(
     } else {
       functionCalls.push(_fc);
     }
-
-    if (!state) {
-      continue;
-    }
-
-    let retFunc;
-    if (state.lastId !== _fc.id) {
-      retFunc = functionCalls.find((fc) => fc.id === state.lastId);
-    }
-
-    state.lastId = _fc.id;
-    if (retFunc) {
-      return retFunc;
-    }
   }
-}
-
-export function mergeChatResponses(
-  responses: readonly AxChatResponse[]
-): AxChatResponse {
-  const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = [];
-  let content = '';
-
-  // Variables to store the other overwritten values
-  let lastSessionId: string | undefined;
-  let lastRemoteId: string | undefined;
-  let lastModelUsage: AxTokenUsage | undefined;
-  let lastEmbedModelUsage: AxTokenUsage | undefined;
-  let lastResults: readonly AxChatResponseResult[] = [];
-
-  for (const response of responses) {
-    for (const result of response.results ?? []) {
-      if (result.content) {
-        content += result.content;
-      }
-      if (result.functionCalls) {
-        mergeFunctionCalls(functionCalls, result.functionCalls);
-      }
-    }
-
-    // Overwrite other values
-    lastSessionId = response.sessionId;
-    lastRemoteId = response.remoteId;
-    lastModelUsage = response.modelUsage;
-    lastEmbedModelUsage = response.embedModelUsage;
-    lastResults = response.results ?? [];
-  }
-
-  return {
-    sessionId: lastSessionId,
-    remoteId: lastRemoteId,
-    results: [
-      {
-        ...lastResults[0],
-        content,
-        functionCalls
-      }
-    ],
-    modelUsage: lastModelUsage,
-    embedModelUsage: lastEmbedModelUsage
-  };
 }
 
 export const hashObject = (obj: object) => {

@@ -127,7 +127,7 @@ export type AxChatRequest = {
           function: { name: string; arguments?: string | object };
         }[];
       }
-    | { role: 'function'; content: string; functionId: string }
+    | { role: 'function'; result: string; functionId: string }
   >[];
   functions?: Readonly<{
     name: string;

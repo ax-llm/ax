@@ -104,12 +104,19 @@ export class AxAICohere extends AxBaseAI<
     const lastChatMsg = req.chatPrompt.at(-1);
     const restOfChat = req.chatPrompt.slice(0, -1);
 
-    if (Array.isArray(lastChatMsg?.content)) {
+    if (lastChatMsg?.role === 'function') {
+      throw new Error('Function calling not supported');
+    }
+
+    if (!lastChatMsg?.content) {
       throw new Error('Chat prompt is empty');
     }
 
-    const message: AxAICohereChatRequest['message'] =
-      lastChatMsg?.content ?? '';
+    if (typeof lastChatMsg.content !== 'string') {
+      throw new Error('Multi-modal content not supported');
+    }
+
+    const message: AxAICohereChatRequest['message'] = lastChatMsg?.content;
 
     const chatHistory: AxAICohereChatRequest['chat_history'] = restOfChat.map(
       (chat) => {
@@ -176,7 +183,7 @@ export class AxAICohere extends AxBaseAI<
         }
         return {
           call: { name: fn.name, parameters: fn.parameter_definitions },
-          outputs: [{ result: chat.content ?? '' }]
+          outputs: [{ result: chat.result ?? '' }]
         };
       });
 

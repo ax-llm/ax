@@ -268,66 +268,52 @@ export class AxGenerate<
       [];
     const values = {};
     const xstate: extractionState = { s: -1 };
-    const fstate: mergeFunctionsState = { lastId: '' };
 
     let content = '';
 
     for await (const v of res) {
-      const result = v.results?.at(0);
-      if (!result) {
-        continue;
-      }
-
-      if (v.modelUsage) {
-        this.usage.push({ ...usageInfo, ...v.modelUsage });
-      }
-
-      if (result.content) {
-        content += result.content;
-
-        mem.updateResult(
-          { name: result.name, content, functionCalls },
-          sessionId
-        );
-
-        assertStreamingAssertions(
-          this.streamingAsserts,
-          values,
-          xstate,
-          content
-        );
-        streamingExtractValues(this.signature, values, xstate, content);
-        assertAssertions(this.asserts, values);
-      }
-
-      if (result.functionCalls) {
-        const fc = mergeFunctionCalls(
-          functionCalls,
-          result.functionCalls,
-          fstate
-        );
-
-        let funcs;
-        if (fc) {
-          funcs = parseFunctions(this.ai, [fc], values);
+      for (const result of v.results ?? []) {
+        if (v.modelUsage) {
+          this.usage.push({ ...usageInfo, ...v.modelUsage });
         }
 
-        if (funcs) {
+        if (result.content) {
+          content += result.content;
+
+          mem.updateResult({ name: result.name, content }, sessionId);
+
+          assertStreamingAssertions(
+            this.streamingAsserts,
+            values,
+            xstate,
+            content
+          );
+          streamingExtractValues(this.signature, values, xstate, content);
+          assertAssertions(this.asserts, values);
+        }
+
+        if (result.functionCalls) {
+          mergeFunctionCalls(functionCalls, result.functionCalls);
+
           mem.updateResult(
             { name: result.name, content, functionCalls },
             sessionId
           );
-          await this.processFunctions(funcs, mem, sessionId, traceId);
         }
-      }
 
-      if (result.finishReason === 'length') {
-        throw new Error('Max tokens reached before completion');
+        if (result.finishReason === 'length') {
+          throw new Error('Max tokens reached before completion');
+        }
       }
     }
 
-    streamingExtractFinalValue(values, xstate, content);
-    assertAssertions(this.asserts, values);
+    const funcs = parseFunctions(this.ai, functionCalls, values);
+    if (funcs) {
+      await this.processFunctions(funcs, mem, sessionId, traceId);
+    }
+
+    // streamingExtractFinalValue(values, xstate, content);
+    // assertAssertions(this.asserts, values);
 
     return { ...values } as unknown as OUT;
   }
@@ -341,32 +327,29 @@ export class AxGenerate<
   }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
     const values = {};
 
-    const result = res.results?.at(0);
-    if (!result) {
-      throw new Error('No result found');
-    }
-
-    if (res.modelUsage) {
-      this.usage.push({ ...usageInfo, ...res.modelUsage });
-    }
-
-    mem.addResult(result, sessionId);
-
-    if (result.content) {
-      extractValues(this.signature, values, result.content);
-      assertAssertions(this.asserts, values);
-    }
-
-    if (result.functionCalls) {
-      const funcs = parseFunctions(this.ai, result.functionCalls, values);
-
-      if (funcs) {
-        await this.processFunctions(funcs, mem, sessionId, traceId);
+    for (const result of res.results ?? []) {
+      if (res.modelUsage) {
+        this.usage.push({ ...usageInfo, ...res.modelUsage });
       }
-    }
 
-    if (result.finishReason === 'length') {
-      throw new Error('Max tokens reached before completion');
+      mem.addResult(result, sessionId);
+
+      if (result.content) {
+        extractValues(this.signature, values, result.content);
+        assertAssertions(this.asserts, values);
+      }
+
+      if (result.functionCalls) {
+        const funcs = parseFunctions(this.ai, result.functionCalls, values);
+
+        if (funcs) {
+          await this.processFunctions(funcs, mem, sessionId, traceId);
+        }
+      }
+
+      if (result.finishReason === 'length') {
+        throw new Error('Max tokens reached before completion');
+      }
     }
 
     return { ...values } as unknown as OUT;
@@ -417,12 +400,9 @@ export class AxGenerate<
             maxSteps: options?.maxSteps
           });
 
-          //   if (mem.getLast(sessionId)?.role === 'assistant') {
-          //     assertRequiredFields(this.signature, output);
-          //     return output;
-          //   }
+          const lastMemItem = mem.getLast(sessionId);
 
-          if (Object.keys(output).length > 0) {
+          if (lastMemItem?.role !== 'function') {
             assertRequiredFields(this.signature, output);
             return output;
           }
@@ -509,7 +489,7 @@ export class AxGenerate<
           [
             {
               role: 'function' as const,
-              content: fres.result ?? '',
+              result: fres.result ?? '',
               functionId: fres.id
             }
           ],
