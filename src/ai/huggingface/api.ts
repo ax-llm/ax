@@ -97,7 +97,34 @@ export class AxAIHuggingFace extends AxBaseAI<
 
     const prompt = req.chatPrompt
       ?.map((msg) => {
-        return `${msg.role}: ${msg.content}`;
+        switch (msg.role) {
+          case 'user':
+            return `User: ${msg.content}`;
+          case 'system':
+            return `System: ${msg.content}`;
+          case 'function':
+            return `Function Result: ${msg.result}`;
+          case 'assistant': {
+            const fc = msg.functionCalls
+              ?.map((fc) => {
+                const args =
+                  typeof fc.function.arguments === 'string'
+                    ? fc.function.arguments
+                    : JSON.stringify(fc.function.arguments);
+
+                return `${fc.function.name}(${args})`;
+              })
+              .join('\n');
+            if (fc) {
+              return `Assistant: ${msg.content}\n Functions:\n${fc}`;
+            }
+            return `Assistant: ${msg.content}`;
+          }
+          default:
+            throw new Error(`Unknown role`);
+        }
+
+        //return `${msg.role}: ${msg.content}`;
       })
       .join('\n');
 

@@ -7,7 +7,7 @@ import type {
   AxChatResponseResult,
   AxFunction
 } from '../ai/types.js';
-import { mergeFunctionCalls, type mergeFunctionsState } from '../ai/util.js';
+import { mergeFunctionCalls } from '../ai/util.js';
 import {
   type AxChatResponseFunctionCall,
   AxFunctionProcessor
@@ -26,7 +26,6 @@ import {
 import {
   type extractionState,
   extractValues,
-  streamingExtractFinalValue,
   streamingExtractValues,
   ValidationError
 } from './extract.js';
