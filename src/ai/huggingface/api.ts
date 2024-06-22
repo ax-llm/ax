@@ -97,7 +97,9 @@ export class AxAIHuggingFace extends AxBaseAI<
 
     const prompt = req.chatPrompt
       ?.map((msg) => {
-        return `${msg.role}: ${msg.content}`;
+        const content =
+          'content' in msg ? msg.content : 'result' in msg ? msg.result : '';
+        return `${msg.role}: ${typeof content === 'string' ? content : JSON.stringify(content)}`;
       })
       .join('\n');
 
