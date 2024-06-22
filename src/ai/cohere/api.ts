@@ -28,7 +28,7 @@ import {
 
 export const axAICohereDefaultConfig = (): AxAICohereConfig =>
   structuredClone({
-    model: AxAICohereModel.Command,
+    model: AxAICohereModel.CommandRPlus,
     embedModel: AxAICohereEmbedModel.EmbedEnglishV30,
     ...axBaseAIDefaultConfig()
   });
@@ -43,7 +43,7 @@ export const axAICohereCreativeConfig = (): AxAICohereConfig =>
 export interface AxAICohereArgs {
   name: 'cohere';
   apiKey: string;
-  config: Readonly<AxAICohereConfig>;
+  config?: Readonly<AxAICohereConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
@@ -74,7 +74,7 @@ export class AxAICohere extends AxBaseAI<
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo: axModelInfoCohere,
       models: { model: _config.model },
-      supportFor: { functions: false, streaming: true },
+      supportFor: { functions: true, streaming: true },
       options
     });
     this.config = _config;
@@ -104,48 +104,17 @@ export class AxAICohere extends AxBaseAI<
     const lastChatMsg = req.chatPrompt.at(-1);
     const restOfChat = req.chatPrompt.slice(0, -1);
 
-    if (lastChatMsg?.role === 'function') {
-      throw new Error('Function calling not supported');
+    let message: AxAICohereChatRequest['message'] | undefined;
+
+    if (
+      lastChatMsg &&
+      lastChatMsg.role === 'user' &&
+      typeof lastChatMsg.content === 'string'
+    ) {
+      message = lastChatMsg?.content;
     }
 
-    if (!lastChatMsg?.content) {
-      throw new Error('Chat prompt is empty');
-    }
-
-    if (typeof lastChatMsg.content !== 'string') {
-      throw new Error('Multi-modal content not supported');
-    }
-
-    const message: AxAICohereChatRequest['message'] = lastChatMsg?.content;
-
-    const chatHistory: AxAICohereChatRequest['chat_history'] = restOfChat.map(
-      (chat) => {
-        if (chat.role === 'function') {
-          throw new Error('Function calling not supported');
-        }
-
-        if (Array.isArray(chat.content)) {
-          throw new Error('Multi-modal content not supported');
-        }
-
-        let role: AxAICohereChatRequest['chat_history'][0]['role'];
-        switch (chat.role) {
-          case 'user':
-            role = 'USER';
-            break;
-          case 'system':
-            role = 'SYSTEM';
-            break;
-          case 'assistant':
-            role = 'CHATBOT';
-            break;
-          default:
-            role = 'USER';
-            break;
-        }
-        return { role, message: chat.content ?? '' };
-      }
-    );
+    const chatHistory = createHistory(restOfChat);
 
     type PropValue = NonNullable<
       AxAICohereChatRequest['tools']
@@ -162,6 +131,7 @@ export class AxAICohere extends AxBaseAI<
           };
         }
       }
+
       return {
         name: v.name,
         description: v.description,
@@ -179,7 +149,7 @@ export class AxAICohere extends AxBaseAI<
       .map((chat) => {
         const fn = tools?.find((t) => t.name === chat.functionId);
         if (!fn) {
-          throw new Error('AxFunction not found');
+          throw new Error('Function not found');
         }
         return {
           call: { name: fn.name, parameters: fn.parameter_definitions },
@@ -188,14 +158,14 @@ export class AxAICohere extends AxBaseAI<
       });
 
     const apiConfig = {
-      name: '/v1/generate'
+      name: '/v1/chat'
     };
 
     const reqValue: AxAICohereChatRequest = {
-      model,
       message,
+      model,
       tools,
-      tool_results,
+      ...(tool_results && !message ? { tool_results } : {}),
       chat_history: chatHistory,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
@@ -243,6 +213,16 @@ export class AxAICohere extends AxBaseAI<
   override generateChatResp = (
     resp: Readonly<AxAICohereChatResponse>
   ): AxChatResponse => {
+    const modelUsage = resp.meta.billed_units
+      ? {
+          promptTokens: resp.meta.billed_units.input_tokens,
+          completionTokens: resp.meta.billed_units.output_tokens,
+          totalTokens:
+            resp.meta.billed_units.input_tokens +
+            resp.meta.billed_units.output_tokens
+        }
+      : undefined;
+
     let finishReason: AxChatResponse['results'][0]['finishReason'];
     if ('finish_reason' in resp) {
       switch (resp.finish_reason) {
@@ -265,25 +245,30 @@ export class AxAICohere extends AxBaseAI<
     let functionCalls: AxChatResponse['results'][0]['functionCalls'];
 
     if ('tool_calls' in resp) {
-      functionCalls =
-        resp.tool_calls?.map((v) => {
+      functionCalls = resp.tool_calls?.map(
+        (v): NonNullable<AxChatResponse['results'][0]['functionCalls']>[0] => {
           return {
             id: v.name,
             type: 'function' as const,
-            function: { name: v.name, args: v.parameters }
+            function: { name: v.name, arguments: v.parameters }
           };
-        }) ?? [];
+        }
+      );
     }
 
+    const results: AxChatResponse['results'] = [
+      {
+        id: resp.generation_id,
+        content: resp.text,
+        functionCalls,
+        finishReason
+      }
+    ];
+
     return {
-      results: [
-        {
-          id: resp.generation_id,
-          content: resp.text,
-          functionCalls,
-          finishReason
-        }
-      ]
+      results,
+      modelUsage,
+      remoteId: resp.response_id
     };
   };
 
@@ -317,4 +302,83 @@ export class AxAICohere extends AxBaseAI<
       embeddings: resp.embeddings
     };
   };
+}
+function createHistory(
+  chatPrompt: Readonly<AxChatRequest['chatPrompt']>
+): AxAICohereChatRequest['chat_history'] {
+  return chatPrompt.map((chat) => {
+    let message: string = '';
+
+    if (
+      chat.role === 'system' ||
+      chat.role === 'assistant' ||
+      chat.role === 'user'
+    ) {
+      if (typeof chat.content === 'string') {
+        message = chat.content;
+      } else {
+        throw new Error('Multi-modal content not supported');
+      }
+    }
+
+    switch (chat.role) {
+      case 'user':
+        return { role: 'USER' as const, message };
+      case 'system':
+        return { role: 'SYSTEM' as const, message };
+      case 'assistant': {
+        const toolCalls = createToolCall(chat.functionCalls);
+        return {
+          role: 'CHATBOT' as const,
+          message,
+          tool_calls: toolCalls
+        };
+      }
+      case 'function': {
+        const functionCalls = chatPrompt
+          .map((v) => {
+            if (v.role === 'assistant') {
+              return v.functionCalls?.find((f) => f.id === chat.functionId);
+            }
+            return undefined;
+          })
+          .filter((v) => v !== undefined);
+
+        const call = createToolCall(functionCalls)?.at(0);
+
+        if (!call) {
+          throw new Error('Function call not found');
+        }
+
+        const outputs = [{ result: chat.result }];
+        return {
+          role: 'TOOL' as const,
+          tool_results: [
+            {
+              call,
+              outputs
+            }
+          ]
+        };
+      }
+      default:
+        throw new Error('Unknown role');
+    }
+  });
+}
+function createToolCall(
+  functionCalls: Readonly<
+    Extract<
+      AxChatRequest['chatPrompt'][0],
+      { role: 'assistant' }
+    >['functionCalls']
+  >
+) {
+  return functionCalls?.map((v) => {
+    const parameters =
+      typeof v.function.arguments === 'string'
+        ? JSON.parse(v.function.arguments)
+        : v.function.arguments;
+    return { name: v.function.name, parameters };
+  });
 }

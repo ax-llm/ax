@@ -31,10 +31,40 @@ export type AxAICohereConfig = AxModelConfig & {
   embedModel: AxAICohereEmbedModel;
 };
 
+export type AxAICohereChatResponseToolCalls = {
+  name: string;
+  parameters?: object;
+}[];
+
+export type AxAICohereChatRequestToolResults = {
+  call: AxAICohereChatResponseToolCalls[0];
+  outputs: object[];
+}[];
+
 export type AxAICohereChatRequest = {
-  message: string;
+  message?: string;
   preamble?: string;
-  chat_history: { role: 'CHATBOT' | 'SYSTEM' | 'USER'; message: string }[];
+  chat_history: (
+    | {
+        role: 'CHATBOT';
+        message: string;
+        tool_calls?: AxAICohereChatResponseToolCalls;
+      }
+    | {
+        role: 'SYSTEM';
+        message: string;
+      }
+    | {
+        role: 'USER';
+        message: string;
+      }
+    | {
+        role: 'TOOL';
+        message?: string;
+        tool_results: AxAICohereChatRequestToolResults;
+      }
+  )[];
+
   model: AxAICohereModel | string;
   max_tokens?: number;
   temperature?: number;
@@ -56,16 +86,17 @@ export type AxAICohereChatRequest = {
       }
     >;
   }[];
-  tool_results?: {
-    call: {
-      name: string;
-      parameters: object;
-    };
-    outputs: object[];
-  }[];
+  tool_results?: AxAICohereChatRequestToolResults;
 };
 
 export type AxAICohereChatResponse = {
+  response_id: string;
+  meta: {
+    billed_units: {
+      input_tokens: number;
+      output_tokens: number;
+    };
+  };
   generation_id: string;
   text: string;
   finish_reason:
@@ -75,10 +106,7 @@ export type AxAICohereChatResponse = {
     | 'ERROR_LIMIT'
     | 'USER_CANCEL'
     | 'MAX_TOKENS';
-  tool_calls: {
-    name: string;
-    parameters: object;
-  }[];
+  tool_calls: AxAICohereChatResponseToolCalls;
 };
 
 export type AxAICohereChatResponseDelta = AxAICohereChatResponse & {

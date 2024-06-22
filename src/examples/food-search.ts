@@ -107,7 +107,6 @@ const functions: AxFunction[] = [
         units: {
           type: 'string',
           enum: ['imperial', 'metric'],
-          default: 'imperial',
           description: 'units to use'
         }
       },
@@ -127,7 +126,6 @@ const functions: AxFunction[] = [
         },
         outdoor: {
           type: 'boolean',
-          default: false,
           description: 'outdoor seating'
         },
         cuisine: { type: 'string', description: 'cuisine type' },
@@ -149,12 +147,29 @@ const sig = new AxSignature(
   `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
 );
 
+// const ai = new AxAI({
+//   name: 'cohere',
+//   apiKey: process.env.COHERE_APIKEY as string
+// });
+
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string
+// });
+
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string
 });
 
+// const ai = new AxAI({
+//   name: 'anthropic',
+//   apiKey: process.env.ANTHROPIC_APIKEY as string
+// });
+
+// ai.setOptions({ debug: true });
+
 const gen = new AxReAct(ai, sig, { functions });
-const res = await gen.forward({ customerQuery }, { stream: true });
+const res = await gen.forward({ customerQuery }, { stream: false });
 
 console.log('>', res);

@@ -208,15 +208,13 @@ export class AxAIGoogleGemini extends AxBaseAI<
               };
             }
 
-            let functionCalls: {
-              functionCall: {
-                name: string;
-                args: object;
-              };
-            }[] = [];
+            let parts: Extract<
+              AxAIGoogleGeminiChatRequest['contents'][0],
+              { role: 'model' }
+            >['parts'] = [];
 
             if ('functionCalls' in msg) {
-              functionCalls =
+              parts =
                 msg.functionCalls?.map((f) => {
                   const args =
                     typeof f.function.arguments === 'string'
@@ -230,11 +228,6 @@ export class AxAIGoogleGemini extends AxBaseAI<
                   };
                 }) ?? [];
             }
-
-            const parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'model' }
-            >['parts'] = functionCalls;
 
             return {
               role: 'model' as const,
