@@ -23,7 +23,7 @@ export const axAIMistralBestConfig = (): AxAIOpenAIConfig =>
 export interface AxAIMistralArgs {
   name: 'mistral';
   apiKey: string;
-  config: Readonly<MistralConfig>;
+  config?: Readonly<MistralConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 

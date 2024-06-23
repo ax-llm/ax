@@ -16,7 +16,8 @@ import type {
   AxEmbedResponse,
   AxModelConfig,
   AxModelInfo,
-  AxModelInfoWithProvider
+  AxModelInfoWithProvider,
+  AxTokenUsage
 } from './types.js';
 
 const colorLog = new ColorLog();
@@ -73,6 +74,9 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter'];
   private fetch?: AxAIServiceOptions['fetch'];
   private tracer?: AxAIServiceOptions['tracer'];
+
+  private modelUsage?: AxTokenUsage;
+  private embedModelUsage?: AxTokenUsage;
 
   protected apiURL: string;
   protected name: string;
@@ -247,7 +251,9 @@ export class AxBaseAI<
       logChatRequest(req);
     }
 
-    const rv = this.rt ? await this.rt(fn) : await fn();
+    const rv = this.rt
+      ? await this.rt(fn, { modelUsage: this.modelUsage })
+      : await fn();
 
     if (stream) {
       if (!this.generateChatStreamResp) {
@@ -259,6 +265,10 @@ export class AxBaseAI<
         (state: object) => (resp: Readonly<TChatResponseDelta>) => {
           const res = respFn(resp, state);
           res.sessionId = options?.sessionId;
+
+          if (res.modelUsage) {
+            this.modelUsage = res.modelUsage;
+          }
 
           if (span?.isRecording()) {
             setResponseAttr(res, span);
@@ -291,6 +301,10 @@ export class AxBaseAI<
     }
     const res = this.generateChatResp(rv as TChatResponse);
     res.sessionId = options?.sessionId;
+
+    if (res.modelUsage) {
+      this.modelUsage = res.modelUsage;
+    }
 
     if (span?.isRecording()) {
       setResponseAttr(res, span);
@@ -358,13 +372,16 @@ export class AxBaseAI<
       return res;
     };
 
-    const resValue = this.rt ? await this.rt(async () => fn()) : await fn();
+    const resValue = this.rt
+      ? await this.rt(fn, { embedModelUsage: this.embedModelUsage })
+      : await fn();
     const res = this.generateEmbedResp!(resValue as TEmbedResponse);
 
     res.sessionId = options?.sessionId;
 
     if (span?.isRecording()) {
       if (res.modelUsage) {
+        this.embedModelUsage = res.modelUsage;
         span.setAttributes({
           [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
             res.modelUsage.completionTokens ?? 0,

@@ -3,7 +3,8 @@ import { readFileSync } from 'fs';
 import type {
   AxAIService,
   AxChatResponse,
-  AxModelConfig
+  AxModelConfig,
+  AxRateLimiterFunction
 } from '../ai/types.js';
 import type { AxAIMemory } from '../mem/types.js';
 import type { AxTracer } from '../trace/index.js';
@@ -45,6 +46,7 @@ export type AxProgramForwardOptions = {
   sessionId?: string;
   traceId?: string | undefined;
   tracer?: AxTracer;
+  rateLimiter?: AxRateLimiterFunction;
   stream?: boolean;
   debug?: boolean;
 };

@@ -166,7 +166,8 @@ export class AxGenerate<
     ai,
     modelConfig: mc,
     stream,
-    model
+    model,
+    rateLimiter
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai'> & { ai: AxAIService; stream: boolean }
   >) {
@@ -201,6 +202,7 @@ export class AxGenerate<
       {
         ...(sessionId ? { sessionId } : {}),
         ...(traceId ? { traceId } : {}),
+        ...(rateLimiter ? { rateLimiter } : {}),
         stream
       }
     );
@@ -214,6 +216,7 @@ export class AxGenerate<
     traceId,
     ai,
     modelConfig,
+    rateLimiter,
     stream = false
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai' | 'mem'> & {
@@ -232,7 +235,8 @@ export class AxGenerate<
       traceId,
       ai,
       stream,
-      modelConfig
+      modelConfig,
+      rateLimiter
     });
 
     if (res instanceof ReadableStream) {
@@ -396,7 +400,8 @@ export class AxGenerate<
             traceId,
             modelConfig,
             stream,
-            maxSteps: options?.maxSteps
+            maxSteps: options?.maxSteps,
+            rateLimiter: options?.rateLimiter
           });
 
           const lastMemItem = mem.getLast(sessionId);

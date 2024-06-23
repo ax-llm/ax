@@ -147,7 +147,10 @@ export type AxEmbedRequest = {
   embedModel?: string;
 };
 
-export type AxRateLimiterFunction = <T>(func: unknown) => T;
+export type AxRateLimiterFunction = <T = unknown>(
+  reqFunc: () => Promise<T | ReadableStream<T>>,
+  info: Readonly<{ modelUsage?: AxTokenUsage; embedModelUsage?: AxTokenUsage }>
+) => Promise<T | ReadableStream<T>>;
 
 export type AxAIPromptConfig = {
   stream?: boolean;

@@ -147,6 +147,16 @@ const sig = new AxSignature(
   `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
 );
 
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+
+// const ai = new AxAI({
+//   name: 'groq',
+//   apiKey: process.env.GROQ_APIKEY as string
+// });
+
 // const ai = new AxAI({
 //   name: 'cohere',
 //   apiKey: process.env.COHERE_APIKEY as string
@@ -156,11 +166,6 @@ const sig = new AxSignature(
 //   name: 'google-gemini',
 //   apiKey: process.env.GOOGLE_APIKEY as string
 // });
-
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
 
 // const ai = new AxAI({
 //   name: 'anthropic',

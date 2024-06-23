@@ -1,7 +1,8 @@
+import { AxRateLimiterTokenUsage } from '../../util/ratelimit.js';
 import { axBaseAIDefaultConfig } from '../base.js';
 import { AxAIOpenAI } from '../openai/api.js';
 import type { AxAIOpenAIConfig } from '../openai/types.js';
-import type { AxAIServiceOptions } from '../types.js';
+import type { AxAIServiceOptions, AxRateLimiterFunction } from '../types.js';
 
 import { AxAIGroqModel } from './types.js';
 
@@ -16,8 +17,8 @@ const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
 export interface AxAIGroqArgs {
   name: 'groq';
   apiKey: string;
-  config: Readonly<AxAIGroqAIConfig>;
-  options?: Readonly<AxAIServiceOptions>;
+  config?: Readonly<AxAIGroqAIConfig>;
+  options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number };
 }
 
 export class AxAIGroq extends AxAIOpenAI {
@@ -33,10 +34,28 @@ export class AxAIGroq extends AxAIOpenAI {
       ...axAIGroqDefaultConfig(),
       ...config
     };
+
+    let rateLimiter = options?.rateLimiter;
+    if (!rateLimiter) {
+      const tokensPerMin = options?.tokensPerMinute ?? 5800;
+      const rt = new AxRateLimiterTokenUsage(tokensPerMin, tokensPerMin / 60);
+
+      rateLimiter = async (func, info) => {
+        const totalTokens = info.modelUsage?.totalTokens || 0;
+        await rt.acquire(totalTokens);
+        return func();
+      };
+    }
+
+    const _options = {
+      ...options,
+      rateLimiter,
+      streamingUsage: false
+    };
     super({
       apiKey,
       config: _config,
-      options: { ...options, streamingUsage: false },
+      options: _options,
       apiURL: 'https://api.groq.com/openai/v1',
       modelInfo: []
     });

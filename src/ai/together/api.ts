@@ -9,14 +9,15 @@ type TogetherAIConfig = AxAIOpenAIConfig;
 
 export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
   structuredClone({
-    model: 'llama2-70b-4096',
+    // cspell:disable-next-line
+    model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
     ...axBaseAIDefaultConfig()
   });
 
 export interface AxAITogetherArgs {
   name: 'together';
   apiKey: string;
-  config: Readonly<TogetherAIConfig>;
+  config?: Readonly<TogetherAIConfig>;
   options?: Readonly<AxAIServiceOptions>;
 }
 
