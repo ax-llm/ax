@@ -8,7 +8,7 @@ export * from './docs/index.js';
 export * from './trace/index.js';
 
 // cspell: disable-next-line
-export { AxRateLimiterTokenUsage } from './util/ratelimit.js';
+export { AxRateLimiterTokenUsage } from './util/rate-limit.js';
 
 /*
 Transformers learn,

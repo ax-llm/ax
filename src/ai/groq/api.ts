@@ -1,8 +1,8 @@
-import { AxRateLimiterTokenUsage } from '../../util/ratelimit.js';
+import { AxRateLimiterTokenUsage } from '../../util/rate-limit.js';
 import { axBaseAIDefaultConfig } from '../base.js';
 import { AxAIOpenAI } from '../openai/api.js';
 import type { AxAIOpenAIConfig } from '../openai/types.js';
-import type { AxAIServiceOptions, AxRateLimiterFunction } from '../types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
 import { AxAIGroqModel } from './types.js';
 
