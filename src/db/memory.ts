@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
 import type {

@@ -34,7 +34,7 @@ export interface AxBaseAIArgs {
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
   structuredClone({
-    maxTokens: 500,
+    maxTokens: 2000,
     temperature: 0,
     topK: 40,
     frequencyPenalty: 0.2

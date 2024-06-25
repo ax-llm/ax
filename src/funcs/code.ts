@@ -1,7 +1,7 @@
 import * as _crypto from 'crypto';
-import * as _fs from 'fs';
 import * as _http from 'http';
 import * as _https from 'https';
+import * as _fs from 'node:fs';
 import * as _os from 'os';
 import * as _process from 'process';
 import { runInNewContext } from 'vm';
@@ -33,7 +33,7 @@ export const axJSInterpreterFunction = (
 });
 
 export enum AxCodeInterpreterPermission {
-  FS = 'fs',
+  FS = 'node:fs',
   NET = 'net',
   OS = 'os',
   CRYPTO = 'crypto',

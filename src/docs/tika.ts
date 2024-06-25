@@ -1,4 +1,4 @@
-import { createReadStream } from 'fs';
+import { createReadStream } from 'node:fs';
 
 export interface AxApacheTikaArgs {
   url?: string | URL;

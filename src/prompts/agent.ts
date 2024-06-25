@@ -89,7 +89,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       name: toCamelCase(this.name),
       description: this.description,
       parameters: sig.toJSONSchema(),
-      func: () => this.forward
+      func: (values, options) => this.forward(values, options)
     };
 
     this.register(this.gen);

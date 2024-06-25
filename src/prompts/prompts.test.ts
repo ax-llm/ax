@@ -1,5 +1,3 @@
-import { Readable } from 'stream';
-
 import test from 'ava';
 
 import { AxAI } from '../ai/index.js';
@@ -38,7 +36,6 @@ const mockFetch = async (): Promise<Response> => {
     resolve({
       ok: true,
       status: 200,
-      body: Readable.from(JSON.stringify(mockRes)),
       json: async () => new Promise((resolve) => resolve(mockRes))
     } as unknown as Response);
   });

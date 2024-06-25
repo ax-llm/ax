@@ -1,21 +1,21 @@
 import { AxAgent, AxAI } from '../index.js';
 
-// const ai = new AxAI({
-//   name: 'openai',
-//   apiKey: process.env.OPENAI_APIKEY as string
-// });
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
 // const ai = new AxAI({
 //   name: 'google-gemini',
 //   apiKey: process.env.GOOGLE_APIKEY as string
 // });
 
-const ai = new AxAI({
-  name: 'groq',
-  apiKey: process.env.GROQ_APIKEY as string
-});
+// const ai = new AxAI({
+//   name: 'groq',
+//   apiKey: process.env.GROQ_APIKEY as string
+// });
 
-ai.setOptions({ debug: true });
+// ai.setOptions({ debug: true });
 
 const researcher = new AxAgent(ai, {
   name: 'Physics Researcher',

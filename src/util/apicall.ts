@@ -65,9 +65,19 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       );
     }
 
+    if (!api.stream) {
+      return (await res.json()) as TResponse;
+    }
+
     if (!res.body) {
       throw new Error('Response body is null');
     }
+
+    const st = res.body
+      .pipeThrough(new textDecoderStream())
+      .pipeThrough(new JSONStringifyStream<TResponse>());
+
+    return st;
   } catch (e) {
     if (api.span?.isRecording()) {
       api.span.recordAxSpanException(e as Error);
@@ -77,14 +87,4 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       `API Error: ${apiUrl.href}, ${e}\nRequest Body: ${reqBody}`
     );
   }
-
-  if (!api.stream) {
-    return (await res.json()) as TResponse;
-  }
-
-  const st = res.body
-    .pipeThrough(new textDecoderStream())
-    .pipeThrough(new JSONStringifyStream<TResponse>());
-
-  return st;
 };

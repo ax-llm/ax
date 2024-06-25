@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync } from 'node:fs';
 
 import type { AxAIService } from '../ai/types.js';
 import { AxDBMemory } from '../db/memory.js';

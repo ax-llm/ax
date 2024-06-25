@@ -495,25 +495,28 @@ export class AxGenerate<
     sessionId?: string,
     traceId?: string
   ) => {
-    for (const func of functionCalls) {
-      const fres = await this.funcProc?.execute(func, {
-        sessionId,
-        traceId
-      });
+    // Map each function call to a promise that resolves to the function result or null
+    const promises = functionCalls.map((func) =>
+      this.funcProc?.execute(func, { sessionId, traceId }).then((fres) => {
+        if (fres?.id) {
+          return {
+            role: 'function' as const,
+            result: fres.result ?? '',
+            functionId: fres.id
+          };
+        }
+        return null; // Returning null for function calls that don't meet the condition
+      })
+    );
 
-      if (fres?.id) {
-        mem.add(
-          [
-            {
-              role: 'function' as const,
-              result: fres.result ?? '',
-              functionId: fres.id
-            }
-          ],
-          sessionId
-        );
+    // Wait for all promises to resolve
+    const results = await Promise.all(promises);
+
+    results.forEach((result) => {
+      if (result) {
+        mem.add(result, sessionId);
       }
-    }
+    });
   };
 }
 

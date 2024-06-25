@@ -12,9 +12,6 @@ export type AxChatResponseFunctionCall = {
 
 export type AxFunctionExec = {
   id?: string;
-  name: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  args?: any;
   result?: string;
 };
 
@@ -45,27 +42,30 @@ export class AxFunctionProcessor {
       args = func.args;
     }
 
+    const opt = options
+      ? {
+          sessionId: options.sessionId,
+          traceId: options.traceId
+        }
+      : undefined;
+
     if (!fnSpec.parameters) {
       const res =
-        fnSpec.func.length === 1
-          ? await fnSpec.func(options)
-          : await fnSpec.func();
+        fnSpec.func.length === 1 ? await fnSpec.func(opt) : await fnSpec.func();
 
       return {
-        name: fnSpec.name,
+        id: func.id,
         result: JSON.stringify(res, null, 2)
       };
     }
 
     const res =
       fnSpec.func.length === 2
-        ? await fnSpec.func(args, options)
+        ? await fnSpec.func(args, opt)
         : await fnSpec.func(args);
 
     return {
       id: func.id,
-      name: func.name,
-      args: func.args,
       result: JSON.stringify(res, null, 2)
     };
   };
@@ -85,12 +85,6 @@ export class AxFunctionProcessor {
     }
 
     // execute value function calls
-    const funcExec = await this.executeFunction(fnSpec, func, options);
-
-    // // signal error if no data returned
-    // if (!funcExec.result || funcExec.result.length === 0) {
-    //   funcExec.result = `No data returned by function`;
-    // }
-    return funcExec;
+    return await this.executeFunction(fnSpec, func, options);
   };
 }
