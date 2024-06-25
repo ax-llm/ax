@@ -1,10 +1,10 @@
 {
   "name": "@ax-llm/ax",
-  "version": "9.0.11",
+  "version": "9.0.12",
   "type": "module",
   "description": "The best library to work with LLMs",
-  "typings": "build/module/src/index.d.ts",
-  "module": "build/module/src/index.js",
+  "typings": "./build/module/src/index.d.ts",
+  "module": "./build/module/src/index.js",
   "exports": "./build/module/src/index.js",
   "repository": {
     "type": "git",
@@ -54,8 +54,8 @@
     "@types/stream-array": "^1.1.4",
     "@types/uuid": "^9.0.8",
     "@types/yargs": "^17.0.32",
-    "@typescript-eslint/eslint-plugin": "^7.7.0",
-    "@typescript-eslint/parser": "^7.7.0",
+    "@typescript-eslint/eslint-plugin": "^7.14.1",
+    "@typescript-eslint/parser": "^7.14.1",
     "ava": "^6.1.2",
     "cspell": "^8.6.0",
     "cz-conventional-changelog": "^3.3.0",
@@ -102,9 +102,9 @@
     }
   },
   "bugs": {
-    "url": "https://github.com/dosco/llm-client/issues"
+    "url": "https://github.com/@ax-llm/ax/issues"
   },
-  "homepage": "https://github.com/dosco/llm-client#readme",
+  "homepage": "https://github.com/@ax-llm/ax#readme",
   "directories": {
     "example": "examples"
   },
