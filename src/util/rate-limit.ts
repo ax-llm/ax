@@ -1,14 +1,28 @@
+import { ColorLog } from './log.js';
+
+const colorLog = new ColorLog();
+
+export interface AxRateLimiterTokenUsageOptions {
+  debug?: boolean;
+}
+
 export class AxRateLimiterTokenUsage {
+  private options?: Readonly<AxRateLimiterTokenUsageOptions>;
   private maxTokens: number;
   private refillRate: number;
   private currentTokens: number;
   private lastRefillTime: number;
 
-  constructor(maxTokens: number, refillRate: number) {
+  constructor(
+    maxTokens: number,
+    refillRate: number,
+    options?: Readonly<AxRateLimiterTokenUsageOptions>
+  ) {
     this.maxTokens = maxTokens;
     this.refillRate = refillRate;
     this.currentTokens = maxTokens;
     this.lastRefillTime = Date.now();
+    this.options = options;
   }
 
   private refillTokens() {
@@ -28,7 +42,13 @@ export class AxRateLimiterTokenUsage {
       this.currentTokens -= tokens;
       return;
     }
-
+    if (this.options?.debug) {
+      console.log(
+        colorLog.red(
+          `Rate limiter: Waiting for ${tokens - this.currentTokens} tokens`
+        )
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for 100ms before checking again
     return this.waitUntilTokensAvailable(tokens); // Recursive call
   }

@@ -30,7 +30,7 @@ test('extractValues with json', (t) => {
 });
 
 test('extractValues with text values', (t) => {
-  const sig = new AxSignature(`text -> title, keyPoints, description`);
+  const sig = new AxSignature(`someText -> title, keyPoints, description`);
   const v1 = {};
   extractValues(
     sig,

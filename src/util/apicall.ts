@@ -59,9 +59,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     });
 
     if (res.status >= 400) {
-      const body = JSON.stringify(await res.json(), null, 2);
+      const respBody = JSON.stringify(await res.json(), null, 2);
       throw new Error(
-        `API Error: ${apiUrl.href}, ${res.status}, ${res.statusText}\n${body}`
+        `${res.status}, ${res.statusText}\n:Response Body: ${respBody}`
       );
     }
 
@@ -72,7 +72,10 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     if (api.span?.isRecording()) {
       api.span.recordAxSpanException(e as Error);
     }
-    throw new Error(`API Error: ${apiUrl.href}, ${e}`);
+    const reqBody = JSON.stringify(json, null, 2);
+    throw new Error(
+      `API Error: ${apiUrl.href}, ${e}\nRequest Body: ${reqBody}`
+    );
   }
 
   if (!api.stream) {
@@ -85,101 +88,3 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
   return st;
 };
-
-// for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-//   console.log('CHUNK', decoder.decode(chunk));
-// }
-
-// const res = await axios.post(apiUrl, json, {
-//   headers: api.headers,
-//   responseType: 'stream'
-//   // responseType: api.stream ? 'stream' : 'json'
-// });
-
-// const res = await request
-//   .send(json as object)
-//   .set(headers ?? {})
-//   .type('json')
-//   .accept('json')
-//   .retry(3);
-// return res.body;
-
-// } catch (e) {
-//   const err = e as SuperAgentError;
-//   throw httpError(`apiCall:`, apiUrl, json, err);
-// }
-
-/*
-export const apiCallWithUpload = async <
-  Request,
-  Response,
-  APIType extends API & { url: string }
->(
-  api: Readonly<APIType>,
-  json: Request,
-  file: string
-): Promise<Response> => {
-  if (!file) {
-    throw new Error('File is required');
-  }
-
-  const headers = api.headers;
-  const baseUrl = api.url;
-  const apiPath = api.name ?? '/';
-  const apiUrl = new URL(apiPath, baseUrl).toString();
-
-  try {
-    const data = await superagent
-      .post(apiUrl)
-      .retry(3)
-      .attach('file', file)
-      .set(headers ?? {})
-      .field(json as { [fieldName: string]: string });
-
-    return data.body;
-  } catch (e) {
-    throw httpError('apiCallWithUpload', apiUrl, null, e as SuperAgentError);
-  }
-};
-*/
-
-// export type SuperAgentError = {
-//   response: superagent.Response;
-//   code: unknown;
-//   syscall: unknown;
-//   address: unknown;
-//   port: unknown;
-//   request: unknown;
-// };
-
-// export const httpError = (
-//   message: string,
-//   apiUrl: string,
-//   json: unknown,
-//   { response, code, syscall, address, port }: Readonly<SuperAgentError>
-// ) => {
-//   const err = new Error(message) as Error & { data: unknown };
-
-//   if (!response) {
-//     err.data = {
-//       apiUrl,
-//       code,
-//       syscall,
-//       address,
-//       port,
-//       request: json
-//     };
-//     return err;
-//   }
-
-//   const { headers, status, body } = response;
-//   err.data = {
-//     apiUrl,
-//     statusCode: status,
-//     headers,
-//     request: json,
-//     response: body,
-//     error: body.error
-//   };
-//   return err;
-// };

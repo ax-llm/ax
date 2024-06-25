@@ -7,7 +7,7 @@ import { AxSignature } from '../dsp/sig.js';
 
 import { AxChainOfThought } from './cot.js';
 
-const text = `The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.`;
+const someText = `The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.`;
 
 const examples = [
   {
@@ -56,11 +56,11 @@ test('generate prompt', async (t) => {
 
   const gen = new AxChainOfThought(
     ai,
-    `text -> shortSummary "summarize in 5 to 10 words"`
+    `someText -> shortSummary "summarize in 5 to 10 words"`
   );
   gen.setExamples(examples);
 
-  const res = await gen.forward({ text });
+  const res = await gen.forward({ someText });
 
   t.deepEqual(res, {
     reason: 'Blah blah blah',
@@ -69,5 +69,5 @@ test('generate prompt', async (t) => {
 });
 
 test('generate prompt: invalid signature', async (t) => {
-  t.throws(() => new AxSignature(`text -> output:image`));
+  t.throws(() => new AxSignature(`someText -> output:image`));
 });

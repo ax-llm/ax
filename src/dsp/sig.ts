@@ -68,10 +68,6 @@ export class AxSignature {
   };
 
   private parseField = (field: Readonly<AxField>): AxIField => {
-    if (!field.name || field.name.length === 0) {
-      throw new Error('Field name is required.');
-    }
-
     const title =
       !field.title || field.title.length === 0
         ? this.toTitle(field.name)
@@ -157,7 +153,14 @@ export class AxSignature {
   };
 
   private updateHash = (): [string, string] => {
+    this.getInputFields().forEach((field) => {
+      validateField(field);
+      if (field.type?.name === 'image') {
+        throw new Error('Image type is not supported in output fields.');
+      }
+    });
     this.getOutputFields().forEach((field) => {
+      validateField(field);
       if (field.type?.name === 'image') {
         throw new Error('Image type is not supported in output fields.');
       }
@@ -217,4 +220,44 @@ function renderSignature(
 
   // Combine all parts into the final signature.
   return `${descriptionPart} ${inputFieldsRendered} -> ${outputFieldsRendered}`;
+}
+
+function isValidCase(inputString: string): boolean {
+  const camelCaseRegex = /^[a-z][a-zA-Z0-9]*$/;
+  const snakeCaseRegex = /^[a-z]+(_[a-z0-9]+)*$/;
+
+  return camelCaseRegex.test(inputString) || snakeCaseRegex.test(inputString);
+}
+
+function validateField(field: Readonly<AxField>): void {
+  if (!field.name || field.name.length === 0) {
+    throw new Error('Field name cannot be blank');
+  }
+
+  if (!isValidCase(field.name)) {
+    throw new Error(
+      'Field name must be in camel case or snake case: ' + field.name
+    );
+  }
+
+  if (
+    [
+      'text',
+      'object',
+      'image',
+      'string',
+      'number',
+      'boolean',
+      'json',
+      'array',
+      'date',
+      'time',
+      'type'
+    ].includes(field.name)
+  ) {
+    throw new Error(
+      'Invalid field name, please make it more descriptive (eg. noteText): ' +
+        field.name
+    );
+  }
 }

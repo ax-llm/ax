@@ -5,7 +5,8 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
-  AxFunction
+  AxFunction,
+  AxRateLimiterFunction
 } from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
 import {
@@ -13,7 +14,7 @@ import {
   AxFunctionProcessor
 } from '../funcs/functions.js';
 import { type AxAIMemory, AxMemory } from '../mem/index.js';
-import { type AxSpan, AxSpanKind } from '../trace/index.js';
+import { type AxSpan, AxSpanKind, type AxTracer } from '../trace/index.js';
 
 import {
   assertAssertions,
@@ -41,6 +42,15 @@ import { AxSignature } from './sig.js';
 import { validateValue } from './util.js';
 
 export interface AxGenerateOptions {
+  maxCompletions?: number;
+  maxRetries?: number;
+  maxSteps?: number;
+  mem?: AxAIMemory;
+  tracer?: AxTracer;
+  rateLimiter?: AxRateLimiterFunction;
+  stream?: boolean;
+  debug?: boolean;
+
   functions?: AxFunction[];
   functionCall?: AxChatRequest['functionCall'];
   promptTemplate?: typeof AxPromptTemplate;
@@ -363,8 +373,9 @@ export class AxGenerate<
     options?: Readonly<AxProgramForwardOptions>,
     span?: AxSpan
   ): Promise<OUT> {
-    const maxRetries = options?.maxRetries ?? 5;
-    const mem = options?.mem ?? new AxMemory();
+    const maxRetries = this.options?.maxRetries ?? options?.maxRetries ?? 5;
+    const maxSteps = this.options?.maxSteps ?? options?.maxSteps ?? 10;
+    const mem = this.options?.mem ?? options?.mem ?? new AxMemory();
     const canStream = this.ai.getFeatures().streaming;
 
     let err: ValidationError | AxAssertionError | undefined;
@@ -384,7 +395,7 @@ export class AxGenerate<
 
     for (let i = 0; i < maxRetries; i++) {
       try {
-        for (let n = 0; n < (options?.maxSteps ?? 10); n++) {
+        for (let n = 0; n < maxSteps; n++) {
           const {
             sessionId,
             traceId,
@@ -453,7 +464,9 @@ export class AxGenerate<
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    if (!options?.tracer) {
+    const tracer = this.options?.tracer ?? options?.tracer;
+
+    if (!tracer) {
       return await this._forward(values, options);
     }
 
@@ -462,7 +475,7 @@ export class AxGenerate<
       ['generate.functions']: this.functionList ?? 'none'
     };
 
-    return await options?.tracer.startActiveSpan(
+    return await tracer.startActiveSpan(
       'Generate',
       {
         kind: AxSpanKind.SERVER,

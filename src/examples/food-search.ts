@@ -101,8 +101,8 @@ const functions: AxFunction[] = [
       type: 'object',
       properties: {
         location: {
-          type: 'string',
-          description: 'location to get weather for'
+          description: 'location to get weather for',
+          type: 'string'
         },
         units: {
           type: 'string',
@@ -121,8 +121,8 @@ const functions: AxFunction[] = [
       type: 'object',
       properties: {
         location: {
-          type: 'string',
-          description: 'location to find restaurants in'
+          description: 'location to find restaurants in',
+          type: 'string'
         },
         outdoor: {
           type: 'boolean',

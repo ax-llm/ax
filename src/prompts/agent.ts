@@ -60,8 +60,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ];
 
     const opt = {
-      promptTemplate: options?.promptTemplate,
-      asserts: options?.asserts,
+      ...options,
       functions: funcs
     };
 
@@ -70,11 +69,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ? new AxReAct<IN, OUT>(ai, sig, opt)
         : new AxChainOfThought<IN, OUT>(ai, sig, opt);
 
+    if (!name || name.length < 5) {
+      throw new Error(
+        'Agent name must be at least 10 characters (more descriptive): ' + name
+      );
+    }
+
+    if (!description || description.length < 20) {
+      throw new Error(
+        'Agent description must be at least 20 characters (explain in detail what the agent does): ' +
+          description
+      );
+    }
+
     this.name = name;
     this.description = description;
     this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ');
     this.func = {
-      name: this.name,
+      name: toCamelCase(this.name),
       description: this.description,
       parameters: sig.toJSONSchema(),
       func: () => this.forward
@@ -118,4 +130,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     );
   }
+}
+
+function toCamelCase(inputString: string): string {
+  // Split the string by any non-alphanumeric character (including underscores, spaces, hyphens)
+  const words = inputString.split(/[^a-zA-Z0-9]/);
+
+  // Map through each word, capitalize the first letter of each word except the first word
+  const camelCaseString = words
+    .map((word, index) => {
+      // Lowercase the word to handle cases like uppercase letters in input
+      const lowerWord = word.toLowerCase();
+
+      // Capitalize the first letter of each word except the first one
+      if (index > 0 && lowerWord && lowerWord[0]) {
+        return lowerWord[0].toUpperCase() + lowerWord.slice(1);
+      }
+
+      return lowerWord;
+    })
+    .join('');
+
+  return camelCaseString;
 }
