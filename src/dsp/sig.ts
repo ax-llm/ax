@@ -155,9 +155,6 @@ export class AxSignature {
   private updateHash = (): [string, string] => {
     this.getInputFields().forEach((field) => {
       validateField(field);
-      if (field.type?.name === 'image') {
-        throw new Error('Image type is not supported in output fields.');
-      }
     });
     this.getOutputFields().forEach((field) => {
       validateField(field);
