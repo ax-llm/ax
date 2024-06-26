@@ -50,12 +50,13 @@ export class AxHFDataLoader {
   public async loadData(
     dataset: string,
     split: 'train' | 'validation',
+    config: string = 'distractor',
     options?: Readonly<{ offset?: number; length?: number }>
   ): Promise<{ rows: AxDataRow[] }> {
     const offset = options?.offset ?? 0;
     const length = options?.length ?? 100;
 
-    const url = `${this.baseUrl}?dataset=${dataset}&config=distractor&split=${split}&offset=${offset}&length=${length}`;
+    const url = `${this.baseUrl}?dataset=${dataset}&config=${config}&split=${split}&offset=${offset}&length=${length}`;
     const filePath = this.getFilePath(url);
 
     if (existsSync(filePath)) {
@@ -75,15 +76,17 @@ export class AxHFDataLoader {
     split,
     count,
     fields,
-    renameMap
+    renameMap,
+    config
   }: Readonly<{
     dataset: string;
     split: 'train' | 'validation';
     count: number;
     fields: readonly string[];
     renameMap?: Record<string, string>;
+    config?: string;
   }>): Promise<T[]> {
-    const data = await this.loadData(dataset, split);
+    const data = await this.loadData(dataset, split, config);
     const dataRows = data.rows.slice(0, count);
 
     return dataRows
@@ -113,7 +116,7 @@ export class AxHFDataLoader {
           if (!resultFieldName) {
             throw new Error(`Invalid field name: ${field}`);
           }
-          result[resultFieldName] = value as AxFieldValue;
+          result[resultFieldName] = String(value) as AxFieldValue;
         });
 
         return result;
