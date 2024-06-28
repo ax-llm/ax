@@ -219,15 +219,13 @@ export class AxAIOpenAI extends AxBaseAI<
     const results = choices.map((choice) => {
       const finishReason = mapFinishReason(choice.finish_reason);
 
-      type Fc = NonNullable<AxChatResponseResult['functionCalls']>[0];
-      const functionCalls = choice.message.tool_calls?.map<Fc>((v) => ({
-        id: v.id,
-        type: 'function' as const,
-        function: {
-          name: v.function.name,
-          params: v.function.arguments
-        }
-      }));
+      const functionCalls = choice.message.tool_calls?.map(
+        ({ id, function: { arguments: params, name } }) => ({
+          id: id,
+          type: 'function' as const,
+          function: { name, params }
+        })
+      );
 
       return {
         id: `${choice.index}`,
@@ -272,16 +270,16 @@ export class AxAIOpenAI extends AxBaseAI<
         const finishReason = mapFinishReason(finish_reason);
 
         const functionCalls = tool_calls
-          ?.map((v) => {
+          ?.map(({ id: _id, index, function: { name, arguments: params } }) => {
             if (
-              typeof v.id === 'string' &&
-              typeof v.index === 'number' &&
-              !sstate.indexIdMap[v.index]
+              typeof _id === 'string' &&
+              typeof index === 'number' &&
+              !sstate.indexIdMap[index]
             ) {
-              sstate.indexIdMap[v.index] = v.id;
+              sstate.indexIdMap[index] = _id;
             }
 
-            const id = sstate.indexIdMap[v.index];
+            const id = sstate.indexIdMap[index];
             if (!id) {
               return null;
             }
@@ -289,10 +287,7 @@ export class AxAIOpenAI extends AxBaseAI<
             return {
               id,
               type: 'function' as const,
-              function: {
-                name: v.function.name,
-                params: v.function.arguments
-              }
+              function: { name, params }
             };
           })
           .filter((v) => v !== null);
