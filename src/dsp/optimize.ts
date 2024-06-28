@@ -1,5 +1,3 @@
-import { writeFileSync } from 'node:fs';
-
 import type {
   AxFieldValue,
   AxGenIn,
@@ -82,6 +80,7 @@ export class AxBootstrapFewShot<
       const current = i + examples.length * roundIndex;
       const total = examples.length * this.maxRounds;
       const et = new Date().getTime() - st;
+
       updateProgressBar(
         current,
         total,
@@ -99,9 +98,7 @@ export class AxBootstrapFewShot<
 
   public async compile(
     metricFn: AxMetricFn,
-    options?: Readonly<
-      AxOptimizerArgs<IN, OUT>['options'] & { filename?: string }
-    >
+    options?: Readonly<AxOptimizerArgs<IN, OUT>['options']>
   ) {
     const maxRounds = options?.maxRounds ?? this.maxRounds;
     this.traces = [];
@@ -117,12 +114,6 @@ export class AxBootstrapFewShot<
     }
 
     const demos: AxProgramDemos[] = groupTracesByKeys(this.traces);
-
-    if (options?.filename) {
-      writeFileSync(options.filename, JSON.stringify(demos, null, 2));
-    }
-
-    console.log('\n');
     return demos;
   }
 }
@@ -134,17 +125,17 @@ function groupTracesByKeys(
 
   // Group all traces by their keys
   for (const programTrace of programTraces) {
-    if (groupedTraces.has(programTrace.key)) {
-      groupedTraces.get(programTrace.key)!.push(programTrace.trace);
+    if (groupedTraces.has(programTrace.programId)) {
+      groupedTraces.get(programTrace.programId)!.push(programTrace.trace);
     } else {
-      groupedTraces.set(programTrace.key, [programTrace.trace]);
+      groupedTraces.set(programTrace.programId, [programTrace.trace]);
     }
   }
 
   // Convert the Map into an array of ProgramDemos
   const programDemosArray: AxProgramDemos[] = [];
-  groupedTraces.forEach((traces, key) => {
-    programDemosArray.push({ traces, key });
+  groupedTraces.forEach((traces, programId) => {
+    programDemosArray.push({ traces, programId });
   });
 
   return programDemosArray;

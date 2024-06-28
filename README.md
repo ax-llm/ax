@@ -351,10 +351,12 @@ You can tune your prompts using a larger model to help them run more efficiently
 
 ```typescript
 // Download the HotPotQA dataset from huggingface
-const hf = new AxHFDataLoader();
-const examples = await hf.getData<{ question: string; answer: string }>({
+const hf = new AxHFDataLoader({
   dataset: 'hotpot_qa',
-  split: 'train',
+  split: 'train'
+});
+
+const examples = await hf.getData<{ question: string; answer: string }>({
   count: 100,
   fields: ['question', 'answer']
 });
@@ -383,8 +385,8 @@ const optimize = new AxBootstrapFewShot<
 const metricFn: AxMetricFn = ({ prediction, example }) =>
   emScore(prediction.answer as string, example.answer as string);
 
-// Run the optimizer and save the result
-await optimize.compile(metricFn, { filename: 'demos.json' });
+// Run the optimizer and remember to save the result to use later
+const result = await optimize.compile(metricFn);
 ```
 
 <img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">

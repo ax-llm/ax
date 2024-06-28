@@ -1,28 +1,35 @@
-import { createHash } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'path';
-
 import type { AxFieldValue } from './program.js';
 
 export type AxDataRow = { row: Record<string, AxFieldValue> };
 
 export class AxHFDataLoader {
+  private rows: AxDataRow[] = [];
   private baseUrl: string;
-  private dataFolder: string;
 
-  constructor() {
+  private dataset: string;
+  private split: 'train' | 'validation';
+  private config: string;
+  private options?: Readonly<{ offset?: number; length?: number }>;
+
+  constructor({
+    dataset,
+    split,
+    config,
+    options
+  }: Readonly<{
+    dataset: string;
+    split: 'train' | 'validation';
+    config: string;
+    options?: Readonly<{ offset?: number; length?: number }>;
+  }>) {
     this.baseUrl = 'https://datasets-server.huggingface.co/rows';
-    this.dataFolder = path.join(process.cwd(), '.data');
-    this.ensureDataFolderExists();
+    this.dataset = dataset;
+    this.split = split;
+    this.config = config;
+    this.options = options;
   }
 
-  private ensureDataFolderExists(): void {
-    if (!existsSync(this.dataFolder)) {
-      mkdirSync(this.dataFolder, { recursive: true });
-    }
-  }
-
-  private async fetchDataFromAPI(url: string): Promise<{ rows: AxDataRow[] }> {
+  private async fetchDataFromAPI(url: string): Promise<AxDataRow[]> {
     try {
       const response = await fetch(url);
       if (!response.ok) {
@@ -32,62 +39,49 @@ export class AxHFDataLoader {
       if (!data?.rows) {
         throw new Error('Invalid data format');
       }
-      return data;
+      return data.rows;
     } catch (error) {
       console.error('Error fetching data from API:', error);
       throw error;
     }
   }
 
-  private getFilePath(url: string): string {
-    // Generate a hash of the URL to use as a filename
-    const hash = createHash('md5').update(url).digest('hex');
-    return path.join(this.dataFolder, `${hash}.json`);
-  }
-
   // https://datasets-server.huggingface.co/rows?dataset=hotpot_qa&config=distractor&split=train&offset=0&length=100
 
-  public async loadData(
-    dataset: string,
-    split: 'train' | 'validation',
-    config: string = 'distractor',
-    options?: Readonly<{ offset?: number; length?: number }>
-  ): Promise<{ rows: AxDataRow[] }> {
-    const offset = options?.offset ?? 0;
-    const length = options?.length ?? 100;
+  public async loadData() {
+    const offset = this.options?.offset ?? 0;
+    const length = this.options?.length ?? 100;
+    const ds = encodeURIComponent(this.dataset);
 
-    const url = `${this.baseUrl}?dataset=${dataset}&config=${config}&split=${split}&offset=${offset}&length=${length}`;
-    const filePath = this.getFilePath(url);
+    const url = `${this.baseUrl}?dataset=${ds}&config=${this.config}&split=${this.split}&offset=${offset}&length=${length}`;
 
-    if (existsSync(filePath)) {
-      console.log('Loading data from local file.');
-      const data = readFileSync(filePath, 'utf8');
-      return JSON.parse(data);
-    } else {
-      console.log('Downloading data from API.');
-      const data = (await this.fetchDataFromAPI(url)) as { rows: AxDataRow[] };
-      writeFileSync(filePath, JSON.stringify(data, null, 2));
-      return data;
-    }
+    console.log('Downloading data from API.');
+    this.rows = (await this.fetchDataFromAPI(url)) as AxDataRow[];
+    return this.rows;
   }
 
-  public async getData<T>({
-    dataset,
-    split,
+  // eslint-disable-next-line functional/prefer-immutable-types
+  public setData(rows: AxDataRow[]) {
+    this.rows = rows;
+  }
+
+  public getData() {
+    return this.rows;
+  }
+
+  public async getRows<T>({
     count,
     fields,
-    renameMap,
-    config
+    renameMap
   }: Readonly<{
-    dataset: string;
-    split: 'train' | 'validation';
     count: number;
     fields: readonly string[];
     renameMap?: Record<string, string>;
-    config?: string;
   }>): Promise<T[]> {
-    const data = await this.loadData(dataset, split, config);
-    const dataRows = data.rows.slice(0, count);
+    if (this.rows.length === 0) {
+      throw new Error('No data loaded, call loadData or setData first.');
+    }
+    const dataRows = this.rows.slice(0, count);
 
     return dataRows
       .map((item) => {

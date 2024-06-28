@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import type {
   AxAIService,
   AxChatResponse,
@@ -10,7 +8,8 @@ import type { AxAIMemory } from '../mem/types.js';
 import type { AxTracer } from '../trace/index.js';
 
 import { AxInstanceRegistry } from './registry.js';
-import { mergeProgramUsage } from './util.js';
+import { AxSignature } from './sig.js';
+import { mergeProgramUsage, validateValue } from './util.js';
 
 export type AxFieldValue =
   | string
@@ -26,14 +25,16 @@ export type AxGenOut = Record<string, AxFieldValue>;
 export type AxProgramTrace = {
   //   examples: Record<string, Value>[];
   trace: Record<string, AxFieldValue>;
-  key: string;
+  programId: string;
 };
 
 export type AxProgramDemos = {
   //   examples: Record<string, Value>[];
   traces: Record<string, AxFieldValue>[];
-  key: string;
+  programId: string;
 };
+
+export type AxProgramExamples = AxProgramDemos | AxProgramDemos['traces'];
 
 export type AxProgramForwardOptions = {
   maxCompletions?: number;
@@ -52,12 +53,12 @@ export type AxProgramForwardOptions = {
 };
 
 export interface AxTunable {
-  setExamples: (examples: Readonly<Record<string, AxFieldValue>[]>) => void;
-  setTrace: (trace: Record<string, AxFieldValue>) => void;
-  updateKey: (parentKey: string) => void;
+  setExamples: (examples: Readonly<AxProgramExamples>) => void;
+  setId: (id: string) => void;
+  setParentId: (parentId: string) => void;
   getTraces: () => AxProgramTrace[];
+  getSignature: () => AxSignature;
   setDemos: (demos: readonly AxProgramDemos[]) => void;
-  loadDemos: (filename: string) => void;
 }
 
 export interface AxUsable {
@@ -73,24 +74,35 @@ export type AxProgramUsage = AxChatResponse['modelUsage'] & {
 export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxTunable, AxUsable
 {
-  private key: string;
-  private reg: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>;
+  protected signature: AxSignature;
+  protected sigHash: string;
+  protected ai: AxAIService;
 
   protected examples?: Record<string, AxFieldValue>[];
   protected demos?: Record<string, AxFieldValue>[];
   protected trace?: Record<string, AxFieldValue>;
   protected usage: AxProgramUsage[] = [];
 
-  constructor() {
-    this.reg = new AxInstanceRegistry();
-    this.key = this.constructor.name;
+  private key: { id: string; custom?: boolean };
+  private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>;
+
+  constructor(ai: AxAIService, signature: Readonly<AxSignature | string>) {
+    this.ai = ai;
+    this.signature = new AxSignature(signature);
+    this.sigHash = this.signature.hash();
+    this.children = new AxInstanceRegistry();
+    this.key = { id: this.constructor.name };
+  }
+
+  public getSignature() {
+    return this.signature;
   }
 
   public register(prog: Readonly<AxTunable & AxUsable>) {
     if (this.key) {
-      prog.updateKey(this.key);
+      prog.setParentId(this.key.id);
     }
-    this.reg.register(prog);
+    this.children.register(prog);
   }
 
   public async forward(
@@ -102,33 +114,69 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     throw new Error('forward() not implemented');
   }
 
-  public setExamples(examples: Readonly<Record<string, AxFieldValue>[]>) {
-    for (const inst of this.reg) {
-      inst.setExamples(examples);
+  public setId(id: string) {
+    this.key = { id, custom: true };
+    for (const child of this.children) {
+      child.setParentId(id);
     }
   }
 
-  public setTrace(trace: Record<string, AxFieldValue>) {
-    this.trace = trace;
+  public setParentId(parentId: string) {
+    if (!this.key.custom) {
+      this.key.id = [parentId, this.key.id].join('/');
+    }
   }
 
-  public updateKey(parentKey: string) {
-    this.key = [parentKey, this.key].join('/');
+  public setExamples(examples: Readonly<AxProgramExamples>) {
+    this._setExamples(examples);
+
+    if (!('programId' in examples)) {
+      return;
+    }
+
+    for (const child of this.children) {
+      child.setExamples(examples);
+    }
+  }
+
+  private _setExamples(examples: Readonly<AxProgramExamples>) {
+    let traces: Record<string, AxFieldValue>[] = [];
+
+    if ('programId' in examples && examples.programId === this.key.id) {
+      traces = examples.traces;
+    }
+
+    if (Array.isArray(examples)) {
+      traces = examples;
+    }
+
+    if (traces) {
+      const sig = this.signature;
+      const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
+
+      this.examples = traces.map((e) => {
+        const res: Record<string, AxFieldValue> = {};
+        for (const f of fields) {
+          const value = e[f.name];
+          if (value) {
+            validateValue(f, value);
+            res[f.name] = value;
+          }
+        }
+        return res;
+      });
+    }
   }
 
   public getTraces(): AxProgramTrace[] {
     let traces: AxProgramTrace[] = [];
 
     if (this.trace) {
-      traces.push({
-        trace: this.trace,
-        // examples: this.examples ?? [],
-        key: this.key
-      });
+      traces.push({ trace: this.trace, programId: this.key.id });
     }
 
-    for (const inst of this.reg) {
-      const _traces = inst.getTraces();
+    for (const child of this.children) {
+      const _traces = child.getTraces();
       traces = [...traces, ..._traces];
     }
     return traces;
@@ -137,8 +185,8 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   public getUsage(): AxProgramUsage[] {
     let usage: AxProgramUsage[] = [...(this.usage ?? [])];
 
-    for (const inst of this.reg) {
-      const cu = inst.getUsage();
+    for (const child of this.children) {
+      const cu = child.getUsage();
       usage = [...usage, ...cu];
     }
     return mergeProgramUsage(usage);
@@ -146,22 +194,19 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
 
   public resetUsage() {
     this.usage = [];
-    for (const inst of this.reg) {
-      inst.resetUsage();
+    for (const child of this.children) {
+      child.resetUsage();
     }
   }
 
   public setDemos(demos: readonly AxProgramDemos[]) {
-    const ourDemos = demos.find((v) => v.key === this.key);
-    this.demos = ourDemos?.traces;
+    this.demos = demos
+      .filter((v) => v.programId === this.key.id)
+      .map((v) => v.traces)
+      .flat();
 
-    for (const inst of this.reg) {
-      inst.setDemos(demos);
+    for (const child of this.children) {
+      child.setDemos(demos);
     }
-  }
-
-  public loadDemos(filename: string) {
-    const buf = readFileSync(filename, 'utf-8');
-    this.setDemos(JSON.parse(buf));
   }
 }

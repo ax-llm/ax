@@ -1,7 +1,5 @@
-import { existsSync } from 'node:fs';
-
 import type { AxAIService } from '../ai/types.js';
-import { AxDBMemory } from '../db/memory.js';
+import { AxDBMemory, type AxDBState } from '../db/memory.js';
 import { ColorLog } from '../util/log.js';
 
 const colorLog = new ColorLog();
@@ -30,6 +28,8 @@ export class AxRoute {
 
 export class AxRouter {
   private readonly ai: AxAIService;
+  private routes: AxRoute[] = [];
+
   private db: AxDBMemory;
   private debug?: boolean;
 
@@ -38,16 +38,15 @@ export class AxRouter {
     this.ai = ai;
   }
 
-  public setRoutes = async (
-    routes: readonly AxRoute[],
-    options?: Readonly<{ filename?: string }>
-  ): Promise<void> => {
-    const fn = options?.filename;
+  public getState(): AxDBState | undefined {
+    return this.db.getDB();
+  }
 
-    if (fn && existsSync(fn)) {
-      await this.db.load(fn);
-    }
+  public setState(state: AxDBState) {
+    this.db.setDB(state);
+  }
 
+  public setRoutes = async (routes: readonly AxRoute[]): Promise<void> => {
     for (const ro of routes) {
       const ret = await this.ai.embed({ texts: ro.getContext() });
       await this.db.upsert({
@@ -55,10 +54,6 @@ export class AxRouter {
         table: 'routes',
         values: ret.embeddings[0]
       });
-    }
-
-    if (fn) {
-      await this.db.save();
     }
   };
 

@@ -31,7 +31,6 @@ import {
   ValidationError
 } from './extract.js';
 import {
-  type AxFieldValue,
   type AxGenIn,
   type AxGenOut,
   AxProgram,
@@ -39,7 +38,6 @@ import {
 } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature } from './sig.js';
-import { validateValue } from './util.js';
 
 export interface AxGenerateOptions {
   maxCompletions?: number;
@@ -74,9 +72,6 @@ export class AxGenerate<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>
 > extends AxProgram<IN, OUT> {
-  private signature: AxSignature;
-  private sigHash: string;
-  private ai: AxAIService;
   private pt: AxPromptTemplate;
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
@@ -89,11 +84,8 @@ export class AxGenerate<
     signature: Readonly<AxSignature | string>,
     options?: Readonly<AxGenerateOptions>
   ) {
-    super();
+    super(ai, signature);
 
-    this.signature = new AxSignature(signature);
-    this.sigHash = this.signature.hash();
-    this.ai = ai;
     this.options = options;
     this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
@@ -127,30 +119,6 @@ export class AxGenerate<
       isOptional: true
     });
   };
-
-  private _setExamples(examples: Readonly<Record<string, AxFieldValue>[]>) {
-    const sig = this.signature;
-    const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
-
-    this.examples = examples.map((e) => {
-      const res: Record<string, AxFieldValue> = {};
-      for (const f of fields) {
-        const value = e[f.name];
-        if (value) {
-          validateValue(f, value);
-          res[f.name] = value;
-        }
-      }
-      return res;
-    });
-  }
-
-  public override setExamples(
-    examples: Readonly<Record<string, AxFieldValue>[]>
-  ) {
-    this._setExamples(examples);
-    super.setExamples(examples);
-  }
 
   public addAssert = (
     fn: AxAssertion['fn'],
@@ -419,6 +387,7 @@ export class AxGenerate<
 
           if (lastMemItem?.role !== 'function') {
             assertRequiredFields(this.signature, output);
+            this.trace = { ...output };
             return output;
           }
         }

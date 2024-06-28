@@ -1,5 +1,8 @@
+import fs from 'fs';
+
 import {
   AxAI,
+  AxAIOpenAIModel,
   AxBootstrapFewShot,
   AxChainOfThought,
   axEvalUtil,
@@ -8,18 +11,27 @@ import {
   AxRAG
 } from '../index.js';
 
-const hf = new AxHFDataLoader();
-const examples = await hf.getData<{ question: string; answer: string }>({
-  dataset: 'hotpot_qa',
+const hf = new AxHFDataLoader({
+  dataset: 'sentence-transformers/hotpotqa',
   split: 'train',
-  count: 100,
-  fields: ['question', 'answer']
+  config: 'triplet',
+  options: { length: 5 }
+});
+
+await hf.loadData();
+
+const examples = await hf.getRows<{ question: string; answer: string }>({
+  count: 3,
+  fields: ['anchor', 'positive'],
+  renameMap: { anchor: 'question', positive: 'answer' }
 });
 
 const ai = new AxAI({
   name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
+  apiKey: process.env.OPENAI_APIKEY as string,
+  config: { model: AxAIOpenAIModel.GPT4O, maxTokens: 3000 }
 });
+ai.setOptions({ debug: true });
 
 const fetchFromVectorDB = async (query: string) => {
   const cot = new AxChainOfThought<{ query: string }, { answer: string }>(
@@ -31,7 +43,7 @@ const fetchFromVectorDB = async (query: string) => {
 };
 
 // Setup the program to tune
-const program = new AxRAG(ai, fetchFromVectorDB, { maxHops: 3 });
+const program = new AxRAG(ai, fetchFromVectorDB, { maxHops: 1 });
 
 // Setup a Bootstrap Few Shot optimizer to tune the above program
 const optimize = new AxBootstrapFewShot<
@@ -50,7 +62,11 @@ const metricFn: AxMetricFn = ({ prediction, example }) => {
   );
 };
 
-// Run the optimizer and save the result
-await optimize.compile(metricFn, { filename: 'demos.json' });
+// Run the optimizer
+const result = await optimize.compile(metricFn);
+
+// save the resulting demonstrations to use later
+const values = JSON.stringify(result, null, 2);
+await fs.promises.writeFile('./qna-tune-demos.json', values);
 
 console.log('> done. test with qna-use-tuned.ts');

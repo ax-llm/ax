@@ -116,25 +116,35 @@ export class AxPromptTemplate {
   private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const list: ChatRequestUserMessage = [];
 
-    const fields = [
-      ...this.sig.getInputFields(),
-      ...this.sig.getOutputFields()
-    ];
-
     for (const item of data) {
-      const renderedItem = fields
+      const renderedInputItem = this.sig
+        .getInputFields()
         .map((field) => this.renderInField(field, item, true))
         .filter((v) => v !== undefined)
         .flat();
 
-      renderedItem
-        .filter((v) => v.type === 'text')
-        .slice(0, -1)
-        .forEach((v) => {
-          v.text = v.text + '\n';
-        });
+      const renderedOutputItem = this.sig
+        .getOutputFields()
+        .map((field) => this.renderInField(field, item, true))
+        .filter((v) => v !== undefined)
+        .flat();
 
-      list.push(...renderedItem);
+      if (renderedOutputItem.length === 0) {
+        throw new Error('Output fields are required for examples.');
+      }
+
+      const renderedItem = [...renderedInputItem, ...renderedOutputItem];
+
+      renderedItem.forEach((v) => {
+        if ('text' in v) {
+          v.text = v.text + '\n';
+        }
+        if ('image' in v) {
+          v.image = v.image + '\n';
+        }
+        list.push(v);
+      });
+
       if (renderedItem.length > 0) {
         list.push({ type: 'text', text: '\n' });
       }
@@ -157,14 +167,16 @@ export class AxPromptTemplate {
         .filter((v) => v !== undefined)
         .flat();
 
-      renderedItem
-        .filter((v) => v.type === 'text')
-        .slice(0, -1)
-        .forEach((v) => {
+      renderedItem.slice(0, -1).forEach((v) => {
+        if ('text' in v) {
           v.text = v.text + '\n';
-        });
+        }
+        if ('image' in v) {
+          v.image = v.image + '\n';
+        }
+        list.push(v);
+      });
 
-      list.push(...renderedItem);
       if (renderedItem.length > 0) {
         list.push({ type: 'text', text: '\n\n---\n\n' });
       }

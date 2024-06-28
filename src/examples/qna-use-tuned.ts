@@ -1,3 +1,5 @@
+import fs from 'fs';
+
 import {
   AxAI,
   AxChainOfThought,
@@ -17,8 +19,11 @@ const program = new AxChainOfThought<{ question: string }, { answer: string }>(
   `question -> answer "in short 2 or 3 words"`
 );
 
+const values = await fs.promises.readFile('./qna-tune-demos.json', 'utf8');
+const demos = JSON.parse(values);
+
 // load tuning data
-// program.loadDemos('demos.json');
+program.loadDemos(demos);
 
 // use directly
 // const res = await gen.forward({
@@ -26,10 +31,15 @@ const program = new AxChainOfThought<{ question: string }, { answer: string }>(
 // });
 
 // or test to see performance
-const hf = new AxHFDataLoader();
-const examples = await hf.getData<{ question: string; answer: string }>({
+const hf = new AxHFDataLoader({
   dataset: 'hotpot_qa',
   split: 'validation',
+  config: 'distractor'
+});
+
+await hf.loadData();
+
+const examples = await hf.getRows<{ question: string; answer: string }>({
   count: 10,
   fields: ['question', 'answer']
 });
@@ -44,5 +54,3 @@ const metricFn: AxMetricFn = ({ prediction, example }) => {
 
 const ev = new AxTestPrompt({ program, examples });
 await ev.run(metricFn);
-
-// console.log(res);

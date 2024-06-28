@@ -1,5 +1,3 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-
 import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
 import type {
   AxDBQueryRequest,
@@ -12,7 +10,6 @@ export type AxDBMemoryOpOptions = AxDBBaseOpOptions;
 
 export interface AxDBMemoryArgs extends AxDBBaseArgs {
   name: 'memory';
-  filename?: string;
 }
 
 export type AxDBState = Record<string, Record<string, AxDBUpsertRequest>>;
@@ -23,19 +20,10 @@ export type AxDBState = Record<string, Record<string, AxDBUpsertRequest>>;
  */
 export class AxDBMemory extends AxDBBase {
   private state: AxDBState;
-  private filename?: string;
 
-  constructor({
-    filename,
-    tracer
-  }: Readonly<Omit<AxDBMemoryArgs, 'name'>> = {}) {
+  constructor({ tracer }: Readonly<Omit<AxDBMemoryArgs, 'name'>> = {}) {
     super({ name: 'Memory', tracer });
     this.state = {};
-    this.filename = filename;
-
-    if (filename && existsSync(filename)) {
-      this.load();
-    }
   }
 
   override _upsert = async (
@@ -57,10 +45,6 @@ export class AxDBMemory extends AxDBBase {
       obj[req.id] = req;
     }
 
-    if (this.filename) {
-      await this.save();
-    }
-
     return { ids: [req.id] };
   };
 
@@ -74,10 +58,6 @@ export class AxDBMemory extends AxDBBase {
     for (const req of batchReq) {
       const res = await this.upsert(req, update);
       ids.push(...res.ids);
-    }
-
-    if (this.filename) {
-      await this.save();
     }
 
     return { ids };
@@ -110,28 +90,12 @@ export class AxDBMemory extends AxDBBase {
     return { matches };
   };
 
-  public save = async (fn = this.filename) => {
-    if (!fn) {
-      throw new Error('Filename not set');
-    }
-    writeFileSync(fn, JSON.stringify(this.state));
-  };
-
-  public load = async (fn = this.filename) => {
-    if (!fn) {
-      throw new Error('Filename not set');
-    }
-    const data = readFileSync(fn, 'utf8');
-    const obj = JSON.parse(data);
-    this.state = { ...this.state, ...obj };
-  };
-
   public getDB = () => {
-    return this.state;
+    return structuredClone(this.state);
   };
 
   public setDB = (state: AxDBState) => {
-    this.state = state;
+    this.state = structuredClone(state);
   };
 
   public clearDB = () => {

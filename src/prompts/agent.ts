@@ -4,6 +4,8 @@ import {
   type AxGenIn,
   type AxGenOut,
   AxProgram,
+  type AxProgramDemos,
+  type AxProgramExamples,
   type AxProgramForwardOptions,
   type AxTunable,
   type AxUsable
@@ -23,10 +25,9 @@ export type AxAgentOptions = Omit<
 >;
 
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
-  extends AxProgram<IN, OUT>
   implements AxAgentic
 {
-  private gen: AxProgram<IN, OUT>;
+  private program: AxProgram<IN, OUT>;
 
   private name: string;
   private description: string;
@@ -50,10 +51,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
-    super();
-
-    const sig = new AxSignature(signature);
-
     const funcs: AxFunction[] = [
       ...(functions ?? []),
       ...(agents?.map((a) => a.getFunction()) ?? [])
@@ -64,10 +61,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       functions: funcs
     };
 
-    this.gen =
+    this.program =
       funcs.length > 0
-        ? new AxReAct<IN, OUT>(ai, sig, opt)
-        : new AxChainOfThought<IN, OUT>(ai, sig, opt);
+        ? new AxReAct<IN, OUT>(ai, signature, opt)
+        : new AxChainOfThought<IN, OUT>(ai, signature, opt);
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -85,30 +82,61 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.name = name;
     this.description = description;
     this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ');
+
     this.func = {
       name: toCamelCase(this.name),
       description: this.description,
-      parameters: sig.toJSONSchema(),
-      func: (values, options) => this.forward(values, options)
+      parameters: this.program.getSignature().toJSONSchema(),
+      func: () => this.forward
     };
 
-    this.register(this.gen);
-
     for (const agent of agents ?? []) {
-      this.register(agent);
+      this.program.register(agent);
     }
+  }
+
+  public getSignature() {
+    return this.program.getSignature();
+  }
+
+  public setExamples(examples: Readonly<AxProgramExamples>) {
+    this.program.setExamples(examples);
+  }
+
+  public setId(id: string) {
+    this.program.setId(id);
+  }
+
+  public setParentId(parentId: string) {
+    this.program.setParentId(parentId);
+  }
+
+  public getTraces() {
+    return this.program.getTraces();
+  }
+
+  public setDemos(demos: readonly AxProgramDemos[]) {
+    this.program.setDemos(demos);
+  }
+
+  public getUsage() {
+    return this.program.getUsage();
+  }
+
+  public resetUsage() {
+    this.program.resetUsage();
   }
 
   public getFunction(): AxFunction {
     return this.func;
   }
 
-  public override async forward(
+  public async forward(
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     if (!options?.tracer) {
-      return await this.gen.forward(values, options);
+      return await this.program.forward(values, options);
     }
 
     const attributes = {
@@ -124,7 +152,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         attributes
       },
       async (span) => {
-        const res = await this.gen.forward(values, options);
+        const res = await this.program.forward(values, options);
         span.end();
         return res;
       }
