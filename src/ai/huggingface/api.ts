@@ -108,9 +108,9 @@ export class AxAIHuggingFace extends AxBaseAI<
             const fc = msg.functionCalls
               ?.map((fc) => {
                 const args =
-                  typeof fc.function.arguments === 'string'
-                    ? fc.function.arguments
-                    : JSON.stringify(fc.function.arguments);
+                  typeof fc.function.params === 'string'
+                    ? fc.function.params
+                    : JSON.stringify(fc.function.params);
 
                 return `${fc.function.name}(${args})`;
               })

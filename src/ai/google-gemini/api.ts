@@ -217,9 +217,9 @@ export class AxAIGoogleGemini extends AxBaseAI<
               parts =
                 msg.functionCalls?.map((f) => {
                   const args =
-                    typeof f.function.arguments === 'string'
-                      ? JSON.parse(f.function.arguments)
-                      : f.function.arguments;
+                    typeof f.function.params === 'string'
+                      ? JSON.parse(f.function.params)
+                      : f.function.params;
                   return {
                     functionCall: {
                       name: f.function.name,
@@ -370,7 +370,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
                 type: 'function',
                 function: {
                   name: part.functionCall.name,
-                  arguments: part.functionCall.args
+                  params: part.functionCall.args
                 }
               }
             ];

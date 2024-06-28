@@ -219,17 +219,20 @@ export class AxAIOpenAI extends AxBaseAI<
     const results = choices.map((choice) => {
       const finishReason = mapFinishReason(choice.finish_reason);
 
+      type Fc = NonNullable<AxChatResponseResult['functionCalls']>[0];
+      const functionCalls = choice.message.tool_calls?.map<Fc>((v) => ({
+        id: v.id,
+        type: 'function' as const,
+        function: {
+          name: v.function.name,
+          params: v.function.arguments
+        }
+      }));
+
       return {
         id: `${choice.index}`,
         content: choice.message.content,
-        functionCalls: choice.message.tool_calls?.map((v) => ({
-          id: v.id,
-          type: 'function' as const,
-          function: {
-            name: v.function.name,
-            arguments: v.function.arguments
-          }
-        })),
+        functionCalls,
         finishReason
       };
     });
@@ -288,7 +291,7 @@ export class AxAIOpenAI extends AxBaseAI<
               type: 'function' as const,
               function: {
                 name: v.function.name,
-                arguments: v.function.arguments
+                params: v.function.arguments
               }
             };
           })
@@ -386,9 +389,9 @@ function createMessages(
             function: {
               name: v.function.name,
               arguments:
-                typeof v.function.arguments === 'object'
-                  ? JSON.stringify(v.function.arguments)
-                  : v.function.arguments
+                typeof v.function.params === 'object'
+                  ? JSON.stringify(v.function.params)
+                  : v.function.params
             }
           }))
         };

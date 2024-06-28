@@ -427,9 +427,9 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
         if (msg.functionCalls) {
           const fns = msg.functionCalls?.map(({ function: fn }) => {
             const args =
-              typeof fn.arguments !== 'string'
-                ? JSON.stringify(fn.arguments, null, 2)
-                : fn.arguments;
+              typeof fn.params !== 'string'
+                ? JSON.stringify(fn.params, null, 2)
+                : fn.params;
             return `${fn.name}(${args})`;
           });
           return `Functions:\n${colorLog.whiteBright(fns.join('\n'))}`;
@@ -455,9 +455,9 @@ const logResponse = (resp: Readonly<AxChatResponse>) => {
     if (r.functionCalls) {
       for (const f of r.functionCalls) {
         const args =
-          typeof f.function.arguments !== 'string'
-            ? JSON.stringify(f.function.arguments, null, 2)
-            : f.function.arguments;
+          typeof f.function.params !== 'string'
+            ? JSON.stringify(f.function.params, null, 2)
+            : f.function.params;
         console.log(colorLog.yellow(`${f.function.name}(${args})`));
       }
     }
@@ -477,8 +477,8 @@ const logStreamingResponse = (resp: Readonly<AxChatResponse>) => {
         if (f.function.name) {
           process.stdout.write(colorLog.blueBright(f.function.name));
         }
-        if (f.function.arguments) {
-          process.stdout.write(colorLog.yellow(f.function.arguments as string));
+        if (f.function.params) {
+          process.stdout.write(colorLog.yellow(f.function.params as string));
         }
       }
     }

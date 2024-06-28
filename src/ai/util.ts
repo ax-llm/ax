@@ -74,14 +74,14 @@ export function mergeFunctionCalls(
       }
 
       if (
-        typeof _fc.function.arguments == 'string' &&
-        _fc.function.arguments.length > 0
+        typeof _fc.function.params == 'string' &&
+        _fc.function.params.length > 0
       ) {
-        fc.function.arguments += _fc.function.arguments;
+        fc.function.params += _fc.function.params;
       }
 
-      if (typeof _fc.function.arguments == 'object') {
-        fc.function.arguments = _fc.function.arguments;
+      if (typeof _fc.function.params == 'object') {
+        fc.function.params = _fc.function.params;
       }
     } else {
       functionCalls.push(_fc);

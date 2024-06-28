@@ -140,7 +140,7 @@ export class AxAIAnthropic extends AxBaseAI<
               type: 'function' as const,
               function: {
                 name: msg.name,
-                arguments: msg.input
+                params: msg.input
               }
             }
           ],
@@ -226,7 +226,7 @@ export class AxAIAnthropic extends AxBaseAI<
               type: 'function' as const,
               function: {
                 name: contentBlock.name,
-                arguments: ''
+                params: ''
               }
             }
           ];
@@ -255,7 +255,7 @@ export class AxAIAnthropic extends AxBaseAI<
             type: 'function' as const,
             function: {
               name: '',
-              arguments: delta.partial_json
+              params: delta.partial_json
             }
           }
         ];
@@ -344,10 +344,10 @@ function createMessages(
           if (typeof msg.functionCalls !== 'undefined') {
             content = msg.functionCalls.map((v) => {
               let input;
-              if (typeof v.function.arguments === 'string') {
-                input = JSON.parse(v.function.arguments);
-              } else if (typeof v.function.arguments === 'object') {
-                input = v.function.arguments;
+              if (typeof v.function.params === 'string') {
+                input = JSON.parse(v.function.params);
+              } else if (typeof v.function.params === 'object') {
+                input = v.function.params;
               }
               return {
                 type: 'tool_use' as const,

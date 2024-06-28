@@ -250,7 +250,7 @@ export class AxAICohere extends AxBaseAI<
           return {
             id: v.name,
             type: 'function' as const,
-            function: { name: v.name, arguments: v.parameters }
+            function: { name: v.name, params: v.parameters }
           };
         }
       );
@@ -376,9 +376,9 @@ function createToolCall(
 ) {
   return functionCalls?.map((v) => {
     const parameters =
-      typeof v.function.arguments === 'string'
-        ? JSON.parse(v.function.arguments)
-        : v.function.arguments;
+      typeof v.function.params === 'string'
+        ? JSON.parse(v.function.params)
+        : v.function.params;
     return { name: v.function.name, parameters };
   });
 }

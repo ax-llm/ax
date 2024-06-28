@@ -501,7 +501,7 @@ function parseFunctions(
     const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
       id: f.id,
       name: f.function.name,
-      args: f.function.arguments as string
+      args: f.function.params as string
     }));
 
     // for (const [i, f] of funcs.entries()) {

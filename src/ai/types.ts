@@ -66,8 +66,7 @@ export type AxChatResponseResult = {
   functionCalls?: {
     id: string;
     type: 'function';
-    // eslint-disable-next-line functional/functional-parameters
-    function: { name: string; arguments?: string | object };
+    function: { name: string; params?: string | object };
   }[];
   finishReason?:
     | 'stop'
@@ -122,8 +121,8 @@ export type AxChatRequest = {
         functionCalls?: {
           id: string;
           type: 'function';
-          // eslint-disable-next-line functional/functional-parameters
-          function: { name: string; arguments?: string | object };
+
+          function: { name: string; params?: string | object };
         }[];
       }
     | { role: 'function'; result: string; functionId: string }
