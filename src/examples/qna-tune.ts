@@ -32,6 +32,8 @@ const ai = new AxAI({
   config: { model: AxAIOpenAIModel.GPT4O, maxTokens: 3000 }
 });
 
+ai.setOptions({ debug: true });
+
 const fetchFromVectorDB = async (query: string) => {
   const cot = new AxChainOfThought<{ query: string }, { answer: string }>(
     ai,
