@@ -23,7 +23,7 @@ const values = await fs.promises.readFile('./qna-tune-demos.json', 'utf8');
 const demos = JSON.parse(values);
 
 // load tuning data
-program.loadDemos(demos);
+program.setDemos(demos);
 
 // use directly
 // const res = await gen.forward({
@@ -32,16 +32,18 @@ program.loadDemos(demos);
 
 // or test to see performance
 const hf = new AxHFDataLoader({
-  dataset: 'hotpot_qa',
-  split: 'validation',
-  config: 'distractor'
+  dataset: 'yixuantt/MultiHopRAG',
+  split: 'train',
+  config: 'MultiHopRAG',
+  options: { length: 20 }
 });
 
 await hf.loadData();
 
 const examples = await hf.getRows<{ question: string; answer: string }>({
   count: 10,
-  fields: ['question', 'answer']
+  fields: ['query', 'answer'],
+  renameMap: { query: 'question', answer: 'answer' }
 });
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.

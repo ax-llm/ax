@@ -7,7 +7,7 @@ export class AxHFDataLoader {
   private baseUrl: string;
 
   private dataset: string;
-  private split: 'train' | 'validation';
+  private split: string;
   private config: string;
   private options?: Readonly<{ offset?: number; length?: number }>;
 
@@ -18,7 +18,7 @@ export class AxHFDataLoader {
     options
   }: Readonly<{
     dataset: string;
-    split: 'train' | 'validation';
+    split: string;
     config: string;
     options?: Readonly<{ offset?: number; length?: number }>;
   }>) {
@@ -110,7 +110,7 @@ export class AxHFDataLoader {
           if (!resultFieldName) {
             throw new Error(`Invalid field name: ${field}`);
           }
-          result[resultFieldName] = String(value) as AxFieldValue;
+          result[resultFieldName] = value as AxFieldValue;
         });
 
         return result;
