@@ -76,7 +76,7 @@ export interface AxAIGoogleGeminiArgs {
   projectId?: string;
   region?: string;
   config?: Readonly<AxAIGoogleGeminiConfig>;
-  options?: Readonly<AxAIServiceOptions>;
+  options?: Readonly<AxAIServiceOptions & { codeExecution?: boolean }>;
 }
 
 /**
@@ -90,6 +90,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
   AxAIGoogleGeminiChatResponseDelta,
   AxAIGoogleGeminiBatchEmbedResponse
 > {
+  private options?: AxAIGoogleGeminiArgs['options'];
   private config: AxAIGoogleGeminiConfig;
   private apiKey: string;
 
@@ -124,6 +125,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
       options,
       supportFor: { functions: true, streaming: true }
     });
+    this.options = options;
     this.config = _config;
     this.apiKey = apiKey;
   }
@@ -262,13 +264,19 @@ export class AxAIGoogleGemini extends AxBaseAI<
         }
       });
 
-    const tools = req.functions
-      ? [
-          {
-            functionDeclarations: req.functions ?? []
-          }
-        ]
-      : undefined;
+    let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
+
+    if (req.functions && req.functions.length > 0) {
+      tools.push({ functionDeclarations: req.functions });
+    }
+
+    if (this.options?.codeExecution) {
+      tools.push({ codeExecution: {} });
+    }
+
+    if (tools.length === 0) {
+      tools = undefined;
+    }
 
     // eslint-disable-next-line @typescript-eslint/naming-convention
     let tool_config;
