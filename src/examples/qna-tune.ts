@@ -29,7 +29,7 @@ const examples = await hf.getRows<{ question: string; answer: string }>({
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT35Turbo, maxTokens: 3000 }
+  config: { model: AxAIOpenAIModel.GPT4O, maxTokens: 3000 }
 });
 
 const fetchFromVectorDB = async (query: string) => {
