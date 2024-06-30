@@ -1,4 +1,4 @@
-import { AxAI, AxDBManager, AxDBMemory } from '../index.js';
+import { AxAI, AxDBManager, AxDBMemory } from '../ax/index.js';
 
 /* cSpell:disable */
 const text = `The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable consequences for human civilization.[2][3] According to the most popular version of the singularity hypothesis, I. J. Good's intelligence explosion model, an upgradable intelligent agent will eventually enter a positive feedback loop of self-improvement cycles, each new and more intelligent generation appearing more and more rapidly, causing a rapid increase ("explosion") in intelligence which ultimately results in a powerful superintelligence that qualitatively far surpasses all human intelligence.[4]

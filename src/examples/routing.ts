@@ -1,4 +1,4 @@
-import { AxAI, AxRoute, AxRouter } from '../index.js';
+import { AxAI, AxRoute, AxRouter } from '../ax/index.js';
 
 const customerSupport = new AxRoute('customerSupport', [
   'how can I return a product?',

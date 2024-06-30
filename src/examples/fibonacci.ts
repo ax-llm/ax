@@ -3,7 +3,7 @@ import {
   axJSInterpreterFunction,
   AxReAct,
   AxSignature
-} from '../index.js';
+} from '../ax/index.js';
 
 const sig = new AxSignature(
   `numberSeriesTask:string  -> fibonacciSeries:number[]`

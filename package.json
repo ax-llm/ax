@@ -1,5 +1,5 @@
 {
-  "name": "@ax-llm/ax",
+  "name": "@ax-llm/ax-monorepo",
   "version": "9.0.19",
   "type": "module",
   "description": "The best library to work with LLMs",
@@ -17,9 +17,7 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
-    "build": "run-s build:*",
-    "build:parser": "npx peggy --plugin ts-pegjs --extra-options-file src/dsp/parser.json --cache --output src/dsp/parser.ts src/dsp/parser.peggy",
-    "build:module": "tsc -p tsconfig.build.json",
+    "build": "npm run build --workspaces",
     "fix": "run-s fix:*",
     "fix:prettier": "prettier --config .prettierrc 'src/**/*.ts' --write",
     "fix:lint": "eslint src --ext .ts --fix",
@@ -38,16 +36,17 @@
     "prepare": "run-s test",
     "release": "release-it --no-npm",
     "git-cz": "npx git-cz",
-    "tsx": "node --env-file=.env --import=tsx"
+    "tsx": "node --env-file=.env --import=tsx",
+    "changeset:add": "changeset add",
+    "changeset:status": "changeset status",
+    "changeset:version": "changeset version"
   },
   "engines": {
     "node": ">=21"
   },
-  "dependencies": {
-    "json5": "^2.2.3"
-  },
   "devDependencies": {
     "@ava/typescript": "^5.0.0",
+    "@changesets/cli": "^2.27.6",
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^20.11.30",
@@ -109,5 +108,8 @@
   "directories": {
     "example": "examples"
   },
+  "workspaces": [
+    "src/*"
+  ],
   "author": "Vikram <https://twitter.com/dosco>"
 }

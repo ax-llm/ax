@@ -1,4 +1,4 @@
-import { AxAI, AxChainOfThought, AxRAG } from '../index.js';
+import { AxAI, AxChainOfThought, AxRAG } from '../ax/index.js';
 
 // simulated vector db call using an llm
 const fetchFromVectorDB = async (query: string) => {

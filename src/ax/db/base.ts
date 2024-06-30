@@ -3,7 +3,7 @@ import {
   axSpanAttributes,
   AxSpanKind,
   type AxTracer
-} from '../trace/index.js';
+} from '../trace';
 
 import type {
   AxDBQueryRequest,

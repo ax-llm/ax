@@ -8,8 +8,8 @@
  * https://interconnected.org/more/2024/lares/
  */
 
-import { AxAgent, AxAI } from '../index.js';
-import type { AxFunctionJSONSchema } from '../index.js';
+import { AxAgent, AxAI } from '../ax/index.js';
+import type { AxFunctionJSONSchema } from '../ax/index.js';
 
 interface RoomState {
   light: boolean;

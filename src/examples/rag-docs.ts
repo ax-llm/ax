@@ -1,4 +1,4 @@
-import { AxAI, AxApacheTika, AxDBManager, AxDBMemory } from '../index.js';
+import { AxAI, AxApacheTika, AxDBManager, AxDBMemory } from '../ax/index.js';
 
 const ai = new AxAI({
   name: 'openai',

@@ -1,4 +1,4 @@
-import { AxAI, type AxFunction, AxReAct, AxSignature } from '../index.js';
+import { AxAI, type AxFunction, AxReAct, AxSignature } from '../ax/index.js';
 
 const choice = Math.round(Math.random());
 
