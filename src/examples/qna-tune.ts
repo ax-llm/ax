@@ -12,18 +12,18 @@ import {
 } from '../index.js';
 
 const hf = new AxHFDataLoader({
-  dataset: 'sentence-transformers/hotpotqa',
+  dataset: 'yixuantt/MultiHopRAG',
   split: 'train',
-  config: 'triplet',
+  config: 'MultiHopRAG',
   options: { length: 5 }
 });
 
 await hf.loadData();
 
 const examples = await hf.getRows<{ question: string; answer: string }>({
-  count: 3,
-  fields: ['anchor', 'positive'],
-  renameMap: { anchor: 'question', positive: 'answer' }
+  count: 20,
+  fields: ['query', 'answer'],
+  renameMap: { query: 'question', answer: 'answer' }
 });
 
 const ai = new AxAI({
@@ -31,12 +31,13 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4O, maxTokens: 3000 }
 });
+
 ai.setOptions({ debug: true });
 
 const fetchFromVectorDB = async (query: string) => {
   const cot = new AxChainOfThought<{ query: string }, { answer: string }>(
     ai,
-    'query -> answer'
+    'query -> answer:string "answer to the query"'
   );
   const { answer } = await cot.forward({ query });
   return answer;
