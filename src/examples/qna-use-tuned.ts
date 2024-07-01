@@ -32,6 +32,7 @@ program.setDemos(demos);
 
 // or test to see performance
 const hf = new AxHFDataLoader({
+  // cspell: disable-next-line
   dataset: 'yixuantt/MultiHopRAG',
   split: 'train',
   config: 'MultiHopRAG',
