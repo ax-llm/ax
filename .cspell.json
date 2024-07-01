@@ -9,7 +9,7 @@
   "dictionaries": ["project-words"],
   "ignorePaths": [
     "node_modules",
-    "./docs",
+    "./site/public/apidocs",
     "./src/dsp/stopwords.ts",
     "./src/examples/qna-tune.ts"
   ]

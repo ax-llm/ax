@@ -1,7 +1,13 @@
 {
   "$schema": "https://typedoc.org/schema.json",
+  "plugin": [
+    "typedoc-plugin-markdown",
+    "typedoc-plugin-frontmatter",
+    "./custom-frontmatter.mjs"
+  ],
   "entryPoints": ["./src/index.ts"],
-  "json": "./docs/docs.json",
+  "out": "./site/src/content/docs/apidocs",
   "pretty": true,
-  "out": "./docs"
+  "mergeReadme": true,
+  "cleanOutputDir": true
 }

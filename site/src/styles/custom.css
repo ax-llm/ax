@@ -1,0 +1,8 @@
+/* :root {
+    --sl-font: 'JetBrains Mono Variable', serif;
+} */
+
+:root {
+    --sl-font: 'Roboto', sans-serif;
+    --sl-font-size: 2rem;
+}

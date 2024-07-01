@@ -31,9 +31,9 @@
     "watch:build": "tsc -p tsconfig.build.json -w",
     "watch:test": "ava --ext ts --watch",
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
-    "doc": "run-s doc:html && open docs/index.html",
-    "doc:html": "typedoc src/ --tsconfig tsconfig.build.json",
-    "doc:publish": "gh-pages -m \"[ci skip] Updates\" -d docs",
+    "doc": "run-s doc:api doc:html",
+    "doc:api": "typedoc src/ --tsconfig tsconfig.build.json",
+    "doc:html": "(cd site; npm i; npm run build)",
     "version": "standard-version",
     "prepare": "run-s test",
     "release": "release-it --no-npm",
@@ -73,7 +73,9 @@
     "standard-version": "^9.5.0",
     "ts-pegjs": "^4.2.1",
     "tsx": "^4.7.1",
-    "typedoc": "^0.26.0-beta.5",
+    "typedoc": "^0.26.3",
+    "typedoc-plugin-frontmatter": "^1.0.0",
+    "typedoc-plugin-markdown": "^4.1.1",
     "typescript": "^5.5.2"
   },
   "files": [
