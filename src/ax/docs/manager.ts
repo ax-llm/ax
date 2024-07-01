@@ -3,7 +3,7 @@ import {
   type AxDBQueryResponse,
   type AxDBService,
   type AxProgram
-} from '../ax/index.js';
+} from '../index.js';
 
 export type AxRewriteIn = { query: string };
 export type AxRewriteOut = { rewrittenQuery: string };

@@ -4,7 +4,7 @@ import {
   type AxGenerateOptions,
   type AxRewriteIn,
   type AxRewriteOut
-} from '../ax/index.js';
+} from '../index.js';
 
 export class AxDefaultQueryRewriter extends AxGenerate<
   AxRewriteIn,
