@@ -9,5 +9,7 @@
   "out": "./site/src/content/docs/apidocs",
   "pretty": true,
   "mergeReadme": true,
-  "cleanOutputDir": true
+  "cleanOutputDir": true,
+  "hidePageHeader": true,
+  "hideBreadcrumbs": true
 }
