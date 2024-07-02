@@ -17,7 +17,7 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces --if-present",
     "fix": "run-s fix:*",
     "fix:prettier": "prettier --config .prettierrc 'src/**/*.ts' --write",
     "fix:lint": "eslint src --ext .ts --fix",
@@ -31,7 +31,7 @@
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
     "doc": "run-s doc:api doc:html",
     "doc:api": "typedoc src/ax --tsconfig tsconfig.build.json",
-    "doc:html": "(cd site; npm i; npm run build)",
+    "doc:html": "npm run build-doc --workspace=@ax-llm/ax-docs",
     "version": "standard-version",
     "prepare": "run-s test",
     "release": "release-it --no-npm",

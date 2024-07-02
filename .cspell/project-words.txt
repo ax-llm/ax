@@ -71,3 +71,5 @@ weaviate
 Weaviate
 xlarge
 xstate
+astro
+astrojs

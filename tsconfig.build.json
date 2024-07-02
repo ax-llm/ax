@@ -6,5 +6,5 @@
     "outDir": "build/module",
     "pretty": true
   },
-  "exclude": ["node_modules/**", "build/**", "src/examples/**", "site/**"]
+  "exclude": ["node_modules/**", "build/**", "src/examples/**", "src/site/**"]
 }

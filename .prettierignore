@@ -1,5 +1,6 @@
 # package.json is formatted by package managers, so we ignore it here
 package.json
 src/ax/dsp/parser.ts
+src/site
 node_modules
 

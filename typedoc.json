@@ -6,7 +6,7 @@
     "./custom-frontmatter.mjs"
   ],
   "entryPoints": ["./src/ax/index.ts"],
-  "out": "./site/src/content/docs/apidocs",
+  "out": "./src/site/src/content/docs/apidocs",
   "pretty": true,
   "mergeReadme": true,
   "cleanOutputDir": true,
