@@ -19,6 +19,7 @@
     "watch:build": "tsc -p tsconfig.build.json -w",
     "tsx": "node --env-file=.env --import=tsx",
     "release": "release-it",
+    "publish": "cd build && npm publish",
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {

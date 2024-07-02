@@ -23,11 +23,12 @@
     "watch:test": "ava --ext ts --watch",
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
     "doc": "run-s doc:api doc:html",
-    "doc:api": "typedoc src/ax --tsconfig tsconfig.build.json",
+    "doc:api": "typedoc src/ax --tsconfig src/ax/tsconfig.build.json",
     "doc:html": "npm run build-doc --workspace=@ax-llm/ax-docs",
     "version": "standard-version",
     "prepare": "run-s test",
     "release": "npm run release --workspaces --if-present && release-it --no-increment",
+    "publish": "npm run publish --workspaces  --if-present -- --provenance --access public",
     "git-cz": "npx git-cz",
     "tsx": "node --env-file=.env --import=tsx"
   },

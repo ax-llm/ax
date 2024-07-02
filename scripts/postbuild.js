@@ -12,9 +12,10 @@ const packageJson = JSON.parse(packageJsonData);
 // Modify the package.json object
 packageJson.main = 'index.js';
 packageJson.module = 'index.js';
-packageJson.exports = {
-  '.': './index.js'
-};
+packageJson.typings = 'index.d.ts';
+// packageJson.exports = {
+//   '.': './index.js'
+// };
 
 // Remove devDependencies
 delete packageJson.devDependencies;
