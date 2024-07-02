@@ -41,7 +41,7 @@
     "tsx": "node --env-file=.env --import=tsx"
   },
   "engines": {
-    "node": ">=21"
+    "node": ">=20"
   },
   "dependencies": {
     "json5": "^2.2.3"
