@@ -2,17 +2,10 @@
   "name": "@ax-llm/ax-monorepo",
   "version": "9.0.19",
   "type": "module",
-  "description": "The best library to work with LLMs",
-  "typings": "./build/module/src/index.d.ts",
-  "main": "./build/module/src/index.js",
-  "module": "./build/module/src/index.js",
-  "exports": "./build/module/src/index.js",
+  "description": "The best library to work with LLMs - Monorepo",
   "repository": {
     "type": "git",
     "url": "https://github.com/ax-llm/ax.git"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "license": "Apache-2.0",
   "keywords": [],
@@ -25,7 +18,7 @@
     "test:lint": "eslint src --ext .ts",
     "test:prettier": "prettier \"src/**/*.ts\" --config .prettierrc --check",
     "test:spelling": "cspell \"{README.md,.github/*.md,src/**/*.ts}\"",
-    "test:unit": "ava --timeout=60s --verbose",
+    "test:unit": "npm run test:unit --workspaces --if-present",
     "watch:build": "tsc -p tsconfig.build.json -w",
     "watch:test": "ava --ext ts --watch",
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
@@ -42,10 +35,9 @@
     "changeset:version": "changeset version"
   },
   "engines": {
-    "node": ">=21"
+    "node": ">=20"
   },
   "devDependencies": {
-    "@ava/typescript": "^5.0.0",
     "@changesets/cli": "^2.27.6",
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@total-typescript/tsconfig": "^1.0.4",
@@ -56,7 +48,6 @@
     "@types/yargs": "^17.0.32",
     "@typescript-eslint/eslint-plugin": "^7.14.1",
     "@typescript-eslint/parser": "^7.14.1",
-    "ava": "^6.1.2",
     "cspell": "^8.6.0",
     "cz-conventional-changelog": "^3.3.0",
     "eslint": "^8.57.0",
@@ -64,6 +55,7 @@
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-functional": "^6.1.1",
     "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-monorepo-cop": "^1.0.2",
     "eslint-plugin-require-extensions": "^0.1.3",
     "gh-pages": "^6.1.1",
     "npm-run-all": "^4.1.5",
@@ -85,19 +77,6 @@
     "LICENSE",
     "README.md"
   ],
-  "ava": {
-    "failFast": true,
-    "timeout": "60s",
-    "typescript": {
-      "rewritePaths": {
-        "src/": "build/module/src/"
-      },
-      "compile": false
-    },
-    "files": [
-      "!build/modules/src/**"
-    ]
-  },
   "config": {
     "commitizen": {
       "path": "cz-conventional-changelog"
@@ -113,5 +92,6 @@
   "workspaces": [
     "src/*"
   ],
-  "author": "Vikram <https://twitter.com/dosco>"
+  "author": "Vikram <https://twitter.com/dosco>",
+  "private": "true"
 }

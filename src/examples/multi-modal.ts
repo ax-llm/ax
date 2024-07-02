@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '../ax/index.js';
+import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'openai',

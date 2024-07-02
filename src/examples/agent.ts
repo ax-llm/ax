@@ -1,4 +1,4 @@
-import { AxAgent, AxAI } from '../ax/index.js';
+import { AxAgent, AxAI } from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'openai',

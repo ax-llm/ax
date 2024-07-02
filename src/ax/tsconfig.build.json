@@ -3,12 +3,8 @@
   "compilerOptions": {
     "esModuleInterop": true,
     "moduleResolution": "NodeNext",
-    "outDir": "build/module",
-    "pretty": true,
-    "baseUrl": ".",
-    "paths": {
-      "@ax-llm/*": ["src/*"]
-    }
+    "outDir": "build",
+    "pretty": true
   },
   "exclude": ["node_modules/**", "build/**", "src/*/build/**"]
 }

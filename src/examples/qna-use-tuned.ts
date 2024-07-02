@@ -7,7 +7,7 @@ import {
   AxHFDataLoader,
   type AxMetricFn,
   AxTestPrompt
-} from '../ax/index.js';
+} from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'openai',
