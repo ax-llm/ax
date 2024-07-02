@@ -18,7 +18,8 @@
     "build:module": "tsc -p tsconfig.build.json",
     "watch:build": "tsc -p tsconfig.build.json -w",
     "test:unit": "ava --timeout=60s --verbose",
-    "tsx": "node --env-file=.env --import=tsx"
+    "tsx": "node --env-file=.env --import=tsx",
+    "release": "release-it"
   },
   "dependencies": {
     "json5": "^2.2.3"

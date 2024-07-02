@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax-monorepo",
-  "version": "9.0.19",
+  "version": "1.0.0",
   "type": "module",
   "description": "The best library to work with LLMs - Monorepo",
   "repository": {
@@ -27,19 +27,16 @@
     "doc:html": "npm run build-doc --workspace=@ax-llm/ax-docs",
     "version": "standard-version",
     "prepare": "run-s test",
-    "release": "release-it --no-npm",
+    "release": "npm run release --workspaces --if-present && release-it --no-increment",
     "git-cz": "npx git-cz",
-    "tsx": "node --env-file=.env --import=tsx",
-    "changeset:add": "changeset add",
-    "changeset:status": "changeset status",
-    "changeset:version": "changeset version"
+    "tsx": "node --env-file=.env --import=tsx"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.6",
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
+    "@release-it/bumper": "^6.0.1",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^20.11.30",
     "@types/readable-stream": "^4.0.11",

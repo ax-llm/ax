@@ -16,7 +16,8 @@
     "build": "run-s build:*",
     "build:module": "tsc -p tsconfig.build.json",
     "watch:build": "tsc -p tsconfig.build.json -w",
-    "tsx": "node --env-file=.env --import=tsx"
+    "tsx": "node --env-file=.env --import=tsx",
+    "release": "release-it"
   },
   "dependencies": {
     "@ax-llm/ax": "9.0.19"
