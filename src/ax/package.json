@@ -45,7 +45,6 @@
     "failFast": true,
     "timeout": "180s",
     "concurrency": 1,
-    "utilizeParallelBuilds": false,
     "extensions": {
       "ts": "module"
     },
