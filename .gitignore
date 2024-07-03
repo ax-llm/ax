@@ -13,3 +13,5 @@ audio
 .env.*
 .data
 demos.json
+site/dist
+.astro
