@@ -18,8 +18,6 @@
     "test:prettier": "prettier \"src/**/*.ts\" --config .prettierrc --check",
     "test:spelling": "cspell \"{README.md,.github/*.md,src/**/*.ts}\"",
     "test:unit": "npm run test:unit --workspaces --if-present",
-    "watch:build": "tsc -p tsconfig.build.json -w",
-    "watch:test": "ava --ext ts --watch",
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
     "doc": "run-s doc:api doc:html",
     "doc:api": "typedoc src/ax --tsconfig src/ax/tsconfig.build.module.json",
