@@ -1,4 +1,4 @@
-import { AxAI, AxChainOfThought } from '../index.js';
+import { AxAI, AxChainOfThought } from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'openai',

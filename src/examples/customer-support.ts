@@ -1,5 +1,4 @@
-import { AxAI } from '../ai/index.js';
-import { AxGenerate } from '../dsp/generate.js';
+import { AxAI, AxGenerate } from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'openai',

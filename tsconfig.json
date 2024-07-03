@@ -4,7 +4,11 @@
     "esModuleInterop": true,
     "moduleResolution": "NodeNext",
     "outDir": "build/module",
-    "pretty": true
+    "pretty": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ax-llm/*": ["src/*"]
+    }
   },
-  "exclude": ["node_modules/**", "build/**", "site/**"]
+  "exclude": ["node_modules/**", "build/**", "src/*/build/**"]
 }

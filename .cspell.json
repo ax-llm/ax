@@ -9,8 +9,8 @@
   "dictionaries": ["project-words"],
   "ignorePaths": [
     "node_modules",
-    "./site/public/apidocs",
-    "./src/dsp/stopwords.ts",
+    "./src/docs/public/apidocs",
+    "./src/ax/dsp/stopwords.ts",
     "./src/examples/qna-tune.ts"
   ]
 }

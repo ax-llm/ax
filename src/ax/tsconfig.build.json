@@ -3,8 +3,8 @@
   "compilerOptions": {
     "esModuleInterop": true,
     "moduleResolution": "NodeNext",
-    "outDir": "build/module",
+    "outDir": "build",
     "pretty": true
   },
-  "exclude": ["node_modules/**", "build/**", "src/examples/**", "site/**"]
+  "exclude": ["node_modules/**", "build/**"]
 }

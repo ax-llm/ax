@@ -6,7 +6,7 @@ import {
   AxChainOfThought,
   AxHFDataLoader,
   type AxMetricFn
-} from '../index.js';
+} from '@ax-llm/ax';
 
 const hf = new AxHFDataLoader({
   dataset: 'llm-wizard/dope_or_nope_v2',

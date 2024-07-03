@@ -1,16 +1,22 @@
 {
   "root": true,
   "parser": "@typescript-eslint/parser",
-  "parserOptions": { "project": "./tsconfig.json" },
+  "parserOptions": { "project": ["./tsconfig.json", "./src/*/tsconfig.json"] },
   "env": { "es6": true },
   "ignorePatterns": [
     "node_modules",
     "build",
     "coverage",
-    "src/dsp/parser.ts",
+    "src/ax/dsp/parser.ts",
     "site"
   ],
-  "plugins": ["require-extensions", "import", "eslint-comments", "functional"],
+  "plugins": [
+    "require-extensions",
+    "import",
+    "eslint-comments",
+    "functional",
+    "monorepo-cop"
+  ],
   "extends": [
     "plugin:require-extensions/recommended",
     "eslint:recommended",
@@ -81,6 +87,7 @@
     "sort-imports": [
       "error",
       { "ignoreDeclarationSort": true, "ignoreCase": true }
-    ]
+    ],
+    "monorepo-cop/no-relative-import-outside-package": "error"
   }
 }

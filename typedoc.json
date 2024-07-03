@@ -5,8 +5,8 @@
     "typedoc-plugin-frontmatter",
     "./custom-frontmatter.mjs"
   ],
-  "entryPoints": ["./src/index.ts"],
-  "out": "./site/src/content/docs/apidocs",
+  "entryPoints": ["./src/ax/index.ts"],
+  "out": "./src/docs/src/content/docs/apidocs",
   "pretty": true,
   "mergeReadme": true,
   "cleanOutputDir": true,

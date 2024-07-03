@@ -1,4 +1,4 @@
-import { AxAI, AxReAct } from '../index.js';
+import { AxAI, AxReAct } from '@ax-llm/ax';
 
 const values = {
   question: 'What is the weather like in tokyo?'

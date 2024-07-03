@@ -9,7 +9,7 @@ import {
   AxHFDataLoader,
   type AxMetricFn,
   AxRAG
-} from '../index.js';
+} from '@ax-llm/ax';
 
 const hf = new AxHFDataLoader({
   dataset: 'yixuantt/MultiHopRAG',
