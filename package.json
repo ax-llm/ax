@@ -90,5 +90,6 @@
     "src/*"
   ],
   "author": "Vikram <https://twitter.com/dosco>",
-  "private": "true"
+  "private": "true",
+  "version": "9.0.20"
 }
