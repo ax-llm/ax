@@ -21,14 +21,10 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
   return next10Numbers ? !next10Numbers.includes(5) : undefined;
 }, 'Numbers 5 is not allowed');
 
-async function run() {
-  // run the program with streaming enabled
-  const res = await gen.forward(
-    { startNumber: 1 },
-    { stream: true, debug: true }
-  );
+// run the program with streaming enabled
+const res = await gen.forward(
+  { startNumber: 1 },
+  { stream: true, debug: true }
+);
 
-  console.log('>', res);
-}
-
-run().catch(console.error);
+console.log('>', res);

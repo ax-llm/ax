@@ -170,9 +170,5 @@
 // // conf.model = OpenAGenerateIModel.GPT4;
 // const ai = new OpenAI(process.env.OPENAI_APIKEY, conf);
 
-// async function run() {
-//   const res = await prompt.generate(ai, promptText);
-//   console.log(chalk.green(JSON.stringify(res.value(), null, 2)));
-// }
-//
-// run().catch(console.error);
+// const res = await prompt.generate(ai, promptText);
+// console.log(chalk.green(JSON.stringify(res.value(), null, 2)));

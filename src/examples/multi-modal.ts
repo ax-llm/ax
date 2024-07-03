@@ -14,13 +14,9 @@ const image = fs
   .readFileSync('./src/examples/assets/kitten.jpeg')
   .toString('base64');
 
-async function run() {
-  const res = await gen.forward({
-    question: 'What family does this animal belong to?',
-    animalImage: { mimeType: 'image/jpeg', data: image }
-  });
+const res = await gen.forward({
+  question: 'What family does this animal belong to?',
+  animalImage: { mimeType: 'image/jpeg', data: image }
+});
 
-  console.log('>', res);
-}
-
-run().catch(console.error);
+console.log('>', res);

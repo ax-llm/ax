@@ -175,11 +175,6 @@ const ai = new AxAI({
 // ai.setOptions({ debug: true });
 
 const gen = new AxReAct(ai, sig, { functions });
+const res = await gen.forward({ customerQuery }, { stream: false });
 
-async function run() {
-  const res = await gen.forward({ customerQuery }, { stream: false });
-
-  console.log('>', res);
-}
-
-run().catch(console.error);
+console.log('>', res);

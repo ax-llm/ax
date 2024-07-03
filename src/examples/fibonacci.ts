@@ -16,12 +16,8 @@ const ai = new AxAI({
 
 const gen = new AxReAct(ai, sig, { functions: [axJSInterpreterFunction()] });
 
-async function run() {
-  const res = await gen.forward({
-    numberSeriesTask: 'Use code to calculate the fibonacci series of 10'
-  });
+const res = await gen.forward({
+  numberSeriesTask: 'Use code to calculate the fibonacci series of 10'
+});
 
-  console.log('>', res);
-}
-
-run().catch(console.error);
+console.log('>', res);

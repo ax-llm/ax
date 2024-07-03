@@ -27,8 +27,4 @@ Best regards,
 John Doe.
   `;
 
-async function run() {
-  console.log(await gen.forward({ customerEmail: customerMessage }));
-}
-
-run().catch(console.error);
+console.log(await gen.forward({ customerEmail: customerMessage }));
