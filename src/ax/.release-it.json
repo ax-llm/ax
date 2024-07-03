@@ -9,5 +9,13 @@
     "autoGenerate": true,
     "releaseName": "Release ${version}",
     "assets": ["build/*.zip"]
+  },
+  "plugins": {
+    "@release-it/bumper": {
+      "out": [{
+        "file": "../examples/package.json",
+        "path": ["dependencies.@ax-llm/ax"]
+      }]
+    }
   }
 }
