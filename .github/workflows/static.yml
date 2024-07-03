@@ -37,6 +37,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
       - run: npm run doc
+      - run: npm run test
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

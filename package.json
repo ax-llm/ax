@@ -13,7 +13,7 @@
     "fix": "run-s fix:*",
     "fix:prettier": "prettier --config .prettierrc 'src/**/*.ts' --write",
     "fix:lint": "eslint src --ext .ts --fix",
-    "test": "run-s build test:*",
+    "test": "run-s test:*",
     "test:lint": "eslint src --ext .ts",
     "test:prettier": "prettier \"src/**/*.ts\" --config .prettierrc --check",
     "test:spelling": "cspell \"{README.md,.github/*.md,src/**/*.ts}\"",
@@ -27,7 +27,8 @@
     "release": "npm run release --workspaces --if-present && release-it --no-increment",
     "publish": "npm run publish --workspaces  --if-present -- --provenance --access public",
     "git-cz": "npx git-cz",
-    "tsx": "node --env-file=.env --import=tsx"
+    "tsx": "node --env-file=.env --import=tsx",
+    "dependencies:rebuild": "rm -rf package-lock.json && rm -rf node_modules && rm -rf */*/node_modules && npm i --no-audit --no-fund"
   },
   "engines": {
     "node": ">=20"
