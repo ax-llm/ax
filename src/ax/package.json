@@ -27,7 +27,7 @@
     "test:unit": "ava --timeout=500s --verbose",
     "tsx": "node --env-file=.env --import=tsx",
     "release": "release-it",
-    "publish": "cd build && npm publish",
+    "publish": "npm run build && cd build && npm publish",
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
