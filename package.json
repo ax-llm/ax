@@ -23,7 +23,7 @@
     "watch:test": "ava --ext ts --watch",
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
     "doc": "run-s doc:api doc:html",
-    "doc:api": "typedoc src/ax --tsconfig src/ax/tsconfig.build.json",
+    "doc:api": "typedoc src/ax --tsconfig src/ax/tsconfig.build.module.json",
     "doc:html": "npm run build-doc --workspace=@ax-llm/ax-docs",
     "version": "standard-version",
     "prepare": "run-s test",

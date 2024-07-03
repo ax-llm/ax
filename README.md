@@ -567,3 +567,9 @@ conf.maxTokens = 2000;
 const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
 conf.model = OpenAIModel.GPT4Turbo;
 ```
+
+## Monorepo tops & tricks
+
+It's important to remember that we should only run `npm install` from the root directory. This is to prevent the creation of nested `package-lock.json` files and to avoid non deduplicated `node_modules`.
+
+Adding new dependencies in packages should be done with e.g. `npm install lodash --workspace=ax` (or just modify the appropriate `package.json` and run `npm install` from root).

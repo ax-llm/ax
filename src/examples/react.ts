@@ -39,5 +39,10 @@ const ai = new AxAI({
 const cot = new AxReAct(ai, `question:string -> answer:string`, {
   functions
 });
-const res = await cot.forward(values);
-console.log(res);
+
+async function run() {
+  const res = await cot.forward(values);
+  console.log(res);
+}
+
+run().catch(console.error);

@@ -40,6 +40,9 @@ const agent = new AxAgent(ai, {
 
 const question = `Why is gravity not a real force? Why is light pure energy? Why is physics scale invariant? Why is the centrifugal force talked about so much if it's not real?`;
 
-const res = await agent.forward({ question });
+async function run() {
+  const res = await agent.forward({ question });
+  console.log('>', res);
+}
 
-console.log('>', res);
+run().catch(console.error);

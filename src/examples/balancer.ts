@@ -36,6 +36,9 @@ const gen = new AxChainOfThought(
   `text -> shortSummary "summarize in 5 to 10 words"`
 );
 
-const res = await gen.forward({ text }, { model: 'chill' });
+async function run() {
+  const res = await gen.forward({ text }, { model: 'chill' });
+  console.log('>', res);
+}
 
-console.log('>', res);
+run().catch(console.error);

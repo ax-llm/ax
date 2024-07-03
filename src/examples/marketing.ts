@@ -26,12 +26,17 @@ const gen = new AxGenerate(
   ai,
   `productName, productDescription, toName, toDescription, messageGuidelines -> message`
 );
-const res = await gen.forward({
-  productName: product.name,
-  productDescription: product.description,
-  toName: to.name,
-  toDescription: to.title,
-  messageGuidelines: messageGuidelines.join(', ')
-});
 
-console.log('>', res);
+async function run() {
+  const res = await gen.forward({
+    productName: product.name,
+    productDescription: product.description,
+    toName: to.name,
+    toDescription: to.title,
+    messageGuidelines: messageGuidelines.join(', ')
+  });
+
+  console.log('>', res);
+}
+
+run().catch(console.error);

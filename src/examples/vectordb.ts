@@ -14,9 +14,14 @@ const ai = new AxAI({
 const db = new AxDBMemory();
 
 const manager = new AxDBManager({ ai, db });
-await manager.insert(text);
 
-const res = await manager.query(
-  'John von Neumann on human intelligence and singularity.'
-);
-console.log(res);
+async function run() {
+  await manager.insert(text);
+
+  const res = await manager.query(
+    'John von Neumann on human intelligence and singularity.'
+  );
+  console.log(res);
+}
+
+run().catch(console.error);

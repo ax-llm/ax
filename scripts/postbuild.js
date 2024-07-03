@@ -1,4 +1,4 @@
-import path  from 'path';
+import path from 'path';
 
 import fs from 'fs-extra';
 
@@ -11,15 +11,27 @@ const packageJson = JSON.parse(packageJsonData);
 
 // Modify the package.json object
 packageJson.main = 'index.js';
-packageJson.module = 'index.js';
-packageJson.typings = 'index.d.ts';
-// packageJson.exports = {
-//   '.': './index.js'
-// };
+packageJson.module = 'cjs/index.js';
+packageJson.types = 'index.d.ts';
+packageJson.exports = {
+  '.': {
+    import: './index.js',
+    require: './cjs/index.js'
+  },
+  './*.js': {
+    import: './*.js',
+    require: './cjs/*.js'
+  },
+  './*': {
+    import: './*.js',
+    require: './cjs/*.js'
+  }
+};
 
 // Remove devDependencies
 delete packageJson.devDependencies;
 delete packageJson.scripts;
+delete packageJson.type;
 
 // Write the modified package.json to the build folder
 fs.writeJsonSync(path.resolve(buildPath, './package.json'), packageJson, { spaces: 2 });
