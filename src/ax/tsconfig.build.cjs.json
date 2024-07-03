@@ -1,0 +1,12 @@
+{
+  "extends": "@total-typescript/tsconfig/tsc/no-dom/library",
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "verbatimModuleSyntax": false,
+    "outDir": "build/cjs",
+    "pretty": true
+  },
+  "exclude": ["node_modules/**", "build/**"]
+}

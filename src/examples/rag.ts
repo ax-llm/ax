@@ -17,8 +17,13 @@ const ai = new AxAI({
 
 const rag = new AxRAG(ai, fetchFromVectorDB, { maxHops: 3 });
 
-const res = await rag.forward({
-  question: 'List 3 of the top most important work done by Michael Stonebraker?'
-});
+async function run() {
+  const res = await rag.forward({
+    question:
+      'List 3 of the top most important work done by Michael Stonebraker?'
+  });
 
-console.log(res);
+  console.log(res);
+}
+
+run().catch(console.error);
