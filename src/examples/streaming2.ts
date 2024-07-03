@@ -33,16 +33,12 @@ gen.addStreamingAssert(
   'Lines must start with a number and a dot. Eg: 1. This is a line.'
 );
 
-async function run() {
-  // run the program with streaming enabled
-  const res = await gen.forward(
-    {
-      question: 'Provide a list of optimizations to speedup LLM inference.'
-    },
-    { stream: true, debug: true }
-  );
+// run the program with streaming enabled
+const res = await gen.forward(
+  {
+    question: 'Provide a list of optimizations to speedup LLM inference.'
+  },
+  { stream: true, debug: true }
+);
 
-  console.log('>', res);
-}
-
-run().catch(console.error);
+console.log('>', res);

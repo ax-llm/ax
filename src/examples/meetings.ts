@@ -175,4 +175,3 @@
 //   console.log(chalk.green(JSON.stringify(res.value(), null, 2)));
 // }
 //
-// run().catch(console.error);

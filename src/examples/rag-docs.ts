@@ -9,19 +9,15 @@ const db = new AxDBMemory();
 
 const tika = new AxApacheTika();
 
-async function run() {
-  const text = await tika.convert(['./README.md']);
+const text = await tika.convert(['./README.md']);
 
-  const manager = new AxDBManager({ ai, db });
-  await manager.insert(text, {
-    minWordsPerChunk: 50,
-    maxWordsPerChunk: 100
-  });
+const manager = new AxDBManager({ ai, db });
+await manager.insert(text, {
+  minWordsPerChunk: 50,
+  maxWordsPerChunk: 100
+});
 
-  const matches = await manager.query('Explain semantic routing');
-  const topMatch = matches.at(0);
+const matches = await manager.query('Explain semantic routing');
+const topMatch = matches.at(0);
 
-  console.log(topMatch);
-}
-
-run().catch(console.error);
+console.log(topMatch);

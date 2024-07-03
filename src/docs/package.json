@@ -1,7 +1,6 @@
 {
   "name": "@ax-llm/ax-docs",
   "type": "module",
-  "version": "0.0.1",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
@@ -12,7 +11,6 @@
   "dependencies": {
     "@astrojs/check": "^0.7.0",
     "@astrojs/starlight": "^0.24.5",
-    "@fontsource-variable/jetbrains-mono": "^5.0.21",
     "@fontsource/roboto": "^5.0.13",
     "astro": "^4.10.2",
     "sharp": "^0.32.5"

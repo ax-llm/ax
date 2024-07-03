@@ -39,25 +39,21 @@ const ai = new AxAI({
 
 const router = new AxRouter(ai);
 
-async function run() {
-  await router.setRoutes([
-    customerSupport,
-    employeeHR,
-    salesInquiries,
-    technicalSupport
-  ]);
+await router.setRoutes([
+  customerSupport,
+  employeeHR,
+  salesInquiries,
+  technicalSupport
+]);
 
-  const r1 = await router.forward('I need help with my order');
-  const r2 = await router.forward('I want to know more about the company');
-  const r3 = await router.forward('I need help installing your software');
-  const r4 = await router.forward('I did not receive my order on time');
-  const r5 = await router.forward('Where can I find info about our 401k');
+const r1 = await router.forward('I need help with my order');
+const r2 = await router.forward('I want to know more about the company');
+const r3 = await router.forward('I need help installing your software');
+const r4 = await router.forward('I did not receive my order on time');
+const r5 = await router.forward('Where can I find info about our 401k');
 
-  console.log(r1 === 'salesInquiries' ? 'PASS' : 'FAIL: ' + r1);
-  console.log(r2 === 'salesInquiries' ? 'PASS' : 'FAIL: ' + r2);
-  console.log(r3 === 'technicalSupport' ? 'PASS' : 'FAIL: ' + r3);
-  console.log(r4 === 'customerSupport' ? 'PASS' : 'FAIL: ' + r4);
-  console.log(r5 === 'employeeHR' ? 'PASS' : 'FAIL: ' + r5);
-}
-
-run().catch(console.error);
+console.log(r1 === 'salesInquiries' ? 'PASS' : 'FAIL: ' + r1);
+console.log(r2 === 'salesInquiries' ? 'PASS' : 'FAIL: ' + r2);
+console.log(r3 === 'technicalSupport' ? 'PASS' : 'FAIL: ' + r3);
+console.log(r4 === 'customerSupport' ? 'PASS' : 'FAIL: ' + r4);
+console.log(r5 === 'employeeHR' ? 'PASS' : 'FAIL: ' + r5);

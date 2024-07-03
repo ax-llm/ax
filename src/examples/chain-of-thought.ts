@@ -24,9 +24,5 @@ const values = {
   ]
 };
 
-async function run() {
-  const res = await cot.forward(values);
-  console.log(res);
-}
-
-run().catch(console.error);
+const res = await cot.forward(values);
+console.log(res);

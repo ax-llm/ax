@@ -10,7 +10,7 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
-    "tsx": "node --env-file=.env --import=tsx",
+    "tsx": "node --env-file=.env --import=tsx"
   },
   "dependencies": {
     "@ax-llm/ax": "9.0.19"

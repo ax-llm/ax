@@ -120,9 +120,5 @@ const instruction = `
     The initial state is: ${JSON.stringify({ ...state, dogLocation: 'unknown' })}.
   `;
 
-async function run() {
-  const res = await agent.forward({ instruction });
-  console.log('Response:', res);
-}
-
-run().catch(console.error);
+const res = await agent.forward({ instruction });
+console.log('Response:', res);

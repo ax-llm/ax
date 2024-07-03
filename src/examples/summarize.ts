@@ -36,13 +36,6 @@ gen.addAssert(({ reason }: Readonly<{ reason: string }>) => {
   return !reason.includes('goat');
 }, 'Reason should not contain "the"');
 
-async function run() {
-  const res = await gen.forward(
-    { noteText },
-    { modelConfig: { stream: true } }
-  );
+const res = await gen.forward({ noteText }, { modelConfig: { stream: true } });
 
-  console.log('>', res);
-}
-
-run().catch(console.error);
+console.log('>', res);

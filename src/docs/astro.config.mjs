@@ -6,7 +6,7 @@ export default defineConfig({
     base: '/ax/',
 	integrations: [
 		starlight({
-            customCss: ["./src/styles/custom.css", "@fontsource-variable/jetbrains-mono", "@fontsource/roboto"],
+            customCss: ["./src/styles/custom.css", "@fontsource/roboto"],
 
 			title: 'Ax',
 			social: {
