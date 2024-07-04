@@ -56,8 +56,8 @@
     ]
   },
   "files": [
-    "build",
-    "!**/*.spec.*",
+    "**/*",
+    "!**/*.test.*",
     "!**/*.json",
     "CHANGELOG.md",
     "LICENSE",
