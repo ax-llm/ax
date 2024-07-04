@@ -123,7 +123,6 @@ export class AxSignature {
       const type = f.type ? f.type.name : 'string';
       if (f.type?.isArray) {
         properties[f.name] = {
-          title: f.title,
           description: f.description,
           type: 'array' as const,
           items: {
