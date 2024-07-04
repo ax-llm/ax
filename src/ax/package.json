@@ -58,10 +58,7 @@
   "files": [
     "**/*",
     "!**/*.test.*",
-    "!**/*.json",
-    "CHANGELOG.md",
-    "LICENSE",
-    "README.md"
+    "!**/*.json"
   ],
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
