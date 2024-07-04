@@ -27,6 +27,7 @@ import {
 import {
   type extractionState,
   extractValues,
+  streamingExtractFinalValue,
   streamingExtractValues,
   ValidationError
 } from './extract.js';
@@ -293,8 +294,8 @@ export class AxGenerate<
       await this.processFunctions(funcs, mem, sessionId, traceId);
     }
 
-    // streamingExtractFinalValue(values, xstate, content);
-    // assertAssertions(this.asserts, values);
+    streamingExtractFinalValue(values, xstate, content);
+    assertAssertions(this.asserts, values);
 
     return { ...values } as unknown as OUT;
   }
@@ -361,9 +362,9 @@ export class AxGenerate<
     const userMsg = { role: 'user' as const, content: prompt };
     mem.add(userMsg, options?.sessionId);
 
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        for (let n = 0; n < maxSteps; n++) {
+    multiStepLoop: for (let n = 0; n < maxSteps; n++) {
+      for (let i = 0; i < maxRetries; i++) {
+        try {
           const {
             sessionId,
             traceId,
@@ -385,48 +386,46 @@ export class AxGenerate<
 
           const lastMemItem = mem.getLast(sessionId);
 
-          if (lastMemItem?.role !== 'function') {
-            assertRequiredFields(this.signature, output);
-            this.trace = { ...output };
-            return output;
+          if (lastMemItem?.role === 'function') {
+            continue multiStepLoop;
           }
-        }
-        throw new Error('Could not complete task within maximum allowed steps');
-      } catch (e) {
-        let extraFields;
-        span?.recordAxSpanException(e as Error);
 
-        if (e instanceof ValidationError) {
-          extraFields = e.getFixingInstructions();
-          err = e;
-        } else if (e instanceof AxAssertionError) {
-          const e1 = e as AxAssertionError;
-          extraFields = e1.getFixingInstructions(this.signature);
-          err = e;
-        } else {
-          throw e;
-        }
+          assertRequiredFields(this.signature, output);
+          this.trace = { ...output };
+          return output;
+        } catch (e) {
+          let extraFields;
+          span?.recordAxSpanException(e as Error);
 
-        if (extraFields) {
-          const content = this.pt.renderExtraFields(extraFields);
-          const userMsg = {
-            role: 'user' as const,
-            content
-          };
+          if (e instanceof ValidationError) {
+            extraFields = e.getFixingInstructions();
+            err = e;
+          } else if (e instanceof AxAssertionError) {
+            const e1 = e as AxAssertionError;
+            extraFields = e1.getFixingInstructions(this.signature);
+            err = e;
+          } else {
+            throw e;
+          }
 
-          mem.add(userMsg, options?.sessionId);
-          if (options?.debug) {
-            console.log('Error Correction:', content);
+          if (extraFields) {
+            const content = this.pt.renderExtraFields(extraFields);
+            mem.add({ role: 'user' as const, content }, options?.sessionId);
+
+            if (options?.debug) {
+              console.log('Error Correction:', content);
+            }
           }
         }
       }
+      if (err instanceof AxAssertionError && err.getOptional()) {
+        return err.getValue() as OUT;
+      }
+
+      throw new Error(`Unable to fix validation error: ${err?.message}`);
     }
 
-    if (err instanceof AxAssertionError && err.getOptional()) {
-      return err.getValue() as OUT;
-    }
-
-    throw new Error(`Unable to fix validation error: ${err?.message}`);
+    throw new Error('Could not complete task within maximum allowed steps');
   }
 
   public override async forward(

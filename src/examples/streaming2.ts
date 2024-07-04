@@ -36,9 +36,9 @@ gen.addStreamingAssert(
 // run the program with streaming enabled
 const res = await gen.forward(
   {
-    question: 'Provide a list of optimizations to speedup LLM inference.'
+    question: 'Provide a list of 3 optimizations to speedup LLM inference.'
   },
-  { stream: true, debug: true }
+  { stream: true }
 );
 
 console.log('>', res);
