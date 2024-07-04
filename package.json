@@ -66,14 +66,6 @@
     "typedoc-plugin-markdown": "^4.1.1",
     "typescript": "^5.5.2"
   },
-  "files": [
-    "build/module",
-    "!**/*.spec.*",
-    "!**/*.json",
-    "CHANGELOG.md",
-    "LICENSE",
-    "README.md"
-  ],
   "config": {
     "commitizen": {
       "path": "cz-conventional-changelog"

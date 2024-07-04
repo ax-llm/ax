@@ -56,12 +56,9 @@
     ]
   },
   "files": [
-    "build",
-    "!**/*.spec.*",
-    "!**/*.json",
-    "CHANGELOG.md",
-    "LICENSE",
-    "README.md"
+    "**/*",
+    "!**/*.test.*",
+    "!**/*.json"
   ],
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
