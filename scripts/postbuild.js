@@ -10,8 +10,8 @@ const packageJsonData = await fs.readFile(path.resolve(packagePath, './package.j
 const packageJson = JSON.parse(packageJsonData);
 
 // Modify the package.json object
-packageJson.main = 'index.js';
-packageJson.module = 'cjs/index.js';
+packageJson.main = 'cjs/index.js';
+packageJson.module = 'index.js';
 packageJson.types = 'index.d.ts';
 packageJson.exports = {
   '.': {
