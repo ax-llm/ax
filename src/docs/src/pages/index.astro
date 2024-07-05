@@ -1,0 +1,26 @@
+---
+// import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { Icon } from '@astrojs/starlight/components';
+
+---
+
+<div class="bg-black h-screen bg-[url('mattress2.png')] bg-cover">
+    <div class="space-y-5 relative top-[200px] w-full lg:w-7/12 p-0 lg:p-4">
+        <div class="border-t border-b p-4 font-bold text-white text-9xl lg:text-8xl">
+            Ax, An AI framework for those building the future
+        </div>
+        <div class="flex flex-col lg:flex-row items-start lg:items-center gap-6 font-mono text-8xl lg:text-2xl p-4">
+            <a href="start/quick/" class="flex items-center justify-between gap-3 py-3 px-4 rounded-full bg-amber-500 hover:bg-amber-400 text-white">
+                Quick Start <Icon name="right-caret"/>
+            </a>
+            <a href="https://github.com/ax-llm/ax" class="flex items-center justify-between gap-3 py-3 px-4 rounded-full border bg-white/80 hover:bg-white text-black">
+                <div class="flex items-center gap-2"><Icon name="github" />Code</div>
+                <Icon name="right-caret"/>
+            </a>
+            <!-- <a href="https://github.com/ax-llm/ax" class="gap-2 text-4xl py-2 px-4 rounded-full bg-white text-white w-[300px]">
+                <Icon name="github" size="3rem" />
+            </a> -->
+        </div>
+    </div>
+    
+</div>
