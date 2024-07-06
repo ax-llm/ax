@@ -1,12 +1,13 @@
 import starlight from '@astrojs/starlight';
-import { defineConfig } from 'astro/config';
-
 import tailwind from "@astrojs/tailwind";
+import { defineConfig } from 'astro/config';
+import { astroImageTools } from "astro-imagetools";
+
 
 // https://astro.build/config
 export default defineConfig({
   base: '/ax/',
-  integrations: [starlight({
+  integrations: [astroImageTools, starlight({
     customCss: ["./src/styles/custom.css", "@fontsource/roboto"],
     title: 'Ax',
     social: {

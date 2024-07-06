@@ -2,25 +2,33 @@
 // import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import { Icon } from '@astrojs/starlight/components';
 
----
+import {
+  BackgroundImage,
+  ImageSupportDetection,
+} from "astro-imagetools/components";
 
-<div class="bg-black h-screen bg-[url('/ax/mattress.png')] bg-cover">
-    <div class="space-y-5 relative top-[200px] w-full lg:w-7/12 p-0 lg:p-4">
-        <div class="border-t border-b p-4 font-bold text-white text-9xl lg:text-8xl">
-            Ax, An AI framework for those building the future
+---
+<ImageSupportDetection />
+<BackgroundImage src="/src/assets/mattress.png" 
+backgroundSize="cover" 
+>
+    <div class="space-y-5 h-screen flex flex-col justify-between lg:justify-center p-8 w-full lg:w-8/12">
+        <div>
+            <div class="border-t border-b p-4 font-bold text-white text-9xl lg:text-8xl">
+                Ax, AI framework for those building the future 
+            </div>
+            <div class="flex flex-col lg:flex-row items-start lg:items-center gap-6 text-7xl lg:text-xl p-4">
+                <a href="start/quick/" class="flex items-center justify-between gap-3 py-4 px-5 rounded-full bg-amber-400 hover:bg-amber-500 text-black">
+                    Quick Start <Icon name="right-arrow" size="2rem" />
+                </a>
+                <a href="https://github.com/ax-llm/ax" class="flex items-center justify-between gap-3 py-4 px-5 rounded-full border bg-white/80 hover:bg-white text-black">
+                    <div class="flex items-center gap-2"><Icon name="github" />Code</div>
+                    <Icon name="right-arrow" size="2rem" />
+                </a>
+            </div>
         </div>
-        <div class="flex flex-col lg:flex-row items-start lg:items-center gap-6 font-mono text-8xl lg:text-2xl p-4">
-            <a href="start/quick/" class="flex items-center justify-between gap-3 py-3 px-4 rounded-full bg-amber-500 hover:bg-amber-400 text-white">
-                Quick Start <Icon name="right-caret"/>
-            </a>
-            <a href="https://github.com/ax-llm/ax" class="flex items-center justify-between gap-3 py-3 px-4 rounded-full border bg-white/80 hover:bg-white text-black">
-                <div class="flex items-center gap-2"><Icon name="github" />Code</div>
-                <Icon name="right-caret"/>
-            </a>
-            <!-- <a href="https://github.com/ax-llm/ax" class="gap-2 text-4xl py-2 px-4 rounded-full bg-white text-white w-[300px]">
-                <Icon name="github" size="3rem" />
-            </a> -->
+        <div class="text-white text-6xl lg:text-2xl rounded-xl w-full lg:w-6/12 p-4 font-mono">
+            Build LLM agents, agentic workflows, agent collaboration. Based on the Stanford DSP paper. Chat, RAG, streaming, multi-modal, and more.
         </div>
     </div>
-    
-</div>
+</BackgroundImage>
