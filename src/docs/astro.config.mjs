@@ -34,9 +34,31 @@ export default defineConfig({
       }
     }, {
       label: 'API Docs',
-      autogenerate: {
-        directory: 'apidocs'
-      }
+      items: [{
+        label: 'Classes',
+        autogenerate: { directory: 'apidocs/classes'},
+        collapsed: true
+      }, {
+        label: 'Enums',
+        autogenerate: { directory: 'apidocs/enums'},
+        collapsed: true
+      }, {
+        label: 'Functions',
+        autogenerate: { directory: 'apidocs/functions'},
+        collapsed: true
+      },{
+        label: 'Interfaces',
+        autogenerate: { directory: 'apidocs/interfaces'},
+        collapsed: true
+      }, {
+        label: 'Types',
+        autogenerate: { directory: 'apidocs/type-aliases'},
+        collapsed: true
+      },{
+        label: 'Variables',
+        autogenerate: { directory: 'apidocs/variables'},
+        collapsed: true
+      }],
     }]
   }), tailwind()]
 });

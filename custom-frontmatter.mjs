@@ -1,5 +1,4 @@
 // @ts-check
-import { ReflectionKind } from 'typedoc';
 import { MarkdownPageEvent } from 'typedoc-plugin-markdown';
  
 /**
@@ -16,7 +15,6 @@ export function load(app) {
        *
        * Here if the page is a class, we set the title to the class name
        */
-
         page.frontmatter = {
             // e.g add a title
             title: page.model?.name,

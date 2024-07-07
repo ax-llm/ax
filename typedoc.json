@@ -11,5 +11,6 @@
   "mergeReadme": true,
   "cleanOutputDir": true,
   "hidePageHeader": true,
-  "hideBreadcrumbs": true
+  "hideBreadcrumbs": true,
+  "readme": "README.md"
 }

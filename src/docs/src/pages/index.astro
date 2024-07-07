@@ -12,13 +12,14 @@ import {
 <BackgroundImage src="/src/assets/mattress.png" 
 backgroundSize="cover" 
 >
-    <div class="space-y-5 h-screen flex flex-col justify-between lg:justify-center p-8 w-full lg:w-8/12">
+    <div class="backdrop-brightness-90 w-full">
+    <div class="space-y-6 h-screen flex flex-col w-full lg:w-8/12 justify-between lg:justify-start py-[100px] px-8">
         <div>
-            <div class="border-t border-b p-4 font-bold text-white text-9xl lg:text-8xl">
-                Ax, AI framework for those building the future 
+            <div class="px-4 font-semibold text-white text-9xl lg:text-8xl">
+                <span class="text-7xl text-lime-400">Meet Ax,</span> <br/>The AI framework for those building the future
             </div>
-            <div class="flex flex-col lg:flex-row items-start lg:items-center gap-6 text-7xl lg:text-xl p-4">
-                <a href="start/quick/" class="flex items-center justify-between gap-3 py-4 px-5 rounded-full bg-amber-400 hover:bg-amber-500 text-black">
+            <div class="flex items-start lg:items-center gap-6 text-7xl lg:text-xl px-4 pt-6">
+                <a href="start/quick/" class="flex items-center justify-between gap-3 py-4 px-5 rounded-full bg-lime-400 hover:bg-lime-500 text-black">
                     Quick Start <Icon name="right-arrow" size="2rem" />
                 </a>
                 <a href="https://github.com/ax-llm/ax" class="flex items-center justify-between gap-3 py-4 px-5 rounded-full border bg-white/80 hover:bg-white text-black">
@@ -27,8 +28,9 @@ backgroundSize="cover"
                 </a>
             </div>
         </div>
-        <div class="text-white text-6xl lg:text-2xl rounded-xl w-full lg:w-6/12 p-4 font-mono">
-            Build LLM agents, agentic workflows, agent collaboration. Based on the Stanford DSP paper. Chat, RAG, streaming, multi-modal, and more.
+        <div class="text-white text-7xl lg:text-4xl font-light rounded-xl w-full px-4 lg:w-8/12">
+            Build LLM agents and agentic workflows. Based on the Stanford DSP paper. Chat, RAG, streaming, multi-modal, and more.
         </div>
     </div>
+</div>
 </BackgroundImage>
