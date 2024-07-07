@@ -3,10 +3,10 @@ import { type AxGenerateOptions, AxSignature } from '../dsp/index.js';
 import {
   type AxGenIn,
   type AxGenOut,
-  AxProgram,
   type AxProgramDemos,
   type AxProgramExamples,
   type AxProgramForwardOptions,
+  AxProgramWithSignature,
   type AxTunable,
   type AxUsable
 } from '../dsp/program.js';
@@ -27,7 +27,8 @@ export type AxAgentOptions = Omit<
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic
 {
-  private program: AxProgram<IN, OUT>;
+  private signature: AxSignature;
+  private program: AxProgramWithSignature<IN, OUT>;
 
   private name: string;
   private description: string;
@@ -51,6 +52,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
+    this.signature = new AxSignature(signature);
+
     const funcs: AxFunction[] = [
       ...(functions ?? []),
       ...(agents?.map((a) => a.getFunction()) ?? [])
@@ -63,8 +66,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.program =
       funcs.length > 0
-        ? new AxReAct<IN, OUT>(ai, signature, opt)
-        : new AxChainOfThought<IN, OUT>(ai, signature, opt);
+        ? new AxReAct<IN, OUT>(ai, this.signature, opt)
+        : new AxChainOfThought<IN, OUT>(ai, this.signature, opt);
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -86,17 +89,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.func = {
       name: toCamelCase(this.name),
       description: this.description,
-      parameters: this.program.getSignature().toJSONSchema(),
+      parameters: this.signature.toJSONSchema(),
       func: () => this.forward
     };
 
     for (const agent of agents ?? []) {
       this.program.register(agent);
     }
-  }
-
-  public getSignature() {
-    return this.program.getSignature();
   }
 
   public setExamples(examples: Readonly<AxProgramExamples>) {

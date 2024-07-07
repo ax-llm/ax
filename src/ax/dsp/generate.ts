@@ -34,8 +34,8 @@ import {
 import {
   type AxGenIn,
   type AxGenOut,
-  AxProgram,
-  type AxProgramForwardOptions
+  type AxProgramForwardOptions,
+  AxProgramWithSignature
 } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature } from './sig.js';
@@ -72,7 +72,8 @@ export interface AxResponseHandlerArgs<T> {
 export class AxGenerate<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>
-> extends AxProgram<IN, OUT> {
+> extends AxProgramWithSignature<IN, OUT> {
+  private ai: AxAIService;
   private pt: AxPromptTemplate;
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
@@ -85,8 +86,9 @@ export class AxGenerate<
     signature: Readonly<AxSignature | string>,
     options?: Readonly<AxGenerateOptions>
   ) {
-    super(ai, signature);
+    super(signature);
 
+    this.ai = ai;
     this.options = options;
     this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];

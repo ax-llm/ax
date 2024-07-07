@@ -28,7 +28,7 @@ export enum AxAICohereEmbedModel {
  */
 export type AxAICohereConfig = AxModelConfig & {
   model: AxAICohereModel;
-  embedModel: AxAICohereEmbedModel;
+  embedModel?: AxAICohereEmbedModel;
 };
 
 export type AxAICohereChatResponseToolCalls = {
