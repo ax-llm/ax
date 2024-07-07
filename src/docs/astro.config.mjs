@@ -6,7 +6,6 @@ import { astroImageTools } from "astro-imagetools";
 
 // https://astro.build/config
 export default defineConfig({
-  base: '/ax/',
   integrations: [astroImageTools, starlight({
     customCss: ["./src/styles/custom.css", "@fontsource/roboto"],
     title: 'Ax',
