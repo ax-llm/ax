@@ -18,8 +18,14 @@ export class AxReAct<
       throw new Error('No functions provided');
     }
 
-    const functions = [...options.functions];
-    const funcList = functions.map((f) => `'${f.name}'`).join(', ');
+    const fnNames = options.functions.map((f) => {
+      if ('toFunction' in f) {
+        return f.toFunction().name;
+      }
+      return f.name;
+    });
+
+    const funcList = fnNames.map((fname) => `'${fname}'`).join(', ');
 
     const sig = new AxSignature(signature);
     sig.setDescription(

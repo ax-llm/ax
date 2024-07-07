@@ -75,7 +75,7 @@ export interface AxAIGoogleGeminiArgs {
   apiKey: string;
   projectId?: string;
   region?: string;
-  config?: Readonly<AxAIGoogleGeminiConfig>;
+  config?: Readonly<Partial<AxAIGoogleGeminiConfig>>;
   options?: Readonly<AxAIServiceOptions & { codeExecution?: boolean }>;
 }
 

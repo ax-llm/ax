@@ -1,11 +1,11 @@
 ---
-title: DSP Explained
-description: Whats DSP and how to use it.
+title: DSPy Explained
+description: Whats DSPy and how to use it.
 ---
 
-Demonstrate, search, predict or DSP is a now famous paper from Stanford focused on optimizing the prompting of LLMs. The basic idea being provide examples instead of instructions. 
+Demonstrate, search, predict or DSPy is a now famous paper from Stanford focused on optimizing the prompting of LLMs. The basic idea being provide examples instead of instructions. 
 
-Ax supports DSP and allows you to set examples on each prompt as well as run an optimizer which runs the prompt using inputs from a test set and validating the outputs against the same test set. In short the optimizer helps you capture good examples across the entire tree of prompts your workflow is build with.
+Ax supports DSPy and allows you to set examples on each prompt as well as run an optimizer which runs the prompt using inputs from a test set and validating the outputs against the same test set. In short the optimizer helps you capture good examples across the entire tree of prompts your workflow is build with.
 
 ## Pick a prompt strategy
 
@@ -69,7 +69,7 @@ Easy enough! this is all you need
 
 ## DAP prompt tuning
 
-What if I want more performance or I want to run this with a smaller model. I was old you can tune your prompts with DSP. Yes, this is true you can do this. In short you can using a big LLM to generate better examples for every prompt you use in your entire flow of prompts.
+What if I want more performance or I want to run this with a smaller model. I was told you can tune your prompts with DSPy. Yes, this is true you can do this. In short you can using a big LLM to generate better examples for every prompt you use in your entire flow of prompts.
 
 
 ```typescript

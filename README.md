@@ -1,6 +1,6 @@
 # Ax - Build LLMs Powered Agents (Typescript)
 
-Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSP paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSP, etc.
+Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSPy paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSPy, etc.
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
@@ -10,7 +10,7 @@ Build intelligent agents with ease, inspired by the power of "Agentic workflows"
 
 ## Our focus on agents
 
-We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also we are big fans of the Stanford DSP paper and this library is the result of all of this coming together to build a powerful framework for you to build with.
+We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also we are big fans of the Stanford DSPy paper and this library is the result of all of this coming together to build a powerful framework for you to build with.
 
 ![image](https://github.com/ax-llm/ax/assets/832235/801b8110-4cba-4c50-8ec7-4d5859121fe5)
 
@@ -22,7 +22,7 @@ We've renamed from "llmclient" to "ax" to highlight our focus on powering agenti
 - Convert docs of any format to text
 - RAG, smart chunking, embedding, querying
 - Output validation while streaming
-- Multi-modal DSP supported
+- Multi-modal DSPy supported
 - Automatic prompt tuning using optimizers
 - OpenTelemetry tracing / observability
 - Production ready Typescript code
@@ -180,7 +180,7 @@ const matches = await manager.query('Find some text');
 console.log(matches);
 ```
 
-## Multi-modal DSP
+## Multi-modal DSPy
 
 When using models like `gpt-4o` and `gemini` that support multi-modal prompts we support using image fields and this works with the whole dsp pipeline.
 
@@ -448,12 +448,13 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 
 | Function           | Description                                            |
 | ------------------ | ------------------------------------------------------ |
-| Code Interpreter   | Used by the LLM to execute JS code in a sandboxed env. |
+| JS Interpreter     | Used by the LLM to execute JS code in a sandboxed env. |
+| Docker Sandbox     | LLM can Execute commands within a docker environment   |
 | Embeddings Adapter | Wrapper to fetch and pass embedding to your function   |
 
 ## Our Goal
 
-Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However there's still a lot of complexity to manage from using the right prompts, models, streaming, function calling, error-correction, and much more. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. Additionally we are using the latest research to add useful new capabilities like DSP to the library.
+Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However there's still a lot of complexity to manage from using the right prompts, models, streaming, function calling, error-correction, and much more. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. Additionally we are using the latest research to add useful new capabilities like DSPy to the library.
 
 ## How to use this library?
 

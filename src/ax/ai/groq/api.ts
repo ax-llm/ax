@@ -17,7 +17,7 @@ const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
 export interface AxAIGroqArgs {
   name: 'groq';
   apiKey: string;
-  config?: Readonly<AxAIGroqAIConfig>;
+  config?: Readonly<Partial<AxAIGroqAIConfig>>;
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number };
 }
 

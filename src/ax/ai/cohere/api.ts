@@ -43,7 +43,7 @@ export const axAICohereCreativeConfig = (): AxAICohereConfig =>
 export interface AxAICohereArgs {
   name: 'cohere';
   apiKey: string;
-  config?: Readonly<AxAICohereConfig>;
+  config?: Readonly<Partial<AxAICohereConfig>>;
   options?: Readonly<AxAIServiceOptions>;
 }
 

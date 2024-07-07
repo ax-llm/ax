@@ -28,7 +28,7 @@ export type AxAIOllamaArgs = {
   embedModel?: string;
   url?: string;
   apiKey?: string;
-  config?: Readonly<AxAIOllamaAIConfig>;
+  config?: Readonly<Partial<AxAIOllamaAIConfig>>;
   options?: Readonly<AxAIServiceOptions>;
 };
 

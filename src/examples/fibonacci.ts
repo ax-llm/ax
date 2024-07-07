@@ -1,9 +1,4 @@
-import {
-  AxAI,
-  axJSInterpreterFunction,
-  AxReAct,
-  AxSignature
-} from '@ax-llm/ax';
+import { AxAI, AxJSInterpreter, AxReAct, AxSignature } from '@ax-llm/ax';
 
 const sig = new AxSignature(
   `numberSeriesTask:string  -> fibonacciSeries:number[]`
@@ -14,7 +9,9 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string
 });
 
-const gen = new AxReAct(ai, sig, { functions: [axJSInterpreterFunction()] });
+const gen = new AxReAct(ai, sig, {
+  functions: [new AxJSInterpreter()]
+});
 
 const res = await gen.forward({
   numberSeriesTask: 'Use code to calculate the fibonacci series of 10'

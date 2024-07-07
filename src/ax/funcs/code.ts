@@ -6,33 +6,9 @@ import * as _os from 'os';
 import * as _process from 'process';
 import { runInNewContext } from 'vm';
 
-import type { AxFunction } from '../ai/index.js';
+import type { AxFunction } from '../ai/types.js';
 
-export const axJSInterpreterFunction = (
-  permissions: readonly AxCodeInterpreterPermission[] = []
-): AxFunction => ({
-  name: 'jsInterpreter',
-  description: 'Run Javascript code',
-  parameters: {
-    type: 'object',
-    properties: {
-      code: {
-        type: 'string',
-        description: 'JS code with a return value in the end.'
-      }
-    },
-    required: ['code']
-  },
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  func: ({ code }: Readonly<{ code: string }>): Promise<any> => {
-    return new Promise((resolve) => {
-      resolve(codeInterpreterJavascript(code, permissions));
-    });
-  }
-});
-
-export enum AxCodeInterpreterPermission {
+export enum AxJSInterpreterPermission {
   FS = 'node:fs',
   NET = 'net',
   OS = 'os',
@@ -40,38 +16,61 @@ export enum AxCodeInterpreterPermission {
   PROCESS = 'process'
 }
 
-const codeInterpreterJavascript = (
-  code: string,
-  permissions: readonly AxCodeInterpreterPermission[] = []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): any => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const context: { [key: string]: any } = {
-    // require: require,
-    console: console
-  };
+export class AxJSInterpreter {
+  private permissions: readonly AxJSInterpreterPermission[];
 
-  if (permissions.includes(AxCodeInterpreterPermission.FS)) {
-    context.fs = _fs;
+  constructor({
+    permissions = []
+  }:
+    | Readonly<{ permissions?: readonly AxJSInterpreterPermission[] }>
+    | undefined = {}) {
+    this.permissions = permissions ?? [];
   }
 
-  if (permissions.includes(AxCodeInterpreterPermission.NET)) {
-    context.http = _http;
-    context.https = _https;
+  private codeInterpreterJavascript(code: string): unknown {
+    const context: { [key: string]: unknown } = { console };
+
+    if (this.permissions.includes(AxJSInterpreterPermission.FS)) {
+      context.fs = _fs;
+    }
+
+    if (this.permissions.includes(AxJSInterpreterPermission.NET)) {
+      context.http = _http;
+      context.https = _https;
+    }
+
+    if (this.permissions.includes(AxJSInterpreterPermission.OS)) {
+      context.os = _os;
+    }
+
+    if (this.permissions.includes(AxJSInterpreterPermission.CRYPTO)) {
+      context.crypto = _crypto;
+    }
+
+    if (this.permissions.includes(AxJSInterpreterPermission.PROCESS)) {
+      context.process = _process;
+    }
+
+    return runInNewContext(`(function() { ${code} })()`, context);
   }
 
-  if (permissions.includes(AxCodeInterpreterPermission.OS)) {
-    context.os = _os;
-  }
+  public toFunction(): AxFunction {
+    return {
+      name: 'javascriptInterpreter',
+      description:
+        'Use this function to run Javascript code and get any expected return value.',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: 'JS code with a return value in the end.'
+          }
+        },
+        required: ['code']
+      },
 
-  if (permissions.includes(AxCodeInterpreterPermission.CRYPTO)) {
-    context.crypto = _crypto;
+      func: this.codeInterpreterJavascript
+    };
   }
-
-  if (permissions.includes(AxCodeInterpreterPermission.PROCESS)) {
-    context.process = _process;
-  }
-
-  // executing code within the sandbox
-  return runInNewContext(`(function() { ${code} })()`, context);
-};
+}

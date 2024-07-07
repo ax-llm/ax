@@ -57,7 +57,7 @@ export interface AxAIOpenAIArgs {
   name: 'openai';
   apiKey: string;
   apiURL?: string;
-  config?: Readonly<AxAIOpenAIConfig>;
+  config?: Readonly<Partial<AxAIOpenAIConfig>>;
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
   modelInfo?: Readonly<AxModelInfo[]>;
 }

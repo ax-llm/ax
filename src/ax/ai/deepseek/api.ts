@@ -26,7 +26,7 @@ export const axAIDeepSeekCodeConfig = (): DeepSeekConfig =>
 export interface AxAIDeepSeekArgs {
   name: 'deepseek';
   apiKey: string;
-  config?: Readonly<DeepSeekConfig>;
+  config?: Readonly<Partial<DeepSeekConfig>>;
   options?: Readonly<AxAIServiceOptions>;
 }
 

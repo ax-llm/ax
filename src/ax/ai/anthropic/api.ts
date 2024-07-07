@@ -32,7 +32,7 @@ export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
 export interface AxAIAnthropicArgs {
   name: 'anthropic';
   apiKey: string;
-  config?: Readonly<AxAIAnthropicConfig>;
+  config?: Readonly<Partial<AxAIAnthropicConfig>>;
   options?: Readonly<AxAIServiceOptions>;
 }
 

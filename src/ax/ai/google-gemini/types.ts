@@ -146,7 +146,7 @@ export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse;
  */
 export type AxAIGoogleGeminiConfig = AxModelConfig & {
   model: AxAIGoogleGeminiModel | string;
-  embedModel: AxAIGoogleGeminiEmbedModel;
+  embedModel?: AxAIGoogleGeminiEmbedModel;
   safetySettings?: AxAIGoogleGeminiSafetySettings;
 };
 

@@ -35,7 +35,7 @@ export const axAIHuggingFaceCreativeConfig = (): AxAIHuggingFaceConfig =>
 export interface AxAIHuggingFaceArgs {
   name: 'huggingface';
   apiKey: string;
-  config?: Readonly<AxAIHuggingFaceConfig>;
+  config?: Readonly<Partial<AxAIHuggingFaceConfig>>;
   options?: Readonly<AxAIServiceOptions>;
 }
 

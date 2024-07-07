@@ -22,7 +22,7 @@ export interface AxAIAzureOpenAIArgs {
   resourceName: string;
   deploymentName: string;
   version?: string;
-  config?: Readonly<AxAIOpenAIConfig>;
+  config?: Readonly<Partial<AxAIOpenAIConfig>>;
   options?: Readonly<AxAIServiceOptions>;
 }
 

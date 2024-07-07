@@ -1,59 +1,76 @@
 import type {
   AxAIService,
   AxAIServiceActionOptions,
-  AxFunction,
-  AxFunctionHandler
+  AxFunction
 } from '../ai/index.js';
 
-export const axEmbedAdapter = (
-  ai: AxAIService,
-  info: Readonly<{
+export class AxEmbeddingAdapter {
+  private aiService: AxAIService;
+  private info: {
     name: string;
     description: string;
     argumentDescription: string;
-  }>,
-  func: (
+  };
+  private func: (
     args: readonly number[],
     extra?: Readonly<AxAIServiceActionOptions>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ) => Promise<any>
-): AxFunction => ({
-  name: info.name,
-  description: info.description,
-  parameters: {
-    type: 'object',
-    properties: {
-      text: {
-        type: 'string',
-        description: info.argumentDescription
-      }
-    },
-    required: ['text']
-  },
+  ) => Promise<unknown>;
 
-  func: (
-    { text }: Readonly<{ text: string }>,
-    extra?: Readonly<AxAIServiceActionOptions>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): Promise<any> => {
-    return new Promise((resolve) => {
-      resolve(embedAdapter(ai, text, func, extra));
-    });
+  constructor({
+    ai,
+    info,
+    func
+  }: Readonly<{
+    ai: AxAIService;
+    info: Readonly<{
+      name: string;
+      description: string;
+      argumentDescription: string;
+    }>;
+    func: (
+      args: readonly number[],
+      extra?: Readonly<AxAIServiceActionOptions>
+    ) => Promise<unknown>;
+  }>) {
+    this.aiService = ai;
+    this.info = info;
+    this.func = func;
   }
-});
 
-const embedAdapter = async (
-  ai: AxAIService,
-  text: string,
-  func: AxFunctionHandler,
-  extra?: Readonly<AxAIServiceActionOptions>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any> => {
-  const embedRes = await ai.embed(
-    { texts: [text] },
-    { sessionId: extra?.sessionId }
-  );
-  const embeds = embedRes.embeddings.at(0);
+  private async embedAdapter(
+    text: string,
+    extra?: Readonly<AxAIServiceActionOptions>
+  ): Promise<unknown> {
+    const embedRes = await this.aiService.embed(
+      { texts: [text] },
+      { sessionId: extra?.sessionId }
+    );
+    const embeds = embedRes.embeddings.at(0);
 
-  return func.length === 2 ? func(embeds, extra) : func(embeds);
-};
+    if (!embeds) {
+      throw new Error('Failed to embed text');
+    }
+
+    return this.func.length === 2
+      ? this.func(embeds, extra)
+      : this.func(embeds);
+  }
+
+  public toFunction(): AxFunction {
+    return {
+      name: this.info.name,
+      description: this.info.description,
+      parameters: {
+        type: 'object',
+        properties: {
+          text: {
+            type: 'string',
+            description: this.info.argumentDescription
+          }
+        },
+        required: ['text']
+      },
+      func: this.embedAdapter
+    };
+  }
+}

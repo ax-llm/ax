@@ -9,10 +9,6 @@ import type {
   AxRateLimiterFunction
 } from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
-import {
-  type AxChatResponseFunctionCall,
-  AxFunctionProcessor
-} from '../funcs/functions.js';
 import { type AxAIMemory, AxMemory } from '../mem/index.js';
 import { type AxSpan, AxSpanKind, type AxTracer } from '../trace/index.js';
 
@@ -32,6 +28,10 @@ import {
   ValidationError
 } from './extract.js';
 import {
+  type AxChatResponseFunctionCall,
+  AxFunctionProcessor
+} from './functions.js';
+import {
   type AxGenIn,
   type AxGenOut,
   type AxProgramForwardOptions,
@@ -50,7 +50,7 @@ export interface AxGenerateOptions {
   stream?: boolean;
   debug?: boolean;
 
-  functions?: AxFunction[];
+  functions?: AxFunction[] | { toFunction: () => AxFunction }[];
   functionCall?: AxChatRequest['functionCall'];
   promptTemplate?: typeof AxPromptTemplate;
   asserts?: AxAssertion[];
@@ -78,6 +78,8 @@ export class AxGenerate<
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
   private options?: AxGenerateOptions;
+
+  private functions?: AxFunction[];
   private funcProc?: AxFunctionProcessor;
   private functionList?: string;
 
@@ -88,16 +90,23 @@ export class AxGenerate<
   ) {
     super(signature);
 
+    this.functions = this.options?.functions?.map((f) => {
+      if ('toFunction' in f) {
+        return f.toFunction();
+      }
+      return f;
+    });
+
     this.ai = ai;
     this.options = options;
     this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
     this.streamingAsserts = this.options?.streamingAsserts ?? [];
-    this.functionList = this.options?.functions?.map((f) => f.name).join(', ');
+    this.functionList = this.functions?.map((f) => f.name).join(', ');
     this.usage = [];
 
-    if (this.options?.functions) {
-      this.funcProc = new AxFunctionProcessor(this.options?.functions);
+    if (this.functions) {
+      this.funcProc = new AxFunctionProcessor(this.functions);
       this.updateSigForFunctions();
     }
   }
@@ -158,7 +167,7 @@ export class AxGenerate<
       throw new Error('No chat prompt found');
     }
 
-    const functions = this.options?.functions;
+    const functions = this.functions;
     const functionCall = this.options?.functionCall;
 
     const hasJSON = this.signature

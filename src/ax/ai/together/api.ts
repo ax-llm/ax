@@ -17,7 +17,7 @@ export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
 export interface AxAITogetherArgs {
   name: 'together';
   apiKey: string;
-  config?: Readonly<TogetherAIConfig>;
+  config?: Readonly<Partial<TogetherAIConfig>>;
   options?: Readonly<AxAIServiceOptions>;
 }
 

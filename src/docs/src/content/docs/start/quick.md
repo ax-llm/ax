@@ -3,7 +3,7 @@ title: Quick Start
 description: Jump into building with Ax
 ---
 
-Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSP paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSP, etc.
+Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSPy paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSPy, etc.
 
 ## Install
 
@@ -36,7 +36,7 @@ The LLMs are pre-configured with sensible defaults such as models and other coni
 
 ## Prompting
 
-Prompt is usually stressful and complex you never know what is the right prompt and blobs of text in your code and hard to deal with. We fix this by adopting the `prompt signatures` from the popular Stanford DSP paper.
+Prompt is usually stressful and complex you never know what is the right prompt and blobs of text in your code and hard to deal with. We fix this by adopting the `prompt signatures` from the popular Stanford DSPy paper.
 
 A prompt signature is a list of _typed_ input and output fields along with a task description prefix.
 the following fields are supported `'string' | 'number' | 'boolean' | 'json' | 'image'` add a `[]` to convert a field into an array field eg. `string[]`, `number[]`, etc. Additionally a `?` marks the field as an optional field `context?:string`.
