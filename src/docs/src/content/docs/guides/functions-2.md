@@ -1,5 +1,5 @@
 ---
-title: Function Calling
+title: Functions Part 2
 description: How to use functions with Ax
 ---
 
