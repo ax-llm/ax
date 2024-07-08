@@ -1,5 +1,58 @@
 import type { AxFunction } from '../ai/types.js';
 
+export interface AxDockerContainer {
+  Id: string;
+  Names: string[];
+  Image: string;
+  ImageID: string;
+  Command: string;
+  Created: number;
+  State: {
+    Status: string;
+    Running: boolean;
+    Paused: boolean;
+    Restarting: boolean;
+    OOMKilled: boolean;
+    Dead: boolean;
+    Pid: number;
+    ExitCode: number;
+    Error: string;
+    StartedAt: Date;
+    FinishedAt: Date;
+  };
+  Status: string;
+  Ports: Array<{
+    IP: string;
+    PrivatePort: number;
+    PublicPort: number;
+    Type: string;
+  }>;
+  Labels: { [key: string]: string };
+  SizeRw: number;
+  SizeRootFs: number;
+  HostConfig: {
+    NetworkMode: string;
+  };
+  NetworkSettings: {
+    Networks: {
+      [key: string]: {
+        IPAddress: string;
+        IPPrefixLen: number;
+        Gateway: string;
+        MacAddress: string;
+      };
+    };
+  };
+  Mounts: Array<{
+    Type: string;
+    Source: string;
+    Destination: string;
+    Mode: string;
+    RW: boolean;
+    Propagation: string;
+  }>;
+}
+
 export class AxDockerSession {
   private readonly apiUrl: string;
   private containerId: string | null = null;
@@ -26,12 +79,14 @@ export class AxDockerSession {
 
   async createContainer({
     imageName,
-    volumes = [], // Example format: [{ hostPath: '/host/path', containerPath: '/container/path' }]
-    doNotPullImage
+    volumes = [],
+    doNotPullImage,
+    tag
   }: Readonly<{
     imageName: string;
     volumes?: Array<{ hostPath: string; containerPath: string }>;
     doNotPullImage?: boolean;
+    tag?: string;
   }>) {
     const binds = volumes.map((v) => `${v.hostPath}:${v.containerPath}`);
 
@@ -39,18 +94,25 @@ export class AxDockerSession {
       await this.pullImage(imageName);
     }
 
+    const containerConfig = {
+      Image: imageName,
+      Tty: true,
+      OpenStdin: false,
+      AttachStdin: false,
+      AttachStdout: false,
+      AttachStderr: false,
+      HostConfig: { Binds: binds },
+      Labels: {} as Record<string, string>
+    };
+
+    if (tag) {
+      containerConfig.Labels['com.example.tag'] = tag;
+    }
+
     const response = await this.fetchDockerAPI(`/containers/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        Image: imageName,
-        Tty: true,
-        OpenStdin: false,
-        AttachStdin: false,
-        AttachStdout: false,
-        AttachStderr: false,
-        HostConfig: { Binds: binds }
-      })
+      body: JSON.stringify(containerConfig)
     });
 
     if (!response.ok) {
@@ -61,6 +123,47 @@ export class AxDockerSession {
     this.containerId = data.Id;
 
     return data;
+  }
+
+  async findOrCreateContainer({
+    imageName,
+    volumes = [],
+    doNotPullImage,
+    tag
+  }: Readonly<{
+    imageName: string;
+    volumes?: Array<{ hostPath: string; containerPath: string }>;
+    doNotPullImage?: boolean;
+    tag: string;
+  }>): Promise<{ Id: string; isNew: boolean }> {
+    // First, try to find existing containers with the given tag
+    const existingContainers = await this.listContainers(true);
+    const matchingContainers = existingContainers.filter(
+      (container) =>
+        container.Labels && container.Labels['com.example.tag'] === tag
+    );
+
+    if (matchingContainers && matchingContainers.length > 0) {
+      // Randomly select a container from the matching ones
+      const randomIndex = Math.floor(Math.random() * matchingContainers.length);
+      const selectedContainer = matchingContainers[randomIndex];
+
+      if (selectedContainer) {
+        // Connect to the selected container
+        await this.connectToContainer(selectedContainer.Id);
+        return { Id: selectedContainer.Id, isNew: false };
+      }
+    }
+
+    // If no container with the tag exists, create a new one
+    const newContainer = await this.createContainer({
+      imageName,
+      volumes,
+      doNotPullImage,
+      tag
+    });
+
+    return { Id: newContainer.Id, isNew: true };
   }
 
   async startContainer(): Promise<void> {
@@ -92,9 +195,97 @@ export class AxDockerSession {
     this.containerId = containerId;
   }
 
-  async executeCommand(command: string) {
+  async stopContainers({
+    tag,
+    remove,
+    timeout = 10
+  }: Readonly<{ tag?: string; remove?: boolean; timeout?: number }>): Promise<
+    Array<{ Id: string; Action: 'stopped' | 'removed' }>
+  > {
+    const results: Array<{ Id: string; Action: 'stopped' | 'removed' }> = [];
+
+    // List all containers
+    const containers = await this.listContainers(true);
+
+    // Filter containers by tag if provided
+    const targetContainers = tag
+      ? containers.filter(
+          (container) => container.Labels['com.example.tag'] === tag
+        )
+      : containers;
+
+    for (const container of targetContainers) {
+      // Stop the container if it's running
+      if (container.State.Status === 'running') {
+        const stopResponse = await this.fetchDockerAPI(
+          `/containers/${container.Id}/stop?t=${timeout}`,
+          { method: 'POST' }
+        );
+
+        if (!stopResponse.ok) {
+          console.warn(
+            `Failed to stop container ${container.Id}: ${stopResponse.statusText}`
+          );
+          continue;
+        }
+
+        results.push({ Id: container.Id, Action: 'stopped' });
+      }
+
+      // Remove the container if the remove flag is set
+      if (remove) {
+        const removeResponse = await this.fetchDockerAPI(
+          `/containers/${container.Id}`,
+          { method: 'DELETE' }
+        );
+
+        if (!removeResponse.ok) {
+          console.warn(
+            `Failed to remove container ${container.Id}: ${removeResponse.statusText}`
+          );
+          continue;
+        }
+
+        results.push({ Id: container.Id, Action: 'removed' });
+      }
+    }
+
+    return results;
+  }
+
+  async listContainers(all: boolean = false): Promise<AxDockerContainer[]> {
+    const response = await this.fetchDockerAPI(`/containers/json?all=${all}`, {
+      method: 'GET'
+    });
+    return response.json() as Promise<AxDockerContainer[]>;
+  }
+
+  async getContainerLogs(): Promise<string> {
     if (!this.containerId) {
       throw new Error('No container created or connected');
+    }
+    const response = await this.fetchDockerAPI(
+      `/containers/${this.containerId}/logs?stdout=true&stderr=true`,
+      { method: 'GET' }
+    );
+    return response.text();
+  }
+
+  async executeCommand(command: string) {
+    console.log('Executing command:', command);
+
+    if (!this.containerId) {
+      throw new Error('No container created or connected');
+    }
+
+    // Check container state
+    const containerInfo = await this.getContainerInfo(this.containerId);
+
+    if (containerInfo.State.Status !== 'running') {
+      await this.startContainer();
+
+      // Wait for the container to be in the "running" state
+      await this.waitForContainerToBeRunning(this.containerId);
     }
 
     // Create exec instance
@@ -142,39 +333,33 @@ export class AxDockerSession {
     return await startResponse.text();
   }
 
-  async stopContainer() {
-    if (!this.containerId) {
-      throw new Error('No container created or connected');
-    }
+  // Add these new methods to the class:
 
+  private async getContainerInfo(
+    containerId: string
+  ): Promise<AxDockerContainer> {
     const response = await this.fetchDockerAPI(
-      `/containers/${this.containerId}/stop`,
-      {
-        method: 'POST'
-      }
+      `/containers/${containerId}/json`
     );
-
     if (!response.ok) {
-      throw new Error(`Failed to stop container: ${response.statusText}`);
+      throw new Error(`Failed to get container info: ${response.statusText}`);
     }
+    return response.json() as Promise<AxDockerContainer>;
   }
 
-  async listContainers(all: boolean = false) {
-    const response = await this.fetchDockerAPI(`/containers/json?all=${all}`, {
-      method: 'GET'
-    });
-    return response.json();
-  }
-
-  async getContainerLogs(): Promise<string> {
-    if (!this.containerId) {
-      throw new Error('No container created or connected');
+  private async waitForContainerToBeRunning(
+    containerId: string,
+    timeout: number = 30000
+  ): Promise<void> {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      const containerInfo = await this.getContainerInfo(containerId);
+      if (containerInfo.State.Status === 'running') {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait for 1 second before checking again
     }
-    const response = await this.fetchDockerAPI(
-      `/containers/${this.containerId}/logs?stdout=true&stderr=true`,
-      { method: 'GET' }
-    );
-    return response.text();
+    throw new Error('Timeout waiting for container to start');
   }
 
   private async fetchDockerAPI(
@@ -202,7 +387,8 @@ export class AxDockerSession {
         required: ['command']
       },
 
-      func: this.executeCommand
+      func: async ({ command }: Readonly<{ command: string }>) =>
+        await this.executeCommand(command)
     };
   }
 }

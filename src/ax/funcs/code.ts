@@ -70,7 +70,8 @@ export class AxJSInterpreter {
         required: ['code']
       },
 
-      func: this.codeInterpreterJavascript
+      func: ({ code }: Readonly<{ code: string }>) =>
+        this.codeInterpreterJavascript(code)
     };
   }
 }

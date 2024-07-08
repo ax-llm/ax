@@ -77,7 +77,7 @@ export class AxGenerate<
   private pt: AxPromptTemplate;
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
-  private options?: AxGenerateOptions;
+  private options?: Omit<AxGenerateOptions, 'functions'>;
 
   private functions?: AxFunction[];
   private funcProc?: AxFunctionProcessor;
@@ -90,7 +90,7 @@ export class AxGenerate<
   ) {
     super(signature);
 
-    this.functions = this.options?.functions?.map((f) => {
+    this.functions = options?.functions?.map((f) => {
       if ('toFunction' in f) {
         return f.toFunction();
       }

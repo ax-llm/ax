@@ -1,34 +1,33 @@
-// import { AxAI, AxDockerSession, AxGenerate } from '@ax-llm/ax';
+import { AxAI, AxDockerSession, AxGenerate } from '@ax-llm/ax';
 
-// // Initialize Docker session
-// const dockerSession = new AxDockerSession();
+// Initialize Docker session
+const dockerSession = new AxDockerSession();
 
-// // Create a Docker container and execute the command sequence
-// const create = await dockerSession.createContainer({
-//   imageName: 'ubuntu:latest'
-// });
+// Create a Docker container and execute the command sequence
+await dockerSession.findOrCreateContainer({
+  imageName: 'ubuntu:latest',
+  tag: 'ax:example'
+});
 
-// console.log('>>', create);
+// Initialize the AI instance with your API key
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
 
-// const res = await dockerSession.executeCommand('ls -l');
+// Define the task for generating a command sequence
+const prompt = new AxGenerate(
+  ai,
+  `"Find requested file and display top 3 lines of its content and a hash of the file."
+  fileQuery:string -> content:string, hash:string`,
+  { functions: [dockerSession] }
+);
 
-// console.log(res);
+// Execute the task
+const res = await prompt.forward({
+  fileQuery: 'config file for current shell'
+});
 
-// // Initialize the AI instance with your API key
-// const ai = new AxAI({
-//   name: 'openai',
-//   apiKey: process.env.OPENAI_APIKEY as string
-// });
+console.log(res);
 
-// // Define the task for generating a command sequence
-// const prompt = new AxGenerate(
-//   ai,
-//   `"Generate a banner message \`hello \${name}\` using the shell banner command"
-//   name:string -> helloBanner:string`,
-//   { functions: [dockerSession] }
-// );
-
-// // Generate the command sequence for displaying a Hello World banner
-// const res = await prompt.forward({ name: 'Bob' });
-
-// console.log(res);
+// await dockerSession.stopContainers({ remove: true, tag: 'ax:example' });

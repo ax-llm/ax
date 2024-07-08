@@ -70,7 +70,8 @@ export class AxEmbeddingAdapter {
         },
         required: ['text']
       },
-      func: this.embedAdapter
+      func: ({ text }: Readonly<{ text: string }>, options) =>
+        this.embedAdapter(text, options)
     };
   }
 }

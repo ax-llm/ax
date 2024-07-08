@@ -415,6 +415,14 @@ const res = await program.forward({
 console.log(res);
 ```
 
+## Built-in Functions
+
+| Function           | Name               | Description                                  |
+| ------------------ | ------------------ | -------------------------------------------- |
+| JS Interpreter     | AxJSInterpreter    | Execute JS code in a sandboxed env           |
+| Docker Sandbox     | AxDockerSession    | Execute commands within a docker environment |
+| Embeddings Adapter | AxEmbeddingAdapter | Fetch and pass embedding to your function    |
+
 ## Checkout all the examples
 
 Use the `tsx` command to run the examples it makes node run typescript code. It also support using a `.env` file to pass the AI API Keys as opposed to putting them in the commandline.
@@ -443,14 +451,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | smart-hone.ts       | Agent looks for dog in smart home                       |
 | multi-modal.ts      | Use an image input along with other text inputs         |
 | balancer.ts         | Balance between various llm's based on cost, etc        |
-
-## Built-in Functions
-
-| Function           | Description                                            |
-| ------------------ | ------------------------------------------------------ |
-| JS Interpreter     | Used by the LLM to execute JS code in a sandboxed env. |
-| Docker Sandbox     | LLM can Execute commands within a docker environment   |
-| Embeddings Adapter | Wrapper to fetch and pass embedding to your function   |
+| docker.ts           | Use the docker sandbox to find files by description     |
 
 ## Our Goal
 
