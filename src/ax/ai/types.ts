@@ -2,7 +2,7 @@ import type { ReadableStream } from 'stream/web';
 
 import type { AxTracer } from '../trace/index.js';
 
-import type { AxAIModelMap } from './base.js';
+export type AxAIModelMap = Record<string, string>;
 
 export type AxModelInfo = {
   name: string;
@@ -140,10 +140,12 @@ export type AxChatRequest = {
     | 'required'
     | { type: 'function'; function: { name: string } };
   modelConfig?: Readonly<AxModelConfig>;
+  model?: string;
 };
 
 export type AxEmbedRequest = {
   texts?: readonly string[];
+  embedModel?: string;
 };
 
 export type AxRateLimiterFunction = <T = unknown>(
@@ -169,12 +171,11 @@ export type AxAIServiceActionOptions = {
 
 export interface AxAIService {
   getName(): string;
-  getModelInfo(): Readonly<AxModelInfo & { provider: string }>;
-  getEmbedModelInfo(): Readonly<AxModelInfo> | undefined;
+  getModelInfo(): Readonly<AxModelInfoWithProvider>;
+  getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined;
   getModelConfig(): Readonly<AxModelConfig>;
   getFeatures(): { functions: boolean; streaming: boolean };
-  setModelMap(modelMap: AxAIModelMap<string>): void;
-  setEmbedModelMap(embedModelMap: AxAIModelMap<string>): void;
+  getModelMap(): AxAIModelMap | undefined;
 
   chat(
     req: Readonly<AxChatRequest>,

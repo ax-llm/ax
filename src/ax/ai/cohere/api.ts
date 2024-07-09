@@ -45,11 +45,10 @@ export interface AxAICohereArgs {
   apiKey: string;
   config?: Readonly<Partial<AxAICohereConfig>>;
   options?: Readonly<AxAIServiceOptions>;
+  modelMap?: Record<string, AxAICohereModel | AxAICohereEmbedModel | string>;
 }
 
 export class AxAICohere extends AxBaseAI<
-  AxAICohereModel,
-  AxAICohereEmbedModel,
   AxAICohereChatRequest,
   AxAICohereEmbedRequest,
   AxAICohereChatResponse,
@@ -61,7 +60,8 @@ export class AxAICohere extends AxBaseAI<
   constructor({
     apiKey,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAICohereArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
@@ -77,7 +77,8 @@ export class AxAICohere extends AxBaseAI<
       modelInfo: axModelInfoCohere,
       models: { model: _config.model },
       supportFor: { functions: true, streaming: true },
-      options
+      options,
+      modelMap
     });
     this.config = _config;
   }

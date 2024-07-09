@@ -19,13 +19,15 @@ export interface AxAIGroqArgs {
   apiKey: string;
   config?: Readonly<Partial<AxAIGroqAIConfig>>;
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number };
+  modelMap?: Record<string, AxAIGroqModel>;
 }
 
-export class AxAIGroq extends AxAIOpenAI<AxAIGroqModel, string> {
+export class AxAIGroq extends AxAIOpenAI {
   constructor({
     apiKey,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAIGroqArgs, 'groq'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Groq API key not set');
@@ -45,7 +47,8 @@ export class AxAIGroq extends AxAIOpenAI<AxAIGroqModel, string> {
       config: _config,
       options: _options,
       apiURL: 'https://api.groq.com/openai/v1',
-      modelInfo: []
+      modelInfo: [],
+      modelMap
     });
 
     super.setName('Groq');

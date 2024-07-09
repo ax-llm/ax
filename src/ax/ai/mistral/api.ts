@@ -25,16 +25,15 @@ export interface AxAIMistralArgs {
   apiKey: string;
   config?: Readonly<Partial<MistralConfig>>;
   options?: Readonly<AxAIServiceOptions>;
+  modelMap?: Record<string, AxAIMistralModel | AxAIMistralEmbedModels | string>;
 }
 
-export class AxAIMistral extends AxAIOpenAI<
-  AxAIMistralModel,
-  AxAIMistralEmbedModels
-> {
+export class AxAIMistral extends AxAIOpenAI {
   constructor({
     apiKey,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAIMistralArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set');
@@ -48,7 +47,8 @@ export class AxAIMistral extends AxAIOpenAI<
       config: _config,
       options,
       apiURL: 'https://api.mistral.ai/v1',
-      modelInfo: axModelInfoMistral
+      modelInfo: axModelInfoMistral,
+      modelMap
     });
 
     super.setName('Mistral');

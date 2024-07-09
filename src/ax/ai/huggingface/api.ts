@@ -37,11 +37,10 @@ export interface AxAIHuggingFaceArgs {
   apiKey: string;
   config?: Readonly<Partial<AxAIHuggingFaceConfig>>;
   options?: Readonly<AxAIServiceOptions>;
+  modelMap?: Record<string, AxAIHuggingFaceModel>;
 }
 
 export class AxAIHuggingFace extends AxBaseAI<
-  AxAIHuggingFaceModel,
-  string,
   AxAIHuggingFaceRequest,
   unknown,
   AxAIHuggingFaceResponse,
@@ -53,7 +52,8 @@ export class AxAIHuggingFace extends AxBaseAI<
   constructor({
     apiKey,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAIHuggingFaceArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('HuggingFace API key not set');
@@ -69,7 +69,8 @@ export class AxAIHuggingFace extends AxBaseAI<
       modelInfo: axModelInfoHuggingFace,
       models: { model: _config.model },
       options,
-      supportFor: { functions: false, streaming: false }
+      supportFor: { functions: false, streaming: false },
+      modelMap
     });
     this.config = _config;
   }

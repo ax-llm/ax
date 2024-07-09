@@ -34,11 +34,10 @@ export interface AxAIAnthropicArgs {
   apiKey: string;
   config?: Readonly<Partial<AxAIAnthropicConfig>>;
   options?: Readonly<AxAIServiceOptions>;
+  modelMap?: Record<string, AxAIAnthropicModel | string>;
 }
 
 export class AxAIAnthropic extends AxBaseAI<
-  AxAIAnthropicModel,
-  string,
   AxAIAnthropicChatRequest,
   unknown,
   AxAIAnthropicChatResponse,
@@ -50,7 +49,8 @@ export class AxAIAnthropic extends AxBaseAI<
   constructor({
     apiKey,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAIAnthropicArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Anthropic API key not set');
@@ -69,7 +69,8 @@ export class AxAIAnthropic extends AxBaseAI<
       modelInfo: axModelInfoAnthropic,
       models: { model: _config.model },
       options,
-      supportFor: { functions: true, streaming: true }
+      supportFor: { functions: true, streaming: true },
+      modelMap
     });
 
     this.config = _config;

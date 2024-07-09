@@ -30,18 +30,20 @@ export type AxAIOllamaArgs = {
   apiKey?: string;
   config?: Readonly<Partial<AxAIOllamaAIConfig>>;
   options?: Readonly<AxAIServiceOptions>;
+  modelMap?: Record<string, string>;
 };
 
 /**
  * OllamaAI: AI Service
  * @export
  */
-export class AxAIOllama extends AxAIOpenAI<string, string> {
+export class AxAIOllama extends AxAIOpenAI {
   constructor({
     apiKey = 'not-set',
     url = 'http://localhost:11434',
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAIOllamaArgs, 'name'>>) {
     const _config = {
       ...axAIOllamaDefaultConfig(),
@@ -51,7 +53,8 @@ export class AxAIOllama extends AxAIOpenAI<string, string> {
       apiKey,
       options,
       config: _config,
-      apiURL: new URL('/v1', url).href
+      apiURL: new URL('/v1', url).href,
+      modelMap
     });
 
     super.setName('Ollama');

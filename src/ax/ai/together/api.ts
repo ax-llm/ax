@@ -19,13 +19,15 @@ export interface AxAITogetherArgs {
   apiKey: string;
   config?: Readonly<Partial<TogetherAIConfig>>;
   options?: Readonly<AxAIServiceOptions>;
+  modelMap?: Record<string, string>;
 }
 
-export class AxAITogether extends AxAIOpenAI<string, string> {
+export class AxAITogether extends AxAIOpenAI {
   constructor({
     apiKey,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAITogetherArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
@@ -39,7 +41,8 @@ export class AxAITogether extends AxAIOpenAI<string, string> {
       config: _config,
       options,
       apiURL: 'https://api.together.xyz/v1',
-      modelInfo: axModelInfoTogether
+      modelInfo: axModelInfoTogether,
+      modelMap
     });
 
     super.setName('Together');

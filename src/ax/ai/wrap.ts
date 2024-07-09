@@ -35,6 +35,7 @@ import {
 import type { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './openai/types.js';
 import { AxAITogether, type AxAITogetherArgs } from './together/api.js';
 import type {
+  AxAIModelMap,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -44,7 +45,7 @@ import type {
   AxEmbedRequest,
   AxEmbedResponse,
   AxModelConfig,
-  AxModelInfo
+  AxModelInfoWithProvider
 } from './types.js';
 
 export type AxAIArgs =
@@ -120,23 +121,15 @@ export class AxAI implements AxAIService {
     }
   }
 
-  setModelMap(modelMap: Readonly<Record<string, string>>): void {
-    this.ai.setModelMap(modelMap);
-  }
-
-  setEmbedModelMap(modelMap: Readonly<Record<string, string>>): void {
-    this.ai.setEmbedModelMap(modelMap);
-  }
-
   getName(): string {
     return this.ai.getName();
   }
 
-  getModelInfo(): Readonly<AxModelInfo & { provider: string }> {
+  getModelInfo(): Readonly<AxModelInfoWithProvider> {
     return this.ai.getModelInfo();
   }
 
-  getEmbedModelInfo(): Readonly<AxModelInfo> | undefined {
+  getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined {
     return this.ai.getEmbedModelInfo();
   }
 
@@ -146,6 +139,10 @@ export class AxAI implements AxAIService {
 
   getFeatures(): { functions: boolean; streaming: boolean } {
     return this.ai.getFeatures();
+  }
+
+  getModelMap(): AxAIModelMap | undefined {
+    return this.ai.getModelMap();
   }
 
   async chat(

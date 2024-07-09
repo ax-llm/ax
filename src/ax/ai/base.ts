@@ -6,6 +6,7 @@ import { ColorLog } from '../util/log.js';
 import { RespTransformStream } from '../util/transform.js';
 
 import type {
+  AxAIModelMap,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -22,8 +23,6 @@ import type {
 
 const colorLog = new ColorLog();
 
-export type AxAIModelMap<T> = Record<string, T>;
-
 export interface AxBaseAIFeatures {
   functions: boolean;
   streaming: boolean;
@@ -37,8 +36,7 @@ export interface AxBaseAIArgs {
   models: Readonly<{ model: string; embedModel?: string }>;
   options?: Readonly<AxAIServiceOptions>;
   supportFor: AxBaseAIFeatures;
-  modelMap?: AxAIModelMap<string>;
-  embedModelMap?: AxAIModelMap<string>;
+  modelMap?: AxAIModelMap;
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -59,8 +57,6 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   });
 
 export class AxBaseAI<
-  TModel extends string,
-  TEmbedModel extends string,
   TChatRequest,
   TEmbedRequest,
   TChatResponse,
@@ -85,17 +81,16 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter'];
   private fetch?: AxAIServiceOptions['fetch'];
   private tracer?: AxAIServiceOptions['tracer'];
-  private modelMap?: AxAIModelMap<TModel>;
-  private embedModelMap?: AxAIModelMap<TEmbedModel>;
+  private modelMap?: AxAIModelMap;
 
+  private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxTokenUsage;
   private embedModelUsage?: AxTokenUsage;
 
   protected apiURL: string;
   protected name: string;
+  protected models: AxBaseAIArgs['models'];
   protected headers: Record<string, string>;
-  protected modelInfo: AxModelInfo;
-  protected embedModelInfo?: AxModelInfo;
   protected supportFor: AxBaseAIFeatures;
 
   constructor({
@@ -105,39 +100,27 @@ export class AxBaseAI<
     modelInfo,
     models,
     options = {},
-    supportFor
+    supportFor,
+    modelMap
   }: Readonly<AxBaseAIArgs>) {
     this.name = name;
     this.apiURL = apiURL;
     this.headers = headers;
     this.supportFor = supportFor;
     this.tracer = options.tracer;
+    this.modelInfo = modelInfo;
+    this.modelMap = modelMap;
+    this.models = {
+      model: modelMap?.[models.model] ?? models.model,
+      embedModel: modelMap?.[models.embedModel ?? ''] ?? models.embedModel
+    };
 
-    const model = this.getModel(models.model as string);
-    const embedModel = this.getEmbedModel(models.embedModel as string);
-
-    if (typeof model === 'string') {
-      const modelName = model.replace(/-0\d+$|-\d{2,}$/, '');
-      this.modelInfo = modelInfo.filter((v) => v.name === modelName).at(0) ?? {
-        name: model,
-        currency: 'usd',
-        promptTokenCostPer1M: 0,
-        completionTokenCostPer1M: 0
-      };
-    } else {
+    if (
+      !models.model ||
+      typeof models.model !== 'string' ||
+      models.model === ''
+    ) {
       throw new Error('No model defined');
-    }
-
-    if (typeof embedModel === 'string') {
-      const embedModelName = embedModel?.replace(/-0\d+$|-\d{2,}$/, '');
-      this.embedModelInfo = modelInfo
-        .filter((v) => v.name === embedModelName)
-        .at(0) ?? {
-        name: embedModel ?? '',
-        currency: 'usd',
-        promptTokenCostPer1M: 0,
-        completionTokenCostPer1M: 0
-      };
     }
 
     this.setOptions(options);
@@ -173,22 +156,37 @@ export class AxBaseAI<
     }
   }
 
-  setModelMap(modelMap: AxAIModelMap<TModel>): void {
-    this.modelMap = modelMap;
-  }
-
-  setEmbedModelMap(embedModelMap: AxAIModelMap<TEmbedModel>): void {
-    this.embedModelMap = embedModelMap;
+  private _getModelInfo(model: string): Readonly<AxModelInfo> {
+    const _model = this.modelMap?.[model] ?? model;
+    const modelName = _model.replace(/-0\d+$|-\d{2,}$/, '');
+    return (
+      this.modelInfo.filter((v) => v.name === modelName).at(0) ?? {
+        name: model,
+        currency: 'usd',
+        promptTokenCostPer1M: 0,
+        completionTokenCostPer1M: 0
+      }
+    );
   }
 
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
-    return { ...this.modelInfo, provider: this.name };
+    return {
+      ...this._getModelInfo(this.models.model),
+      provider: this.name
+    };
   }
 
   getEmbedModelInfo(): AxModelInfoWithProvider | undefined {
-    return this.embedModelInfo
-      ? { ...this.embedModelInfo, provider: this.name }
-      : undefined;
+    if (this.models.embedModel) {
+      return {
+        ...this._getModelInfo(this.models.embedModel),
+        provider: this.name
+      };
+    }
+  }
+
+  getModelMap(): AxAIModelMap | undefined {
+    return this.modelMap;
   }
 
   getName(): string {
@@ -204,9 +202,13 @@ export class AxBaseAI<
   }
 
   async chat(
-    _req: Readonly<AxChatRequest>,
+    req: Readonly<AxChatRequest>,
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
+    const model = req.model
+      ? this.modelMap?.[req.model] ?? req.model
+      : this.models.model;
+
     if (this.tracer) {
       const mc = this.getModelConfig();
       return await this.tracer?.startActiveSpan(
@@ -215,7 +217,7 @@ export class AxBaseAI<
           kind: AxSpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
-            [axSpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name,
+            [axSpanAttributes.LLM_REQUEST_MODEL]: model,
             [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: mc.maxTokens,
             [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: mc.temperature,
             [axSpanAttributes.LLM_REQUEST_TOP_P]: mc.topP,
@@ -232,17 +234,18 @@ export class AxBaseAI<
           }
         },
         async (span) => {
-          const res = await this._chat(_req, options, span);
+          const res = await this._chat(model, req, options, span);
           span.end();
           return res;
         }
       );
     }
-    return await this._chat(_req, options);
+    return await this._chat(model, req, options);
   }
 
   async _chat(
-    _req: Readonly<AxChatRequest>,
+    model: string,
+    chatReq: Readonly<AxChatRequest>,
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>,
     span?: AxSpan
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
@@ -251,14 +254,18 @@ export class AxBaseAI<
     }
 
     const reqFn = this.generateChatReq;
-    const stream = options?.stream ?? _req.modelConfig?.stream;
-    const functions =
-      _req.functions && _req.functions.length > 0 ? _req.functions : undefined;
+    const stream = options?.stream ?? chatReq.modelConfig?.stream;
+
+    let functions;
+    if (chatReq.functions && chatReq.functions.length > 0) {
+      functions = chatReq.functions;
+    }
 
     const req = {
-      ..._req,
+      ...chatReq,
+      model,
       functions,
-      modelConfig: { ..._req.modelConfig, stream }
+      modelConfig: { ...chatReq.modelConfig, stream }
     } as Readonly<AxChatRequest>;
 
     const fn = async () => {
@@ -354,6 +361,14 @@ export class AxBaseAI<
     req: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
+    const embedModel = req.embedModel
+      ? this.modelMap?.[req.embedModel] ?? req.embedModel
+      : this.models.embedModel;
+
+    if (!embedModel) {
+      throw new Error('No embed model defined');
+    }
+
     if (this.tracer) {
       return await this.tracer?.startActiveSpan(
         'Embed Request',
@@ -361,21 +376,23 @@ export class AxBaseAI<
           kind: AxSpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
-            [axSpanAttributes.LLM_REQUEST_MODEL]: this.modelInfo.name
+            [axSpanAttributes.LLM_REQUEST_MODEL]:
+              req.embedModel ?? this.models.embedModel
           }
         },
         async (span) => {
-          const res = await this._embed(req, options, span);
+          const res = await this._embed(embedModel, req, options, span);
           span.end();
           return res;
         }
       );
     }
-    return this._embed(req, options);
+    return this._embed(embedModel, req, options);
   }
 
   async _embed(
-    req: Readonly<AxEmbedRequest>,
+    embedModel: string,
+    embedReq: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>,
     span?: AxSpan
   ): Promise<AxEmbedResponse> {
@@ -385,6 +402,11 @@ export class AxBaseAI<
     if (!this.generateEmbedResp) {
       throw new Error('generateEmbedResp not implemented');
     }
+
+    const req = {
+      ...embedReq,
+      embedModel
+    } as Readonly<AxEmbedRequest>;
 
     const fn = async () => {
       const [apiConfig, reqValue] = this.generateEmbedReq!(req);
@@ -431,14 +453,6 @@ export class AxBaseAI<
     headers: Record<string, string> = {}
   ): Record<string, string> {
     return { ...headers, ...this.headers };
-  }
-
-  private getEmbedModel(name?: string): string | undefined {
-    return name ? this.embedModelMap?.[name] ?? name : undefined;
-  }
-
-  private getModel(name: string): string {
-    return this.modelMap?.[name] ?? name;
   }
 }
 

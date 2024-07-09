@@ -1,7 +1,7 @@
 import type { ReadableStream } from 'stream/web';
 
-import type { AxAIModelMap } from './base.js';
 import type {
+  AxAIModelMap,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -11,18 +11,20 @@ import type {
   AxEmbedRequest,
   AxEmbedResponse,
   AxModelConfig,
-  AxModelInfo
+  AxModelInfoWithProvider
 } from './types.js';
 
 export class AxBalancer implements AxAIService {
   private services: AxAIService[];
   private currentServiceIndex: number = 0;
   private currentService: AxAIService;
+  private serviceMap: Record<string, AxAIService> = {};
 
   constructor(services: readonly AxAIService[]) {
     if (services.length === 0) {
       throw new Error('No AI services provided.');
     }
+
     this.services = [...services].sort((a, b) => {
       const aInfo = a.getModelInfo();
       const bInfo = b.getModelInfo();
@@ -42,12 +44,8 @@ export class AxBalancer implements AxAIService {
     this.currentService = cs;
   }
 
-  setModelMap(modelMap: AxAIModelMap<string>): void {
-    this.currentService.setModelMap(modelMap);
-  }
-
-  setEmbedModelMap(embedModelMap: AxAIModelMap<string>): void {
-    this.currentService.setEmbedModelMap(embedModelMap);
+  getModelMap(): AxAIModelMap | undefined {
+    throw new Error('Method not implemented.');
   }
 
   private getNextService(): boolean {
@@ -72,11 +70,11 @@ export class AxBalancer implements AxAIService {
     return this.currentService.getName();
   }
 
-  getModelInfo(): Readonly<AxModelInfo & { provider: string }> {
+  getModelInfo(): Readonly<AxModelInfoWithProvider> {
     return this.currentService.getModelInfo();
   }
 
-  getEmbedModelInfo(): Readonly<AxModelInfo> | undefined {
+  getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined {
     return this.currentService.getEmbedModelInfo();
   }
 

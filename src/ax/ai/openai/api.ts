@@ -60,14 +60,10 @@ export interface AxAIOpenAIArgs {
   config?: Readonly<Partial<AxAIOpenAIConfig>>;
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
   modelInfo?: Readonly<AxModelInfo[]>;
+  modelMap?: Record<string, AxAIOpenAIModel | AxAIOpenAIEmbedModel | string>;
 }
 
-export class AxAIOpenAI<
-  TM extends string = AxAIOpenAIModel | string,
-  TEM extends string = AxAIOpenAIEmbedModel | string
-> extends AxBaseAI<
-  TM,
-  TEM,
+export class AxAIOpenAI extends AxBaseAI<
   AxAIOpenAIChatRequest,
   AxAIOpenAIEmbedRequest,
   AxAIOpenAIChatResponse,
@@ -82,7 +78,8 @@ export class AxAIOpenAI<
     config,
     options,
     apiURL,
-    modelInfo = axModelInfoOpenAI
+    modelInfo = axModelInfoOpenAI,
+    modelMap
   }: Readonly<Omit<AxAIOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
@@ -102,7 +99,8 @@ export class AxAIOpenAI<
         embedModel: _config.embedModel as string
       },
       options,
-      supportFor: { functions: true, streaming: true }
+      supportFor: { functions: true, streaming: true },
+      modelMap
     });
     this.config = _config;
     this.streamingUsage = options?.streamingUsage ?? true;

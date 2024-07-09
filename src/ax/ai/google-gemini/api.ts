@@ -77,6 +77,10 @@ export interface AxAIGoogleGeminiArgs {
   region?: string;
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>;
   options?: Readonly<AxAIServiceOptions & { codeExecution?: boolean }>;
+  modelMap?: Record<
+    string,
+    AxAIGoogleGeminiModel | AxAIGoogleGeminiEmbedModel | string
+  >;
 }
 
 /**
@@ -84,8 +88,6 @@ export interface AxAIGoogleGeminiArgs {
  * @export
  */
 export class AxAIGoogleGemini extends AxBaseAI<
-  AxAIGoogleGeminiModel,
-  AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiChatRequest,
   AxAIGoogleGeminiBatchEmbedRequest,
   AxAIGoogleGeminiChatResponse,
@@ -101,7 +103,8 @@ export class AxAIGoogleGemini extends AxBaseAI<
     projectId,
     region,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('GoogleGemini AI API key not set');
@@ -128,7 +131,8 @@ export class AxAIGoogleGemini extends AxBaseAI<
         embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel
       },
       options,
-      supportFor: { functions: true, streaming: true }
+      supportFor: { functions: true, streaming: true },
+      modelMap
     });
     this.options = options;
     this.config = _config;

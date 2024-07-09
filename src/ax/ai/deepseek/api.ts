@@ -28,13 +28,15 @@ export interface AxAIDeepSeekArgs {
   apiKey: string;
   config?: Readonly<Partial<DeepSeekConfig>>;
   options?: Readonly<AxAIServiceOptions>;
+  modelMap?: Record<string, AxAIDeepSeekModel | string>;
 }
 
-export class AxAIDeepSeek extends AxAIOpenAI<AxAIDeepSeekModel, string> {
+export class AxAIDeepSeek extends AxAIOpenAI {
   constructor({
     apiKey,
     config,
-    options
+    options,
+    modelMap
   }: Readonly<Omit<AxAIDeepSeekArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('DeepSeek API key not set');
@@ -48,7 +50,8 @@ export class AxAIDeepSeek extends AxAIOpenAI<AxAIDeepSeekModel, string> {
       config: _config,
       options,
       apiURL: 'https://api.deepseek.com',
-      modelInfo: axModelInfoDeepSeek
+      modelInfo: axModelInfoDeepSeek,
+      modelMap
     });
 
     super.setName('DeepSeek');
