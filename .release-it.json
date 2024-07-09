@@ -9,8 +9,15 @@
   "github": {
     "release": true,
     "web": true,
-    "autoGenerate": true,
     "releaseName": "Release ${version}",
-    "assets": ["build/*.zip"]
+    "releaseNotes": "git log --no-merges --pretty=format:\"* %s %h\" ${latestTag}...main"
+  },
+  "plugins": {
+    "@release-it/conventional-changelog": {
+      "preset": {
+        "name": "conventionalcommits"
+      },
+      "infile": "CHANGELOG.md"
+    }
   }
 }
