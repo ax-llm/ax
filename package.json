@@ -36,6 +36,7 @@
   "devDependencies": {
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@release-it/bumper": "^6.0.1",
+    "@release-it/conventional-changelog": "^8.0.1",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^20.11.30",
     "@types/readable-stream": "^4.0.11",
