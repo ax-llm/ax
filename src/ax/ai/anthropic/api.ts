@@ -38,7 +38,7 @@ export interface AxAIAnthropicArgs {
 
 export class AxAIAnthropic extends AxBaseAI<
   AxAIAnthropicModel,
-  unknown,
+  string,
   AxAIAnthropicChatRequest,
   unknown,
   AxAIAnthropicChatResponse,
