@@ -1,5 +1,19 @@
 
 
+## [9.0.30](https://github.com/ax-llm/ax/compare/9.0.28...9.0.29) (2024-07-09)
+
+
+### Bug Fixes
+
+* more fixes related to model mapping ([b01fcb7](https://github.com/ax-llm/ax/commit/b01fcb79dc3375aabb3815fae396ec567faf7987))
+
+## [9.0.29](https://github.com/ax-llm/ax/compare/9.0.28...9.0.29) (2024-07-09)
+
+
+### Bug Fixes
+
+* redesigned model map feature ([7049914](https://github.com/ax-llm/ax/commit/704991418fdda832ef3d6aff33496432c3b152eb))
+
 ## [9.0.29](https://github.com/ax-llm/ax/compare/9.0.27...9.0.28) (2024-07-09)
 
 
