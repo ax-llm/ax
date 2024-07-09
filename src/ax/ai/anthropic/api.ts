@@ -5,6 +5,7 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
+  AxInternalChatRequest,
   AxModelConfig
 } from '../types.js';
 
@@ -88,9 +89,9 @@ export class AxAIAnthropic extends AxBaseAI<
   }
 
   override generateChatReq = (
-    req: Readonly<AxChatRequest>
+    req: Readonly<AxInternalChatRequest>
   ): [API, AxAIAnthropicChatRequest] => {
-    const model = this.config.model;
+    const model = req.model;
 
     const apiConfig = {
       name: '/messages'

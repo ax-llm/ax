@@ -143,10 +143,16 @@ export type AxChatRequest = {
   model?: string;
 };
 
+export type AxInternalChatRequest = Omit<AxChatRequest, 'model'> &
+  Required<Pick<AxChatRequest, 'model'>>;
+
 export type AxEmbedRequest = {
   texts?: readonly string[];
   embedModel?: string;
 };
+
+export type AxInternalEmbedRequest = Omit<AxEmbedRequest, 'embedModel'> &
+  Required<Pick<AxEmbedRequest, 'embedModel'>>;
 
 export type AxRateLimiterFunction = <T = unknown>(
   reqFunc: () => Promise<T | ReadableStream<T>>,

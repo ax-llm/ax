@@ -10,8 +10,9 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
-  AxEmbedRequest,
   AxEmbedResponse,
+  AxInternalChatRequest,
+  AxInternalEmbedRequest,
   AxModelConfig,
   AxModelInfo
 } from '../types.js';
@@ -121,11 +122,11 @@ export class AxAIOpenAI extends AxBaseAI<
   }
 
   override generateChatReq = (
-    req: Readonly<AxChatRequest>,
+    req: Readonly<AxInternalChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxAIOpenAIChatRequest] => {
-    const model = this.config.model;
+    const model = req.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
@@ -182,9 +183,9 @@ export class AxAIOpenAI extends AxBaseAI<
   };
 
   override generateEmbedReq = (
-    req: Readonly<AxEmbedRequest>
+    req: Readonly<AxInternalEmbedRequest>
   ): [API, AxAIOpenAIEmbedRequest] => {
-    const model = this.config.embedModel;
+    const model = req.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

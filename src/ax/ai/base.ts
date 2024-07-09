@@ -15,6 +15,8 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxInternalChatRequest,
+  AxInternalEmbedRequest,
   AxModelConfig,
   AxModelInfo,
   AxModelInfoWithProvider,
@@ -65,10 +67,12 @@ export class AxBaseAI<
 > implements AxAIService
 {
   generateChatReq?: (
-    req: Readonly<AxChatRequest>,
+    req: Readonly<AxInternalChatRequest>,
     config: Readonly<AxAIPromptConfig>
   ) => [API, TChatRequest];
-  generateEmbedReq?: (req: Readonly<AxEmbedRequest>) => [API, TEmbedRequest];
+  generateEmbedReq?: (
+    req: Readonly<AxInternalEmbedRequest>
+  ) => [API, TEmbedRequest];
   generateChatResp?: (resp: Readonly<TChatResponse>) => AxChatResponse;
   generateChatStreamResp?: (
     resp: Readonly<TChatResponseDelta>,
@@ -86,10 +90,10 @@ export class AxBaseAI<
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxTokenUsage;
   private embedModelUsage?: AxTokenUsage;
+  private models: AxBaseAIArgs['models'];
 
   protected apiURL: string;
   protected name: string;
-  protected models: AxBaseAIArgs['models'];
   protected headers: Record<string, string>;
   protected supportFor: AxBaseAIFeatures;
 
@@ -266,7 +270,7 @@ export class AxBaseAI<
       model,
       functions,
       modelConfig: { ...chatReq.modelConfig, stream }
-    } as Readonly<AxChatRequest>;
+    };
 
     const fn = async () => {
       const [apiConfig, reqValue] = reqFn(req, options as AxAIPromptConfig);
@@ -406,7 +410,7 @@ export class AxBaseAI<
     const req = {
       ...embedReq,
       embedModel
-    } as Readonly<AxEmbedRequest>;
+    };
 
     const fn = async () => {
       const [apiConfig, reqValue] = this.generateEmbedReq!(req);

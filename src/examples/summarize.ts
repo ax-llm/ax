@@ -2,13 +2,15 @@ import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '@ax-llm/ax';
 
 const noteText = `The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] According to the most popular version of the singularity hypothesis, I.J. Good's intelligence explosion model, an upgradable intelligent agent will eventually enter a "runaway reaction" of self-improvement cycles, each new and more intelligent generation appearing more and more rapidly, causing an "explosion" in intelligence and resulting in a powerful superintelligence that qualitatively far surpasses all human intelligence.[4]`;
 
+// Example with OpenAI using custom labels in place of model names
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT35Turbo }
+  config: { model: 'model-a' },
+  modelMap: {
+    'model-a': AxAIOpenAIModel.GPT35Turbo
+  }
 });
-
-ai.setOptions({ debug: true });
 
 // const ai = new AxAI({ name: 'ollama', model: 'nous-hermes2' });
 

@@ -9,8 +9,9 @@ import type {
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
-  AxEmbedRequest,
   AxEmbedResponse,
+  AxInternalChatRequest,
+  AxInternalEmbedRequest,
   AxModelConfig
 } from '../types.js';
 
@@ -98,11 +99,11 @@ export class AxAICohere extends AxBaseAI<
   }
 
   override generateChatReq = (
-    req: Readonly<AxChatRequest>,
+    req: Readonly<AxInternalChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxAICohereChatRequest] => {
-    const model = this.config.model;
+    const model = req.model;
 
     const lastChatMsg = req.chatPrompt.at(-1);
     const restOfChat = req.chatPrompt.slice(0, -1);
@@ -187,9 +188,9 @@ export class AxAICohere extends AxBaseAI<
   };
 
   override generateEmbedReq = (
-    req: Readonly<AxEmbedRequest>
+    req: Readonly<AxInternalEmbedRequest>
   ): [API, AxAICohereEmbedRequest] => {
-    const model = this.config.embedModel;
+    const model = req.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

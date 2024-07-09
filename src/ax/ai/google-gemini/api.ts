@@ -6,11 +6,11 @@ import {
 } from '../base.js';
 import type {
   AxAIServiceOptions,
-  AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
-  AxEmbedRequest,
   AxEmbedResponse,
+  AxInternalChatRequest,
+  AxInternalEmbedRequest,
   AxModelConfig,
   AxTokenUsage
 } from '../types.js';
@@ -150,9 +150,9 @@ export class AxAIGoogleGemini extends AxBaseAI<
   }
 
   override generateChatReq = (
-    req: Readonly<AxChatRequest>
+    req: Readonly<AxInternalChatRequest>
   ): [API, AxAIGoogleGeminiChatRequest] => {
-    const model = this.config.model;
+    const model = req.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -332,9 +332,9 @@ export class AxAIGoogleGemini extends AxBaseAI<
   };
 
   override generateEmbedReq = (
-    req: Readonly<AxEmbedRequest>
+    req: Readonly<AxInternalEmbedRequest>
   ): [API, AxAIGoogleGeminiBatchEmbedRequest] => {
-    const model = this.config.embedModel;
+    const model = req.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');
