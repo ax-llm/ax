@@ -62,7 +62,12 @@ export interface AxAIOpenAIArgs {
   modelInfo?: Readonly<AxModelInfo[]>;
 }
 
-export class AxAIOpenAI extends AxBaseAI<
+export class AxAIOpenAI<
+  TM extends string = AxAIOpenAIModel | string,
+  TEM extends string = AxAIOpenAIEmbedModel | string
+> extends AxBaseAI<
+  TM,
+  TEM,
   AxAIOpenAIChatRequest,
   AxAIOpenAIEmbedRequest,
   AxAIOpenAIChatResponse,
@@ -86,12 +91,16 @@ export class AxAIOpenAI extends AxBaseAI<
       ...axAIOpenAIDefaultConfig(),
       ...config
     };
+
     super({
       name: 'OpenAI',
       apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo,
-      models: { model: _config.model, embedModel: _config.embedModel },
+      models: {
+        model: _config.model as string,
+        embedModel: _config.embedModel as string
+      },
       options,
       supportFor: { functions: true, streaming: true }
     });
@@ -118,7 +127,7 @@ export class AxAIOpenAI extends AxBaseAI<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxAIOpenAIChatRequest] => {
-    const model = req.model ?? this.config.model;
+    const model = this.config.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
@@ -177,7 +186,7 @@ export class AxAIOpenAI extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
   ): [API, AxAIOpenAIEmbedRequest] => {
-    const model = req.embedModel ?? this.config.embedModel;
+    const model = this.config.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

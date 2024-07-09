@@ -21,7 +21,7 @@ export interface AxAITogetherArgs {
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxAITogether extends AxAIOpenAI {
+export class AxAITogether extends AxAIOpenAI<string, string> {
   constructor({
     apiKey,
     config,

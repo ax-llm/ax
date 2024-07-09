@@ -40,6 +40,8 @@ export interface AxAIHuggingFaceArgs {
 }
 
 export class AxAIHuggingFace extends AxBaseAI<
+  AxAIHuggingFaceModel,
+  string,
   AxAIHuggingFaceRequest,
   unknown,
   AxAIHuggingFaceResponse,
@@ -89,7 +91,7 @@ export class AxAIHuggingFace extends AxBaseAI<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxAIHuggingFaceRequest] => {
-    const model = req.model ?? this.config.model;
+    const model = this.config.model;
 
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`

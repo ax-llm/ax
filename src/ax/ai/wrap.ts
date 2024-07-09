@@ -47,27 +47,18 @@ import type {
   AxModelInfo
 } from './types.js';
 
-export type AxAIModelMap<T> = Record<string, T>;
-
-export interface AxAIOptions<TM = string, TEM = string> {
-  modelMap?: AxAIModelMap<TM>;
-  embedModelMap?: AxAIModelMap<TEM>;
-}
-
 export type AxAIArgs =
-  | (AxAIOpenAIArgs & AxAIOptions<AxAIOpenAIModel, AxAIOpenAIEmbedModel>)
-  | (AxAIAzureOpenAIArgs & AxAIOptions<AxAIOpenAIModel, AxAIOpenAIEmbedModel>)
-  | (AxAITogetherArgs & AxAIOptions<string, string>)
-  | (AxAIAnthropicArgs & AxAIOptions<AxAIAnthropicModel, AxAIAnthropicModel>)
-  | (AxAIGroqArgs & AxAIOptions<AxAIGroqModel, AxAIGroqModel>)
-  | (AxAIGoogleGeminiArgs &
-      AxAIOptions<AxAIGoogleGeminiModel, AxAIGoogleGeminiEmbedModel>)
-  | (AxAICohereArgs & AxAIOptions<AxAICohereModel, AxAICohereEmbedModel>)
-  | (AxAIHuggingFaceArgs &
-      AxAIOptions<AxAIHuggingFaceModel, AxAIHuggingFaceModel>)
-  | (AxAIMistralArgs & AxAIOptions<AxAIMistralModel, AxAIMistralModel>)
-  | (AxAIDeepSeekArgs & AxAIOptions<AxAIDeepSeekModel, AxAIDeepSeekModel>)
-  | (AxAIOllamaArgs & AxAIOptions<string, string>);
+  | AxAIOpenAIArgs
+  | AxAIAzureOpenAIArgs
+  | AxAITogetherArgs
+  | AxAIAnthropicArgs
+  | AxAIGroqArgs
+  | AxAIGoogleGeminiArgs
+  | AxAICohereArgs
+  | AxAIHuggingFaceArgs
+  | AxAIMistralArgs
+  | AxAIDeepSeekArgs
+  | AxAIOllamaArgs;
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -88,50 +79,55 @@ export type AxAIEmbedModels =
 
 export class AxAI implements AxAIService {
   private ai: AxAIService;
-  private options: AxAIOptions;
 
   constructor(options: Readonly<AxAIArgs>) {
-    const { modelMap, embedModelMap, ...args } = options;
-    this.options = { modelMap, embedModelMap };
-
-    switch (args.name) {
+    switch (options.name) {
       case 'openai':
-        this.ai = new AxAIOpenAI(args);
+        this.ai = new AxAIOpenAI(options);
         break;
       case 'azure-openai':
-        this.ai = new AxAIAzureOpenAI(args);
+        this.ai = new AxAIAzureOpenAI(options);
         break;
       case 'huggingface':
-        this.ai = new AxAIHuggingFace(args);
+        this.ai = new AxAIHuggingFace(options);
         break;
       case 'groq':
-        this.ai = new AxAIGroq(args);
+        this.ai = new AxAIGroq(options);
         break;
       case 'together':
-        this.ai = new AxAITogether(args);
+        this.ai = new AxAITogether(options);
         break;
       case 'cohere':
-        this.ai = new AxAICohere(args);
+        this.ai = new AxAICohere(options);
         break;
       case 'google-gemini':
-        this.ai = new AxAIGoogleGemini(args);
+        this.ai = new AxAIGoogleGemini(options);
         break;
       case 'anthropic':
-        this.ai = new AxAIAnthropic(args);
+        this.ai = new AxAIAnthropic(options);
         break;
       case 'mistral':
-        this.ai = new AxAIMistral(args);
+        this.ai = new AxAIMistral(options);
         break;
       case 'deepseek':
-        this.ai = new AxAIDeepSeek(args);
+        this.ai = new AxAIDeepSeek(options);
         break;
       case 'ollama':
-        this.ai = new AxAIOllama(args);
+        this.ai = new AxAIOllama(options);
         break;
       default:
         throw new Error(`Unknown AI`);
     }
   }
+
+  setModelMap(modelMap: Readonly<Record<string, string>>): void {
+    this.ai.setModelMap(modelMap);
+  }
+
+  setEmbedModelMap(modelMap: Readonly<Record<string, string>>): void {
+    this.ai.setEmbedModelMap(modelMap);
+  }
+
   getName(): string {
     return this.ai.getName();
   }
@@ -156,13 +152,6 @@ export class AxAI implements AxAIService {
     req: Readonly<AxChatRequest>,
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    if (this.options?.modelMap && req.model) {
-      const model = this.options.modelMap[req.model];
-      if (!model || model.length === 0) {
-        throw new Error(`Model not found in model map: ${req.model}`);
-      }
-      return await this.ai.chat({ ...req, model }, options);
-    }
     return await this.ai.chat(req, options);
   }
 
@@ -170,15 +159,6 @@ export class AxAI implements AxAIService {
     req: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions & AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
-    if (this.options?.embedModelMap && req.embedModel) {
-      const embedModel = this.options.embedModelMap[req.embedModel];
-      if (!embedModel || embedModel.length === 0) {
-        throw new Error(
-          `Model not found in embed model map: ${req.embedModel}`
-        );
-      }
-      return await this.ai.embed({ ...req, embedModel }, options);
-    }
     return await this.ai.embed(req, options);
   }
 

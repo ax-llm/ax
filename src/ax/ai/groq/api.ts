@@ -21,7 +21,7 @@ export interface AxAIGroqArgs {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number };
 }
 
-export class AxAIGroq extends AxAIOpenAI {
+export class AxAIGroq extends AxAIOpenAI<AxAIGroqModel, string> {
   constructor({
     apiKey,
     config,

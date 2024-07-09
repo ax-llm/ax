@@ -84,6 +84,8 @@ export interface AxAIGoogleGeminiArgs {
  * @export
  */
 export class AxAIGoogleGemini extends AxBaseAI<
+  AxAIGoogleGeminiModel,
+  AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiChatRequest,
   AxAIGoogleGeminiBatchEmbedRequest,
   AxAIGoogleGeminiChatResponse,
@@ -121,7 +123,10 @@ export class AxAIGoogleGemini extends AxBaseAI<
       apiURL,
       headers: {},
       modelInfo: axModelInfoGoogleGemini,
-      models: { model: _config.model, embedModel: _config.embedModel },
+      models: {
+        model: _config.model as AxAIGoogleGeminiModel,
+        embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel
+      },
       options,
       supportFor: { functions: true, streaming: true }
     });
@@ -143,7 +148,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
   override generateChatReq = (
     req: Readonly<AxChatRequest>
   ): [API, AxAIGoogleGeminiChatRequest] => {
-    const model = req.model ?? this.config.model;
+    const model = this.config.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -325,7 +330,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
   ): [API, AxAIGoogleGeminiBatchEmbedRequest] => {
-    const model = req.embedModel ?? this.config.embedModel;
+    const model = this.config.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

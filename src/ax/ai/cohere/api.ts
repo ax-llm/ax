@@ -48,6 +48,8 @@ export interface AxAICohereArgs {
 }
 
 export class AxAICohere extends AxBaseAI<
+  AxAICohereModel,
+  AxAICohereEmbedModel,
   AxAICohereChatRequest,
   AxAICohereEmbedRequest,
   AxAICohereChatResponse,
@@ -99,7 +101,7 @@ export class AxAICohere extends AxBaseAI<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [API, AxAICohereChatRequest] => {
-    const model = req.model ?? this.config.model;
+    const model = this.config.model;
 
     const lastChatMsg = req.chatPrompt.at(-1);
     const restOfChat = req.chatPrompt.slice(0, -1);
@@ -186,7 +188,7 @@ export class AxAICohere extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxEmbedRequest>
   ): [API, AxAICohereEmbedRequest] => {
-    const model = req.embedModel ?? this.config.embedModel;
+    const model = this.config.embedModel;
 
     if (!model) {
       throw new Error('Embed model not set');

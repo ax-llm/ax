@@ -1,5 +1,6 @@
 import type { ReadableStream } from 'stream/web';
 
+import type { AxAIModelMap } from './base.js';
 import type {
   AxAIPromptConfig,
   AxAIService,
@@ -39,6 +40,14 @@ export class AxBalancer implements AxAIService {
       throw new Error('Error initializing the AI services.'); // More specific error message
     }
     this.currentService = cs;
+  }
+
+  setModelMap(modelMap: AxAIModelMap<string>): void {
+    this.currentService.setModelMap(modelMap);
+  }
+
+  setEmbedModelMap(embedModelMap: AxAIModelMap<string>): void {
+    this.currentService.setEmbedModelMap(embedModelMap);
   }
 
   private getNextService(): boolean {

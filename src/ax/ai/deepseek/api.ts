@@ -30,7 +30,7 @@ export interface AxAIDeepSeekArgs {
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxAIDeepSeek extends AxAIOpenAI {
+export class AxAIDeepSeek extends AxAIOpenAI<AxAIDeepSeekModel, string> {
   constructor({
     apiKey,
     config,

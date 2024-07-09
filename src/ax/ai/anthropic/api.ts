@@ -37,6 +37,8 @@ export interface AxAIAnthropicArgs {
 }
 
 export class AxAIAnthropic extends AxBaseAI<
+  AxAIAnthropicModel,
+  unknown,
   AxAIAnthropicChatRequest,
   unknown,
   AxAIAnthropicChatResponse,
@@ -65,7 +67,7 @@ export class AxAIAnthropic extends AxBaseAI<
         'x-api-key': apiKey
       },
       modelInfo: axModelInfoAnthropic,
-      models: { model: _config.model as string },
+      models: { model: _config.model },
       options,
       supportFor: { functions: true, streaming: true }
     });
@@ -87,6 +89,8 @@ export class AxAIAnthropic extends AxBaseAI<
   override generateChatReq = (
     req: Readonly<AxChatRequest>
   ): [API, AxAIAnthropicChatRequest] => {
+    const model = this.config.model;
+
     const apiConfig = {
       name: '/messages'
     };
@@ -104,7 +108,7 @@ export class AxAIAnthropic extends AxBaseAI<
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
     const reqValue: AxAIAnthropicChatRequest = {
-      model: req.model ?? this.config.model,
+      model,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       stop_sequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,

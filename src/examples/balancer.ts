@@ -13,20 +13,21 @@ const text = `The technological singularity—or simply the singularity[1]—is 
 
 const ai1 = new AxAI({
   name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-  modelMap: {
-    chill: AxAIOpenAIModel.GPT35Turbo,
-    genius: AxAIOpenAIModel.GPT4Turbo
-  }
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+ai1.setModelMap({
+  chill: AxAIOpenAIModel.GPT35Turbo,
+  genius: AxAIOpenAIModel.GPT4Turbo
 });
 
 const ai2 = new AxAI({
   name: 'anthropic',
-  apiKey: process.env.ANTHROPIC_APIKEY as string,
-  modelMap: {
-    chill: AxAIAnthropicModel.Claude3Haiku,
-    genius: AxAIAnthropicModel.Claude35Sonnet
-  }
+  apiKey: process.env.ANTHROPIC_APIKEY as string
+});
+
+ai2.setModelMap({
+  chill: AxAIAnthropicModel.Claude3Haiku,
+  genius: AxAIAnthropicModel.Claude35Sonnet
 });
 
 const ai = new AxBalancer([ai1, ai2]);

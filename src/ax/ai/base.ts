@@ -22,6 +22,13 @@ import type {
 
 const colorLog = new ColorLog();
 
+export type AxAIModelMap<T> = Record<string, T>;
+
+export interface AxBaseAIFeatures {
+  functions: boolean;
+  streaming: boolean;
+}
+
 export interface AxBaseAIArgs {
   name: string;
   apiURL: string;
@@ -29,7 +36,9 @@ export interface AxBaseAIArgs {
   modelInfo: Readonly<AxModelInfo[]>;
   models: Readonly<{ model: string; embedModel?: string }>;
   options?: Readonly<AxAIServiceOptions>;
-  supportFor: { functions: boolean; streaming: boolean };
+  supportFor: AxBaseAIFeatures;
+  modelMap?: AxAIModelMap<string>;
+  embedModelMap?: AxAIModelMap<string>;
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -50,6 +59,8 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   });
 
 export class AxBaseAI<
+  TModel extends string,
+  TEmbedModel extends string,
   TChatRequest,
   TEmbedRequest,
   TChatResponse,
@@ -74,6 +85,8 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter'];
   private fetch?: AxAIServiceOptions['fetch'];
   private tracer?: AxAIServiceOptions['tracer'];
+  private modelMap?: AxAIModelMap<TModel>;
+  private embedModelMap?: AxAIModelMap<TEmbedModel>;
 
   private modelUsage?: AxTokenUsage;
   private embedModelUsage?: AxTokenUsage;
@@ -83,7 +96,7 @@ export class AxBaseAI<
   protected headers: Record<string, string>;
   protected modelInfo: AxModelInfo;
   protected embedModelInfo?: AxModelInfo;
-  protected supportFor: AxBaseAIArgs['supportFor'];
+  protected supportFor: AxBaseAIFeatures;
 
   constructor({
     name,
@@ -100,21 +113,32 @@ export class AxBaseAI<
     this.supportFor = supportFor;
     this.tracer = options.tracer;
 
-    if (models.model.length === 0) {
+    const model = this.getModel(models.model as string);
+    const embedModel = this.getEmbedModel(models.embedModel as string);
+
+    if (typeof model === 'string') {
+      const modelName = model.replace(/-0\d+$|-\d{2,}$/, '');
+      this.modelInfo = modelInfo.filter((v) => v.name === modelName).at(0) ?? {
+        name: model,
+        currency: 'usd',
+        promptTokenCostPer1M: 0,
+        completionTokenCostPer1M: 0
+      };
+    } else {
       throw new Error('No model defined');
     }
 
-    const mname = models.model.replace(/-0\d+$|-\d{2,}$/, '');
-    this.modelInfo = modelInfo.filter((v) => v.name === mname).at(0) ?? {
-      name: models.model,
-      currency: 'usd',
-      promptTokenCostPer1M: 0,
-      completionTokenCostPer1M: 0
-    };
-
-    this.embedModelInfo = modelInfo
-      .filter((v) => v.name === models.embedModel)
-      .at(0);
+    if (typeof embedModel === 'string') {
+      const embedModelName = embedModel?.replace(/-0\d+$|-\d{2,}$/, '');
+      this.embedModelInfo = modelInfo
+        .filter((v) => v.name === embedModelName)
+        .at(0) ?? {
+        name: embedModel ?? '',
+        currency: 'usd',
+        promptTokenCostPer1M: 0,
+        completionTokenCostPer1M: 0
+      };
+    }
 
     this.setOptions(options);
   }
@@ -149,6 +173,14 @@ export class AxBaseAI<
     }
   }
 
+  setModelMap(modelMap: AxAIModelMap<TModel>): void {
+    this.modelMap = modelMap;
+  }
+
+  setEmbedModelMap(embedModelMap: AxAIModelMap<TEmbedModel>): void {
+    this.embedModelMap = embedModelMap;
+  }
+
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
     return { ...this.modelInfo, provider: this.name };
   }
@@ -163,7 +195,7 @@ export class AxBaseAI<
     return this.name;
   }
 
-  getFeatures(): AxBaseAIArgs['supportFor'] {
+  getFeatures(): AxBaseAIFeatures {
     return this.supportFor;
   }
 
@@ -399,6 +431,14 @@ export class AxBaseAI<
     headers: Record<string, string> = {}
   ): Record<string, string> {
     return { ...headers, ...this.headers };
+  }
+
+  private getEmbedModel(name?: string): string | undefined {
+    return name ? this.embedModelMap?.[name] ?? name : undefined;
+  }
+
+  private getModel(name: string): string {
+    return this.modelMap?.[name] ?? name;
   }
 }
 

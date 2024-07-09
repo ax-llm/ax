@@ -36,7 +36,7 @@ export type AxAIOllamaArgs = {
  * OllamaAI: AI Service
  * @export
  */
-export class AxAIOllama extends AxAIOpenAI {
+export class AxAIOllama extends AxAIOpenAI<string, string> {
   constructor({
     apiKey = 'not-set',
     url = 'http://localhost:11434',

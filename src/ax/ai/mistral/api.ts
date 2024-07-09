@@ -4,7 +4,7 @@ import type { AxAIOpenAIConfig } from '../openai/types.js';
 import type { AxAIServiceOptions } from '../types.js';
 
 import { axModelInfoMistral } from './info.js';
-import { AxAIMistralModel } from './types.js';
+import { AxAIMistralEmbedModels, AxAIMistralModel } from './types.js';
 
 type MistralConfig = AxAIOpenAIConfig;
 
@@ -27,7 +27,10 @@ export interface AxAIMistralArgs {
   options?: Readonly<AxAIServiceOptions>;
 }
 
-export class AxAIMistral extends AxAIOpenAI {
+export class AxAIMistral extends AxAIOpenAI<
+  AxAIMistralModel,
+  AxAIMistralEmbedModels
+> {
   constructor({
     apiKey,
     config,
