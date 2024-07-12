@@ -47,7 +47,7 @@ export class AxPromptTemplate {
     this.outputFormat = {
       type: 'text' as const,
       text: [
-        'Follow the following format.',
+        'Use the following output format.',
         ...this.renderOutFields(this.sig.getOutputFields()),
         '---\n\n'
       ].join('\n\n')
