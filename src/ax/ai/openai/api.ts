@@ -73,6 +73,7 @@ export class AxAIOpenAI extends AxBaseAI<
 > {
   private config: AxAIOpenAIConfig;
   private streamingUsage: boolean;
+  private dimensions?: number;
 
   constructor({
     apiKey,
@@ -105,6 +106,7 @@ export class AxAIOpenAI extends AxBaseAI<
     });
     this.config = _config;
     this.streamingUsage = options?.streamingUsage ?? true;
+    this.dimensions = config?.dimensions;
   }
 
   override getModelConfig(): AxModelConfig {
@@ -201,7 +203,8 @@ export class AxAIOpenAI extends AxBaseAI<
 
     const reqValue = {
       model: model,
-      input: req.texts
+      input: req.texts,
+      dimensions: this.dimensions
     };
 
     return [apiConfig, reqValue];

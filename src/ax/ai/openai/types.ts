@@ -28,6 +28,7 @@ export type AxAIOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
   stop?: string[];
   logprobs?: number;
   echo?: boolean;
+  dimensions?: number;
 };
 
 export type AxAIOpenAILogprob = {
@@ -161,6 +162,7 @@ export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
 export type AxAIOpenAIEmbedRequest = {
   input: readonly string[];
   model: string;
+  dimensions?: number;
   user?: string;
 };
 

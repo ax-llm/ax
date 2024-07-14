@@ -8,7 +8,6 @@ import { MarkdownPageEvent } from 'typedoc-plugin-markdown';
 export function load(app) {
   app.renderer.on(
     MarkdownPageEvent.BEGIN,
-    /** @param {import('typedoc-plugin-markdown').MarkdownPageEvent} page */
     (page) => {
       /**
        * Update page.frontmatter object using information from the page model
@@ -23,4 +22,19 @@ export function load(app) {
         };
     },
   );
+
+  app.renderer.on(
+    MarkdownPageEvent.END,
+    (page) => {
+        page.contents = replaceAndFormat(page.contents)
+        console.log(page.contents)
+    },
+  );
+
 }
+
+const replaceAndFormat = (text) => {
+    text = text.replace(/\/[A-Za-z]+\.md/g, (match) => match.toLowerCase().replace('.md', ''));
+    text = text.replace('../', '/apidocs/');
+    return text
+  };

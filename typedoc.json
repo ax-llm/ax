@@ -12,5 +12,7 @@
   "cleanOutputDir": true,
   "hidePageHeader": true,
   "hideBreadcrumbs": true,
+  "useHTMLAnchors": true,
+  "preserveAnchorCasing": false,
   "readme": "README.md"
 }
