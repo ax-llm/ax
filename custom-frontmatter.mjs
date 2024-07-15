@@ -27,7 +27,6 @@ export function load(app) {
     MarkdownPageEvent.END,
     (page) => {
         page.contents = replaceAndFormat(page.contents)
-        console.log(page.contents)
     },
   );
 
@@ -35,6 +34,6 @@ export function load(app) {
 
 const replaceAndFormat = (text) => {
     text = text.replace(/\/[A-Za-z]+\.md/g, (match) => match.toLowerCase().replace('.md', ''));
-    text = text.replace('../', '/apidocs/');
+    text = text.replaceAll('(../', '(/apidocs/');
     return text
   };
