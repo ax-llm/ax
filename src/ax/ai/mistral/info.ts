@@ -1,3 +1,5 @@
+// cspell:ignore mistral, mixtral, codestral, nemo
+
 import type { AxModelInfo } from '../types.js';
 
 import { AxAIMistralModel } from './types.js';
@@ -22,15 +24,27 @@ export const axModelInfoMistral: AxModelInfo[] = [
     completionTokenCostPer1M: 6
   },
   {
-    name: AxAIMistralModel.MistralMedium,
-    currency: 'USD',
-    promptTokenCostPer1M: 2.7,
-    completionTokenCostPer1M: 8.1
-  },
-  {
     name: AxAIMistralModel.MistralLarge,
     currency: 'USD',
     promptTokenCostPer1M: 8,
     completionTokenCostPer1M: 24
+  },
+  {
+    name: AxAIMistralModel.Codestral,
+    currency: 'USD',
+    promptTokenCostPer1M: 1,
+    completionTokenCostPer1M: 3
+  },
+  {
+    name: AxAIMistralModel.OpenCodestralMamba,
+    currency: 'USD',
+    promptTokenCostPer1M: 0.25,
+    completionTokenCostPer1M: 0.25
+  },
+  {
+    name: AxAIMistralModel.OpenMistralNemo,
+    currency: 'USD',
+    promptTokenCostPer1M: 0.3,
+    completionTokenCostPer1M: 0.3
   }
 ];

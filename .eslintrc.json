@@ -41,40 +41,6 @@
     "functional/no-throw-statements": "off",
     "functional/immutable-data": "off",
     "@typescript-eslint/explicit-module-boundary-types": "off",
-    "@typescript-eslint/naming-convention": [
-      "error",
-      {
-        "selector": ["variable", "function"],
-        "format": ["camelCase"],
-        "leadingUnderscore": "allow"
-      },
-      {
-        "selector": ["variable", "function"],
-        "modifiers": ["exported"],
-        "format": ["PascalCase"],
-        "prefix": ["ax"]
-      },
-      {
-        "selector": ["classMethod"],
-        "format": ["camelCase"],
-        "leadingUnderscore": "allow"
-      },
-      {
-        "selector": "parameter",
-        "format": ["camelCase"],
-        "leadingUnderscore": "allow"
-      },
-      {
-        "selector": "typeLike",
-        "format": ["PascalCase"]
-      },
-      {
-        "selector": "typeLike",
-        "modifiers": ["exported"],
-        "format": ["PascalCase"],
-        "prefix": ["Ax"]
-      }
-    ],
     "eslint-comments/disable-enable-pair": [
       "error",
       { "allowWholeFile": true }
