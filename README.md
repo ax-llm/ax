@@ -40,12 +40,12 @@ You can have multiple input and output fields and each field has one of these ty
 
 | Provider      | Best Models             | Tested  |
 | ------------- | ----------------------- | ------- |
-| OpenAI        | GPT: 4o, 4T, 4, 3.5     | 🟢 100% |
-| Azure OpenAI  | GPT: 4, 4T, 3.5         | 🟢 100% |
+| OpenAI        | GPT: All 4 models       | 🟢 100% |
+| Azure OpenAI  | GPT: All 4 models       | 🟢 100% |
 | Together      | Several OSS Models      | 🟢 100% |
 | Cohere        | CommandR, Command       | 🟢 100% |
 | Anthropic     | Claude 2, Claude 3      | 🟢 100% |
-| Mistral       | 7B, 8x7B, S, M & L      | 🟢 100% |
+| Mistral       | 7B, 8x7B, S, L          | 🟢 100% |
 | Groq          | Lama2-70B, Mixtral-8x7b | 🟢 100% |
 | DeepSeek      | Chat and Code           | 🟢 100% |
 | Ollama        | All models              | 🟢 100% |
