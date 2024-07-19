@@ -117,7 +117,10 @@ export class AxAIOllama extends AxBaseAI<
       }
       return {
         role: msg.role,
-        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+        content:
+          typeof msg.content === 'string'
+            ? msg.content
+            : JSON.stringify(msg.content)
       };
     });
 
