@@ -2,6 +2,7 @@ import type { AxModelInfo } from '../types.js';
 
 import { AxAIOllamaModel } from './types.js';
 
+// cspell:ignore Codellama
 export const axModelInfoOllama: AxModelInfo[] = [
   {
     name: AxAIOllamaModel.Codellama,
