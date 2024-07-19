@@ -1,0 +1,7 @@
+version: '3.8'
+services:
+  prettier-test:
+    build: .
+    volumes:
+      - .:/app
+    tty: true
