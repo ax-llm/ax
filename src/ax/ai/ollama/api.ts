@@ -20,9 +20,9 @@ import {
   type AxAIOllamaChatResponseDelta,
   type AxAIOllamaConfig,
   AxAIOllamaEmbedModel,
-  AxAIOllamaModel
+  AxAIOllamaModel,
   type AxAIOllamaEmbedRequest,
-  type AxAIOllamaEmbedResponse,
+  type AxAIOllamaEmbedResponse
 } from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
