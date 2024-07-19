@@ -92,7 +92,7 @@ export interface AxAIOllamaContentBlockDeltaEvent {
 
 export interface AxAIOllamaMessageDeltaEvent {
   type: 'message_delta'
-  delta: Partial<AxAIOllamaChatResponse>
+  delta: Partial<AxAIOllamaResponse>
 }
 
 export type AxAIOllamaChatResponseDelta =
