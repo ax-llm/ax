@@ -25,6 +25,8 @@ import {
   AxAIOllamaModel
 } from './types.js';
 
+// cspell:ignore Codellama
+
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig =>
   structuredClone({
     model: AxAIOllamaModel.Codellama,
@@ -47,10 +49,10 @@ export interface AxAIOllamaArgs {
   modelMap?: Record<string, AxAIOllamaModel | AxAIOllamaEmbedModel | string>;
 }
 
-export class AxAIOllama extends AxBaseAI<
+export class AxAIOllama extends AxBaseAI
   AxAIOllamaChatRequest,
   AxAIOllamaEmbedRequest,
-  AxAIOllamaChatResponse,
+  AxAIOllamaChatResponse | AxAIOllamaChatError,
   AxAIOllamaChatResponseDelta,
   AxAIOllamaEmbedResponse
 > {

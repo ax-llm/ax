@@ -1,5 +1,6 @@
 import type { AxModelConfig } from '../types.js';
 
+// cspell:ignore Codellama
 export enum AxAIOllamaModel {
   Codellama = 'codellama',
   Llama2 = 'llama2',
@@ -23,7 +24,16 @@ export type AxAIOllamaConfig = AxModelConfig & {
 
 export type AxAIOllamaChatRequest = {
   model: string;
-  messages: { role: string; content: string }[];
+  messages: (
+    | {
+        role: 'user';
+        content: string;
+      }
+    | {
+        role: 'assistant';
+        content: string;
+      }
+  )[];
   stream: boolean;
   options: {
     temperature?: number;
@@ -60,3 +70,44 @@ export type AxAIOllamaEmbedResponse = {
   embedding: number[];
   token_count: number;
 };
+
+// Add these types to match the structure in Anthropic's types
+export type AxAIOllamaChatError = {
+  type: 'error';
+  error: {
+    type: string;
+    message: string;
+  };
+};
+
+export interface AxAIOllamaMessageStartEvent {
+  type: 'message_start';
+  message: AxAIOllamaChatResponse;
+}
+
+export interface AxAIOllamaContentBlockStartEvent {
+  type: 'content_block_start';
+  content_block: {
+    type: 'text';
+    text: string;
+  };
+}
+
+export interface AxAIOllamaContentBlockDeltaEvent {
+  type: 'content_block_delta';
+  delta: {
+    type: 'text_delta';
+    text: string;
+  };
+}
+
+export interface AxAIOllamaMessageDeltaEvent {
+  type: 'message_delta';
+  delta: Partial<AxAIOllamaChatResponse>;
+}
+
+export type AxAIOllamaChatResponseDelta =
+  | AxAIOllamaMessageStartEvent
+  | AxAIOllamaContentBlockStartEvent
+  | AxAIOllamaContentBlockDeltaEvent
+  | AxAIOllamaMessageDeltaEvent;
