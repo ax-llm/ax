@@ -144,7 +144,15 @@ export class AxAIOllama extends AxBaseAI<
     resp: Readonly<AxAIOllamaChatResponse | AxAIOllamaChatError>
   ): AxChatResponse => {
     if ('type' in resp && resp.type === 'error') {
-      throw new Error(`Ollama API Error: ${resp.error.message}`);
+      return {
+        results: [
+          {
+            content: `Error: ${resp.error.message}`,
+            finishReason: 'error'
+          }
+        ],
+        modelUsage: undefined
+      };
     }
     return {
       results: [
