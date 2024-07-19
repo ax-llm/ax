@@ -15,14 +15,14 @@ import type {
 
 import { axModelInfoOllama } from './info.js';
 import {
-  AxAIOllamaEmbedModel,
-  AxAIOllamaModel,
   type AxAIOllamaChatRequest,
   type AxAIOllamaChatResponse,
   type AxAIOllamaChatResponseDelta,
   type AxAIOllamaConfig,
   type AxAIOllamaEmbedRequest,
-  type AxAIOllamaEmbedResponse
+  type AxAIOllamaEmbedResponse,
+  AxAIOllamaEmbedModel,
+  AxAIOllamaModel
 } from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
