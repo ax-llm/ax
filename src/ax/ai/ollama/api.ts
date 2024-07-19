@@ -2,7 +2,7 @@ import type { API } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
-  axBaseAIDefaultCreativeConfig,
+  axBaseAIDefaultCreativeConfig
 } from '../base.js'
 import type {
   AxAIServiceOptions,
@@ -10,7 +10,7 @@ import type {
   AxEmbedResponse,
   AxInternalChatRequest,
   AxInternalEmbedRequest,
-  AxModelConfig,
+  AxModelConfig
 } from '../types.js'
 
 import { axModelInfoOllama } from './info.js'
@@ -22,20 +22,22 @@ import {
   AxAIOllamaEmbedModel,
   type AxAIOllamaEmbedRequest,
   type AxAIOllamaEmbedResponse,
-  AxAIOllamaModel,
+  AxAIOllamaModel
 } from './types.js'
 
-export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
-  model: AxAIOllamaModel.Codellama,
-  embedModel: AxAIOllamaEmbedModel.Codellama,
-  ...axBaseAIDefaultConfig(),
-})
+export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig =>
+  structuredClone({
+    model: AxAIOllamaModel.Codellama,
+    embedModel: AxAIOllamaEmbedModel.Codellama,
+    ...axBaseAIDefaultConfig()
+  });
 
-export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaConfig => ({
-  model: AxAIOllamaModel.Codellama,
-  embedModel: AxAIOllamaEmbedModel.Codellama,
-  ...axBaseAIDefaultCreativeConfig(),
-})
+export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaConfig =>
+  structuredClone({
+    model: AxAIOllamaModel.Codellama,
+    embedModel: AxAIOllamaEmbedModel.Codellama,
+    ...axBaseAIDefaultCreativeConfig()
+  });
 
 export interface AxAIOllamaArgs {
   name: 'ollama'
@@ -58,13 +60,12 @@ export class AxAIOllama extends AxBaseAI<
     url,
     config,
     options,
-    modelMap,
+    modelMap
   }: Readonly<Omit<AxAIOllamaArgs, 'name'>>) {
     const _config = {
       ...axAIOllamaDefaultConfig(),
       ...config,
-    }
-
+    };
     super({
       name: 'Ollama',
       apiURL: new URL('/api', url || 'http://localhost:11434').href,
@@ -76,19 +77,21 @@ export class AxAIOllama extends AxBaseAI<
       },
       options,
       supportFor: { functions: false, streaming: true },
-      modelMap,
-    })
+      modelMap
+    });
 
-    this.config = _config
+    this.config = _config;
   }
 
   override getModelConfig(): AxModelConfig {
+    const { config } = this;
     return {
-      maxTokens: this.config.maxTokens,
-      temperature: this.config.temperature,
-      topP: this.config.topP,
-      topK: this.config.topK,
-    }
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+      topP: config.topP,
+      topK: config.topK,
+      stream: config.stream
+    } as AxModelConfig;
   }
 
   override generateChatReq = (
@@ -105,6 +108,8 @@ export class AxAIOllama extends AxBaseAI<
       name: '/chat',
     }
 
+    const stream = req.modelConfig?.stream ?? this.config.stream;
+
     const reqBody: AxAIOllamaChatRequest = {
       model,
       messages,
@@ -119,6 +124,7 @@ export class AxAIOllama extends AxBaseAI<
 
     return [apiConfig, reqBody]
   }
+
 
   override generateChatResp = (
     resp: Readonly<AxAIOllamaChatResponse>
