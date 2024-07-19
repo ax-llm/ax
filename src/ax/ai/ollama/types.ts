@@ -71,7 +71,6 @@ export type AxAIOllamaEmbedResponse = {
   token_count: number;
 };
 
-// Add these types to match the structure in Anthropic's types
 export type AxAIOllamaChatError = {
   type: 'error';
   error: {
@@ -110,4 +109,5 @@ export type AxAIOllamaChatResponseDelta =
   | AxAIOllamaMessageStartEvent
   | AxAIOllamaContentBlockStartEvent
   | AxAIOllamaContentBlockDeltaEvent
-  | AxAIOllamaMessageDeltaEvent;
+  | AxAIOllamaMessageDeltaEvent
+  | AxAIOllamaChatError;
