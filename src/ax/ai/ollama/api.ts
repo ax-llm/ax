@@ -1,4 +1,4 @@
-// api.ts
+// cspell:ignore Codellama
 
 import type { API } from '../../util/apicall.js';
 import {
