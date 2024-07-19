@@ -165,17 +165,18 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: { fullContent: string }
+    state: Readonly<{ fullContent: string }>
   ): AxChatResponse => {
-    if ('message' in resp) {
-      state.fullContent += resp.message?.content || '';
-    }
+    const newContent =
+      'message' in resp
+        ? state.fullContent + (resp.message?.content || '')
+        : state.fullContent;
 
     if ('done' in resp && resp.done) {
       return {
         results: [
           {
-            content: state.fullContent,
+            content: newContent,
             finishReason:
               'done_reason' in resp ? resp.done_reason || 'stop' : 'stop'
           }
