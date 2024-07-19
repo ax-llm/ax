@@ -173,11 +173,13 @@ export class AxAIOllama extends AxBaseAI<
     state: Readonly<{ fullContent: string; partialChunk: string }>
   ): AxChatResponse => {
     let processedResp = resp;
-  
+
     // Handle potential malformed JSON
     if (typeof resp === 'string') {
       try {
-        processedResp = JSON.parse(state.partialChunk + resp) as AxAIOllamaChatResponseDelta;
+        processedResp = JSON.parse(
+          state.partialChunk + resp
+        ) as AxAIOllamaChatResponseDelta;
         state.partialChunk = '';
       } catch (e) {
         // If parsing fails, it might be an incomplete chunk
@@ -210,7 +212,9 @@ export class AxAIOllama extends AxBaseAI<
             ],
             modelUsage: processedResp.delta.total_duration
               ? {
-                  totalTokens: (processedResp.delta.prompt_eval_count ?? 0) + (processedResp.delta.eval_count ?? 0),
+                  totalTokens:
+                    (processedResp.delta.prompt_eval_count ?? 0) +
+                    (processedResp.delta.eval_count ?? 0),
                   promptTokens: processedResp.delta.prompt_eval_count ?? 0,
                   completionTokens: processedResp.delta.eval_count ?? 0
                 }
