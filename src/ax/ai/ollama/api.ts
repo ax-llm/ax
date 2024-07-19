@@ -1,9 +1,9 @@
-import type { API } from '../../util/apicall';
+import type { API } from '../../util/apicall.js';
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig
-} from '../base';
+} from '../base.js';
 import type {
   AxAIPromptConfig,
   AxAIServiceOptions,
@@ -12,9 +12,9 @@ import type {
   AxInternalChatRequest,
   AxInternalEmbedRequest,
   AxModelConfig
-} from '../types';
+} from '../types.js';
 
-import { axModelInfoOllama } from './info';
+import { axModelInfoOllama } from './info.js';
 import {
   type AxAIOllamaChatRequest,
   type AxAIOllamaChatResponse,
@@ -24,7 +24,7 @@ import {
   AxAIOllamaEmbedModel,
   type AxAIOllamaEmbedRequest,
   type AxAIOllamaEmbedResponse
-} from './types';
+} from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
   model: AxAIOllamaModel.Codellama,
