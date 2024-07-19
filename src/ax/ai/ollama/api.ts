@@ -164,7 +164,7 @@ export class AxAIOllama extends AxBaseAI<
     state: Readonly<{ fullContent: string; partialChunk: string }>
   ): AxChatResponse => {
     let newState = { ...state };
-    
+
     switch (resp.type) {
       case 'message_start':
         // Handle message start
@@ -189,7 +189,9 @@ export class AxAIOllama extends AxBaseAI<
             ],
             modelUsage: resp.delta.total_duration
               ? {
-                  totalTokens: (resp.delta.prompt_eval_count ?? 0) + (resp.delta.eval_count ?? 0),
+                  totalTokens:
+                    (resp.delta.prompt_eval_count ?? 0) +
+                    (resp.delta.eval_count ?? 0),
                   promptTokens: resp.delta.prompt_eval_count ?? 0,
                   completionTokens: resp.delta.eval_count ?? 0
                 }
