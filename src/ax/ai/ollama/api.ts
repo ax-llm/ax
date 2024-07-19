@@ -15,6 +15,7 @@ import type {
 
 import { axModelInfoOllama } from './info.js';
 import {
+  type AxAIOllamaChatError,
   type AxAIOllamaChatRequest,
   type AxAIOllamaChatResponse,
   type AxAIOllamaChatResponseDelta,
@@ -92,7 +93,8 @@ export class AxAIOllama extends AxBaseAI<
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
-      stream: config.stream
+      stream: req.modelConfig?.stream ?? config.stream ?? false,
+      kstream: config.stream
     } as AxModelConfig;
   }
 
@@ -105,15 +107,24 @@ export class AxAIOllama extends AxBaseAI<
       name: '/chat'
     };
 
-    const messages = req.chatPrompt.map((msg) => ({
-      role: msg.role,
-      content: msg.content
-    }));
+    const messages = req.chatPrompt.map((msg) => {
+      if (msg.role === 'function') {
+        return {
+          role: msg.role,
+          content: msg.result,
+          name: msg.functionId
+        };
+      }
+      return {
+        role: msg.role,
+        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+      };
+    });
 
     const reqValue: AxAIOllamaChatRequest = {
       model,
       messages,
-      stream: req.modelConfig?.stream ?? this.config.stream,
+      stream: req.modelConfig?.stream ?? this.config.stream ?? false,
       options: {
         temperature: req.modelConfig?.temperature ?? this.config.temperature,
         top_p: req.modelConfig?.topP ?? this.config.topP,
