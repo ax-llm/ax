@@ -140,7 +140,7 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: { fullContent: string }
+    state: Readonly<{ fullContent: string }>
   ): AxChatResponse => {
     state.fullContent += resp.message?.content || '';
 
