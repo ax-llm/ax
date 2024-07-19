@@ -1,19 +1,19 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIOllamaModel {
-  Codellama = "codellama",
-  Llama2 = "llama2",
-  MiniLM = "all-MiniLM",
-  Llama2_7B = "llama2-7B",
-  Llama2_13B = "llama2-13B"
+  Codellama = 'codellama',
+  Llama2 = 'llama2',
+  MiniLM = 'all-MiniLM',
+  Llama2_7B = 'llama2-7B',
+  Llama2_13B = 'llama2-13B'
 }
 
 export enum AxAIOllamaEmbedModel {
-  Codellama = "codellama",
-  Llama2 = "llama2",
-  MiniLM = "all-MiniLM",
-  Llama2_7B = "llama2-7B",
-  Llama2_13B = "llama2-13B"
+  Codellama = 'codellama',
+  Llama2 = 'llama2',
+  MiniLM = 'all-MiniLM',
+  Llama2_7B = 'llama2-7B',
+  Llama2_13B = 'llama2-13B'
 }
 
 export type AxAIOllamaConfig = AxModelConfig & {
