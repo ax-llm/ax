@@ -1,46 +1,62 @@
+import type { API } from '../../util/apicall';
 import {
+  AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig
-} from '../base.js';
-import { AxAIOpenAI } from '../openai/api.js';
-import type { AxAIOpenAIConfig } from '../openai/types.js';
-import type { AxAIServiceOptions } from '../types.js';
+} from '../base';
+import type {
+  AxAIPromptConfig,
+  AxAIServiceOptions,
+  AxChatResponse,
+  AxEmbedResponse,
+  AxInternalChatRequest,
+  AxInternalEmbedRequest,
+  AxModelConfig
+} from '../types';
 
-export type AxAIOllamaAIConfig = AxAIOpenAIConfig;
+import { axModelInfoOllama } from './info';
+import {
+  type AxAIOllamaChatRequest,
+  type AxAIOllamaChatResponse,
+  type AxAIOllamaChatResponseDelta,
+  type AxAIOllamaConfig,
+  AxAIOllamaModel,
+  AxAIOllamaEmbedModel,
+  type AxAIOllamaEmbedRequest,
+  type AxAIOllamaEmbedResponse
+} from './types';
 
-export const axAIOllamaDefaultConfig = (): AxAIOllamaAIConfig =>
-  structuredClone({
-    ...axBaseAIDefaultConfig(),
-    model: 'nous-hermes2',
-    embedModel: 'all-minilm'
-  });
+export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
+  model: AxAIOllamaModel.Codellama,
+  embedModel: AxAIOllamaEmbedModel.Codellama,
+  ...axBaseAIDefaultConfig()
+});
 
-export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaAIConfig =>
-  structuredClone({
-    ...axBaseAIDefaultCreativeConfig(),
-    model: 'nous-hermes2',
-    embedModel: 'all-minilm'
-  });
+export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaConfig => ({
+  model: AxAIOllamaModel.Codellama,
+  embedModel: AxAIOllamaEmbedModel.Codellama,
+  ...axBaseAIDefaultCreativeConfig()
+});
 
-export type AxAIOllamaArgs = {
+export interface AxAIOllamaArgs {
   name: 'ollama';
-  model?: string;
-  embedModel?: string;
   url?: string;
-  apiKey?: string;
-  config?: Readonly<Partial<AxAIOllamaAIConfig>>;
+  config?: Readonly<Partial<AxAIOllamaConfig>>;
   options?: Readonly<AxAIServiceOptions>;
-  modelMap?: Record<string, string>;
-};
+  modelMap?: Record<string, AxAIOllamaModel | AxAIOllamaEmbedModel | string>;
+}
 
-/**
- * OllamaAI: AI Service
- * @export
- */
-export class AxAIOllama extends AxAIOpenAI {
+export class AxAIOllama extends AxBaseAI
+  AxAIOllamaChatRequest,
+  AxAIOllamaEmbedRequest,
+  AxAIOllamaChatResponse,
+  AxAIOllamaChatResponseDelta,
+  AxAIOllamaEmbedResponse
+> {
+  private config: AxAIOllamaConfig;
+
   constructor({
-    apiKey = 'not-set',
-    url = 'http://localhost:11434',
+    url,
     config,
     options,
     modelMap
@@ -49,14 +65,138 @@ export class AxAIOllama extends AxAIOpenAI {
       ...axAIOllamaDefaultConfig(),
       ...config
     };
+
     super({
-      apiKey,
+      name: 'Ollama',
+      apiURL: new URL('/api', url || 'http://localhost:11434').href,
+      headers: {},
+      modelInfo: axModelInfoOllama,
+      models: {
+        model: _config.model,
+        embedModel: _config.embedModel
+      },
       options,
-      config: _config,
-      apiURL: new URL('/api', url).href,
+      supportFor: { functions: false, streaming: true },
       modelMap
     });
 
-    super.setName('Ollama');
+    this.config = _config;
   }
+
+  override getModelConfig(): AxModelConfig {
+    return {
+      maxTokens: this.config.maxTokens,
+      temperature: this.config.temperature,
+      topP: this.config.topP,
+      topK: this.config.topK
+    };
+  }
+
+  override generateChatReq = (
+    req: Readonly<AxInternalChatRequest>,
+    options: Readonly<AxAIPromptConfig>
+  ): [API, AxAIOllamaChatRequest] => {
+    const model = req.model;
+    const stream = options.stream ?? req.modelConfig?.stream ?? this.config.stream;
+
+    const messages = req.chatPrompt.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
+    const apiConfig: API = {
+      name: '/chat'
+    };
+
+    const reqBody: AxAIOllamaChatRequest = {
+      model,
+      messages,
+      stream: true,
+      options: {
+        temperature: req.modelConfig?.temperature ?? this.config.temperature,
+        top_p: req.modelConfig?.topP ?? this.config.topP,
+        top_k: req.modelConfig?.topK ?? this.config.topK,
+        num_predict: req.modelConfig?.maxTokens ?? this.config.maxTokens
+      }
+    };
+
+    return [apiConfig, reqBody];
+  };
+
+  override generateChatResp = (
+    resp: Readonly<AxAIOllamaChatResponse>
+  ): AxChatResponse => {
+    return {
+      results: [{
+        content: resp.message?.content || '',
+        finishReason: resp.done_reason || 'stop'
+      }],
+      modelUsage: resp.total_duration ? {
+        totalTokens: resp.prompt_eval_count + resp.eval_count,
+        promptTokens: resp.prompt_eval_count,
+        completionTokens: resp.eval_count
+      } : undefined
+    };
+  };
+
+  override generateChatStreamResp = (
+    resp: Readonly<AxAIOllamaChatResponseDelta>,
+    state: { fullContent: string }
+  ): AxChatResponse => {
+    state.fullContent += resp.message?.content || '';
+
+    if (resp.done) {
+      return {
+        results: [{
+          content: state.fullContent,
+          finishReason: resp.done_reason || 'stop'
+        }],
+        modelUsage: resp.total_duration ? {
+          totalTokens: resp.prompt_eval_count + resp.eval_count,
+          promptTokens: resp.prompt_eval_count,
+          completionTokens: resp.eval_count
+        } : undefined
+      };
+    }
+
+    return {
+      results: [{
+        content: resp.message?.content || ''
+      }]
+    };
+  };
+
+  override generateEmbedReq = (
+    req: Readonly<AxInternalEmbedRequest>
+  ): [API, AxAIOllamaEmbedRequest] => {
+    const model = req.embedModel;
+
+    if (!model) {
+      throw new Error('Embed model not set');
+    }
+
+    if (!req.texts || req.texts.length === 0) {
+      throw new Error('Embed texts is empty');
+    }
+
+    const apiConfig: API = {
+      name: '/embeddings'
+    };
+
+    const reqBody: AxAIOllamaEmbedRequest = {
+      model,
+      prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts
+    };
+
+    return [apiConfig, reqBody];
+  };
+
+  override generateEmbedResp = (
+    resp: Readonly<AxAIOllamaEmbedResponse>
+  ): AxEmbedResponse => {
+    return {
+      embeddings: [resp.embedding],
+      modelUsage: { totalTokens: resp.token_count }
+    };
+  };
 }
