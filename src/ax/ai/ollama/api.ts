@@ -5,7 +5,6 @@ import {
   axBaseAIDefaultCreativeConfig
 } from '../base.js';
 import type {
-  AxAIPromptConfig,
   AxAIServiceOptions,
   AxChatResponse,
   AxEmbedResponse,
@@ -15,7 +14,6 @@ import type {
 } from '../types.js';
 
 import { axModelInfoOllama } from './info.js';
-
 import {
   AxAIOllamaEmbedModel,
   AxAIOllamaModel,
