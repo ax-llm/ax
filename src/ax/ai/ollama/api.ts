@@ -1,4 +1,5 @@
 // cspell:ignore Codellama
+// cspell:ignore kstream
 
 import type { API } from '../../util/apicall.js';
 import {

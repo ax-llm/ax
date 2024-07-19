@@ -1,3 +1,4 @@
+// cspell:ignore Codellama
 import type { AxModelInfo } from '../types.js';
 
 import { AxAIOllamaModel } from './types.js';
