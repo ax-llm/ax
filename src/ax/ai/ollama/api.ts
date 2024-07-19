@@ -211,8 +211,8 @@ export class AxAIOllama extends AxBaseAI<
       results: [
         {
           content:
-            'message' in resp && resp.message?.content
-              ? resp.message.content
+            'message' in resp && resp.message && 'content' in resp.message
+              ? resp.message.content || ''
               : ''
         }
       ]
@@ -222,12 +222,9 @@ export class AxAIOllama extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
   ): [API, AxAIOllamaEmbedRequest] => {
-    const reqBody: AxAIOllamaEmbedRequest = {
-      model,
-      prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts || ''
-    };
+    const embedModel = req.embedModel;
 
-    if (!model) {
+    if (!embedModel) {
       throw new Error('Embed model not set');
     }
 
@@ -240,7 +237,7 @@ export class AxAIOllama extends AxBaseAI<
     };
 
     const reqBody: AxAIOllamaEmbedRequest = {
-      model,
+      model: embedModel,
       prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts
     };
 
