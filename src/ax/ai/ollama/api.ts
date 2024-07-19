@@ -163,7 +163,7 @@ export class AxAIOllama extends AxBaseAI<
     resp: Readonly<AxAIOllamaChatResponseDelta>,
     state: Readonly<{ fullContent: string; partialChunk: string }>
   ): AxChatResponse => {
-    let newState = { ...state };
+    const newState = { ...state };
 
     switch (resp.type) {
       case 'message_start':
