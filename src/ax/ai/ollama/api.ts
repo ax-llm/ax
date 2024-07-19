@@ -27,6 +27,7 @@ import {
 } from './types.js';
 
 // cspell:ignore Codellama
+// cspell:ignore kstream
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig =>
   structuredClone({
