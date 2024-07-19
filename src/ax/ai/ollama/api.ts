@@ -20,10 +20,10 @@ import {
   type AxAIOllamaChatResponse,
   type AxAIOllamaChatResponseDelta,
   type AxAIOllamaConfig,
-  AxAIOllamaModel,
-  AxAIOllamaEmbedModel,
   type AxAIOllamaEmbedRequest,
-  type AxAIOllamaEmbedResponse
+  type AxAIOllamaEmbedResponse,
+  AxAIOllamaEmbedModel,
+  AxAIOllamaModel
 } from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
@@ -97,7 +97,6 @@ export class AxAIOllama extends AxBaseAI<
     options: Readonly<AxAIPromptConfig>
   ): [API, AxAIOllamaChatRequest] => {
     const model = req.model;
-    const stream = options.stream ?? req.modelConfig?.stream ?? this.config.stream;
 
     const messages = req.chatPrompt.map(msg => ({
       role: msg.role,
