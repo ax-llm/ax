@@ -15,7 +15,6 @@ import type {
 
 import { axModelInfoOllama } from './info.js';
 import {
-  type AxAIOllamaChatError;
   type AxAIOllamaChatRequest,
   type AxAIOllamaChatResponse,
   type AxAIOllamaChatResponseDelta,
