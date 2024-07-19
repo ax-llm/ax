@@ -1,6 +1,7 @@
 import type { AxModelConfig } from '../types.js';
 
 // cspell:ignore Codellama
+
 export enum AxAIOllamaModel {
   Codellama = 'codellama',
   Llama2 = 'llama2',
@@ -17,24 +18,18 @@ export enum AxAIOllamaEmbedModel {
   Llama2_13B = 'llama2-13B'
 }
 
-export type AxAIOllamaConfig = AxModelConfig & {
+export interface AxAIOllamaConfig extends AxModelConfig {
   model: AxAIOllamaModel | string;
   embedModel: AxAIOllamaEmbedModel | string;
-};
+}
 
-export type AxAIOllamaChatRequest = {
+export interface AxAIOllamaChatRequest {
   model: string;
-  messages: (
-    | {
-        role: 'user' | 'system' | 'assistant';
-        content: string;
-      }
-    | {
-        role: 'function';
-        content: string;
-        name: string;
-      }
-  )[];
+  messages: Array<{
+    role: 'user' | 'system' | 'assistant' | 'function';
+    content: string;
+    name?: string;
+  }>;
   stream: boolean;
   options: {
     temperature?: number;
@@ -43,9 +38,9 @@ export type AxAIOllamaChatRequest = {
     num_predict?: number;
     stop?: string[];
   };
-};
+}
 
-export type AxAIOllamaChatResponse = {
+export interface AxAIOllamaChatResponse {
   model: string;
   created_at: string;
   message?: {
@@ -58,21 +53,16 @@ export type AxAIOllamaChatResponse = {
   prompt_eval_count?: number;
   eval_count?: number;
   eval_duration?: number;
-  done_reason?:
-    | 'stop'
-    | 'length'
-    | 'function_call'
-    | 'content_filter'
-    | 'error';
-};
+  done_reason?: 'stop' | 'length' | 'function_call' | 'content_filter' | 'error';
+}
 
-export type AxAIOllamaChatError = {
+export interface AxAIOllamaChatError {
   type: 'error';
   error: {
     type: string;
     message: string;
   };
-};
+}
 
 export interface AxAIOllamaMessageStartEvent {
   type: 'message_start';
@@ -106,12 +96,12 @@ export type AxAIOllamaChatResponseDelta =
   | AxAIOllamaContentBlockDeltaEvent
   | AxAIOllamaMessageDeltaEvent;
 
-export type AxAIOllamaEmbedRequest = {
+export interface AxAIOllamaEmbedRequest {
   model: string;
   prompt: string;
-};
+}
 
-export type AxAIOllamaEmbedResponse = {
+export interface AxAIOllamaEmbedResponse {
   embedding: number[];
   token_count: number;
-};
+}

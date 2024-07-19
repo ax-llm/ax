@@ -1,42 +1,40 @@
 import type { AxModelInfo } from '../types.js';
-
 import { AxAIOllamaModel } from './types.js';
 
-// cspell:ignore Codellama
 export const axModelInfoOllama: AxModelInfo[] = [
   {
     name: AxAIOllamaModel.Codellama,
-    currency: 'N/A',
+    currency: 'compute',
     characterIsToken: false,
-    promptTokenCostPer1M: 0,
-    completionTokenCostPer1M: 0
+    promptTokenCostPer1M: 1,
+    completionTokenCostPer1M: 1,
   },
   {
     name: AxAIOllamaModel.Llama2,
-    currency: 'N/A',
+    currency: 'compute',
     characterIsToken: false,
-    promptTokenCostPer1M: 0,
-    completionTokenCostPer1M: 0
+    promptTokenCostPer1M: 1,
+    completionTokenCostPer1M: 1,
   },
   {
-    name: 'all-MiniLM',
-    currency: 'N/A',
+    name: AxAIOllamaModel.MiniLM,
+    currency: 'compute',
     characterIsToken: false,
-    promptTokenCostPer1M: 0,
-    completionTokenCostPer1M: 0
+    promptTokenCostPer1M: 0.5, 
+    completionTokenCostPer1M: 0.5,
   },
   {
-    name: 'Llama2-7B',
-    currency: 'N/A',
+    name: AxAIOllamaModel.Llama2_7B,
+    currency: 'compute',
     characterIsToken: false,
-    promptTokenCostPer1M: 0,
-    completionTokenCostPer1M: 0
+    promptTokenCostPer1M: 0.7,
+    completionTokenCostPer1M: 0.7,
   },
   {
-    name: 'Llama2-13B',
-    currency: 'N/A',
+    name: AxAIOllamaModel.Llama2_13B,
+    currency: 'compute',
     characterIsToken: false,
-    promptTokenCostPer1M: 0,
-    completionTokenCostPer1M: 0
-  }
+    promptTokenCostPer1M: 1.3,
+    completionTokenCostPer1M: 1.3,
+  },
 ];

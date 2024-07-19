@@ -1,3 +1,5 @@
+// api.ts
+
 import type { API } from '../../util/apicall.js';
 import {
   AxBaseAI,
@@ -15,33 +17,28 @@ import type {
 
 import { axModelInfoOllama } from './info.js';
 import {
-  type AxAIOllamaChatError,
-  type AxAIOllamaChatRequest,
-  type AxAIOllamaChatResponse,
-  type AxAIOllamaChatResponseDelta,
-  type AxAIOllamaConfig,
+  AxAIOllamaChatError,
+  AxAIOllamaChatRequest,
+  AxAIOllamaChatResponse,
+  AxAIOllamaChatResponseDelta,
+  AxAIOllamaConfig,
   AxAIOllamaEmbedModel,
-  type AxAIOllamaEmbedRequest,
-  type AxAIOllamaEmbedResponse,
+  AxAIOllamaEmbedRequest,
+  AxAIOllamaEmbedResponse,
   AxAIOllamaModel
 } from './types.js';
 
-// cspell:ignore Codellama
-// cspell:ignore kstream
+export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
+  model: AxAIOllamaModel.Codellama,
+  embedModel: AxAIOllamaEmbedModel.Codellama,
+  ...axBaseAIDefaultConfig()
+});
 
-export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig =>
-  structuredClone({
-    model: AxAIOllamaModel.Codellama,
-    embedModel: AxAIOllamaEmbedModel.Codellama,
-    ...axBaseAIDefaultConfig()
-  });
-
-export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaConfig =>
-  structuredClone({
-    model: AxAIOllamaModel.Codellama,
-    embedModel: AxAIOllamaEmbedModel.Codellama,
-    ...axBaseAIDefaultCreativeConfig()
-  });
+export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaConfig => ({
+  model: AxAIOllamaModel.Codellama,
+  embedModel: AxAIOllamaEmbedModel.Codellama,
+  ...axBaseAIDefaultCreativeConfig()
+});
 
 export interface AxAIOllamaArgs {
   name: 'ollama';
@@ -51,7 +48,7 @@ export interface AxAIOllamaArgs {
   modelMap?: Record<string, AxAIOllamaModel | AxAIOllamaEmbedModel | string>;
 }
 
-export class AxAIOllama extends AxBaseAI<
+export class AxAIOllama extends AxBaseAI
   AxAIOllamaChatRequest,
   AxAIOllamaEmbedRequest,
   AxAIOllamaChatResponse | AxAIOllamaChatError,
@@ -96,7 +93,7 @@ export class AxAIOllama extends AxBaseAI<
       topK: config.topK,
       stream: config.stream ?? false,
       kstream: config.stream
-    } as AxModelConfig;
+    };
   }
 
   override generateChatReq = (
@@ -173,47 +170,60 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: Readonly<{ fullContent: string }>
+    state: { fullContent: string; partialChunk: string }
   ): AxChatResponse => {
-    const newContent =
-      'message' in resp && resp.message?.content
-        ? state.fullContent + resp.message.content
-        : state.fullContent;
+    let processedResp = resp;
+  
+    // Handle potential malformed JSON
+    if (typeof resp === 'string') {
+      try {
+        processedResp = JSON.parse(state.partialChunk + resp) as AxAIOllamaChatResponseDelta;
+        state.partialChunk = '';
+      } catch (e) {
+        // If parsing fails, it might be an incomplete chunk
+        state.partialChunk += resp;
+        return { results: [] }; // Return empty result for incomplete chunks
+      }
+    }
 
-    if ('done' in resp && resp.done) {
-      return {
-        results: [
-          {
-            content: newContent,
-            finishReason:
-              'done_reason' in resp
-                ? (resp.done_reason as AxChatResponse['results'][0]['finishReason'])
-                : 'stop'
-          }
-        ],
-        modelUsage:
-          'total_duration' in resp && resp.total_duration
-            ? {
-                totalTokens:
-                  (('prompt_eval_count' in resp ? resp.prompt_eval_count : 0) ??
-                    0) + (('eval_count' in resp ? resp.eval_count : 0) ?? 0),
-                promptTokens:
-                  ('prompt_eval_count' in resp ? resp.prompt_eval_count : 0) ??
-                  0,
-                completionTokens:
-                  ('eval_count' in resp ? resp.eval_count : 0) ?? 0
+    // Process different event types
+    switch (processedResp.type) {
+      case 'message_start':
+        // Handle message start
+        break;
+      case 'content_block_start':
+        // Handle content block start
+        break;
+      case 'content_block_delta':
+        // Handle content block delta
+        state.fullContent += processedResp.delta.text;
+        break;
+      case 'message_delta':
+        // Handle message delta
+        if (processedResp.delta.done) {
+          return {
+            results: [
+              {
+                content: state.fullContent,
+                finishReason: processedResp.delta.done_reason || 'stop'
               }
-            : undefined
-      };
+            ],
+            modelUsage: processedResp.delta.total_duration
+              ? {
+                  totalTokens: (processedResp.delta.prompt_eval_count ?? 0) + (processedResp.delta.eval_count ?? 0),
+                  promptTokens: processedResp.delta.prompt_eval_count ?? 0,
+                  completionTokens: processedResp.delta.eval_count ?? 0
+                }
+              : undefined
+          };
+        }
+        break;
     }
 
     return {
       results: [
         {
-          content:
-            'message' in resp && resp.message && 'content' in resp.message
-              ? resp.message.content || ''
-              : ''
+          content: state.fullContent
         }
       ]
     };
