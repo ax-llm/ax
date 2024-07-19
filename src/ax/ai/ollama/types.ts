@@ -115,7 +115,7 @@ export interface AxAIOllamaMessageStopEvent {
   type: 'message_stop';
 }
 
-export interface AxAIOllامaContentBlockStopEvent {
+export interface AxAIOllamaContentBlockStopEvent {
   type: 'content_block_stop';
   index: number;
 }
