@@ -26,12 +26,13 @@ export type AxAIOllamaChatRequest = {
   model: string;
   messages: (
     | {
-        role: 'user';
+        role: 'user' | 'system' | 'assistant';
         content: string;
       }
     | {
-        role: 'assistant';
+        role: 'function';
         content: string;
+        name: string;
       }
   )[];
   stream: boolean;
@@ -40,6 +41,7 @@ export type AxAIOllamaChatRequest = {
     top_p?: number;
     top_k?: number;
     num_predict?: number;
+    stop?: string[];
   };
 };
 
@@ -56,19 +58,7 @@ export type AxAIOllamaChatResponse = {
   prompt_eval_count?: number;
   eval_count?: number;
   eval_duration?: number;
-  done_reason?: string;
-};
-
-export type AxAIOllamaChatResponseDelta = AxAIOllamaChatResponse;
-
-export type AxAIOllamaEmbedRequest = {
-  model: string;
-  prompt: string;
-};
-
-export type AxAIOllamaEmbedResponse = {
-  embedding: number[];
-  token_count: number;
+  done_reason?: 'stop' | 'length' | 'function_call' | 'content_filter' | 'error';
 };
 
 export type AxAIOllamaChatError = {
@@ -109,5 +99,14 @@ export type AxAIOllamaChatResponseDelta =
   | AxAIOllamaMessageStartEvent
   | AxAIOllamaContentBlockStartEvent
   | AxAIOllamaContentBlockDeltaEvent
-  | AxAIOllamaMessageDeltaEvent
-  | AxAIOllamaChatError;
+  | AxAIOllamaMessageDeltaEvent;
+
+export type AxAIOllamaEmbedRequest = {
+  model: string;
+  prompt: string;
+};
+
+export type AxAIOllamaEmbedResponse = {
+  embedding: number[];
+  token_count: number;
+};
