@@ -53,7 +53,12 @@ export interface AxAIOllamaChatResponse {
   prompt_eval_count?: number;
   eval_count?: number;
   eval_duration?: number;
-  done_reason?: 'stop' | 'length' | 'function_call' | 'content_filter' | 'error';
+  done_reason?:
+    | 'stop'
+    | 'length'
+    | 'function_call'
+    | 'content_filter'
+    | 'error';
 }
 
 export interface AxAIOllamaChatError {
