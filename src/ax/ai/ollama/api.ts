@@ -173,11 +173,11 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: Readonly<{ fullContent: string }>
+    state: { fullContent: string }
   ): AxChatResponse => {
     const newContent =
-      'message' in resp
-        ? state.fullContent + (resp.message?.content || '')
+      'message' in resp && resp.message?.content
+        ? state.fullContent + resp.message.content
         : state.fullContent;
 
     if ('done' in resp && resp.done) {
@@ -186,16 +186,22 @@ export class AxAIOllama extends AxBaseAI<
           {
             content: newContent,
             finishReason:
-              'done_reason' in resp ? resp.done_reason || 'stop' : 'stop'
+              'done_reason' in resp
+                ? (resp.done_reason as AxChatResponse['results'][0]['finishReason'])
+                : 'stop'
           }
         ],
         modelUsage:
           'total_duration' in resp && resp.total_duration
             ? {
                 totalTokens:
-                  (resp.prompt_eval_count ?? 0) + (resp.eval_count ?? 0),
-                promptTokens: resp.prompt_eval_count ?? 0,
-                completionTokens: resp.eval_count ?? 0
+                  (('prompt_eval_count' in resp ? resp.prompt_eval_count : 0) ??
+                    0) + (('eval_count' in resp ? resp.eval_count : 0) ?? 0),
+                promptTokens:
+                  ('prompt_eval_count' in resp ? resp.prompt_eval_count : 0) ??
+                  0,
+                completionTokens:
+                  ('eval_count' in resp ? resp.eval_count : 0) ?? 0
               }
             : undefined
       };
@@ -204,7 +210,10 @@ export class AxAIOllama extends AxBaseAI<
     return {
       results: [
         {
-          content: 'message' in resp ? resp.message?.content || '' : ''
+          content:
+            'message' in resp && resp.message?.content
+              ? resp.message.content
+              : ''
         }
       ]
     };
@@ -213,7 +222,10 @@ export class AxAIOllama extends AxBaseAI<
   override generateEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
   ): [API, AxAIOllamaEmbedRequest] => {
-    const model = req.embedModel;
+    const reqBody: AxAIOllamaEmbedRequest = {
+      model,
+      prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts || ''
+    };
 
     if (!model) {
       throw new Error('Embed model not set');
@@ -240,7 +252,11 @@ export class AxAIOllama extends AxBaseAI<
   ): AxEmbedResponse => {
     return {
       embeddings: [resp.embedding],
-      modelUsage: { totalTokens: resp.token_count }
+      modelUsage: {
+        totalTokens: resp.token_count,
+        promptTokens: resp.token_count,
+        completionTokens: 0
+      }
     };
   };
 }
