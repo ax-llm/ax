@@ -1,6 +1,6 @@
-import type { AxModelInfo } from '../types';
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIOllamaModel } from './types';
+import { AxAIOllamaModel } from './types.js';
 
 export const axModelInfoOllama: AxModelInfo[] = [
   {

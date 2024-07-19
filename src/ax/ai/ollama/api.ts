@@ -46,7 +46,7 @@ export interface AxAIOllamaArgs {
   modelMap?: Record<string, AxAIOllamaModel | AxAIOllamaEmbedModel | string>;
 }
 
-export class AxAIOllama extends AxBaseAI
+export class AxAIOllama extends AxBaseAI<
   AxAIOllamaChatRequest,
   AxAIOllamaEmbedRequest,
   AxAIOllamaChatResponse,
