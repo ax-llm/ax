@@ -170,7 +170,7 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: { fullContent: string; partialChunk: string }
+    state: Readonly<{ fullContent: string; partialChunk: string }>
   ): AxChatResponse => {
     let processedResp = resp;
   
