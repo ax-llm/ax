@@ -22,8 +22,8 @@ import {
   type AxAIOllamaConfig,
   type AxAIOllamaEmbedRequest,
   type AxAIOllamaEmbedResponse,
-  AxAIOllamaEmbedModel,
-  AxAIOllamaModel
+  AxAIOllamaModel,
+  AxAIOllamaEmbedModel
 } from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
@@ -94,7 +94,7 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatReq = (
     req: Readonly<AxInternalChatRequest>,
-    options: Readonly<AxAIPromptConfig>
+    _options: Readonly<AxAIPromptConfig>
   ): [API, AxAIOllamaChatRequest] => {
     const model = req.model;
 
