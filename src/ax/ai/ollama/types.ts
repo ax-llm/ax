@@ -110,3 +110,28 @@ export interface AxAIOllamaEmbedResponse {
   embedding: number[];
   token_count: number;
 }
+
+export interface AxAIOllamaMessageStopEvent {
+  type: 'message_stop';
+}
+
+export interface AxAIOllامaContentBlockStopEvent {
+  type: 'content_block_stop';
+  index: number;
+}
+
+export interface AxAIOllamaPingEvent {
+  type: 'ping';
+}
+
+export type AxAIOllamaChatResponseDelta =
+  | AxAIOllamaMessageStartEvent
+  | AxAIOllamaContentBlockStartEvent
+  | AxAIOllamaContentBlockDeltaEvent
+  | AxAIOllamaContentBlockStopEvent
+  | AxAIOllamaMessageDeltaEvent
+  | AxAIOllamaMessageStopEvent
+  | AxAIOllamaPingEvent
+  | AxAIOllamaChatError;  // Include the error type in the union
+
+export * from './types.js';

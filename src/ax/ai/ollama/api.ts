@@ -1,6 +1,8 @@
 // cspell:ignore Codellama
 // cspell:ignore kstream
 
+// api.ts
+
 import type { API } from '../../util/apicall.js';
 import {
   AxBaseAI,
@@ -18,7 +20,6 @@ import type {
 
 import { axModelInfoOllama } from './info.js';
 import {
-  AxAIOllamaChatError,
   AxAIOllamaChatRequest,
   AxAIOllamaChatResponse,
   AxAIOllamaChatResponseDelta,
@@ -52,7 +53,7 @@ export interface AxAIOllamaArgs {
 export class AxAIOllama extends AxBaseAI<
   AxAIOllamaChatRequest,
   AxAIOllamaEmbedRequest,
-  AxAIOllamaChatResponse | AxAIOllamaChatError,
+  AxAIOllamaChatResponse,
   AxAIOllamaChatResponseDelta,
   AxAIOllamaEmbedResponse
 > {
@@ -139,19 +140,8 @@ export class AxAIOllama extends AxBaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<AxAIOllamaChatResponse | AxAIOllamaChatError>
+    resp: Readonly<AxAIOllamaChatResponse>
   ): AxChatResponse => {
-    if ('type' in resp && resp.type === 'error') {
-      return {
-        results: [
-          {
-            content: `Error: ${resp.error.message}`,
-            finishReason: 'error'
-          }
-        ],
-        modelUsage: undefined
-      };
-    }
     return {
       results: [
         {
@@ -173,62 +163,66 @@ export class AxAIOllama extends AxBaseAI<
     resp: Readonly<AxAIOllamaChatResponseDelta>,
     state: Readonly<{ fullContent: string; partialChunk: string }>
   ): AxChatResponse => {
-    let processedResp = resp;
-
-    // Handle potential malformed JSON
-    if (typeof resp === 'string') {
-      try {
-        processedResp = JSON.parse(
-          state.partialChunk + resp
-        ) as AxAIOllamaChatResponseDelta;
-        state.partialChunk = '';
-      } catch (e) {
-        // If parsing fails, it might be an incomplete chunk
-        state.partialChunk += resp;
-        return { results: [] }; // Return empty result for incomplete chunks
-      }
-    }
-
-    // Process different event types
-    switch (processedResp.type) {
+    let newState = { ...state };
+    
+    switch (resp.type) {
       case 'message_start':
         // Handle message start
         break;
       case 'content_block_start':
         // Handle content block start
+        newState.fullContent += resp.content_block.text;
         break;
       case 'content_block_delta':
         // Handle content block delta
-        state.fullContent += processedResp.delta.text;
+        newState.fullContent += resp.delta.text;
         break;
       case 'message_delta':
         // Handle message delta
-        if (processedResp.delta.done) {
+        if ('done' in resp.delta && resp.delta.done) {
           return {
             results: [
               {
-                content: state.fullContent,
-                finishReason: processedResp.delta.done_reason || 'stop'
+                content: newState.fullContent,
+                finishReason: resp.delta.done_reason || 'stop'
               }
             ],
-            modelUsage: processedResp.delta.total_duration
+            modelUsage: resp.delta.total_duration
               ? {
-                  totalTokens:
-                    (processedResp.delta.prompt_eval_count ?? 0) +
-                    (processedResp.delta.eval_count ?? 0),
-                  promptTokens: processedResp.delta.prompt_eval_count ?? 0,
-                  completionTokens: processedResp.delta.eval_count ?? 0
+                  totalTokens: (resp.delta.prompt_eval_count ?? 0) + (resp.delta.eval_count ?? 0),
+                  promptTokens: resp.delta.prompt_eval_count ?? 0,
+                  completionTokens: resp.delta.eval_count ?? 0
                 }
               : undefined
           };
         }
         break;
+      case 'message_stop':
+        // Handle message stop
+        break;
+      case 'content_block_stop':
+        // Handle content block stop
+        break;
+      case 'ping':
+        // Handle ping
+        break;
+      case 'error':
+        // Handle error
+        return {
+          results: [
+            {
+              content: `Error: ${resp.error.message}`,
+              finishReason: 'error'
+            }
+          ],
+          modelUsage: undefined
+        };
     }
 
     return {
       results: [
         {
-          content: state.fullContent
+          content: newState.fullContent
         }
       ]
     };
