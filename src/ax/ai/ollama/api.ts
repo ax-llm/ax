@@ -94,7 +94,7 @@ export class AxAIOllama extends AxBaseAI<
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
-      stream: req.modelConfig?.stream ?? config.stream ?? false,
+      stream: config.stream ?? false,
       kstream: config.stream
     } as AxModelConfig;
   }
@@ -141,8 +141,11 @@ export class AxAIOllama extends AxBaseAI<
   };
 
   override generateChatResp = (
-    resp: Readonly<AxAIOllamaChatResponse>
+    resp: Readonly<AxAIOllamaChatResponse | AxAIOllamaChatError>
   ): AxChatResponse => {
+    if ('type' in resp && resp.type === 'error') {
+      throw new Error(`Ollama API Error: ${resp.error.message}`);
+    }
     return {
       results: [
         {
@@ -152,9 +155,9 @@ export class AxAIOllama extends AxBaseAI<
       ],
       modelUsage: resp.total_duration
         ? {
-            totalTokens: resp.prompt_eval_count + resp.eval_count,
-            promptTokens: resp.prompt_eval_count,
-            completionTokens: resp.eval_count
+            totalTokens: (resp.prompt_eval_count ?? 0) + (resp.eval_count ?? 0),
+            promptTokens: resp.prompt_eval_count ?? 0,
+            completionTokens: resp.eval_count ?? 0
           }
         : undefined
     };
@@ -162,32 +165,37 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: Readonly<{ fullContent: string }>
+    state: { fullContent: string }
   ): AxChatResponse => {
-    state.fullContent += resp.message?.content || '';
+    if ('message' in resp) {
+      state.fullContent += resp.message?.content || '';
+    }
 
-    if (resp.done) {
+    if ('done' in resp && resp.done) {
       return {
         results: [
           {
             content: state.fullContent,
-            finishReason: resp.done_reason || 'stop'
+            finishReason:
+              'done_reason' in resp ? resp.done_reason || 'stop' : 'stop'
           }
         ],
-        modelUsage: resp.total_duration
-          ? {
-              totalTokens: resp.prompt_eval_count + resp.eval_count,
-              promptTokens: resp.prompt_eval_count,
-              completionTokens: resp.eval_count
-            }
-          : undefined
+        modelUsage:
+          'total_duration' in resp && resp.total_duration
+            ? {
+                totalTokens:
+                  (resp.prompt_eval_count ?? 0) + (resp.eval_count ?? 0),
+                promptTokens: resp.prompt_eval_count ?? 0,
+                completionTokens: resp.eval_count ?? 0
+              }
+            : undefined
       };
     }
 
     return {
       results: [
         {
-          content: resp.message?.content || ''
+          content: 'message' in resp ? resp.message?.content || '' : ''
         }
       ]
     };
