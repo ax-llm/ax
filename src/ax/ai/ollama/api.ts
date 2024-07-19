@@ -15,15 +15,16 @@ import type {
 } from '../types.js';
 
 import { axModelInfoOllama } from './info.js';
+
 import {
+  AxAIOllamaEmbedModel,
+  AxAIOllamaModel,
   type AxAIOllamaChatRequest,
   type AxAIOllamaChatResponse,
   type AxAIOllamaChatResponseDelta,
   type AxAIOllamaConfig,
   type AxAIOllamaEmbedRequest,
-  type AxAIOllamaEmbedResponse,
-  AxAIOllamaModel,
-  AxAIOllamaEmbedModel
+  type AxAIOllamaEmbedResponse
 } from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
@@ -93,8 +94,7 @@ export class AxAIOllama extends AxBaseAI<
   }
 
   override generateChatReq = (
-    req: Readonly<AxInternalChatRequest>,
-    _options: Readonly<AxAIPromptConfig>
+    req: Readonly<AxInternalChatRequest>
   ): [API, AxAIOllamaChatRequest] => {
     const model = req.model;
 
