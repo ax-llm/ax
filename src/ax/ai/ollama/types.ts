@@ -99,7 +99,11 @@ export type AxAIOllamaChatResponseDelta =
   | AxAIOllamaMessageStartEvent
   | AxAIOllamaContentBlockStartEvent
   | AxAIOllamaContentBlockDeltaEvent
-  | AxAIOllamaMessageDeltaEvent;
+  | AxAIOllamaMessageDeltaEvent
+  | AxAIOllamaMessageStopEvent
+  | AxAIOllamaContentBlockStopEvent
+  | AxAIOllamaPingEvent
+  | AxAIOllamaChatError;
 
 export interface AxAIOllamaEmbedRequest {
   model: string;

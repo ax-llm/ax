@@ -93,8 +93,7 @@ export class AxAIOllama extends AxBaseAI<
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
-      stream: config.stream ?? false,
-      kstream: config.stream
+      stream: config.stream ?? false
     };
   }
 
@@ -213,7 +212,7 @@ export class AxAIOllama extends AxBaseAI<
         return {
           results: [
             {
-              content: `Error: ${resp.error.message}`,
+              content: `Error: ${resp as AxAIOllamaChatError}`,
               finishReason: 'error'
             }
           ],
