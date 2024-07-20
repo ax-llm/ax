@@ -107,7 +107,7 @@ export type AxAIOllamaChatResponseDelta =
 
 export interface AxAIOllamaEmbedRequest {
   model: string;
-  prompt: string | string[];
+  prompt: string | readonly string[];
 }
 
 export interface AxAIOllamaEmbedResponse {
