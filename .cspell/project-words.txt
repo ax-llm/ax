@@ -8,6 +8,10 @@ asig
 Buena
 chrono
 chunker
+codellama
+Codellama
+codestral
+Codestral
 commandline
 companys
 countrys
@@ -34,6 +38,8 @@ Macbook
 minilm
 Mixtral
 nanos
+nemo
+Nemo
 neumann
 ollama
 onopentag
