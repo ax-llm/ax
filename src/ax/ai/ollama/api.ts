@@ -29,6 +29,8 @@ import type {
 } from './types.js';
 import { AxAIOllamaEmbedModel, AxAIOllamaModel } from './types.js';
 
+import type { AxAIOllamaChatError } from './types.js';
+
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
   model: AxAIOllamaModel.Codellama,
   embedModel: AxAIOllamaEmbedModel.Codellama,
@@ -281,9 +283,7 @@ export class AxAIOllama extends AxBaseAI<
 
     const reqBody: AxAIOllamaEmbedRequest = {
       model: embedModel,
-      prompt: Array.isArray(req.texts)
-        ? req.texts.join(' ')
-        : (req.texts as string)
+      prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts
     };
 
     return [apiConfig, reqBody];

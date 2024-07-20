@@ -127,13 +127,3 @@ export interface AxAIOllamaContentBlockStopEvent {
 export interface AxAIOllamaPingEvent {
   type: 'ping';
 }
-
-export type AxAIOllamaChatResponseDelta =
-  | AxAIOllamaMessageStartEvent
-  | AxAIOllamaContentBlockStartEvent
-  | AxAIOllamaContentBlockDeltaEvent
-  | AxAIOllamaContentBlockStopEvent
-  | AxAIOllamaMessageDeltaEvent
-  | AxAIOllamaMessageStopEvent
-  | AxAIOllamaPingEvent
-  | AxAIOllamaChatError; // Include the error type in the union
