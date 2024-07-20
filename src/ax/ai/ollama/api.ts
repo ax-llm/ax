@@ -19,16 +19,15 @@ import type {
 } from '../types.js';
 
 import { axModelInfoOllama } from './info.js';
-import {
+import type {
   AxAIOllamaChatRequest,
   AxAIOllamaChatResponse,
   AxAIOllamaChatResponseDelta,
   AxAIOllamaConfig,
-  AxAIOllamaEmbedModel,
   AxAIOllamaEmbedRequest,
-  AxAIOllamaEmbedResponse,
-  AxAIOllamaModel
+  AxAIOllamaEmbedResponse
 } from './types.js';
+import { AxAIOllamaEmbedModel, AxAIOllamaModel } from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
   model: AxAIOllamaModel.Codellama,
@@ -212,13 +211,15 @@ export class AxAIOllama extends AxBaseAI<
         return {
           results: [
             {
-              content: `Error: ${resp as AxAIOllamaChatError}`,
+              content: `Error: ${(resp as AxAIOllamaChatError).error.message}`,
               finishReason: 'error'
             }
           ],
           modelUsage: undefined
         };
     }
+
+
 
     return {
       results: [
@@ -227,7 +228,10 @@ export class AxAIOllama extends AxBaseAI<
         }
       ]
     };
-  };
+  } as unknown as (
+    resp: Readonly<AxAIOllamaChatResponseDelta>,
+    state: object
+  ) => AxChatResponse;
 
   override generateEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
@@ -248,7 +252,7 @@ export class AxAIOllama extends AxBaseAI<
 
     const reqBody: AxAIOllamaEmbedRequest = {
       model: embedModel,
-      prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts
+      prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts as string
     };
 
     return [apiConfig, reqBody];

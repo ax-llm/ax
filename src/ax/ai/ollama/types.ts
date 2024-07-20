@@ -137,5 +137,3 @@ export type AxAIOllamaChatResponseDelta =
   | AxAIOllamaMessageStopEvent
   | AxAIOllamaPingEvent
   | AxAIOllamaChatError; // Include the error type in the union
-
-export * from './types.js';
