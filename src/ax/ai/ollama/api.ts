@@ -159,8 +159,16 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    _state: object
+    state: object
   ): AxChatResponse => {
+    const sstate = state as {
+      fullContent: string;
+    };
+
+    if (!sstate.fullContent) {
+      sstate.fullContent = '';
+    }
+
     switch (resp.type) {
       case 'message_start':
         // Handle message start
