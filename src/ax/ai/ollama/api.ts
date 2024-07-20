@@ -18,6 +18,7 @@ import type {
   AxModelConfig
 } from '../types.js';
 
+import type { AxAIOllamaChatError } from './types.js';
 import { axModelInfoOllama } from './info.js';
 import type {
   AxAIOllamaChatRequest,
@@ -28,8 +29,6 @@ import type {
   AxAIOllamaEmbedResponse
 } from './types.js';
 import { AxAIOllamaEmbedModel, AxAIOllamaModel } from './types.js';
-
-import type { AxAIOllamaChatError } from './types.js';
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaConfig => ({
   model: AxAIOllamaModel.Codellama,
