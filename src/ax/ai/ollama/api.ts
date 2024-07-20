@@ -18,8 +18,8 @@ import type {
   AxModelConfig
 } from '../types.js';
 
-import type { AxAIOllamaChatError } from './types.js';
 import { axModelInfoOllama } from './info.js';
+import type { AxAIOllamaChatError } from './types.js';
 import type {
   AxAIOllamaChatRequest,
   AxAIOllamaChatResponse,
