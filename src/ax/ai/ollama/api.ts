@@ -280,12 +280,11 @@ export class AxAIOllama extends AxBaseAI<
       name: '/embeddings'
     };
 
-
     const reqBody: AxAIOllamaEmbedRequest = {
       model: embedModel,
-      prompt: Array.isArray(req.texts) 
-        ? req.texts.join(' ') 
-        : req.texts as string
+      prompt: Array.isArray(req.texts)
+        ? req.texts.join(' ')
+        : (req.texts as string)
     };
 
     return [apiConfig, reqBody];
