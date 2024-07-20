@@ -158,33 +158,38 @@ export class AxAIOllama extends AxBaseAI<
   };
 
   override generateChatStreamResp = (
-    _resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: object
-  ) => AxChatResponse = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: Readonly<{ fullContent: string; partialChunk: string }>
+    state: object
   ): AxChatResponse => {
-    const newState = { ...state };
-
     switch (resp.type) {
       case 'message_start':
         // Handle message start
         break;
       case 'content_block_start':
         // Handle content block start
-        newState.fullContent += resp.content_block.text;
-        break;
+        return {
+          results: [
+            {
+              content: resp.content_block.text
+            }
+          ]
+        };
       case 'content_block_delta':
         // Handle content block delta
-        newState.fullContent += resp.delta.text;
-        break;
+        return {
+          results: [
+            {
+              content: resp.delta.text
+            }
+          ]
+        };
       case 'message_delta':
         // Handle message delta
         if ('done' in resp.delta && resp.delta.done) {
           return {
             results: [
               {
-                content: newState.fullContent,
+                content: resp.delta.message?.content || '',
                 finishReason: resp.delta.done_reason || 'stop'
               }
             ],
@@ -222,14 +227,8 @@ export class AxAIOllama extends AxBaseAI<
         };
     }
 
-
-
     return {
-      results: [
-        {
-          content: newState.fullContent
-        }
-      ]
+      results: []
     };
   };
 
@@ -252,7 +251,9 @@ export class AxAIOllama extends AxBaseAI<
 
     const reqBody: AxAIOllamaEmbedRequest = {
       model: embedModel,
-      prompt: Array.isArray(req.texts) ? req.texts.join(' ') : req.texts as string
+      prompt: Array.isArray(req.texts)
+        ? req.texts.join(' ')
+        : (req.texts as string)
     };
 
     return [apiConfig, reqBody];
