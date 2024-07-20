@@ -158,7 +158,7 @@ export class AxAIOllama extends AxBaseAI<
   };
 
   override generateChatStreamResp = (
-    resp: Readonly<AxAIOllamaChatResponseDelta>,
+    _resp: Readonly<AxAIOllamaChatResponseDelta>,
     state: object
   ) => AxChatResponse = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
