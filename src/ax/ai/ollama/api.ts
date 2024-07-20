@@ -172,9 +172,13 @@ export class AxAIOllama extends AxBaseAI<
     switch (resp.type) {
       case 'message_start':
         // Handle message start
-        break;
+        return {
+          results: [{ content: '' }]
+        };
+
       case 'content_block_start':
         // Handle content block start
+        sstate.fullContent += resp.content_block.text;
         return {
           results: [
             {
@@ -182,8 +186,10 @@ export class AxAIOllama extends AxBaseAI<
             }
           ]
         };
+
       case 'content_block_delta':
         // Handle content block delta
+        sstate.fullContent += resp.delta.text;
         return {
           results: [
             {
@@ -191,13 +197,14 @@ export class AxAIOllama extends AxBaseAI<
             }
           ]
         };
+
       case 'message_delta':
         // Handle message delta
         if ('done' in resp.delta && resp.delta.done) {
           return {
             results: [
               {
-                content: resp.delta.message?.content || '',
+                content: sstate.fullContent,
                 finishReason: resp.delta.done_reason || 'stop'
               }
             ],
@@ -213,15 +220,26 @@ export class AxAIOllama extends AxBaseAI<
           };
         }
         break;
+
       case 'message_stop':
         // Handle message stop
-        break;
+        return {
+          results: [
+            {
+              content: sstate.fullContent,
+              finishReason: 'stop'
+            }
+          ]
+        };
+
       case 'content_block_stop':
         // Handle content block stop
         break;
+
       case 'ping':
         // Handle ping
         break;
+
       case 'error':
         // Handle error
         return {
@@ -236,7 +254,11 @@ export class AxAIOllama extends AxBaseAI<
     }
 
     return {
-      results: []
+      results: [
+        {
+          content: sstate.fullContent
+        }
+      ]
     };
   };
 
