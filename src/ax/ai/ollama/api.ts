@@ -159,7 +159,7 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: object
+    _state: object
   ): AxChatResponse => {
     switch (resp.type) {
       case 'message_start':
