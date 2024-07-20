@@ -159,6 +159,9 @@ export class AxAIOllama extends AxBaseAI<
 
   override generateChatStreamResp = (
     resp: Readonly<AxAIOllamaChatResponseDelta>,
+    state: object
+  ) => AxChatResponse = (
+    resp: Readonly<AxAIOllamaChatResponseDelta>,
     state: Readonly<{ fullContent: string; partialChunk: string }>
   ): AxChatResponse => {
     const newState = { ...state };
@@ -228,10 +231,7 @@ export class AxAIOllama extends AxBaseAI<
         }
       ]
     };
-  } as unknown as (
-    resp: Readonly<AxAIOllamaChatResponseDelta>,
-    state: object
-  ) => AxChatResponse;
+  };
 
   override generateEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
