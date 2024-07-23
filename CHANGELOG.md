@@ -1,5 +1,24 @@
 
 
+## [9.0.33](https://github.com/ax-llm/ax/compare/9.0.31...9.0.32) (2024-07-23)
+
+
+### Features
+
+* new ai-sdk-provider ([60e646f](https://github.com/ax-llm/ax/commit/60e646f64736c06a3017ffe1a853baf296b31308))
+
+## [9.0.32](https://github.com/ax-llm/ax/compare/9.0.31...9.0.32) (2024-07-18)
+
+
+### Features
+
+* added new models for mistral and openai ([b0ae470](https://github.com/ax-llm/ax/commit/b0ae470dd911323aedb977313ec5242a7f80ebec))
+
+
+### Bug Fixes
+
+* corrected embeddings endpoint ([#51](https://github.com/ax-llm/ax/issues/51)) ([d1a733e](https://github.com/ax-llm/ax/commit/d1a733e632d0dbd3f77f31e79e784b016c0e8844))
+
 ## [9.0.32](https://github.com/ax-llm/ax/compare/9.0.30...9.0.31) (2024-07-18)
 
 
