@@ -5,13 +5,20 @@
   "git": false,
   "plugins": {
     "@release-it/bumper": {
-      "out": [{
-        "file": "../../package.json",
-        "path": ["version"]
-      },{
-        "file": "../examples/package.json",
-        "path": ["dependencies.@ax-llm/ax"]
-      }]
+      "out": [
+        {
+          "file": "../../package.json",
+          "path": ["version"]
+        },
+        {
+          "file": "../examples/package.json",
+          "path": ["dependencies.@ax-llm/ax"]
+        },
+        {
+          "file": "../ai-sdk-provider/package.json",
+          "path": ["dependencies.@ax-llm/ax"]
+        }
+      ]
     }
   }
 }
