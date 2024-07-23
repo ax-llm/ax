@@ -12,14 +12,11 @@ This guide demonstrates creating a Node.js TypeScript backend API to answer busi
 
 ## Table of Contents
 
-- [Building a Business Q\&A API with Ax and Node.js](#building-a-business-qa-api-with-ax-and-nodejs)
-  - [Table of Contents](#table-of-contents)
-  - [Project Initialization](#project-initialization)
-  - [Code Implementation](#code-implementation)
-  - [Test your new API](#test-your-new-api)
-  - [Docker Image Creation](#docker-image-creation)
-  - [Building and Deploying to Google Cloud Run](#building-and-deploying-to-google-cloud-run)
-  - [Secrets Management](#secrets-management)
+1. [Project Initialization](#project-initialization)
+2. [Code Implementation](#code-implementation)
+3. [Docker Image Creation](#docker-image-creation)
+4. [Building and Deploying to Google Cloud Run](#building-and-deploying-to-google-cloud-run)
+5. [Secrets Management](#secrets-management)
 
 ## Project Initialization
 
