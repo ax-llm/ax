@@ -4,19 +4,22 @@ description: How to build and deploy Ax apps.
 ---
 
 
-Here's a markdown documentation page that shows how to build a Node.js TypeScript backend API for answering business questions using Ax:
+Here’s a markdown documentation page that shows how to build a Node.js TypeScript backend API for answering business questions using Ax:
 
 # Building a Business Q&A API with Ax and Node.js
 
-This guide demonstrates how to create a Node.js TypeScript backend API for answering business questions using the Ax library. The API will utilize OpenAI for natural language processing and Weaviate as a vector database for efficient information retrieval.
+This guide demonstrates creating a Node.js TypeScript backend API to answer business questions using the Ax library. The API will utilize OpenAI for natural language processing and Weaviate as a vector database for efficient information retrieval.
 
 ## Table of Contents
 
-1. [Project Initialization](#project-initialization)
-2. [Code Implementation](#code-implementation)
-3. [Docker Image Creation](#docker-image-creation)
-4. [Building and Deploying to Google Cloud Run](#building-and-deploying-to-google-cloud-run)
-5. [Secrets Management](#secrets-management)
+- [Building a Business Q\&A API with Ax and Node.js](#building-a-business-qa-api-with-ax-and-nodejs)
+  - [Table of Contents](#table-of-contents)
+  - [Project Initialization](#project-initialization)
+  - [Code Implementation](#code-implementation)
+  - [Test your new API](#test-your-new-api)
+  - [Docker Image Creation](#docker-image-creation)
+  - [Building and Deploying to Google Cloud Run](#building-and-deploying-to-google-cloud-run)
+  - [Secrets Management](#secrets-management)
 
 ## Project Initialization
 

@@ -3,11 +3,11 @@ title: Functions Part 2
 description: How to use functions with Ax
 ---
 
-Function calling is a powerful ability of modern LLMs. The way it works is you provide the LLM a set of functions specifications that it can then use as needed. This is complex to implement on your own as it requires multi-step interactions that are different across LLMs. Ax makes this very simple just create a prompt provide it a set of functions and it'll automatically just work.
+Function calling is a powerful ability of modern LLMs. The way it works is you provide the LLM a set of function specifications that it can then use as needed. This is complex to implement on your own as it requires multi-step interactions that are different across LLMs. Ax makes this very simple; just create a prompt, provide it a set of functions, and it’ll automatically just work.
 
 ## Restaurant finding agent
 
-Lets create an agent to help find a restaurant based on the dinners preferences. Fist we need to create some dummy APIs just for this example. We'll need a function to get the weather next we'll need one to lookup places to eat at.
+Let's create an agent to help find a restaurant based on the diner's preferences. To do this, we'll start by creating some dummy APIs specifically for this example. We’ll need a function to get the weather, and another one to look up places to eat at.
 
 ```typescript title="Weather data function"
 const choice = Math.round(Math.random());
@@ -106,7 +106,7 @@ const opentableAPI = ({
 };
 ```
 
-The function parameters must be defined in json schema for the AI to read and understand.
+The function parameters must be defined in JSON schema for the AI to read and understand.
 
 ```typescript
 // List of functions available to the AI

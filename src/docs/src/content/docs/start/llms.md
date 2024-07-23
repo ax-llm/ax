@@ -3,9 +3,9 @@ title: Supported LLMs
 description: Using various LLMs
 ---
 
-Ax supports all the top LLM providers and models along with their advanced capabilities like function calling, multi-modal, streaming, json, etc.
+Ax supports all the top LLM providers and models, along with their advanced capabilities, such as function calling, multi-modal, streaming, and JSON.
 
-Our defaults including default models are picked to ensure solid agent performance.
+Our defaults, including default models, are selected to ensure solid agent performance.
 
 ## OpenAI
 
@@ -45,7 +45,7 @@ const ai = new AxAI({
 
 ## Together
 
-Together runs a large number of open-source models each good for a certain usecase. They have a solid team focused on building the best inference engines for open-source models.
+Together runs a diverse array of open-source models, each designed for a specific use case. This variety ensures that you can find the perfect model for your needs.
 
 https://docs.together.ai/docs/inference-models
 
@@ -70,7 +70,7 @@ const ai = new AxAI({
 
 # Groq
 
-Groq uses specialized hardware to serve open-source models at the lowest latency. They support a small number of good models.
+Groq uses specialized hardware to serve open-source models with the lowest latency. It supports a small number of good models.
 
 ```typescript title="Use defaults"
 const ai = new AxAI({
@@ -81,7 +81,7 @@ const ai = new AxAI({
 
 # Google Gemini
 
-A really solid model family with very long context lengths at the lowest price points. Gemini has builtin support for compute (code execution), their models can write and run code in the backend if needed.
+An excellent model family with very long context lengths at the lowest price points. Gemini has built-in support for compute (code execution); their models can write and run code in the backend if needed.
 
 ```typescript title="Use defaults, enable code execution"
 const ai = new AxAI({
@@ -120,7 +120,7 @@ const ai = new AxAI({
 
 # Deepseek
 
-Deepseek is a llm provider form china with very solid models.
+Deepseek is an LLM provider from China that has excellent models.
 
 ```typescript title="Use defaults"
 const ai = new AxAI({
@@ -131,7 +131,7 @@ const ai = new AxAI({
 
 # Ollama
 
-Ollama is an engine for running open-source models locally on your laptop. We default to `nous-hermes2` for inference and `all-minilm` for embedding
+Ollama is an engine for running open-source models locally on your laptop. We default to `nous-hermes21` for inference and `all-minilm` for embedding.
 
 ```typescript title="Use defaults"
 const ai = new AxAI({
