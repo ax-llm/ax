@@ -166,6 +166,7 @@ Launch Apache Tika
 ```shell
 docker run -p 9998:9998 apache/tika
 ```
+
 Convert documents to text and embed them for retrieval using the `AxDBManager`, which also supports a reranker and query rewriter. Two default implementations, `AxDefaultResultReranker` and `AxDefaultQueryRewriter`, are available.
 
 ```typescript
@@ -454,7 +455,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 
 ## Our Goal
 
-Large language models (LLMs) are becoming really powerful and have reached a point where they can work as the backend for your entire product. However, there's still a lot of complexity to manage from using the correct prompts, models, streaming, function calls, error correction, and much more. We aim to package all this complexity into a well-maintained, easy-to-use library that can work with all SOTA LLMs. Additionally, we are using the latest research to add new capabilities like DSPy to the library.
+Large language models (LLMs) are becoming really powerful and have reached a point where they can work as the backend for your entire product. However, there's still a lot of complexity to manage from using the correct prompts, models, streaming, function calls, error correction, and much more. We aim to package all this complexity into a well-maintained, easy-to-use library that can work with all state-of-the-art LLMs. Additionally, we are using the latest research to add new capabilities like DSPy to the library.
 
 ## How to use this library?
 
