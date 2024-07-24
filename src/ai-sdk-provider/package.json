@@ -7,6 +7,9 @@
     "type": "git",
     "url": "https://github.com/ax-llm/ax.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
