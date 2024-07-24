@@ -3,7 +3,7 @@ title: Quick Start
 description: Jump into building with Ax
 ---
 
-Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSPy paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSPy, etc.
+Building intelligent agents is a breeze with the Ax framework, inspired by the power of "Agentic workflows" and the Stanford DSPy paper. It seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Plus, it offers advanced features like streaming validation, multi-modal DSPy, etc.
 
 ## Install
 
@@ -21,7 +21,7 @@ yarn add @ax-llm/ax
 
 ## Pick an LLM
 
-Ax is a zero-dependency framework every LLM API integration is build by us to be solid, work well with Ax and to support all required features, function calling, multi-modal, json, streaming, etc.
+Ax is a zero-dependency framework. Every LLM API integration we build is solid, works well with Ax, and supports all required features, such as function calling, multi-modal, JSON, streaming, etc.
 
 Currently we support `"openai" | "azure-openai" | "together" | "anthropic" | "groq" | "google-gemini" | "cohere" | "huggingface" | "mistral" | "deepseek" | "ollama"`
 
@@ -36,7 +36,7 @@ The LLMs are pre-configured with sensible defaults such as models and other coni
 
 ## Prompting
 
-Prompt is usually stressful and complex you never know what is the right prompt and blobs of text in your code and hard to deal with. We fix this by adopting the `prompt signatures` from the popular Stanford DSPy paper.
+Prompts are usually stressful and complex. You never know what the right prompt is, and blobs of text in your code are hard to deal with. We fix this by adopting the prompt signatures from the popular Stanford DSPy paper.
 
 A prompt signature is a list of _typed_ input and output fields along with a task description prefix.
 the following fields are supported `'string' | 'number' | 'boolean' | 'json' | 'image'` add a `[]` to convert a field into an array field eg. `string[]`, `number[]`, etc. Additionally a `?` marks the field as an optional field `context?:string`.
@@ -63,7 +63,7 @@ question:string, answers:string[] -> rating:number[]
 
 ## Putting it all together
 
-Use the above AI and a prompt to build a LLM powered program to summarize text.
+Use the above AI and a prompt to build an LLM-powered program to summarize the text.
 
 ```typescript
 // example.ts
@@ -99,12 +99,12 @@ tsx example.ts
 
 ## Build your first agent
 
-Ax makes it really simple to build agents. An agent requires a `name`, `description` and a `signature` it can optionally use `functions` and other `agents`.
+Ax makes it really simple to build agents. An agent requires a `name`, `description` and `signature`. it can optionally use `functions` and other `agents`.
 
 **Example Stock Analyst Agent**
-The Stock Analyst Agent is an advanced AI-powered tool designed to provide comprehensive stock analysis and financial insights. It combines multiple specialized sub-agents and functions to deliver in-depth evaluations of stocks, market trends, and related financial data.
+The Stock Analyst Agent is an advanced AI-powered tool that provides comprehensive stock analysis and financial insights. It combines multiple specialized sub-agents and functions to deliver in-depth evaluations of stocks, market trends, and related financial data.
 
-This is only an example but it highlights the power of agentic workflows where you can build agents working with agents to handle complex tasks.
+This is only an example, but it highlights the power of agentic workflows, where you can build agents who work with agents to handle complex tasks.
 
 ```typescript title="Stock Analyst Agent"
 const agent = new AxAgent(ai, {

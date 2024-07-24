@@ -1,6 +1,6 @@
 # Ax - Build LLMs Powered Agents (Typescript)
 
-Build intelligent agents with ease, inspired by the power of "Agentic workflows" and the Stanford DSPy paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSPy, etc.
+Build intelligent agents quickly — inspired by the power of "Agentic workflows" and the Stanford DSPy paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSPy, etc.
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
@@ -10,7 +10,7 @@ Build intelligent agents with ease, inspired by the power of "Agentic workflows"
 
 ## Our focus on agents
 
-We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also we are big fans of the Stanford DSPy paper and this library is the result of all of this coming together to build a powerful framework for you to build with.
+We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also, we are big fans of the Stanford DSPy paper, and this library is the result of all of this coming together to build a powerful framework for you to build with.
 
 ![image](https://github.com/ax-llm/ax/assets/832235/801b8110-4cba-4c50-8ec7-4d5859121fe5)
 
@@ -28,13 +28,13 @@ We've renamed from "llmclient" to "ax" to highlight our focus on powering agenti
 - Production ready Typescript code
 - Lite weight, zero-dependencies
 
-## Whats a prompt signature?
+## What's a prompt signature?
 
 <img width="860" alt="shapes at 24-03-31 00 05 55" src="https://github.com/dosco/llm-client/assets/832235/0f0306ea-1812-4a0a-9ed5-76cd908cd26b">
 
-Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made up of a `"task description" inputField:type "field description" -> outputField:type"`. The idea behind prompt signatures is based off work done in the "Demonstrate-Search-Predict" paper.
+Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made up of a `"task description" inputField:type "field description" -> "outputField:type`. The idea behind prompt signatures is based on work done in the "Demonstrate-Search-Predict" paper.
 
-You can have multiple input and output fields and each field has one of these types `string`, `number`, `boolean`, `json` or a array of any of these eg. `string[]`. When a type is not defined it defaults to `string`. When the `json` type if used the underlying AI is encouraged to generate correct JSON.
+You can have multiple input and output fields, and each field can be of the types `string`, `number`, `boolean`, `JSON`, or an array of any of these, e.g., `string[]`. When a type is not defined, it defaults to `string`. The underlying AI is encouraged to generate the correct JSON when the `JSON` type is used.
 
 ## LLMs Supported
 
@@ -85,7 +85,7 @@ console.log('>', res);
 
 ## Example: Building an agent
 
-Use the agent prompt (framework) to build agents that work with other agents to complete tasks. Agents are easy to build with prompt signatures. Try out the agent example.
+Use the agent prompt (framework) to build agents that work with other agents to complete tasks. Agents are easy to make with prompt signatures. Try out the agent example.
 
 ```typescript
 # npm run tsx ./src/examples/agent.ts
@@ -114,7 +114,7 @@ agent.forward({ questions: "How many atoms are there in the universe" })
 
 ## Vector DBs Supported
 
-Vector databases are critical to building LLM workflows. We have clean abstractions over popular vector db's as well as our own quick in memory vector database.
+Vector databases are critical to building LLM workflows. We have clean abstractions over popular vector databases and our own quick in-memory vector database.
 
 | Provider   | Tested  |
 | ---------- | ------- |
@@ -159,15 +159,14 @@ console.log(matches);
 
 ## RAG Documents
 
-Using documents like PDF, DOCX, PPT, XLS, etc with LLMs is a huge pain. We make it easy with the help of Apache Tika an open source document processing engine.
+Using documents like PDF, DOCX, PPT, XLS, etc., with LLMs is a huge pain. We make it easy with Apache Tika, an open-source document processing engine.
 
 Launch Apache Tika
 
 ```shell
 docker run -p 9998:9998 apache/tika
 ```
-
-Convert documents to text and embed them for retrieval using the `AxDBManager` it also supports a reranker and query rewriter. Two default implementations `AxDefaultResultReranker` and `AxDefaultQueryRewriter` are available to use.
+Convert documents to text and embed them for retrieval using the `AxDBManager`, which also supports a reranker and query rewriter. Two default implementations, `AxDefaultResultReranker` and `AxDefaultQueryRewriter`, are available.
 
 ```typescript
 const tika = new AxApacheTika();
@@ -182,7 +181,7 @@ console.log(matches);
 
 ## Multi-modal DSPy
 
-When using models like `gpt-4o` and `gemini` that support multi-modal prompts we support using image fields and this works with the whole dsp pipeline.
+When using models like `GPT-4o` and `Gemini` that support multi-modal prompts, we support using image fields, and this works with the whole DSP pipeline.
 
 ```typescript
 const image = fs
@@ -199,7 +198,7 @@ const res = await gen.forward({
 
 ## Streaming
 
-We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without having to wait for the whole output saving tokens, cost and reducing latency. Assertions are a powerful way to ensure the output matches your requirements these work with streaming as well.
+We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without waiting for the whole output, saving tokens and costs and reducing latency. Assertions are a powerful way to ensure the output matches your requirements; they also work with streaming.
 
 ```typescript
 // setup the prompt program
@@ -217,7 +216,7 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
 const res = await gen.forward({ startNumber: 1 }, { stream: true });
 ```
 
-The above example will allow you to validate entire output fields as they are streamed in. This validation works with streaming and when not streaming and is triggered when the entire field value is available. For true validation while streaming checkout the below example. This will massively improve performance and save tokens at scale in production
+The above example allows you to validate entire output fields as they are streamed in. This validation works with streaming and when not streaming and is triggered when the whole field value is available. For true validation while streaming, check out the example below. This will massively improve performance and save tokens at scale in production.
 
 ```typescript
 // add a assertion to ensure all lines start with a number and a dot.
@@ -248,9 +247,9 @@ const res = await gen.forward(
 
 ## Fast LLM Router
 
-A special router that uses no LLM calls only embeddings to route user requests smartly.
+A special router that uses no LLM calls, only embeddings, to route user requests smartly.
 
-Use the Router to efficiently route user queries to specific routes designed to handle certain types of questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how input from the user should be handled use our fast "Semantic Router" that uses inexpensive and fast embedding queries.
+Use the Router to efficiently route user queries to specific routes designed to handle certain questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how user input should be handled, use our fast "Semantic Router," which uses inexpensive and fast embedding queries.
 
 ```typescript
 # npm run tsx ./src/examples/routing.ts
@@ -291,7 +290,7 @@ if (tag === "technicalSupport") {
 
 ## OpenTelemetry support
 
-Ability to trace and observe your llm workflow is critical to building production workflows. OpenTelemetry is an industry standard and we support the new `gen_ai` attribute namespace.
+The ability to trace and observe your llm workflow is critical to building production workflows. OpenTelemetry is an industry-standard, and we support the new `gen_ai` attribute namespace.
 
 ```typescript
 import { trace } from '@opentelemetry/api';
@@ -423,9 +422,9 @@ console.log(res);
 | Docker Sandbox     | AxDockerSession    | Execute commands within a docker environment |
 | Embeddings Adapter | AxEmbeddingAdapter | Fetch and pass embedding to your function    |
 
-## Checkout all the examples
+## Check out all the examples
 
-Use the `tsx` command to run the examples it makes node run typescript code. It also support using a `.env` file to pass the AI API Keys as opposed to putting them in the commandline.
+Use the `tsx` command to run the examples. It makes the node run typescript code. It also supports using an `.env` file to pass the AI API Keys instead of putting them in the command line.
 
 ```shell
 OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
@@ -455,7 +454,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 
 ## Our Goal
 
-Large language models (LLMs) are getting really powerful and have reached a point where they can work as the backend for your entire product. However there's still a lot of complexity to manage from using the right prompts, models, streaming, function calling, error-correction, and much more. Our goal is to package all this complexity into a well maintained easy to use library that can work with all the LLMs out there. Additionally we are using the latest research to add useful new capabilities like DSPy to the library.
+Large language models (LLMs) are becoming really powerful and have reached a point where they can work as the backend for your entire product. However, there's still a lot of complexity to manage from using the correct prompts, models, streaming, function calls, error correction, and much more. We aim to package all this complexity into a well-maintained, easy-to-use library that can work with all SOTA LLMs. Additionally, we are using the latest research to add new capabilities like DSPy to the library.
 
 ## How to use this library?
 
@@ -542,13 +541,13 @@ We're happy to help reach out if you have questions or join the Discord
 
 ## FAQ
 
-### 1. The LLM can't find the right function to use
+### 1. The LLM can't find the correct function to use
 
-Improve the function naming and description be very clear on what the function does. Also ensure the function parameter's also have good descriptions. The descriptions don't have to be very long but need to be clear.
+Improve the function naming and description. Be very clear about what the function does. Also, ensure the function parameters have good descriptions. The descriptions can be a little short but need to be precise.
 
-### 2. How do I change the configuration of the LLM used
+### 2. How do I change the configuration of the LLM I'm using?
 
-You can pass a configuration object as the second parameter when creating a new LLM object
+You can pass a configuration object as the second parameter when creating a new LLM object.
 
 ```ts
 const apiKey = process.env.OPENAI_APIKEY;
@@ -556,22 +555,22 @@ const conf = AxOpenAIBestConfig();
 const ai = new AxOpenAI({ apiKey, conf } as AxOpenAIArgs);
 ```
 
-## 3. My prompt is too long and can I change the max tokens
+## 3. My prompt is too long / can I change the max tokens?
 
 ```ts
 const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
 conf.maxTokens = 2000;
 ```
 
-## 4. How do I change the model say I want to use GPT4
+## 4. How do I change the model? (e.g., I want to use GPT4)
 
 ```ts
 const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
 conf.model = OpenAIModel.GPT4Turbo;
 ```
 
-## Monorepo tops & tricks
+## Monorepo tips & tricks
 
-It's important to remember that we should only run `npm install` from the root directory. This is to prevent the creation of nested `package-lock.json` files and to avoid non deduplicated `node_modules`.
+It is essential to remember that we should only run `npm install` from the root directory. This prevents the creation of nested `package-lock.json` files and avoids non-deduplicated `node_modules`.
 
-Adding new dependencies in packages should be done with e.g. `npm install lodash --workspace=ax` (or just modify the appropriate `package.json` and run `npm install` from root).
+Adding new dependencies in packages should be done with e.g. `npm install lodash --workspace=ax` (or just modify the appropriate `package.json` and run `npm install` from root).

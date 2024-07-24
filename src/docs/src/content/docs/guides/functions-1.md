@@ -3,12 +3,11 @@ title: Functions Part 1
 description: How to create functions to use in Ax
 ---
 
-In this guide we'll explain how to create functions, function classes, etc that can be used in 
-Ax. Creation focused functions with clear names and descriptions are critical to a solid workflow. Do not use too many functions on a prompt and do not make the function itself do too much. Focused functions are better. If you need to use several functions then look into breaking down the task into multiple prompts or use agents.
+In this guide, we’ll explain how to create functions, function classes, etc. that can be used in Ax. Creation focused functions with clear names and descriptions are critical to a solid workflow. Do not use too many functions on a prompt or make the function itself do too much. Focused functions are better. If you need to use several functions, then look into breaking down the task into multiple prompts or using agents.
 
 ### Function definition simple
 
-A function is an object with a `name`, `description` along with a json schema of the function arguments and the function itself.
+A function is an object with a `name`, and `description` along with a JSON schema of the function arguments and the function itself
 
 ```typescript
 // The function
@@ -38,7 +37,7 @@ const googleSearch AxFunction = {
 
 ### Function definition as a class
 
-Another way to define functions is as a class with a `toFunction` method.
+Another way to define functions is as a class with a `toFunction` method.
 
 ```typescript
 class GoogleSearch {
