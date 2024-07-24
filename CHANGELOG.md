@@ -1,5 +1,19 @@
 
 
+## [9.0.36](https://github.com/ax-llm/ax/compare/9.0.34...9.0.35) (2024-07-24)
+
+
+### Bug Fixes
+
+* spelling ([cbe25eb](https://github.com/ax-llm/ax/commit/cbe25eb09b0ab1c77336bfd8965c489403be26d0))
+
+## [9.0.35](https://github.com/ax-llm/ax/compare/9.0.34...9.0.35) (2024-07-24)
+
+
+### Bug Fixes
+
+* build issues ([e574f3a](https://github.com/ax-llm/ax/commit/e574f3ae1f9c7e4e6aa9291f3909a33744dfc5a4))
+
 ## [9.0.35](https://github.com/ax-llm/ax/compare/9.0.33...9.0.34) (2024-07-24)
 
 
