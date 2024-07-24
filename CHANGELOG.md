@@ -1,5 +1,19 @@
 
 
+## [9.0.35](https://github.com/ax-llm/ax/compare/9.0.33...9.0.34) (2024-07-24)
+
+
+### Bug Fixes
+
+* build issues ([e574f3a](https://github.com/ax-llm/ax/commit/e574f3ae1f9c7e4e6aa9291f3909a33744dfc5a4))
+
+## [9.0.34](https://github.com/ax-llm/ax/compare/9.0.33...9.0.34) (2024-07-24)
+
+
+### Bug Fixes
+
+* package.json for publishing ([2f1b72e](https://github.com/ax-llm/ax/commit/2f1b72e332762ba0e9b33f8ed3db1138d9d985ea))
+
 ## [9.0.34](https://github.com/ax-llm/ax/compare/9.0.32...9.0.33) (2024-07-24)
 
 
