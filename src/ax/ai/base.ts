@@ -463,6 +463,8 @@ export class AxBaseAI<
 const logChatRequest = (req: Readonly<AxChatRequest>) => {
   const items = req.chatPrompt?.map((msg) => {
     switch (msg.role) {
+      case 'system':
+        return `System: ${colorLog.whiteBright(msg.content)}`;
       case 'function':
         return `Function Result: ${colorLog.whiteBright(msg.result)}`;
       case 'user': {

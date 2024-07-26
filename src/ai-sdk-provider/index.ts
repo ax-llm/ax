@@ -79,7 +79,10 @@ export class AxAgentFramework implements LanguageModelV1 {
     options: Readonly<Parameters<LanguageModelV1['doStream']>[0]>
   ): Promise<Awaited<ReturnType<LanguageModelV1['doStream']>>> {
     const { req, warnings } = createChatRequest(options);
-    const res = (await this.ai.chat(req)) as ReadableStream<AxChatResponse>;
+
+    const res = (await this.ai.chat(req, {
+      stream: true
+    })) as ReadableStream<AxChatResponse>;
 
     return {
       stream: res.pipeThrough(new AxToSDKTransformer()),
@@ -205,11 +208,15 @@ function convertToAxChatPrompt(
           }
         }
 
-        messages.push({
-          role: 'assistant',
-          content: text,
-          functionCalls: toolCalls
-        });
+        const functionCalls = toolCalls.length === 0 ? undefined : toolCalls;
+
+        if (functionCalls || text.length > 0) {
+          messages.push({
+            role: 'assistant',
+            content: text,
+            functionCalls
+          });
+        }
 
         break;
       }
@@ -322,42 +329,55 @@ class AxToSDKTransformer extends TransformStream<
     LanguageModelV1StreamPart,
     { type: 'finish' }
   >['finishReason'] = 'other';
+  constructor() {
+    const transformer = {
+      transform: (
+        chunk: Readonly<AxChatResponse>,
+        controller: TransformStreamDefaultController<LanguageModelV1StreamPart>
+      ) => {
+        const choice = chunk.results.at(0);
+        if (!choice) {
+          return;
+        }
 
-  transform(
-    chunk: Readonly<AxChatResponse>,
-    controller: TransformStreamDefaultController<LanguageModelV1StreamPart>
-  ) {
-    const choice = chunk.results.at(0);
-    if (!choice) {
-      throw new Error('No choice returned');
-    }
-    if (choice.functionCalls) {
-      for (const tc of choice.functionCalls) {
+        if (choice.functionCalls) {
+          for (const tc of choice.functionCalls) {
+            controller.enqueue({
+              type: 'tool-call',
+              toolCallType: 'function',
+              toolCallId: tc.id,
+              toolName: tc.function.name,
+              args: JSON.stringify(tc.function.params)
+            });
+            this.finishReason = 'tool-calls';
+          }
+        }
+
+        if (choice.content && choice.content.length > 0) {
+          controller.enqueue({
+            type: 'text-delta',
+            textDelta: choice.content ?? ''
+          });
+        }
+        this.finishReason = mapAxFinishReason(choice.finishReason);
+      },
+      flush: (
+        controller: TransformStreamDefaultController<LanguageModelV1StreamPart>
+      ) => {
         controller.enqueue({
-          type: 'tool-call',
-          toolCallType: 'function',
-          toolCallId: tc.id,
-          toolName: tc.function.name,
-          args: JSON.stringify(tc.function.params!)
+          type: 'finish',
+          finishReason: this.finishReason,
+          usage: this.usage
         });
-        this.finishReason = 'tool-calls';
       }
-    }
+    };
 
-    controller.enqueue({
-      type: 'text-delta',
-      textDelta: choice.content ?? ''
-    });
-    this.finishReason = mapAxFinishReason(choice.finishReason);
-  }
+    super(transformer);
 
-  flush(
-    controller: TransformStreamDefaultController<LanguageModelV1StreamPart>
-  ) {
-    controller.enqueue({
-      type: 'finish',
-      finishReason: this.finishReason,
-      usage: this.usage
-    });
+    this.usage = {
+      promptTokens: 0,
+      completionTokens: 0
+    };
+    this.finishReason = 'other';
   }
 }
