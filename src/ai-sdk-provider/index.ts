@@ -13,30 +13,74 @@ import {
   UnsupportedFunctionalityError
 } from '@ai-sdk/provider';
 import type {
+  AxAgent,
   AxAIService,
   AxChatRequest,
   AxChatResponse,
-  AxChatResponseResult
+  AxChatResponseResult,
+  AxFunction,
+  AxFunctionJSONSchema,
+  AxGenIn,
+  AxGenOut
 } from '@ax-llm/ax/index.js';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
 
-type AxChatConfig = {
-  generateId: () => string;
+type AxConfig = {
   fetch?: typeof fetch;
 };
 
-export class AxAgentFramework implements LanguageModelV1 {
+interface RenderTool<IN> {
+  description?: string;
+  parameters?: AxFunctionJSONSchema;
+  generate?: ((input: IN) => Promise<unknown>) | undefined;
+}
+
+export class AxAgentProvider<IN extends AxGenIn> implements RenderTool<IN> {
+  private readonly config?: AxConfig;
+  private readonly funcInfo: AxFunction;
+
+  constructor(
+    agent: Readonly<AxAgent<IN, AxGenOut>>,
+    config?: Readonly<AxConfig>
+  ) {
+    this.config = config;
+    this.funcInfo = agent.getFunction();
+  }
+  get description() {
+    return this.funcInfo.description;
+  }
+  get parameters() {
+    return (
+      this.funcInfo.parameters ?? {
+        type: 'object',
+        properties: {}
+      }
+    );
+  }
+  get generate(): ((input: IN) => Promise<unknown>) | undefined {
+    if (!this.funcInfo.func) {
+      return undefined;
+    }
+    const agentFunc = this.funcInfo.func;
+
+    return async (input: IN): Promise<AxGenOut> => {
+      return (await agentFunc(input)) as AxGenOut;
+    };
+  }
+}
+
+export class AxAIProvider implements LanguageModelV1 {
   readonly specificationVersion = 'v1';
   readonly defaultObjectGenerationMode = 'json';
 
   private readonly ai: AxAIService;
-  private readonly config: AxChatConfig;
+  private readonly config?: AxConfig;
 
   public modelId: string;
 
-  constructor(ai: AxAIService, config: Readonly<AxChatConfig>) {
+  constructor(ai: AxAIService, config?: Readonly<AxConfig>) {
     this.ai = ai;
     this.config = config;
     this.modelId = this.ai.getModelInfo().name;
