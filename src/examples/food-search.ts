@@ -1,4 +1,4 @@
-import { AxAI, type AxFunction, AxReAct, AxSignature } from '@ax-llm/ax';
+import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax';
 
 const choice = Math.round(Math.random());
 
@@ -143,7 +143,7 @@ const functions: AxFunction[] = [
 const customerQuery =
   "Give me an ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
 
-const sig = new AxSignature(
+const signature = new AxSignature(
   `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
 );
 
@@ -174,7 +174,13 @@ const ai = new AxAI({
 
 // ai.setOptions({ debug: true });
 
-const gen = new AxReAct(ai, sig, { functions });
+const gen = new AxAgent(ai, {
+  name: 'food-search',
+  description:
+    'Use this agent to find restaurants based on what the customer wants',
+  signature,
+  functions
+});
 
 const res = await gen.forward({ customerQuery }, { stream: false });
 

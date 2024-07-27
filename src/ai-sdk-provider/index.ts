@@ -31,42 +31,65 @@ type AxConfig = {
   fetch?: typeof fetch;
 };
 
+type generateFunction<T> = ((input: T) => Promise<unknown>) | undefined;
+
+const schemaSymbol = Symbol('vercel.ai.schema');
+
 interface RenderTool<IN> {
   description?: string;
-  parameters?: AxFunctionJSONSchema;
-  generate?: ((input: IN) => Promise<unknown>) | undefined;
+  parameters?: {
+    [schemaSymbol]: true;
+    validate: undefined;
+    jsonSchema: AxFunctionJSONSchema;
+  };
+  generate?: generateFunction<IN>;
 }
 
-export class AxAgentProvider<IN extends AxGenIn> implements RenderTool<IN> {
+export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut>
+  implements RenderTool<IN>
+{
   private readonly config?: AxConfig;
   private readonly funcInfo: AxFunction;
+  private generateFunction: generateFunction<OUT>;
 
   constructor(
     agent: Readonly<AxAgent<IN, AxGenOut>>,
+    generate: generateFunction<OUT>,
     config?: Readonly<AxConfig>
   ) {
     this.config = config;
     this.funcInfo = agent.getFunction();
+    this.generateFunction = generate;
   }
+
   get description() {
     return this.funcInfo.description;
   }
+
   get parameters() {
-    return (
-      this.funcInfo.parameters ?? {
-        type: 'object',
-        properties: {}
-      }
-    );
+    const jsonSchema = this.funcInfo.parameters ?? {
+      type: 'object',
+      properties: {}
+    };
+
+    return {
+      [schemaSymbol]: true as const,
+      validate: undefined,
+      jsonSchema
+    };
   }
-  get generate(): ((input: IN) => Promise<unknown>) | undefined {
+
+  get generate(): generateFunction<IN> {
     if (!this.funcInfo.func) {
       return undefined;
     }
     const agentFunc = this.funcInfo.func;
 
-    return async (input: IN): Promise<AxGenOut> => {
-      return (await agentFunc(input)) as AxGenOut;
+    return async (input: IN): Promise<unknown> => {
+      const res = (await agentFunc(input)) as OUT;
+      if (this.generateFunction) {
+        return await this.generateFunction(res);
+      }
     };
   }
 }
