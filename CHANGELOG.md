@@ -1,5 +1,19 @@
 
 
+## [9.0.39](https://github.com/ax-llm/ax/compare/9.0.37...9.0.38) (2024-07-27)
+
+
+### Bug Fixes
+
+* ai sdk agent provider update ([096ad0c](https://github.com/ax-llm/ax/commit/096ad0cca337feae4079293aae032c2325267b8a))
+
+## [9.0.38](https://github.com/ax-llm/ax/compare/9.0.37...9.0.38) (2024-07-27)
+
+
+### Features
+
+* added a ai sdk agent provider ([9f030c0](https://github.com/ax-llm/ax/commit/9f030c0d99e4dd91090fc25350455d9da1a28bb5))
+
 ## [9.0.38](https://github.com/ax-llm/ax/compare/9.0.36...9.0.37) (2024-07-27)
 
 
