@@ -1,5 +1,19 @@
 
 
+## [9.0.40](https://github.com/ax-llm/ax/compare/9.0.38...9.0.39) (2024-07-28)
+
+
+### Bug Fixes
+
+* automatic zod schema creation for ai sdk provider tools ([7ea8600](https://github.com/ax-llm/ax/commit/7ea86007bcbe455c9edaa03bcc01e5f22ca780b4))
+
+## [9.0.39](https://github.com/ax-llm/ax/compare/9.0.38...9.0.39) (2024-07-27)
+
+
+### Bug Fixes
+
+* ai sdk agent provider update ([096ad0c](https://github.com/ax-llm/ax/commit/096ad0cca337feae4079293aae032c2325267b8a))
+
 ## [9.0.39](https://github.com/ax-llm/ax/compare/9.0.37...9.0.38) (2024-07-27)
 
 
