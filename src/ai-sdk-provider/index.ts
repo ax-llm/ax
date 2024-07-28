@@ -155,46 +155,40 @@ function prepareToolsAndToolChoice(
   mode: Readonly<
     Parameters<LanguageModelV1['doGenerate']>[0]['mode'] & { type: 'regular' }
   >
-) {
+): Pick<AxChatRequest, 'functions' | 'functionCall'> {
   // when the tools array is empty, change it to undefined to prevent errors:
   const tools = mode.tools?.length ? mode.tools : undefined;
-
-  if (tools == null) {
-    return { tools: undefined, tool_choice: undefined };
+  if (!tools) {
+    return {};
   }
 
-  const mappedTools = tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }
+  const functions = tools.map((f) => ({
+    name: f.name,
+    description: f.description ?? '',
+    parameters: f.parameters
   }));
 
   const toolChoice = mode.toolChoice;
-
-  if (toolChoice == null) {
-    return { tools: mappedTools, tool_choice: undefined };
+  if (!toolChoice) {
+    return { functions };
   }
 
   const type = toolChoice.type;
 
   switch (type) {
     case 'auto':
+      return { functions, functionCall: 'auto' };
     case 'none':
-      return { tools: mappedTools, tool_choice: type };
+      return { functions, functionCall: 'none' };
     case 'required':
-      return { tools: mappedTools, tool_choice: 'any' };
-
-    // mistral does not support tool mode directly,
-    // so we filter the tools and force the tool choice through 'any'
+      return { functions, functionCall: 'required' };
     case 'tool':
       return {
-        tools: mappedTools.filter(
-          (tool) => tool.function.name === toolChoice.toolName
-        ),
-        tool_choice: 'any'
+        functions,
+        functionCall: {
+          type: 'function',
+          function: { name: toolChoice.toolName }
+        }
       };
     default: {
       const _exhaustiveCheck: never = type;
@@ -322,7 +316,7 @@ function createChatRequest({
   topP,
   frequencyPenalty,
   presencePenalty
-  //seed
+  //seed,
 }: Readonly<Parameters<LanguageModelV1['doGenerate']>[0]>): {
   req: AxChatRequest;
   warnings: LanguageModelV1CallWarning[];
@@ -354,8 +348,15 @@ function createChatRequest({
     }
 
     case 'object-tool': {
+      const tool = {
+        type: 'function',
+        function: {
+          name: mode.tool.name,
+          params: mode.tool.parameters
+        }
+      };
       return {
-        req: { ...req, ...mode.tool },
+        req: { ...req, ...tool },
         warnings
       };
     }
