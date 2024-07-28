@@ -25,6 +25,7 @@
   "dependencies": {
     "@ai-sdk/provider-utils": "^1.0.2",
     "@ax-llm/ax": "9.0.41",
+    "ai": "^3.2.37",
     "zod": "^3.23.8"
   },
   "devDependencies": {

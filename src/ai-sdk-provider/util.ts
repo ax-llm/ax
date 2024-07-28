@@ -34,7 +34,9 @@ export function convertToZodSchema(
 
       for (const [key, value] of Object.entries(properties)) {
         const schema = convertToZodSchema(value);
-        shape[key] = required?.includes(key) ? schema : schema.optional();
+        let val = required?.includes(key) ? schema : schema.optional();
+        val = value.description ? val.describe(value.description) : val;
+        shape[key] = val;
       }
       return z.object(shape);
     }

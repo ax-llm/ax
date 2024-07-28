@@ -8,9 +8,9 @@ import {
   type LanguageModelV1,
   type LanguageModelV1CallWarning,
   type LanguageModelV1FinishReason,
+  type LanguageModelV1FunctionToolCall,
   type LanguageModelV1Prompt,
-  type LanguageModelV1StreamPart,
-  UnsupportedFunctionalityError
+  type LanguageModelV1StreamPart
 } from '@ai-sdk/provider';
 import type {
   AxAgent,
@@ -22,9 +22,8 @@ import type {
   AxGenIn,
   AxGenOut
 } from '@ax-llm/ax/index.js';
-import { z } from 'zod';
-
-import { convertToZodSchema } from './util.js';
+import { jsonSchema } from 'ai';
+import { customAlphabet } from 'nanoid';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
@@ -35,50 +34,98 @@ type AxConfig = {
 
 type generateFunction<T> = ((input: T) => Promise<unknown>) | undefined;
 
-interface RenderTool<IN> {
-  description?: string;
-  parameters?: z.ZodTypeAny;
-  generate?: generateFunction<IN>;
+export const nanoid = customAlphabet(
+  '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+  7
+);
+
+interface AIStateValue {
+  messages: unknown[];
 }
 
-export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut>
-  implements RenderTool<IN>
-{
+export interface AxAISdkAIState {
+  get: () => AIStateValue;
+  update: (newState: Readonly<AIStateValue>) => void;
+  done: ((newState: Readonly<AIStateValue>) => void) | (() => void);
+}
+
+export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
   private readonly config?: AxConfig;
+  private readonly agent: AxAgent<IN, OUT>;
   private readonly funcInfo: AxFunction;
   private generateFunction: generateFunction<OUT>;
+  private state: AxAISdkAIState;
 
   constructor(
-    agent: Readonly<AxAgent<IN, AxGenOut>>,
+    // eslint-disable-next-line functional/prefer-immutable-types
+    agent: AxAgent<IN, OUT>,
+    state: Readonly<AxAISdkAIState>,
     generate: generateFunction<OUT>,
     config?: Readonly<AxConfig>
   ) {
-    this.config = config;
+    this.agent = agent;
     this.funcInfo = agent.getFunction();
     this.generateFunction = generate;
+    this.state = state;
+    this.config = config;
   }
 
   get description() {
     return this.funcInfo.description;
   }
 
-  get parameters() {
-    const jsonSchema = this.funcInfo.parameters ?? {
+  get parameters(): unknown {
+    // return z.object({
+    //   customerQuery: z.string().describe('What the customer is asking for')
+    // });
+    const schema = this.funcInfo.parameters ?? {
       type: 'object',
       properties: {}
     };
 
-    return convertToZodSchema(jsonSchema);
+    return jsonSchema(schema);
+    // return convertToZodSchema(schema);
   }
 
   get generate(): generateFunction<IN> {
     if (!this.funcInfo.func) {
       return undefined;
     }
-    const agentFunc = this.funcInfo.func;
-
     return async (input: IN): Promise<unknown> => {
-      const res = (await agentFunc(input)) as OUT;
+      const res = await this.agent.forward(input);
+      const toolCallId = nanoid();
+
+      this.state.done({
+        ...this.state.get(),
+        messages: [
+          ...this.state.get().messages,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolName: this.funcInfo.name,
+                toolCallId,
+                args: input
+              }
+            ]
+          },
+          {
+            id: nanoid(),
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolName: this.funcInfo.name,
+                toolCallId,
+                result: res
+              }
+            ]
+          }
+        ]
+      });
+
       if (this.generateFunction) {
         return await this.generateFunction(res);
       }
@@ -122,7 +169,10 @@ export class AxAIProvider implements LanguageModelV1 {
         toolCallType: 'function',
         toolCallId: tc.id,
         toolName: tc.function.name,
-        args: JSON.stringify(tc.function.params!)
+        args:
+          typeof tc.function.params === 'string'
+            ? tc.function.params
+            : JSON.stringify(tc.function.params)
       })),
       finishReason: mapAxFinishReason(choice.finishReason),
       usage: {
@@ -212,20 +262,27 @@ function convertToAxChatPrompt(
       case 'user': {
         messages.push({
           role: 'user',
-          content: content
-            .map((part) => {
-              switch (part.type) {
-                case 'text': {
-                  return part.text;
-                }
-                case 'image': {
-                  throw new UnsupportedFunctionalityError({
-                    functionality: 'image-part'
-                  });
-                }
+          content: content.map((part) => {
+            switch (part.type) {
+              case 'text': {
+                return { type: 'text', text: part.text };
               }
-            })
-            .join('')
+              case 'image': {
+                if (!part.mimeType) {
+                  throw new Error('Image part must have a mimeType');
+                }
+                if (!ArrayBuffer.isView(part.image)) {
+                  throw new Error('Image part must have an ArrayBuffer');
+                }
+                const image = Buffer.from(part.image).toString('base64');
+                return {
+                  type: 'image',
+                  mimeType: part.mimeType,
+                  image
+                };
+              }
+            }
+          })
         });
         break;
       }
@@ -361,12 +418,6 @@ function createChatRequest({
       };
     }
 
-    case 'object-grammar': {
-      throw new UnsupportedFunctionalityError({
-        functionality: 'object-grammar mode'
-      });
-    }
-
     default: {
       throw new Error(`Unsupported type`);
     }
@@ -389,6 +440,9 @@ class AxToSDKTransformer extends TransformStream<
     LanguageModelV1StreamPart,
     { type: 'finish' }
   >['finishReason'] = 'other';
+
+  private functionCalls: LanguageModelV1FunctionToolCall[] = [];
+
   constructor() {
     const transformer = {
       transform: (
@@ -397,18 +451,50 @@ class AxToSDKTransformer extends TransformStream<
       ) => {
         const choice = chunk.results.at(0);
         if (!choice) {
+          const val = {
+            type: 'finish' as const,
+            finishReason: this.finishReason,
+            usage: this.usage
+          };
+          controller.enqueue(val);
           return;
         }
 
+        if (chunk.modelUsage) {
+          this.usage = {
+            promptTokens:
+              this.usage.promptTokens + chunk.modelUsage.promptTokens,
+            completionTokens:
+              this.usage.completionTokens + chunk.modelUsage?.completionTokens
+          };
+        }
+
         if (choice.functionCalls) {
-          for (const tc of choice.functionCalls) {
-            controller.enqueue({
-              type: 'tool-call',
-              toolCallType: 'function',
-              toolCallId: tc.id,
-              toolName: tc.function.name,
-              args: JSON.stringify(tc.function.params)
-            });
+          for (const fc of choice.functionCalls) {
+            const index = this.functionCalls.findIndex(
+              (f) => f.toolCallId === fc.id
+            );
+            if (index === -1) {
+              this.functionCalls.push({
+                toolCallType: 'function' as const,
+                toolCallId: fc.id,
+                toolName: fc.function.name,
+                args:
+                  typeof fc.function.params === 'string'
+                    ? fc.function.params
+                    : JSON.stringify(fc.function.params)
+              });
+            } else {
+              const obj = this.functionCalls[index];
+              if (!obj) {
+                continue;
+              }
+              if (typeof fc.function.params === 'string') {
+                obj.args = (obj.args ?? '') + fc.function.params;
+              } else {
+                obj.args = JSON.stringify(fc.function.params);
+              }
+            }
             this.finishReason = 'tool-calls';
           }
         }
@@ -418,26 +504,30 @@ class AxToSDKTransformer extends TransformStream<
             type: 'text-delta',
             textDelta: choice.content ?? ''
           });
+          this.finishReason = mapAxFinishReason(choice.finishReason);
         }
-        this.finishReason = mapAxFinishReason(choice.finishReason);
       },
       flush: (
         controller: TransformStreamDefaultController<LanguageModelV1StreamPart>
       ) => {
-        controller.enqueue({
-          type: 'finish',
+        for (const fc of this.functionCalls) {
+          const tc = {
+            type: 'tool-call' as const,
+            ...fc
+          };
+          controller.enqueue(tc);
+        }
+
+        const val = {
+          type: 'finish' as const,
           finishReason: this.finishReason,
           usage: this.usage
-        });
+        };
+        controller.enqueue(val);
+        controller.terminate();
       }
     };
 
     super(transformer);
-
-    this.usage = {
-      promptTokens: 0,
-      completionTokens: 0
-    };
-    this.finishReason = 'other';
   }
 }
