@@ -1,5 +1,19 @@
 
 
+## [9.0.42](https://github.com/ax-llm/ax/compare/9.0.40...9.0.41) (2024-07-28)
+
+
+### Bug Fixes
+
+* updates to ai sdk provider ([ca62b91](https://github.com/ax-llm/ax/commit/ca62b91d4eb117cda29695c0b4842a21e95caba3))
+
+## [9.0.41](https://github.com/ax-llm/ax/compare/9.0.40...9.0.41) (2024-07-28)
+
+
+### Bug Fixes
+
+* ax ai provider ([b87bf02](https://github.com/ax-llm/ax/commit/b87bf0275b0d2b9edc1435ab30de4c8bbb878197))
+
 ## [9.0.41](https://github.com/ax-llm/ax/compare/9.0.39...9.0.40) (2024-07-28)
 
 
