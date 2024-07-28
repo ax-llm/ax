@@ -19,10 +19,12 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
-  AxFunctionJSONSchema,
   AxGenIn,
   AxGenOut
 } from '@ax-llm/ax/index.js';
+import { z } from 'zod';
+
+import { convertToZodSchema } from './util.js';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
@@ -33,15 +35,9 @@ type AxConfig = {
 
 type generateFunction<T> = ((input: T) => Promise<unknown>) | undefined;
 
-const schemaSymbol = Symbol('vercel.ai.schema');
-
 interface RenderTool<IN> {
   description?: string;
-  parameters?: {
-    [schemaSymbol]: true;
-    validate: undefined;
-    jsonSchema: AxFunctionJSONSchema;
-  };
+  parameters?: z.ZodTypeAny;
   generate?: generateFunction<IN>;
 }
 
@@ -72,11 +68,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut>
       properties: {}
     };
 
-    return {
-      [schemaSymbol]: true as const,
-      validate: undefined,
-      jsonSchema
-    };
+    return convertToZodSchema(jsonSchema);
   }
 
   get generate(): generateFunction<IN> {
