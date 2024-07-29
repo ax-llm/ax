@@ -19,11 +19,12 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
+  AxFunctionJSONSchema,
   AxGenIn,
   AxGenOut
 } from '@ax-llm/ax/index.js';
-import { jsonSchema } from 'ai';
 import { customAlphabet } from 'nanoid';
+import { z } from 'zod';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
@@ -53,16 +54,20 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
   private readonly config?: AxConfig;
   private readonly agent: AxAgent<IN, OUT>;
   private readonly funcInfo: AxFunction;
-  private generateFunction: generateFunction<OUT>;
+  private generateFunction?: generateFunction<OUT>;
   private state: AxAISdkAIState;
 
-  constructor(
-    // eslint-disable-next-line functional/prefer-immutable-types
-    agent: AxAgent<IN, OUT>,
-    state: Readonly<AxAISdkAIState>,
-    generate: generateFunction<OUT>,
-    config?: Readonly<AxConfig>
-  ) {
+  constructor({
+    agent,
+    state,
+    generate,
+    config
+  }: Readonly<{
+    agent: AxAgent<IN, OUT>;
+    state: Readonly<AxAISdkAIState>;
+    generate?: generateFunction<OUT>;
+    config?: Readonly<AxConfig>;
+  }>) {
     this.agent = agent;
     this.funcInfo = agent.getFunction();
     this.generateFunction = generate;
@@ -75,22 +80,15 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
   }
 
   get parameters(): unknown {
-    // return z.object({
-    //   customerQuery: z.string().describe('What the customer is asking for')
-    // });
     const schema = this.funcInfo.parameters ?? {
       type: 'object',
       properties: {}
     };
 
-    return jsonSchema(schema);
-    // return convertToZodSchema(schema);
+    return convertToZodSchema(schema);
   }
 
   get generate(): generateFunction<IN> {
-    if (!this.funcInfo.func) {
-      return undefined;
-    }
     return async (input: IN): Promise<unknown> => {
       const res = await this.agent.forward(input);
       const toolCallId = nanoid();
@@ -129,6 +127,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
       if (this.generateFunction) {
         return await this.generateFunction(res);
       }
+      return res;
     };
   }
 }
@@ -311,6 +310,7 @@ function convertToAxChatPrompt(
               });
               break;
             }
+
             default: {
               const _exhaustiveCheck: never = part;
               throw new Error(`Unsupported part: ${_exhaustiveCheck}`);
@@ -331,11 +331,11 @@ function convertToAxChatPrompt(
         break;
       }
       case 'tool': {
-        for (const toolResponse of content) {
+        for (const part of content) {
           messages.push({
-            role: 'assistant',
-            name: toolResponse.toolName,
-            content: JSON.stringify(toolResponse.result)
+            role: 'function' as const,
+            functionId: part.toolCallId,
+            result: JSON.stringify(part.result, null, 2)
           });
         }
         break;
@@ -529,5 +529,49 @@ class AxToSDKTransformer extends TransformStream<
     };
 
     super(transformer);
+  }
+}
+
+type AnyZod =
+  | z.AnyZodObject
+  | z.ZodString
+  | z.ZodNumber
+  | z.ZodBoolean
+  | z.ZodArray<AnyZod>
+  | z.ZodOptional<AnyZod>;
+
+export function convertToZodSchema(
+  jsonSchema: Readonly<AxFunctionJSONSchema>
+): AnyZod {
+  const { type, properties, required, items } = jsonSchema;
+
+  switch (type) {
+    case 'string':
+      return z.string();
+    case 'number':
+      return z.number();
+    case 'boolean':
+      return z.boolean();
+    case 'array':
+      if (!items) {
+        throw new Error("Array type must have 'items' property.");
+      }
+      return z.array(convertToZodSchema(items));
+    case 'object': {
+      if (!properties) {
+        throw new Error("Object type must have 'properties' property.");
+      }
+      const shape: Record<string, AnyZod> = {};
+
+      for (const [key, value] of Object.entries(properties)) {
+        const schema = convertToZodSchema(value);
+        let val = required?.includes(key) ? schema : schema.optional();
+        val = value.description ? val.describe(value.description) : val;
+        shape[key] = val;
+      }
+      return z.object(shape);
+    }
+    default:
+      throw new Error(`Unsupported type: ${type}`);
   }
 }
