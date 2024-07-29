@@ -30,10 +30,6 @@ export class AxFunctionProcessor {
     func: Readonly<AxChatResponseFunctionCall>,
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxFunctionExec> => {
-    if (!fnSpec.func) {
-      throw new Error(`Function handler for ${fnSpec.name} not implemented`);
-    }
-
     let args;
 
     if (typeof func.args === 'string' && func.args.length > 0) {

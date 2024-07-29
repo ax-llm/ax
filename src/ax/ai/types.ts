@@ -58,7 +58,7 @@ export type AxFunction = {
   name: string;
   description: string;
   parameters?: AxFunctionJSONSchema;
-  func?: AxFunctionHandler;
+  func: AxFunctionHandler;
 };
 
 export type AxChatResponseResult = {

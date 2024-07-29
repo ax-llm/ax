@@ -1,3 +1,5 @@
+// cspell:ignore Streamable
+
 import {
   type ReadableStream,
   TransformStream,
@@ -13,7 +15,7 @@ import {
   type LanguageModelV1StreamPart
 } from '@ai-sdk/provider';
 import type {
-  AxAgent,
+  AxAgentic,
   AxAIService,
   AxChatRequest,
   AxChatResponse,
@@ -23,7 +25,9 @@ import type {
   AxGenIn,
   AxGenOut
 } from '@ax-llm/ax/index.js';
+import type { CoreMessage } from 'ai';
 import { customAlphabet } from 'nanoid';
+import type { ReactNode } from 'react';
 import { z } from 'zod';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
@@ -33,45 +37,39 @@ type AxConfig = {
   fetch?: typeof fetch;
 };
 
-type generateFunction<T> = ((input: T) => Promise<unknown>) | undefined;
+type Streamable = ReactNode | Promise<ReactNode>;
+type Renderer<T> = (
+  args: T
+) =>
+  | Streamable
+  | Generator<Streamable, Streamable, void>
+  | AsyncGenerator<Streamable, Streamable, void>;
 
 export const nanoid = customAlphabet(
   '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
   7
 );
 
-interface AIStateValue {
-  messages: unknown[];
-}
-
-export interface AxAISdkAIState {
-  get: () => AIStateValue;
-  update: (newState: Readonly<AIStateValue>) => void;
-  done: ((newState: Readonly<AIStateValue>) => void) | (() => void);
-}
-
 export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
   private readonly config?: AxConfig;
-  private readonly agent: AxAgent<IN, OUT>;
   private readonly funcInfo: AxFunction;
-  private generateFunction?: generateFunction<OUT>;
-  private state: AxAISdkAIState;
+  private generateFunction: Renderer<OUT>;
+  private updateState: (msgs: readonly CoreMessage[]) => void;
 
   constructor({
     agent,
-    state,
+    updateState,
     generate,
     config
   }: Readonly<{
-    agent: AxAgent<IN, OUT>;
-    state: Readonly<AxAISdkAIState>;
-    generate?: generateFunction<OUT>;
+    agent: AxAgentic;
+    updateState: (msgs: readonly CoreMessage[]) => void;
+    generate: Renderer<OUT>;
     config?: Readonly<AxConfig>;
   }>) {
-    this.agent = agent;
     this.funcInfo = agent.getFunction();
     this.generateFunction = generate;
-    this.state = state;
+    this.updateState = updateState;
     this.config = config;
   }
 
@@ -79,7 +77,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
     return this.funcInfo.description;
   }
 
-  get parameters(): unknown {
+  get parameters(): z.ZodTypeAny {
     const schema = this.funcInfo.parameters ?? {
       type: 'object',
       properties: {}
@@ -88,47 +86,39 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
     return convertToZodSchema(schema);
   }
 
-  get generate(): generateFunction<IN> {
-    return async (input: IN): Promise<unknown> => {
-      const res = await this.agent.forward(input);
+  get generate(): Renderer<IN> {
+    const fn = async (input: IN) => {
+      const res = (await this.funcInfo.func(input)) as OUT;
       const toolCallId = nanoid();
 
-      this.state.done({
-        ...this.state.get(),
-        messages: [
-          ...this.state.get().messages,
-          {
-            id: nanoid(),
-            role: 'assistant',
-            content: [
-              {
-                type: 'tool-call',
-                toolName: this.funcInfo.name,
-                toolCallId,
-                args: input
-              }
-            ]
-          },
-          {
-            id: nanoid(),
-            role: 'tool',
-            content: [
-              {
-                type: 'tool-result',
-                toolName: this.funcInfo.name,
-                toolCallId,
-                result: res
-              }
-            ]
-          }
-        ]
-      });
+      this.updateState([
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool-call',
+              toolName: this.funcInfo.name,
+              toolCallId,
+              args: input
+            }
+          ]
+        },
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolName: this.funcInfo.name,
+              toolCallId,
+              result: res
+            }
+          ]
+        }
+      ]);
 
-      if (this.generateFunction) {
-        return await this.generateFunction(res);
-      }
-      return res;
+      return this.generateFunction(res);
     };
+    return fn as Renderer<IN>;
   }
 }
 
