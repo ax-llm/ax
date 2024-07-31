@@ -52,6 +52,7 @@ You can have multiple input and output fields, and each field can be of the type
 | Ollama        | All models              | 🟢 100% |
 | Google Gemini | Gemini: Flash, Pro      | 🟢 100% |
 | Hugging Face  | OSS Model               | 🟡 50%  |
+| Reka          | Core, Flash, Edge       | 🟡 50%  |
 
 ## Install
 

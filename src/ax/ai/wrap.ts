@@ -33,6 +33,7 @@ import {
   type AxAIOpenAIArgs as AxAIOpenAIArgs
 } from './openai/api.js';
 import type { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './openai/types.js';
+import { AxAIReka, type AxAIRekaArgs } from './reka/api.js';
 import { AxAITogether, type AxAITogetherArgs } from './together/api.js';
 import type {
   AxAIModelMap,
@@ -59,7 +60,8 @@ export type AxAIArgs =
   | AxAIHuggingFaceArgs
   | AxAIMistralArgs
   | AxAIDeepSeekArgs
-  | AxAIOllamaArgs;
+  | AxAIOllamaArgs
+  | AxAIRekaArgs;
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -115,6 +117,9 @@ export class AxAI implements AxAIService {
         break;
       case 'ollama':
         this.ai = new AxAIOllama(options);
+        break;
+      case 'reka':
+        this.ai = new AxAIReka(options);
         break;
       default:
         throw new Error(`Unknown AI`);
