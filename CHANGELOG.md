@@ -1,5 +1,20 @@
 
 
+## [9.0.45](https://github.com/ax-llm/ax/compare/9.0.43...9.0.44) (2024-07-31)
+
+
+### Features
+
+* added reka models ([ef1f267](https://github.com/ax-llm/ax/commit/ef1f2677220073253a7c020668842c3635d26924))
+
+## [9.0.44](https://github.com/ax-llm/ax/compare/9.0.43...9.0.44) (2024-07-29)
+
+
+### Bug Fixes
+
+* updates to the ai sdk provider ([01fca9a](https://github.com/ax-llm/ax/commit/01fca9abf00cc8a24e649575a7c0f5558fe21d66))
+* updates to the ai sdk provider ([ff77e1f](https://github.com/ax-llm/ax/commit/ff77e1f4959e8aad71b8b87e4b084cf992972522))
+
 ## [9.0.44](https://github.com/ax-llm/ax/compare/9.0.42...9.0.43) (2024-07-29)
 
 
