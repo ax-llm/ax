@@ -28,7 +28,7 @@ const summarizer = new AxAgent(ai, {
   name: 'Science Summarizer',
   description:
     'Summarizer can write short summaries of advanced science topics',
-  signature: `textToSummarize "text to summarize" -> shortSummary "summarize in 5 to 10 words"`
+  signature: `answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"`
 });
 
 const agent = new AxAgent(ai, {
@@ -38,7 +38,13 @@ const agent = new AxAgent(ai, {
   agents: [researcher, summarizer]
 });
 
-const question = `Why is gravity not a real force? Why is light pure energy? Why is physics scale invariant? Why is the centrifugal force talked about so much if it's not real?`;
+const question = `
+  Why is gravity not a real force? Why is light pure energy? 
+  Why is physics scale invariant? 
+  Why is the centrifugal force talked about so much if it's not real? 
+  For each question include a summary with the bullet points.
+  Include the summary and bullet points in the answer.
+  Return this only if you can answer all the questions.`;
 
 const res = await agent.forward({ question });
 console.log('>', res);
