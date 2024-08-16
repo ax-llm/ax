@@ -1,5 +1,19 @@
 
 
+## [9.0.46](https://github.com/ax-llm/ax/compare/9.0.44...9.0.45) (2024-08-16)
+
+
+### Bug Fixes
+
+* Bind agent functions to instances for correct 'this' context" ([#61](https://github.com/ax-llm/ax/issues/61)) ([ce684ff](https://github.com/ax-llm/ax/commit/ce684ff507e6493b4bfcdae195df5da3ea362e3f))
+
+## [9.0.45](https://github.com/ax-llm/ax/compare/9.0.44...9.0.45) (2024-07-31)
+
+
+### Features
+
+* added reka models ([ef1f267](https://github.com/ax-llm/ax/commit/ef1f2677220073253a7c020668842c3635d26924))
+
 ## [9.0.45](https://github.com/ax-llm/ax/compare/9.0.43...9.0.44) (2024-07-31)
 
 
