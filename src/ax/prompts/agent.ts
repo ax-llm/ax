@@ -127,7 +127,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public getFunction(): AxFunction {
-    return this.func;
+    const boundFunc = this.forward.bind(this);
+    return {
+      ...this.func,
+      func: boundFunc
+    };
   }
 
   public async forward(
