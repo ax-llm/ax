@@ -11,7 +11,7 @@ export class AxMemory implements AxAIMemory {
 
   constructor(limit = 50) {
     if (limit <= 0) {
-      throw Error("argument 'last' must be greater than 0");
+      throw Error("argument 'limit' must be greater than 0");
     }
     this.limit = limit;
   }
