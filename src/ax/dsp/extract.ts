@@ -46,7 +46,7 @@ export const streamingExtractValues = (
         .replace(/---+$/, '')
         .trim();
 
-      if (state.currField.type) {
+      if (state.currField.type?.name === 'json') {
         values[state.currField.name] = validateAndParseJson(
           state.currField,
           val
@@ -72,7 +72,7 @@ export const streamingExtractFinalValue = (
   }
   const val = content.substring(state.s).trim().replace(/---+$/, '').trim();
 
-  if (state.currField.type) {
+  if (state.currField.type?.name === 'json') {
     values[state.currField.name] = validateAndParseJson(state.currField, val);
   } else {
     values[state.currField.name] = val;

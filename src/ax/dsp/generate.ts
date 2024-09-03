@@ -215,8 +215,8 @@ export class AxGenerate<
     }
   >): Promise<OUT> {
     const usageInfo = {
-      ai: this.ai.getName(),
-      model: this.ai.getModelInfo().name
+      ai: ai.getName(),
+      model: ai.getModelInfo().name
     };
 
     const res = await this.forwardSendRequest({
@@ -353,10 +353,11 @@ export class AxGenerate<
     options?: Readonly<AxProgramForwardOptions>,
     span?: AxSpan
   ): Promise<OUT> {
+    const ai = options?.ai ?? this.ai;
     const maxRetries = this.options?.maxRetries ?? options?.maxRetries ?? 5;
     const maxSteps = this.options?.maxSteps ?? options?.maxSteps ?? 10;
     const mem = this.options?.mem ?? options?.mem ?? new AxMemory();
-    const canStream = this.ai.getFeatures().streaming;
+    const canStream = ai.getFeatures().streaming;
 
     let err: ValidationError | AxAssertionError | undefined;
 
@@ -385,7 +386,7 @@ export class AxGenerate<
           const stream = canStream && doStream;
 
           const output = await this.forwardCore({
-            ai: options?.ai ?? this.ai,
+            ai,
             mem,
             sessionId,
             traceId,

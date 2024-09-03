@@ -75,7 +75,6 @@ export class AxAIProvider {
     }
     async doStream(options) {
         const { req, warnings } = createChatRequest(options);
-        console.log('###########', req);
 
         const res = (await this.ai.chat(req, {
             stream: true

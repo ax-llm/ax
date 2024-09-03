@@ -4,6 +4,7 @@ import { AxAIOpenAI } from '../openai/api.js';
 import type { AxAIOpenAIConfig } from '../openai/types.js';
 import type { AxAIServiceOptions, AxRateLimiterFunction } from '../types.js';
 
+import { axModelInfoGroq } from './info.js';
 import { AxAIGroqModel } from './types.js';
 
 type AxAIGroqAIConfig = AxAIOpenAIConfig;
@@ -46,8 +47,8 @@ export class AxAIGroq extends AxAIOpenAI {
       apiKey,
       config: _config,
       options: _options,
+      modelInfo: axModelInfoGroq,
       apiURL: 'https://api.groq.com/openai/v1',
-      modelInfo: [],
       modelMap
     });
 
