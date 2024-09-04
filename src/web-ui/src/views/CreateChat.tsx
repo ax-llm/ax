@@ -1,6 +1,4 @@
-import { AgentCard } from '@/components/agents/AgentCard.js';
-import { CreateChatInput } from '@/components/chats/ChatInput.js';
-import { EmptyChatMessages } from '@/components/chats/ChatMessages.js';
+import { NewChat } from '@/components/chats/Chat';
 import { useSearch } from 'wouter';
 
 export const CreateChat = () => {
@@ -12,13 +10,5 @@ export const CreateChat = () => {
     return <div>No agent selected</div>;
   }
 
-  return (
-    <div className="flex flex-col h-[calc(100vh-80px)] gap-2">
-      <AgentCard agentId={agentId} />
-      <div className="flex flex-col h-[calc(100vh-30px)] gap-2 bg-white shadow rounded-lg">
-        <EmptyChatMessages />
-        <CreateChatInput agentId={agentId} />
-      </div>
-    </div>
-  );
+  return <NewChat agentId={agentId} />;
 };

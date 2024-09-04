@@ -6,22 +6,13 @@ import {
   FormField,
   FormItem
 } from '@/components/ui/form.js';
-import { postFetch } from '@/lib/fetchers';
-import { CreateChatReq, createChatReq } from '@/types/chats.js';
-import {
-  CreateUpdateChatMessageReq,
-  ListChatMessagesRes,
-  createUpdateChatMessageReq
-} from '@/types/messages.js';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useAtom } from 'jotai';
+import { CreateChatReq } from '@/types/chats.js';
+import { CreateUpdateChatMessageReq } from '@/types/messages.js';
 import { CircleAlert } from 'lucide-react';
-import { useEffect } from 'react';
-import { FieldPath, UseFormReturn, useForm } from 'react-hook-form';
-import useSWRMutation, { SWRMutationConfiguration } from 'swr/mutation';
+import { FieldPath, UseFormReturn } from 'react-hook-form';
 import { useLocation } from 'wouter';
 
-import { messageToEditAtom } from './state.js';
+import { useChat, useNewChat } from './useChat.js';
 
 interface BaseChatReq {
   text: string;
@@ -36,30 +27,18 @@ export const CreateChatInput = ({
 }: Readonly<CreateChatInputProps>) => {
   const [, navigate] = useLocation();
 
-  const { isMutating, trigger: createChat } = useSWRMutation(
-    `/p/chats`,
-    postFetch<CreateChatReq, { id: string }>
-  );
-
-  const form = useForm<CreateChatReq>({
-    defaultValues: {
-      agentId,
-      text: ''
-    },
-    mode: 'onChange',
-    resolver: zodResolver(createChatReq)
+  const { createChat, form, isMutating } = useNewChat({
+    agentId,
+    onCreate: (chatId) => navigate(`/chats/${chatId}`)
   });
-
-  const submit = async (values: Readonly<CreateChatReq>) => {
-    const { id } = await createChat(values);
-    navigate(`/chats/${id}`);
-  };
 
   return (
     <ChatInputForm<CreateChatReq>
+      clear={form.reset}
       form={form}
+      isEditing={false}
       isMutating={isMutating}
-      submit={submit}
+      submit={createChat}
     />
   );
 };
@@ -69,102 +48,31 @@ interface UpdateChatInputProps {
 }
 
 export const UpdateChatInput = ({ chatId }: Readonly<UpdateChatInputProps>) => {
-  const [messageToEdit, setMessageToEdit] = useAtom(messageToEditAtom);
-
-  const { isMutating, trigger: createUpdateMsg } = useSWRMutation(
-    `/p/chats/${chatId}/messages`,
-    postFetch<CreateUpdateChatMessageReq, ListChatMessagesRes>,
-    { revalidate: false }
-  );
-
-  const form = useForm<CreateUpdateChatMessageReq>({
-    defaultValues: { text: '' },
-    mode: 'onChange',
-    resolver: zodResolver(createUpdateChatMessageReq)
+  const { addUpdateMessage, form, isEditing, isMutating, resetForm } = useChat({
+    chatId
   });
-
-  const clear = () => {
-    form.reset({ text: '' });
-    setMessageToEdit(undefined);
-  };
-
-  useEffect(() => {
-    if (messageToEdit) {
-      form.reset({ messageId: messageToEdit?.id, text: messageToEdit.text });
-    }
-  }, [messageToEdit]);
-
-  const submit = async (values: Readonly<CreateUpdateChatMessageReq>) => {
-    const optimisticData: ListChatMessagesRes[0] = {
-      createdAt: new Date(),
-      html: values.text,
-      id: crypto.randomUUID()
-    };
-
-    await createUpdateMsg(
-      values,
-      createUpdateOptions({ optimisticData, updatedMsg: messageToEdit })
-    );
-
-    clear();
-  };
 
   return (
     <ChatInputForm<CreateUpdateChatMessageReq>
-      clear={messageToEdit ? () => clear() : undefined}
+      clear={resetForm}
       form={form}
+      isEditing={isEditing}
       isMutating={isMutating}
       note={
-        messageToEdit
+        isEditing
           ? 'All messages after the edited message will be removed'
           : undefined
       }
-      submit={submit}
-      submitLabel={messageToEdit ? 'Update' : 'Send'}
+      submit={addUpdateMessage}
+      submitLabel={isEditing ? 'Update' : 'Send'}
     />
   );
 };
 
-type MutationOptions = SWRMutationConfiguration<
-  ListChatMessagesRes,
-  any,
-  string,
-  any,
-  ListChatMessagesRes
->;
-
-const createUpdateOptions = ({
-  optimisticData,
-  updatedMsg
-}: {
-  optimisticData: ListChatMessagesRes[0];
-  updatedMsg?: ListChatMessagesRes[0];
-}): MutationOptions => {
-  const updatedMsgCreatedAt = updatedMsg
-    ? new Date(updatedMsg.createdAt)
-    : undefined;
-
-  return {
-    optimisticData: (msgs = []) => {
-      const filteredMsgs = updatedMsgCreatedAt
-        ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
-        : msgs;
-      return [...filteredMsgs, optimisticData];
-    },
-    populateCache: (updatedMessages, msgs = []) => {
-      const filteredMsgs = updatedMsgCreatedAt
-        ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
-        : msgs;
-      return [...filteredMsgs, ...updatedMessages];
-    },
-    revalidate: false,
-    rollbackOnError: true
-  };
-};
-
 interface ChatInputFormProps<T extends BaseChatReq> {
-  clear?: () => void;
+  clear: () => void;
   form: UseFormReturn<T>; // UseFormReturn with the generic T
+  isEditing?: boolean;
   isMutating: boolean;
   note?: string;
   submit: (values: T) => void; // Submit function takes data of type T
@@ -175,6 +83,7 @@ interface ChatInputFormProps<T extends BaseChatReq> {
 const ChatInputForm = <T extends BaseChatReq>({
   clear,
   form,
+  isEditing,
   isMutating,
   note,
   submit,
@@ -216,7 +125,7 @@ const ChatInputForm = <T extends BaseChatReq>({
             >
               {submitLabel ?? 'Send'}
             </Button>
-            {clear && (
+            {(isEditing || form.formState.isDirty) && (
               <Button onClick={clear} size="xs" variant="outline">
                 Cancel
               </Button>

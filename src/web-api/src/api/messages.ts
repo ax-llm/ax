@@ -105,23 +105,24 @@ export const updateChatMessageHandler = async (
 
 export const retryChatMessageHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
-    const { chatId, messageId } = c.req.param();
+    const { chatId: _chatId, messageId } = c.req.param();
 
+    const chatId = new ObjectId(_chatId);
     const chat = await hc.db.collection<Chat>('chats').findOneAndUpdate(
       {
-        _id: new ObjectId(chatId)
+        _id: chatId
       },
       {
         $set: { updatedAt: new Date() }
       }
     );
     if (!chat) {
-      throw new Error('Chat not found: ' + chatId.toString());
+      throw new Error('Chat not found: ' + _chatId);
     }
 
     const respMsg = await hc.db
       .collection<Message>('messages')
-      .findOne({ _id: new ObjectId(messageId) });
+      .findOne({ _id: new ObjectId(messageId), chatId });
 
     if (!respMsg) {
       throw new Error('Message not found: ' + messageId.toString());
@@ -224,8 +225,6 @@ export const chatAgentTaskHandler = async (
 
   try {
     const ai = createAI(agent, 'big');
-    ai.setOptions({ debug: true });
-
     const { markdownResponse } = await chatAgent.forward(ai, {
       query: reqMsg.text
     });
@@ -270,9 +269,11 @@ const sendUpdateChatMessageProcessing = async (
 };
 
 const sendUpdateChatMessageDone = async (args: SendUpdateChatMessageArgs) => {
+  // remove error field from arg.messages
+  const { error, ...message } = args.message;
   return sendUpdateChatMessage({
     ...args,
-    message: { ...args.message, processing: false }
+    message: { ...message, processing: false }
   });
 };
 

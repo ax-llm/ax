@@ -1,24 +1,20 @@
 import { Button } from '@/components/ui/button.js';
 import { postFetch } from '@/lib/fetchers';
-import { ListChatMessagesRes } from '@/types/messages';
-import { useSetAtom } from 'jotai';
 import { BotMessageSquare, Circle, MessageSquare } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import useSWRMutation from 'swr/mutation';
 
-import { messageToEditAtom } from './state.js';
+import type { Message } from './types.js';
 
-type Message = { chatId: string } & ListChatMessagesRes[0];
+import { useMessageToEdit } from './useMessageToEdit.js';
+import { useMessagesValue } from './useMessages.js';
 
 interface ChatMessagesProps {
   chatId: string;
-  messages: ListChatMessagesRes;
 }
 
-export const ChatMessages = ({
-  chatId,
-  messages
-}: Readonly<ChatMessagesProps>) => {
+export const ChatMessages = ({ chatId }: ChatMessagesProps) => {
+  const messages = useMessagesValue(chatId);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -27,11 +23,8 @@ export const ChatMessages = ({
 
   return (
     <div className="flex-grow overflow-y-auto">
-      <div className="p-4 overflow-y-auto space-y-4">
-        {chatId &&
-          messages?.map((m) => (
-            <Message key={m.id} message={{ ...m, chatId }} />
-          ))}
+      <div className="overflow-y-auto">
+        {messages?.map((m) => <Message key={m.id} message={m} />)}
       </div>
       <div ref={messagesEndRef} />
     </div>
@@ -40,8 +33,8 @@ export const ChatMessages = ({
 
 export const EmptyChatMessages = () => {
   return (
-    <div className="flex-grow overflow-y-auto">
-      <div className="p-4 overflow-y-auto space-y-4"></div>
+    <div className="flex-grow">
+      <div className="p-4"></div>
     </div>
   );
 };
@@ -63,7 +56,7 @@ const Message = ({ message }: Readonly<MessageProps>) => {
 
   return (
     <div
-      className="flex gap-3 transform transition-all duration-300 animate-enter"
+      className="flex gap-3 transform transition-all duration-300 animate-enter hover:bg-gray-100/50 px-4 py-3"
       key={message.id}
     >
       <div className="mt-1">
@@ -93,39 +86,26 @@ const ResponseContent = ({ message }: Readonly<MessageProps>) => {
       </div>
 
       <Toolbar message={message} />
-
-      {/* Optional time display
-    <span className="text-xs text-gray-400">
-      {new Date(message.createdAt).toLocaleTimeString()}
-    </span>
-    */}
     </div>
   );
 };
 
 const Toolbar = ({ message }: MessageProps) => {
-  if (message.agent) {
-    return null;
-  }
   return (
     <div className="group-hover:block opacity-0 group-hover:opacity-100 transition-opacity duration-800 ease-in-out">
-      <div className="flex gap-2 relative right-3 border border-black rounded-xl p-1">
+      <div className="flex gap-2 relative right-5 border bg-primary px-3 rounded-full">
         {message.error && <RetryButton message={message} />}
-        <EditButton message={message} />
+        {!message.agent && <EditButton message={message} />}
       </div>
     </div>
   );
 };
 
 const EditButton = ({ message }: MessageProps) => {
-  const setMessageToEdit = useSetAtom(messageToEditAtom);
+  const [, setMessageToEdit] = useMessageToEdit(message.chatId);
 
   return (
-    <Button
-      onClick={() => setMessageToEdit(message)}
-      size="xs"
-      variant="secondary"
-    >
+    <Button onClick={() => setMessageToEdit(message)} size="sm">
       Edit
     </Button>
   );
@@ -136,11 +116,7 @@ const RetryButton = ({ message }: MessageProps) => {
   const { trigger: updateChatMessage } = useSWRMutation(key, postFetch);
 
   return (
-    <Button
-      onClick={async () => await updateChatMessage()}
-      size="xs"
-      variant="secondary"
-    >
+    <Button onClick={() => updateChatMessage()} size="sm">
       Retry
     </Button>
   );
