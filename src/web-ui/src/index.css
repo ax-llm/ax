@@ -142,7 +142,7 @@ mark {
 }
 
 .markdown pre > code {
-    @apply block p-4 rounded-lg overflow-auto max-w-full bg-secondary;
+    @apply block p-4 rounded-lg overflow-auto max-w-full;
 }
 
 .markdown :not(pre) > code {

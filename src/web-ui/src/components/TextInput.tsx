@@ -1,88 +1,75 @@
-/* eslint-disable react/display-name */
-import { Textarea } from '@/components/ui/textarea.js'
-import { cn } from '@/lib/utils'
+import { Textarea } from '@/components/ui/textarea';
 import React, {
-  type TextareaHTMLAttributes,
-  forwardRef, useEffect, useImperativeHandle, useRef, useState
-} from 'react'
+  ChangeEvent,
+  KeyboardEvent,
+  TextareaHTMLAttributes,
+  useEffect,
+  useRef,
+  useState
+} from 'react';
 
-interface CounterProps {
-  count: number
-  maxCount: number
+interface ChatTextareaProps
+  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'rows'> {
+  initialRows?: number;
+  onEnterKeyPressed?: () => void;
 }
 
-const Counter: React.FC<CounterProps> = ({ count, maxCount }) => {
-  const circumference = 2 * Math.PI * 20
-  const percentage = count / maxCount
-  const strokeDasharray = `${percentage * circumference} ${circumference}`
+export const TextInput: React.FC<ChatTextareaProps> = ({
+  className = '',
+  initialRows = 2,
+  onChange,
+  onEnterKeyPressed,
+  placeholder = 'Type your message here...',
+  value,
+  ...props
+}) => {
+  const [rows, setRows] = useState(initialRows);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const getStrokeColor = () => {
-    if (percentage < 0.5) return 'limegreen'
-    if (percentage < 0.75) return 'yellow'
-    return 'red'
-  }
+  const calculateRows = (_text: string) => {
+    const textareaLineHeight = 24; // Adjust this value based on your font size
+    const textarea = textareaRef.current;
+    if (!textarea) return initialRows;
 
-  return (
-    <svg height="20" width="20">
-      <circle
-        cx="10"
-        cy="10"
-        fill="none"
-        r="5"
-        stroke="lightgray" // Background circle color
-        strokeWidth="2"
-      />
-      <circle
-        cx="10"
-        cy="10"
-        fill="none"
-        r="5"
-        stroke={getStrokeColor()}
-        strokeDasharray={strokeDasharray}
-        strokeWidth="2"
-        transform="rotate(-90 10 10)" // To start the progress from the top
-      />
-    </svg>
-  )
-}
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
 
-interface TextInputProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  error?: string
-}
+    const currentRows = Math.floor(textarea.scrollHeight / textareaLineHeight);
+    return currentRows < initialRows ? initialRows : currentRows;
+  };
 
-export const TextInput = forwardRef<HTMLTextAreaElement | null, TextInputProps>((props, parentRef) => {
-  const [count, setCount] = useState<number>(0)
-  const internalRef = useRef<HTMLTextAreaElement | null>(null) // create an internal ref
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    const newRows = calculateRows(e.target.value);
+    setRows(newRows);
 
-  // Combine refs: use internal ref if parentRef is not provided
-  useImperativeHandle(parentRef, () => internalRef.current!, [internalRef])
+    // Call the original onChange if provided
+    onChange?.(e);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      onEnterKeyPressed?.();
+    }
+  };
 
   useEffect(() => {
-    const refCurrent = internalRef.current // use internal ref directly
-    if (refCurrent) {
-      refCurrent.style.height = (refCurrent.scrollHeight) + 'px'
+    if (textareaRef.current) {
+      const newRows = calculateRows(textareaRef.current.value);
+      setRows(newRows);
     }
-  }, [count])
+  }, [value]);
 
   return (
-    <div className={cn('rounded-md', props.className)}>
-      <div className="group flex flex-col focus-within:ring-black overflow-hidden">
-        <Textarea
-          {...props}
-          className="overflow-hidden focus-visible:ring-0 border-hidden resize-none bg-transparent placeholder:text-stone-400 invalid:border-red-500 !rounded-none"
-          onChange={(e) => {
-            setCount(e.target.value.length)
-            if (props.onChange) { props.onChange(e) }
-          }}
-          ref={internalRef} // attach the internal ref
-        />
-        {props.maxLength && count > 0 && (
-          <div className="flex items-center text-sm text-gray-400 gap-1 py-1 bg-transparent border-t-0 px-2 py-1">
-            <Counter count={count} maxCount={props.maxLength} />
-            {props.error ? <div className="text-red-300">{props.error}</div> : <div>{count}/{props.maxLength} characters</div>}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-})
+    <Textarea
+      className={`resize-none transition-all duration-200 ${className}`}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      placeholder={placeholder}
+      ref={textareaRef}
+      rows={rows}
+      value={value}
+      {...props}
+    />
+  );
+};

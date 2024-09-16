@@ -1,6 +1,7 @@
 // import Title from '@/components/Title';
 // import { AddAgentCard } from '@/components/agents/AddAgentCard';
 import { AgentCard } from '@/components/agents/AgentCard';
+import { NewAgentCard } from '@/components/agents/NewAgentCard';
 import { useAgentList } from '@/components/agents/useAgentList';
 import { CardContent } from '@/components/ui/card';
 import { ChevronRight } from 'lucide-react';
@@ -24,6 +25,7 @@ export const ListAgents = () => {
             <AgentCard agent={agent} key={agent.id} showEditButton={true} />
           </Link>
         ))}
+        <NewAgentCard />
       </div>
     </CardContent>
   );

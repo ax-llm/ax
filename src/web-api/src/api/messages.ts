@@ -362,10 +362,10 @@ export const chatAgentTaskHandler = async (
 
   try {
     const { response } = await executeChat(hc, {
-      agentId: new ObjectId(agentMessage.agent.id),
-      chatId: new ObjectId(agentMessage.chatId),
-      query: text,
-      uptoMessageId: new ObjectId(agentMessage.parentId)
+      agentId: agentMessage.agent.id,
+      chatId: agentMessage.chatId,
+      queryOrTask: text,
+      uptoMessageId: agentMessage.parentId
     });
 
     const updatedAgentMessage = { ...agentMessage, text: response };
@@ -383,13 +383,13 @@ export const chatAgentTaskHandler = async (
 interface ExecuteChatArgs {
   agentId: ObjectId;
   chatId: ObjectId;
-  query: string;
-  uptoMessageId: ObjectId;
+  queryOrTask: string;
+  uptoMessageId?: ObjectId;
 }
 
 const executeChat = async (
   hc: Readonly<HandlerContext>,
-  { agentId, chatId, query, uptoMessageId }: ExecuteChatArgs
+  { agentId, chatId, queryOrTask, uptoMessageId }: ExecuteChatArgs
 ) => {
   const agent = await hc.db
     .collection<Agent>('agents')
@@ -402,11 +402,13 @@ const executeChat = async (
   const chatHistory = await getChatPrompt(hc.db, { chatId, uptoMessageId });
   const mem = new ChatMemory([]);
   const ai = await createAI(hc, agent, 'big');
+  ai.setOptions({ debug: true });
   const { markdownResponse } = await chatAgent.forward(
     ai,
     {
+      agentDescription: agent.description,
       chatHistory,
-      query
+      queryOrTask
     },
     { mem }
   );

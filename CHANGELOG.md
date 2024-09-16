@@ -1,5 +1,22 @@
 
 
+## [9.0.47](https://github.com/ax-llm/ax/compare/9.0.45...9.0.46) (2024-09-16)
+
+
+### Features
+
+* ax web first commit ([bccb572](https://github.com/ax-llm/ax/commit/bccb5722302f0c9746e9f3d3567f97c6fff8de32))
+* first release of rome ([7629b77](https://github.com/ax-llm/ax/commit/7629b77be1e139ad9e1a6d93a30e6b62423bb82f))
+* moved comm. core into useChat hook ([f04c35f](https://github.com/ax-llm/ax/commit/f04c35fc65d5ece9de5cea8a26a8873a15274cde))
+* rome is rising ([5d7c0f3](https://github.com/ax-llm/ax/commit/5d7c0f377ecfde91fb5c7fb142cf367e56e3a7ab))
+
+## [9.0.46](https://github.com/ax-llm/ax/compare/9.0.45...9.0.46) (2024-08-16)
+
+
+### Bug Fixes
+
+* Bind agent functions to instances for correct 'this' context" ([#61](https://github.com/ax-llm/ax/issues/61)) ([ce684ff](https://github.com/ax-llm/ax/commit/ce684ff507e6493b4bfcdae195df5da3ea362e3f))
+
 ## [9.0.46](https://github.com/ax-llm/ax/compare/9.0.44...9.0.45) (2024-08-16)
 
 

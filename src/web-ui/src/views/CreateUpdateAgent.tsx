@@ -69,7 +69,7 @@ const CreateUpdateAgent = () => {
       aiSmallModel: {
         apiKey: ''
       },
-      description: '',
+      description: `An AI assistant that is helpful, creative, clever, and very capable. It engages in conversation on a wide range of topics and assists with various tasks including analysis, problem-solving, and information lookup. It communicates clearly and can understand context and nuance. The assistant aims to be friendly and supportive while always striving for honesty and ethical behavior. It's knowledgeable but also admits when it's unsure or doesn't have specific information. The assistant can engage in everything from casual chitchat to deep intellectual discussions, adapting its tone and level of detail to suit the user's needs and preferences.`,
       name: ''
     },
     mode: 'all',
@@ -186,7 +186,8 @@ const CreateUpdateAgent = () => {
                 <FormItem>
                   <FormLabel>Description</FormLabel>
                   <FormDescription>
-                    Describe your agent. This is optional.
+                    The agent description is used to customize the behavior and
+                    goals of this agent
                   </FormDescription>
                   <FormControl>
                     <TextInput
@@ -278,7 +279,7 @@ const CreateUpdateAgent = () => {
                   <FormItem>
                     <FormLabel>API Key</FormLabel>
                     <FormDescription>
-                      Enter your API key for the AI you selected.
+                      Enter your API key (It's stored encrypted)
                     </FormDescription>
                     <div className="flex flex-wrap items-center gap-2">
                       <FormControl>
@@ -406,7 +407,7 @@ const CreateUpdateAgent = () => {
 const APIKeyId = ({ apiKeyId }: { apiKeyId: string }) => {
   return (
     <div className="text-sm bg-gray-50 w-[300px] p-1 px-2 rounded-md">
-      <div className="text-xs">Key starts with:</div>
+      <div className="text-xs">Key ends with:</div>
       <div className="font-medium">{apiKeyId}</div>
     </div>
   );

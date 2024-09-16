@@ -11,14 +11,18 @@ import React, {
 interface ChatTextareaProps
   extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'rows'> {
   initialRows?: number;
+  maxTextSizeBeforeFile?: number;
   onEnterKeyPressed?: () => void;
+  onFileCreated?: (file: File) => void;
 }
 
 export const ChatTextarea: React.FC<ChatTextareaProps> = ({
   className = '',
-  initialRows = 2,
+  initialRows = 1,
+  maxTextSizeBeforeFile = 1000, // Default to 1000 characters
   onChange,
   onEnterKeyPressed,
+  onFileCreated,
   placeholder = 'Type your message here...',
   value,
   ...props
@@ -42,6 +46,13 @@ export const ChatTextarea: React.FC<ChatTextareaProps> = ({
     const newRows = calculateRows(e.target.value);
     setRows(newRows);
 
+    // Check if the text exceeds the maxTextSizeBeforeFile
+    if (e.target.value.length > maxTextSizeBeforeFile && onFileCreated) {
+      const blob = new Blob([e.target.value], { type: 'text/plain' });
+      const file = new File([blob], 'large_text.txt', { type: 'text/plain' });
+      onFileCreated(file);
+    }
+
     // Call the original onChange if provided
     onChange?.(e);
   };
@@ -50,6 +61,16 @@ export const ChatTextarea: React.FC<ChatTextareaProps> = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       onEnterKeyPressed?.();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pastedText = e.clipboardData.getData('text');
+    if (pastedText.length > maxTextSizeBeforeFile && onFileCreated) {
+      e.preventDefault();
+      const blob = new Blob([pastedText], { type: 'text/plain' });
+      const file = new File([blob], 'pasted_text.txt', { type: 'text/plain' });
+      onFileCreated(file);
     }
   };
 
@@ -65,6 +86,7 @@ export const ChatTextarea: React.FC<ChatTextareaProps> = ({
       className={`resize-none transition-all duration-200 ${className}`}
       onChange={handleChange}
       onKeyDown={handleKeyDown}
+      onPaste={handlePaste}
       placeholder={placeholder}
       ref={textareaRef}
       rows={rows}
@@ -73,3 +95,5 @@ export const ChatTextarea: React.FC<ChatTextareaProps> = ({
     />
   );
 };
+
+export default ChatTextarea;

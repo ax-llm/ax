@@ -17,7 +17,7 @@ export const agent = z.strictObject({
   aiBigModel: ai,
   aiSmallModel: ai,
   createdAt: z.coerce.date(),
-  description: z.string().optional(),
+  description: z.string(),
   name: z.string(),
   updatedAt: z.coerce.date().optional(),
   userId: z.instanceof(ObjectId)

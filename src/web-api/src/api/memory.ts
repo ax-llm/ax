@@ -79,7 +79,7 @@ export class ChatMemory implements AxAIMemory {
 
 interface GetChatPromptArgs {
   chatId: ObjectId;
-  uptoMessageId: ObjectId;
+  uptoMessageId?: ObjectId;
 }
 
 export const getChatPrompt = async (

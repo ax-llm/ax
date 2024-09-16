@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 export const getAIListRes = z
   .strictObject({
-    id: IdSchema,
+    id: z.string(),
     models: z
       .strictObject({
         id: z.string(),
@@ -43,7 +43,7 @@ export const ai = z.strictObject({
 export const createUpdateAgentReq = z.strictObject({
   aiBigModel: ai,
   aiSmallModel: ai,
-  description: z.string().min(3).max(1000).optional(),
+  description: z.string().min(3).max(2000),
   name: z.string().min(3).max(100)
 });
 

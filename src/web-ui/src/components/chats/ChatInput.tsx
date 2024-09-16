@@ -192,7 +192,7 @@ const ChatInputForm = ({
 
       <Form {...form}>
         <div className="flex justify-between">
-          <div className="space-y-2 w-full">
+          <div className="space-y-1 w-full">
             <MentionedList agents={agents} mentions={mentions} />
 
             <FormField
