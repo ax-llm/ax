@@ -1,5 +1,8 @@
 import type { AxChatRequest, AxChatResponseResult } from '../ai/index.js';
 
+type Writeable<T> = { -readonly [P in keyof T]: T[P] };
+export type AxWritableChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>[];
+
 export interface AxAIMemory {
   add(
     result: Readonly<
@@ -14,7 +17,6 @@ export interface AxAIMemory {
   ): void;
 
   history(sessionId?: string): AxChatRequest['chatPrompt'];
-  peek(sessionId?: string): AxChatRequest['chatPrompt'];
   reset(sessionId?: string): void;
 
   getLast(sessionId?: string): AxChatRequest['chatPrompt'][0] | undefined;

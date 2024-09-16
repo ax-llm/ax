@@ -1,116 +1,83 @@
-// import type { ChatAgentTask } from './chats.js';
+interface Task {
+  handler: () => Promise<void>;
+}
 
-// export type ChatAgentTask = {
-//   agentId: ObjectId;
-//   chatId: ObjectId;
-//   messageId: UUID;
-//   responseId: UUID;
-//   text: string;
-// };
+export class TaskRunner {
+  private isProcessing: boolean = false;
+  private runningTasks: Set<string> = new Set();
+  private taskQueue: Map<string, Task[][]> = new Map();
 
-// type TaskProperties = {
-//   properties: ChatAgentTask;
-//   taskName: 'chatAgent';
-// };
+  private async executeTask(chatId: string, task: Task): Promise<void> {
+    try {
+      await task.handler();
+    } catch (error) {
+      console.error(`Error executing task for chat ${chatId}:`, error);
+    }
+  }
 
-// interface Task {
-//   queueId: string;
-//   taskId: string;
-//   taskName: string;
-//   taskProperties: TaskProperties;
-// }
+  private hasAvailableTasks(): boolean {
+    return Array.from(this.taskQueue.values()).some(
+      (groups) => groups.length > 0
+    );
+  }
 
-// type TaskHandler<T extends TaskProperties> = (
-//   task: { taskProperties: T } & Task
-// ) => Promise<void>;
+  private async processNextTask() {
+    this.isProcessing = true;
 
-// export class TaskQueue {
-//   private queues: { [queueId: string]: Task[] } = {};
-//   private runningTasks: { [queueId: string]: boolean } = {};
-//   private taskHandlers: { [taskName: string]: TaskHandler<any> } = {};
+    while (this.hasAvailableTasks()) {
+      const availableChatIds = Array.from(this.taskQueue.keys()).filter(
+        (chatId) => !this.runningTasks.has(chatId)
+      );
 
-//   private async processQueue(queueId: string): Promise<void> {
-//     if (this.runningTasks[queueId]) {
-//       return; // Queue is already being processed
-//     }
-//     this.runningTasks[queueId] = true;
+      if (availableChatIds.length === 0) {
+        // If no tasks can be run right now, break the loop and reschedule
+        break;
+      }
 
-//     while (this.queues[queueId] && this.queues[queueId].length > 0) {
-//       const task = this.queues[queueId].shift();
-//       if (task) {
-//         const handler = this.taskHandlers[task.taskName];
-//         if (handler) {
-//           try {
-//             await handler(task);
-//           } catch (error) {
-//             console.error(`Error processing task ${task.taskId}:`, error);
-//           }
-//         } else {
-//           console.warn(`No handler registered for task name: ${task.taskName}`);
-//         }
-//       }
-//     }
+      for (const chatId of availableChatIds) {
+        const taskGroups = this.taskQueue.get(chatId)!;
+        if (taskGroups.length > 0) {
+          const currentGroup = taskGroups.shift()!;
+          this.runningTasks.add(chatId);
 
-//     this.runningTasks[queueId] = false;
-//   }
+          Promise.all(
+            currentGroup.map((task) => this.executeTask(chatId, task))
+          )
+            .then(() => {
+              this.runningTasks.delete(chatId);
+              this.scheduleProcessing();
+            })
+            .catch(console.error);
 
-//   addTask(task: Task): void {
-//     if (!this.queues[task.queueId]) {
-//       this.queues[task.queueId] = [];
-//     }
-//     this.queues[task.queueId].push(task);
-//     this.processQueue(task.queueId);
-//   }
+          if (taskGroups.length === 0) {
+            this.taskQueue.delete(chatId);
+          }
+        }
+      }
+    }
 
-//   registerTaskHandler<T extends TaskProperties>(
-//     taskName: T['taskName'],
-//     handler: TaskHandler<T>
-//   ): void {
-//     this.taskHandlers[taskName] = handler;
-//   }
+    this.isProcessing = false;
+  }
 
-//   removeTask(queueId: string, taskId: string): void {
-//     if (this.queues[queueId]) {
-//       this.queues[queueId] = this.queues[queueId].filter(
-//         (task) => task.taskId !== taskId
-//       );
-//     }
-//   }
-// }
+  private scheduleProcessing() {
+    if (!this.isProcessing) {
+      setImmediate(() => this.processNextTask());
+    }
+  }
 
-// // import TaskQueue from './task-queue'; // Assuming the class is in 'task-queue.ts'
+  addTask(chatId: string, handler: () => Promise<void>) {
+    if (!this.taskQueue.has(chatId)) {
+      this.taskQueue.set(chatId, []);
+    }
+    this.taskQueue.get(chatId)!.push([{ handler }]);
+    this.scheduleProcessing();
+  }
 
-// // const queue = new TaskQueue();
-
-// // // Register task handlers
-// // queue.registerTaskHandler('email', async (task) => {
-// //   console.log('Sending email:', task.taskProperties);
-// //   // ... logic to send email
-// // });
-
-// // queue.registerTaskHandler('notification', async (task) => {
-// //   console.log('Sending notification:', task.taskProperties);
-// //   // ... logic to send notification
-// // });
-
-// // // Add tasks
-// // queue.addTask({
-// //   queueId: 'queue1',
-// //   taskId: 'task1',
-// //   taskName: 'email',
-// //   taskProperties: { to: 'user@example.com', subject: 'Welcome' },
-// // });
-
-// // queue.addTask({
-// //   queueId: 'queue1',
-// //   taskId: 'task2',
-// //   taskName: 'notification',
-// //   taskProperties: { message: 'New task added' },
-// // });
-
-// // queue.addTask({
-// //   queueId: 'queue2',
-// //   taskId: 'task3',
-// //   taskName: 'email',
-// //   taskProperties: { to: 'admin@example.com', subject: 'Report' },
-// // });
+  addTasks(chatId: string, handlers: (() => Promise<void>)[]) {
+    if (!this.taskQueue.has(chatId)) {
+      this.taskQueue.set(chatId, []);
+    }
+    this.taskQueue.get(chatId)!.push(handlers.map((handler) => ({ handler })));
+    this.scheduleProcessing();
+  }
+}

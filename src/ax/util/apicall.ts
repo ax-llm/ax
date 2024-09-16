@@ -35,7 +35,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   >,
   json: TRequest
 ): Promise<TResponse | ReadableStream<TResponse>> => {
-  const baseUrl = new URL(process.env.PROXY ?? api.url);
+  const baseUrl = new URL(process.env['PROXY'] ?? api.url);
   const apiPath = path.join(baseUrl.pathname, api.name ?? '/', baseUrl.search);
   const apiUrl = new URL(apiPath, baseUrl);
 

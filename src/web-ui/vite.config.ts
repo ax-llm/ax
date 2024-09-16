@@ -16,8 +16,7 @@ export default defineConfig({
   // shadcn options
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@/types': path.resolve(__dirname, '../api/src/types')
+      '@': path.resolve(__dirname, './src')
     }
   },
   server: {

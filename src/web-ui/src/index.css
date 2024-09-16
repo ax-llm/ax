@@ -5,6 +5,81 @@
 
 @layer base {
     :root {
+        --background: 40 25% 94%;
+        --foreground: 25 10% 20%;
+        --card: 0 0% 100%;
+        --card-foreground: 25 10% 20%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 25 10% 20%;
+        --primary: 25 60% 50%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 30 10% 90%;
+        --secondary-foreground: 25 10% 20%;
+        --muted: 30 10% 90%;
+        --muted-foreground: 25 10% 40%;
+        --accent: 239 84% 67%;
+        --accent-foreground: 0 0% 100%;
+        --destructive: 0 70% 50%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 25 10% 90%;
+        --input: 25 10% 90%;
+        --ring: 25 60% 50%;
+        --radius: 0.25rem;
+        --chart-1: 25 60% 50%;
+        --chart-2: 15 80% 60%;
+        --chart-3: 45 70% 60%;
+        --chart-4: 200 60% 50%;
+        --chart-5: 0 60% 50%;
+      }
+      
+      .dark {
+        --background: 25 10% 12%;
+        --foreground: 30 10% 90%;
+        --card: 25 10% 15%;
+        --card-foreground: 30 10% 90%;
+        --popover: 25 10% 15%;
+        --popover-foreground: 30 10% 90%;
+        --primary: 25 60% 50%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 25 10% 20%;
+        --secondary-foreground: 30 10% 90%;
+        --muted: 25 10% 20%;
+        --muted-foreground: 30 10% 70%;
+        --accent: 15 80% 60%;
+        --accent-foreground: 0 0% 100%;
+        --destructive: 0 60% 40%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 25 10% 20%;
+        --input: 25 10% 20%;
+        --ring: 25 60% 50%;
+        --chart-1: 25 60% 50%;
+        --chart-2: 15 80% 60%;
+        --chart-3: 45 70% 60%;
+        --chart-4: 200 60% 50%;
+        --chart-5: 0 60% 50%;
+      }
+
+      @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Inter:wght@400;500;700&family=DM+Sans:wght@400;500&display=swap');
+
+        :root {
+            --font-heading: 'Poppins', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            --font-accent: 'DM Sans', sans-serif;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+        }
+
+        body {
+            font-family: var(--font-body);
+        }
+
+        .accent {
+            font-family: var(--font-accent);
+        }
+
+    /* :root {
       --background: 0 0% 100%;
       --foreground: 222.2 84% 4.9%;
       --card: 0 0% 100%;
@@ -57,14 +132,23 @@
       --chart-3: 30 80% 55%;
       --chart-4: 280 65% 60%;
       --chart-5: 340 75% 55%;
-    }
-  }
-  
- 
-mark {
-  @apply p-1 rounded bg-lime-300 text-black;
+    } */
 }
 
-code {
-  @apply block p-4 rounded-lg overflow-auto max-w-full border border-ring border-dashed;
+
+ 
+mark {
+    @apply p-1 rounded bg-lime-300 text-black;
+}
+
+.markdown pre > code {
+    @apply block p-4 rounded-lg overflow-auto max-w-full bg-secondary;
+}
+
+.markdown :not(pre) > code {
+    @apply p-1 rounded-lg bg-accent-foreground text-accent;
+}
+
+.markdown ul {
+    @apply space-y-2
 }

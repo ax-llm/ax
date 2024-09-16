@@ -1,5 +1,5 @@
 import { postFetch } from '@/lib/fetchers';
-import { CreateChatReq, createChatReq } from '@/types/chats.js';
+import { CreateChatReq } from '@/types/chats.js';
 import {
   CreateUpdateChatMessageReq,
   ListChatMessagesRes,
@@ -8,12 +8,18 @@ import {
 import { StreamMsgIn, StreamMsgOut } from '@/types/stream';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import {
+  UseFieldArrayReturn,
+  UseFormReturn,
+  useFieldArray,
+  useForm
+} from 'react-hook-form';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
-import useSWR from 'swr';
-import useSWRMutation, { SWRMutationConfiguration } from 'swr/mutation';
+import useSWR, { useSWRConfig } from 'swr';
+import useSWRMutation from 'swr/mutation';
 
-import { useMessageToEdit } from './useMessageToEdit.js';
+import { Message, Messages } from './types.js';
+import { useMessageEditor } from './useMessageEditor.js';
 import { useMessages } from './useMessages.js';
 
 type RegisterChatClient = Extract<
@@ -44,87 +50,137 @@ const setMessageResponse = (
   if (n === -1) {
     return [...messages, res];
   }
-  return [...messages.slice(0, n), res, ...messages.slice(n + 1)];
+  // sort by createdAt old to new
+  return [...messages.slice(0, n), res, ...messages.slice(n + 1)].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
 };
 
-type MutationOptions = SWRMutationConfiguration<
-  ListChatMessagesRes,
-  any,
-  string,
-  any,
-  ListChatMessagesRes
->;
+// type MutationOptions = SWRMutationConfiguration<
+//   ListChatMessagesRes,
+//   any,
+//   string,
+//   any,
+//   ListChatMessagesRes
+// >;
 
-const createUpdateOptions = ({
-  optimisticData,
-  updatedMsg
-}: {
-  optimisticData: ListChatMessagesRes[0];
-  updatedMsg?: ListChatMessagesRes[0];
-}): MutationOptions => {
-  const updatedMsgCreatedAt = updatedMsg
-    ? new Date(updatedMsg.createdAt)
-    : undefined;
+// const createUpdateOptions = (
+//   optimisticData: ListChatMessagesRes[0],
+//   updatedMsgCreatedAt?: Date
+// ): MutationOptions => {
+//   return {
+//     // optimisticData: (msgs = []) => {
+//     //   console.log('optimisticData', optimisticData);
 
-  return {
-    optimisticData: (msgs = []) => {
-      const filteredMsgs = updatedMsgCreatedAt
-        ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
-        : msgs;
-      return [...filteredMsgs, optimisticData];
-    },
-    populateCache: (updatedMessages, msgs = []) => {
-      const filteredMsgs = updatedMsgCreatedAt
-        ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
-        : msgs;
-      return [...filteredMsgs, ...updatedMessages];
-    },
-    revalidate: false,
-    rollbackOnError: true
-  };
-};
+//     //   const filteredMsgs = updatedMsgCreatedAt
+//     //     ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
+//     //     : msgs;
+//     //   return [...filteredMsgs, optimisticData];
+//     // },
+//     populateCache: (updatedMessages, msgs = []) => {
+//       console.log('updatedMsgCreatedAt', updatedMsgCreatedAt);
 
-interface UseChatArgs {
-  chatId: string;
+//       const filteredMsgs = updatedMsgCreatedAt
+//         ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
+//         : msgs;
+//       if (updatedMsgCreatedAt) {
+//         return [...filteredMsgs, ...updatedMessages];
+//       }
+//       console.log('op id', optimisticData.id);
+//       const n = msgs.findIndex((m) => m.id === optimisticData.id);
+//       console.log('msgs', n, msgs);
+//       if (n === -1) {
+//         return [...msgs, ...updatedMessages];
+//       }
+//       return [...msgs.slice(0, n), ...updatedMessages, ...msgs.slice(n + 1)];
+//     },
+//     revalidate: false,
+//     rollbackOnError: true
+//   };
+// };
+
+export interface UseChatReturn {
+  addUpdateMessage: (values: Readonly<CreateUpdateChatMessageReq>) => void;
+  chatDone: () => void;
+  form: UseFormReturn<CreateUpdateChatMessageReq>;
+  isDisabled: boolean;
+  isEditing: boolean;
+  isMutating: boolean;
+  mentions: UseFieldArrayReturn<CreateUpdateChatMessageReq, 'mentions', 'id'>;
+  messages: Messages;
+  resetForm: () => void;
+  setMessage: (msg: Message | undefined) => void;
 }
 
-export const useChat = ({ chatId }: UseChatArgs) => {
+export const useChat = (chatId: string): UseChatReturn => {
   const [registered, setRegistered] = useState(false);
 
-  const [messageToEdit, setMessageToEdit] = useMessageToEdit(chatId);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const [message, setMessage] = useMessageEditor(chatId);
 
   const [messages, setMessages] = useMessages(chatId);
 
   const { lastJsonMessage, readyState, sendJsonMessage } = useWebSocket<
     StreamMsgOut | undefined
-  >('/api/p/chats/ws');
+  >('/api/a/chats/ws', {
+    retryOnError: true,
+    shouldReconnect: () => true
+  });
 
-  const { data: chatMessages, mutate } = useSWR<ListChatMessagesRes>(
-    chatId && registered ? `/p/chats/${chatId}/messages` : null
+  const { mutate } = useSWRConfig();
+
+  const { data: chatMessages, mutate: mutateMessages } =
+    useSWR<ListChatMessagesRes>(
+      chatId && registered ? `/a/chats/${chatId}/messages` : null
+    );
+
+  const { isMutating: isMutating1, trigger: chatDone } = useSWRMutation(
+    `/a/chats/${chatId}/done`,
+    postFetch
   );
 
-  const { isMutating, trigger: createUpdateMsg } = useSWRMutation(
-    `/p/chats/${chatId}/messages`,
-    postFetch<CreateUpdateChatMessageReq, ListChatMessagesRes>,
-    { revalidate: false }
+  const { isMutating: isMutating2, trigger: createUpdateMsg } = useSWRMutation(
+    `/a/chats/${chatId}/messages`,
+    postFetch<CreateUpdateChatMessageReq, ListChatMessagesRes>
   );
 
   const form = useForm<CreateUpdateChatMessageReq>({
-    defaultValues: { text: '' },
-    mode: 'onChange',
+    defaultValues: { mentions: [], text: '' },
+    mode: 'all',
     resolver: zodResolver(createUpdateChatMessageReq)
   });
 
+  const mentions = useFieldArray<CreateUpdateChatMessageReq>({
+    control: form.control,
+    name: 'mentions'
+  });
+
   const resetForm = () => {
-    form.reset({ text: '' });
-    setMessageToEdit(undefined);
+    form.reset({ mentions: [], messageId: undefined, text: '' });
+    mentions.replace([]);
+    setMessage(undefined);
   };
 
   useEffect(() => {
-    if (messageToEdit) {
-      form.reset({ messageId: messageToEdit.id, text: messageToEdit.text });
+    if (message?.id) {
+      form.reset({
+        mentions: message.mentions,
+        messageId: message.id,
+        text: message.text
+      });
+      setIsEditing(true);
+    } else if (message) {
+      if (message?.mentions) {
+        mentions.replace(message.mentions);
+      }
+      if (message?.text) {
+        form.setValue('text', message.text);
+      }
+    } else {
+      setIsEditing(false);
     }
-  }, [chatId, messageToEdit]);
+  }, [chatId, message]);
 
   useEffect(() => {
     if (chatMessages) {
@@ -135,17 +191,21 @@ export const useChat = ({ chatId }: UseChatArgs) => {
   const addUpdateMessage = async (
     values: Readonly<CreateUpdateChatMessageReq>
   ) => {
-    const optimisticData: ListChatMessagesRes[0] = {
-      createdAt: new Date(),
-      html: values.text,
-      id: crypto.randomUUID()
-    };
+    // const optimisticData: ListChatMessagesRes[0] = {
+    //   createdAt: new Date(),
+    //   html: values.text,
+    //   id: crypto.randomUUID()
+    // };
+
+    // const updatedMsgCreatedAt =
+    //   message?.updatedAt && message?.createdAt
+    //     ? new Date(message.createdAt)
+    //     : undefined;
 
     await createUpdateMsg(
-      values,
-      createUpdateOptions({ optimisticData, updatedMsg: messageToEdit })
+      values
+      //   createUpdateOptions(optimisticData, updatedMsgCreatedAt)
     );
-
     resetForm();
   };
 
@@ -163,52 +223,78 @@ export const useChat = ({ chatId }: UseChatArgs) => {
       setRegistered(true);
     }
     if (lastJsonMessage?.msgType === 'updateChatMessage') {
-      mutate(setMessageResponse(lastJsonMessage, chatMessages ?? []), {
+      mutateMessages(setMessageResponse(lastJsonMessage, chatMessages ?? []), {
         revalidate: false
       });
     }
   }, [lastJsonMessage]);
 
-  const isEditing = messageToEdit !== undefined;
+  const isMutating = isMutating1 || isMutating2;
+
+  const chatDoneHandler = async () => {
+    await chatDone();
+    mutate(`/a/chats/${chatId}`);
+  };
+
   return {
     addUpdateMessage,
+    chatDone: chatDoneHandler,
     form,
+    isDisabled: isMutating || !form.formState.isValid || !chatId,
     isEditing,
     isMutating,
+    mentions,
     messages,
     resetForm,
-    setMessageToEdit
+    setMessage
   };
 };
 
 interface UseNewChatArgs {
   agentId: string;
+  messageIds?: string[];
   onCreate: (chatId: string) => void;
+  refChatId?: string;
 }
 
-export const useNewChat = ({ agentId, onCreate }: UseNewChatArgs) => {
+export const useNewChat = ({
+  agentId,
+  messageIds,
+  onCreate,
+  refChatId
+}: UseNewChatArgs) => {
   const { isMutating, trigger: createChatTrigger } = useSWRMutation(
-    `/p/chats`,
+    agentId ? `/a/chats` : null,
     postFetch<CreateChatReq, { id: string }>
   );
 
-  const form = useForm<CreateChatReq>({
+  const form = useForm<CreateUpdateChatMessageReq>({
     defaultValues: {
-      agentId,
       text: ''
     },
-    mode: 'onChange',
-    resolver: zodResolver(createChatReq)
+    resolver: zodResolver(createUpdateChatMessageReq)
   });
 
-  const createChat = async (values: Readonly<CreateChatReq>) => {
-    const { id } = await createChatTrigger(values);
+  const mentions = useFieldArray({
+    control: form.control,
+    name: 'mentions'
+  });
+
+  const createChat = async (values: Readonly<CreateUpdateChatMessageReq>) => {
+    const { id } = await createChatTrigger({
+      ...values,
+      agentId,
+      messageIds,
+      refChatId
+    });
     onCreate(id);
   };
 
   return {
     createChat,
     form,
-    isMutating
+    isDisabled: isMutating || !form.formState.isValid || !agentId,
+    isMutating,
+    mentions
   };
 };

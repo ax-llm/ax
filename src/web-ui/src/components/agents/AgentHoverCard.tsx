@@ -1,37 +1,81 @@
 import {
-  Avatar,
-} from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import {
   HoverCard,
   HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
-import { GetChatRes } from "@/types/chats"
-import { BotMessageSquare } from "lucide-react"
+  HoverCardTrigger
+} from '@/components/ui/hover-card';
+import { GetAgentRes } from '@/types/agents.js';
+import { BrainCircuitIcon } from 'lucide-react';
+import { useState } from 'react';
+
+import { AgentAvatar } from './AgentCard.js';
+import { useAgentShow } from './useAgentList.js';
 
 interface AgentHoverCardProps {
-    agent: GetChatRes["agent"]
+  agent: { id: string; name: string };
+  size?: 'lg' | 'md' | 'sm' | 'xl';
 }
- 
-export function AgentHoverCard({ agent }: AgentHoverCardProps) {
+
+export function AgentHoverCard({ agent, size }: AgentHoverCardProps) {
+  const [open, setOpen] = useState(false);
+  const { agent: data, isLoading } = useAgentShow(open ? agent.id : null);
+
+  const sizeValue = {
+    lg: 30,
+    md: 25,
+    sm: 20,
+    xl: 40
+  }[size ?? 'lg'];
+
   return (
-    <HoverCard openDelay={100}>
+    <HoverCard onOpenChange={(isOpen) => setOpen(isOpen)} openDelay={100}>
       <HoverCardTrigger asChild>
-        <div className="rounded-full p-2 bg-lime-200 cursor-pointer">
-            <BotMessageSquare size={20} />
+        <div className="cursor-pointer">
+          <AgentAvatar size={sizeValue} value={agent?.name} />
         </div>
       </HoverCardTrigger>
-      <HoverCardContent className="w-80 space-y-2 p-0">
-        <div className="flex gap-2 items-center font-medium border-b border-gray-100 p-4">
-            <BotMessageSquare size={20} />
-            Agent
-        </div>
-        <div className="p-4 pt-0">
-            <h4 className="text-md font-semibold">{agent.name}</h4>
-            <p className="text-sm">{agent.description}</p>
-        </div>
+      <HoverCardContent align="start" className="w-80 space-y-2 p-0 bg-white">
+        {isLoading ? <div>Loading...</div> : data && <AgentInfo agent={data} />}
       </HoverCardContent>
     </HoverCard>
-  )
+  );
 }
+
+export const AgentInfo = ({ agent }: { agent: GetAgentRes }) => {
+  return (
+    <div className="w-full max-w-md border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-gray-50 p-4 flex items-center gap-2">
+        <AgentAvatar value={agent.name} />
+        <div>
+          <h3 className="text-xl font-bold">{agent.name}</h3>
+        </div>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {agent.description && (
+          <p className="text-sm text-gray-700">{agent.description}</p>
+        )}
+        <div className="space-y-2 text-sm">
+          <div className="flex items-start gap-2">
+            <BrainCircuitIcon className="w-4 h-4 text-gray-500" />
+            <div>
+              <div>Big Model:</div>
+              <div>
+                {agent.aiBigModel.id} - {agent.aiBigModel.model}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2">
+            <BrainCircuitIcon className="w-4 h-4 text-gray-500" />
+            <div>
+              <div>Small Model:</div>
+              <div>
+                {agent.aiSmallModel.id} - {agent.aiSmallModel.model}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

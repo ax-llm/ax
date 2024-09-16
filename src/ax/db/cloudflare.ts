@@ -62,7 +62,7 @@ export class AxDBCloudflare extends AxDBBase {
 
   override _upsert = async (
     req: Readonly<AxDBUpsertRequest>,
-    update?: boolean,
+    _update?: boolean,
     options?: Readonly<AxDBCloudflareOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     const res = (await apiCall(

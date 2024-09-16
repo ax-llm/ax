@@ -28,7 +28,6 @@ export class AxRoute {
 
 export class AxRouter {
   private readonly ai: AxAIService;
-  private routes: AxRoute[] = [];
 
   private db: AxDBMemory;
   private debug?: boolean;

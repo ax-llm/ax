@@ -354,9 +354,9 @@ export class AxGenerate<
     span?: AxSpan
   ): Promise<OUT> {
     const ai = options?.ai ?? this.ai;
-    const maxRetries = this.options?.maxRetries ?? options?.maxRetries ?? 5;
-    const maxSteps = this.options?.maxSteps ?? options?.maxSteps ?? 10;
-    const mem = this.options?.mem ?? options?.mem ?? new AxMemory();
+    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 5;
+    const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
+    const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
     const canStream = ai.getFeatures().streaming;
 
     let err: ValidationError | AxAssertionError | undefined;
@@ -521,14 +521,14 @@ function parseFunctions(
     //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
     // }
     return funcs;
-  } else if (values.functionName) {
+  } else if (values['functionName']) {
     const { functionName, functionArguments } = values as {
       functionName: string;
       functionArguments: string;
       other: object;
     };
-    delete values.functionName;
-    delete values.functionArguments;
+    delete values['functionName'];
+    delete values['functionArguments'];
 
     return [
       {

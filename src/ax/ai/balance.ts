@@ -18,7 +18,6 @@ export class AxBalancer implements AxAIService {
   private services: AxAIService[];
   private currentServiceIndex: number = 0;
   private currentService: AxAIService;
-  private serviceMap: Record<string, AxAIService> = {};
 
   constructor(services: readonly AxAIService[]) {
     if (services.length === 0) {

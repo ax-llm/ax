@@ -1,4 +1,5 @@
 import type { GetAIListRes } from '@/types/agents.js';
+import type { HandlerContext } from '@/util.js';
 import type { Context } from 'hono';
 
 import {
@@ -18,6 +19,8 @@ import {
 import { axModelInfoReka } from '@ax-llm/ax/ai/reka/info.js';
 
 import type { Agent } from './types.js';
+
+import { decryptKey } from './agents.js';
 
 type AIList = Array<{
   id: string;
@@ -57,20 +60,26 @@ export const aiListHandler = () => async (c: Readonly<Context>) => {
   );
 };
 
-export const createAI = (agent: Readonly<Agent>, aiType: 'big' | 'small') => {
+export const createAI = async (
+  hc: Readonly<HandlerContext>,
+  agent: Readonly<Agent>,
+  aiType: 'big' | 'small'
+) => {
   let args: AxAIArgs | undefined;
 
   if (aiType === 'big') {
+    const apiKey = (await decryptKey(hc, agent.aiBigModel.apiKey)) ?? '';
     args = {
-      apiKey: agent.aiBigModel.apiKey ?? '',
+      apiKey,
       config: { model: agent.aiBigModel.model },
       name: agent.aiBigModel.id
     } as AxAIArgs;
   }
 
   if (aiType === 'small') {
+    const apiKey = (await decryptKey(hc, agent.aiSmallModel.apiKey)) ?? '';
     args = {
-      apiKey: agent.aiSmallModel.apiKey ?? '',
+      apiKey,
       config: { model: agent.aiSmallModel.model },
       name: agent.aiSmallModel.id
     } as AxAIArgs;
@@ -78,5 +87,6 @@ export const createAI = (agent: Readonly<Agent>, aiType: 'big' | 'small') => {
   if (!args) {
     throw new Error('Invalid AI type: ' + aiType);
   }
+
   return new AxAI(args);
 };

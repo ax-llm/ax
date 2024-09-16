@@ -94,7 +94,9 @@ export class AxDBManager {
             values: embedding,
             metadata: { text: batch[index] ?? '' }
           }))
-          .filter((v) => v.metadata?.text && v.metadata?.text.length > 0);
+          .filter(
+            (v) => v.metadata?.['text'] && v.metadata?.['text'].length > 0
+          );
 
         // Batch upsert embeddings
         await this.db.batchUpsert(embeddings);
@@ -135,8 +137,11 @@ export class AxDBManager {
 
     for (const { matches } of queryResults) {
       const m = matches
-        .filter((v) => v.metadata?.text && v.metadata?.text.length > 0)
-        .map(({ score, metadata }) => ({ score, text: metadata?.text ?? '' }));
+        .filter((v) => v.metadata?.['text'] && v.metadata?.['text'].length > 0)
+        .map(({ score, metadata }) => ({
+          score,
+          text: metadata?.['text'] ?? ''
+        }));
 
       const tp = topPercent && topPercent > 1 ? topPercent / 100 : topPercent;
       const resultItems = tp ? getTopInPercent(m, tp) : m;

@@ -1,12 +1,10 @@
 import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js';
 
-import type { AxAIMemory } from './types.js';
-
-type Writeable<T> = { -readonly [P in keyof T]: T[P] };
+import type { AxAIMemory, AxWritableChatPrompt } from './types.js';
 
 export class AxMemory implements AxAIMemory {
-  private data: AxChatRequest['chatPrompt'] = [];
-  private sdata = new Map<string, AxChatRequest['chatPrompt']>();
+  private data: AxWritableChatPrompt = [];
+  private sdata = new Map<string, AxWritableChatPrompt>();
   private limit: number;
 
   constructor(limit = 50) {
@@ -53,9 +51,7 @@ export class AxMemory implements AxAIMemory {
   ): void {
     const items = this.get(sessionId);
 
-    const lastItem = items.at(-1) as unknown as Writeable<
-      AxChatRequest['chatPrompt'][0]
-    >;
+    const lastItem = items.at(-1);
 
     if (!lastItem || lastItem.role !== 'assistant') {
       this.addResult({ content, name, functionCalls }, sessionId);
@@ -77,10 +73,6 @@ export class AxMemory implements AxAIMemory {
     return this.get(sessionId);
   }
 
-  peek(sessionId?: string): AxChatRequest['chatPrompt'] {
-    return this.get(sessionId);
-  }
-
   getLast(sessionId?: string): AxChatRequest['chatPrompt'][0] | undefined {
     const d = this.get(sessionId);
     return d.at(-1);
@@ -94,7 +86,7 @@ export class AxMemory implements AxAIMemory {
     }
   }
 
-  private get(sessionId?: string): AxChatRequest['chatPrompt'] {
+  private get(sessionId?: string): AxWritableChatPrompt {
     if (!sessionId) {
       return this.data;
     }

@@ -1,29 +1,56 @@
+import { IdSchema } from '@/local/other.js';
 import { z } from 'zod';
 
-export const createChatReq = z.strictObject({
+export const baseChatReq = z.strictObject({
+  mentions: z
+    .strictObject({
+      agentId: z.string()
+    })
+    .array()
+    .nullable()
+    .optional(),
+  text: z
+    .string()
+    .min(1, 'Message is too short')
+    .max(3000, 'Message is too long (max 3000 characters)')
+});
+
+export type BaseChatReq = z.infer<typeof baseChatReq>;
+
+export const createChatReq = baseChatReq.extend({
   agentId: z.string(),
-  text: z.string().min(1).max(500)
+  messageIds: z.string().array().optional(),
+  refChatId: z.string().optional()
 });
 
 export type CreateChatReq = z.infer<typeof createChatReq>;
 
 export const getChatRes = z.strictObject({
   agent: z.strictObject({
-    description: z.string(),
-    id: z.string(),
+    description: z.string().optional(),
+    id: IdSchema,
     name: z.string()
   }),
-  id: z.string(),
-  title: z.string()
+  agents: z
+    .strictObject({
+      description: z.string().optional(),
+      id: IdSchema,
+      name: z.string()
+    })
+    .array()
+    .optional(),
+  id: IdSchema,
+  isDone: z.boolean().optional(),
+  isReferenced: z.boolean().optional(),
+  title: z.string(),
+  updatedAt: z.coerce.date(),
+  user: z.strictObject({
+    id: IdSchema,
+    name: z.string(),
+    picture: z.string().optional()
+  })
 });
 
 export type GetChatRes = z.infer<typeof getChatRes>;
 
-export const listChatsRes = z
-  .strictObject({
-    id: z.string(),
-    title: z.string()
-  })
-  .array();
-
-export type ListChatsRes = z.infer<typeof listChatsRes>;
+export type ListChatsRes = GetChatRes[];

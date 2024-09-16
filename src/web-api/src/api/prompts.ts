@@ -1,10 +1,10 @@
 import { AxGen } from '@ax-llm/ax';
 
 export const chatAgent = new AxGen<
-  { query: string },
+  { chatHistory?: string[]; query: string },
   { markdownResponse: string }
 >(
-  '"You are a helpful chat bot. Respond in markdown. Use codeblocks only for code." query -> markdownResponse'
+  '"You are a helpful chat bot. Respond in markdown. Use markdown codeblocks only for code." query, chatHistory?:string[] -> markdownResponse'
 );
 
 export const genTitle = new AxGen<

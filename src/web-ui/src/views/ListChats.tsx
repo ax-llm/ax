@@ -1,31 +1,33 @@
-import { Card, CardHeader, CardTitle } from '@/components/ui/card.js'
-import { ListChatsRes } from '@/types/chats'
-import { MessageSquare } from 'lucide-react'
-import useSWR from 'swr'
-import { Link } from 'wouter'
-
+// import Title from '@/components/Title';
+import { ChatCard } from '@/components/chats/ChatCard';
+// import { NewChatCard } from '@/components/chats/NewChatCard';
+import { useChatList } from '@/components/chats/useChatList';
+import { Link } from 'wouter';
 
 export const ListChats = () => {
-    const { data: chats, isLoading } = useSWR<ListChatsRes>(`/p/chats`)
+  const { chats, isLoading } = useChatList();
 
-    if (isLoading) {
-        return <div>Loading...</div>
-    }
+  if (isLoading || !chats) {
+    return [];
+  }
 
-    return (
-        <div className="grid grid-cols-3 gap-4">
-            {chats?.map((c) => (
-                <Link key={c.id} to={`/chats/${c.id}`}>
-                <Card className="min-h-[100px] p-2" key={c.id}>
-                    <CardHeader>
-                        <CardTitle className="flex gap-2">
-                            <MessageSquare />
-                            <div>{c.title}</div>
-                        </CardTitle>
-                    </CardHeader>
-                </Card>
-                </Link>
-            ))}
-        </div>
-    )
-}
+  return chats.map((chat) => (
+    <Link key={chat.id} to={`/chats/${chat.id}`}>
+      <ChatCard chat={chat} key={chat.id} />
+    </Link>
+  ));
+
+  //   return (
+  //     <div>
+  //       <Title size="sm">Latest chats</Title>
+  //       <div className="grid grid-cols-1 md:grid-cols-4 uto-rows-fr gap-4">
+  //         <NewChatCard />
+  //         {chats?.map((chat) => (
+  //           <Link key={chat.id} to={`/chats/${chat.id}`}>
+  //             <ChatCard chat={chat} key={chat.id} />
+  //           </Link>
+  //         ))}
+  //       </div>
+  //     </div>
+  //   );
+};

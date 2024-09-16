@@ -16,6 +16,16 @@ export enum AxJSInterpreterPermission {
   PROCESS = 'process'
 }
 
+type Context = {
+  console: Console;
+  fs: unknown;
+  http: unknown;
+  https: unknown;
+  os: unknown;
+  crypto: unknown;
+  process: unknown;
+};
+
 export class AxJSInterpreter {
   private permissions: readonly AxJSInterpreterPermission[];
 
@@ -28,7 +38,7 @@ export class AxJSInterpreter {
   }
 
   private codeInterpreterJavascript(code: string): unknown {
-    const context: { [key: string]: unknown } = { console };
+    const context: Partial<Context> = { console };
 
     if (this.permissions.includes(AxJSInterpreterPermission.FS)) {
       context.fs = _fs;

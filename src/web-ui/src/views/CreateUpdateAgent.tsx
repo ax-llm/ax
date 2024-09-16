@@ -34,7 +34,7 @@ import {
   createUpdateAgentReq
 } from '@/types/agents.js';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import useSWR, { useSWRConfig } from 'swr';
 import useSWRMutation from 'swr/mutation';
@@ -43,17 +43,20 @@ import { useParams } from 'wouter';
 const CreateUpdateAgent = () => {
   const { agentId } = useParams<{ agentId: string }>();
 
+  const [showBigModelChooser, setShowBigModelChooser] = useState(false);
+  const [showSmallModelChooser, setShowSmallModelChooser] = useState(false);
+
   // const { toast } = useToast()
   const { mutate } = useSWRConfig();
 
   const { data: aiList } = useSWR<GetAIListRes>(`/p/ai`);
 
   const { data: agent, isLoading } = useSWR<GetAgentRes>(
-    agentId ? `/p/agents/${agentId}` : null
+    agentId ? `/a/agents/${agentId}` : null
   );
 
   const { isMutating, trigger: createUpdateAgent } = useSWRMutation(
-    agentId ? `/p/agents/${agentId}` : `/p/agents`,
+    agentId ? `/a/agents/${agentId}` : `/a/agents`,
     postFetch<CreateUpdateAgentReq, { id: string }>,
     {}
   );
@@ -69,7 +72,7 @@ const CreateUpdateAgent = () => {
       description: '',
       name: ''
     },
-    mode: 'onChange',
+    mode: 'all',
     resolver: zodResolver(createUpdateAgentReq)
   });
 
@@ -95,10 +98,21 @@ const CreateUpdateAgent = () => {
     control: form.control,
     name: 'aiBigModel.id'
   });
+
   const aiSmallModelId = useWatch({
     control: form.control,
     name: 'aiSmallModel.id'
   });
+
+  useEffect(() => {
+    setShowBigModelChooser(aiBigModelId !== undefined);
+    setShowSmallModelChooser(aiSmallModelId !== undefined);
+  }, [aiBigModelId, aiSmallModelId]);
+
+  useEffect(() => {
+    setShowBigModelChooser(agent?.aiBigModel.id !== undefined);
+    setShowSmallModelChooser(agent?.aiSmallModel.id !== undefined);
+  }, [agent]);
 
   //   const { append: memberAppend, fields: memberFields, remove: memberRemove } = useFieldArray({
   //     control: form.control,
@@ -108,7 +122,7 @@ const CreateUpdateAgent = () => {
 
   const submit = async (values: Readonly<CreateUpdateAgentReq>) => {
     const { id } = await createUpdateAgent(values);
-    await mutate(`/p/agents/${id}`);
+    await mutate(`/a/agents/${id}`);
     // toast({
     //   description: 'Your team changes have been saved',
     //   title: 'Team Saved'
@@ -220,7 +234,7 @@ const CreateUpdateAgent = () => {
               )}
             />
 
-            {aiBigModelId && (
+            {showBigModelChooser && (
               <FormField
                 control={form.control}
                 name={'aiBigModel.model'}
@@ -239,7 +253,9 @@ const CreateUpdateAgent = () => {
 
                       <SelectContent>
                         {aiList
-                          ?.find((v) => v.id === aiBigModelId)
+                          ?.find(
+                            (v) => v.id === form.getValues('aiBigModel.id')
+                          )
                           ?.models.map((m) => (
                             <SelectItem key={m.id} value={m.id}>
                               {m.id} ({m.inputTokenPrice} / {m.outputTokenPrice}
@@ -254,7 +270,7 @@ const CreateUpdateAgent = () => {
               />
             )}
 
-            {aiBigModelId && (
+            {showBigModelChooser && (
               <FormField
                 control={form.control}
                 name={'aiBigModel.apiKey'}
@@ -316,7 +332,7 @@ const CreateUpdateAgent = () => {
               )}
             />
 
-            {aiSmallModelId && (
+            {showSmallModelChooser && (
               <FormField
                 control={form.control}
                 name={'aiSmallModel.model'}
@@ -335,7 +351,9 @@ const CreateUpdateAgent = () => {
 
                       <SelectContent>
                         {aiList
-                          ?.find((v) => v.id === aiSmallModelId)
+                          ?.find(
+                            (v) => v.id === form.getValues('aiSmallModel.id')
+                          )
                           ?.models.map((m) => (
                             <SelectItem key={m.id} value={m.id}>
                               {m.id} ({m.inputTokenPrice} / {m.outputTokenPrice}
@@ -350,7 +368,7 @@ const CreateUpdateAgent = () => {
               />
             )}
 
-            {aiSmallModelId && (
+            {showSmallModelChooser && (
               <FormField
                 control={form.control}
                 name={'aiSmallModel.apiKey'}

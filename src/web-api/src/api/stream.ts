@@ -31,7 +31,7 @@ const onError = (evt: Event, _ws: WSContext) => {
 };
 
 const onMessage = (event: { data: WSMessageReceive }, ws: WSContext) => {
-  console.log('Message received:', event.data);
+  //   console.log('Message received:', event.data);
 
   let message: StreamMsgIn | undefined;
 
@@ -59,19 +59,21 @@ export const createChatWebSocketHandler: Parameters<UpgradeWebSocket>[0] =
   });
 
 // Function to send a message to all WebSockets associated with a chatId
-export function sendMessages(chatId: string, message: StreamMsgOut): void {
+export const sendMessages = (chatId: string, message: StreamMsgOut) => {
   const wsSet = clients.get(chatId);
-  console.log(`Sending message to chatId: ${chatId}`);
+  //   console.log(`Sending message to chatId: ${chatId}`);
   if (wsSet) {
-    console.log(
-      `Found ${wsSet.size} WebSocket connections for chatId: ${chatId}`
-    );
+    // console.log(
+    //   `Found ${wsSet.size} WebSocket connections for chatId: ${chatId}`
+    // );
     const msg = JSON.stringify(message);
     wsSet.forEach((ws) => ws.send(msg));
-  } else {
-    console.log(`No WebSocket connections found for chatId: ${chatId}`);
   }
-}
+
+  //   else {
+  //     console.log(`No WebSocket connections found for chatId: ${chatId}`);
+  //   }
+};
 
 const register = ({ chatId }: { chatId: string }, ws: WSContext) => {
   if (chatId) {
@@ -82,6 +84,6 @@ const register = ({ chatId }: { chatId: string }, ws: WSContext) => {
     clients.get(chatId)!.add(ws);
     ws.send(JSON.stringify({ msgType: 'clientRegistered' }));
   } else {
-    console.log('Message received without a chatId:');
+    // console.log('Message received without a chatId:');
   }
 };

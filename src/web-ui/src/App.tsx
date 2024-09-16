@@ -3,6 +3,7 @@ import { SWRConfig } from 'swr';
 import { Redirect, Route, Router, Switch } from 'wouter';
 
 import { Layout } from './components/Layout.js';
+import { Protected } from './components/Protected.js';
 import { getFetch } from './lib/fetchers.js';
 import { CreateChat } from './views/CreateChat.js';
 import { Home } from './views/Home.js';
@@ -33,15 +34,16 @@ export const App = () => {
       value={{
         fetcher: getFetch,
         refreshInterval: 900000,
-        revalidateIfStale: false,
         revalidateOnFocus: false,
         revalidateOnReconnect: false
       }}
     >
       <Router>
-        <Layout>
-          <Suspense fallback={<div>Loading...</div>}>{routes}</Suspense>
-        </Layout>
+        <Protected>
+          <Layout>
+            <Suspense fallback={<div>Loading...</div>}>{routes}</Suspense>
+          </Layout>
+        </Protected>
       </Router>
     </SWRConfig>
   );

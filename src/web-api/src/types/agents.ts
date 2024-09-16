@@ -1,8 +1,10 @@
+// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
+import { IdSchema } from '@/local/other.js';
 import { z } from 'zod';
 
 export const getAIListRes = z
   .strictObject({
-    id: z.string(),
+    id: IdSchema,
     models: z
       .strictObject({
         id: z.string(),
@@ -32,7 +34,8 @@ export const aiList = [
 ] as const;
 
 export const ai = z.strictObject({
-  apiKey: z.string().min(3).max(300).optional(),
+  apiKey: z.string().optional(),
+  apiKeyId: z.string().optional(),
   id: z.enum(aiList),
   model: z.string().min(3).max(100)
 });
@@ -55,7 +58,7 @@ export const getAgentRes = z.strictObject({
     .extend({ apiKeyId: z.string().optional() }),
   createdAt: z.date(),
   description: z.string().optional(),
-  id: z.string(),
+  id: IdSchema,
   name: z.string(),
   updatedAt: z.date().optional()
 });
@@ -65,7 +68,7 @@ export type GetAgentRes = z.infer<typeof getAgentRes>;
 export const listAgentsRes = z
   .strictObject({
     description: z.string().optional(),
-    id: z.string(),
+    id: IdSchema,
     name: z.string()
   })
   .array();

@@ -196,7 +196,7 @@ export class AxDBWeaviate extends AxDBBase {
 
     const matches = resMatches.map((match) => {
       return {
-        id: match.id as string,
+        id: match['id'] as string,
         score: 1,
         metadata: match
       };

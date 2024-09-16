@@ -1,4 +1,5 @@
-import { TextInput } from '@/components/TextInput.js';
+import { AgentSelect } from '@/components/agents/AgentSelect.js';
+import { useAgentList } from '@/components/agents/useAgentList.js';
 import { Button } from '@/components/ui/button.js';
 import {
   Form,
@@ -6,38 +7,57 @@ import {
   FormField,
   FormItem
 } from '@/components/ui/form.js';
-import { CreateChatReq } from '@/types/chats.js';
+import { ListAgentsRes } from '@/types/agents.js';
 import { CreateUpdateChatMessageReq } from '@/types/messages.js';
-import { CircleAlert } from 'lucide-react';
-import { FieldPath, UseFormReturn } from 'react-hook-form';
+import { AlertTriangle, AtSign, CircleAlert, X } from 'lucide-react';
+import { useState } from 'react';
+import { UseFieldArrayReturn, UseFormReturn } from 'react-hook-form';
 import { useLocation } from 'wouter';
 
+import { ChatTextarea } from './ChatTextarea.js';
 import { useChat, useNewChat } from './useChat.js';
+import { useChatShow } from './useChatList.js';
+import { useSidebar } from './useSidebar.js';
 
-interface BaseChatReq {
-  text: string;
-}
-
-interface CreateChatInputProps {
+interface ChatInputNewProps {
   agentId: string;
+  chatId?: string;
+  messageIds?: string[];
+  refChatId?: string;
 }
 
-export const CreateChatInput = ({
-  agentId
-}: Readonly<CreateChatInputProps>) => {
+export const ChatInputNew = ({
+  agentId,
+  chatId,
+  messageIds,
+  refChatId
+}: Readonly<ChatInputNewProps>) => {
+  const { replaceChat } = useSidebar();
   const [, navigate] = useLocation();
 
-  const { createChat, form, isMutating } = useNewChat({
+  const onCreate = (newChatId: string) => {
+    if (refChatId && chatId) {
+      replaceChat(chatId, { chatId: newChatId });
+    } else {
+      navigate(`/chats/${newChatId}`);
+    }
+  };
+
+  const { createChat, form, isDisabled, isMutating, mentions } = useNewChat({
     agentId,
-    onCreate: (chatId) => navigate(`/chats/${chatId}`)
+    messageIds,
+    onCreate,
+    refChatId
   });
 
   return (
-    <ChatInputForm<CreateChatReq>
+    <ChatInputForm
       clear={form.reset}
       form={form}
+      isDisabled={isDisabled}
       isEditing={false}
       isMutating={isMutating}
+      mentions={mentions}
       submit={createChat}
     />
   );
@@ -47,17 +67,28 @@ interface UpdateChatInputProps {
   chatId: string;
 }
 
-export const UpdateChatInput = ({ chatId }: Readonly<UpdateChatInputProps>) => {
-  const { addUpdateMessage, form, isEditing, isMutating, resetForm } = useChat({
-    chatId
-  });
+export const ChatInput = ({ chatId }: Readonly<UpdateChatInputProps>) => {
+  const {
+    addUpdateMessage,
+    chatDone,
+    form,
+    isDisabled,
+    isEditing,
+    isMutating,
+    mentions,
+    resetForm
+  } = useChat(chatId);
 
   return (
-    <ChatInputForm<CreateUpdateChatMessageReq>
+    <ChatInputForm
+      chatDone={chatDone}
+      chatId={chatId}
       clear={resetForm}
       form={form}
+      isDisabled={isDisabled}
       isEditing={isEditing}
       isMutating={isMutating}
+      mentions={mentions}
       note={
         isEditing
           ? 'All messages after the edited message will be removed'
@@ -69,69 +100,175 @@ export const UpdateChatInput = ({ chatId }: Readonly<UpdateChatInputProps>) => {
   );
 };
 
-interface ChatInputFormProps<T extends BaseChatReq> {
+const MentionedList = ({
+  agents,
+  mentions
+}: {
+  agents?: ListAgentsRes;
+  mentions: UseFieldArrayReturn<
+    CreateUpdateChatMessageReq,
+    'mentions',
+    'agentId'
+  >;
+}) => {
+  if (mentions?.fields.length === 0) {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap items-center px-3 py-1 pb-4 -mb-5">
+      <div className="text-sm">Mentioned:</div>
+      {mentions?.fields.map((m, index) => {
+        const agent = agents?.find((a) => a.id === m.agentId);
+        return (
+          <div
+            className="flex px-2 py-1 gap-2 rounded-full text-sm font-semibold hover:bg-gray-100"
+            key={m.agentId}
+          >
+            <div>{agent?.name}</div>
+            <button onClick={() => mentions.remove(index)}>
+              <X size={12} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+interface ChatInputFormProps {
+  chatDone?: () => void;
+  chatId?: string;
   clear: () => void;
-  form: UseFormReturn<T>; // UseFormReturn with the generic T
+  form: UseFormReturn<CreateUpdateChatMessageReq>;
+  isDisabled: boolean;
   isEditing?: boolean;
   isMutating: boolean;
+  mentions: UseFieldArrayReturn<
+    CreateUpdateChatMessageReq,
+    'mentions',
+    'agentId'
+  >;
   note?: string;
-  submit: (values: T) => void; // Submit function takes data of type T
+  submit: (values: CreateUpdateChatMessageReq) => void;
   submitLabel?: string;
 }
 
 // Generic component definition
-const ChatInputForm = <T extends BaseChatReq>({
+const ChatInputForm = ({
+  chatDone,
+  chatId,
   clear,
   form,
+  isDisabled,
   isEditing,
   isMutating,
+  mentions,
   note,
   submit,
   submitLabel
-}: ChatInputFormProps<T>) => {
+}: ChatInputFormProps) => {
+  const { agents } = useAgentList();
+  const [confirmChatDone, setConfirmChatDone] = useState(false);
+  const { chat } = useChatShow(chatId);
+
+  if (chat?.isDone) {
+    return null;
+  }
+
+  if (confirmChatDone && chatDone) {
+    return (
+      <ChatDoneBanner
+        onCancel={() => setConfirmChatDone(false)}
+        onDone={chatDone}
+      />
+    );
+  }
+
   return (
-    <div className="w-full space-y-2 p-3">
+    <div className="w-full space-y-2 p-3 border-2 border-accent rounded-xl">
       {note && (
         <div className="flex gap-2 text-sm text-blue-500 px-3">
           <CircleAlert size={20} />
           {note}
         </div>
       )}
-      <div className="bg-gray-100 rounded-xl p-2">
-        <Form {...form}>
+
+      <Form {...form}>
+        <div className="space-y-2 rounded-lg">
+          <MentionedList agents={agents} mentions={mentions} />
+
           <FormField
             control={form.control}
-            name={'text' as FieldPath<T>}
+            name={'text'}
             render={({ field }) => (
               <FormItem>
                 <FormControl>
-                  <TextInput
-                    className="placeholder:text-gray-300/80 focus-visible:ring-offset-0"
+                  <ChatTextarea
+                    className="bg-transparent border-0 focus-visible:ring-0"
                     disabled={isMutating}
-                    error={form.formState.errors.text?.message as string}
-                    maxLength={1000}
-                    placeholder={'Enter your message'}
-                    {...field}
+                    // error={form.formState.errors.text?.message as string}
+                    // maxLength={1000}
+                    onChange={field.onChange}
+                    onEnterKeyPressed={
+                      !isDisabled ? form.handleSubmit(submit) : undefined
+                    }
+                    value={field.value}
                   />
                 </FormControl>
               </FormItem>
             )}
           />
-          <div className="p-1 space-x-1">
+        </div>
+
+        <div className="flex items-center gap-2">
+          {chat?.isReferenced && (
             <Button
-              disabled={isMutating || !form.formState.isValid}
-              onClick={form.handleSubmit(submit)}
-              size="xs"
+              onClick={() => setConfirmChatDone(true)}
+              size="sm"
+              variant="outline"
             >
-              {submitLabel ?? 'Send'}
+              Chat Done
             </Button>
-            {(isEditing || form.formState.isDirty) && (
-              <Button onClick={clear} size="xs" variant="outline">
-                Cancel
-              </Button>
-            )}
-          </div>
-        </Form>
+          )}
+
+          <AgentSelect
+            label={<AtSign className="inline-block mr-2" size={20} />}
+            onSelect={(agentId) => {
+              mentions.append({ agentId });
+            }}
+            selected={mentions.fields.map((m) => m.agentId)}
+            size="icon"
+            variant="ghost"
+          />
+
+          {(isEditing || form.formState.isDirty) && (
+            <Button onClick={clear} size="xs" variant="outline">
+              Cancel
+            </Button>
+          )}
+        </div>
+      </Form>
+    </div>
+  );
+};
+
+interface ChatDoneBannerProps {
+  onCancel: () => void;
+  onDone: () => void;
+}
+
+const ChatDoneBanner = ({ onCancel, onDone }: ChatDoneBannerProps) => {
+  return (
+    <div className="p-4 space-y-2 shadow-md border rounded-xl m-2">
+      <div className="flex items-start gap-1 text-red-500">
+        <AlertTriangle size={25} />
+        This action cannot be undone. Please confirm that you want to proceed.
+      </div>
+      <div className="flex items-center gap-2">
+        <Button onClick={onDone}>Chat Done</Button>
+        <Button onClick={onCancel} variant="outline">
+          Cancel
+        </Button>
       </div>
     </div>
   );

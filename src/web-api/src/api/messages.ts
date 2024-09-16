@@ -1,318 +1,447 @@
 import type {
   CreateUpdateChatMessageReq,
+  GetChatMessageRes,
   ListChatMessagesRes
 } from '@/types/messages.js';
 import type { HandlerContext } from '@/util.js';
 import type { Context } from 'hono';
 
 import { type Tokens, marked } from 'marked';
-import { ObjectId, type UpdateFilter, type WithId } from 'mongodb';
-
-import type { Agent, Chat, Message } from './types.js';
+import { ObjectId, type UpdateFilter } from 'mongodb';
 
 import { createAI } from './ai.js';
+import { getMessages, messagePipeline, messagesForUserPipeline } from './db.js';
+import { ChatMemory, getChatPrompt } from './memory.js';
 import { chatAgent } from './prompts.js';
 import { sendMessages } from './stream.js';
+import { type Agent, type Chat, type Message, user } from './types.js';
+import { objectIds } from './util.js';
 
 export const listChatMessagesHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
     const { chatId } = c.req.param();
+    const userId = c.get('userId');
 
-    const messages = await hc.db
-      .collection<Message>('messages')
-      .find({ chatId: new ObjectId(chatId) })
-      .sort({ createdAt: 1 })
-      .toArray();
-
-    // list of unique agentIds
-    const agentIds = [
-      ...new Set(
-        messages.map((m) => m.agentId).filter((id) => id !== undefined)
-      )
-    ];
-
-    const agents = await hc.db
-      .collection<Agent>('agents')
-      .find({ _id: { $in: agentIds } })
-      .toArray();
-
-    const res: ListChatMessagesRes = messages.map((message) => {
-      const agent = agents.find((a) => a._id.equals(message.agentId));
-      return messageToListChatMessagesRes(message, agent);
+    // check if chat exists and user is part of the chat
+    const chat = await hc.db.collection<Chat>('chats').findOne({
+      _id: new ObjectId(chatId),
+      userId
     });
 
-    return c.json(res);
+    if (!chat) {
+      throw new Error('Chat not found');
+    }
+
+    // get all messages for the chat
+    const messages = (
+      await getMessages(hc, messagePipeline({ chatId: chat._id })).toArray()
+    ).map(decorateMessage);
+
+    return c.json<ListChatMessagesRes>(messages);
+  };
+
+export const listChatMessagesByIdsHandler =
+  (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
+    const userId = c.get('userId');
+    const messageIds = objectIds(c.req.query('messageIds'));
+
+    if (messageIds.length === 0) {
+      throw new Error('Message IDs not found');
+    }
+
+    const messages = (
+      await getMessages(
+        hc,
+        messagesForUserPipeline({ _id: { $in: messageIds } }, userId)
+      ).toArray()
+    ).map(decorateMessage);
+
+    return c.json(messages);
   };
 
 export const createUpdateChatMessageHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
-    const { chatId: _chatId } = c.req.param();
     const req = await c.req.json<CreateUpdateChatMessageReq>();
-    const chatId = new ObjectId(_chatId);
-    const messageId = req.messageId ? new ObjectId(req.messageId) : undefined;
 
-    const res = messageId
-      ? await updateChatMessageHandler(hc, chatId, messageId, req)
-      : await createChatMessageHandler(hc, chatId, req);
+    const res =
+      'messageId' in req && req.messageId
+        ? await updateChatMessageHandler(hc, c, req)
+        : await createChatMessageHandler(hc, c, req);
 
     return c.json<ListChatMessagesRes>(res);
   };
 
 export const createChatMessageHandler = async (
   hc: Readonly<HandlerContext>,
-  chatId: ObjectId,
-  req: CreateUpdateChatMessageReq
+  c: Readonly<Context>,
+  req: Omit<CreateUpdateChatMessageReq, 'messageId'>
 ): Promise<ListChatMessagesRes> => {
-  return await processChatMessage(hc, { chatId, ...req });
+  const { chatId: _chatId } = c.req.param();
+  const userId = c.get('userId');
+
+  const chatId = new ObjectId(_chatId);
+  return await processChatMessage(hc, { chatId, userId, ...req });
 };
 
 export const updateChatMessageHandler = async (
   hc: Readonly<HandlerContext>,
-  chatId: ObjectId,
-  messageId: ObjectId,
-  req: Omit<CreateUpdateChatMessageReq, 'messageId'>
+  c: Readonly<Context>,
+  req: CreateUpdateChatMessageReq
 ): Promise<ListChatMessagesRes> => {
+  const { chatId: _chatId } = c.req.param();
+  const userId = c.get('userId');
+
+  const chatId = new ObjectId(_chatId);
+  const messageId = new ObjectId(req.messageId);
+
+  // use a transaction
   const session = await hc.dbClient.startSession();
-  session.startTransaction();
 
-  const message = await hc.db
-    .collection<Message>('messages')
-    .findOne({ _id: messageId, chatId });
+  try {
+    const res = await session.withTransaction(async () => {
+      // find the message to update also ensure it's part of the chat
+      // which ensures the chat e
+      const message = await hc.db
+        .collection<Message>('messages')
+        .findOne({ _id: messageId, chatId });
 
-  if (!message) {
-    throw new Error('Message not found: ' + messageId);
+      if (!message) {
+        throw new Error('Message not found: ' + messageId);
+      }
+
+      // ensure we're not updating an agent message
+      if (message.agentId) {
+        throw new Error('Cannot update an agent message');
+      }
+
+      // delete all messages after and including the message to update
+      await hc.db
+        .collection<Message>('messages')
+        .deleteMany({ chatId, createdAt: { $gte: message?.createdAt } });
+
+      const res = await processChatMessage(hc, {
+        chatId,
+        previouslyCreatedAt: message.createdAt,
+        userId,
+        ...req
+      });
+
+      return res;
+    });
+
+    return res;
+  } catch (e) {
+    await session.abortTransaction();
+    throw e;
+  } finally {
+    session.endSession();
   }
-
-  if (message.agentId) {
-    throw new Error('Cannot update an agent message');
-  }
-
-  await hc.db
-    .collection<Message>('messages')
-    .deleteMany({ chatId, createdAt: { $gte: message?.createdAt } });
-
-  const res = await processChatMessage(hc, {
-    chatId,
-    createdAt: message.createdAt,
-    ...req
-  });
-
-  await session.commitTransaction();
-  session.endSession();
-
-  return res;
 };
 
 export const retryChatMessageHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
-    const { chatId: _chatId, messageId } = c.req.param();
+    const { messageId } = c.req.param();
+    const userId = c.get('userId');
 
-    const chatId = new ObjectId(_chatId);
-    const chat = await hc.db.collection<Chat>('chats').findOneAndUpdate(
-      {
-        _id: chatId
-      },
-      {
-        $set: { updatedAt: new Date() }
-      }
-    );
-    if (!chat) {
-      throw new Error('Chat not found: ' + _chatId);
-    }
-
-    const respMsg = await hc.db
+    // find the message to retry
+    const agentMessage = await hc.db
       .collection<Message>('messages')
-      .findOne({ _id: new ObjectId(messageId), chatId });
+      .findOne(
+        { _id: new ObjectId(messageId) },
+        { projection: { _id: 1, chatId: 1, error: 1, parentId: 1 } }
+      );
 
-    if (!respMsg) {
+    if (!agentMessage) {
       throw new Error('Message not found: ' + messageId.toString());
     }
 
-    if (!respMsg.parentId) {
+    if (!agentMessage.parentId) {
       throw new Error('Message does not have a parent');
     }
 
-    if (!respMsg.error) {
+    if (!agentMessage.error) {
       throw new Error('Message does not have an error');
     }
 
-    const reqMsg = await hc.db
-      .collection<Message>('messages')
-      .findOne({ _id: new ObjectId(respMsg.parentId) });
+    // ensure the message is part of the chat the user is part of
+    const chat = await hc.db.collection<Chat>('chats').findOne(
+      {
+        _id: agentMessage.chatId,
+        userId
+      },
+      { projection: { _id: 1 } }
+    );
 
-    if (!reqMsg) {
-      throw new Error('Message not found: ' + messageId.toString());
+    if (!chat) {
+      throw new Error('Chat not found');
     }
 
-    setTimeout(() => {
-      chatAgentTaskHandler(hc, reqMsg, respMsg);
-    }, 100);
+    const chatId = agentMessage.chatId.toString();
 
-    return c.json({ chatId });
+    hc.taskRunner.addTask(chatId, () =>
+      chatAgentTaskHandler(hc, { agentMessageId: agentMessage._id })
+    );
+
+    return c.json({ chatId, messageId });
   };
 
 export const processChatMessage = async (
   hc: Readonly<HandlerContext>,
-  req: { chatId: ObjectId; createdAt?: Date } & CreateUpdateChatMessageReq
+  req: {
+    chatId: ObjectId;
+    previouslyCreatedAt?: Date;
+    userId: ObjectId;
+  } & CreateUpdateChatMessageReq
 ): Promise<ListChatMessagesRes> => {
-  const chat = await hc.db.collection<Chat>('chats').findOneAndUpdate(
-    {
-      _id: req.chatId
-    },
-    {
-      $set: { updatedAt: new Date() }
-    }
-  );
-  if (!chat) {
-    throw new Error('Chat not found');
+  const agentIds =
+    req.mentions
+      ?.filter((m) => m.agentId)
+      .map((m) => new ObjectId(m.agentId)) ?? [];
+
+  const res = await createUserAndAgentMessages(hc, {
+    agentIds,
+    chatId: req.chatId,
+    previouslyCreatedAt: req.previouslyCreatedAt,
+    text: req.text,
+    userId: req.userId
+  });
+
+  const userMessage = await getMessages(
+    hc,
+    messagePipeline({ _id: res.userMessage._id })
+  ).next();
+
+  if (!userMessage) {
+    throw new Error('User message not found');
   }
 
-  const updatedAt = req.createdAt ? new Date() : undefined;
+  await sendUpdateChatMessage(userMessage);
 
-  const reqMsg: WithId<Message> = {
-    _id: new ObjectId(),
-    chatId: req.chatId,
-    createdAt: req.createdAt ?? new Date(),
-    text: req.text,
-    ...(updatedAt ? { updatedAt } : {})
-  };
+  const fnBatch = res.agentMessages.map(
+    (agentMsg) => () =>
+      chatAgentTaskHandler(hc, { agentMessageId: agentMsg._id, text: req.text })
+  );
 
-  const respMsg: WithId<Message> = {
-    _id: new ObjectId(),
-    agentId: chat.agentId,
-    chatId: req.chatId,
-    createdAt: reqMsg.createdAt,
-    parentId: reqMsg._id,
-    processing: true
-  };
+  hc.taskRunner.addTasks(req.chatId.toString(), fnBatch);
 
-  await hc.db.collection<Message>('messages').insertMany([reqMsg, respMsg]);
-
-  setTimeout(() => {
-    chatAgentTaskHandler(hc, reqMsg, respMsg);
-  }, 100);
-
-  return [messageToListChatMessagesRes(reqMsg)];
+  return [userMessage];
 };
+
+const createUserAndAgentMessages = async (
+  hc: Readonly<HandlerContext>,
+  req: {
+    agentIds: ObjectId[];
+    chatId: ObjectId;
+    previouslyCreatedAt?: Date;
+    text: string;
+    userId: ObjectId;
+  }
+) => {
+  const now = new Date(new Date().getTime() + 10);
+  const session = hc.dbClient.startSession();
+
+  // Filter agentIds to include only those that exist in the database
+  const validAgents = await hc.db
+    .collection<Agent>('agents')
+    .find(
+      {
+        _id: { $in: req.agentIds }
+      },
+      { projection: { _id: 1 } }
+    )
+    .toArray();
+
+  const validAgentIds = validAgents.map((agent) => agent._id);
+
+  try {
+    const res = await session.withTransaction(async () => {
+      // Update chat with only valid agentIds
+      const chatUpdateResult = await hc.db
+        .collection<Chat>('chats')
+        .findOneAndUpdate(
+          { _id: req.chatId, isDone: { $ne: true } },
+          {
+            $addToSet: { agents: { $each: validAgentIds } },
+            $set: { updatedAt: now }
+          },
+          { returnDocument: 'after', session }
+        );
+
+      if (!chatUpdateResult) {
+        throw new Error('Chat not found or does not match criteria');
+      }
+
+      // Create new messages
+      const userMessage = {
+        _id: new ObjectId(),
+        chatId: req.chatId,
+        createdAt: req.previouslyCreatedAt || now,
+        text: req.text,
+        updatedAt: req.previouslyCreatedAt ? now : undefined,
+        userId: chatUpdateResult.userId
+      };
+
+      const agentMessages = validAgentIds.map((agentId, index) => ({
+        _id: new ObjectId(),
+        agentId,
+        chatId: req.chatId,
+        createdAt: new Date(now.getTime() + (index + 1) * 10),
+        parentId: userMessage._id,
+        processing: true
+      }));
+
+      if (validAgentIds.length === 0) {
+        agentMessages.push({
+          _id: new ObjectId(),
+          agentId: chatUpdateResult.agentId,
+          chatId: req.chatId,
+          createdAt: new Date(now.getTime() + 10),
+          parentId: userMessage._id,
+          processing: true
+        });
+      }
+
+      // Insert messages
+      await hc.db
+        .collection<Message>('messages')
+        .insertMany([userMessage, ...agentMessages], { session });
+
+      return {
+        agentMessages,
+        userMessage
+      };
+    });
+
+    return res;
+  } finally {
+    await session.endSession();
+  }
+};
+
+interface ChatAgentTaskHandlerArgs {
+  agentMessageId: ObjectId;
+  text?: string;
+}
 
 export const chatAgentTaskHandler = async (
   hc: Readonly<HandlerContext>,
-  reqMsg: WithId<Message>,
-  respMsg: WithId<Message>
+  { agentMessageId, text }: ChatAgentTaskHandlerArgs
 ) => {
-  await sendUpdateChatMessage({ message: reqMsg });
+  const agentMessage = await getMessages(
+    hc,
+    messagePipeline({ _id: agentMessageId })
+  ).next();
 
-  if (!respMsg.agentId) {
-    throw new Error('Agent ID not found');
+  if (!agentMessage) {
+    throw new Error('Agent message not found: ' + agentMessageId.toString());
   }
 
-  if (reqMsg.error) {
-    throw new Error('Request message cannot have an error');
+  if (!agentMessage.agent?.id) {
+    throw new Error('Agent message does not have an agent');
   }
 
-  if (!reqMsg.text) {
-    throw new Error('Request message must have text');
+  await sendUpdateChatMessageProcessing(agentMessage);
+
+  if (!text) {
+    const userMessage = await hc.db.collection<Message>('messages').findOne(
+      {
+        _id: new ObjectId(agentMessage.parentId)
+      },
+      { projection: { text: 1 } }
+    );
+
+    if (!userMessage) {
+      throw new Error('User message not found: ' + agentMessage.parentId);
+    }
+    text = userMessage.text;
   }
 
-  const agent = await hc.db.collection<Agent>('agents').findOne({
-    _id: respMsg.agentId
-  });
-  if (!agent) {
-    throw new Error('Agent not found: ' + respMsg.agentId.toString());
+  if (!text) {
+    throw new Error('No text provided');
   }
-
-  await sendUpdateChatMessageProcessing({ agent, message: respMsg });
 
   try {
-    const ai = createAI(agent, 'big');
-    const { markdownResponse } = await chatAgent.forward(ai, {
-      query: reqMsg.text
+    const { response } = await executeChat(hc, {
+      agentId: new ObjectId(agentMessage.agent.id),
+      chatId: new ObjectId(agentMessage.chatId),
+      query: text,
+      uptoMessageId: new ObjectId(agentMessage.parentId)
     });
 
-    const updatedRespMsg = { ...respMsg, text: markdownResponse };
+    const updatedAgentMessage = { ...agentMessage, text: response };
 
-    await updateChatMessage(hc, updatedRespMsg);
-    await sendUpdateChatMessageDone({ agent, message: updatedRespMsg });
+    await updateChatMessage(hc, updatedAgentMessage);
+    await sendUpdateChatMessageDone(updatedAgentMessage);
   } catch (e) {
     const error = (e as Error).message;
-    const updatedRespMsg = { ...respMsg, error };
-
-    await updateChatMessage(hc, updatedRespMsg);
-    await sendUpdateChatMessageError({ agent, error, message: updatedRespMsg });
+    const updatedAgentMessage = { ...agentMessage, error };
+    await updateChatMessage(hc, updatedAgentMessage);
+    await sendUpdateChatMessageError(updatedAgentMessage);
   }
 };
 
-interface SendUpdateChatMessageArgs {
-  agent?: WithId<Agent>;
-  message: WithId<Message>;
+interface ExecuteChatArgs {
+  agentId: ObjectId;
+  chatId: ObjectId;
+  query: string;
+  uptoMessageId: ObjectId;
 }
 
-const sendUpdateChatMessage = async ({
-  agent,
-  message
-}: SendUpdateChatMessageArgs) => {
-  const val = messageToListChatMessagesRes({ ...message }, agent);
-  const chatId = message.chatId.toString();
-  await sendMessages(chatId, {
-    msgType: 'updateChatMessage',
-    ...val
-  });
+const executeChat = async (
+  hc: Readonly<HandlerContext>,
+  { agentId, chatId, query, uptoMessageId }: ExecuteChatArgs
+) => {
+  const agent = await hc.db
+    .collection<Agent>('agents')
+    .findOne({ _id: agentId });
+
+  if (!agent) {
+    throw new Error('Agent not found: ' + agentId);
+  }
+
+  const chatHistory = await getChatPrompt(hc.db, { chatId, uptoMessageId });
+  const mem = new ChatMemory([]);
+  const ai = await createAI(hc, agent, 'big');
+  const { markdownResponse } = await chatAgent.forward(
+    ai,
+    {
+      chatHistory,
+      query
+    },
+    { mem }
+  );
+
+  return { response: markdownResponse };
 };
 
-const sendUpdateChatMessageProcessing = async (
-  args: SendUpdateChatMessageArgs
+const sendUpdateChatMessage = async (message: GetChatMessageRes) => {
+  const msg = decorateMessage(message);
+  const chatId = message.chatId.toString();
+  await sendMessages(chatId, { ...msg, msgType: 'updateChatMessage' });
+};
+
+export const sendUpdateChatMessageProcessing = async (
+  message: GetChatMessageRes
 ) => {
   return sendUpdateChatMessage({
-    ...args,
-    message: { ...args.message, processing: true }
+    ...message,
+    processing: true
   });
 };
 
-const sendUpdateChatMessageDone = async (args: SendUpdateChatMessageArgs) => {
+export const sendUpdateChatMessageDone = async (message: GetChatMessageRes) => {
   // remove error field from arg.messages
-  const { error, ...message } = args.message;
-  return sendUpdateChatMessage({
-    ...args,
-    message: { ...message, processing: false }
-  });
+  const { error, ...rest } = message;
+  return sendUpdateChatMessage({ ...rest, processing: false });
 };
 
-const sendUpdateChatMessageError = async ({
-  error,
-  ...args
-}: { error: string } & SendUpdateChatMessageArgs) => {
-  return sendUpdateChatMessage({
-    ...args,
-    message: { ...args.message, error, processing: false }
-  });
-};
-
-const messageToListChatMessagesRes = (
-  message: WithId<Message>,
-  agent?: WithId<Agent>
-): ListChatMessagesRes[0] => {
-  const agentValue = agent
-    ? { id: agent._id.toString(), name: agent.name }
-    : undefined;
-
-  return {
-    createdAt: message.createdAt,
-    id: message._id.toString(),
-    updatedAt: message.updatedAt,
-    ...(agentValue ? { agent: agentValue } : {}),
-    ...(message.error ? { error: message.error } : {}),
-    ...(message.text && message.agentId
-      ? { html: markdownToHtml(message.text) }
-      : { text: message.text }),
-    ...(message.processing !== undefined
-      ? { processing: message.processing }
-      : {})
-  };
+const sendUpdateChatMessageError = async (message: GetChatMessageRes) => {
+  return sendUpdateChatMessage({ ...message, processing: false });
 };
 
 const updateChatMessage = async (
   hc: HandlerContext,
-  respMsg: WithId<Message>
+  respMsg: GetChatMessageRes
 ) => {
   let data: UpdateFilter<Message> | undefined;
 
@@ -340,16 +469,29 @@ const updateChatMessage = async (
 
   await hc.db
     .collection<Message>('messages')
-    .updateOne({ _id: respMsg._id }, data);
+    .updateOne({ _id: new ObjectId(respMsg.id) }, data);
+};
+
+export const decorateMessage = (
+  message: ListChatMessagesRes[0]
+): ListChatMessagesRes[0] => {
+  return {
+    ...message,
+    html: message.text ? markdownToHtml(message.text) : undefined
+  };
 };
 
 export const markdownToHtml = (markdown: string): string => {
   marked.use({
     renderer: {
       code: ({ lang, text }: Tokens.Code) => {
-        return lang && lang.length > 0
-          ? `<pre><code class="language-${lang}">${text}</code></pre>`
-          : text;
+        if (lang === '') {
+          return text;
+        }
+        if (lang === 'markdown') {
+          return `${markdownToHtml(text)}`;
+        }
+        return `<pre><code class="language-${lang}">${text}</code></pre>`;
       }
     }
   });
