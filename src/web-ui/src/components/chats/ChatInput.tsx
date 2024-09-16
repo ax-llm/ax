@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/form.js';
 import { ListAgentsRes } from '@/types/agents.js';
 import { CreateUpdateChatMessageReq } from '@/types/messages.js';
-import { AlertTriangle, AtSign, CircleAlert, X } from 'lucide-react';
+import { AlertTriangle, AtSign, CircleAlert, X, XSquare } from 'lucide-react';
 import { useState } from 'react';
 import { UseFieldArrayReturn, UseFormReturn } from 'react-hook-form';
 import { useLocation } from 'wouter';
@@ -95,7 +95,6 @@ export const ChatInput = ({ chatId }: Readonly<UpdateChatInputProps>) => {
           : undefined
       }
       submit={addUpdateMessage}
-      submitLabel={isEditing ? 'Update' : 'Send'}
     />
   );
 };
@@ -150,7 +149,6 @@ interface ChatInputFormProps {
   >;
   note?: string;
   submit: (values: CreateUpdateChatMessageReq) => void;
-  submitLabel?: string;
 }
 
 // Generic component definition
@@ -164,8 +162,7 @@ const ChatInputForm = ({
   isMutating,
   mentions,
   note,
-  submit,
-  submitLabel
+  submit
 }: ChatInputFormProps) => {
   const { agents } = useAgentList();
   const [confirmChatDone, setConfirmChatDone] = useState(false);
@@ -194,33 +191,41 @@ const ChatInputForm = ({
       )}
 
       <Form {...form}>
-        <div className="space-y-2 rounded-lg">
-          <MentionedList agents={agents} mentions={mentions} />
+        <div className="flex justify-between">
+          <div className="space-y-2 w-full">
+            <MentionedList agents={agents} mentions={mentions} />
 
-          <FormField
-            control={form.control}
-            name={'text'}
-            render={({ field }) => (
-              <FormItem>
-                <FormControl>
-                  <ChatTextarea
-                    className="bg-transparent border-0 focus-visible:ring-0"
-                    disabled={isMutating}
-                    // error={form.formState.errors.text?.message as string}
-                    // maxLength={1000}
-                    onChange={field.onChange}
-                    onEnterKeyPressed={
-                      !isDisabled ? form.handleSubmit(submit) : undefined
-                    }
-                    value={field.value}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name={'text'}
+              render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <ChatTextarea
+                      className="bg-transparent border-0 focus-visible:ring-0"
+                      disabled={isMutating}
+                      // error={form.formState.errors.text?.message as string}
+                      // maxLength={1000}
+                      onChange={field.onChange}
+                      onEnterKeyPressed={
+                        !isDisabled ? form.handleSubmit(submit) : undefined
+                      }
+                      value={field.value}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </div>
+
+          {(isEditing || form.formState.isDirty) && (
+            <Button onClick={clear} size="icon" variant="ghost">
+              <XSquare size={30} />
+            </Button>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {chat?.isReferenced && (
             <Button
               onClick={() => setConfirmChatDone(true)}
@@ -232,7 +237,7 @@ const ChatInputForm = ({
           )}
 
           <AgentSelect
-            label={<AtSign className="inline-block mr-2" size={20} />}
+            label={<AtSign size={20} />}
             onSelect={(agentId) => {
               mentions.append({ agentId });
             }}
@@ -240,12 +245,6 @@ const ChatInputForm = ({
             size="icon"
             variant="ghost"
           />
-
-          {(isEditing || form.formState.isDirty) && (
-            <Button onClick={clear} size="xs" variant="outline">
-              Cancel
-            </Button>
-          )}
         </div>
       </Form>
     </div>
