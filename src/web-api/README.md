@@ -22,6 +22,11 @@ Install packages needed
 npm i
 ```
 
+Start Apache Tika for document processing (parsing PDFs etc)
+```shell
+docker run -p 9998:9998 apache/tika
+```
+
 Setup .env file
 
 ```
@@ -30,6 +35,7 @@ MONGO_URI="mongodb://localhost:27017?retryWrites=false"
 APP_SECRET="toomanysecrets"
 DATA_SECRET="abcdefghijklmnopqrstuvwzyz123456"
 PUBLIC_URL="http://localhost:5173"
+APACHE_TIKA_URL=http://localhost:9998
 GOOGLE_ID=""
 GOOGLE_SECRET=""
 ```
