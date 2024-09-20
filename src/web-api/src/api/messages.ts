@@ -1,21 +1,23 @@
-import type {
-  CreateUpdateChatMessageReq,
-  GetChatMessageRes,
-  ListChatMessagesRes
-} from '@/types/messages.js';
 import type { HandlerContext } from '@/util.js';
 import type { Context } from 'hono';
 
+import {
+  type CreateUpdateChatMessageReq,
+  type GetChatMessageRes,
+  type ListChatMessagesRes,
+  createUpdateChatMessageReq
+} from '@/types/messages.js';
+import { AxApacheTika } from '@ax-llm/ax';
 import { type Tokens, marked } from 'marked';
 import { ObjectId, type UpdateFilter } from 'mongodb';
 
 import { createAI } from './ai.js';
 import { getMessages, messagePipeline, messagesForUserPipeline } from './db.js';
-import { ChatMemory, getChatPrompt } from './memory.js';
+import { ChatMemory, getMessageHistory } from './memory.js';
 import { chatAgent } from './prompts.js';
 import { sendMessages } from './stream.js';
-import { type Agent, type Chat, type Message, user } from './types.js';
-import { objectIds } from './util.js';
+import { type Agent, type Chat, type Message } from './types.js';
+import { getFiles, objectIds } from './util.js';
 
 export const listChatMessagesHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
@@ -61,12 +63,15 @@ export const listChatMessagesByIdsHandler =
 
 export const createUpdateChatMessageHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
-    const req = await c.req.json<CreateUpdateChatMessageReq>();
+    const form = await c.req.formData();
+    const reqObj = JSON.parse(form.get('json') as string);
+    const req = createUpdateChatMessageReq.parse(reqObj);
+    const files = getFiles(form);
 
     const res =
       'messageId' in req && req.messageId
-        ? await updateChatMessageHandler(hc, c, req)
-        : await createChatMessageHandler(hc, c, req);
+        ? await updateChatMessageHandler(hc, c, req, files)
+        : await createChatMessageHandler(hc, c, req, files);
 
     return c.json<ListChatMessagesRes>(res);
   };
@@ -74,19 +79,21 @@ export const createUpdateChatMessageHandler =
 export const createChatMessageHandler = async (
   hc: Readonly<HandlerContext>,
   c: Readonly<Context>,
-  req: Omit<CreateUpdateChatMessageReq, 'messageId'>
+  req: Omit<CreateUpdateChatMessageReq, 'messageId'>,
+  files: File[]
 ): Promise<ListChatMessagesRes> => {
   const { chatId: _chatId } = c.req.param();
   const userId = c.get('userId');
 
   const chatId = new ObjectId(_chatId);
-  return await processChatMessage(hc, { chatId, userId, ...req });
+  return await processChatMessage(hc, { chatId, userId, ...req, files });
 };
 
 export const updateChatMessageHandler = async (
   hc: Readonly<HandlerContext>,
   c: Readonly<Context>,
-  req: CreateUpdateChatMessageReq
+  req: CreateUpdateChatMessageReq,
+  files: File[]
 ): Promise<ListChatMessagesRes> => {
   const { chatId: _chatId } = c.req.param();
   const userId = c.get('userId');
@@ -121,6 +128,7 @@ export const updateChatMessageHandler = async (
 
       const res = await processChatMessage(hc, {
         chatId,
+        files,
         previouslyCreatedAt: message.createdAt,
         userId,
         ...req
@@ -179,7 +187,7 @@ export const retryChatMessageHandler =
     const chatId = agentMessage.chatId.toString();
 
     hc.taskRunner.addTask(chatId, () =>
-      chatAgentTaskHandler(hc, { agentMessageId: agentMessage._id })
+      chatAgentTaskHandler(hc, agentMessage._id)
     );
 
     return c.json({ chatId, messageId });
@@ -189,6 +197,7 @@ export const processChatMessage = async (
   hc: Readonly<HandlerContext>,
   req: {
     chatId: ObjectId;
+    files: File[];
     previouslyCreatedAt?: Date;
     userId: ObjectId;
   } & CreateUpdateChatMessageReq
@@ -201,6 +210,7 @@ export const processChatMessage = async (
   const res = await createUserAndAgentMessages(hc, {
     agentIds,
     chatId: req.chatId,
+    files: req.files,
     previouslyCreatedAt: req.previouslyCreatedAt,
     text: req.text,
     userId: req.userId
@@ -218,8 +228,7 @@ export const processChatMessage = async (
   await sendUpdateChatMessage(userMessage);
 
   const fnBatch = res.agentMessages.map(
-    (agentMsg) => () =>
-      chatAgentTaskHandler(hc, { agentMessageId: agentMsg._id, text: req.text })
+    (agentMsg) => () => chatAgentTaskHandler(hc, agentMsg._id)
   );
 
   hc.taskRunner.addTasks(req.chatId.toString(), fnBatch);
@@ -232,6 +241,7 @@ const createUserAndAgentMessages = async (
   req: {
     agentIds: ObjectId[];
     chatId: ObjectId;
+    files: File[];
     previouslyCreatedAt?: Date;
     text: string;
     userId: ObjectId;
@@ -271,11 +281,29 @@ const createUserAndAgentMessages = async (
         throw new Error('Chat not found or does not match criteria');
       }
 
+      let fileList: Message['files'] | undefined;
+
+      if (req.files.length > 0) {
+        const tika = new AxApacheTika({ url: process.env.APACHE_TIKA_URL });
+        const fileTexts = (
+          await Promise.all(req.files.map((file) => tika.convert([file])))
+        ).flat();
+
+        fileList = req.files.map((file, index) => ({
+          file: fileTexts[index],
+          id: new ObjectId(),
+          name: file.name,
+          size: file.size,
+          type: file.type
+        }));
+      }
+
       // Create new messages
       const userMessage = {
         _id: new ObjectId(),
         chatId: req.chatId,
         createdAt: req.previouslyCreatedAt || now,
+        files: fileList,
         text: req.text,
         updatedAt: req.previouslyCreatedAt ? now : undefined,
         userId: chatUpdateResult.userId
@@ -318,14 +346,9 @@ const createUserAndAgentMessages = async (
   }
 };
 
-interface ChatAgentTaskHandlerArgs {
-  agentMessageId: ObjectId;
-  text?: string;
-}
-
 export const chatAgentTaskHandler = async (
   hc: Readonly<HandlerContext>,
-  { agentMessageId, text }: ChatAgentTaskHandlerArgs
+  agentMessageId: ObjectId
 ) => {
   const agentMessage = await getMessages(
     hc,
@@ -342,30 +365,11 @@ export const chatAgentTaskHandler = async (
 
   await sendUpdateChatMessageProcessing(agentMessage);
 
-  if (!text) {
-    const userMessage = await hc.db.collection<Message>('messages').findOne(
-      {
-        _id: new ObjectId(agentMessage.parentId)
-      },
-      { projection: { text: 1 } }
-    );
-
-    if (!userMessage) {
-      throw new Error('User message not found: ' + agentMessage.parentId);
-    }
-    text = userMessage.text;
-  }
-
-  if (!text) {
-    throw new Error('No text provided');
-  }
-
   try {
     const { response } = await executeChat(hc, {
       agentId: agentMessage.agent.id,
       chatId: agentMessage.chatId,
-      queryOrTask: text,
-      uptoMessageId: agentMessage.parentId
+      parentMessageId: agentMessage.parentId
     });
 
     const updatedAgentMessage = { ...agentMessage, text: response };
@@ -383,13 +387,12 @@ export const chatAgentTaskHandler = async (
 interface ExecuteChatArgs {
   agentId: ObjectId;
   chatId: ObjectId;
-  queryOrTask: string;
-  uptoMessageId?: ObjectId;
+  parentMessageId?: ObjectId;
 }
 
 const executeChat = async (
   hc: Readonly<HandlerContext>,
-  { agentId, chatId, queryOrTask, uptoMessageId }: ExecuteChatArgs
+  { agentId, chatId, parentMessageId }: ExecuteChatArgs
 ) => {
   const agent = await hc.db
     .collection<Agent>('agents')
@@ -399,16 +402,25 @@ const executeChat = async (
     throw new Error('Agent not found: ' + agentId);
   }
 
-  const chatHistory = await getChatPrompt(hc.db, { chatId, uptoMessageId });
+  const { history, parent } = await getMessageHistory(hc.db, {
+    chatId,
+    parentMessageId
+  });
+
+  console.log('history', history);
+  console.log('parent', parent);
+
   const mem = new ChatMemory([]);
   const ai = await createAI(hc, agent, 'big');
   ai.setOptions({ debug: true });
+
   const { markdownResponse } = await chatAgent.forward(
     ai,
     {
       agentDescription: agent.description,
-      chatHistory,
-      queryOrTask
+      chatHistory: history,
+      context: parent.context,
+      queryOrTask: parent.text
     },
     { mem }
   );

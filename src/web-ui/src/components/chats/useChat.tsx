@@ -1,4 +1,4 @@
-import { postFetch } from '@/lib/fetchers';
+import { postFetch, postFetchMP } from '@/lib/fetchers';
 import { CreateChatReq } from '@/types/chats.js';
 import {
   CreateUpdateChatMessageReq,
@@ -18,7 +18,8 @@ import useWebSocket, { ReadyState } from 'react-use-websocket';
 import useSWR, { useSWRConfig } from 'swr';
 import useSWRMutation from 'swr/mutation';
 
-import { Message, Messages } from './types.js';
+import { Message } from './types.js';
+import { UploadedFile, useFiles } from './useFiles.js';
 import { useMessageEditor } from './useMessageEditor.js';
 import { useMessages } from './useMessages.js';
 
@@ -56,70 +57,30 @@ const setMessageResponse = (
   );
 };
 
-// type MutationOptions = SWRMutationConfiguration<
-//   ListChatMessagesRes,
-//   any,
-//   string,
-//   any,
-//   ListChatMessagesRes
-// >;
-
-// const createUpdateOptions = (
-//   optimisticData: ListChatMessagesRes[0],
-//   updatedMsgCreatedAt?: Date
-// ): MutationOptions => {
-//   return {
-//     // optimisticData: (msgs = []) => {
-//     //   console.log('optimisticData', optimisticData);
-
-//     //   const filteredMsgs = updatedMsgCreatedAt
-//     //     ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
-//     //     : msgs;
-//     //   return [...filteredMsgs, optimisticData];
-//     // },
-//     populateCache: (updatedMessages, msgs = []) => {
-//       console.log('updatedMsgCreatedAt', updatedMsgCreatedAt);
-
-//       const filteredMsgs = updatedMsgCreatedAt
-//         ? msgs.filter((msg) => new Date(msg.createdAt) < updatedMsgCreatedAt)
-//         : msgs;
-//       if (updatedMsgCreatedAt) {
-//         return [...filteredMsgs, ...updatedMessages];
-//       }
-//       console.log('op id', optimisticData.id);
-//       const n = msgs.findIndex((m) => m.id === optimisticData.id);
-//       console.log('msgs', n, msgs);
-//       if (n === -1) {
-//         return [...msgs, ...updatedMessages];
-//       }
-//       return [...msgs.slice(0, n), ...updatedMessages, ...msgs.slice(n + 1)];
-//     },
-//     revalidate: false,
-//     rollbackOnError: true
-//   };
-// };
-
 export interface UseChatReturn {
-  addUpdateMessage: (values: Readonly<CreateUpdateChatMessageReq>) => void;
+  addFile: (file: UploadedFile | UploadedFile[]) => void;
   chatDone: () => void;
+  chatId: string;
+  files: UploadedFile[];
   form: UseFormReturn<CreateUpdateChatMessageReq>;
   isDisabled: boolean;
   isEditing: boolean;
   isMutating: boolean;
   mentions: UseFieldArrayReturn<CreateUpdateChatMessageReq, 'mentions', 'id'>;
-  messages: Messages;
+  removeFile: (index: number) => void;
   resetForm: () => void;
   setMessage: (msg: Message | undefined) => void;
+  submit: (values: Readonly<CreateUpdateChatMessageReq>) => void;
 }
 
 export const useChat = (chatId: string): UseChatReturn => {
   const [registered, setRegistered] = useState(false);
-
   const [isEditing, setIsEditing] = useState(false);
 
   const [message, setMessage] = useMessageEditor(chatId);
-
-  const [messages, setMessages] = useMessages(chatId);
+  const [, setMessages] = useMessages(chatId);
+  const { addFile, clearFiles, files, getFilesAsFormData, removeFile } =
+    useFiles();
 
   const { lastJsonMessage, readyState, sendJsonMessage } = useWebSocket<
     StreamMsgOut | undefined
@@ -142,7 +103,7 @@ export const useChat = (chatId: string): UseChatReturn => {
 
   const { isMutating: isMutating2, trigger: createUpdateMsg } = useSWRMutation(
     `/a/chats/${chatId}/messages`,
-    postFetch<CreateUpdateChatMessageReq, ListChatMessagesRes>
+    postFetchMP
   );
 
   const form = useForm<CreateUpdateChatMessageReq>({
@@ -151,15 +112,16 @@ export const useChat = (chatId: string): UseChatReturn => {
     resolver: zodResolver(createUpdateChatMessageReq)
   });
 
-  const mentions = useFieldArray<CreateUpdateChatMessageReq>({
+  const mentions = useFieldArray({
     control: form.control,
     name: 'mentions'
   });
 
   const resetForm = () => {
-    form.reset({ mentions: [], messageId: undefined, text: '' });
+    clearFiles();
     mentions.replace([]);
     setMessage(undefined);
+    form.reset({ mentions: [], messageId: undefined, text: '' });
   };
 
   useEffect(() => {
@@ -188,24 +150,10 @@ export const useChat = (chatId: string): UseChatReturn => {
     }
   }, [chatMessages]);
 
-  const addUpdateMessage = async (
-    values: Readonly<CreateUpdateChatMessageReq>
-  ) => {
-    // const optimisticData: ListChatMessagesRes[0] = {
-    //   createdAt: new Date(),
-    //   html: values.text,
-    //   id: crypto.randomUUID()
-    // };
-
-    // const updatedMsgCreatedAt =
-    //   message?.updatedAt && message?.createdAt
-    //     ? new Date(message.createdAt)
-    //     : undefined;
-
-    await createUpdateMsg(
-      values
-      //   createUpdateOptions(optimisticData, updatedMsgCreatedAt)
-    );
+  const submit = async (values: Readonly<CreateUpdateChatMessageReq>) => {
+    const formData = await getFilesAsFormData();
+    formData.append('json', JSON.stringify(values));
+    await createUpdateMsg(formData);
     resetForm();
   };
 
@@ -237,16 +185,19 @@ export const useChat = (chatId: string): UseChatReturn => {
   };
 
   return {
-    addUpdateMessage,
+    addFile,
     chatDone: chatDoneHandler,
+    chatId,
+    files,
     form,
     isDisabled: isMutating || !form.formState.isValid || !chatId,
     isEditing,
     isMutating,
     mentions,
-    messages,
+    removeFile,
     resetForm,
-    setMessage
+    setMessage,
+    submit
   };
 };
 
@@ -257,21 +208,31 @@ interface UseNewChatArgs {
   refChatId?: string;
 }
 
+export type OptionalChatFields =
+  | 'chatDone'
+  | 'chatId'
+  | 'isEditing'
+  | 'setMessage';
+
+export type UseNewChatReturn = Omit<UseChatReturn, OptionalChatFields>;
+
 export const useNewChat = ({
   agentId,
   messageIds,
   onCreate,
   refChatId
-}: UseNewChatArgs) => {
-  const { isMutating, trigger: createChatTrigger } = useSWRMutation(
+}: UseNewChatArgs): UseNewChatReturn => {
+  const { addFile, clearFiles, files, getFilesAsFormData, removeFile } =
+    useFiles();
+
+  const { isMutating, trigger: createChat } = useSWRMutation(
     agentId ? `/a/chats` : null,
-    postFetch<CreateChatReq, { id: string }>
+    postFetchMP<{ id: string }>
   );
 
   const form = useForm<CreateUpdateChatMessageReq>({
-    defaultValues: {
-      text: ''
-    },
+    defaultValues: { mentions: [], text: '' },
+    mode: 'all',
     resolver: zodResolver(createUpdateChatMessageReq)
   });
 
@@ -280,21 +241,37 @@ export const useNewChat = ({
     name: 'mentions'
   });
 
-  const createChat = async (values: Readonly<CreateUpdateChatMessageReq>) => {
-    const { id } = await createChatTrigger({
+  const submit = async (values: Readonly<CreateUpdateChatMessageReq>) => {
+    const formData = await getFilesAsFormData();
+
+    const jsonValues: CreateChatReq = {
       ...values,
       agentId,
       messageIds,
       refChatId
-    });
+    };
+    formData.append('json', JSON.stringify(jsonValues));
+
+    const { id } = await createChat(formData);
+    resetForm();
     onCreate(id);
   };
 
+  const resetForm = () => {
+    clearFiles();
+    mentions.replace([]);
+    form.reset({ mentions: [], messageId: undefined, text: '' });
+  };
+
   return {
-    createChat,
+    addFile,
+    files,
     form,
     isDisabled: isMutating || !form.formState.isValid || !agentId,
     isMutating,
-    mentions
+    mentions,
+    removeFile,
+    resetForm,
+    submit
   };
 };

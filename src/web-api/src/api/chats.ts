@@ -1,7 +1,7 @@
-import type { CreateChatReq, GetChatRes, ListChatsRes } from '@/types/chats.js';
 import type { HandlerContext } from '@/util.js';
 import type { Context } from 'hono';
 
+import { type GetChatRes, createChatReq } from '@/types/chats.js';
 import { ObjectId, type WithId } from 'mongodb';
 
 import type { Agent, Chat, Message } from './types.js';
@@ -14,6 +14,7 @@ import {
   sendUpdateChatMessageProcessing
 } from './messages.js';
 import { genTitle } from './prompts.js';
+import { getFiles } from './util.js';
 
 export const listChatsHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
@@ -44,8 +45,12 @@ export const getChatHandler =
 
 export const createChatHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
-    const req = await c.req.json<CreateChatReq>();
+    const form = await c.req.formData();
+    const reqObj = JSON.parse(form.get('json') as string);
+    const req = createChatReq.parse(reqObj);
+
     const userId = c.get('userId');
+    const files = getFiles(form);
 
     const session = hc.dbClient.startSession();
 
@@ -138,7 +143,7 @@ export const createChatHandler =
 
         const ai = await createAI(hc, agent, 'small');
         const { chatTitle } = await genTitle.forward(ai, {
-          firstChatMessage: req.text
+          chatMessages: req.text
         });
 
         const chat: WithId<Chat> = {
@@ -146,6 +151,7 @@ export const createChatHandler =
           agentId,
           createdAt: now,
           title: chatTitle,
+          titleUpdatedAt: now,
           userId,
           ...(refMessage ? { refMessageIds: [refMessage._id] } : {})
         };
@@ -155,7 +161,8 @@ export const createChatHandler =
         await processChatMessage(hc, {
           chatId,
           userId,
-          ...req
+          ...req,
+          files
         });
 
         return chatId;
@@ -248,4 +255,81 @@ export const setChatDoneHandler =
     } finally {
       session.endSession();
     }
+  };
+
+export const setChatTitleHandler =
+  (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
+    const { chatId } = c.req.param();
+    const userId = c.get('userId');
+
+    const chat = await hc.db.collection<Chat>('chats').findOne({
+      _id: new ObjectId(chatId),
+      userId
+    });
+
+    if (!chat) {
+      throw new Error('Chat not found');
+    }
+
+    if (!chat.updatedAt) {
+      return c.json({ chatId });
+    }
+
+    if (chat.titleUpdatedAt && chat.titleUpdatedAt >= chat.updatedAt) {
+      return c.json({ chatId });
+    }
+
+    const agent = await hc.db.collection<Agent>('agents').findOne({
+      _id: chat.agentId,
+      userId
+    });
+    if (!agent) {
+      throw new Error('Agent not found');
+    }
+
+    const messages = await hc.db
+      .collection<Message>('messages')
+      .find(
+        { chatId: chat._id },
+        {
+          limit: 3,
+          projection: { files: 1, text: 1 },
+          sort: { createdAt: -1 }
+        }
+      )
+      .toArray();
+
+    if (messages.length === 0) {
+      throw new Error('Chat has no messages');
+    }
+
+    const chatMessages = messages
+      .map((msg) => msg.text)
+      .filter(Boolean)
+      .join('\n');
+
+    const context = messages
+      .map((msg) => msg.files?.map((f) => f.file).join(', '))
+      .filter(Boolean)
+      .join('\n');
+
+    const ai = await createAI(hc, agent, 'small');
+
+    const { chatTitle } = await genTitle.forward(ai, {
+      chatMessages,
+      context
+    });
+
+    await hc.db.collection<Chat>('chats').updateOne(
+      { _id: chat._id },
+      {
+        $set: {
+          title: chatTitle,
+          titleUpdatedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    return c.json({ chatId });
   };

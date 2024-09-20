@@ -14,6 +14,16 @@ export const listChatMessagesRes = z
     chatId: IdSchema,
     createdAt: z.coerce.date(),
     error: z.string().optional(),
+    files: z
+      .strictObject({
+        id: z.string(),
+        name: z.string(),
+        size: z.number(),
+        type: z.enum(['image', 'document']),
+        url: z.string().url()
+      })
+      .array()
+      .optional(),
     html: z.string().optional(),
     id: IdSchema,
     mentions: z

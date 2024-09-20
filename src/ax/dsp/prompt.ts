@@ -64,7 +64,7 @@ export class AxPromptTemplate {
       examples?: Record<string, AxFieldValue>[];
       demos?: Record<string, AxFieldValue>[];
     }>
-  ) => {
+  ): AxChatRequest['chatPrompt'] => {
     const renderedExamples = examples
       ? [
           { type: 'text' as const, text: 'Examples:\n' },
@@ -77,7 +77,6 @@ export class AxPromptTemplate {
     const completion = this.renderInputFields(values);
 
     const promptList: ChatRequestUserMessage = [
-      this.task,
       ...renderedExamples,
       this.outputFormat,
       ...renderedDemos,
@@ -86,11 +85,21 @@ export class AxPromptTemplate {
 
     const prompt = promptList.filter((v) => v !== undefined);
 
-    if (prompt.every((v) => v.type === 'text')) {
-      return prompt.map((v) => v.text).join('\n');
-    }
+    const systemPrompt = {
+      role: 'system' as const,
+      content: this.task.text
+    };
 
-    return prompt.reduce(combineConsecutiveStrings('\n'), []);
+    const userContent = prompt.every((v) => v.type === 'text')
+      ? prompt.map((v) => v.text).join('\n')
+      : prompt.reduce(combineConsecutiveStrings('\n'), []);
+
+    const userPrompt = {
+      role: 'user' as const,
+      content: userContent
+    };
+
+    return [systemPrompt, userPrompt];
   };
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {

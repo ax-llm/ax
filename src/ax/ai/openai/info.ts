@@ -26,6 +26,12 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     completionTokenCostPer1M: 0.6
   },
   {
+    name: AxAIOpenAIModel.GPT4ChatGPT4O,
+    currency: 'usd',
+    promptTokenCostPer1M: 5,
+    completionTokenCostPer1M: 15
+  },
+  {
     name: AxAIOpenAIModel.GPT4Turbo,
     currency: 'usd',
     promptTokenCostPer1M: 10,

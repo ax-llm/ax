@@ -371,8 +371,7 @@ export class AxGenerate<
       demos: this.demos
     });
 
-    const userMsg = { role: 'user' as const, content: prompt };
-    mem.add(userMsg, options?.sessionId);
+    mem.add(prompt, options?.sessionId);
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       for (let i = 0; i < maxRetries; i++) {

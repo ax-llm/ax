@@ -21,11 +21,8 @@ export const App = () => {
       <Route component={ListAgents} path="/agents" />
       <Route component={CreateUpdateAgent} path="/agents/new" />
       <Route component={CreateUpdateAgent} path="/agents/:agentId" />
-      <Route component={CreateChat} path="/chats/new" />
+      <Route component={CreateChat} path="/agents/:agentId/chat" />
       <Route component={UpdateChat} path="/chats/:chatId" />
-      <Route>
-        <Redirect to="/" />
-      </Route>
     </Switch>
   );
 

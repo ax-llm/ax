@@ -26,7 +26,8 @@ import {
   createChatHandler,
   getChatHandler,
   listChatsHandler,
-  setChatDoneHandler
+  setChatDoneHandler,
+  setChatTitleHandler
 } from './api/chats.js';
 import {
   createUpdateChatMessageHandler,
@@ -143,21 +144,14 @@ apiAuth.post(
 apiAuth.get('/agents', listAgentHandler(hc));
 apiAuth.get('/agents/:agentId', getAgentHandler(hc));
 
-apiAuth.post(
-  '/chats',
-  zValidator('json', createChatReq),
-  createChatHandler(hc)
-);
+apiAuth.post('/chats', createChatHandler(hc));
 apiAuth.get('/chats', listChatsHandler(hc));
 apiAuth.get('/chats/ws', upgradeWebSocket(createChatWebSocketHandler));
 apiAuth.get('/chats/:chatId', getChatHandler(hc));
 
-apiAuth.post(
-  '/chats/:chatId/messages',
-  zValidator('json', createUpdateChatMessageReq),
-  createUpdateChatMessageHandler(hc)
-);
+apiAuth.post('/chats/:chatId/messages', createUpdateChatMessageHandler(hc));
 apiAuth.post('/chats/:chatId/done', setChatDoneHandler(hc));
+apiAuth.post('/chats/:chatId/title', setChatTitleHandler(hc));
 apiAuth.get('/chats/:chatId/messages', listChatMessagesHandler(hc));
 
 apiAuth.get('/messages', listChatMessagesByIdsHandler(hc));

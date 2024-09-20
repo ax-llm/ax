@@ -77,38 +77,57 @@ export class ChatMemory implements AxAIMemory {
   }
 }
 
-interface GetChatPromptArgs {
+interface GetMessageHistoryArgs {
   chatId: ObjectId;
-  uptoMessageId?: ObjectId;
+  parentMessageId?: ObjectId;
 }
 
-export const getChatPrompt = async (
+interface GetMessageHistoryReturn {
+  history: string;
+  parent: { context?: string; text: string };
+}
+
+export const getMessageHistory = async (
   db: Db,
-  { chatId, uptoMessageId }: GetChatPromptArgs
-): Promise<string[]> => {
+  { chatId, parentMessageId }: GetMessageHistoryArgs
+): Promise<GetMessageHistoryReturn> => {
   const allMessages = await db
     .collection<Message>('messages')
     .find({ chatId, error: { $exists: false } })
     .toArray();
 
-  const messages = uptoMessageId
+  const messages = parentMessageId
     ? allMessages.slice(
         0,
-        allMessages.findIndex((m) => m._id.equals(uptoMessageId))
+        allMessages.findIndex((m) => m._id.equals(parentMessageId))
       )
     : allMessages;
 
-  const chatPrompt = [];
-  for (const m of messages) {
-    if (m.error || !m.text) {
-      continue;
-    }
-    chatPrompt.push(
-      m.agentId
-        ? `Agent: ${m.text}`
-        : `User: ${m.text}
-      `
-    );
+  const parentMessage = allMessages.find((m) => m._id.equals(parentMessageId));
+  if (!parentMessage) {
+    throw new Error('Parent message not found');
   }
-  return chatPrompt;
+  if (!parentMessage.text) {
+    throw new Error('Parent message has no text');
+  }
+
+  const buildMsg = (m: Message) => {
+    const text = m.agentId ? `Agent: ${m.text}` : `User: ${m.text}`;
+
+    let context: string | undefined;
+    if (m.files) {
+      context = `Context: ${m.files.map((f) => f.file).join(', ')}`;
+    }
+    return { context, text };
+  };
+
+  const parent = buildMsg(parentMessage);
+
+  const history: string = messages
+    .filter((m) => m.text && !m.error)
+    .map(buildMsg)
+    .map((m) => [m.text, m.context].filter(Boolean).join('\n'))
+    .join('\n');
+
+  return { history, parent };
 };

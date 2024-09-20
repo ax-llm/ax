@@ -1,3 +1,4 @@
+import { FileList } from '@/components/FileList.js';
 import { Prose } from '@/components/Prose.js';
 import { AgentHoverCard } from '@/components/agents/AgentHoverCard.js';
 import { useCurrentUser } from '@/components/hooks/useUser.js';
@@ -110,19 +111,24 @@ type ResponseContentProps = Omit<MessageProps, 'chatId'>;
 
 const ResponseContent = ({ message }: Readonly<ResponseContentProps>) => {
   return (
-    <div className="flex items-center space-y-2 w-full overflow-hidden">
-      {message.html ? (
-        <Prose>
-          <div
-            className="text-gray-600 overflow-auto max-w-full markdown"
-            dangerouslySetInnerHTML={{ __html: message.html }}
-          />
-        </Prose>
-      ) : (
-        message.text && <div className="text-gray-600">{message.text}</div>
-      )}
-      {message.error && <div className="text-red-500">{message.error}</div>}
-    </div>
+    <>
+      <div className="flex items-center space-y-2 w-full overflow-hidden">
+        {message.html ? (
+          <Prose>
+            <div
+              className="text-gray-600 overflow-auto max-w-full markdown"
+              dangerouslySetInnerHTML={{ __html: message.html }}
+            />
+          </Prose>
+        ) : (
+          message.text && <div className="text-gray-600">{message.text}</div>
+        )}
+        {message.error && (
+          <div className="text-red-500 text-xs">{message.error}</div>
+        )}
+      </div>
+      {message.files && <FileList files={message.files} />}
+    </>
   );
 };
 

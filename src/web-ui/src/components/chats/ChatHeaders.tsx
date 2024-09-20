@@ -1,12 +1,14 @@
+import { XButton } from '@/components/XButton.js';
 import { AgentHoverCard } from '@/components/agents/AgentHoverCard.js';
 import { useAgentShow } from '@/components/agents/useAgentList.js';
 import { useCurrentUser } from '@/components/hooks/useUser.js';
 import { Button } from '@/components/ui/button.js';
 import { UserHoverCard } from '@/components/users/UserHoverCard.js';
-import { Cable, Milestone, X } from 'lucide-react';
+import { Cable, Edit, Edit2, Loader2, Milestone, X } from 'lucide-react';
 import { Link } from 'wouter';
 
 import { useChatShow } from './useChatList.js';
+import { useSetChatTitle } from './useSetChatTitle.js';
 import { useSidebar } from './useSidebar.js';
 
 export const ChatHeader = ({
@@ -19,6 +21,7 @@ export const ChatHeader = ({
   showClose?: boolean;
 }) => {
   const { removeChat } = useSidebar();
+  const { isUpdatingTitle, updateTitle } = useSetChatTitle(chatId);
   const { chat } = useChatShow(chatId);
 
   if (!chat) {
@@ -41,6 +44,16 @@ export const ChatHeader = ({
           ) : (
             <div>{chat.title}</div>
           )}
+          {chat.isTitleUpdatable && (
+            <Button onClick={updateTitle} size="icon" variant="ghost">
+              {isUpdatingTitle ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Edit2 size={15} />
+              )}
+            </Button>
+          )}
+
           <div className="flex -space-x-2 ml-4">
             {chat.agents?.map((agent) => (
               <AgentHoverCard agent={agent} key={agent.id} size="xl" />

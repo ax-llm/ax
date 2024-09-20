@@ -32,6 +32,7 @@ export const chat = z.strictObject({
   isDone: z.boolean().optional(),
   refMessageIds: z.instanceof(ObjectId).array().optional(),
   title: z.string(),
+  titleUpdatedAt: z.coerce.date().optional(),
   updatedAt: z.coerce.date().optional(),
   userId: z.instanceof(ObjectId),
   users: z.instanceof(ObjectId).array().optional()
@@ -44,6 +45,16 @@ export const message = z.strictObject({
   chatId: z.instanceof(ObjectId),
   createdAt: z.coerce.date(),
   error: z.string().optional(),
+  files: z
+    .strictObject({
+      file: z.string(),
+      id: z.instanceof(ObjectId),
+      name: z.string(),
+      size: z.number(),
+      type: z.string()
+    })
+    .array()
+    .optional(),
   mentions: z
     .strictObject({
       agentId: z.instanceof(ObjectId)

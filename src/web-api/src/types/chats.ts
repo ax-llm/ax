@@ -42,6 +42,7 @@ export const getChatRes = z.strictObject({
   id: IdSchema,
   isDone: z.boolean().optional(),
   isReferenced: z.boolean().optional(),
+  isTitleUpdatable: z.boolean().optional(),
   title: z.string(),
   updatedAt: z.coerce.date(),
   user: z.strictObject({

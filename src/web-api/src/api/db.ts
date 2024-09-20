@@ -4,7 +4,7 @@ import type { HandlerContext } from '@/util';
 
 import { ObjectId } from 'mongodb';
 
-import { type Chat, type Message, user } from './types.js';
+import { type Chat, type Message } from './types.js';
 
 export const chatPipeline = (match: Object) => [
   {
@@ -100,7 +100,23 @@ export const chatPipeline = (match: Object) => [
           else: false
         }
       },
+      isTitleUpdatable: {
+        $cond: {
+          // eslint-disable-next-line perfectionist/sort-objects
+          if: {
+            $and: [
+              { $ifNull: ['$titleUpdatedAt', false] },
+              { $ifNull: ['$updatedAt', false] },
+              { $lt: ['$titleUpdatedAt', '$updatedAt'] }
+            ]
+          },
+          then: true,
+          // eslint-disable-next-line perfectionist/sort-objects
+          else: false
+        }
+      },
       title: 1,
+      titleUpdatedAt: 1,
       updatedAt: 1,
       user: { $arrayElemAt: ['$user', 0] }
     }
@@ -173,6 +189,12 @@ const messageContentPipeline = () => [
       chatId: 1,
       createdAt: 1,
       error: 1,
+      files: {
+        id: 1,
+        name: 1,
+        size: 1,
+        type: 1
+      },
       id: '$_id',
       mentions: {
         $map: {

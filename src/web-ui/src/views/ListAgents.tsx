@@ -21,7 +21,7 @@ export const ListAgents = () => {
           <ChevronRight /> Pick an agent to chat with
         </div>
         {agents.map((agent) => (
-          <Link key={agent.id} to={`/chats/new?agentId=${agent.id}`}>
+          <Link key={agent.id} to={`/agents/${agent.id}/chat`}>
             <AgentCard agent={agent} key={agent.id} showEditButton={true} />
           </Link>
         ))}

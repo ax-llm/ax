@@ -18,22 +18,28 @@ export const axModelInfoMistral: AxModelInfo[] = [
     completionTokenCostPer1M: 0.7
   },
   {
+    name: AxAIMistralModel.MistralNemo,
+    currency: 'USD',
+    promptTokenCostPer1M: 0.15,
+    completionTokenCostPer1M: 0.15
+  },
+  {
     name: AxAIMistralModel.MistralSmall,
+    currency: 'USD',
+    promptTokenCostPer1M: 0.2,
+    completionTokenCostPer1M: 0.6
+  },
+  {
+    name: AxAIMistralModel.MistralLarge,
     currency: 'USD',
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 6
   },
   {
-    name: AxAIMistralModel.MistralLarge,
-    currency: 'USD',
-    promptTokenCostPer1M: 8,
-    completionTokenCostPer1M: 24
-  },
-  {
     name: AxAIMistralModel.Codestral,
     currency: 'USD',
-    promptTokenCostPer1M: 1,
-    completionTokenCostPer1M: 3
+    promptTokenCostPer1M: 0.2,
+    completionTokenCostPer1M: 0.6
   },
   {
     name: AxAIMistralModel.OpenCodestralMamba,

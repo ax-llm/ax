@@ -1,3 +1,5 @@
+import { FileList } from '@/components/FileList.js';
+import { FileUploadButton } from '@/components/FileUploadButton.js';
 import { AgentSelect } from '@/components/agents/AgentSelect.js';
 import { useAgentList } from '@/components/agents/useAgentList.js';
 import { Button } from '@/components/ui/button.js';
@@ -9,13 +11,25 @@ import {
 } from '@/components/ui/form.js';
 import { ListAgentsRes } from '@/types/agents.js';
 import { CreateUpdateChatMessageReq } from '@/types/messages.js';
-import { AlertTriangle, AtSign, CircleAlert, X, XSquare } from 'lucide-react';
+import {
+  AlertTriangle,
+  AtSign,
+  CircleAlert,
+  X,
+  XCircle,
+  XSquare
+} from 'lucide-react';
 import { useState } from 'react';
-import { UseFieldArrayReturn, UseFormReturn } from 'react-hook-form';
+import { UseFieldArrayReturn } from 'react-hook-form';
 import { useLocation } from 'wouter';
 
 import { ChatTextarea } from './ChatTextarea.js';
-import { useChat, useNewChat } from './useChat.js';
+import {
+  OptionalChatFields,
+  UseChatReturn,
+  useChat,
+  useNewChat
+} from './useChat.js';
 import { useChatShow } from './useChatList.js';
 import { useSidebar } from './useSidebar.js';
 
@@ -43,24 +57,14 @@ export const ChatInputNew = ({
     }
   };
 
-  const { createChat, form, isDisabled, isMutating, mentions } = useNewChat({
+  const chatControl = useNewChat({
     agentId,
     messageIds,
     onCreate,
     refChatId
   });
 
-  return (
-    <ChatInputForm
-      clear={form.reset}
-      form={form}
-      isDisabled={isDisabled}
-      isEditing={false}
-      isMutating={isMutating}
-      mentions={mentions}
-      submit={createChat}
-    />
-  );
+  return <ChatInputForm chatControl={chatControl} />;
 };
 
 interface UpdateChatInputProps {
@@ -68,35 +72,9 @@ interface UpdateChatInputProps {
 }
 
 export const ChatInput = ({ chatId }: Readonly<UpdateChatInputProps>) => {
-  const {
-    addUpdateMessage,
-    chatDone,
-    form,
-    isDisabled,
-    isEditing,
-    isMutating,
-    mentions,
-    resetForm
-  } = useChat(chatId);
+  const chatControl = useChat(chatId);
 
-  return (
-    <ChatInputForm
-      chatDone={chatDone}
-      chatId={chatId}
-      clear={resetForm}
-      form={form}
-      isDisabled={isDisabled}
-      isEditing={isEditing}
-      isMutating={isMutating}
-      mentions={mentions}
-      note={
-        isEditing
-          ? 'All messages after the edited message will be removed'
-          : undefined
-      }
-      submit={addUpdateMessage}
-    />
-  );
+  return <ChatInputForm chatControl={chatControl} />;
 };
 
 const MentionedList = ({
@@ -135,34 +113,26 @@ const MentionedList = ({
 };
 
 interface ChatInputFormProps {
-  chatDone?: () => void;
-  chatId?: string;
-  clear: () => void;
-  form: UseFormReturn<CreateUpdateChatMessageReq>;
-  isDisabled: boolean;
-  isEditing?: boolean;
-  isMutating: boolean;
-  mentions: UseFieldArrayReturn<
-    CreateUpdateChatMessageReq,
-    'mentions',
-    'agentId'
-  >;
-  note?: string;
-  submit: (values: CreateUpdateChatMessageReq) => void;
+  chatControl: Omit<UseChatReturn, OptionalChatFields> &
+    Partial<Pick<UseChatReturn, OptionalChatFields>>;
 }
 
 // Generic component definition
 const ChatInputForm = ({
-  chatDone,
-  chatId,
-  clear,
-  form,
-  isDisabled,
-  isEditing,
-  isMutating,
-  mentions,
-  note,
-  submit
+  chatControl: {
+    addFile,
+    chatDone,
+    chatId,
+    files,
+    form,
+    isDisabled,
+    isEditing,
+    isMutating,
+    mentions,
+    removeFile,
+    resetForm,
+    submit
+  }
 }: ChatInputFormProps) => {
   const { agents } = useAgentList();
   const [confirmChatDone, setConfirmChatDone] = useState(false);
@@ -182,18 +152,31 @@ const ChatInputForm = ({
   }
 
   return (
-    <div className="w-full space-y-2 p-3 border-2 border-accent rounded-xl">
-      {note && (
-        <div className="flex gap-2 text-sm text-blue-500 px-3">
-          <CircleAlert size={20} />
-          {note}
-        </div>
-      )}
+    <div className="mx-1">
+      <div className="w-full space-y-2 p-3 border-2 border-accent rounded-xl relative">
+        {(isEditing || form.formState.isDirty) && (
+          <Button
+            className="top-1 right-1 absolute text-accent rounded-full"
+            onClick={resetForm}
+            size="icon"
+            variant="ghost"
+          >
+            <XCircle size={30} />
+          </Button>
+        )}
 
-      <Form {...form}>
-        <div className="flex justify-between">
+        {isEditing && (
+          <div className="flex gap-2 text-sm text-blue-500 px-3">
+            <CircleAlert size={20} />
+            All messages after the edited message will be removed
+          </div>
+        )}
+
+        <Form {...form}>
           <div className="space-y-1 w-full">
             <MentionedList agents={agents} mentions={mentions} />
+
+            <FileList files={files} onRemove={removeFile} />
 
             <FormField
               control={form.control}
@@ -204,49 +187,45 @@ const ChatInputForm = ({
                     <ChatTextarea
                       className="bg-transparent border-0 focus-visible:ring-0"
                       disabled={isMutating}
-                      // error={form.formState.errors.text?.message as string}
-                      // maxLength={1000}
+                      maxTextSizeBeforeFile={1000}
                       onChange={field.onChange}
                       onEnterKeyPressed={
-                        !isDisabled ? form.handleSubmit(submit) : undefined
+                        isDisabled ? undefined : form.handleSubmit(submit)
                       }
+                      onFileAdded={addFile}
                       value={field.value}
-                    />
+                    >
+                      <div className="flex items-center gap-1">
+                        {chat?.isReferenced && (
+                          <Button
+                            onClick={() => setConfirmChatDone(true)}
+                            size="sm"
+                            variant="outline"
+                          >
+                            Chat Done
+                          </Button>
+                        )}
+
+                        <AgentSelect
+                          label={<AtSign size={20} />}
+                          onSelect={(agentId) => {
+                            mentions.append({ agentId });
+                          }}
+                          selected={mentions.fields.map((m) => m.agentId)}
+                          size="icon"
+                          variant="ghost"
+                        />
+
+                        <FileUploadButton onFilesAdded={addFile} />
+                      </div>
+                    </ChatTextarea>
                   </FormControl>
                 </FormItem>
               )}
             />
           </div>
-
-          {(isEditing || form.formState.isDirty) && (
-            <Button onClick={clear} size="icon" variant="ghost">
-              <XSquare size={30} />
-            </Button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          {chat?.isReferenced && (
-            <Button
-              onClick={() => setConfirmChatDone(true)}
-              size="sm"
-              variant="outline"
-            >
-              Chat Done
-            </Button>
-          )}
-
-          <AgentSelect
-            label={<AtSign size={20} />}
-            onSelect={(agentId) => {
-              mentions.append({ agentId });
-            }}
-            selected={mentions.fields.map((m) => m.agentId)}
-            size="icon"
-            variant="ghost"
-          />
-        </div>
-      </Form>
+        </Form>
+      </div>
     </div>
   );
 };

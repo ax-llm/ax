@@ -23,7 +23,7 @@ export const AgentCard = ({
       </div>
 
       {showEditButton && (
-        <Link to={`/agents/${agent.id}`}>
+        <Link asChild to={`/agents/${agent.id}`}>
           <Button variant="ghost">
             <Settings2 size={20} />
           </Button>

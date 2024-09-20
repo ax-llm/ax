@@ -2,6 +2,7 @@ import type { GetAgentRes } from '@ax-llm/web-api/src/types/agents.js';
 
 import { ExtendedButton } from '@/components/ExtendedButton.js';
 import { TextInput } from '@/components/TextInput.js';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -45,6 +46,9 @@ const CreateUpdateAgent = () => {
 
   const [showBigModelChooser, setShowBigModelChooser] = useState(false);
   const [showSmallModelChooser, setShowSmallModelChooser] = useState(false);
+
+  const [showBigModelTextInput, setShowBigModelTextInput] = useState(false);
+  const [showSmallModelTextInput, setShowSmallModelTextInput] = useState(false);
 
   // const { toast } = useToast()
   const { mutate } = useSWRConfig();
@@ -193,8 +197,9 @@ const CreateUpdateAgent = () => {
                     <TextInput
                       className="border"
                       maxLength={2000}
+                      onChange={field.onChange}
                       placeholder="Enter a description"
-                      {...field}
+                      value={field.value}
                     />
                   </FormControl>
                   <FormMessage />
@@ -245,26 +250,41 @@ const CreateUpdateAgent = () => {
                     <FormDescription>
                       Pick the model you want to use for your agent.
                     </FormDescription>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    {showBigModelTextInput ? (
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a model" />
-                        </SelectTrigger>
+                        <Input placeholder="Enter a model name" {...field} />
                       </FormControl>
-
-                      <SelectContent>
-                        {aiList
-                          ?.find(
-                            (v) => v.id === form.getValues('aiBigModel.id')
-                          )
-                          ?.models.map((m) => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {m.id} ({m.inputTokenPrice} / {m.outputTokenPrice}
-                              )
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                    ) : (
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a model" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {aiList
+                            ?.find(
+                              (v) => v.id === form.getValues('aiBigModel.id')
+                            )
+                            ?.models.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.id} ({m.inputTokenPrice} /{' '}
+                                {m.outputTokenPrice})
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Button
+                      onClick={() => setShowBigModelTextInput((v) => !v)}
+                      size="xs"
+                      variant="outline"
+                    >
+                      {showBigModelTextInput ? 'Select Model' : 'Custom Model'}
+                    </Button>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -343,26 +363,44 @@ const CreateUpdateAgent = () => {
                     <FormDescription>
                       Pick the model you want to use for your agent.
                     </FormDescription>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    {showSmallModelTextInput ? (
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a model" />
-                        </SelectTrigger>
+                        <Input placeholder="Enter a model name" {...field} />
                       </FormControl>
+                    ) : (
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a model" />
+                          </SelectTrigger>
+                        </FormControl>
 
-                      <SelectContent>
-                        {aiList
-                          ?.find(
-                            (v) => v.id === form.getValues('aiSmallModel.id')
-                          )
-                          ?.models.map((m) => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {m.id} ({m.inputTokenPrice} / {m.outputTokenPrice}
-                              )
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                        <SelectContent>
+                          {aiList
+                            ?.find(
+                              (v) => v.id === form.getValues('aiSmallModel.id')
+                            )
+                            ?.models.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.id} ({m.inputTokenPrice} /{' '}
+                                {m.outputTokenPrice})
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Button
+                      onClick={() => setShowSmallModelTextInput((v) => !v)}
+                      size="xs"
+                      variant="outline"
+                    >
+                      {showSmallModelTextInput
+                        ? 'Select Model'
+                        : 'Custom Model'}
+                    </Button>
                     <FormMessage />
                   </FormItem>
                 )}
