@@ -1,5 +1,25 @@
 
 
+## [9.0.49](https://github.com/ax-llm/ax/compare/9.0.47...9.0.48) (2024-09-21)
+
+
+### Features
+
+* added email auth ([f8fac72](https://github.com/ax-llm/ax/commit/f8fac723f25dfd62cece50c4f3ef8cec98b8eb87))
+
+
+### Bug Fixes
+
+* system role bug in anthropic ([e566eb2](https://github.com/ax-llm/ax/commit/e566eb270115b87f288bcdd9c297a084a51a81a0))
+* update readme ([5b73fd1](https://github.com/ax-llm/ax/commit/5b73fd1caa8b0b0e703b3a1ae72ef2803c211a09))
+
+## [9.0.48](https://github.com/ax-llm/ax/compare/9.0.47...9.0.48) (2024-09-20)
+
+
+### Features
+
+* rome version 1 beta ([1510bd4](https://github.com/ax-llm/ax/commit/1510bd42b4944d4d65e02bafda54fbd848302109))
+
 ## [9.0.48](https://github.com/ax-llm/ax/compare/9.0.46...9.0.47) (2024-09-20)
 
 
