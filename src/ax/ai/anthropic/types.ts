@@ -70,6 +70,7 @@ export type AxAIAnthropicChatRequest = {
   // Optional metadata about the request
   stop_sequences?: string[]; // Custom sequences that trigger the end of generation
   stream?: boolean; // Whether to stream the response incrementally
+  system?: string; // system prompt
   temperature?: number; // Randomness of the response
   top_p?: number; // Nucleus sampling probability
   top_k?: number; // Sample from the top K options

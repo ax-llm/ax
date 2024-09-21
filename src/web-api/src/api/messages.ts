@@ -412,7 +412,6 @@ const executeChat = async (
 
   const mem = new ChatMemory([]);
   const ai = await createAI(hc, agent, 'big');
-  ai.setOptions({ debug: true });
 
   const { markdownResponse } = await chatAgent.forward(
     ai,

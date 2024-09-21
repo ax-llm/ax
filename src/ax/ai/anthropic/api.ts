@@ -97,7 +97,14 @@ export class AxAIAnthropic extends AxBaseAI<
       name: '/messages'
     };
 
-    const messages = createMessages(req);
+    const system = req.chatPrompt
+      .filter((msg) => msg.role === 'system')
+      .map((v) => v.content)
+      .join('\n');
+
+    const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
+
+    const messages = createMessages(otherMessages);
 
     const tools: AxAIAnthropicChatRequest['tools'] = req.functions?.map(
       (v) => ({
@@ -121,6 +128,7 @@ export class AxAIAnthropic extends AxBaseAI<
         ? { tools, tool_choice: { type: 'auto' } }
         : {}),
       ...(stream ? { stream: true } : {}),
+      ...(system ? { system } : {}),
       messages
     };
 
@@ -296,83 +304,81 @@ export class AxAIAnthropic extends AxBaseAI<
 }
 
 function createMessages(
-  req: Readonly<AxChatRequest>
+  chatPrompt: Readonly<AxChatRequest['chatPrompt']>
 ): AxAIAnthropicChatRequest['messages'] {
-  const items: AxAIAnthropicChatRequest['messages'] = req.chatPrompt.map(
-    (msg) => {
-      switch (msg.role) {
-        case 'function':
-          return {
-            role: 'user' as const,
-            content: [
-              {
-                type: 'tool_result',
-                content: msg.result,
-                tool_use_id: msg.functionId
-              }
-            ]
-          };
-        case 'user': {
-          if (typeof msg.content === 'string') {
-            return { role: 'user' as const, content: msg.content };
-          }
-          const content = msg.content.map((v) => {
-            switch (v.type) {
-              case 'text':
-                return { type: 'text' as const, text: v.text };
-              case 'image':
-                return {
-                  type: 'image' as const,
-                  source: {
-                    type: 'base64' as const,
-                    media_type: v.mimeType,
-                    data: v.image
-                  }
-                };
-              default:
-                throw new Error('Invalid content type');
+  const items: AxAIAnthropicChatRequest['messages'] = chatPrompt.map((msg) => {
+    switch (msg.role) {
+      case 'function':
+        return {
+          role: 'user' as const,
+          content: [
+            {
+              type: 'tool_result',
+              content: msg.result,
+              tool_use_id: msg.functionId
             }
-          });
-          return {
-            role: 'user' as const,
-            content
-          };
+          ]
+        };
+      case 'user': {
+        if (typeof msg.content === 'string') {
+          return { role: 'user' as const, content: msg.content };
         }
-        case 'assistant': {
-          let content: Extract<
-            AxAIAnthropicChatRequest['messages'][0],
-            { role: 'assistant' }
-          >['content'] = '';
-
-          if (typeof msg.content === 'string') {
-            content = msg.content;
-          }
-          if (typeof msg.functionCalls !== 'undefined') {
-            content = msg.functionCalls.map((v) => {
-              let input;
-              if (typeof v.function.params === 'string') {
-                input = JSON.parse(v.function.params);
-              } else if (typeof v.function.params === 'object') {
-                input = v.function.params;
-              }
+        const content = msg.content.map((v) => {
+          switch (v.type) {
+            case 'text':
+              return { type: 'text' as const, text: v.text };
+            case 'image':
               return {
-                type: 'tool_use' as const,
-                id: v.id,
-                name: v.function.name,
-                input
+                type: 'image' as const,
+                source: {
+                  type: 'base64' as const,
+                  media_type: v.mimeType,
+                  data: v.image
+                }
               };
-            });
+            default:
+              throw new Error('Invalid content type');
           }
-          return {
-            role: 'assistant' as const,
-            content
-          };
-        }
-        default:
-          throw new Error('Invalid role');
+        });
+        return {
+          role: 'user' as const,
+          content
+        };
       }
+      case 'assistant': {
+        let content: Extract<
+          AxAIAnthropicChatRequest['messages'][0],
+          { role: 'assistant' }
+        >['content'] = '';
+
+        if (typeof msg.content === 'string') {
+          content = msg.content;
+        }
+        if (typeof msg.functionCalls !== 'undefined') {
+          content = msg.functionCalls.map((v) => {
+            let input;
+            if (typeof v.function.params === 'string') {
+              input = JSON.parse(v.function.params);
+            } else if (typeof v.function.params === 'object') {
+              input = v.function.params;
+            }
+            return {
+              type: 'tool_use' as const,
+              id: v.id,
+              name: v.function.name,
+              input
+            };
+          });
+        }
+        return {
+          role: 'assistant' as const,
+          content
+        };
+      }
+      default:
+        throw new Error('Invalid role');
     }
-  );
+  });
 
   return mergeAssistantMessages(items);
 }
