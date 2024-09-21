@@ -1,150 +1,129 @@
 import { Card } from '@/components/ui/card';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-type Effect = 'fade' | 'none' | 'roman' | 'slide';
+interface CardData {
+  content: React.ReactNode;
+  height: number;
+  id: string;
+  width: number;
+  x: number;
+  y: number;
+}
 
 interface CardFlowProps {
-  children: React.ReactNode;
-  columnWidth?: number;
-  effect?: Effect;
+  cardWidth?: number;
+  children: React.ReactNode[];
   gap?: number;
   mobileBreakpoint?: number;
 }
 
 export const CardFlow: React.FC<CardFlowProps> = ({
+  cardWidth = 345,
   children,
-  columnWidth = 345,
-  effect = 'slide',
   gap = 13,
   mobileBreakpoint = 640
 }) => {
+  const [cards, setCards] = useState<CardData[]>([]);
   const [columns, setColumns] = useState<number>(0);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const itemsRef = useRef<(HTMLDivElement | null)[]>([]);
-  const [animatedItems, setAnimatedItems] = useState<boolean[]>([]);
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
-  const childrenArray = useMemo(
-    () => React.Children.toArray(children),
-    [children]
-  );
+  const calculateLayout = useCallback(() => {
+    if (!containerRef.current) return;
 
-  useEffect(() => {
-    setAnimatedItems(new Array(childrenArray.length).fill(false));
-  }, [childrenArray]);
+    const containerWidth = containerRef.current.offsetWidth;
+    const newIsMobile = containerWidth <= mobileBreakpoint;
+    setIsMobile(newIsMobile);
 
-  useEffect(() => {
-    const updateLayout = () => {
-      if (containerRef.current) {
-        const containerWidth = containerRef.current.offsetWidth;
-        const newIsMobile = containerWidth <= mobileBreakpoint;
-        setIsMobile(newIsMobile);
+    const newColumns = newIsMobile
+      ? 1
+      : Math.max(1, Math.floor((containerWidth + gap) / (cardWidth + gap)));
+    setColumns(newColumns);
 
-        if (newIsMobile) {
-          setColumns(1);
-        } else {
-          const newColumns = Math.max(
-            1,
-            Math.floor((containerWidth + gap) / (columnWidth + gap))
-          );
-          setColumns(newColumns);
-        }
-      }
-    };
+    const columnHeights = new Array(newColumns).fill(0);
+    const newCards: CardData[] = children.map((child, index) => {
+      const columnIndex = index % newColumns;
+      const x = newIsMobile ? 0 : columnIndex * (cardWidth + gap);
+      const y = columnHeights[columnIndex];
+      const width = newIsMobile ? containerWidth : cardWidth;
 
-    updateLayout();
-    window.addEventListener('resize', updateLayout);
-    return () => window.removeEventListener('resize', updateLayout);
-  }, [columnWidth, gap, mobileBreakpoint]);
+      // Get the actual height of the card
+      const cardElement = cardRefs.current[index];
+      const height = cardElement ? cardElement.offsetHeight : 0;
 
-  useEffect(() => {
+      columnHeights[columnIndex] += height + gap;
+
+      return {
+        content: child,
+        height,
+        id: index.toString(),
+        width,
+        x,
+        y
+      };
+    });
+
+    setCards(newCards);
+
     if (containerRef.current) {
-      const heights = Array(columns).fill(0);
+      containerRef.current.style.height = `${Math.max(...columnHeights)}px`;
+    }
+  }, [children, cardWidth, gap, mobileBreakpoint]);
 
-      itemsRef.current.forEach((item, index) => {
-        if (item) {
-          if (isMobile) {
-            item.style.position = 'static';
-            item.style.width = '100%';
-            item.style.transform = 'none';
-          } else {
-            const shortestColumn = heights.indexOf(Math.min(...heights));
-            const left = shortestColumn * (columnWidth + gap);
-            const top = heights[shortestColumn];
-
-            item.style.position = 'absolute';
-            item.style.left = `${left}px`;
-            item.style.top = `${top}px`;
-            item.style.width = `${columnWidth}px`;
-
-            heights[shortestColumn] += item.offsetHeight + gap;
-          }
+  useEffect(() => {
+    const observeCardHeights = () => {
+      cardRefs.current.forEach((cardRef, index) => {
+        if (cardRef) {
+          const resizeObserver = new ResizeObserver(() => {
+            calculateLayout();
+          });
+          resizeObserver.observe(cardRef);
         }
       });
+    };
 
-      if (isMobile) {
-        containerRef.current.style.height = 'auto';
-      } else {
-        const maxHeight = Math.max(...heights);
-        containerRef.current.style.height = `${maxHeight}px`;
+    calculateLayout();
+    observeCardHeights();
+
+    resizeObserverRef.current = new ResizeObserver(calculateLayout);
+    if (containerRef.current) {
+      resizeObserverRef.current.observe(containerRef.current);
+    }
+
+    return () => {
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
       }
-    }
-  }, [columns, isMobile, columnWidth, gap, childrenArray]);
-
-  const getEffectClasses = (effect: Effect, index: number): string => {
-    if (animatedItems[index]) return '';
-
-    switch (effect) {
-      case 'slide':
-        return 'transition-all duration-300 ease-in-out';
-      case 'fade':
-        return 'transition-opacity duration-300 ease-in-out';
-      case 'roman':
-        return 'animate-roman-appear';
-      case 'none':
-      default:
-        return '';
-    }
-  };
-
-  const handleAnimationEnd = (index: number) => {
-    setAnimatedItems((prev) => {
-      const newAnimatedItems = [...prev];
-      newAnimatedItems[index] = true;
-      return newAnimatedItems;
-    });
-  };
+      cardRefs.current.forEach((cardRef) => {
+        if (cardRef) {
+          resizeObserverRef.current?.unobserve(cardRef);
+        }
+      });
+    };
+  }, [calculateLayout]);
 
   return (
     <div className="relative w-full" ref={containerRef}>
-      {React.Children.map(children, (child, index) => (
+      {children.map((child, index) => (
         <div
-          className={`${getEffectClasses(effect, index)} ${isMobile ? 'w-full mb-4' : ''}`}
           key={index}
-          onAnimationEnd={() => handleAnimationEnd(index)}
-          ref={(el) => (itemsRef.current[index] = el)}
+          ref={(el) => (cardRefs.current[index] = el)}
+          style={{
+            left: cards[index]?.x ?? 0,
+            position: 'absolute',
+            top: cards[index]?.y ?? 0,
+            transform: `translate3d(0, 0, 0)`, // For better performance
+            transition: 'all 0.3s ease-in-out',
+            width: cards[index]?.width ?? cardWidth
+          }}
         >
-          <Card className="overflow-hidden p-4 border border-transparent hover:border-accent/50 transition-all duration-200 shadow-md hover:shadow-lg bg-gradient-to-b from-background/5 to-background/30 md:min-h-[200px]">
+          <Card className="overflow-hidden p-4 border border-transparent hover:border-accent/50 transition-all duration-200 shadow-md hover:shadow-lg bg-gradient-to-b from-background/5 to-background/30">
             {child}
           </Card>
         </div>
       ))}
-      <style>{`
-        @keyframes roman-appear {
-          0% {
-            opacity: 0;
-            transform: rotateX(-10deg) scale(0.95);
-          }
-          100% {
-            opacity: 1;
-            transform: rotateX(0) scale(1);
-          }
-        }
-        .animate-roman-appear {
-          animation: roman-appear 500ms forwards
-            cubic-bezier(0.25, 0.1, 0.25, 1);
-        }
-      `}</style>
     </div>
   );
 };
