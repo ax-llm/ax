@@ -23,6 +23,7 @@ npm i
 ```
 
 Start Apache Tika for document processing (parsing PDFs etc)
+
 ```shell
 docker run -p 9998:9998 apache/tika
 ```
@@ -36,8 +37,12 @@ APP_SECRET="toomanysecrets"
 DATA_SECRET="abcdefghijklmnopqrstuvwzyz123456"
 PUBLIC_URL="http://localhost:5173"
 APACHE_TIKA_URL=http://localhost:9998
-GOOGLE_ID=""
-GOOGLE_SECRET=""
+```
+
+Or use plain email
+
+```
+NO_AUTH="true"
 ```
 
 Start API server
