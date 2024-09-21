@@ -1,9 +1,10 @@
 import type { HandlerContext } from '@/util';
 import type { Context, MiddlewareHandler } from 'hono';
+import type { SignatureAlgorithm } from 'hono/utils/jwt/jwa.js';
 
 import { setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
-import { sign } from 'hono/jwt';
+import { jwt, sign } from 'hono/jwt';
 import { ObjectId } from 'mongodb';
 
 import type { User } from './types.js';
@@ -72,13 +73,36 @@ declare module 'hono' {
 export const auth = (): MiddlewareHandler => async (c, next) => {
   const payload = c.get('jwtPayload');
 
-  if (!payload || typeof payload.sub !== 'string') {
+  if (payload || typeof payload?.sub === 'string') {
+    c.set('userId', new ObjectId(payload.sub as string));
+  } else {
     throw new HTTPException(401, {
-      cause: new Error('no auth token found'),
-      message: 'unauthorized'
+      message: Boolean(process.env.NO_AUTH) ? 'no-auth' : 'unauthorized'
     });
   }
 
-  c.set('userId', new ObjectId(payload.sub as string));
   await next();
+};
+
+// jwt middleware with optional flag
+export const jwtx = (
+  options: {
+    alg?: SignatureAlgorithm;
+    cookie?: string | undefined;
+    secret: string;
+  },
+  optional: boolean = false
+): MiddlewareHandler => {
+  const jwtFn = jwt(options);
+  return async (c, next) => {
+    try {
+      return await jwtFn(c, next);
+    } catch (err) {
+      if (optional) {
+        await next();
+        return;
+      }
+      throw err;
+    }
+  };
 };

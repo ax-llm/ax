@@ -7,6 +7,7 @@ declare global {
       readonly GOOGLE_ID?: string;
       readonly GOOGLE_SECRET?: string;
       readonly MONGO_URI: string;
+      readonly NO_AUTH: 'false' | 'true';
       readonly NODE_ENV: 'development' | 'production';
       readonly PORT: number;
       readonly PUBLIC_URL: string;

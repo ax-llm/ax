@@ -10,6 +10,7 @@ import { etag } from 'hono/etag';
 import { HTTPException } from 'hono/http-exception';
 import { jwt } from 'hono/jwt';
 import { logger } from 'hono/logger';
+import { get } from 'http';
 import { MongoClient } from 'mongodb';
 
 import type { HandlerContext } from './util.js';
@@ -21,7 +22,7 @@ import {
   updateAgentHandler
 } from './api/agents.js';
 import { aiListHandler } from './api/ai.js';
-import { auth, googleOAuthHandler } from './api/auth.js';
+import { auth, googleOAuthHandler, jwtx } from './api/auth.js';
 import {
   createChatHandler,
   getChatHandler,
@@ -37,10 +38,12 @@ import {
 } from './api/messages.js';
 import { createChatWebSocketHandler } from './api/stream.js';
 import { TaskRunner } from './api/tasks.js';
-import { getMeHandler, getUserHandler } from './api/users.js';
+import {
+  createUserHandler,
+  getMeHandler,
+  getUserHandler
+} from './api/users.js';
 import { createUpdateAgentReq } from './types/agents.js';
-import { createChatReq } from './types/chats.js';
-import { createUpdateChatMessageReq } from './types/messages.js';
 
 // const isProd = process.env.NODE_ENV === 'production';
 
@@ -62,6 +65,14 @@ if (process.env.DATA_SECRET.length < 32) {
 
 if (!process.env.APACHE_TIKA_URL) {
   throw new Error('APACHE_TIKA_URL is not set');
+}
+
+if (!process.env.NO_AUTH && !process.env.GOOGLE_ID) {
+  throw new Error('GOOGLE_ID is not set');
+}
+
+if (!process.env.NO_AUTH && !process.env.GOOGLE_SECRET) {
+  throw new Error('GOOGLE_SECRET is not set');
 }
 
 const dataSecret = createSecretKey(
@@ -122,10 +133,15 @@ if (process.env.GOOGLE_ID && process.env.GOOGLE_SECRET) {
   );
 }
 
+if (process.env.NO_AUTH) {
+  console.log('No Auth enabled');
+  apiPublic.post('/auth/email', createUserHandler(hc));
+}
+
 const apiAuth = new Hono();
 apiAuth.use(
   '/*',
-  jwt({ cookie: 'ax', secret: process.env.APP_SECRET }),
+  jwtx({ cookie: 'ax', secret: process.env.APP_SECRET }, true),
   auth()
 );
 apiAuth.get('/me', getMeHandler(hc));

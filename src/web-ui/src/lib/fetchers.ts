@@ -33,6 +33,7 @@ const _fetch = async <ARG = unknown, RES = unknown>(
     };
     error.info = await res.text();
     error.status = res.status;
+
     throw error;
   }
   return await (res.json() as Promise<RES>);
