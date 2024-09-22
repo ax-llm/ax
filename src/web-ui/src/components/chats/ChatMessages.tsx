@@ -6,6 +6,7 @@ import { UserHoverCard } from '@/components/users/UserHoverCard.js';
 import { GetUserRes } from '@/types/users.js';
 import { Circle } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { CopyBlock, nord } from 'react-code-blocks';
 
 import type { Message } from './types.js';
 
@@ -58,11 +59,13 @@ export const ChatMessagesEmpty = ({ messageIds }: ChatMessagesEmptyProps) => {
   }, []);
 
   return (
-    <div className="flex-grow">
-      {messages?.map((m) => (
-        <Message key={m.id as unknown as string} message={m} />
-      ))}
-      <div className="h-5" ref={messagesEndRef} />
+    <div className="flex-grow overflow-y-auto">
+      <div className="overflow-y-auto mt-2">
+        {messages?.map((m) => (
+          <Message key={m.id as unknown as string} message={m} />
+        ))}
+        <div className="h-5" ref={messagesEndRef} />
+      </div>
     </div>
   );
 };
@@ -112,17 +115,36 @@ type ResponseContentProps = Omit<MessageProps, 'chatId'>;
 const ResponseContent = ({ message }: Readonly<ResponseContentProps>) => {
   return (
     <>
-      <div className="flex items-center space-y-2 w-full overflow-hidden">
-        {message.html ? (
-          <Prose>
-            <div
-              className="text-gray-600 overflow-auto max-w-full markdown"
-              dangerouslySetInnerHTML={{ __html: message.html }}
-            />
-          </Prose>
+      <div className="space-y-2 w-full overflow-hidden text-gray-600 markdown">
+        {message.blocks ? (
+          <>
+            {message.blocks?.map((block, index) => {
+              if (block.type === 'code' && block.text) {
+                return (
+                  <CopyBlock
+                    codeBlock={true}
+                    key={index}
+                    language={block.lang ?? 'text'}
+                    showLineNumbers={false}
+                    text={block.text}
+                    theme={nord}
+                    wrapLongLines={true}
+                  />
+                );
+              } else if (block.content) {
+                return (
+                  <Prose key={index}>
+                    <div dangerouslySetInnerHTML={{ __html: block.content }} />
+                  </Prose>
+                );
+              }
+              return null;
+            })}
+          </>
         ) : (
           message.text && <div className="text-gray-600">{message.text}</div>
         )}
+
         {message.error && (
           <div className="text-red-500 text-xs">{message.error}</div>
         )}

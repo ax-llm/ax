@@ -27,7 +27,7 @@ export const ChatCard = ({ chat }: Readonly<ChatCardProps>) => {
 
       <CardFooter className="space-x-2">
         <div className="flex -space-x-2">
-          {[chat.agent, ...(chat.agents ?? [])].map((agent) => (
+          {(chat.agents ?? []).map((agent) => (
             <AgentHoverCard agent={agent} key={agent.id} size="md" />
           ))}
         </div>

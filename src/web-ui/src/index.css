@@ -136,19 +136,6 @@
 }
 
 
- 
 mark {
     @apply p-1 rounded bg-lime-300 text-black;
-}
-
-.markdown pre > code {
-    @apply block p-4 rounded-lg overflow-auto max-w-full;
-}
-
-.markdown :not(pre) > code {
-    @apply p-1 rounded-lg bg-accent-foreground text-accent;
-}
-
-.markdown ul {
-    @apply space-y-2
 }

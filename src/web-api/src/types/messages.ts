@@ -11,6 +11,15 @@ export const listChatMessagesRes = z
         name: z.string()
       })
       .optional(),
+    blocks: z
+      .strictObject({
+        content: z.string().optional(),
+        lang: z.string().optional(),
+        text: z.string().optional(),
+        type: z.enum(['code', 'html'])
+      })
+      .array()
+      .optional(),
     chatId: IdSchema,
     createdAt: z.coerce.date(),
     error: z.string().optional(),
@@ -24,7 +33,6 @@ export const listChatMessagesRes = z
       })
       .array()
       .optional(),
-    html: z.string().optional(),
     id: IdSchema,
     mentions: z
       .strictObject({

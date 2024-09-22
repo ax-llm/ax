@@ -8,9 +8,7 @@ import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import { etag } from 'hono/etag';
 import { HTTPException } from 'hono/http-exception';
-import { jwt } from 'hono/jwt';
 import { logger } from 'hono/logger';
-import { get } from 'http';
 import { MongoClient } from 'mongodb';
 
 import type { HandlerContext } from './util.js';

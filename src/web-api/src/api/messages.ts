@@ -8,7 +8,7 @@ import {
   createUpdateChatMessageReq
 } from '@/types/messages.js';
 import { AxApacheTika } from '@ax-llm/ax';
-import { type Tokens, marked } from 'marked';
+import { type Token, marked } from 'marked';
 import { ObjectId, type UpdateFilter } from 'mongodb';
 
 import { createAI } from './ai.js';
@@ -488,30 +488,33 @@ const updateChatMessage = async (
 export const decorateMessage = (
   message: ListChatMessagesRes[0]
 ): ListChatMessagesRes[0] => {
+  const blocks = message.text ? { blocks: parseMarkdown(message.text) } : {};
   return {
     ...message,
-    html: message.text ? markdownToHtml(message.text) : undefined
+    ...blocks
   };
 };
 
-export const markdownToHtml = (markdown: string): string => {
-  marked.use({
-    renderer: {
-      code: ({ lang, text }: Tokens.Code) => {
-        if (lang === '') {
-          return text;
-        }
-        if (lang === 'markdown') {
-          return `${markdownToHtml(text)}`;
-        }
-        return `<pre><code class="language-${lang}">${text}</code></pre>`;
-      }
-    }
-  });
+interface ParsedBlock {
+  content?: string;
+  lang?: string;
+  text?: string;
+  type: 'code' | 'html';
+}
 
-  return marked.parse(markdown, {
-    breaks: true,
-    gfm: true,
-    silent: true
-  }) as string;
-};
+function parseMarkdown(markdown: string): ParsedBlock[] {
+  const tokens: Token[] = marked.lexer(markdown);
+  return tokens.map((token: Token): ParsedBlock => {
+    if (token.type === 'code' && !('inlined' in token)) {
+      return {
+        lang: token.lang || undefined,
+        text: token.text,
+        type: 'code'
+      };
+    }
+    return {
+      content: marked.parser([token]),
+      type: 'html'
+    };
+  });
+}

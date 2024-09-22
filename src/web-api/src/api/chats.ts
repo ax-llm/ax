@@ -149,6 +149,7 @@ export const createChatHandler =
         const chat: WithId<Chat> = {
           _id: chatId,
           agentId,
+          agents: [agent._id],
           createdAt: now,
           title: chatTitle,
           titleUpdatedAt: now,
