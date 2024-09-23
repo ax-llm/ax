@@ -102,7 +102,7 @@ export const createUpdateChatMessageHandler =
     const form = await c.req.formData();
     const reqObj = JSON.parse(form.get('json') as string);
     const req = createUpdateChatMessageReq.parse(reqObj);
-    const files = getFiles(form);
+    const files = await getFiles(form);
 
     const res =
       'messageId' in req && req.messageId
@@ -350,6 +350,7 @@ const createUserAndAgentMessages = async (
             type: image.type
           });
         }
+        console.log('imageList', imageList);
         fileList = fileList ? [...fileList, ...imageList] : imageList;
       }
 
@@ -464,7 +465,6 @@ const executeChat = async (
 
   const mem = new ChatMemory([]);
   const ai = await createAI(hc, agent, 'big');
-  ai.setOptions({ debug: true });
 
   const { markdownResponse } = await chatAgent.forward(
     ai,

@@ -50,7 +50,7 @@ export const createChatHandler =
     const req = createChatReq.parse(reqObj);
 
     const userId = c.get('userId');
-    const files = getFiles(form);
+    const files = await getFiles(form);
 
     const session = hc.dbClient.startSession();
 

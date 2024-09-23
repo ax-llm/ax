@@ -13,7 +13,6 @@ import { FileType, UploadedFile } from './chats/useFiles.js';
 
 interface FileListProps {
   files: UploadedFile[];
-  messageId?: string;
   onRemove?: (index: number) => void;
 }
 
@@ -33,12 +32,8 @@ const formatFileSize = (bytes: number): string => {
   return mb.toFixed(2) + ' MB';
 };
 
-const ImagePreview: React.FC<{ file: UploadedFile; messageId?: string }> = ({
-  file,
-  messageId
-}) => {
+const ImagePreview: React.FC<{ file: UploadedFile }> = ({ file }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const url = file.url ?? `/api/a/messages/${messageId}/files/${file.id}`;
 
   return (
     <Dialog onOpenChange={setIsOpen} open={isOpen}>
@@ -46,30 +41,26 @@ const ImagePreview: React.FC<{ file: UploadedFile; messageId?: string }> = ({
         <img
           alt={file.name}
           className="w-10 h-10 object-cover rounded cursor-pointer"
-          src={url}
+          src={file.url}
         />
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogTitle className="text-lg font-semibold">{file.name}</DialogTitle>
-        <img alt={file.name} className="w-full h-auto" src={url} />
+        <img alt={file.name} className="w-full h-auto" src={file.url} />
       </DialogContent>
     </Dialog>
   );
 };
 
-export const FileList: React.FC<FileListProps> = ({
-  files,
-  messageId,
-  onRemove
-}) => {
+export const FileList: React.FC<FileListProps> = ({ files, onRemove }) => {
   return (
     <div className="flex flex-wrap gap-2">
       {files.map((file, index) => (
-        <Card className="bg-gray-50" key={index}>
+        <Card className="bg-gray-50" key={file.id}>
           <CardContent className="p-4 flex items-center justify-between">
             <div className="flex items-center space-x-4">
               {file.type.startsWith('image') ? (
-                <ImagePreview file={file} messageId={messageId} />
+                <ImagePreview file={file} />
               ) : (
                 <FileIcon type={file.type} />
               )}

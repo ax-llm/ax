@@ -117,7 +117,11 @@ export const getMessageHistory = async (
 
     let context: string | undefined;
     if (m.files) {
-      context = `Context: ${m.files.map((f) => f.file).join(', ')}`;
+      const docs = m.files
+        .filter((f) => f.type.startsWith('image') === false)
+        .map((f) => f.file)
+        .join(', ');
+      context = `Context: ${docs}`;
     }
     return { context, text };
   };
@@ -130,10 +134,14 @@ export const getMessageHistory = async (
     .map((m) => [m.text, m.context].filter(Boolean).join('\n'))
     .join('\n');
 
-  const images = messages
+  const images = [...messages, parentMessage]
     .filter((m) => m.files?.some((f) => f.type.startsWith('image')))
     .flatMap((m) => m.files ?? [])
     .map((f) => ({ data: f.file, mimeType: f.type }));
+
+  console.log('images', images);
+  console.log('parent', parent);
+  console.log('history', history);
 
   return { history, images, parent };
 };

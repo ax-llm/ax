@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import sharp from 'sharp';
 
 export const objectIds = (ids?: string): ObjectId[] => {
   if (!ids) {
@@ -47,7 +48,7 @@ export interface GetFilesResult {
   images: File[];
 }
 
-export const getFiles = (form: FormData): GetFilesResult => {
+export const getFiles = async (form: FormData): Promise<GetFilesResult> => {
   const files = Array.from(form.entries())
     .filter(([, value]) => typeof value === 'object')
     .map(([, value]) => value as File)
@@ -60,9 +61,16 @@ export const getFiles = (form: FormData): GetFilesResult => {
     .filter((v) => docFileTypesList.includes(v.ext))
     .map((v) => v.file);
 
-  const images = files
+  const imageList = files
     .filter((v) => imageFileTypesList.includes(v.ext))
     .map((v) => v.file);
+
+  const images = [];
+  for (const image of imageList) {
+    const buf = await image.arrayBuffer();
+    const buffer = await sharp(buf).resize(400).toBuffer();
+    images.push(new File([buffer], image.name, { type: image.type }));
+  }
 
   return { docs, images };
 };

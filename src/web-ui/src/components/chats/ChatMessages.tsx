@@ -149,9 +149,35 @@ const ResponseContent = ({ message }: Readonly<ResponseContentProps>) => {
           <div className="text-red-500 text-xs">{message.error}</div>
         )}
       </div>
-      {message.files && (
-        <FileList files={message.files} messageId={message.id} />
-      )}
+      {message.files && <MessageAttachments message={message} />}
+    </>
+  );
+};
+
+const MessageAttachments = ({ message }: ResponseContentProps) => {
+  const images = message.files?.filter((f) => f.type.startsWith('image'));
+  const others = message.files?.filter((f) => !f.type.startsWith('image'));
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-2 mt-2">
+        {images?.map((file) => (
+          <div key={file.id}>
+            <img
+              alt={file.name}
+              className="max-h-[200px] object-cover rounded-lg cursor-pointer"
+              src={`/api/a/messages/${message.id}/files/${file.id}`}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2 mt-2">
+        {others?.map((file) => (
+          <div key={file.id}>
+            <FileList files={[file]} />
+          </div>
+        ))}
+      </div>
     </>
   );
 };
