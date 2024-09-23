@@ -30,6 +30,7 @@ import {
 } from './api/chats.js';
 import {
   createUpdateChatMessageHandler,
+  getChatMessageFileHandler,
   listChatMessagesByIdsHandler,
   listChatMessagesHandler,
   retryChatMessageHandler
@@ -169,6 +170,10 @@ apiAuth.post('/chats/:chatId/title', setChatTitleHandler(hc));
 apiAuth.get('/chats/:chatId/messages', listChatMessagesHandler(hc));
 
 apiAuth.get('/messages', listChatMessagesByIdsHandler(hc));
+apiAuth.get(
+  '/messages/:messageId/files/:fileId',
+  getChatMessageFileHandler(hc)
+);
 apiAuth.post('/messages/:messageId/retry', retryChatMessageHandler(hc));
 
 app.use(

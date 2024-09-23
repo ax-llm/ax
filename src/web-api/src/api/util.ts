@@ -7,52 +7,62 @@ export const objectIds = (ids?: string): ObjectId[] => {
   return ids.split(',').map((id) => new ObjectId(id.trim()));
 };
 
-export const allowedFileTypesList = [
+export const docFileTypesList = [
   // PDF
-  '.pdf',
+  'pdf',
 
   // Microsoft Office
-  '.doc',
-  '.docx', // Word
-  '.xls',
-  '.xlsx', // Excel
-  '.ppt',
-  '.pptx', // PowerPoint
+  'doc',
+  'docx', // Word
+  'xls',
+  'xlsx', // Excel
+  'ppt',
+  'pptx', // PowerPoint
 
   // OpenDocument formats
-  '.odt', // OpenDocument Text
-  '.ods', // OpenDocument Spreadsheet
-  '.odp', // OpenDocument Presentation
+  'odt', // OpenDocument Text
+  'ods', // OpenDocument Spreadsheet
+  'odp', // OpenDocument Presentation
 
   // Plain text
-  '.txt',
+  'txt',
 
   // Rich Text Format
-  '.rtf',
+  'rtf',
 
   // Comma-Separated Values
-  '.csv',
-
-  // Images (if you want to allow them)
-  // '.jpg', '.jpeg', '.png', '.gif',
+  'csv',
 
   // Markdown
-  '.md',
+  'md',
 
   // XML
-  '.xml'
+  'xml'
 ];
 
-export const getFiles = (form: FormData): File[] => {
-  return Array.from(form.entries())
+export const imageFileTypesList = ['jpg', 'jpeg', 'png', 'gif'];
+
+export interface GetFilesResult {
+  docs: File[];
+  images: File[];
+}
+
+export const getFiles = (form: FormData): GetFilesResult => {
+  const files = Array.from(form.entries())
     .filter(([, value]) => typeof value === 'object')
     .map(([, value]) => value as File)
-    .filter((file) => {
-      if (!allowedFileTypesList || allowedFileTypesList.length === 0) {
-        return true; // If no file types are specified, allow all files
-      }
+    .map((f) => ({
+      ext: f.name.split('.').pop()?.toLowerCase() ?? '',
+      file: f
+    }));
 
-      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
-      return allowedFileTypesList.includes(fileExtension);
-    });
+  const docs = files
+    .filter((v) => docFileTypesList.includes(v.ext))
+    .map((v) => v.file);
+
+  const images = files
+    .filter((v) => imageFileTypesList.includes(v.ext))
+    .map((v) => v.file);
+
+  return { docs, images };
 };

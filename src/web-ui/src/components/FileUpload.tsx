@@ -29,7 +29,10 @@ export const allowedFileTypesList = [
   '.csv',
 
   // Images (if you want to allow them)
-  // '.jpg', '.jpeg', '.png', '.gif',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
 
   // Markdown
   '.md',

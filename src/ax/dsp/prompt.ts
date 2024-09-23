@@ -247,17 +247,50 @@ export class AxPromptTemplate {
     value: Readonly<AxFieldValue>
   ): ChatRequestUserMessage => {
     if (field.type?.name === 'image') {
-      if (typeof value !== 'object') {
-        throw new Error('Image field value must be an object.');
-      }
-      if (!('mimeType' in value)) {
-        throw new Error('Image field must have a mimeType');
-      }
-      return [
-        { type: 'text', text: `${field.title}: ` as string },
-        { type: 'image', mimeType: value.mimeType, image: value.data as string }
+      const validateImage = (
+        value: Readonly<AxFieldValue>
+      ): { mimeType: string; data: string } => {
+        if (typeof value !== 'object') {
+          throw new Error('Image field value must be an object.');
+        }
+        if (!('mimeType' in value)) {
+          throw new Error('Image field must have mimeType');
+        }
+        if (!('data' in value)) {
+          throw new Error('Image field must have data');
+        }
+        return value;
+      };
+
+      let result: ChatRequestUserMessage = [
+        { type: 'text', text: `${field.title}: ` as string }
       ];
+
+      if (field.type.isArray) {
+        if (!Array.isArray(value)) {
+          throw new Error('Image field value must be an array.');
+        }
+        result = result.concat(
+          value.map((v) => {
+            v = validateImage(v);
+            return {
+              type: 'image',
+              mimeType: v.mimeType,
+              image: v.data
+            };
+          })
+        );
+      } else {
+        const v = validateImage(value);
+        result.push({
+          type: 'image',
+          mimeType: v.mimeType,
+          image: v.data
+        });
+      }
+      return result;
     }
+
     const text = [field.title, ': '];
 
     if (Array.isArray(value)) {

@@ -17,7 +17,7 @@ import { ChatMemory, getMessageHistory } from './memory.js';
 import { chatAgent } from './prompts.js';
 import { sendMessages } from './stream.js';
 import { type Agent, type Chat, type Message } from './types.js';
-import { getFiles, objectIds } from './util.js';
+import { type GetFilesResult, getFiles, objectIds } from './util.js';
 
 export const listChatMessagesHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
@@ -61,6 +61,42 @@ export const listChatMessagesByIdsHandler =
     return c.json(messages);
   };
 
+export const getChatMessageFileHandler =
+  (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
+    const { fileId, messageId } = c.req.param();
+    const userId = c.get('userId');
+
+    const message = await hc.db
+      .collection<Message>('messages')
+      .findOne(
+        { _id: new ObjectId(messageId) },
+        { projection: { chatId: 1, files: 1 } }
+      );
+
+    if (!message) {
+      throw new Error('Message not found');
+    }
+
+    // check if chat exists and user is part of the chat
+    const chat = await hc.db.collection<Chat>('chats').findOne({
+      _id: message?.chatId,
+      userId
+    });
+
+    if (!chat) {
+      throw new Error('Chat not found');
+    }
+
+    const file = message.files?.find((f) => f.id.equals(fileId));
+    if (!file) {
+      throw new Error('File not found');
+    }
+
+    const buf = Buffer.from(file.file, 'base64');
+    c.header('Content-Type', file.type);
+    return c.body(buf);
+  };
+
 export const createUpdateChatMessageHandler =
   (hc: Readonly<HandlerContext>) => async (c: Readonly<Context>) => {
     const form = await c.req.formData();
@@ -80,7 +116,7 @@ export const createChatMessageHandler = async (
   hc: Readonly<HandlerContext>,
   c: Readonly<Context>,
   req: Omit<CreateUpdateChatMessageReq, 'messageId'>,
-  files: File[]
+  files: GetFilesResult
 ): Promise<ListChatMessagesRes> => {
   const { chatId: _chatId } = c.req.param();
   const userId = c.get('userId');
@@ -93,7 +129,7 @@ export const updateChatMessageHandler = async (
   hc: Readonly<HandlerContext>,
   c: Readonly<Context>,
   req: CreateUpdateChatMessageReq,
-  files: File[]
+  files: GetFilesResult
 ): Promise<ListChatMessagesRes> => {
   const { chatId: _chatId } = c.req.param();
   const userId = c.get('userId');
@@ -197,7 +233,7 @@ export const processChatMessage = async (
   hc: Readonly<HandlerContext>,
   req: {
     chatId: ObjectId;
-    files: File[];
+    files: GetFilesResult;
     previouslyCreatedAt?: Date;
     userId: ObjectId;
   } & CreateUpdateChatMessageReq
@@ -241,7 +277,7 @@ const createUserAndAgentMessages = async (
   req: {
     agentIds: ObjectId[];
     chatId: ObjectId;
-    files: File[];
+    files: GetFilesResult;
     previouslyCreatedAt?: Date;
     text: string;
     userId: ObjectId;
@@ -281,21 +317,40 @@ const createUserAndAgentMessages = async (
         throw new Error('Chat not found or does not match criteria');
       }
 
+      const { docs, images } = req.files;
+
       let fileList: Message['files'] | undefined;
 
-      if (req.files.length > 0) {
+      if (docs.length > 0) {
         const tika = new AxApacheTika({ url: process.env.APACHE_TIKA_URL });
         const fileTexts = (
-          await Promise.all(req.files.map((file) => tika.convert([file])))
+          await Promise.all(docs.map((file) => tika.convert([file])))
         ).flat();
 
-        fileList = req.files.map((file, index) => ({
+        fileList = docs.map((file, index) => ({
           file: fileTexts[index],
           id: new ObjectId(),
           name: file.name,
           size: file.size,
           type: file.type
         }));
+      }
+
+      if (images.length > 0) {
+        let imageList = [];
+        for (const image of images) {
+          const img = await image.arrayBuffer();
+          const imgData = Buffer.from(img).toString('base64');
+
+          imageList.push({
+            file: imgData,
+            id: new ObjectId(),
+            name: image.name,
+            size: image.size,
+            type: image.type
+          });
+        }
+        fileList = fileList ? [...fileList, ...imageList] : imageList;
       }
 
       // Create new messages
@@ -402,16 +457,14 @@ const executeChat = async (
     throw new Error('Agent not found: ' + agentId);
   }
 
-  const { history, parent } = await getMessageHistory(hc.db, {
+  const { history, images, parent } = await getMessageHistory(hc.db, {
     chatId,
     parentMessageId
   });
 
-  console.log('history', history);
-  console.log('parent', parent);
-
   const mem = new ChatMemory([]);
   const ai = await createAI(hc, agent, 'big');
+  ai.setOptions({ debug: true });
 
   const { markdownResponse } = await chatAgent.forward(
     ai,
@@ -419,6 +472,7 @@ const executeChat = async (
       agentDescription: agent.description,
       chatHistory: history,
       context: parent.context,
+      images,
       queryOrTask: parent.text
     },
     { mem }

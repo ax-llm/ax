@@ -17,7 +17,8 @@ export type AxFieldValue =
   | number
   | boolean
   | object
-  | { mimeType: string; data: string };
+  | { mimeType: string; data: string }
+  | { mimeType: string; data: string }[];
 
 export type AxGenIn = Record<string, AxFieldValue>;
 export type AxGenOut = Record<string, AxFieldValue>;

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export type FileType = 'document' | 'image';
 
 export interface UploadedFile {
+  id?: string;
   name: string;
   size: number;
   type: FileType;

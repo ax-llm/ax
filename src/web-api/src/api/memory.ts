@@ -84,7 +84,8 @@ interface GetMessageHistoryArgs {
 
 interface GetMessageHistoryReturn {
   history: string;
-  parent: { context?: string; text: string };
+  images?: { data: string; mimeType: string }[];
+  parent: { context?: string; images?: string[]; text: string };
 }
 
 export const getMessageHistory = async (
@@ -129,5 +130,10 @@ export const getMessageHistory = async (
     .map((m) => [m.text, m.context].filter(Boolean).join('\n'))
     .join('\n');
 
-  return { history, parent };
+  const images = messages
+    .filter((m) => m.files?.some((f) => f.type.startsWith('image')))
+    .flatMap((m) => m.files ?? [])
+    .map((f) => ({ data: f.file, mimeType: f.type }));
+
+  return { history, images, parent };
 };

@@ -149,7 +149,9 @@ const ResponseContent = ({ message }: Readonly<ResponseContentProps>) => {
           <div className="text-red-500 text-xs">{message.error}</div>
         )}
       </div>
-      {message.files && <FileList files={message.files} />}
+      {message.files && (
+        <FileList files={message.files} messageId={message.id} />
+      )}
     </>
   );
 };

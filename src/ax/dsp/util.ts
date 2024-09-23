@@ -49,13 +49,23 @@ export const validateValue = (
     }
   };
 
+  const validImage = (val: Readonly<AxFieldValue>): boolean => {
+    if (typeof val !== 'object' || !('mimeType' in val) || !('data' in val)) {
+      return false;
+    }
+    return true;
+  };
+
   if (field.type?.name === 'image') {
     let msg;
-    if (
-      typeof value !== 'object' ||
-      !('mimeType' in value) ||
-      !('data' in value)
-    ) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!validImage(item)) {
+          msg = 'object ({ mimeType: string; data: string })';
+          break;
+        }
+      }
+    } else if (!validImage(value)) {
       msg = 'object ({ mimeType: string; data: string })';
     }
 
