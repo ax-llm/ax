@@ -1,5 +1,27 @@
 
 
+## [9.0.51](https://github.com/ax-llm/ax/compare/9.0.49...9.0.50) (2024-10-04)
+
+
+### Bug Fixes
+
+* minor fix ([0bd2c54](https://github.com/ax-llm/ax/commit/0bd2c547dce6fe6f34df36035718573e7a3811ef))
+
+## [9.0.50](https://github.com/ax-llm/ax/compare/9.0.49...9.0.50) (2024-10-04)
+
+
+### Features
+
+* added multi-modal chat to rome ([7e8f8a7](https://github.com/ax-llm/ax/commit/7e8f8a7e641603ed169fbea48555c04cb8e1c549))
+* better image display for ax rome ([9035a35](https://github.com/ax-llm/ax/commit/9035a359809d4ec3b0165e77daa2e1a822408f28))
+* improve code blocks in rome ([ab58949](https://github.com/ax-llm/ax/commit/ab589496f6b663b4b378d3db0acd8d4099f90ac9))
+* new models ([e1bb27b](https://github.com/ax-llm/ax/commit/e1bb27b7aac9f32ce64b6e1b1f4164c5fe4757bf))
+
+
+### Bug Fixes
+
+* card layout fix ([7c7e59c](https://github.com/ax-llm/ax/commit/7c7e59c5ee64156f5f3e9a1700484fea2db85511))
+
 ## [9.0.50](https://github.com/ax-llm/ax/compare/9.0.48...9.0.49) (2024-10-04)
 
 
