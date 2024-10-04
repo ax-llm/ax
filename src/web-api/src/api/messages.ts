@@ -94,6 +94,7 @@ export const getChatMessageFileHandler =
 
     const buf = Buffer.from(file.file, 'base64');
     c.header('Content-Type', file.type);
+    c.header('Cache-Control', 'max-age=31536000');
     return c.body(buf);
   };
 

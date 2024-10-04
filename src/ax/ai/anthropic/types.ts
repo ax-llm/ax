@@ -13,6 +13,10 @@ export type AxAIAnthropicConfig = AxModelConfig & {
   model: AxAIAnthropicModel;
 };
 
+export type AxAIAnthropicChatRequestCacheParam = {
+  cache_control?: { type: 'ephemeral' };
+};
+
 // Type for the request to create a message using Anthropic's Messages API
 export type AxAIAnthropicChatRequest = {
   model: string;
@@ -22,11 +26,14 @@ export type AxAIAnthropicChatRequest = {
         content:
           | string
           | (
-              | { type: 'text'; text: string }
-              | {
+              | ({
+                  type: 'text';
+                  text: string;
+                } & AxAIAnthropicChatRequestCacheParam)
+              | ({
                   type: 'image';
                   source: { type: 'base64'; media_type: string; data: string };
-                }
+                } & AxAIAnthropicChatRequestCacheParam)
               | {
                   type: 'tool_result';
                   is_error?: boolean;
@@ -34,18 +41,18 @@ export type AxAIAnthropicChatRequest = {
                   content:
                     | string
                     | (
-                        | {
+                        | ({
                             type: 'text';
                             text: string;
-                          }
-                        | {
+                          } & AxAIAnthropicChatRequestCacheParam)
+                        | ({
                             type: 'image';
                             source: {
                               type: 'base64';
                               media_type: string;
                               data: string;
                             };
-                          }
+                          } & AxAIAnthropicChatRequestCacheParam)
                       )[];
                 }
             )[];
@@ -60,17 +67,22 @@ export type AxAIAnthropicChatRequest = {
             )[];
       }
   )[];
-  tools?: {
+  tools?: ({
     name: string;
     description: string;
     input_schema?: object;
-  }[];
+  } & AxAIAnthropicChatRequestCacheParam)[];
   tool_choice?: { type: 'auto' | 'any' } | { type: 'tool'; name?: string };
   max_tokens?: number; // Maximum number of tokens to generate
   // Optional metadata about the request
   stop_sequences?: string[]; // Custom sequences that trigger the end of generation
   stream?: boolean; // Whether to stream the response incrementally
-  system?: string; // system prompt
+  system?:
+    | string
+    | ({
+        type: 'text';
+        text: string;
+      } & AxAIAnthropicChatRequestCacheParam)[]; // system prompt
   temperature?: number; // Randomness of the response
   top_p?: number; // Nucleus sampling probability
   top_k?: number; // Sample from the top K options

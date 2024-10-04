@@ -2,10 +2,11 @@ import { FileList } from '@/components/FileList.js';
 import { Prose } from '@/components/Prose.js';
 import { AgentHoverCard } from '@/components/agents/AgentHoverCard.js';
 import { useCurrentUser } from '@/components/hooks/useUser.js';
+import { Alert, AlertDescription } from '@/components/ui/alert.js';
 import { UserHoverCard } from '@/components/users/UserHoverCard.js';
 import { GetUserRes } from '@/types/users.js';
-import { Circle } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { AlertCircle, Circle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { CopyBlock, nord } from 'react-code-blocks';
 
 import type { Message } from './types.js';
@@ -113,43 +114,45 @@ const Message = ({ chatId, isDone, message, user }: Readonly<MessageProps>) => {
 type ResponseContentProps = Omit<MessageProps, 'chatId'>;
 
 const ResponseContent = ({ message }: Readonly<ResponseContentProps>) => {
+  let content: React.ReactNode;
+
+  if (message.error) {
+    content = <ErrorMessage error={message.error} />;
+  } else if (message.blocks) {
+    content = message.blocks?.map((block, index) => {
+      if (block.type === 'code' && block.text) {
+        return (
+          <CopyBlock
+            codeBlock={true}
+            key={index}
+            language={block.lang ?? 'text'}
+            showLineNumbers={false}
+            text={block.text}
+            theme={nord}
+            wrapLongLines={true}
+          />
+        );
+      } else if (block.content) {
+        return (
+          <Prose key={index}>
+            <div dangerouslySetInnerHTML={{ __html: block.content }} />
+          </Prose>
+        );
+      }
+      return null;
+    });
+  } else {
+    return <div className="text-gray-600">{message.text}</div>;
+  }
+
   return (
     <>
-      <div className="space-y-2 w-full overflow-hidden text-gray-600 markdown">
-        {message.blocks ? (
-          <>
-            {message.blocks?.map((block, index) => {
-              if (block.type === 'code' && block.text) {
-                return (
-                  <CopyBlock
-                    codeBlock={true}
-                    key={index}
-                    language={block.lang ?? 'text'}
-                    showLineNumbers={false}
-                    text={block.text}
-                    theme={nord}
-                    wrapLongLines={true}
-                  />
-                );
-              } else if (block.content) {
-                return (
-                  <Prose key={index}>
-                    <div dangerouslySetInnerHTML={{ __html: block.content }} />
-                  </Prose>
-                );
-              }
-              return null;
-            })}
-          </>
-        ) : (
-          message.text && <div className="text-gray-600">{message.text}</div>
-        )}
-
-        {message.error && (
-          <div className="text-red-500 text-xs">{message.error}</div>
+      <div className="space-y-2 w-full overflow-hidden text-gray-600">
+        {content}
+        {!message.error && message.files && (
+          <MessageAttachments message={message} />
         )}
       </div>
-      {message.files && <MessageAttachments message={message} />}
     </>
   );
 };
@@ -165,7 +168,7 @@ const MessageAttachments = ({ message }: ResponseContentProps) => {
           <div key={file.id}>
             <img
               alt={file.name}
-              className="max-h-[200px] object-cover rounded-lg cursor-pointer"
+              className="object-cover rounded-lg"
               src={`/api/a/messages/${message.id}/files/${file.id}`}
             />
           </div>
@@ -197,3 +200,27 @@ const TypingIndicator = () => (
     </div>
   </div>
 );
+
+const ErrorMessage = ({ error }: { error: string }) => {
+  const [showDetails, setShowDetails] = useState(false);
+
+  return (
+    <Alert className="max-w-md" variant="destructive">
+      <AlertCircle className="h-4 w-4" />
+      <AlertDescription className="w-full">
+        <div className="flex items-center justify-between">
+          <span>An error occurred.</span>
+          <button
+            className="text-xs underline"
+            onClick={() => setShowDetails(!showDetails)}
+          >
+            {showDetails ? 'Hide details' : 'View details'}
+          </button>
+        </div>
+        {showDetails && (
+          <p className="mt-2 text-sm break-words">{error || 'Unknown error'}</p>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+};

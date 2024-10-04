@@ -65,6 +65,7 @@ export class AxAIAnthropic extends AxBaseAI<
       apiURL: 'https://api.anthropic.com/v1',
       headers: {
         'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
         'x-api-key': apiKey
       },
       modelInfo: axModelInfoAnthropic,
@@ -99,8 +100,11 @@ export class AxAIAnthropic extends AxBaseAI<
 
     const system = req.chatPrompt
       .filter((msg) => msg.role === 'system')
-      .map((v) => v.content)
-      .join('\n');
+      .map((msg) => ({
+        type: 'text' as const,
+        text: msg.content,
+        ...(msg.cache ? { cache: { type: 'ephemeral' } } : {})
+      }));
 
     const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
 
@@ -315,18 +319,26 @@ function createMessages(
             {
               type: 'tool_result',
               content: msg.result,
-              tool_use_id: msg.functionId
+              tool_use_id: msg.functionId,
+              ...(msg.cache ? { cache: { type: 'ephemeral' } } : {})
             }
           ]
         };
       case 'user': {
         if (typeof msg.content === 'string') {
-          return { role: 'user' as const, content: msg.content };
+          return {
+            role: 'user' as const,
+            content: msg.content
+          };
         }
         const content = msg.content.map((v) => {
           switch (v.type) {
             case 'text':
-              return { type: 'text' as const, text: v.text };
+              return {
+                type: 'text' as const,
+                text: v.text,
+                ...(v.cache ? { cache: { type: 'ephemeral' } } : {})
+              };
             case 'image':
               return {
                 type: 'image' as const,
@@ -334,7 +346,8 @@ function createMessages(
                   type: 'base64' as const,
                   media_type: v.mimeType,
                   data: v.image
-                }
+                },
+                ...(v.cache ? { cache: { type: 'ephemeral' } } : {})
               };
             default:
               throw new Error('Invalid content type');
@@ -366,7 +379,8 @@ function createMessages(
               type: 'tool_use' as const,
               id: v.id,
               name: v.function.name,
-              input
+              input,
+              ...(msg.cache ? { cache: { type: 'ephemeral' } } : {})
             };
           });
         }

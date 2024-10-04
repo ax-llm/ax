@@ -17,6 +17,7 @@ export type AxFieldValue =
   | number
   | boolean
   | object
+  | null
   | { mimeType: string; data: string }
   | { mimeType: string; data: string }[];
 

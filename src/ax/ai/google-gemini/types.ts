@@ -3,8 +3,10 @@ import type { AxModelConfig } from '../types.js';
 export enum AxAIGoogleGeminiModel {
   Gemini1Pro = 'gemini-1.0-pro',
   Gemini15Flash = 'gemini-1.5-flash',
+  Gemini15Flash8B = 'gemini-1.5-flash-8b',
   Gemini15Pro = 'gemini-1.5-pro',
-  Gemma2 = 'gemma-2-27b-it'
+  Gemma2 = 'gemma-2-27b-it',
+  AQA = 'aqa'
 }
 
 export enum AxAIGoogleGeminiEmbedModel {

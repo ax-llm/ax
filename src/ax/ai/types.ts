@@ -97,7 +97,7 @@ export type AxModelInfoWithProvider = AxModelInfo & { provider: string };
 
 export type AxChatRequest = {
   chatPrompt: Readonly<
-    | { role: 'system'; content: string }
+    | { role: 'system'; content: string; cache?: boolean }
     | {
         role: 'user';
         name?: string;
@@ -107,12 +107,14 @@ export type AxChatRequest = {
               | {
                   type: 'text';
                   text: string;
+                  cache?: boolean;
                 }
               | {
                   type: 'image';
                   mimeType: string;
                   image: string;
                   details?: 'high' | 'low' | 'auto';
+                  cache?: boolean;
                 }
             )[];
       }
@@ -126,8 +128,9 @@ export type AxChatRequest = {
 
           function: { name: string; params?: string | object };
         }[];
+        cache?: boolean;
       }
-    | { role: 'function'; result: string; functionId: string }
+    | { role: 'function'; result: string; functionId: string; cache?: boolean }
   >[];
   functions?: Readonly<{
     name: string;

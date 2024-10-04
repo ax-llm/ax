@@ -1,6 +1,8 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIOpenAIModel {
+  O1Preview = 'o1-preview',
+  O1Mini = 'o1-mini',
   GPT4 = 'gpt-4',
   GPT4O = 'gpt-4o',
   GPT4OMini = 'gpt-4o-mini',
