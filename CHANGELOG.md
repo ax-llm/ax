@@ -1,5 +1,33 @@
 
 
+## [9.0.50](https://github.com/ax-llm/ax/compare/9.0.48...9.0.49) (2024-10-04)
+
+
+### Features
+
+* added multi-modal chat to rome ([7e8f8a7](https://github.com/ax-llm/ax/commit/7e8f8a7e641603ed169fbea48555c04cb8e1c549))
+* better image display for ax rome ([9035a35](https://github.com/ax-llm/ax/commit/9035a359809d4ec3b0165e77daa2e1a822408f28))
+* improve code blocks in rome ([ab58949](https://github.com/ax-llm/ax/commit/ab589496f6b663b4b378d3db0acd8d4099f90ac9))
+* new models ([e1bb27b](https://github.com/ax-llm/ax/commit/e1bb27b7aac9f32ce64b6e1b1f4164c5fe4757bf))
+
+
+### Bug Fixes
+
+* card layout fix ([7c7e59c](https://github.com/ax-llm/ax/commit/7c7e59c5ee64156f5f3e9a1700484fea2db85511))
+
+## [9.0.49](https://github.com/ax-llm/ax/compare/9.0.48...9.0.49) (2024-09-21)
+
+
+### Features
+
+* added email auth ([f8fac72](https://github.com/ax-llm/ax/commit/f8fac723f25dfd62cece50c4f3ef8cec98b8eb87))
+
+
+### Bug Fixes
+
+* system role bug in anthropic ([e566eb2](https://github.com/ax-llm/ax/commit/e566eb270115b87f288bcdd9c297a084a51a81a0))
+* update readme ([5b73fd1](https://github.com/ax-llm/ax/commit/5b73fd1caa8b0b0e703b3a1ae72ef2803c211a09))
+
 ## [9.0.49](https://github.com/ax-llm/ax/compare/9.0.47...9.0.48) (2024-09-21)
 
 
