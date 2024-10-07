@@ -1,5 +1,19 @@
 
 
+## [9.0.52](https://github.com/ax-llm/ax/compare/9.0.50...9.0.51) (2024-10-07)
+
+
+### Features
+
+* added datetime field support ([bd05b0e](https://github.com/ax-llm/ax/commit/bd05b0ef940abc3f279667d87330f368a37cd8d0))
+
+## [9.0.51](https://github.com/ax-llm/ax/compare/9.0.50...9.0.51) (2024-10-04)
+
+
+### Bug Fixes
+
+* minor fix ([0bd2c54](https://github.com/ax-llm/ax/commit/0bd2c547dce6fe6f34df36035718573e7a3811ef))
+
 ## [9.0.51](https://github.com/ax-llm/ax/compare/9.0.49...9.0.50) (2024-10-04)
 
 
