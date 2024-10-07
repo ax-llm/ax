@@ -76,10 +76,7 @@ export const streamingExtractFinalValue = (
   if (state.currField.type?.name === 'json') {
     values[state.currField.name] = validateAndParseJson(state.currField, val);
   } else {
-    values[state.currField.name] = convertValueToType(
-      state.currField.type?.name ?? 'string',
-      val
-    );
+    values[state.currField.name] = convertValueToType(state.currField, val);
   }
 };
 
@@ -105,11 +102,11 @@ const validateAndParseSingleValue = (
   }
 };
 
-const convertValueToType = (
-  expectedType: string,
-  val: unknown
-): string | number | boolean | Date => {
-  switch (expectedType) {
+const convertValueToType = (field: Readonly<AxField>, val: unknown) => {
+  if (field.isOptional && (!val || val === '')) {
+    return;
+  }
+  switch (field.type?.name) {
     case 'string':
       return val as string;
     case 'number':
