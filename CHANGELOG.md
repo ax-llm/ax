@@ -1,5 +1,19 @@
 
 
+## [9.0.55](https://github.com/ax-llm/ax/compare/9.0.53...9.0.54) (2024-10-07)
+
+
+### Bug Fixes
+
+* value parseing ([5a6c0e3](https://github.com/ax-llm/ax/commit/5a6c0e349e4868f68f2f3b7fe63dfeb14d5f9a13))
+
+## [9.0.54](https://github.com/ax-llm/ax/compare/9.0.53...9.0.54) (2024-10-07)
+
+
+### Bug Fixes
+
+* optional fields issue ([a4ecdcd](https://github.com/ax-llm/ax/commit/a4ecdcdbacdbfa8cd99fa1070bdd769870d53b14))
+
 ## [9.0.54](https://github.com/ax-llm/ax/compare/9.0.52...9.0.53) (2024-10-07)
 
 
