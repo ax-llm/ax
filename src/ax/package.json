@@ -24,7 +24,7 @@
     "build:module": "tsc -p tsconfig.build.module.json",
     "build:cjs": "tsc -p tsconfig.build.cjs.json",
     "watch:build": "tsc -p tsconfig.build.module.json -w",
-    "test:unit": "ava --verbose",
+    "test": "ava --verbose",
     "tsx": "node --env-file=.env --import=tsx",
     "release": "release-it",
     "publish": "npm run build && cd build && npm publish",

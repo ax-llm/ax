@@ -59,7 +59,7 @@ test('generate prompt', async (t) => {
   );
   gen.setExamples(examples);
 
-  const res = await gen.forward({ someText });
+  const res = await gen.forward({ someText }, { stream: false });
 
   t.deepEqual(res, {
     reason: 'Blah blah blah',
