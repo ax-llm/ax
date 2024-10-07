@@ -1,6 +1,6 @@
 import { AxAI, AxAIOpenAIModel, AxGenerate } from '@ax-llm/ax';
 
-const chatMessage = `Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Let me know what time works best for you. Thanks!`;
+const chatMessage = `Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!`;
 
 const currentDate = new Date().toUTCString();
 
@@ -13,10 +13,11 @@ const ai = new AxAI({
     'model-a': AxAIOpenAIModel.GPT4OMini
   }
 });
+ai.setOptions({ debug: true });
 
 const gen = new AxGenerate(
   ai,
-  `chatMessage, currentDate -> subject, foundMeeting:boolean, dateMentioned:datetime`
+  `chatMessage, currentDate -> subject, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[]`
 );
 
 const res = await gen.forward(

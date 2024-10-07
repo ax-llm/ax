@@ -1,21 +1,35 @@
 import test from 'ava';
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
+import type { AxField } from './sig.js';
 
-test('datetime parsing', (t) => {
-  const dt = parseLLMFriendlyDateTime('2022-01-01 12:00:00 EST');
+const field: AxField = {
+  name: 'date',
+  type: { name: 'date', isArray: false }
+};
+
+test('datetime parsing with timezone abbr', (t) => {
+  const dt = parseLLMFriendlyDateTime(field, '2022-01-01 12:00 EST');
+  t.is(dt.toUTCString(), 'Sat, 01 Jan 2022 17:00:00 GMT');
+});
+
+test('datetime parsing with full timezone', (t) => {
+  const dt = parseLLMFriendlyDateTime(
+    field,
+    '2022-01-01 12:00 America/New_York'
+  );
   t.is(dt.toUTCString(), 'Sat, 01 Jan 2022 17:00:00 GMT');
 });
 
 test('datetime parsing: invalid datetime value', (t) => {
-  t.throws(() => parseLLMFriendlyDateTime('2022-01-01 12:00:00'));
+  t.throws(() => parseLLMFriendlyDateTime(field, '2022-01-01 12:00'));
 });
 
 test('date parsing', (t) => {
-  const dt = parseLLMFriendlyDate('2022-01-01');
+  const dt = parseLLMFriendlyDate(field, '2022-01-01');
   t.is(dt.toUTCString(), 'Sat, 01 Jan 2022 00:00:00 GMT');
 });
 
 test('date parsing: invalid date value', (t) => {
-  t.throws(() => parseLLMFriendlyDate('2022-01-32'));
+  t.throws(() => parseLLMFriendlyDate(field, '2022-01-32'));
 });

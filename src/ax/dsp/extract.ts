@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */
+
 import JSON5 from 'json5';
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
@@ -47,14 +48,10 @@ export const streamingExtractValues = (
         .replace(/---+$/, '')
         .trim();
 
-      if (state.currField.type?.name === 'json') {
-        values[state.currField.name] = validateAndParseJson(
-          state.currField,
-          val
-        );
-      } else {
-        values[state.currField.name] = val;
-      }
+      values[state.currField.name] = validateAndParseFieldValue(
+        state.currField,
+        val
+      );
     }
 
     state.s = e + prefix.length + 1;
@@ -73,108 +70,104 @@ export const streamingExtractFinalValue = (
   }
   const val = content.substring(state.s).trim().replace(/---+$/, '').trim();
 
-  if (state.currField.type?.name === 'json') {
-    values[state.currField.name] = validateAndParseJson(state.currField, val);
-  } else {
-    values[state.currField.name] = convertValueToType(state.currField, val);
-  }
+  values[state.currField.name] = validateAndParseFieldValue(
+    state.currField,
+    val
+  );
 };
 
-const validateAndParseSingleValue = (
-  expectedType: string,
-  val: unknown
-): boolean | Date => {
-  switch (expectedType) {
-    case 'string':
-      return typeof val === 'string';
-    case 'number':
-      return typeof val === 'number';
-    case 'boolean':
-      return typeof val === 'boolean';
-    case 'date':
-      return typeof val === 'string' ? parseLLMFriendlyDate(val) : false;
-    case 'datetime':
-      return typeof val === 'string' ? parseLLMFriendlyDateTime(val) : false;
-    case 'json':
-      return typeof val === 'object' || Array.isArray(val);
-    default:
-      return false; // Unknown type
-  }
-};
-
-const convertValueToType = (field: Readonly<AxField>, val: unknown) => {
-  if (field.isOptional && (!val || val === '')) {
-    return;
-  }
+const convertValueToType = (field: Readonly<AxField>, val: string) => {
   switch (field.type?.name) {
     case 'string':
       return val as string;
-    case 'number':
-      return Number(val);
-    case 'boolean':
-      return Boolean(val);
+    case 'number': {
+      const v = Number(val);
+      if (Number.isNaN(v)) {
+        throw new Error('Invalid number');
+      }
+      return v;
+    }
+    case 'boolean': {
+      const v = val.toLowerCase();
+      if (v === 'true') {
+        return true;
+      } else if (v === 'false') {
+        return false;
+      } else {
+        throw new Error('Invalid boolean');
+      }
+    }
     case 'date':
-      return parseLLMFriendlyDate(val as string);
+      return parseLLMFriendlyDate(field, val as string);
     case 'datetime':
-      return parseLLMFriendlyDateTime(val as string);
+      return parseLLMFriendlyDateTime(field, val as string);
     default:
       return val as string; // Unknown type
   }
 };
 
-function validateAndParseJson(
-  field: Readonly<NonNullable<AxField>>,
-  jsonString: string
+const expectedTypeError = (
+  field: Readonly<AxField>,
+  err: Readonly<Error>,
+  value: string | undefined = ''
+) => {
+  const exp = field.type?.isArray
+    ? `array of ${field.type.name}`
+    : field.type?.name;
+  const message = `Error '${err.message}', expected '${exp}' got '${value}'`;
+  return new ValidationError({ message, field, value });
+};
+
+function validateAndParseFieldValue(
+  field: Readonly<AxField>,
+  fieldValue: string | undefined
 ): unknown {
-  const typeObj = field.type;
-
-  if (!typeObj) {
-    return jsonString;
+  if (
+    !fieldValue ||
+    fieldValue === '' ||
+    fieldValue.toLocaleLowerCase() === 'null'
+  ) {
+    if (field.isOptional) {
+      return;
+    }
+    throw expectedTypeError(field, new Error('Empty value'), fieldValue);
   }
+  let value: unknown = fieldValue;
 
-  const text = extractBlock(jsonString);
-
-  // Attempt to parse the JSON string based on the expected type, if not a string
-  let value: unknown;
-  if (typeObj.name !== 'string' || typeObj.isArray) {
+  if (field.type?.name === 'json') {
     try {
+      const text = extractBlock(fieldValue);
       value = JSON5.parse(text);
+      return value;
     } catch (e) {
-      const exp = typeObj.isArray ? `array of ${typeObj.name}` : typeObj.name;
-      const message = `Error '${(e as Error).message}', expected '${exp}' got '${text}'`;
-      throw new ValidationError({ message, field, value: text });
+      throw expectedTypeError(field, e as Error, fieldValue);
     }
-  } else {
-    // If the expected type is a string and not an array, use the jsonString directly
-    value = text;
   }
 
-  // Now, validate the parsed value or direct string
-  if (typeObj.isArray) {
-    if (!Array.isArray(value)) {
-      const message = `Expected an array, but got '${typeof value}'.`;
-      throw new ValidationError({ message, field, value: jsonString });
+  if (field.type?.isArray) {
+    try {
+      value = JSON5.parse(fieldValue);
+      if (!Array.isArray(value)) {
+        throw new Error('Expected an array');
+      }
+    } catch (e) {
+      throw expectedTypeError(field, e as Error, fieldValue);
     }
+  }
+
+  if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      const val = validateAndParseSingleValue(typeObj.name, item);
-      if (typeof val === 'boolean' && !val) {
-        const message = `Expected all items in array to be of type '${
-          typeObj.name
-        }', but found an item of type '${typeof item}'.`;
-        throw new ValidationError({ message, field, value: jsonString });
-      } else if (val instanceof Date) {
-        value[index] = val;
+      try {
+        value[index] = convertValueToType(field, item);
+      } catch (e) {
+        throw expectedTypeError(field, e as Error, item);
       }
     }
   } else {
-    const val = validateAndParseSingleValue(typeObj.name, value);
-    if (typeof val === 'boolean' && !val) {
-      const message = `Expected value of type '${
-        typeObj.name
-      }', but got '${typeof value}'.`;
-      throw new ValidationError({ message, field, value: jsonString });
-    } else if (val instanceof Date) {
-      return val;
+    try {
+      value = convertValueToType(field, fieldValue);
+    } catch (e) {
+      throw expectedTypeError(field, e as Error, fieldValue);
     }
   }
 

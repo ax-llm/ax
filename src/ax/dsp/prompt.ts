@@ -47,7 +47,7 @@ export class AxPromptTemplate {
     this.outputFormat = {
       type: 'text' as const,
       text: [
-        'Use the following output format.',
+        'Use the following key-value output format as is for the output fields.',
         ...this.renderOutFields(this.sig.getOutputFields()),
         '---\n\n'
       ].join('\n\n')
@@ -359,7 +359,7 @@ const toVarDesc = (type?: Readonly<AxField['type']>) => {
         description = 'date in "YYYY-MM-DD" format';
         break;
       case 'datetime':
-        description = 'date in "YYYY-MM-DD HH:mm:ss Timezone" format';
+        description = 'date time in "YYYY-MM-DD HH:mm Timezone" format';
         break;
       case 'json':
         description = 'a JSON object';
