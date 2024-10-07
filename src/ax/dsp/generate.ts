@@ -380,7 +380,7 @@ export class AxGenerate<
             sessionId,
             traceId,
             modelConfig,
-            stream: doStream
+            stream: doStream = true
           } = options ?? {};
           const stream = canStream && doStream;
 

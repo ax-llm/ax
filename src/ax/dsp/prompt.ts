@@ -355,6 +355,12 @@ const toVarDesc = (type?: Readonly<AxField['type']>) => {
       case 'boolean':
         description = 'a boolean';
         break;
+      case 'date':
+        description = 'date in "YYYY-MM-DD" format';
+        break;
+      case 'datetime':
+        description = 'date in "YYYY-MM-DD HH:mm:ss Timezone" format';
+        break;
       case 'json':
         description = 'a JSON object';
         break;

@@ -35,24 +35,24 @@ We've renamed from "llmclient" to "ax" to highlight our focus on powering agenti
 
 Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made up of a `"task description" inputField:type "field description" -> "outputField:type`. The idea behind prompt signatures is based on work done in the "Demonstrate-Search-Predict" paper.
 
-You can have multiple input and output fields, and each field can be of the types `string`, `number`, `boolean`, `JSON`, or an array of any of these, e.g., `string[]`. When a type is not defined, it defaults to `string`. The underlying AI is encouraged to generate the correct JSON when the `JSON` type is used.
+You can have multiple input and output fields, and each field can be of the types `string`, `number`, `boolean`, `date`, `datetime`, `JSON`, or an array of any of these, e.g., `string[]`. When a type is not defined, it defaults to `string`. The underlying AI is encouraged to generate the correct JSON when the `JSON` type is used.
 
 ## LLMs Supported
 
-| Provider      | Best Models             | Tested  |
-| ------------- | ----------------------- | ------- |
-| OpenAI        | GPT: All 4 models       | 🟢 100% |
-| Azure OpenAI  | GPT: All 4 models       | 🟢 100% |
-| Together      | Several OSS Models      | 🟢 100% |
-| Cohere        | CommandR, Command       | 🟢 100% |
-| Anthropic     | Claude 2, Claude 3      | 🟢 100% |
-| Mistral       | 7B, 8x7B, S, L          | 🟢 100% |
-| Groq          | Lama2-70B, Mixtral-8x7b | 🟢 100% |
-| DeepSeek      | Chat and Code           | 🟢 100% |
-| Ollama        | All models              | 🟢 100% |
-| Google Gemini | Gemini: Flash, Pro      | 🟢 100% |
-| Hugging Face  | OSS Model               | 🟡 50%  |
-| Reka          | Core, Flash, Edge       | 🟡 50%  |
+| Provider      | Best Models               | Tested  |
+| ------------- | ------------------------- | ------- |
+| OpenAI        | GPT: All 4/o1 models      | 🟢 100% |
+| Azure OpenAI  | GPT: All 4/o1 models      | 🟢 100% |
+| Together      | Several OSS Models        | 🟢 100% |
+| Cohere        | CommandR, Command         | 🟢 100% |
+| Anthropic     | Claude 2, Claude 3        | 🟢 100% |
+| Mistral       | 7B, 8x7B, S, L            | 🟢 100% |
+| Groq          | Lama2-70B, Mixtral-8x7b   | 🟢 100% |
+| DeepSeek      | Chat and Code             | 🟢 100% |
+| Ollama        | All models                | 🟢 100% |
+| Google Gemini | Gemini: Flash, Pro, Gemma | 🟢 100% |
+| Hugging Face  | OSS Model                 | 🟡 50%  |
+| Reka          | Core, Flash, Edge         | 🟡 50%  |
 
 ## Install
 

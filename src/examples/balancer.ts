@@ -15,7 +15,7 @@ const ai1 = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   modelMap: {
-    chill: AxAIOpenAIModel.GPT35Turbo,
+    chill: AxAIOpenAIModel.GPT4OMini,
     genius: AxAIOpenAIModel.GPT4Turbo
   }
 });

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import JSON5 from 'json5';
 
+import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
 import type { AxField, AxSignature } from './sig.js';
 
 export const extractValues = (
@@ -75,7 +76,52 @@ export const streamingExtractFinalValue = (
   if (state.currField.type?.name === 'json') {
     values[state.currField.name] = validateAndParseJson(state.currField, val);
   } else {
-    values[state.currField.name] = val;
+    values[state.currField.name] = convertValueToType(
+      state.currField.type?.name ?? 'string',
+      val
+    );
+  }
+};
+
+const validateAndParseSingleValue = (
+  expectedType: string,
+  val: unknown
+): boolean | Date => {
+  switch (expectedType) {
+    case 'string':
+      return typeof val === 'string';
+    case 'number':
+      return typeof val === 'number';
+    case 'boolean':
+      return typeof val === 'boolean';
+    case 'date':
+      return typeof val === 'string' ? parseLLMFriendlyDate(val) : false;
+    case 'datetime':
+      return typeof val === 'string' ? parseLLMFriendlyDateTime(val) : false;
+    case 'json':
+      return typeof val === 'object' || Array.isArray(val);
+    default:
+      return false; // Unknown type
+  }
+};
+
+const convertValueToType = (
+  expectedType: string,
+  val: unknown
+): string | number | boolean | Date => {
+  switch (expectedType) {
+    case 'string':
+      return val as string;
+    case 'number':
+      return Number(val);
+    case 'boolean':
+      return Boolean(val);
+    case 'date':
+      return parseLLMFriendlyDate(val as string);
+    case 'datetime':
+      return parseLLMFriendlyDateTime(val as string);
+    default:
+      return val as string; // Unknown type
   }
 };
 
@@ -107,40 +153,31 @@ function validateAndParseJson(
   }
 
   // Now, validate the parsed value or direct string
-  const validateSingleValue = (expectedType: string, val: unknown): boolean => {
-    switch (expectedType) {
-      case 'string':
-        return typeof val === 'string';
-      case 'number':
-        return typeof val === 'number';
-      case 'boolean':
-        return typeof val === 'boolean';
-      case 'json':
-        return typeof val === 'object' || Array.isArray(val);
-      default:
-        return false; // Unknown type
-    }
-  };
-
   if (typeObj.isArray) {
     if (!Array.isArray(value)) {
       const message = `Expected an array, but got '${typeof value}'.`;
       throw new ValidationError({ message, field, value: jsonString });
     }
-    for (const item of value) {
-      if (!validateSingleValue(typeObj.name, item)) {
+    for (const [index, item] of value.entries()) {
+      const val = validateAndParseSingleValue(typeObj.name, item);
+      if (typeof val === 'boolean' && !val) {
         const message = `Expected all items in array to be of type '${
           typeObj.name
         }', but found an item of type '${typeof item}'.`;
         throw new ValidationError({ message, field, value: jsonString });
+      } else if (val instanceof Date) {
+        value[index] = val;
       }
     }
   } else {
-    if (!validateSingleValue(typeObj.name, value)) {
+    const val = validateAndParseSingleValue(typeObj.name, value);
+    if (typeof val === 'boolean' && !val) {
       const message = `Expected value of type '${
         typeObj.name
       }', but got '${typeof value}'.`;
       throw new ValidationError({ message, field, value: jsonString });
+    } else if (val instanceof Date) {
+      return val;
     }
   }
 

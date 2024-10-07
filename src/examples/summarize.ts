@@ -8,7 +8,7 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: 'model-a' },
   modelMap: {
-    'model-a': AxAIOpenAIModel.GPT35Turbo
+    'model-a': AxAIOpenAIModel.GPT4OMini
   }
 });
 

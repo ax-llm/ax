@@ -9,7 +9,14 @@ export interface AxField {
   title?: string;
   description?: string;
   type?: {
-    name: 'string' | 'number' | 'boolean' | 'json' | 'image'; // extend this as needed
+    name:
+      | 'string'
+      | 'number'
+      | 'boolean'
+      | 'json'
+      | 'image'
+      | 'date'
+      | 'datetime'; // extend this as needed
     isArray: boolean;
   };
   isOptional?: boolean;
@@ -246,6 +253,7 @@ function validateField(field: Readonly<AxField>): void {
       'boolean',
       'json',
       'array',
+      'datetime',
       'date',
       'time',
       'type'

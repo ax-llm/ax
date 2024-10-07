@@ -23,7 +23,7 @@ ParsedType = type:Type isArray:("[]")? {
     	return { name: type, isArray: isArray ? true : false }
 }
 
-Type = "string" / "number" / "boolean" / "json" / "image"
+Type = "string" / "number" / "boolean" / "json" / "image" / "datetime" / "date"
 
 
 ParsedIdentifier = chars:[a-zA-Z_0-9]* {
