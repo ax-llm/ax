@@ -1,5 +1,14 @@
 
 
+## [9.0.56](https://github.com/ax-llm/ax/compare/9.0.54...9.0.55) (2024-10-08)
+
+## [9.0.55](https://github.com/ax-llm/ax/compare/9.0.54...9.0.55) (2024-10-07)
+
+
+### Bug Fixes
+
+* value parseing ([5a6c0e3](https://github.com/ax-llm/ax/commit/5a6c0e349e4868f68f2f3b7fe63dfeb14d5f9a13))
+
 ## [9.0.55](https://github.com/ax-llm/ax/compare/9.0.53...9.0.54) (2024-10-07)
 
 
