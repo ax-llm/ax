@@ -1,5 +1,14 @@
 
 
+## [9.0.57](https://github.com/ax-llm/ax/compare/9.0.55...9.0.56) (2024-10-08)
+
+
+### Bug Fixes
+
+* date time with seconds support ([abae15e](https://github.com/ax-llm/ax/commit/abae15eeb5fcaac38b046ee75e453771eec63ef6))
+
+## [9.0.56](https://github.com/ax-llm/ax/compare/9.0.55...9.0.56) (2024-10-08)
+
 ## [9.0.56](https://github.com/ax-llm/ax/compare/9.0.54...9.0.55) (2024-10-08)
 
 ## [9.0.55](https://github.com/ax-llm/ax/compare/9.0.54...9.0.55) (2024-10-07)
