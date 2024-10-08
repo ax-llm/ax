@@ -47,7 +47,7 @@ export class AxPromptTemplate {
     this.outputFormat = {
       type: 'text' as const,
       text: [
-        'Use the following key-value output format as is for the output fields.',
+        'Use the following key-value output format for the output not JSON or a markdown block.',
         ...this.renderOutFields(this.sig.getOutputFields()),
         '---\n\n'
       ].join('\n\n')

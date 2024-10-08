@@ -136,7 +136,7 @@ export const assertRequiredFields = (
   const missingFields = fields.filter((f) => !(f.name in values));
   if (missingFields.length > 0) {
     throw new AxAssertionError({
-      message: `Output must include: t: ${missingFields.map((f) => `\`${f.title}:\``).join(', ')}`,
+      message: `Output must include: ${missingFields.map((f) => `\`${f.title}:\``).join(', ')}`,
       values
     });
   }
