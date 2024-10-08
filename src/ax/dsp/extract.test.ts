@@ -13,6 +13,11 @@ test('datetime parsing with timezone abbr', (t) => {
   t.is(dt.toUTCString(), 'Sat, 01 Jan 2022 17:00:00 GMT');
 });
 
+test('datetime parsing with seconds and timezone abbr', (t) => {
+  const dt = parseLLMFriendlyDateTime(field, '2022-01-01 12:00:10 EST');
+  t.is(dt.toUTCString(), 'Sat, 01 Jan 2022 17:00:10 GMT');
+});
+
 test('datetime parsing with full timezone', (t) => {
   const dt = parseLLMFriendlyDateTime(
     field,

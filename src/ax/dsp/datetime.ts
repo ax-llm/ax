@@ -45,11 +45,11 @@ export function parseLLMFriendlyDateTime(
 
 function _parseLLMFriendlyDateTime(dateTimeStr: string) {
   // Validate the date and time string format
-  const dateTimeRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (.+)$/;
+  const dateTimeRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?) (.+)$/;
   const match = dateTimeStr.match(dateTimeRegex);
   if (!match) {
     throw new Error(
-      'Invalid date and time format. Please provide the date and time in "YYYY-MM-DD HH:mm Timezone" format.'
+      'Invalid date and time format. Please provide the date and time in "YYYY-MM-DD HH:mm" or "YYYY-MM-DD HH:mm:ss" format, followed by the timezone.'
     );
   }
 
@@ -57,7 +57,7 @@ function _parseLLMFriendlyDateTime(dateTimeStr: string) {
 
   if (!dateTime || !timeZone) {
     throw new Error(
-      'Invalid date and time format. Please provide the date and time in "YYYY-MM-DD HH:mm Timezone" format.'
+      'Invalid date and time format. Please provide the date and time in "YYYY-MM-DD HH:mm" or "YYYY-MM-DD HH:mm:ss" format, followed by the timezone.'
     );
   }
 
@@ -72,7 +72,11 @@ function _parseLLMFriendlyDateTime(dateTimeStr: string) {
   }
 
   // Parse the date and time in the specified time zone
-  const date = moment.tz(dateTime, 'YYYY-MM-DD HH:mm', zone.name);
+  const date = moment.tz(
+    dateTime,
+    ['YYYY-MM-DD HH:mm', 'YYYY-MM-DD HH:mm:ss'],
+    zone.name
+  );
 
   // Check if the date and time are valid
   if (!date.isValid()) {
