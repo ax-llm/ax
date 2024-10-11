@@ -1,5 +1,20 @@
 
 
+## [9.0.58](https://github.com/ax-llm/ax/compare/9.0.56...9.0.57) (2024-10-11)
+
+
+### Features
+
+* new classification type in dspy signature ([d152eb7](https://github.com/ax-llm/ax/commit/d152eb70085e5da2ebf7b92fc7a6de3be54cb337))
+* new classification type in dspy signature ([3816f80](https://github.com/ax-llm/ax/commit/3816f8015068090ec7cd2309b8a7b5f516168825))
+
+## [9.0.57](https://github.com/ax-llm/ax/compare/9.0.56...9.0.57) (2024-10-08)
+
+
+### Bug Fixes
+
+* date time with seconds support ([abae15e](https://github.com/ax-llm/ax/commit/abae15eeb5fcaac38b046ee75e453771eec63ef6))
+
 ## [9.0.57](https://github.com/ax-llm/ax/compare/9.0.55...9.0.56) (2024-10-08)
 
 
