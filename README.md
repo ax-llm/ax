@@ -47,13 +47,11 @@ You can have multiple input and output fields, and each field can be of the type
 | `date`                    | A date value.                     | `startDate:date`           | `"2023-10-01"`                                     |
 | `datetime`                | A date and time value.            | `createdAt:datetime`       | `"2023-10-01T12:00:00Z"`                           |
 | `class "class1,class2"`   | A classification of items.        | `category:class`           | `["class1", "class2", "class3"]`                   |
-| `JSON`                    | A JSON object.                    | `userProfile:JSON`         | `{"key": "value"}`                                 |
 | `string[]`                | An array of strings.              | `tags:string[]`            | `["example1", "example2"]`                         |
 | `number[]`                | An array of numbers.              | `scores:number[]`          | `[1, 2, 3]`                                        |
 | `boolean[]`               | An array of boolean values.       | `permissions:boolean[]`    | `[true, false, true]`                              |
 | `date[]`                  | An array of dates.                | `holidayDates:date[]`      | `["2023-10-01", "2023-10-02"]`                     |
 | `datetime[]`              | An array of date and time values. | `logTimestamps:datetime[]` | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]` |
-| `JSON[]`                  | An array of JSON objects.         | `userProfiles:JSON[]`      | `[{"key1": "value1"}, {"key2": "value2"}]`         |
 | `class[] "class1,class2"` | Multiple classes                  | `categories:class[]`       | `["class1", "class2", "class3"]`                   |
 
 
