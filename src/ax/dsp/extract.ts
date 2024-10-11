@@ -101,6 +101,13 @@ const convertValueToType = (field: Readonly<AxField>, val: string) => {
       return parseLLMFriendlyDate(field, val as string);
     case 'datetime':
       return parseLLMFriendlyDateTime(field, val as string);
+    case 'class':
+      if (field.type.classes && !field.type.classes.includes(val)) {
+        throw new Error(
+          `Invalid class '${val}', expected one of the following: ${field.type.classes.join(', ')}`
+        );
+      }
+      return val as string;
     default:
       return val as string; // Unknown type
   }
@@ -122,11 +129,8 @@ function validateAndParseFieldValue(
   field: Readonly<AxField>,
   fieldValue: string | undefined
 ): unknown {
-  if (
-    !fieldValue ||
-    fieldValue === '' ||
-    fieldValue.toLocaleLowerCase() === 'null'
-  ) {
+  const fv = fieldValue?.toLocaleLowerCase();
+  if (!fieldValue || !fv || fv === '' || fv === 'null' || fv === 'undefined') {
     if (field.isOptional) {
       return;
     }

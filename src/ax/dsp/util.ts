@@ -44,6 +44,10 @@ export const validateValue = (
         return typeof val === 'number';
       case 'boolean':
         return typeof val === 'boolean';
+      case 'date':
+        return val instanceof Date || typeof val === 'string';
+      case 'datetime':
+        return val instanceof Date || typeof val === 'string';
       default:
         return false; // Unknown or unsupported type
     }

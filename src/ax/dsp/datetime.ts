@@ -88,3 +88,9 @@ function _parseLLMFriendlyDateTime(dateTimeStr: string) {
   // Convert to UTC
   return date.utc().toDate();
 }
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export const formatDateWithTimezone = (date: Readonly<Date>) => {
+  const momentDate = moment(date).utc();
+  return momentDate.format(`YYYY-MM-DD HH:mm:ss UTC`);
+};

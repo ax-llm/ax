@@ -60,7 +60,6 @@
     "prettier": "^3.2.5",
     "release-it": "^17.4.0",
     "standard-version": "^9.5.0",
-    "ts-pegjs": "^4.2.1",
     "tsx": "^4.7.1",
     "typedoc": "^0.26.3",
     "typedoc-plugin-frontmatter": "^1.0.0",

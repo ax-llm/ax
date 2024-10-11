@@ -2,7 +2,12 @@ import { createHash } from 'crypto';
 
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 
-import { parse, type ParsedField } from './parser.js';
+import {
+  parseSignature,
+  type InputParsedField,
+  type OutputParsedField,
+  type ParsedSignature
+} from './parser.js';
 
 export interface AxField {
   name: string;
@@ -16,8 +21,10 @@ export interface AxField {
       | 'json'
       | 'image'
       | 'date'
-      | 'datetime'; // extend this as needed
+      | 'datetime'
+      | 'class';
     isArray: boolean;
+    classes?: string[];
   };
   isOptional?: boolean;
 }
@@ -34,11 +41,13 @@ export class AxSignature {
 
   constructor(signature: Readonly<AxSignature | string>) {
     if (typeof signature === 'string') {
-      let sig;
+      let sig: ParsedSignature;
       try {
-        sig = parse(signature);
+        sig = parseSignature(signature);
       } catch (e) {
-        throw new Error('invalid signature string: ' + signature);
+        throw new Error(
+          `Invalid Signature: ${(e as Error).message} (${signature})`
+        );
       }
       this.description = sig.desc;
       this.inputFields = sig.inputs.map((v) => this.parseParsedField(v));
@@ -59,7 +68,9 @@ export class AxSignature {
     }
   }
 
-  private parseParsedField = (field: Readonly<ParsedField>): AxIField => {
+  private parseParsedField = (
+    field: Readonly<InputParsedField | OutputParsedField>
+  ): AxIField => {
     if (!field.name || field.name.length === 0) {
       throw new Error('Field name is required.');
     }
@@ -68,7 +79,7 @@ export class AxSignature {
     return {
       name: field.name,
       title,
-      description: field.desc,
+      description: 'desc' in field ? field.desc : undefined,
       isOptional: field.isOptional,
       type: field.type ?? { name: 'string', isArray: false }
     };
@@ -239,7 +250,7 @@ function validateField(field: Readonly<AxField>): void {
 
   if (!isValidCase(field.name)) {
     throw new Error(
-      'Field name must be in camel case or snake case: ' + field.name
+      `Invalid field name '${field.name}', it must be camel case or snake case: `
     );
   }
 
@@ -256,12 +267,12 @@ function validateField(field: Readonly<AxField>): void {
       'datetime',
       'date',
       'time',
-      'type'
+      'type',
+      'class'
     ].includes(field.name)
   ) {
     throw new Error(
-      'Invalid field name, please make it more descriptive (eg. noteText): ' +
-        field.name
+      `Invalid field name '${field.name}', please make it more descriptive (eg. companyDescription)`
     );
   }
 }

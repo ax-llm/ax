@@ -23,6 +23,7 @@ test('extractValues with no prefix and single output', (t) => {
 
 test('extractValues with json', (t) => {
   const sig = new AxSignature(`question -> answer : json`);
+
   const v1 = {};
   extractValues(sig, v1, 'Answer: ```json\n{"hello": "world"}\n```');
 

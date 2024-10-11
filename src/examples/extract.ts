@@ -2,7 +2,7 @@ import { AxAI, AxAIOpenAIModel, AxGenerate } from '@ax-llm/ax';
 
 const chatMessage = `Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!`;
 
-const currentDate = new Date().toUTCString();
+const currentDate = new Date();
 
 // Example with OpenAI using custom labels in place of model names
 const ai = new AxAI({
@@ -17,7 +17,7 @@ ai.setOptions({ debug: true });
 
 const gen = new AxGenerate(
   ai,
-  `chatMessage, currentDate -> subject, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[]`
+  `chatMessage, currentDate:datetime -> subject, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[], messageType:class "reminder, follow-up, meeting, other"`
 );
 
 const res = await gen.forward(

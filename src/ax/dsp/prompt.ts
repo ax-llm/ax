@@ -1,5 +1,6 @@
 import type { AxChatRequest } from '../ai/types.js';
 
+import { formatDateWithTimezone } from './datetime.js';
 import { type AxFieldValue } from './program.js';
 import type { AxField, AxIField, AxSignature } from './sig.js';
 import { validateValue } from './util.js';
@@ -324,6 +325,13 @@ const processValue = (
   field: Readonly<AxField>,
   value: Readonly<AxFieldValue>
 ): AxFieldValue => {
+  if (field.type?.name === 'date' && value instanceof Date) {
+    const v = value.toISOString();
+    return v.slice(0, v.indexOf('T'));
+  }
+  if (field.type?.name === 'datetime' && value instanceof Date) {
+    return formatDateWithTimezone(value);
+  }
   if (field.type?.name === 'image' && typeof value === 'object') {
     return value;
   }
@@ -356,13 +364,16 @@ const toVarDesc = (type?: Readonly<AxField['type']>) => {
         description = 'a boolean';
         break;
       case 'date':
-        description = 'date in "YYYY-MM-DD" format';
+        description = 'a date ("YYYY-MM-DD" format)';
         break;
       case 'datetime':
-        description = 'date time in "YYYY-MM-DD HH:mm Timezone" format';
+        description = 'a date time ("YYYY-MM-DD HH:mm Timezone" format)';
         break;
       case 'json':
         description = 'a JSON object';
+        break;
+      case 'class':
+        description = `a classification class (allowed classes: ${type.classes?.join(', ')})`;
         break;
       default:
         description = 'an unknown type';
