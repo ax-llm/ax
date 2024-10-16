@@ -1,5 +1,19 @@
 
 
+## [9.0.61](https://github.com/ax-llm/ax/compare/9.0.59...9.0.60) (2024-10-16)
+
+
+### Bug Fixes
+
+* gemini embedding response fix ([6f93b0b](https://github.com/ax-llm/ax/commit/6f93b0bd5ad171768123898925d49ddc64b3ff06))
+
+## [9.0.60](https://github.com/ax-llm/ax/compare/9.0.59...9.0.60) (2024-10-16)
+
+
+### Bug Fixes
+
+* build fix ([e5000fa](https://github.com/ax-llm/ax/commit/e5000fa0728f18957b70d0b74655dcf6aa4671c9))
+
 ## [9.0.60](https://github.com/ax-llm/ax/compare/9.0.58...9.0.59) (2024-10-16)
 
 
