@@ -23,7 +23,7 @@
     "doc:api": "typedoc src/ax --tsconfig src/ax/tsconfig.build.module.json",
     "doc:html": "npm run build-doc --workspace=@ax-llm/ax-docs",
     "version": "standard-version",
-    "prepare": "npm run build:parser --workspace=@ax-llm/ax && npm run test",
+    "prepare": "npm run test",
     "release": "npm run release --workspaces --if-present && release-it --no-increment",
     "publish": "npm run publish --workspaces  --if-present -- --provenance --access public",
     "git-cz": "npx git-cz",
