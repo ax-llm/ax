@@ -171,6 +171,6 @@ export type AxAIGoogleGeminiBatchEmbedRequest = {
  */
 export type AxAIGoogleGeminiBatchEmbedResponse = {
   embeddings: {
-    value: number[];
+    values: number[];
   }[];
 };

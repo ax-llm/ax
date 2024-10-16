@@ -423,7 +423,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
   override generateEmbedResp = (
     resp: Readonly<AxAIGoogleGeminiBatchEmbedResponse>
   ): AxEmbedResponse => {
-    const embeddings = resp.embeddings.map((embedding) => embedding.value);
+    const embeddings = resp.embeddings.map((embedding) => embedding.values);
 
     return {
       embeddings
