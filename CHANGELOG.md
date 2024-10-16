@@ -1,5 +1,19 @@
 
 
+## [9.0.60](https://github.com/ax-llm/ax/compare/9.0.58...9.0.59) (2024-10-16)
+
+
+### Bug Fixes
+
+* build fix ([e5000fa](https://github.com/ax-llm/ax/commit/e5000fa0728f18957b70d0b74655dcf6aa4671c9))
+
+## [9.0.59](https://github.com/ax-llm/ax/compare/9.0.58...9.0.59) (2024-10-16)
+
+
+### Bug Fixes
+
+* gemini batch embed endpoint ([4ebad97](https://github.com/ax-llm/ax/commit/4ebad972fc7e9bef96ba20b707ab836aa2f2b73f))
+
 ## [9.0.59](https://github.com/ax-llm/ax/compare/9.0.57...9.0.58) (2024-10-16)
 
 
