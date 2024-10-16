@@ -1,5 +1,20 @@
 
 
+## [9.0.59](https://github.com/ax-llm/ax/compare/9.0.57...9.0.58) (2024-10-16)
+
+
+### Bug Fixes
+
+* gemini batch embed endpoint ([4ebad97](https://github.com/ax-llm/ax/commit/4ebad972fc7e9bef96ba20b707ab836aa2f2b73f))
+
+## [9.0.58](https://github.com/ax-llm/ax/compare/9.0.57...9.0.58) (2024-10-11)
+
+
+### Features
+
+* new classification type in dspy signature ([d152eb7](https://github.com/ax-llm/ax/commit/d152eb70085e5da2ebf7b92fc7a6de3be54cb337))
+* new classification type in dspy signature ([3816f80](https://github.com/ax-llm/ax/commit/3816f8015068090ec7cd2309b8a7b5f516168825))
+
 ## [9.0.58](https://github.com/ax-llm/ax/compare/9.0.56...9.0.57) (2024-10-11)
 
 
