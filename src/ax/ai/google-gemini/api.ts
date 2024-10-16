@@ -56,7 +56,7 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
 export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
   structuredClone({
     model: AxAIGoogleGeminiModel.Gemini15Pro,
-    embedModel: AxAIGoogleGeminiEmbedModel.Embedding001,
+    embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
     safetySettings,
     ...axBaseAIDefaultConfig()
   });
@@ -65,7 +65,7 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
     structuredClone({
       model: AxAIGoogleGeminiModel.Gemini15Flash,
-      embedModel: AxAIGoogleGeminiEmbedModel.Embedding001,
+      embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
       safetySettings,
       ...axBaseAIDefaultCreativeConfig()
     });
@@ -345,11 +345,14 @@ export class AxAIGoogleGemini extends AxBaseAI<
     }
 
     const apiConfig = {
-      name: `/models/${model}:batchEmbedText?key=${this.apiKey}`
+      name: `/models/${model}:batchEmbedContents?key=${this.apiKey}`
     };
 
     const reqValue: AxAIGoogleGeminiBatchEmbedRequest = {
-      requests: req.texts.map((text) => ({ model, text }))
+      requests: req.texts.map((text) => ({
+        model: 'models/' + model,
+        content: { parts: [{ text }] }
+      }))
     };
 
     return [apiConfig, reqValue];

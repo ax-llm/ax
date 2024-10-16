@@ -3,10 +3,10 @@ import { createHash } from 'crypto';
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 
 import {
-  parseSignature,
   type InputParsedField,
   type OutputParsedField,
-  type ParsedSignature
+  type ParsedSignature,
+  parseSignature
 } from './parser.js';
 
 export interface AxField {

@@ -10,7 +10,7 @@ export enum AxAIGoogleGeminiModel {
 }
 
 export enum AxAIGoogleGeminiEmbedModel {
-  Embedding001 = 'embedding-001'
+  TextEmbedding004 = 'text-embedding-004'
 }
 
 export enum AxAIGoogleGeminiSafetyCategory {
@@ -159,7 +159,9 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
 export type AxAIGoogleGeminiBatchEmbedRequest = {
   requests: {
     model: string;
-    text: string;
+    content: {
+      parts: { text: string }[];
+    };
   }[];
 };
 
