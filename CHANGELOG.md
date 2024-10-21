@@ -1,5 +1,19 @@
 
 
+## [10.0.0](https://github.com/ax-llm/ax/compare/9.0.60...9.0.61) (2024-10-21)
+
+
+### Features
+
+* new api allows for more flexibility ([fde4794](https://github.com/ax-llm/ax/commit/fde479493e376d6212d13612b99d84e0ab1c595c))
+
+## [9.0.61](https://github.com/ax-llm/ax/compare/9.0.60...9.0.61) (2024-10-16)
+
+
+### Bug Fixes
+
+* gemini embedding response fix ([6f93b0b](https://github.com/ax-llm/ax/commit/6f93b0bd5ad171768123898925d49ddc64b3ff06))
+
 ## [9.0.61](https://github.com/ax-llm/ax/compare/9.0.59...9.0.60) (2024-10-16)
 
 
