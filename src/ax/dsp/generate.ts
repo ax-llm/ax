@@ -348,7 +348,7 @@ export class AxGen<
         const funcs = parseFunctions(ai, result.functionCalls, values);
 
         if (funcs) {
-          await this.processFunctions(funcs, mem, sessionId, traceId);
+          await this.processFunctions(ai, funcs, mem, sessionId, traceId);
         }
       }
 
