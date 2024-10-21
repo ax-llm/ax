@@ -78,11 +78,11 @@ class GoogleSearch {
 Just set the function on the prompt
 
 ```typescript
-const prompt = new Generate(ai, 'inputs -> output', { functions: [ googleSearch ] })
+const prompt = new AxGen('inputs -> output', { functions: [ googleSearch ] })
 ```
 
 Or in the case of function classes
 
 ```typescript
-const prompt = new Generate(ai, 'inputs -> output', { functions: [ new GoogleSearch(apiKey) ] })
+const prompt = new AxGen('inputs -> output', { functions: [ new GoogleSearch(apiKey) ] })
 ```

@@ -150,7 +150,10 @@ const signature = new AxSignature(
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string
+  //   config: { model: AxAIOpenAIModel.GPT4OMini }
 });
+
+// ai.setOptions({ debug: true });
 
 // const ai = new AxAI({
 //   name: 'groq',
@@ -174,7 +177,7 @@ const ai = new AxAI({
 
 // ai.setOptions({ debug: true });
 
-const gen = new AxAgent(ai, {
+const gen = new AxAgent({
   name: 'food-search',
   description:
     'Use this agent to find restaurants based on what the customer wants',
@@ -182,6 +185,6 @@ const gen = new AxAgent(ai, {
   functions
 });
 
-const res = await gen.forward({ customerQuery }, { stream: false });
+const res = await gen.forward(ai, { customerQuery }, { stream: true });
 
 console.log('>', res);

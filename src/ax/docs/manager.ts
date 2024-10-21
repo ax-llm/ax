@@ -114,7 +114,7 @@ export class AxDBManager {
 
     if (typeof texts[0] === 'string' && this.rewriter) {
       for (const [i, text] of texts.entries()) {
-        const { rewrittenQuery } = await this.rewriter.forward({
+        const { rewrittenQuery } = await this.rewriter.forward(this.ai, {
           query: text
         });
         texts[i] = rewrittenQuery;
@@ -147,7 +147,7 @@ export class AxDBManager {
       const resultItems = tp ? getTopInPercent(m, tp) : m;
 
       if (this.reranker) {
-        const { rankedItems } = await this.reranker.forward({
+        const { rankedItems } = await this.reranker.forward(this.ai, {
           query: texts[0] as string,
           items: resultItems.map((item) => item.text)
         });

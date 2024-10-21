@@ -94,7 +94,7 @@ const app = new Hono();
 // Endpoint to get questions and return answers
 app.post('/get-answer', async (c) => {
   // RAG instance for processing queries using recursive answers generation
-  const rag = new AxRAG(ai, fetchFromVectorDB, { maxHops: 1 });
+  const rag = new AxRAG(fetchFromVectorDB, { maxHops: 1 });
 
   // Extract question from request body
   const question = c.req.body.question;
@@ -106,7 +106,7 @@ app.post('/get-answer', async (c) => {
 
   try {
     // Process the question using RAG
-    const answer = await rag.forward({ question });
+    const answer = await rag.forward(ai, { question });
 
     // Return the answer in JSON format
     return c.json({ answer });

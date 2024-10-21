@@ -6,7 +6,7 @@
     "lint": "npx eslint src --ext .ts,.tsx",
     "lint:fix": "npx eslint src --ext .ts,.tsx --fix",
     "build": "rm -rf dist/* && npx tsc && npx tsc-alias && npm run build:web",
-    "build:web": "(cd ../web-ui && npm run build && cp -r dist/ ../api/dist/public)",
+    "build:web": "(cd ../web-ui && npm run build && cp -r dist/ ../web-api/dist/public)",
     "start": "npm run tsx ./dist/index.js",
     "dev": "npm run tsx -- --watch ./src/index.ts",
     "tsx": "node --env-file=.env --import=tsx --no-warnings --trace-warnings  --trace-deprecation"

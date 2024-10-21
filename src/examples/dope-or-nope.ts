@@ -29,7 +29,6 @@ const ai = new AxAI({
 
 // Setup the program to tune
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-  ai,
   `question -> answer:number "numerical rating from 1 to 4"`
 );
 
@@ -40,6 +39,7 @@ const optimize = new AxBootstrapFewShot<
   { question: string },
   { answer: string }
 >({
+  ai,
   program,
   examples
 });

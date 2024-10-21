@@ -8,7 +8,6 @@ export * from './loader.js';
 export * from './strutil.js';
 export * from './router.js';
 export * from './loader.js';
-export * from './gen2.js';
 
 export type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 export type { AxPromptTemplate, AxFieldTemplateFn } from './prompt.js';

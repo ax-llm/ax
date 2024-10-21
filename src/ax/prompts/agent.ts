@@ -1,5 +1,5 @@
 import type { AxAIService, AxFunction } from '../ai/types.js';
-import { type AxGenerateOptions, AxSignature } from '../dsp/index.js';
+import { type AxGenOptions, AxSignature } from '../dsp/index.js';
 import {
   type AxGenIn,
   type AxGenOut,
@@ -19,16 +19,16 @@ export interface AxAgentic extends AxTunable, AxUsable {
   getFunction(): AxFunction;
 }
 
-export type AxAgentOptions = Omit<
-  AxGenerateOptions,
-  'functions' | 'functionCall'
->;
+export type AxAgentOptions = Omit<AxGenOptions, 'functions' | 'functionCall'>;
 
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic
 {
+  private ai?: AxAIService;
   private signature: AxSignature;
   private program: AxProgramWithSignature<IN, OUT>;
+  private functions?: AxFunction[];
+  private agents?: AxAgentic[];
 
   private name: string;
   private description: string;
@@ -36,14 +36,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private func: AxFunction;
 
   constructor(
-    ai: AxAIService,
     {
+      ai,
       name,
       description,
       signature,
       agents,
       functions
     }: Readonly<{
+      ai?: Readonly<AxAIService>;
       name: string;
       description: string;
       signature: AxSignature | string;
@@ -52,22 +53,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
+    this.ai = ai;
     this.signature = new AxSignature(signature);
+    this.functions = functions;
+    this.agents = agents;
 
     const funcs: AxFunction[] = [
       ...(functions ?? []),
       ...(agents?.map((a) => a.getFunction()) ?? [])
     ];
 
-    const opt = {
-      ...options,
-      functions: funcs
-    };
+    const opt = { ...options, functions: funcs };
 
     this.program =
       funcs.length > 0
-        ? new AxReAct<IN, OUT>(ai, this.signature, opt)
-        : new AxChainOfThought<IN, OUT>(ai, this.signature, opt);
+        ? new AxReAct<IN, OUT>(this.signature, opt)
+        : new AxChainOfThought<IN, OUT>(this.signature, opt);
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -128,18 +129,34 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   public getFunction(): AxFunction {
     const boundFunc = this.forward.bind(this);
+
+    // Create a wrapper function that excludes the 'ai' parameter
+    const wrappedFunc = (
+      values: IN,
+      options?: Readonly<AxProgramForwardOptions>
+    ) => {
+      const ai = this.ai ?? options?.ai;
+      if (!ai) {
+        throw new Error('AI service is required to run the agent');
+      }
+      return boundFunc(ai, values, options);
+    };
+
     return {
       ...this.func,
-      func: boundFunc
+      func: wrappedFunc
     };
   }
 
   public async forward(
+    ai: Readonly<AxAIService>,
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
+    const _ai = this.ai ?? ai;
+
     if (!options?.tracer) {
-      return await this.program.forward(values, options);
+      return await this.program.forward(_ai, values, options);
     }
 
     const attributes = {
@@ -155,7 +172,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         attributes
       },
       async (span) => {
-        const res = await this.program.forward(values, options);
+        const res = await this.program.forward(_ai, values, options);
         span.end();
         return res;
       }

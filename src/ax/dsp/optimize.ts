@@ -1,3 +1,5 @@
+import type { AxAIService } from '../ai/types.js';
+
 import type {
   AxFieldValue,
   AxGenIn,
@@ -17,6 +19,7 @@ export type AxMetricFn = <T extends AxGenOut = AxGenOut>(
 export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
 
 export type AxOptimizerArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
+  ai: AxAIService;
   program: Readonly<AxProgram<IN, OUT>>;
   examples: Readonly<AxExample[]>;
   options?: { maxRounds?: number; maxExamples?: number; maxDemos?: number };
@@ -26,6 +29,7 @@ export class AxBootstrapFewShot<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut
 > {
+  private ai: AxAIService;
   private program: Readonly<AxProgram<IN, OUT>>;
   private examples: Readonly<AxExample[]>;
   private maxRounds: number;
@@ -34,6 +38,7 @@ export class AxBootstrapFewShot<
   private traces: AxProgramTrace[] = [];
 
   constructor({
+    ai,
     program,
     examples = [],
     options
@@ -45,6 +50,7 @@ export class AxBootstrapFewShot<
     this.maxDemos = options?.maxDemos ?? 4;
     this.maxExamples = options?.maxExamples ?? 16;
 
+    this.ai = ai;
     this.program = program;
     this.examples = examples;
   }
@@ -71,7 +77,7 @@ export class AxBootstrapFewShot<
       const exList = [...examples.slice(0, i), ...examples.slice(i + 1)];
       this.program.setExamples(exList);
 
-      const res = await this.program.forward(ex as IN, aiOpt);
+      const res = await this.program.forward(this.ai, ex as IN, aiOpt);
       const success = metricFn({ prediction: res, example: ex });
       if (success) {
         this.traces = [...this.traces, ...this.program.getTraces()];

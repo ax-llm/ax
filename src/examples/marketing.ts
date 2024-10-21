@@ -1,9 +1,4 @@
-import { AxAI, AxGenerate } from '@ax-llm/ax';
-
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
+import { AxAI, AxGen } from '@ax-llm/ax';
 
 const product = {
   name: 'Acme Toilet Cleaning',
@@ -22,12 +17,16 @@ const messageGuidelines = [
   'Employs emojis and friendly language'
 ];
 
-const gen = new AxGenerate(
-  ai,
+const gen = new AxGen(
   `productName, productDescription, toName, toDescription, messageGuidelines -> message`
 );
 
-const res = await gen.forward({
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+
+const res = await gen.forward(ai, {
   productName: product.name,
   productDescription: product.description,
   toName: to.name,

@@ -68,7 +68,7 @@ export class AxJSInterpreter {
     return {
       name: 'javascriptInterpreter',
       description:
-        'Use this function to run Javascript code and get any expected return value.',
+        'Use this function to run Javascript code and get any expected return value',
       parameters: {
         type: 'object',
         properties: {

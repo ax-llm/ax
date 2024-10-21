@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, AxGenerate } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, AxGen } from '@ax-llm/ax';
 
 const chatMessage = `Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!`;
 
@@ -15,14 +15,10 @@ const ai = new AxAI({
 });
 ai.setOptions({ debug: true });
 
-const gen = new AxGenerate(
-  ai,
+const gen = new AxGen(
   `chatMessage, currentDate:datetime -> subject, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[], messageType:class "reminder, follow-up, meeting, other"`
 );
 
-const res = await gen.forward(
-  { chatMessage, currentDate },
-  { modelConfig: { stream: true } }
-);
+const res = await gen.forward(ai, { chatMessage, currentDate });
 
 console.log('>', res);

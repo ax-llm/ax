@@ -23,7 +23,7 @@ export const updateProgressBar = (
     elapsedTime > 0 ? (current / elapsedTime).toFixed(2) : '0.00';
 
   process.stdout.write(
-    `\r${msg}: ${current} / ${total}  (${colorLog.yellow(percentage)}%): 100%|${filledBar}${emptyBar}| Success: ${success}/${total} [${colorLog.red(elapsedTime.toFixed(2))}, ${itemsPerSecond}it/s]`
+    `\r${msg}: ${current} / ${total} (${colorLog.yellow(percentage)}%): 100%|${filledBar}${emptyBar}| Success: ${success}/${total} [${colorLog.red(elapsedTime.toFixed(2))}, ${itemsPerSecond}it/s]`
   );
 };
 
@@ -54,7 +54,12 @@ export const validateValue = (
   };
 
   const validImage = (val: Readonly<AxFieldValue>): boolean => {
-    if (typeof val !== 'object' || !('mimeType' in val) || !('data' in val)) {
+    if (
+      !val ||
+      typeof val !== 'object' ||
+      !('mimeType' in val) ||
+      !('data' in val)
+    ) {
       return false;
     }
     return true;
@@ -100,9 +105,7 @@ export const validateValue = (
 
   if (!isValid) {
     throw new Error(
-      `Validation failed: Expected '${field.name}' to be a ${ft.isArray ? 'an array of ' : ''}${
-        ft.name
-      } instead got '${value}'`
+      `Validation failed: Expected '${field.name}' to be a ${field.type?.isArray ? 'an array of ' : ''}${ft.name} instead got '${typeof value}' (${value})`
     );
   }
 };

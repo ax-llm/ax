@@ -1,12 +1,6 @@
-import { AxAI, AxGenerate } from '@ax-llm/ax';
+import { AxAI, AxGen } from '@ax-llm/ax';
 
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
-
-const gen = new AxGenerate(
-  ai,
+const gen = new AxGen(
   `customerEmail:string  -> productName:string "The name of the product",
 issueDescription:string "A description of the issue",
 issueSummary:string "A summary of the issue",
@@ -27,4 +21,9 @@ Best regards,
 John Doe.
   `;
 
-console.log(await gen.forward({ customerEmail: customerMessage }));
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+
+console.log(await gen.forward(ai, { customerEmail: customerMessage }));

@@ -1,5 +1,3 @@
-import type { HandlerContext } from '@/util';
-
 import { ObjectId } from 'mongodb';
 import sharp from 'sharp';
 
@@ -78,31 +76,4 @@ export const getFiles = async (form: FormData): Promise<GetFilesResult> => {
   }
 
   return { docs, images };
-};
-
-export const createAI = async (hc: Readonly<HandlerContext>) => {
-  let args: AxAIArgs | undefined;
-
-  if (aiType === 'big') {
-    const apiKey = (await decryptKey(hc, agent.aiBigModel.apiKey)) ?? '';
-    args = {
-      apiKey,
-      config: { model: agent.aiBigModel.model },
-      name: agent.aiBigModel.id
-    } as AxAIArgs;
-  }
-
-  if (aiType === 'small') {
-    const apiKey = (await decryptKey(hc, agent.aiSmallModel.apiKey)) ?? '';
-    args = {
-      apiKey,
-      config: { model: agent.aiSmallModel.model },
-      name: agent.aiSmallModel.id
-    } as AxAIArgs;
-  }
-  if (!args) {
-    throw new Error('Invalid AI type: ' + aiType);
-  }
-
-  return new AxAI(args);
 };

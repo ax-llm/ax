@@ -17,6 +17,7 @@ export type AxFieldValue =
   | number
   | boolean
   | object
+  | null
   | { mimeType: string; data: string }
   | { mimeType: string; data: string }[];
 
@@ -71,6 +72,10 @@ export type AxProgramUsage = AxChatResponse['modelUsage'] & {
   model: string;
 };
 
+export interface AxProgramWithSignatureOptions {
+  instructions?: string;
+}
+
 export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxTunable, AxUsable
 {
@@ -85,11 +90,18 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   private key: { id: string; custom?: boolean };
   private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>;
 
-  constructor(signature: Readonly<AxSignature | string>) {
+  constructor(
+    signature: Readonly<AxSignature | string>,
+    options?: Readonly<AxProgramWithSignatureOptions>
+  ) {
     this.signature = new AxSignature(signature);
     this.sigHash = this.signature?.hash();
     this.children = new AxInstanceRegistry();
     this.key = { id: this.constructor.name };
+
+    if (options?.instructions) {
+      this.signature.setDescription(options.instructions);
+    }
   }
 
   public getSignature() {
@@ -105,7 +117,9 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
 
   public async forward(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _arg0: IN,
+    _ai: Readonly<AxAIService>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _values: IN,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
@@ -232,7 +246,9 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
 
   public async forward(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _arg0: IN,
+    _ai: Readonly<AxAIService>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _values: IN,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {

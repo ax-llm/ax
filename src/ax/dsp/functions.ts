@@ -41,7 +41,8 @@ export class AxFunctionProcessor {
     const opt = options
       ? {
           sessionId: options.sessionId,
-          traceId: options.traceId
+          traceId: options.traceId,
+          ai: options.ai
         }
       : undefined;
 

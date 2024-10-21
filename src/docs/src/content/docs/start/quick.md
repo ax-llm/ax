@@ -80,10 +80,8 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string
 });
 
-const prompt = `textToSummarize -> shortSummary "summarize in 5 to 10 words"`;
-
-const gen = new AxChainOfThought(ai, prompt);
-const res = await gen.forward({ textToSummarize });
+const gen = new AxChainOfThought(`textToSummarize -> shortSummary "summarize in 5 to 10 words"`);
+const res = await gen.forward(ai, { textToSummarize });
 
 console.log(res);
 ```
@@ -107,7 +105,7 @@ The Stock Analyst Agent is an advanced AI-powered tool that provides comprehensi
 This is only an example, but it highlights the power of agentic workflows, where you can build agents who work with agents to handle complex tasks.
 
 ```typescript title="Stock Analyst Agent"
-const agent = new AxAgent(ai, {
+const agent = new AxAgent({
   name: 'Stock Analyst',
   description:
     'An AI agent specialized in analyzing stocks, market trends, and providing financial insights.',
@@ -140,19 +138,19 @@ const agent = new AxAgent(ai, {
 ```typescript
 // ./src/examples/agent.ts
 
-const researcher = new AxAgent(ai, {
+const researcher = new AxAgent({
   name: 'researcher',
   description: 'Researcher agent',
   signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`
 });
 
-const summarizer = new AxAgent(ai, {
+const summarizer = new AxAgent({
   name: 'summarizer',
   description: 'Summarizer agent',
   signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
 });
 
-const agent = new AxAgent(ai, {
+const agent = new AxAgent({
   name: 'agent',
   description: 'A an agent to research complex topics',
   signature: `question -> answer`,

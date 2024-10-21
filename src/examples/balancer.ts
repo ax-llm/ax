@@ -29,12 +29,10 @@ const ai2 = new AxAI({
   }
 });
 
-const ai = new AxBalancer([ai1, ai2]);
-
 const gen = new AxChainOfThought(
-  ai,
   `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
 );
 
-const res = await gen.forward({ textToSummarize }, { model: 'chill' });
+const ai = new AxBalancer([ai1, ai2]);
+const res = await gen.forward(ai, { textToSummarize }, { model: 'chill' });
 console.log('>', res);

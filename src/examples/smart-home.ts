@@ -35,7 +35,7 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string
 });
 
-const agent = new AxAgent(ai, {
+const agent = new AxAgent({
   name: 'lares',
   description: 'Lares smart home assistant',
   signature: `instruction -> room:string "the room where the dog is found"`,
@@ -50,7 +50,10 @@ const agent = new AxAgent(ai, {
         },
         required: ['room']
       } as AxFunctionJSONSchema,
-      func: async (args: Readonly<{ room: string }>) => {
+      func: async (args) => {
+        if (!args?.room) {
+          throw new Error('Missing required parameter: room');
+        }
         const roomState = state.rooms[args.room];
         if (roomState) {
           roomState.light = !roomState.light;
@@ -120,5 +123,5 @@ const instruction = `
     The initial state is: ${JSON.stringify({ ...state, dogLocation: 'unknown' })}.
   `;
 
-const res = await agent.forward({ instruction });
+const res = await agent.forward(ai, { instruction });
 console.log('Response:', res);

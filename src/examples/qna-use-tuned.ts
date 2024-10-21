@@ -9,13 +9,7 @@ import {
   AxTestPrompt
 } from '@ax-llm/ax';
 
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
-
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-  ai,
   `question -> answer "in short 2 or 3 words"`
 );
 
@@ -55,5 +49,10 @@ const metricFn: AxMetricFn = ({ prediction, example }) => {
   );
 };
 
-const ev = new AxTestPrompt({ program, examples });
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+
+const ev = new AxTestPrompt({ ai, program, examples });
 await ev.run(metricFn);

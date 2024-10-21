@@ -6,8 +6,8 @@ import {
 
 import type { AxSpan } from '../trace/index.js';
 
+import { SSEParser } from './sse.js';
 import { TextDecoderStreamPolyfill } from './stream.js';
-import { JSONStringifyStream } from './transform.js';
 
 /**
  * Util: API details
@@ -75,7 +75,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
     const st = res.body
       .pipeThrough(new textDecoderStream())
-      .pipeThrough(new JSONStringifyStream<TResponse>());
+      .pipeThrough(new SSEParser<TResponse>());
 
     return st;
   } catch (e) {

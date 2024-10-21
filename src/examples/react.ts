@@ -31,14 +31,14 @@ const functions = [
   }
 ];
 
+const cot = new AxReAct(`question:string -> answer:string`, {
+  functions
+});
+
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string
 });
 
-const cot = new AxReAct(ai, `question:string -> answer:string`, {
-  functions
-});
-
-const res = await cot.forward(values);
+const res = await cot.forward(ai, values);
 console.log(res);

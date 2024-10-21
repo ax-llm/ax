@@ -170,17 +170,16 @@ const ai = new Ax({
   apiKey: process.env.OPENAI_APIKEY as string
 });
 
-const agent = new AxAgent(ai, {
+const agent = new AxAgent({
   name: 'Restaurant search agent'
   description:
     'Search for restaurants to dine at based on the weather and food preferences',
   signature:
     `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
     functions,
-
 });
 
-const res = await agent.forward({ customerQuery });
+const res = await agent.forward(ai, { customerQuery });
 console.log(res);
 ```
 

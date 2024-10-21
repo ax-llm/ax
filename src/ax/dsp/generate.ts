@@ -40,7 +40,7 @@ import {
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature } from './sig.js';
 
-export interface AxGenerateOptions {
+export interface AxGenOptions {
   maxCompletions?: number;
   maxRetries?: number;
   maxSteps?: number;
@@ -49,6 +49,7 @@ export interface AxGenerateOptions {
   rateLimiter?: AxRateLimiterFunction;
   stream?: boolean;
   debug?: boolean;
+  instructions?: string;
 
   functions?: AxFunction[] | { toFunction: () => AxFunction }[];
   functionCall?: AxChatRequest['functionCall'];
@@ -62,6 +63,8 @@ export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
 };
 
 export interface AxResponseHandlerArgs<T> {
+  ai: Readonly<AxAIService>;
+  sig: Readonly<AxSignature>;
   res: T;
   usageInfo: { ai: string; model: string };
   mem: AxAIMemory;
@@ -69,26 +72,24 @@ export interface AxResponseHandlerArgs<T> {
   traceId?: string;
 }
 
-export class AxGenerate<
+export class AxGen<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>
 > extends AxProgramWithSignature<IN, OUT> {
-  private ai: AxAIService;
   private pt: AxPromptTemplate;
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
-  private options?: Omit<AxGenerateOptions, 'functions'>;
+  private options?: Omit<AxGenOptions, 'functions'>;
 
   private functions?: AxFunction[];
   private funcProc?: AxFunctionProcessor;
   private functionList?: string;
 
   constructor(
-    ai: AxAIService,
     signature: Readonly<AxSignature | string>,
-    options?: Readonly<AxGenerateOptions>
+    options?: Readonly<AxGenOptions>
   ) {
-    super(signature);
+    super(signature, { instructions: options?.instructions });
 
     this.functions = options?.functions?.map((f) => {
       if ('toFunction' in f) {
@@ -97,7 +98,6 @@ export class AxGenerate<
       return f;
     });
 
-    this.ai = ai;
     this.options = options;
     this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
@@ -107,29 +107,32 @@ export class AxGenerate<
 
     if (this.functions) {
       this.funcProc = new AxFunctionProcessor(this.functions);
-      this.updateSigForFunctions();
     }
   }
 
-  private updateSigForFunctions = () => {
+  private updateSigForFunctions = (ai: AxAIService) => {
     // AI supports function calling natively so
     // no need to add fields for function call
-    if (this.ai.getFeatures().functions) {
+    if (ai.getFeatures().functions) {
       return;
     }
 
+    const sig = new AxSignature(this.signature);
+
     // These are the fields for the function call only needed when the underlying LLM API does not support function calling natively in the API.
-    this.signature.addOutputField({
+    sig.addOutputField({
       name: 'functionName',
       description: 'Name of function to call',
       isOptional: true
     });
 
-    this.signature.addOutputField({
+    sig.addOutputField({
       name: 'functionArguments',
       description: 'Arguments of function to call',
       isOptional: true
     });
+
+    return sig;
   };
 
   public addAssert = (
@@ -201,6 +204,7 @@ export class AxGenerate<
   }
 
   private async forwardCore({
+    sig,
     mem,
     sessionId,
     traceId,
@@ -210,7 +214,8 @@ export class AxGenerate<
     stream = false
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai' | 'mem'> & {
-      ai: AxAIService;
+      sig: Readonly<AxSignature>;
+      ai: Readonly<AxAIService>;
       mem: AxAIMemory;
     }
   >): Promise<OUT> {
@@ -231,6 +236,8 @@ export class AxGenerate<
 
     if (res instanceof ReadableStream) {
       return (await this.processSteamingResponse({
+        ai,
+        sig,
         res,
         usageInfo,
         mem,
@@ -240,6 +247,8 @@ export class AxGenerate<
     }
 
     return (await this.processResponse({
+      ai,
+      sig,
       res,
       usageInfo,
       mem,
@@ -249,6 +258,8 @@ export class AxGenerate<
   }
 
   private async processSteamingResponse({
+    ai,
+    sig,
     res,
     usageInfo,
     mem,
@@ -281,7 +292,7 @@ export class AxGenerate<
             xstate,
             content
           );
-          streamingExtractValues(this.signature, values, xstate, content);
+          streamingExtractValues(sig, values, xstate, content);
           assertAssertions(this.asserts, values);
         }
 
@@ -300,9 +311,9 @@ export class AxGenerate<
       }
     }
 
-    const funcs = parseFunctions(this.ai, functionCalls, values);
+    const funcs = parseFunctions(ai, functionCalls, values);
     if (funcs) {
-      await this.processFunctions(funcs, mem, sessionId, traceId);
+      await this.processFunctions(ai, funcs, mem, sessionId, traceId);
     }
 
     streamingExtractFinalValue(values, xstate, content);
@@ -312,6 +323,7 @@ export class AxGenerate<
   }
 
   private async processResponse({
+    ai,
     res,
     usageInfo,
     mem,
@@ -333,7 +345,7 @@ export class AxGenerate<
       }
 
       if (result.functionCalls) {
-        const funcs = parseFunctions(this.ai, result.functionCalls, values);
+        const funcs = parseFunctions(ai, result.functionCalls, values);
 
         if (funcs) {
           await this.processFunctions(funcs, mem, sessionId, traceId);
@@ -349,11 +361,12 @@ export class AxGenerate<
   }
 
   private async _forward(
+    ai: Readonly<AxAIService>,
+    sig: Readonly<AxSignature>,
     values: IN,
     options?: Readonly<AxProgramForwardOptions>,
     span?: AxSpan
   ): Promise<OUT> {
-    const ai = options?.ai ?? this.ai;
     const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 5;
     const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
     const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
@@ -361,9 +374,9 @@ export class AxGenerate<
 
     let err: ValidationError | AxAssertionError | undefined;
 
-    if (this.sigHash !== this.signature.hash()) {
+    if (this.sigHash !== sig.hash()) {
       const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate;
-      this.pt = new promptTemplate(this.signature);
+      this.pt = new promptTemplate(sig);
     }
 
     const prompt = this.pt.render<IN>(values, {
@@ -386,6 +399,7 @@ export class AxGenerate<
 
           const output = await this.forwardCore({
             ai,
+            sig,
             mem,
             sessionId,
             traceId,
@@ -401,7 +415,7 @@ export class AxGenerate<
             continue multiStepLoop;
           }
 
-          assertRequiredFields(this.signature, output);
+          assertRequiredFields(sig, output);
           this.trace = { ...output };
           return output;
         } catch (e) {
@@ -440,17 +454,20 @@ export class AxGenerate<
   }
 
   public override async forward(
+    ai: Readonly<AxAIService>,
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
+    const sig = this.updateSigForFunctions(ai) ?? this.signature;
+
     const tracer = this.options?.tracer ?? options?.tracer;
 
     if (!tracer) {
-      return await this._forward(values, options);
+      return await this._forward(ai, sig, values, options);
     }
 
     const attributes = {
-      ['generate.signature']: this.signature.toString(),
+      ['generate.signature']: sig.toString(),
       ['generate.functions']: this.functionList ?? 'none'
     };
 
@@ -461,7 +478,7 @@ export class AxGenerate<
         attributes
       },
       async (span) => {
-        const res = this._forward(values, options, span);
+        const res = this._forward(ai, sig, values, options, span);
         span.end();
         return res;
       }
@@ -469,6 +486,7 @@ export class AxGenerate<
   }
 
   public processFunctions = async (
+    ai: Readonly<AxAIService>,
     functionCalls: readonly AxChatResponseFunctionCall[],
     mem: Readonly<AxMemory>,
     sessionId?: string,
@@ -476,7 +494,7 @@ export class AxGenerate<
   ) => {
     // Map each function call to a promise that resolves to the function result or null
     const promises = functionCalls.map((func) =>
-      this.funcProc?.execute(func, { sessionId, traceId }).then((fres) => {
+      this.funcProc?.execute(func, { sessionId, traceId, ai }).then((fres) => {
         if (fres?.id) {
           return {
             role: 'function' as const,

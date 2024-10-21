@@ -1,6 +1,7 @@
 # Ax - Build LLMs Powered Agents (Typescript)
 
-Build intelligent agents quickly — inspired by the power of "Agentic workflows" and the Stanford DSPy paper. Seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Advanced features streaming validation, multi-modal DSPy, etc.
+Use Ax and get a streaming, multi-modal DSPy framework with agents and typed signatures. Works with all LLMs. Ax is always streaming and handles output type validation while streaming for faster responses and lower token usage.
+
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
@@ -8,9 +9,9 @@ Build intelligent agents quickly — inspired by the power of "Agentic workflows
 
 ![image](https://github.com/ax-llm/ax/assets/832235/3a250031-591c-42e0-b4fc-06afb8c351c4)
 
-## Our focus on agents
+## Focus on agents
 
-We've renamed from "llmclient" to "ax" to highlight our focus on powering agentic workflows. We agree with many experts like "Andrew Ng" that agentic workflows are the key to unlocking the true power of large language models and what can be achieved with in-context learning. Also, we are big fans of the Stanford DSPy paper, and this library is the result of all of this coming together to build a powerful framework for you to build with.
+While we're focused on building agents, Ax has all the tools needed to quickly build powerful and production ready workflows with LLMs
 
 ![image](https://github.com/ax-llm/ax/assets/832235/801b8110-4cba-4c50-8ec7-4d5859121fe5)
 
@@ -95,11 +96,10 @@ const ai = new AxAI({
 });
 
 const gen = new AxChainOfThought(
-  ai,
   `textToSummarize -> textType:class "note, email, reminder", shortSummary "summarize in 5 to 10 words"`
 );
 
-const res = await gen.forward({ textToSummarize });
+const res = await gen.forward(ai, { textToSummarize });
 
 console.log('>', res);
 ```
@@ -111,26 +111,26 @@ Use the agent prompt (framework) to build agents that work with other agents to 
 ```typescript
 # npm run tsx ./src/examples/agent.ts
 
-const researcher = new AxAgent(ai, {
+const researcher = new AxAgent({
   name: 'researcher',
   description: 'Researcher agent',
   signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`
 });
 
-const summarizer = new AxAgent(ai, {
+const summarizer = new AxAgent({
   name: 'summarizer',
   description: 'Summarizer agent',
   signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
 });
 
-const agent = new AxAgent(ai, {
+const agent = new AxAgent({
   name: 'agent',
   description: 'A an agent to research complex topics',
   signature: `question -> answer`,
   agents: [researcher, summarizer]
 });
 
-agent.forward({ questions: "How many atoms are there in the universe" })
+agent.forward(ai, { questions: "How many atoms are there in the universe" })
 ```
 
 ## Vector DBs Supported
@@ -210,9 +210,9 @@ const image = fs
   .readFileSync('./src/examples/assets/kitten.jpeg')
   .toString('base64');
 
-const gen = new AxChainOfThought(ai, `question, animalImage:image -> answer`);
+const gen = new AxChainOfThought(`question, animalImage:image -> answer`);
 
-const res = await gen.forward({
+const res = await gen.forward(ai, {
   question: 'What family does this animal belong to?',
   animalImage: { mimeType: 'image/jpeg', data: image }
 });
@@ -329,7 +329,7 @@ const ai = new AxAI({
 // Create a model using the provider
 const model = new AxAIProvider(ai);
 
-export const foodAgent = new AxAgent(ai, {
+export const foodAgent = new AxAgent({
   name: 'food-search',
   description:
     'Use this agent to find restaurants based on what the customer wants',
@@ -341,7 +341,7 @@ export const foodAgent = new AxAgent(ai, {
 const aiState = getMutableAIState()
 
 // Create an agent for a specific task
-const foodAgent = new AxAgentProvider({
+const foodAgent = new AxAgentProvider(ai, {
     agent: foodAgent,
     updateState: (state) => {
          aiState.done({ ...aiState.get(), state })

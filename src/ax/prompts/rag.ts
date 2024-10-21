@@ -1,11 +1,11 @@
-import type { AxAIService } from '../ai/types.js';
 import {
-  AxGenerate,
-  type AxGenerateOptions,
+  AxGen,
+  type AxGenOptions,
   AxSignature,
   axStringUtil
 } from '../dsp/index.js';
 import { type AxProgramForwardOptions } from '../dsp/program.js';
+import type { AxAIService } from '../index.js';
 
 import { AxChainOfThought } from './cot.js';
 
@@ -13,7 +13,7 @@ export class AxRAG extends AxChainOfThought<
   { context: string[]; question: string },
   { answer: string }
 > {
-  private genQuery: AxGenerate<
+  private genQuery: AxGen<
     { context: string[]; question: string },
     { query: string }
   >;
@@ -21,28 +21,28 @@ export class AxRAG extends AxChainOfThought<
   private maxHops: number;
 
   constructor(
-    ai: AxAIService,
     queryFn: (query: string) => Promise<string>,
-    options: Readonly<AxGenerateOptions & { maxHops?: number }>
+    options: Readonly<AxGenOptions & { maxHops?: number }>
   ) {
     const sig =
       '"Answer questions with short factoid answers." context:string[] "may contain relevant facts", question -> answer';
-    super(ai, sig, options);
+    super(sig, options);
 
     this.maxHops = options?.maxHops ?? 3;
 
     const qsig = new AxSignature(
       '"Write a simple search query that will help answer a complex question." context?:string[] "may contain relevant facts", question -> query "question to further our understanding"'
     );
-    this.genQuery = new AxGenerate<
+    this.genQuery = new AxGen<
       { context: string[]; question: string },
       { query: string }
-    >(ai, qsig);
+    >(qsig);
     this.queryFn = queryFn;
     this.register(this.genQuery);
   }
 
   public override async forward(
+    ai: Readonly<AxAIService>,
     { question }: Readonly<{ question: string }>,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<{ answer: string; reason: string }> {
@@ -50,6 +50,7 @@ export class AxRAG extends AxChainOfThought<
 
     for (let i = 0; i < this.maxHops; i++) {
       const { query } = await this.genQuery.forward(
+        ai,
         {
           context,
           question
@@ -60,6 +61,6 @@ export class AxRAG extends AxChainOfThought<
       context = axStringUtil.dedup([...context, val]);
     }
 
-    return super.forward({ context, question }, options);
+    return super.forward(ai, { context, question }, options);
   }
 }

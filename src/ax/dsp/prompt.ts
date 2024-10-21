@@ -108,6 +108,9 @@ export class AxPromptTemplate {
 
     if (extraFields && extraFields.length > 0) {
       extraFields.forEach((field) => {
+        // if (!field.isOptional && !field.value) {
+        //   throw new Error(`Value for field '${field.name}' is required.`);
+        // }
         const fn =
           this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
         if (!field.description || field.description.length === 0) {
@@ -218,28 +221,25 @@ export class AxPromptTemplate {
     values: Readonly<Record<string, AxFieldValue>>,
     skipMissing?: boolean
   ) => {
-    const textFieldFn: AxFieldTemplateFn =
-      this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
     const value = values[field.name];
 
     if (skipMissing && !value) {
       return;
     }
 
-    if (
-      !value ||
-      ((Array.isArray(value) || typeof value === 'string') &&
-        value.length === 0)
-    ) {
-      if (field.isOptional) {
-        return;
-      }
-      throw new Error(`Value for input field '${field.name}' is required.`);
+    if (isEmptyValue(field, value)) {
+      return;
     }
+
     if (field.type) {
-      validateValue(field, value);
+      validateValue(field, value!);
     }
-    const processedValue = processValue(field, value);
+
+    const processedValue = processValue(field, value!);
+
+    const textFieldFn: AxFieldTemplateFn =
+      this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
+
     return textFieldFn(field, processedValue);
   };
 
@@ -251,6 +251,10 @@ export class AxPromptTemplate {
       const validateImage = (
         value: Readonly<AxFieldValue>
       ): { mimeType: string; data: string } => {
+        if (!value) {
+          throw new Error('Image field value is required.');
+        }
+
         if (typeof value !== 'object') {
           throw new Error('Image field value must be an object.');
         }
@@ -407,3 +411,19 @@ function combineConsecutiveStrings(separator: string) {
     return acc;
   };
 }
+
+const isEmptyValue = (
+  field: Readonly<AxField>,
+  value?: Readonly<AxFieldValue>
+) => {
+  if (
+    !value ||
+    ((Array.isArray(value) || typeof value === 'string') && value.length === 0)
+  ) {
+    if (field.isOptional) {
+      return true;
+    }
+    throw new Error(`Value for input field '${field.name}' is required.`);
+  }
+  return false;
+};

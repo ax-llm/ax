@@ -1,5 +1,4 @@
-import type { AxAIService } from '../ai/index.js';
-import type { AxGenerateOptions } from '../dsp/generate.js';
+import type { AxGenOptions } from '../dsp/generate.js';
 import type { AxGenIn, AxGenOut } from '../dsp/program.js';
 import { AxSignature } from '../dsp/sig.js';
 
@@ -10,9 +9,8 @@ export class AxReAct<
   OUT extends AxGenOut = AxGenOut
 > extends AxChainOfThought<IN, OUT> {
   constructor(
-    ai: AxAIService,
     signature: Readonly<AxSignature | string>,
-    options: Readonly<AxGenerateOptions>
+    options: Readonly<AxGenOptions>
   ) {
     if (!options?.functions || options.functions.length === 0) {
       throw new Error('No functions provided');
@@ -43,6 +41,6 @@ export class AxReAct<
       sig.getOutputFields().map((v) => ({ ...v, isOptional: true }))
     );
 
-    super(ai, sig, options);
+    super(sig, options);
   }
 }

@@ -1,16 +1,14 @@
-import type { AxAIService } from '../ai/types.js';
-import { AxGenerate, type AxGenerateOptions } from '../dsp/generate.js';
+import { AxGen, type AxGenOptions } from '../dsp/generate.js';
 import type { AxGenIn, AxGenOut } from '../dsp/program.js';
 import { AxSignature } from '../dsp/sig.js';
 
 export class AxChainOfThought<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut
-> extends AxGenerate<IN, OUT & { reason: string }> {
+> extends AxGen<IN, OUT & { reason: string }> {
   constructor(
-    ai: AxAIService,
     signature: Readonly<AxSignature | string>,
-    options?: Readonly<AxGenerateOptions>
+    options?: Readonly<AxGenOptions>
   ) {
     const sig = new AxSignature(signature);
     const description = `Let's work this out in a step by step way in order to ensure we have the right answer.`;
@@ -23,6 +21,6 @@ export class AxChainOfThought<
       ...sig.getOutputFields()
     ]);
 
-    super(ai, sig, options);
+    super(sig, options);
   }
 }

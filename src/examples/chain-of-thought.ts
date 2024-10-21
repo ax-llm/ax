@@ -1,14 +1,6 @@
 import { AxAI, AxChainOfThought } from '@ax-llm/ax';
 
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
-
-ai.setOptions({ debug: true });
-
 const cot = new AxChainOfThought(
-  ai,
   `
   context:string[] "Information to answer the question",
   question:string
@@ -24,5 +16,11 @@ const values = {
   ]
 };
 
-const res = await cot.forward(values);
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
+});
+ai.setOptions({ debug: true });
+
+const res = await cot.forward(ai, values);
 console.log(res);

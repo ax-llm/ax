@@ -174,6 +174,7 @@ export type AxAIServiceOptions = {
 };
 
 export type AxAIServiceActionOptions = {
+  ai?: Readonly<AxAIService>;
   sessionId?: string;
   traceId?: string;
 };
