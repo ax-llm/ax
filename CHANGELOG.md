@@ -1,5 +1,19 @@
 
 
+## [10.0.1](https://github.com/ax-llm/ax/compare/9.0.61...10.0.0) (2024-10-21)
+
+
+### Bug Fixes
+
+* build issue ([f7687ee](https://github.com/ax-llm/ax/commit/f7687ee3bbd0bd675787d9747a253ec701b3d330))
+
+## [10.0.0](https://github.com/ax-llm/ax/compare/9.0.61...10.0.0) (2024-10-21)
+
+
+### Features
+
+* new api allows for more flexibility ([fde4794](https://github.com/ax-llm/ax/commit/fde479493e376d6212d13612b99d84e0ab1c595c))
+
 ## [10.0.0](https://github.com/ax-llm/ax/compare/9.0.60...9.0.61) (2024-10-21)
 
 
