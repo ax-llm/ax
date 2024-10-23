@@ -294,9 +294,8 @@ export class AxBaseAI<
       logChatRequest(req);
     }
 
-    const rv = this.rt
-      ? await this.rt(fn, { modelUsage: this.modelUsage })
-      : await fn();
+    const rt = options?.rateLimiter ?? this.rt;
+    const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
 
     if (stream) {
       if (!this.generateChatStreamResp) {

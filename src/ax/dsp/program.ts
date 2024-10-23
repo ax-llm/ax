@@ -73,7 +73,7 @@ export type AxProgramUsage = AxChatResponse['modelUsage'] & {
 };
 
 export interface AxProgramWithSignatureOptions {
-  instructions?: string;
+  description?: string;
 }
 
 export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
@@ -99,8 +99,8 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     this.children = new AxInstanceRegistry();
     this.key = { id: this.constructor.name };
 
-    if (options?.instructions) {
-      this.signature.setDescription(options.instructions);
+    if (options?.description) {
+      this.signature.setDescription(options.description);
     }
   }
 

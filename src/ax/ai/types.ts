@@ -177,6 +177,7 @@ export type AxAIServiceActionOptions = {
   ai?: Readonly<AxAIService>;
   sessionId?: string;
   traceId?: string;
+  rateLimiter?: AxRateLimiterFunction;
 };
 
 export interface AxAIService {

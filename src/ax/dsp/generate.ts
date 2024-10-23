@@ -49,7 +49,7 @@ export interface AxGenOptions {
   rateLimiter?: AxRateLimiterFunction;
   stream?: boolean;
   debug?: boolean;
-  instructions?: string;
+  description?: string;
 
   functions?: AxFunction[] | { toFunction: () => AxFunction }[];
   functionCall?: AxChatRequest['functionCall'];
@@ -89,7 +89,7 @@ export class AxGen<
     signature: Readonly<AxSignature | string>,
     options?: Readonly<AxGenOptions>
   ) {
-    super(signature, { instructions: options?.instructions });
+    super(signature, { description: options?.description });
 
     this.functions = options?.functions?.map((f) => {
       if ('toFunction' in f) {
@@ -190,12 +190,12 @@ export class AxGen<
         functions,
         functionCall,
         modelConfig,
-        ...(model ? { model } : {})
+        model
       },
       {
-        ...(sessionId ? { sessionId } : {}),
-        ...(traceId ? { traceId } : {}),
-        ...(rateLimiter ? { rateLimiter } : {}),
+        sessionId,
+        traceId,
+        rateLimiter,
         stream
       }
     );
@@ -210,6 +210,7 @@ export class AxGen<
     traceId,
     ai,
     modelConfig,
+    model,
     rateLimiter,
     stream = false
   }: Readonly<
@@ -231,6 +232,7 @@ export class AxGen<
       ai,
       stream,
       modelConfig,
+      model,
       rateLimiter
     });
 
@@ -389,27 +391,20 @@ export class AxGen<
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       for (let i = 0; i < maxRetries; i++) {
         try {
-          const {
-            sessionId,
-            traceId,
-            modelConfig,
-            stream: doStream = true
-          } = options ?? {};
-          const stream = canStream && doStream;
-
           const output = await this.forwardCore({
             ai,
             sig,
             mem,
-            sessionId,
-            traceId,
-            modelConfig,
-            stream,
+            sessionId: options?.sessionId,
+            traceId: options?.traceId,
+            modelConfig: options?.modelConfig,
+            model: options?.model,
+            stream: canStream && options?.stream,
             maxSteps: options?.maxSteps,
             rateLimiter: options?.rateLimiter
           });
 
-          const lastMemItem = mem.getLast(sessionId);
+          const lastMemItem = mem.getLast(options?.sessionId);
 
           if (lastMemItem?.role === 'function') {
             continue multiStepLoop;
