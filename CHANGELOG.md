@@ -1,5 +1,19 @@
 
 
+## [10.0.2](https://github.com/ax-llm/ax/compare/10.0.0...10.0.1) (2024-10-23)
+
+
+### Bug Fixes
+
+* passing model in forward ([a485edf](https://github.com/ax-llm/ax/commit/a485edfddbf2e10244c8b611bbc47097b79c8ce7))
+
+## [10.0.1](https://github.com/ax-llm/ax/compare/10.0.0...10.0.1) (2024-10-21)
+
+
+### Bug Fixes
+
+* build issue ([f7687ee](https://github.com/ax-llm/ax/commit/f7687ee3bbd0bd675787d9747a253ec701b3d330))
+
 ## [10.0.1](https://github.com/ax-llm/ax/compare/9.0.61...10.0.0) (2024-10-21)
 
 
