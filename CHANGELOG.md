@@ -1,5 +1,19 @@
 
 
+## [10.0.3](https://github.com/ax-llm/ax/compare/10.0.1...10.0.2) (2024-10-28)
+
+
+### Features
+
+* added support for o1 models ([8f06b16](https://github.com/ax-llm/ax/commit/8f06b162330fed4b5aebd0c8f0bcafb28072d46b))
+
+## [10.0.2](https://github.com/ax-llm/ax/compare/10.0.1...10.0.2) (2024-10-23)
+
+
+### Bug Fixes
+
+* passing model in forward ([a485edf](https://github.com/ax-llm/ax/commit/a485edfddbf2e10244c8b611bbc47097b79c8ce7))
+
 ## [10.0.2](https://github.com/ax-llm/ax/compare/10.0.0...10.0.1) (2024-10-23)
 
 
