@@ -142,8 +142,8 @@ export class AxAI implements AxAIService {
     return this.ai.getModelConfig();
   }
 
-  getFeatures(): { functions: boolean; streaming: boolean } {
-    return this.ai.getFeatures();
+  getFeatures(model?: string): { functions: boolean; streaming: boolean } {
+    return this.ai.getFeatures(model);
   }
 
   getModelMap(): AxAIModelMap | undefined {

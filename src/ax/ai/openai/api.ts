@@ -7,7 +7,6 @@ import {
 import type {
   AxAIPromptConfig,
   AxAIServiceOptions,
-  AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
   AxEmbedResponse,
@@ -101,7 +100,11 @@ export class AxAIOpenAI extends AxBaseAI<
         embedModel: _config.embedModel as string
       },
       options,
-      supportFor: { functions: true, streaming: true },
+      supportFor: (model: string) => {
+        return isO1Model(model)
+          ? { functions: false, streaming: false }
+          : { functions: true, streaming: true };
+      },
       modelMap
     });
     this.config = _config;
@@ -147,6 +150,10 @@ export class AxAIOpenAI extends AxBaseAI<
       }
     }));
 
+    if (tools && isO1Model(model)) {
+      throw new Error('Functions are not supported for O1 models');
+    }
+
     const toolsChoice =
       !req.functionCall && req.functions && req.functions.length > 0
         ? 'auto'
@@ -158,6 +165,10 @@ export class AxAIOpenAI extends AxBaseAI<
       req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
 
     const stream = req.modelConfig?.stream ?? this.config.stream;
+
+    if (stream && isO1Model(model)) {
+      throw new Error('Streaming is not supported for O1 models');
+    }
 
     const reqValue: AxAIOpenAIChatRequest = {
       model,
@@ -355,9 +366,15 @@ const mapFinishReason = (
 };
 
 function createMessages(
-  req: Readonly<AxChatRequest>
+  req: Readonly<AxInternalChatRequest>
 ): AxAIOpenAIChatRequest['messages'] {
   return req.chatPrompt.map((msg) => {
+    if (msg.role === 'system' && isO1Model(req.model)) {
+      msg = {
+        role: 'user',
+        content: msg.content
+      };
+    }
     switch (msg.role) {
       case 'system':
         return { role: 'system' as const, content: msg.content };
@@ -412,3 +429,8 @@ function createMessages(
     }
   });
 }
+
+const isO1Model = (model: string): boolean =>
+  [AxAIOpenAIModel.O1Mini, AxAIOpenAIModel.O1Preview].includes(
+    model as AxAIOpenAIModel
+  );

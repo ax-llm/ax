@@ -185,7 +185,7 @@ export interface AxAIService {
   getModelInfo(): Readonly<AxModelInfoWithProvider>;
   getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined;
   getModelConfig(): Readonly<AxModelConfig>;
-  getFeatures(): { functions: boolean; streaming: boolean };
+  getFeatures(model?: string): { functions: boolean; streaming: boolean };
   getModelMap(): AxAIModelMap | undefined;
 
   chat(

@@ -37,7 +37,7 @@ export interface AxBaseAIArgs {
   modelInfo: Readonly<AxModelInfo[]>;
   models: Readonly<{ model: string; embedModel?: string }>;
   options?: Readonly<AxAIServiceOptions>;
-  supportFor: AxBaseAIFeatures;
+  supportFor: AxBaseAIFeatures | ((model: string) => AxBaseAIFeatures);
   modelMap?: AxAIModelMap;
 }
 
@@ -95,7 +95,9 @@ export class AxBaseAI<
   protected apiURL: string;
   protected name: string;
   protected headers: Record<string, string>;
-  protected supportFor: AxBaseAIFeatures;
+  protected supportFor:
+    | AxBaseAIFeatures
+    | ((model: string) => AxBaseAIFeatures);
 
   constructor({
     name,
@@ -197,8 +199,10 @@ export class AxBaseAI<
     return this.name;
   }
 
-  getFeatures(): AxBaseAIFeatures {
-    return this.supportFor;
+  getFeatures(model?: string): AxBaseAIFeatures {
+    return typeof this.supportFor === 'function'
+      ? this.supportFor(model ?? this.models.model)
+      : this.supportFor;
   }
 
   getModelConfig(): AxModelConfig {
@@ -211,7 +215,7 @@ export class AxBaseAI<
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const model = req.model
       ? this.modelMap?.[req.model] ?? req.model
-      : this.models.model;
+      : this.modelMap?.[this.models.model] ?? this.models.model;
 
     if (this.tracer) {
       const mc = this.getModelConfig();
@@ -366,7 +370,7 @@ export class AxBaseAI<
   ): Promise<AxEmbedResponse> {
     const embedModel = req.embedModel
       ? this.modelMap?.[req.embedModel] ?? req.embedModel
-      : this.models.embedModel;
+      : this.modelMap?.[this.models.embedModel ?? ''] ?? this.models.embedModel;
 
     if (!embedModel) {
       throw new Error('No embed model defined');

@@ -64,6 +64,7 @@ export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
 
 export interface AxResponseHandlerArgs<T> {
   ai: Readonly<AxAIService>;
+  model?: string;
   sig: Readonly<AxSignature>;
   res: T;
   usageInfo: { ai: string; model: string };
@@ -110,10 +111,10 @@ export class AxGen<
     }
   }
 
-  private updateSigForFunctions = (ai: AxAIService) => {
+  private updateSigForFunctions = (ai: AxAIService, model?: string) => {
     // AI supports function calling natively so
     // no need to add fields for function call
-    if (ai.getFeatures().functions) {
+    if (ai.getFeatures(model).functions) {
       return;
     }
 
@@ -239,6 +240,7 @@ export class AxGen<
     if (res instanceof ReadableStream) {
       return (await this.processSteamingResponse({
         ai,
+        model,
         sig,
         res,
         usageInfo,
@@ -250,6 +252,7 @@ export class AxGen<
 
     return (await this.processResponse({
       ai,
+      model,
       sig,
       res,
       usageInfo,
@@ -262,6 +265,7 @@ export class AxGen<
   private async processSteamingResponse({
     ai,
     sig,
+    model,
     res,
     usageInfo,
     mem,
@@ -313,7 +317,7 @@ export class AxGen<
       }
     }
 
-    const funcs = parseFunctions(ai, functionCalls, values);
+    const funcs = parseFunctions(ai, functionCalls, values, model);
     if (funcs) {
       await this.processFunctions(ai, funcs, mem, sessionId, traceId);
     }
@@ -372,7 +376,7 @@ export class AxGen<
     const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 5;
     const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
     const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
-    const canStream = ai.getFeatures().streaming;
+    const canStream = ai.getFeatures(options?.model).streaming;
 
     let err: ValidationError | AxAssertionError | undefined;
 
@@ -453,7 +457,8 @@ export class AxGen<
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const sig = this.updateSigForFunctions(ai) ?? this.signature;
+    const sig =
+      this.updateSigForFunctions(ai, options?.model) ?? this.signature;
 
     const tracer = this.options?.tracer ?? options?.tracer;
 
@@ -515,12 +520,13 @@ export class AxGen<
 function parseFunctions(
   ai: Readonly<AxAIService>,
   functionCalls: Readonly<AxChatResponseResult['functionCalls']>,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  model?: string
 ): AxChatResponseFunctionCall[] | undefined {
   if (!functionCalls || functionCalls.length === 0) {
     return;
   }
-  if (ai.getFeatures().functions) {
+  if (ai.getFeatures(model).functions) {
     const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
       id: f.id,
       name: f.function.name,

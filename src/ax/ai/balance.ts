@@ -81,8 +81,8 @@ export class AxBalancer implements AxAIService {
     return this.currentService.getModelConfig();
   }
 
-  getFeatures() {
-    return this.currentService.getFeatures();
+  getFeatures(model?: string) {
+    return this.currentService.getFeatures(model);
   }
 
   async chat(
