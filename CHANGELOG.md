@@ -1,5 +1,19 @@
 
 
+## [10.0.4](https://github.com/ax-llm/ax/compare/10.0.2...10.0.3) (2024-11-01)
+
+
+### Features
+
+* pass functions in forward() ([0c6a58e](https://github.com/ax-llm/ax/commit/0c6a58e18858f83d9460331911f5cb2d580058da))
+
+## [10.0.3](https://github.com/ax-llm/ax/compare/10.0.2...10.0.3) (2024-10-28)
+
+
+### Features
+
+* added support for o1 models ([8f06b16](https://github.com/ax-llm/ax/commit/8f06b162330fed4b5aebd0c8f0bcafb28072d46b))
+
 ## [10.0.3](https://github.com/ax-llm/ax/compare/10.0.1...10.0.2) (2024-10-28)
 
 
