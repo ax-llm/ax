@@ -29,7 +29,10 @@ import {
 } from './extract.js';
 import {
   type AxChatResponseFunctionCall,
-  AxFunctionProcessor
+  type InputFunctionType,
+  parseFunctionCalls,
+  parseFunctions,
+  processFunctions
 } from './functions.js';
 import {
   type AxGenIn,
@@ -51,7 +54,7 @@ export interface AxGenOptions {
   debug?: boolean;
   description?: string;
 
-  functions?: AxFunction[] | { toFunction: () => AxFunction }[];
+  functions?: InputFunctionType;
   functionCall?: AxChatRequest['functionCall'];
   promptTemplate?: typeof AxPromptTemplate;
   asserts?: AxAssertion[];
@@ -71,6 +74,7 @@ export interface AxResponseHandlerArgs<T> {
   mem: AxAIMemory;
   sessionId?: string;
   traceId?: string;
+  functions?: Readonly<AxFunction[]>;
 }
 
 export class AxGen<
@@ -83,8 +87,6 @@ export class AxGen<
   private options?: Omit<AxGenOptions, 'functions'>;
 
   private functions?: AxFunction[];
-  private funcProc?: AxFunctionProcessor;
-  private functionList?: string;
 
   constructor(
     signature: Readonly<AxSignature | string>,
@@ -92,22 +94,14 @@ export class AxGen<
   ) {
     super(signature, { description: options?.description });
 
-    this.functions = options?.functions?.map((f) => {
-      if ('toFunction' in f) {
-        return f.toFunction();
-      }
-      return f;
-    });
-
     this.options = options;
     this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(this.signature);
     this.asserts = this.options?.asserts ?? [];
     this.streamingAsserts = this.options?.streamingAsserts ?? [];
-    this.functionList = this.functions?.map((f) => f.name).join(', ');
     this.usage = [];
 
-    if (this.functions) {
-      this.funcProc = new AxFunctionProcessor(this.functions);
+    if (options?.functions) {
+      this.functions = parseFunctions(options.functions);
     }
   }
 
@@ -161,7 +155,8 @@ export class AxGen<
     modelConfig: mc,
     stream,
     model,
-    rateLimiter
+    rateLimiter,
+    functions
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai'> & { ai: AxAIService; stream: boolean }
   >) {
@@ -171,7 +166,6 @@ export class AxGen<
       throw new Error('No chat prompt found');
     }
 
-    const functions = this.functions;
     const functionCall = this.options?.functionCall;
 
     const hasJSON = this.signature
@@ -213,7 +207,8 @@ export class AxGen<
     modelConfig,
     model,
     rateLimiter,
-    stream = false
+    stream = false,
+    functions
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai' | 'mem'> & {
       sig: Readonly<AxSignature>;
@@ -234,7 +229,8 @@ export class AxGen<
       stream,
       modelConfig,
       model,
-      rateLimiter
+      rateLimiter,
+      functions
     });
 
     if (res instanceof ReadableStream) {
@@ -246,7 +242,8 @@ export class AxGen<
         usageInfo,
         mem,
         traceId,
-        sessionId
+        sessionId,
+        functions
       })) as unknown as OUT;
     }
 
@@ -258,7 +255,8 @@ export class AxGen<
       usageInfo,
       mem,
       traceId,
-      sessionId
+      sessionId,
+      functions
     })) as unknown as OUT;
   }
 
@@ -270,7 +268,8 @@ export class AxGen<
     usageInfo,
     mem,
     sessionId,
-    traceId
+    traceId,
+    functions
   }: Readonly<
     AxResponseHandlerArgs<ReadableStream<AxChatResponse>>
   >): Promise<OUT> {
@@ -317,9 +316,12 @@ export class AxGen<
       }
     }
 
-    const funcs = parseFunctions(ai, functionCalls, values, model);
+    const funcs = parseFunctionCalls(ai, functionCalls, values, model);
     if (funcs) {
-      await this.processFunctions(ai, funcs, mem, sessionId, traceId);
+      if (!functions) {
+        throw new Error('Functions are not defined');
+      }
+      await processFunctions(ai, functions, funcs, mem, sessionId, traceId);
     }
 
     streamingExtractFinalValue(values, xstate, content);
@@ -334,7 +336,8 @@ export class AxGen<
     usageInfo,
     mem,
     sessionId,
-    traceId
+    traceId,
+    functions
   }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
     const values = {};
 
@@ -351,10 +354,13 @@ export class AxGen<
       }
 
       if (result.functionCalls) {
-        const funcs = parseFunctions(ai, result.functionCalls, values);
+        const funcs = parseFunctionCalls(ai, result.functionCalls, values);
 
         if (funcs) {
-          await this.processFunctions(ai, funcs, mem, sessionId, traceId);
+          if (!functions) {
+            throw new Error('Functions are not defined');
+          }
+          await processFunctions(ai, functions, funcs, mem, sessionId, traceId);
         }
       }
 
@@ -405,7 +411,8 @@ export class AxGen<
             model: options?.model,
             stream: canStream && options?.stream,
             maxSteps: options?.maxSteps,
-            rateLimiter: options?.rateLimiter
+            rateLimiter: options?.rateLimiter,
+            functions: options?.functions
           });
 
           const lastMemItem = mem.getLast(options?.sessionId);
@@ -462,13 +469,24 @@ export class AxGen<
 
     const tracer = this.options?.tracer ?? options?.tracer;
 
-    if (!tracer) {
-      return await this._forward(ai, sig, values, options);
+    let functions: AxFunction[] | undefined = this.functions;
+
+    if (options?.functions) {
+      functions = parseFunctions(options.functions, this.functions);
     }
+
+    if (!tracer) {
+      return await this._forward(ai, sig, values, {
+        ...options,
+        functions
+      });
+    }
+
+    const funcNames = functions?.map((f) => f.name).join(',');
 
     const attributes = {
       ['generate.signature']: sig.toString(),
-      ['generate.functions']: this.functionList ?? 'none'
+      ['generate.functions']: funcNames ?? ''
     };
 
     return await tracer.startActiveSpan(
@@ -483,76 +501,5 @@ export class AxGen<
         return res;
       }
     );
-  }
-
-  public processFunctions = async (
-    ai: Readonly<AxAIService>,
-    functionCalls: readonly AxChatResponseFunctionCall[],
-    mem: Readonly<AxMemory>,
-    sessionId?: string,
-    traceId?: string
-  ) => {
-    // Map each function call to a promise that resolves to the function result or null
-    const promises = functionCalls.map((func) =>
-      this.funcProc?.execute(func, { sessionId, traceId, ai }).then((fres) => {
-        if (fres?.id) {
-          return {
-            role: 'function' as const,
-            result: fres.result ?? '',
-            functionId: fres.id
-          };
-        }
-        return null; // Returning null for function calls that don't meet the condition
-      })
-    );
-
-    // Wait for all promises to resolve
-    const results = await Promise.all(promises);
-
-    results.forEach((result) => {
-      if (result) {
-        mem.add(result, sessionId);
-      }
-    });
-  };
-}
-
-function parseFunctions(
-  ai: Readonly<AxAIService>,
-  functionCalls: Readonly<AxChatResponseResult['functionCalls']>,
-  values: Record<string, unknown>,
-  model?: string
-): AxChatResponseFunctionCall[] | undefined {
-  if (!functionCalls || functionCalls.length === 0) {
-    return;
-  }
-  if (ai.getFeatures(model).functions) {
-    const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
-      id: f.id,
-      name: f.function.name,
-      args: f.function.params as string
-    }));
-
-    // for (const [i, f] of funcs.entries()) {
-    //   values['functionName' + i] = f.name;
-    //   values['functionArguments' + i] =
-    //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
-    // }
-    return funcs;
-  } else if (values['functionName']) {
-    const { functionName, functionArguments } = values as {
-      functionName: string;
-      functionArguments: string;
-      other: object;
-    };
-    delete values['functionName'];
-    delete values['functionArguments'];
-
-    return [
-      {
-        name: functionName,
-        args: functionArguments
-      }
-    ];
   }
 }

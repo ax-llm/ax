@@ -1,6 +1,7 @@
 import type {
   AxAIService,
   AxChatResponse,
+  AxFunction,
   AxModelConfig,
   AxRateLimiterFunction
 } from '../ai/types.js';
@@ -52,6 +53,7 @@ export type AxProgramForwardOptions = {
   rateLimiter?: AxRateLimiterFunction;
   stream?: boolean;
   debug?: boolean;
+  functions?: AxFunction[];
 };
 
 export interface AxTunable {

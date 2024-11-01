@@ -1,6 +1,12 @@
 import JSON5 from 'json5';
 
-import type { AxAIServiceActionOptions, AxFunction } from '../ai/types.js';
+import type {
+  AxAIService,
+  AxAIServiceActionOptions,
+  AxChatResponseResult,
+  AxFunction
+} from '../ai/types.js';
+import type { AxMemory } from '../mem/memory.js';
 
 import { validateJSONSchema } from './jsonschema.js';
 
@@ -16,12 +22,9 @@ export type AxFunctionExec = {
 };
 
 export class AxFunctionProcessor {
-  private funcList: readonly AxFunction[];
+  private funcList: Readonly<AxFunction[]> = [];
 
-  constructor(funcList: readonly AxFunction[]) {
-    funcList
-      .filter((v) => v.parameters)
-      .forEach((v) => validateJSONSchema(v.parameters!));
+  constructor(funcList: Readonly<AxFunction[]>) {
     this.funcList = funcList;
   }
 
@@ -84,4 +87,110 @@ export class AxFunctionProcessor {
     // execute value function calls
     return await this.executeFunction(fnSpec, func, options);
   };
+}
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export type InputFunctionType =
+  | AxFunction[]
+  | {
+      toFunction: () => AxFunction;
+    }[];
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export const parseFunctions = (
+  newFuncs: Readonly<InputFunctionType>,
+  existingFuncs?: readonly AxFunction[]
+): AxFunction[] => {
+  if (newFuncs.length === 0) {
+    return [...(existingFuncs ?? [])];
+  }
+
+  const functions = newFuncs.map((f) => {
+    if ('toFunction' in f) {
+      return f.toFunction();
+    }
+    return f;
+  });
+
+  for (const fn of functions.filter((v) => v.parameters)) {
+    validateJSONSchema(fn.parameters!);
+  }
+
+  return [...(existingFuncs ?? []), ...functions];
+};
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export const processFunctions = async (
+  ai: Readonly<AxAIService>,
+  functionList: Readonly<AxFunction[]>,
+  functionCalls: readonly AxChatResponseFunctionCall[],
+  mem: Readonly<AxMemory>,
+  sessionId?: string,
+  traceId?: string
+) => {
+  const funcProc = new AxFunctionProcessor(functionList);
+
+  // Map each function call to a promise that resolves to the function result or null
+  const promises = functionCalls.map((func) =>
+    funcProc?.execute(func, { sessionId, traceId, ai }).then((fres) => {
+      if (fres?.id) {
+        return {
+          role: 'function' as const,
+          result: fres.result ?? '',
+          functionId: fres.id
+        };
+      }
+      return null; // Returning null for function calls that don't meet the condition
+    })
+  );
+
+  // Wait for all promises to resolve
+  const results = await Promise.all(promises);
+
+  results.forEach((result) => {
+    if (result) {
+      mem.add(result, sessionId);
+    }
+  });
+};
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export function parseFunctionCalls(
+  ai: Readonly<AxAIService>,
+  functionCalls: Readonly<AxChatResponseResult['functionCalls']>,
+  values: Record<string, unknown>,
+  model?: string
+): AxChatResponseFunctionCall[] | undefined {
+  if (!functionCalls || functionCalls.length === 0) {
+    return;
+  }
+  if (ai.getFeatures(model).functions) {
+    const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
+      id: f.id,
+      name: f.function.name,
+      args: f.function.params as string
+    }));
+
+    // for (const [i, f] of funcs.entries()) {
+    //   values['functionName' + i] = f.name;
+    //   values['functionArguments' + i] =
+    //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
+    // }
+    return funcs;
+  } else if (values['functionName']) {
+    const { functionName, functionArguments } = values as {
+      functionName: string;
+      functionArguments: string;
+      other: object;
+    };
+    delete values['functionName'];
+    delete values['functionArguments'];
+
+    return [
+      {
+        name: functionName,
+        args: functionArguments
+      }
+    ];
+  }
 }

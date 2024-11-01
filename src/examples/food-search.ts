@@ -140,13 +140,6 @@ const functions: AxFunction[] = [
   }
 ];
 
-const customerQuery =
-  "Give me an ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
-
-const signature = new AxSignature(
-  `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
-);
-
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string
@@ -177,14 +170,20 @@ const ai = new AxAI({
 
 // ai.setOptions({ debug: true });
 
+const customerQuery =
+  "Give me an ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
+
+const signature = new AxSignature(
+  `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
+);
+
 const gen = new AxAgent({
   name: 'food-search',
   description:
-    'Use this agent to find restaurants based on what the customer wants',
-  signature,
-  functions
+    'Use this agent to find restaurants based on what the customer wants. Use the provided functions to get the weather and find restaurants.',
+  signature
 });
 
-const res = await gen.forward(ai, { customerQuery }, { stream: true });
+const res = await gen.forward(ai, { customerQuery }, { functions });
 
 console.log('>', res);
