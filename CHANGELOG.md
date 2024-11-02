@@ -1,5 +1,14 @@
 
 
+## [10.0.5](https://github.com/ax-llm/ax/compare/10.0.3...10.0.4) (2024-11-02)
+
+## [10.0.4](https://github.com/ax-llm/ax/compare/10.0.3...10.0.4) (2024-11-01)
+
+
+### Features
+
+* pass functions in forward() ([0c6a58e](https://github.com/ax-llm/ax/commit/0c6a58e18858f83d9460331911f5cb2d580058da))
+
 ## [10.0.4](https://github.com/ax-llm/ax/compare/10.0.2...10.0.3) (2024-11-01)
 
 
