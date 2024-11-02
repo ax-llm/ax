@@ -378,6 +378,10 @@ export class AxAIGoogleGemini extends AxBaseAI<
             throw new Error('Finish reason: RECITATION');
         }
 
+        if (!candidate.content.parts) {
+          return result;
+        }
+
         for (const part of candidate.content.parts) {
           if ('text' in part) {
             result.content = part.text;
