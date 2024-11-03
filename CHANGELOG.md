@@ -1,5 +1,14 @@
 
 
+## [10.0.6](https://github.com/ax-llm/ax/compare/10.0.4...10.0.5) (2024-11-03)
+
+
+### Bug Fixes
+
+* gemini function calling ([df0237d](https://github.com/ax-llm/ax/commit/df0237dda0b9f66a25ef80d1b78849eb68e6f0ea))
+
+## [10.0.5](https://github.com/ax-llm/ax/compare/10.0.4...10.0.5) (2024-11-02)
+
 ## [10.0.5](https://github.com/ax-llm/ax/compare/10.0.3...10.0.4) (2024-11-02)
 
 ## [10.0.4](https://github.com/ax-llm/ax/compare/10.0.3...10.0.4) (2024-11-01)
