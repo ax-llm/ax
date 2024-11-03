@@ -140,10 +140,14 @@ const functions: AxFunction[] = [
   }
 ];
 
+// const ai = new AxAI({
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string
+// });
+
 const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-  //   config: { model: AxAIOpenAIModel.GPT4OMini }
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string
 });
 
 // ai.setOptions({ debug: true });
@@ -156,11 +160,6 @@ const ai = new AxAI({
 // const ai = new AxAI({
 //   name: 'cohere',
 //   apiKey: process.env.COHERE_APIKEY as string
-// });
-
-// const ai = new AxAI({
-//   name: 'google-gemini',
-//   apiKey: process.env.GOOGLE_APIKEY as string
 // });
 
 // const ai = new AxAI({

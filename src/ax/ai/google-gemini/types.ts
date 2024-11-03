@@ -79,8 +79,8 @@ export type AxAIGoogleGeminiToolFunctionDeclaration = {
 };
 
 export type AxAIGoogleGeminiTool = {
-  functionDeclarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
-  codeExecution?: object;
+  function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
+  code_execution?: object;
 };
 
 export type AxAIGoogleGeminiToolConfig = {

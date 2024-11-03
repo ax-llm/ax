@@ -208,38 +208,40 @@ export class AxAIGoogleGemini extends AxBaseAI<
           }
 
           case 'assistant': {
-            if ('content' in msg && typeof msg.content === 'string') {
-              const parts: Extract<
-                AxAIGoogleGeminiChatRequest['contents'][0],
-                { role: 'model' }
-              >['parts'] = [{ text: msg.content }];
+            let parts: Extract<
+              AxAIGoogleGeminiChatRequest['contents'][0],
+              { role: 'model' }
+            >['parts'] = [];
+
+            if (msg.functionCalls) {
+              parts = msg.functionCalls.map((f) => {
+                const args =
+                  typeof f.function.params === 'string'
+                    ? JSON.parse(f.function.params)
+                    : f.function.params;
+                return {
+                  functionCall: {
+                    name: f.function.name,
+                    args: args
+                  }
+                };
+              });
+
+              if (!parts) {
+                throw new Error('Function call is empty');
+              }
+
               return {
                 role: 'model' as const,
                 parts
               };
             }
 
-            let parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'model' }
-            >['parts'] = [];
-
-            if ('functionCalls' in msg) {
-              parts =
-                msg.functionCalls?.map((f) => {
-                  const args =
-                    typeof f.function.params === 'string'
-                      ? JSON.parse(f.function.params)
-                      : f.function.params;
-                  return {
-                    functionCall: {
-                      name: f.function.name,
-                      args: args
-                    }
-                  };
-                }) ?? [];
+            if (!msg.content) {
+              throw new Error('Assistant content is empty');
             }
 
+            parts = [{ text: msg.content }];
             return {
               role: 'model' as const,
               parts
@@ -276,11 +278,11 @@ export class AxAIGoogleGemini extends AxBaseAI<
     let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
 
     if (req.functions && req.functions.length > 0) {
-      tools.push({ functionDeclarations: req.functions });
+      tools.push({ function_declarations: req.functions });
     }
 
     if (this.options?.codeExecution) {
-      tools.push({ codeExecution: {} });
+      tools.push({ code_execution: {} });
     }
 
     if (tools.length === 0) {
