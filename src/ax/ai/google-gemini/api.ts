@@ -70,13 +70,21 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
       ...axBaseAIDefaultCreativeConfig()
     });
 
+export interface AxAIGoogleGeminiOptionsTools {
+  codeExecution?: boolean;
+  googleSearchRetrieval?: {
+    mode?: 'MODE_DYNAMIC';
+    dynamicThreshold?: number;
+  };
+}
+
 export interface AxAIGoogleGeminiArgs {
   name: 'google-gemini';
   apiKey: string;
   projectId?: string;
   region?: string;
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>;
-  options?: Readonly<AxAIServiceOptions & { codeExecution?: boolean }>;
+  options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>;
   modelMap?: Record<
     string,
     AxAIGoogleGeminiModel | AxAIGoogleGeminiEmbedModel | string
@@ -283,6 +291,12 @@ export class AxAIGoogleGemini extends AxBaseAI<
 
     if (this.options?.codeExecution) {
       tools.push({ code_execution: {} });
+    }
+
+    if (this.options?.googleSearchRetrieval) {
+      tools.push({
+        google_search_retrieval: this.options.googleSearchRetrieval
+      });
     }
 
     if (tools.length === 0) {

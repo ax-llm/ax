@@ -39,7 +39,15 @@ export class AxSignature {
   private sigHash: string;
   private sigString: string;
 
-  constructor(signature: Readonly<AxSignature | string>) {
+  constructor(signature?: Readonly<AxSignature | string>) {
+    if (!signature) {
+      this.inputFields = [];
+      this.outputFields = [];
+      this.sigHash = '';
+      this.sigString = '';
+      return;
+    }
+
     if (typeof signature === 'string') {
       let sig: ParsedSignature;
       try {

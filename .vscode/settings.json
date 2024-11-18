@@ -4,7 +4,7 @@
   "editor.formatOnSave": true,
   "typescript.tsdk": "./node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
-  "typescript.format.enable": false,
+  "typescript.format.enable": true,
   "typescript.tsserver.watchOptions": {},
   "js/ts.implicitProjectConfig.target": "ESNext"
 }

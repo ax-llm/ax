@@ -78,9 +78,15 @@ export type AxAIGoogleGeminiToolFunctionDeclaration = {
   parameters?: object;
 };
 
+export type AxAIGoogleGeminiToolGoogleSearchRetrieval = {
+  mode?: 'MODE_DYNAMIC';
+  dynamic_threshold?: number;
+};
+
 export type AxAIGoogleGeminiTool = {
   function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
   code_execution?: object;
+  google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval;
 };
 
 export type AxAIGoogleGeminiToolConfig = {
