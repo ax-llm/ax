@@ -1,5 +1,19 @@
 
 
+## [10.0.8](https://github.com/ax-llm/ax/compare/10.0.6...10.0.7) (2024-11-20)
+
+
+### Bug Fixes
+
+* bug in traces, missing input values ([d8a8ee5](https://github.com/ax-llm/ax/commit/d8a8ee5544214c30a1ac341b7c11fb9fd717a57b))
+
+## [10.0.7](https://github.com/ax-llm/ax/compare/10.0.6...10.0.7) (2024-11-18)
+
+
+### Features
+
+* added google search retrieval for gemini ([f659dc6](https://github.com/ax-llm/ax/commit/f659dc6151f837d4b59cd14ab4ed8525b8c57c0c))
+
 ## [10.0.7](https://github.com/ax-llm/ax/compare/10.0.5...10.0.6) (2024-11-18)
 
 
