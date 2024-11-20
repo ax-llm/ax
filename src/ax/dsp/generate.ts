@@ -422,7 +422,7 @@ export class AxGen<
           }
 
           assertRequiredFields(sig, output);
-          this.trace = { ...output };
+          this.trace = { ...values, ...output };
           return output;
         } catch (e) {
           let extraFields;
