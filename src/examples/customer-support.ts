@@ -1,4 +1,4 @@
-import { AxAI, AxGen } from '@ax-llm/ax';
+import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax';
 
 const gen = new AxGen(
   `customerEmail:string  -> productName:string "The name of the product",
@@ -21,9 +21,21 @@ Best regards,
 John Doe.
   `;
 
+// const ai = new AxAI({
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string
+// });
+
 const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B }
 });
 
-console.log(await gen.forward(ai, { customerEmail: customerMessage }));
+ai.setOptions({ debug: true });
+
+const res = await gen.forward(ai, { customerEmail: customerMessage });
+
+console.log('Traces:\n', gen.getTraces());
+
+console.log('Result:\n', res);

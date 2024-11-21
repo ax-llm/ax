@@ -54,7 +54,7 @@ export const streamingExtractValues = (
       );
     }
 
-    state.s = e + prefix.length + 1;
+    state.s = e + prefix.length;
     state.currField = field;
   }
 };
