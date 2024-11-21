@@ -1,5 +1,19 @@
 
 
+## [10.0.9](https://github.com/ax-llm/ax/compare/10.0.7...10.0.8) (2024-11-21)
+
+
+### Bug Fixes
+
+* field extraction issue ([9d4a083](https://github.com/ax-llm/ax/commit/9d4a083af3b845b057294badc096685fb781ed27))
+
+## [10.0.8](https://github.com/ax-llm/ax/compare/10.0.7...10.0.8) (2024-11-20)
+
+
+### Bug Fixes
+
+* bug in traces, missing input values ([d8a8ee5](https://github.com/ax-llm/ax/commit/d8a8ee5544214c30a1ac341b7c11fb9fd717a57b))
+
 ## [10.0.8](https://github.com/ax-llm/ax/compare/10.0.6...10.0.7) (2024-11-20)
 
 
