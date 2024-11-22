@@ -1,5 +1,19 @@
 
 
+## [10.0.10](https://github.com/ax-llm/ax/compare/10.0.8...10.0.9) (2024-11-22)
+
+
+### Features
+
+* added tests for field extraction functions ([4818f09](https://github.com/ax-llm/ax/commit/4818f09ccc9ea7dd69d7897b8fa3ed9fad3de921))
+
+## [10.0.9](https://github.com/ax-llm/ax/compare/10.0.8...10.0.9) (2024-11-21)
+
+
+### Bug Fixes
+
+* field extraction issue ([9d4a083](https://github.com/ax-llm/ax/commit/9d4a083af3b845b057294badc096685fb781ed27))
+
 ## [10.0.9](https://github.com/ax-llm/ax/compare/10.0.7...10.0.8) (2024-11-21)
 
 
