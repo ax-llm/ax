@@ -16,7 +16,7 @@
     "test": "run-s test:*",
     "test:lint": "eslint src --ext .ts",
     "test:prettier": "prettier \"src/**/*.ts\" --config .prettierrc --check",
-    "test:spelling": "cspell \"{README.md,.github/*.md,src/**/*.ts}\"",
+    "test:spelling": "cspell --quiet \"{README.md,.github/*.md,src/**/*.ts}\"",
     "test:unit": "npm run test:unit --workspaces --if-present",
     "cov": "run-s build test:unit cov:html cov:lcov && open coverage/index.html",
     "doc": "run-s doc:api doc:html",
