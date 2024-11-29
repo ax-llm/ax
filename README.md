@@ -385,8 +385,9 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 
 const provider = new BasicTracerProvider();
-provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
-trace.setGlobalTracerProvider(provider);
+const provider = new BasicTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(new ConsoleSpanExporter())],
+});
 
 const tracer = trace.getTracer('test');
 
