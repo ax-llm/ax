@@ -123,7 +123,13 @@ export type AxAIGoogleGeminiChatResponse = {
   candidates: {
     content: AxAIGoogleGeminiContent;
 
-    finishReason: 'STOP' | 'MAX_TOKENS' | 'SAFETY' | 'RECITATION' | 'OTHER';
+    finishReason:
+      | 'STOP'
+      | 'MAX_TOKENS'
+      | 'SAFETY'
+      | 'RECITATION'
+      | 'OTHER'
+      | 'MALFORMED_FUNCTION_CALL';
     citationMetadata: {
       citations: {
         startIndex: number;
