@@ -392,9 +392,11 @@ export class AxAIGoogleGemini extends AxBaseAI<
             throw new Error('Finish reason: SAFETY');
           case 'RECITATION':
             throw new Error('Finish reason: RECITATION');
+          case 'MALFORMED_FUNCTION_CALL':
+            throw new Error('Finish reason: MALFORMED_FUNCTION_CALL');
         }
 
-        if (!candidate.content.parts) {
+        if (!candidate.content || !candidate.content.parts) {
           return result;
         }
 
