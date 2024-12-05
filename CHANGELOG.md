@@ -1,5 +1,14 @@
 
 
+## [10.0.12](https://github.com/ax-llm/ax/compare/10.0.10...10.0.11) (2024-12-05)
+
+## [10.0.11](https://github.com/ax-llm/ax/compare/10.0.10...10.0.11) (2024-12-04)
+
+
+### Bug Fixes
+
+* minor fixes ([e5f6f15](https://github.com/ax-llm/ax/commit/e5f6f151bd42a5b58e84d6d84266737c0f3a960a))
+
 ## [10.0.11](https://github.com/ax-llm/ax/compare/10.0.9...10.0.10) (2024-12-04)
 
 
