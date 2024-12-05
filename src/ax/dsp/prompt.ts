@@ -416,6 +416,11 @@ const isEmptyValue = (
   field: Readonly<AxField>,
   value?: Readonly<AxFieldValue>
 ) => {
+  // Boolean type can't be empty
+  if (typeof value === 'boolean') {
+    return false;
+  }
+
   if (
     !value ||
     ((Array.isArray(value) || typeof value === 'string') && value.length === 0)
