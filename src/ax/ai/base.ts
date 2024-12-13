@@ -516,12 +516,14 @@ const logResponse = (resp: Readonly<AxChatResponse>) => {
       console.log(colorLog.greenBright(r.content));
     }
     if (r.functionCalls) {
+      process.stdout.write(colorLog.yellow(`Executing functions:\n`));
+
       for (const f of r.functionCalls) {
         const args =
           typeof f.function.params !== 'string'
             ? JSON.stringify(f.function.params, null, 2)
             : f.function.params;
-        console.log(colorLog.yellow(`${f.function.name}(${args})`));
+        process.stdout.write(colorLog.yellow(`${f.function.name}(${args})`));
       }
     }
   }

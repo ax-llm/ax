@@ -1,5 +1,6 @@
 import type {
   AxAIService,
+  AxChatRequest,
   AxChatResponse,
   AxFunction,
   AxModelConfig,
@@ -54,6 +55,8 @@ export type AxProgramForwardOptions = {
   stream?: boolean;
   debug?: boolean;
   functions?: AxFunction[];
+  functionCall?: AxChatRequest['functionCall'];
+  stopFunction?: string;
 };
 
 export interface AxTunable {

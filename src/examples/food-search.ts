@@ -140,17 +140,16 @@ const functions: AxFunction[] = [
   }
 ];
 
-// const ai = new AxAI({
-//   name: 'openai',
-//   apiKey: process.env.OPENAI_APIKEY as string
-// });
-
 const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string
 });
 
-// ai.setOptions({ debug: true });
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string
+//   //   config: { model: 'gemini-2.0-flash-exp' }
+// });
 
 // const ai = new AxAI({
 //   name: 'groq',
@@ -167,7 +166,7 @@ const ai = new AxAI({
 //   apiKey: process.env.ANTHROPIC_APIKEY as string
 // });
 
-// ai.setOptions({ debug: true });
+ai.setOptions({ debug: true });
 
 const customerQuery =
   "Give me an ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside.";
@@ -179,10 +178,11 @@ const signature = new AxSignature(
 const gen = new AxAgent({
   name: 'food-search',
   description:
-    'Use this agent to find restaurants based on what the customer wants. Use the provided functions to get the weather and find restaurants.',
-  signature
+    'Use this agent to find restaurants based on what the customer wants. Use the provided functions to get the weather and find restaurants and finally return the best match',
+  signature,
+  functions
 });
 
-const res = await gen.forward(ai, { customerQuery }, { functions });
+const res = await gen.forward(ai, { customerQuery });
 
 console.log('>', res);

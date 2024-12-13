@@ -80,19 +80,19 @@ export type AxAIGoogleGeminiToolFunctionDeclaration = {
 
 export type AxAIGoogleGeminiToolGoogleSearchRetrieval = {
   mode?: 'MODE_DYNAMIC';
-  dynamic_threshold?: number;
+  dynamicThreshold?: number;
 };
 
 export type AxAIGoogleGeminiTool = {
-  function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
-  code_execution?: object;
-  google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval;
+  functionDeclarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
+  codeExecution?: object;
+  googleSearchRetrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval;
 };
 
 export type AxAIGoogleGeminiToolConfig = {
-  function_calling_config: {
+  functionCallingConfig: {
     mode: 'ANY' | 'NONE' | 'AUTO';
-    allowed_function_names?: string[];
+    allowedFunctionNames?: string[];
   };
 };
 
@@ -113,7 +113,7 @@ export type AxAIGoogleGeminiSafetySettings = {
 export type AxAIGoogleGeminiChatRequest = {
   contents: AxAIGoogleGeminiContent[];
   tools?: AxAIGoogleGeminiTool[];
-  tool_config?: AxAIGoogleGeminiToolConfig;
+  toolConfig?: AxAIGoogleGeminiToolConfig;
   systemInstruction?: AxAIGoogleGeminiContent;
   generationConfig: AxAIGoogleGeminiGenerationConfig;
   safetySettings?: AxAIGoogleGeminiSafetySettings;

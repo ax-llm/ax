@@ -66,7 +66,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     }
 
     if (!api.stream) {
-      return (await res.json()) as TResponse;
+      const resJson = await res.json();
+      return resJson as TResponse;
     }
 
     if (!res.body) {

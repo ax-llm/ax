@@ -129,10 +129,13 @@ export const processFunctions = async (
   traceId?: string
 ) => {
   const funcProc = new AxFunctionProcessor(functionList);
+  const functionsExecuted = new Set<string>();
 
   // Map each function call to a promise that resolves to the function result or null
   const promises = functionCalls.map((func) =>
     funcProc?.execute(func, { sessionId, traceId, ai }).then((fres) => {
+      functionsExecuted.add(func.name.toLowerCase());
+
       if (fres?.id) {
         return {
           role: 'function' as const,
@@ -152,6 +155,8 @@ export const processFunctions = async (
       mem.add(result, sessionId);
     }
   });
+
+  return functionsExecuted;
 };
 
 // eslint-disable-next-line @typescript-eslint/naming-convention

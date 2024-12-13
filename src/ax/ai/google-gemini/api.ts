@@ -286,16 +286,16 @@ export class AxAIGoogleGemini extends AxBaseAI<
     let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
 
     if (req.functions && req.functions.length > 0) {
-      tools.push({ function_declarations: req.functions });
+      tools.push({ functionDeclarations: req.functions });
     }
 
     if (this.options?.codeExecution) {
-      tools.push({ code_execution: {} });
+      tools.push({ codeExecution: {} });
     }
 
     if (this.options?.googleSearchRetrieval) {
       tools.push({
-        google_search_retrieval: this.options.googleSearchRetrieval
+        googleSearchRetrieval: this.options.googleSearchRetrieval
       });
     }
 
@@ -303,25 +303,30 @@ export class AxAIGoogleGemini extends AxBaseAI<
       tools = undefined;
     }
 
-    // eslint-disable-next-line @typescript-eslint/naming-convention
-    let tool_config;
+    let toolConfig;
+
     if (req.functionCall) {
       if (req.functionCall === 'none') {
-        tool_config = { function_calling_config: { mode: 'NONE' as const } };
+        toolConfig = { functionCallingConfig: { mode: 'NONE' as const } };
       } else if (req.functionCall === 'auto') {
-        tool_config = { function_calling_config: { mode: 'AUTO' as const } };
+        toolConfig = { functionCallingConfig: { mode: 'AUTO' as const } };
       } else if (req.functionCall === 'required') {
-        tool_config = {
-          function_calling_config: { mode: 'ANY' as const }
+        toolConfig = {
+          functionCallingConfig: { mode: 'ANY' as const }
         };
       } else {
-        tool_config = {
-          function_calling_config: {
-            mode: 'ANY' as const,
-            allowed_function_names: [req.functionCall.function.name]
-          }
+        const allowedFunctionNames = req.functionCall.function.name
+          ? {
+              allowedFunctionNames: [req.functionCall.function.name]
+            }
+          : {};
+        toolConfig = {
+          functionCallingConfig: { mode: 'ANY' as const },
+          ...allowedFunctionNames
         };
       }
+    } else if (tools && tools.length > 0) {
+      toolConfig = { functionCallingConfig: { mode: 'AUTO' as const } };
     }
 
     const generationConfig = {
@@ -338,7 +343,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     const reqValue: AxAIGoogleGeminiChatRequest = {
       contents,
       tools,
-      tool_config,
+      toolConfig,
       systemInstruction,
       generationConfig,
       safetySettings

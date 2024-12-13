@@ -12,14 +12,13 @@ import {
 } from '../dsp/program.js';
 import { AxSpanKind } from '../trace/index.js';
 
-import { AxChainOfThought } from './cot.js';
 import { AxReAct } from './react.js';
 
 export interface AxAgentic extends AxTunable, AxUsable {
   getFunction(): AxFunction;
 }
 
-export type AxAgentOptions = Omit<AxGenOptions, 'functions' | 'functionCall'>;
+export type AxAgentOptions = Omit<AxGenOptions, 'functions'>;
 
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic
@@ -49,7 +48,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       description: string;
       signature: AxSignature | string;
       agents?: AxAgentic[];
-      functions?: AxFunction[];
+      functions: AxFunction[];
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
@@ -64,11 +63,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ];
 
     const opt = { ...options, functions: funcs };
-
-    this.program =
-      funcs.length > 0
-        ? new AxReAct<IN, OUT>(this.signature, opt)
-        : new AxChainOfThought<IN, OUT>(this.signature, opt);
+    this.program = new AxReAct<IN, OUT>(this.signature, opt);
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -155,8 +150,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ): Promise<OUT> {
     const _ai = this.ai ?? ai;
 
+    const funcs: AxFunction[] = [
+      ...(options?.functions ?? []),
+      ...(this.agents?.map((a) => a.getFunction()) ?? [])
+    ];
+
+    const opt = options;
+
+    if (funcs.length > 0) {
+      const opt = { ...options, functions: funcs };
+      this.program = new AxReAct<IN, OUT>(this.signature, opt);
+    }
+
     if (!options?.tracer) {
-      return await this.program.forward(_ai, values, options);
+      return await this.program.forward(_ai, values, opt);
     }
 
     const attributes = {
@@ -172,7 +179,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         attributes
       },
       async (span) => {
-        const res = await this.program.forward(_ai, values, options);
+        const res = await this.program.forward(_ai, values, opt);
         span.end();
         return res;
       }

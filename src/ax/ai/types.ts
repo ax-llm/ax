@@ -125,12 +125,16 @@ export type AxChatRequest = {
         functionCalls?: {
           id: string;
           type: 'function';
-
           function: { name: string; params?: string | object };
         }[];
         cache?: boolean;
       }
-    | { role: 'function'; result: string; functionId: string; cache?: boolean }
+    | {
+        role: 'function';
+        result: string;
+        functionId: string;
+        cache?: boolean;
+      }
   >[];
   functions?: Readonly<{
     name: string;

@@ -56,6 +56,7 @@ export interface AxGenOptions {
 
   functions?: InputFunctionType;
   functionCall?: AxChatRequest['functionCall'];
+  stopFunction?: string;
   promptTemplate?: typeof AxPromptTemplate;
   asserts?: AxAssertion[];
   streamingAsserts?: AxStreamingAssertion[];
@@ -85,8 +86,8 @@ export class AxGen<
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
   private options?: Omit<AxGenOptions, 'functions'>;
-
   private functions?: AxFunction[];
+  private functionsExecuted: Set<string> = new Set<string>();
 
   constructor(
     signature: Readonly<AxSignature | string>,
@@ -156,7 +157,8 @@ export class AxGen<
     stream,
     model,
     rateLimiter,
-    functions
+    functions,
+    functionCall: _functionCall
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai'> & { ai: AxAIService; stream: boolean }
   >) {
@@ -166,7 +168,7 @@ export class AxGen<
       throw new Error('No chat prompt found');
     }
 
-    const functionCall = this.options?.functionCall;
+    const functionCall = _functionCall ?? this.options?.functionCall;
 
     const hasJSON = this.signature
       .getOutputFields()
@@ -208,7 +210,8 @@ export class AxGen<
     model,
     rateLimiter,
     stream = false,
-    functions
+    functions,
+    functionCall
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai' | 'mem'> & {
       sig: Readonly<AxSignature>;
@@ -230,7 +233,8 @@ export class AxGen<
       modelConfig,
       model,
       rateLimiter,
-      functions
+      functions,
+      functionCall
     });
 
     if (res instanceof ReadableStream) {
@@ -321,7 +325,15 @@ export class AxGen<
       if (!functions) {
         throw new Error('Functions are not defined');
       }
-      await processFunctions(ai, functions, funcs, mem, sessionId, traceId);
+      const fx = await processFunctions(
+        ai,
+        functions,
+        funcs,
+        mem,
+        sessionId,
+        traceId
+      );
+      this.functionsExecuted = new Set([...this.functionsExecuted, ...fx]);
     }
 
     streamingExtractFinalValue(values, xstate, content);
@@ -360,7 +372,15 @@ export class AxGen<
           if (!functions) {
             throw new Error('Functions are not defined');
           }
-          await processFunctions(ai, functions, funcs, mem, sessionId, traceId);
+          const fx = await processFunctions(
+            ai,
+            functions,
+            funcs,
+            mem,
+            sessionId,
+            traceId
+          );
+          this.functionsExecuted = new Set([...this.functionsExecuted, ...fx]);
         }
       }
 
@@ -379,6 +399,10 @@ export class AxGen<
     options?: Readonly<AxProgramForwardOptions>,
     span?: AxSpan
   ): Promise<OUT> {
+    const stopFunction = (
+      options?.stopFunction ?? this.options?.stopFunction
+    )?.toLowerCase();
+
     const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 5;
     const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
     const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
@@ -412,16 +436,25 @@ export class AxGen<
             stream: canStream && options?.stream,
             maxSteps: options?.maxSteps,
             rateLimiter: options?.rateLimiter,
-            functions: options?.functions
+            functions: options?.functions,
+            functionCall: options?.functionCall
           });
 
           const lastMemItem = mem.getLast(options?.sessionId);
 
+          const stopFunctionExecuted =
+            stopFunction && this.functionsExecuted.has(stopFunction);
+
           if (lastMemItem?.role === 'function') {
-            continue multiStepLoop;
+            if (!stopFunction || !stopFunctionExecuted) {
+              continue multiStepLoop;
+            }
           }
 
-          assertRequiredFields(sig, output);
+          if (!stopFunctionExecuted) {
+            assertRequiredFields(sig, output);
+          }
+
           this.trace = { ...values, ...output };
           return output;
         } catch (e) {
@@ -449,6 +482,7 @@ export class AxGen<
           }
         }
       }
+
       if (err instanceof AxAssertionError && err.getOptional()) {
         return err.getValue() as OUT;
       }
@@ -456,7 +490,7 @@ export class AxGen<
       throw new Error(`Unable to fix validation error: ${err?.message}`);
     }
 
-    throw new Error('Could not complete task within maximum allowed steps');
+    throw new Error(`Max steps reached: ${maxSteps}`);
   }
 
   public override async forward(

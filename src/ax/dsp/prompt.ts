@@ -48,7 +48,7 @@ export class AxPromptTemplate {
     this.outputFormat = {
       type: 'text' as const,
       text: [
-        'Use the following key-value output format for the output not JSON or a markdown block.',
+        'Use only the following key-value output format for the output.',
         ...this.renderOutFields(this.sig.getOutputFields()),
         '---\n\n'
       ].join('\n\n')
@@ -129,7 +129,7 @@ export class AxPromptTemplate {
   private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const list: ChatRequestUserMessage = [];
 
-    for (const item of data) {
+    for (const [index, item] of data.entries()) {
       const renderedInputItem = this.sig
         .getInputFields()
         .map((field) => this.renderInField(field, item, true))
@@ -143,7 +143,9 @@ export class AxPromptTemplate {
         .flat();
 
       if (renderedOutputItem.length === 0) {
-        throw new Error('Output fields are required for examples.');
+        throw new Error(
+          `Output fields are required in examples: index: ${index}, data: ${JSON.stringify(item)}`
+        );
       }
 
       const renderedItem = [...renderedInputItem, ...renderedOutputItem];

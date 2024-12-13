@@ -27,7 +27,7 @@ export class AxReAct<
 
     const sig = new AxSignature(signature);
     sig.setDescription(
-      `Use the provided functions ${funcList} to complete the task and return the result if any.`
+      `Use the following functions ${funcList} to complete the task and return the result. The functions must be used to resolve the final result values`
     );
 
     // sig.addInputField({
