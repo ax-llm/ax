@@ -1,5 +1,19 @@
 
 
+## [10.0.14](https://github.com/ax-llm/ax/compare/10.0.12...10.0.13) (2024-12-13)
+
+
+### Bug Fixes
+
+* minor ([ef0cda2](https://github.com/ax-llm/ax/commit/ef0cda2c6fcdf4b7d11af7f33d9f71a9d2d91ef8))
+
+## [10.0.13](https://github.com/ax-llm/ax/compare/10.0.12...10.0.13) (2024-12-13)
+
+
+### Features
+
+* new stopFunction option to return after a function is called ([4a56c9c](https://github.com/ax-llm/ax/commit/4a56c9cbbb589eaabfec57908899714f2d7a55d0))
+
 ## [10.0.13](https://github.com/ax-llm/ax/compare/10.0.11...10.0.12) (2024-12-13)
 
 
