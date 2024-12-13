@@ -1,5 +1,14 @@
 
 
+## [10.0.13](https://github.com/ax-llm/ax/compare/10.0.11...10.0.12) (2024-12-13)
+
+
+### Features
+
+* new stopFunction option to return after a function is called ([4a56c9c](https://github.com/ax-llm/ax/commit/4a56c9cbbb589eaabfec57908899714f2d7a55d0))
+
+## [10.0.12](https://github.com/ax-llm/ax/compare/10.0.11...10.0.12) (2024-12-05)
+
 ## [10.0.12](https://github.com/ax-llm/ax/compare/10.0.10...10.0.11) (2024-12-05)
 
 ## [10.0.11](https://github.com/ax-llm/ax/compare/10.0.10...10.0.11) (2024-12-04)
