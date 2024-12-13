@@ -315,7 +315,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
           functionCallingConfig: { mode: 'ANY' as const }
         };
       } else {
-        const allowedFunctionNames = req.functionCall.function.name
+        const allowedFunctionNames = req.functionCall.function?.name
           ? {
               allowedFunctionNames: [req.functionCall.function.name]
             }
