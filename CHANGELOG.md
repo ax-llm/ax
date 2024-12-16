@@ -1,5 +1,19 @@
 
 
+## [10.0.16](https://github.com/ax-llm/ax/compare/10.0.14...10.0.15) (2024-12-16)
+
+
+### Bug Fixes
+
+* functions are optional for agents ([13f6251](https://github.com/ax-llm/ax/commit/13f625188c51c2cac208ce391cc771414e4471b3))
+
+## [10.0.15](https://github.com/ax-llm/ax/compare/10.0.14...10.0.15) (2024-12-16)
+
+
+### Bug Fixes
+
+* vertex ai and streaming fixes ([8c0ade9](https://github.com/ax-llm/ax/commit/8c0ade90bd39134882563c717a2205adf30a7d61))
+
 ## [10.0.15](https://github.com/ax-llm/ax/compare/10.0.13...10.0.14) (2024-12-16)
 
 
