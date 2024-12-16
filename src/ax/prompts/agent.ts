@@ -48,7 +48,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       description: string;
       signature: AxSignature | string;
       agents?: AxAgentic[];
-      functions: AxFunction[];
+      functions?: AxFunction[];
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
