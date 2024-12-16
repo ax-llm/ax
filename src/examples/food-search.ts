@@ -140,16 +140,16 @@ const functions: AxFunction[] = [
   }
 ];
 
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
-
 // const ai = new AxAI({
-//   name: 'google-gemini',
-//   apiKey: process.env.GOOGLE_APIKEY as string
-//   //   config: { model: 'gemini-2.0-flash-exp' }
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string
 // });
+
+const ai = new AxAI({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: 'gemini-2.0-flash-exp' }
+});
 
 // const ai = new AxAI({
 //   name: 'groq',

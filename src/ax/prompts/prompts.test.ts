@@ -44,11 +44,11 @@ const mockFetch = async (): Promise<Response> => {
 };
 
 test('generate prompt', async (t) => {
-  const options = { fetch: mockFetch };
   const ai = new AxAI({
     name: 'openai',
     apiKey: 'no-key',
-    options
+    options: { fetch: mockFetch },
+    config: { stream: false }
   });
 
   // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });

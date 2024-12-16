@@ -6,6 +6,7 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
+  AxModelConfig,
   AxRateLimiterFunction
 } from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
@@ -209,14 +210,15 @@ export class AxGen<
     modelConfig,
     model,
     rateLimiter,
-    stream = false,
+    stream,
     functions,
     functionCall
   }: Readonly<
-    Omit<AxProgramForwardOptions, 'ai' | 'mem'> & {
+    Omit<AxProgramForwardOptions, 'ai' | 'mem' | 'stream'> & {
       sig: Readonly<AxSignature>;
       ai: Readonly<AxAIService>;
       mem: AxAIMemory;
+      stream: boolean;
     }
   >): Promise<OUT> {
     const usageInfo = {
@@ -406,7 +408,15 @@ export class AxGen<
     const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 5;
     const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
     const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
+
+    const modelConfig = mergeAxModelConfigs(
+      ai.getModelConfig(),
+      options?.modelConfig ?? {}
+    );
+
     const canStream = ai.getFeatures(options?.model).streaming;
+    const stream =
+      options?.stream ?? this.options?.stream ?? modelConfig.stream ?? true;
 
     let err: ValidationError | AxAssertionError | undefined;
 
@@ -431,9 +441,9 @@ export class AxGen<
             mem,
             sessionId: options?.sessionId,
             traceId: options?.traceId,
-            modelConfig: options?.modelConfig,
+            modelConfig,
             model: options?.model,
-            stream: canStream && options?.stream,
+            stream: canStream && stream,
             maxSteps: options?.maxSteps,
             rateLimiter: options?.rateLimiter,
             functions: options?.functions,
@@ -536,4 +546,17 @@ export class AxGen<
       }
     );
   }
+}
+
+function mergeAxModelConfigs(
+  baseConfig: Readonly<AxModelConfig>,
+  overrideConfig: Readonly<AxModelConfig>
+): AxModelConfig {
+  return {
+    ...baseConfig,
+    ...overrideConfig,
+    // Merge arrays to avoid overriding entirely
+    stopSequences: overrideConfig.stopSequences ?? baseConfig.stopSequences,
+    endSequences: overrideConfig.endSequences ?? baseConfig.endSequences
+  };
 }

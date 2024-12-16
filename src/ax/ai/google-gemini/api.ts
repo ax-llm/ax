@@ -105,6 +105,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
   private options?: AxAIGoogleGeminiArgs['options'];
   private config: AxAIGoogleGeminiConfig;
   private apiKey: string;
+  private isVertex: boolean;
 
   constructor({
     apiKey,
@@ -118,10 +119,17 @@ export class AxAIGoogleGemini extends AxBaseAI<
       throw new Error('GoogleGemini AI API key not set');
     }
 
-    let apiURL = 'https://generativelanguage.googleapis.com/v1beta';
+    const isVertex = projectId !== undefined && region !== undefined;
 
-    if (projectId && region) {
-      apiURL = `POST https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/{REGION}/publishers/google/`;
+    let apiURL;
+    let headers;
+
+    if (isVertex) {
+      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/`;
+      headers = { Authorization: `Bearer ${apiKey}` };
+    } else {
+      apiURL = 'https://generativelanguage.googleapis.com/v1beta';
+      headers = {};
     }
 
     const _config = {
@@ -132,7 +140,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     super({
       name: 'GoogleGeminiAI',
       apiURL,
-      headers: {},
+      headers,
       modelInfo: axModelInfoGoogleGemini,
       models: {
         model: _config.model as AxAIGoogleGeminiModel,
@@ -145,6 +153,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     this.options = options;
     this.config = _config;
     this.apiKey = apiKey;
+    this.isVertex = isVertex;
   }
 
   override getModelConfig(): AxModelConfig {
@@ -169,9 +178,14 @@ export class AxAIGoogleGemini extends AxBaseAI<
 
     const apiConfig = {
       name: stream
-        ? `/models/${model}:streamGenerateContent?alt=sse&key=${this.apiKey}`
-        : `/models/${model}:generateContent?key=${this.apiKey}`
+        ? `/models/${model}:streamGenerateContent?alt=sse`
+        : `/models/${model}:generateContent`
     };
+
+    if (this.isVertex === false) {
+      const pf = stream ? '&' : '?';
+      apiConfig.name += `${pf}key=${this.apiKey}`;
+    }
 
     const systemPrompts = req.chatPrompt
       .filter((p) => p.role === 'system')

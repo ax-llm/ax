@@ -12,23 +12,22 @@ export class AxReAct<
     signature: Readonly<AxSignature | string>,
     options: Readonly<AxGenOptions>
   ) {
-    if (!options?.functions || options.functions.length === 0) {
-      throw new Error('No functions provided');
-    }
-
-    const fnNames = options.functions.map((f) => {
+    const fnNames = options.functions?.map((f) => {
       if ('toFunction' in f) {
         return f.toFunction().name;
       }
       return f.name;
     });
 
-    const funcList = fnNames.map((fname) => `'${fname}'`).join(', ');
+    const funcList = fnNames?.map((fname) => `'${fname}'`).join(', ');
 
     const sig = new AxSignature(signature);
-    sig.setDescription(
-      `Use the following functions ${funcList} to complete the task and return the result. The functions must be used to resolve the final result values`
-    );
+
+    if (funcList && funcList.length > 0) {
+      sig.setDescription(
+        `Use the following functions ${funcList} to complete the task and return the result. The functions must be used to resolve the final result values`
+      );
+    }
 
     // sig.addInputField({
     //   name: 'observation',
