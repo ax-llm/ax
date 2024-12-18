@@ -1,5 +1,19 @@
 
 
+## [10.0.17](https://github.com/ax-llm/ax/compare/10.0.15...10.0.16) (2024-12-18)
+
+
+### Features
+
+* major prompt refactor for better performance ([3b718a0](https://github.com/ax-llm/ax/commit/3b718a00ecc727bc10c4a4657e1d24f3ec9fe455))
+
+## [10.0.16](https://github.com/ax-llm/ax/compare/10.0.15...10.0.16) (2024-12-16)
+
+
+### Bug Fixes
+
+* functions are optional for agents ([13f6251](https://github.com/ax-llm/ax/commit/13f625188c51c2cac208ce391cc771414e4471b3))
+
 ## [10.0.16](https://github.com/ax-llm/ax/compare/10.0.14...10.0.15) (2024-12-16)
 
 
