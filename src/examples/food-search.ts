@@ -145,11 +145,11 @@ const functions: AxFunction[] = [
 //   apiKey: process.env.OPENAI_APIKEY as string
 // });
 
-const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: 'gemini-2.0-flash-exp' }
-});
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string,
+//   config: { model: 'gemini-2.0-flash-exp' }
+// });
 
 // const ai = new AxAI({
 //   name: 'groq',
@@ -161,10 +161,10 @@ const ai = new AxAI({
 //   apiKey: process.env.COHERE_APIKEY as string
 // });
 
-// const ai = new AxAI({
-//   name: 'anthropic',
-//   apiKey: process.env.ANTHROPIC_APIKEY as string
-// });
+const ai = new AxAI({
+  name: 'anthropic',
+  apiKey: process.env.ANTHROPIC_APIKEY as string
+});
 
 ai.setOptions({ debug: true });
 
@@ -175,7 +175,10 @@ const signature = new AxSignature(
   `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
 );
 
-const gen = new AxAgent({
+const gen = new AxAgent<
+  { customerQuery: string },
+  { restaurant: string; priceRange: string }
+>({
   name: 'food-search',
   description:
     'Use this agent to find restaurants based on what the customer wants. Use the provided functions to get the weather and find restaurants and finally return the best match',

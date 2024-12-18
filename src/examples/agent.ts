@@ -33,6 +33,7 @@ const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string
 });
+ai.setOptions({ debug: true });
 
 // const ai = new AxAI({
 //   name: 'google-gemini',

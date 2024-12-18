@@ -169,33 +169,20 @@ export function parseFunctionCalls(
   if (!functionCalls || functionCalls.length === 0) {
     return;
   }
-  if (ai.getFeatures(model).functions) {
-    const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
-      id: f.id,
-      name: f.function.name,
-      args: f.function.params as string
-    }));
-
-    // for (const [i, f] of funcs.entries()) {
-    //   values['functionName' + i] = f.name;
-    //   values['functionArguments' + i] =
-    //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
-    // }
-    return funcs;
-  } else if (values['functionName']) {
-    const { functionName, functionArguments } = values as {
-      functionName: string;
-      functionArguments: string;
-      other: object;
-    };
-    delete values['functionName'];
-    delete values['functionArguments'];
-
-    return [
-      {
-        name: functionName,
-        args: functionArguments
-      }
-    ];
+  if (!ai.getFeatures(model).functions) {
+    throw new Error('Functions are not supported by the AI service');
   }
+
+  const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
+    id: f.id,
+    name: f.function.name,
+    args: f.function.params as string
+  }));
+
+  // for (const [i, f] of funcs.entries()) {
+  //   values['functionName' + i] = f.name;
+  //   values['functionArguments' + i] =
+  //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
+  // }
+  return funcs;
 }

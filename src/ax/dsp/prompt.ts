@@ -1,6 +1,7 @@
 import type { AxChatRequest } from '../ai/types.js';
 
 import { formatDateWithTimezone } from './datetime.js';
+import type { InputFunctionType } from './functions.js';
 import { type AxFieldValue } from './program.js';
 import type { AxField, AxIField, AxSignature } from './sig.js';
 import { validateValue } from './util.js';
@@ -22,10 +23,10 @@ export class AxPromptTemplate {
   private sig: Readonly<AxSignature>;
   private fieldTemplates?: Record<string, AxFieldTemplateFn>;
   private task: { type: 'text'; text: string };
-  private outputFormat: { type: 'text'; text: string };
 
   constructor(
     sig: Readonly<AxSignature>,
+    functions?: Readonly<InputFunctionType>,
     fieldTemplates?: Record<string, AxFieldTemplateFn>
   ) {
     this.sig = sig;
@@ -33,25 +34,51 @@ export class AxPromptTemplate {
 
     const inArgs = this.renderDescFields(this.sig.getInputFields());
     const outArgs = this.renderDescFields(this.sig.getOutputFields());
-    const task = [`Given the fields ${inArgs}, produce the fields ${outArgs}.`];
+    const task = [
+      `#Task\nGiven the fields ${inArgs}, produce the fields ${outArgs}.`
+    ];
+
+    const fnNames = functions?.map((f) => {
+      if ('toFunction' in f) {
+        return f.toFunction().name;
+      }
+      return f.name;
+    });
+
+    const funcList = fnNames?.map((fname) => `'${fname}'`).join(', ');
+
+    if (funcList && funcList.length > 0) {
+      task.push(
+        `Use the following functions ${funcList} to complete the task. The functions must be used to resolve the output field values.`
+      );
+    }
 
     const desc = this.sig.getDescription();
     if (desc) {
-      task.push(desc);
+      task.push(desc.endsWith('.') ? desc : desc + '.');
     }
+
+    task.push(
+      'Ensure the output strictly follows a plain text format, `key: value` separated by a new line.'
+    );
+
+    const inputFields = this.renderFields(this.sig.getInputFields());
+    const outputFields = this.renderFields(this.sig.getOutputFields());
+
+    task.push(
+      [
+        '\n',
+        '## Input Fields',
+        inputFields,
+        '\n',
+        '## Output Fields',
+        outputFields
+      ].join('\n')
+    );
 
     this.task = {
       type: 'text' as const,
-      text: task.join('\n')
-    };
-
-    this.outputFormat = {
-      type: 'text' as const,
-      text: [
-        'Use only the following key-value output format for the output.',
-        ...this.renderOutFields(this.sig.getOutputFields()),
-        '---\n\n'
-      ].join('\n\n')
+      text: task.join(' ')
     };
   }
 
@@ -79,7 +106,6 @@ export class AxPromptTemplate {
 
     const promptList: ChatRequestUserMessage = [
       ...renderedExamples,
-      this.outputFormat,
       ...renderedDemos,
       ...completion
     ];
@@ -113,9 +139,9 @@ export class AxPromptTemplate {
         // }
         const fn =
           this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
-        if (!field.description || field.description.length === 0) {
-          throw new Error(`Description for field '${field.name}' is required`);
-        }
+        // if (!field.description || field.description.length === 0) {
+        //   throw new Error(`Description for field '${field.name}' is required`);
+        // }
         prompt.push(...fn(field, field.description));
       });
     }
@@ -312,19 +338,28 @@ export class AxPromptTemplate {
   private renderDescFields = (list: readonly AxField[]) =>
     list.map((v) => `\`${v.title}\``).join(', ');
 
-  //   private renderInFields = (list: readonly Field[]) =>
-  //     list.map((v) => v.title + ': ' + (v.description ?? toVar(v.name)));
+  private renderFields = (fields: readonly AxField[]) => {
+    // Header
+    const header =
+      'Field Name | Type | Required/Optional | Format | Description';
+    const separator = '|';
 
-  private renderOutFields = (list: readonly AxField[]) =>
-    list.map((v) => {
-      return [
-        v.title + ':',
-        v.description ?? toVarDesc(v.type),
-        v.isOptional ? '[if available]' : undefined
-      ]
-        .filter(Boolean)
-        .join(' ');
+    // Transform each field into table row
+    const rows = fields.map((field) => {
+      const name = field.title;
+      const type = field.type?.name ? toFieldType(field.type) : 'string';
+      const required = field.isOptional ? 'optional' : 'required';
+      const format = field.type?.isArray ? 'array' : 'single';
+      const description = field.description ?? '';
+
+      return [name, type, required, format, description]
+        .join(` ${separator} `)
+        .trim();
     });
+
+    // Combine header and rows
+    return [header, ...rows].join('\n');
+  };
 }
 
 const processValue = (
@@ -356,38 +391,26 @@ const processValue = (
 //   return '${' + name + (fmt ? `:${fmt}` : '') + '}';
 // };
 
-const toVarDesc = (type?: Readonly<AxField['type']>) => {
-  if (type) {
-    let description;
-    switch (type.name) {
-      case 'string':
-        description = 'a string';
-        break;
-      case 'number':
-        description = 'a number';
-        break;
-      case 'boolean':
-        description = 'a boolean';
-        break;
-      case 'date':
-        description = 'a date ("YYYY-MM-DD" format)';
-        break;
-      case 'datetime':
-        description = 'a date time ("YYYY-MM-DD HH:mm Timezone" format)';
-        break;
-      case 'json':
-        description = 'a JSON object';
-        break;
-      case 'class':
-        description = `a classification class (allowed classes: ${type.classes?.join(', ')})`;
-        break;
-      default:
-        description = 'an unknown type';
-        break;
-    }
-    return `${description}${type.isArray ? ' array in json notation' : ''}`;
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export const toFieldType = (type: Readonly<AxField['type']>) => {
+  switch (type?.name) {
+    case 'string':
+      return 'string';
+    case 'number':
+      return 'number';
+    case 'boolean':
+      return 'boolean';
+    case 'date':
+      return 'date ("YYYY-MM-DD" format)';
+    case 'datetime':
+      return 'date time ("YYYY-MM-DD HH:mm Timezone" format)';
+    case 'json':
+      return 'JSON object';
+    case 'class':
+      return `classification class (allowed classes: ${type.classes?.join(', ')})`;
+    default:
+      return 'string';
   }
-  return '';
 };
 
 function combineConsecutiveStrings(separator: string) {

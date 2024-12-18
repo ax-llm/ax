@@ -70,7 +70,6 @@ export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
 export interface AxResponseHandlerArgs<T> {
   ai: Readonly<AxAIService>;
   model?: string;
-  sig: Readonly<AxSignature>;
   res: T;
   usageInfo: { ai: string; model: string };
   mem: AxAIMemory;
@@ -97,7 +96,10 @@ export class AxGen<
     super(signature, { description: options?.description });
 
     this.options = options;
-    this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(this.signature);
+    this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(
+      this.signature,
+      options?.functions
+    );
     this.asserts = this.options?.asserts ?? [];
     this.streamingAsserts = this.options?.streamingAsserts ?? [];
     this.usage = [];
@@ -106,31 +108,6 @@ export class AxGen<
       this.functions = parseFunctions(options.functions);
     }
   }
-
-  private updateSigForFunctions = (ai: AxAIService, model?: string) => {
-    // AI supports function calling natively so
-    // no need to add fields for function call
-    if (ai.getFeatures(model).functions) {
-      return;
-    }
-
-    const sig = new AxSignature(this.signature);
-
-    // These are the fields for the function call only needed when the underlying LLM API does not support function calling natively in the API.
-    sig.addOutputField({
-      name: 'functionName',
-      description: 'Name of function to call',
-      isOptional: true
-    });
-
-    sig.addOutputField({
-      name: 'functionArguments',
-      description: 'Arguments of function to call',
-      isOptional: true
-    });
-
-    return sig;
-  };
 
   public addAssert = (
     fn: AxAssertion['fn'],
@@ -154,7 +131,7 @@ export class AxGen<
     sessionId,
     traceId,
     ai,
-    modelConfig: mc,
+    modelConfig,
     stream,
     model,
     rateLimiter,
@@ -170,17 +147,6 @@ export class AxGen<
     }
 
     const functionCall = _functionCall ?? this.options?.functionCall;
-
-    const hasJSON = this.signature
-      .getOutputFields()
-      .some((f) => f?.type?.name === 'json' || f?.type?.isArray);
-
-    const modelConfig = mc
-      ? {
-          ...mc,
-          ...(hasJSON ? { outputFormat: 'json_object' } : {})
-        }
-      : undefined;
 
     const res = await ai.chat(
       {
@@ -202,7 +168,6 @@ export class AxGen<
   }
 
   private async forwardCore({
-    sig,
     mem,
     sessionId,
     traceId,
@@ -215,7 +180,6 @@ export class AxGen<
     functionCall
   }: Readonly<
     Omit<AxProgramForwardOptions, 'ai' | 'mem' | 'stream'> & {
-      sig: Readonly<AxSignature>;
       ai: Readonly<AxAIService>;
       mem: AxAIMemory;
       stream: boolean;
@@ -243,7 +207,6 @@ export class AxGen<
       return (await this.processSteamingResponse({
         ai,
         model,
-        sig,
         res,
         usageInfo,
         mem,
@@ -256,7 +219,6 @@ export class AxGen<
     return (await this.processResponse({
       ai,
       model,
-      sig,
       res,
       usageInfo,
       mem,
@@ -268,7 +230,6 @@ export class AxGen<
 
   private async processSteamingResponse({
     ai,
-    sig,
     model,
     res,
     usageInfo,
@@ -303,7 +264,7 @@ export class AxGen<
             xstate,
             content
           );
-          streamingExtractValues(sig, values, xstate, content);
+          streamingExtractValues(this.signature, values, xstate, content);
           assertAssertions(this.asserts, values);
         }
 
@@ -396,7 +357,6 @@ export class AxGen<
 
   private async _forward(
     ai: Readonly<AxAIService>,
-    sig: Readonly<AxSignature>,
     values: IN,
     options?: Readonly<AxProgramForwardOptions>,
     span?: AxSpan
@@ -420,9 +380,9 @@ export class AxGen<
 
     let err: ValidationError | AxAssertionError | undefined;
 
-    if (this.sigHash !== sig.hash()) {
+    if (options?.functions && options?.functions.length > 0) {
       const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate;
-      this.pt = new promptTemplate(sig);
+      this.pt = new promptTemplate(this.signature, options.functions);
     }
 
     const prompt = this.pt.render<IN>(values, {
@@ -437,7 +397,6 @@ export class AxGen<
         try {
           const output = await this.forwardCore({
             ai,
-            sig,
             mem,
             sessionId: options?.sessionId,
             traceId: options?.traceId,
@@ -462,7 +421,7 @@ export class AxGen<
           }
 
           if (!stopFunctionExecuted) {
-            assertRequiredFields(sig, output);
+            assertRequiredFields(this.signature, output);
           }
 
           this.trace = { ...values, ...output };
@@ -508,9 +467,6 @@ export class AxGen<
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const sig =
-      this.updateSigForFunctions(ai, options?.model) ?? this.signature;
-
     const tracer = this.options?.tracer ?? options?.tracer;
 
     let functions: AxFunction[] | undefined = this.functions;
@@ -520,7 +476,7 @@ export class AxGen<
     }
 
     if (!tracer) {
-      return await this._forward(ai, sig, values, {
+      return await this._forward(ai, values, {
         ...options,
         functions
       });
@@ -529,7 +485,7 @@ export class AxGen<
     const funcNames = functions?.map((f) => f.name).join(',');
 
     const attributes = {
-      ['generate.signature']: sig.toString(),
+      ['generate.signature']: this.signature.toString(),
       ['generate.functions']: funcNames ?? ''
     };
 
@@ -540,7 +496,7 @@ export class AxGen<
         attributes
       },
       async (span) => {
-        const res = this._forward(ai, sig, values, options, span);
+        const res = this._forward(ai, values, options, span);
         span.end();
         return res;
       }

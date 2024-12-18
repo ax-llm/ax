@@ -1,10 +1,10 @@
-import { AxAI, AxJSInterpreter, AxReAct, AxSignature } from '@ax-llm/ax';
+import { AxAI, AxGen, AxJSInterpreter, AxSignature } from '@ax-llm/ax';
 
 const sig = new AxSignature(
   `numberSeriesTask:string  -> fibonacciSeries:number[]`
 );
 
-const gen = new AxReAct(sig, {
+const gen = new AxGen<{ numberSeriesTask: string }>(sig, {
   functions: [new AxJSInterpreter()]
 });
 

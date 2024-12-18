@@ -1,5 +1,5 @@
 import type { AxAIService, AxFunction } from '../ai/types.js';
-import { type AxGenOptions, AxSignature } from '../dsp/index.js';
+import { AxGen, type AxGenOptions, AxSignature } from '../dsp/index.js';
 import {
   type AxGenIn,
   type AxGenOut,
@@ -11,8 +11,6 @@ import {
   type AxUsable
 } from '../dsp/program.js';
 import { AxSpanKind } from '../trace/index.js';
-
-import { AxReAct } from './react.js';
 
 export interface AxAgentic extends AxTunable, AxUsable {
   getFunction(): AxFunction;
@@ -26,7 +24,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private ai?: AxAIService;
   private signature: AxSignature;
   private program: AxProgramWithSignature<IN, OUT>;
-  private functions?: AxFunction[];
   private agents?: AxAgentic[];
 
   private name: string;
@@ -53,9 +50,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     options?: Readonly<AxAgentOptions>
   ) {
     this.ai = ai;
-    this.signature = new AxSignature(signature);
-    this.functions = functions;
     this.agents = agents;
+
+    this.signature = new AxSignature(signature);
+    this.signature.setDescription(description);
+    this.signature.setOutputFields([
+      {
+        name: 'taskPlan',
+        description:
+          "A detailed plan to execute to achieve the agent's goal using the provided functions."
+      },
+      ...this.signature.getOutputFields()
+    ]);
 
     const funcs: AxFunction[] = [
       ...(functions ?? []),
@@ -63,18 +69,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ];
 
     const opt = { ...options, functions: funcs };
-    this.program = new AxReAct<IN, OUT>(this.signature, opt);
+    this.program = new AxGen<IN, OUT>(this.signature, opt);
 
     if (!name || name.length < 5) {
       throw new Error(
-        'Agent name must be at least 10 characters (more descriptive): ' + name
+        `Agent name must be at least 10 characters (more descriptive): ${name}`
       );
     }
 
     if (!description || description.length < 20) {
       throw new Error(
-        'Agent description must be at least 20 characters (explain in detail what the agent does): ' +
-          description
+        `Agent description must be at least 20 characters (explain in detail what the agent does): ${description}`
       );
     }
 
@@ -159,7 +164,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     if (funcs.length > 0) {
       const opt = { ...options, functions: funcs };
-      this.program = new AxReAct<IN, OUT>(this.signature, opt);
+      this.program = new AxGen<IN, OUT>(this.signature, opt);
     }
 
     if (!options?.tracer) {

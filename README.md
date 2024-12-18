@@ -608,7 +608,7 @@ const functions = [
 ### 2. Pass the functions to a prompt
 
 ```ts
-const cot = new AxReAct(ai, `question:string -> answer:string`, { functions });
+const cot = new AxGen(ai, `question:string -> answer:string`, { functions });
 ```
 
 ## Enable debug logs

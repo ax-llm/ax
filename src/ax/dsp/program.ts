@@ -20,10 +20,12 @@ export type AxFieldValue =
   | boolean
   | object
   | null
+  | undefined
   | { mimeType: string; data: string }
   | { mimeType: string; data: string }[];
 
-export type AxGenIn = Record<string, AxFieldValue>;
+export type AxGenIn = { [key: symbol]: AxFieldValue };
+
 export type AxGenOut = Record<string, AxFieldValue>;
 
 export type AxProgramTrace = {

@@ -53,7 +53,7 @@ test('generate prompt', async (t) => {
 
   // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
 
-  const gen = new AxChainOfThought(
+  const gen = new AxChainOfThought<{ someText: string }>(
     `someText -> shortSummary "summarize in 5 to 10 words"`
   );
   gen.setExamples(examples);
