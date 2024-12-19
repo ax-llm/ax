@@ -54,14 +54,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.signature = new AxSignature(signature);
     this.signature.setDescription(description);
-    this.signature.setOutputFields([
-      {
-        name: 'taskPlan',
-        description:
-          "A detailed plan to execute to achieve the agent's goal using the provided functions."
-      },
-      ...this.signature.getOutputFields()
-    ]);
 
     const funcs: AxFunction[] = [
       ...(functions ?? []),

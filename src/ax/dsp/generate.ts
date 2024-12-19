@@ -365,7 +365,7 @@ export class AxGen<
       options?.stopFunction ?? this.options?.stopFunction
     )?.toLowerCase();
 
-    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 5;
+    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 15;
     const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
     const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
 

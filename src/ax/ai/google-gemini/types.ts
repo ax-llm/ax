@@ -79,20 +79,22 @@ export type AxAIGoogleGeminiToolFunctionDeclaration = {
 };
 
 export type AxAIGoogleGeminiToolGoogleSearchRetrieval = {
-  mode?: 'MODE_DYNAMIC';
-  dynamicThreshold?: number;
+  dynamic_retrieval_config: {
+    mode?: 'MODE_DYNAMIC';
+    dynamic_threshold?: number;
+  };
 };
 
 export type AxAIGoogleGeminiTool = {
-  functionDeclarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
-  codeExecution?: object;
-  googleSearchRetrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval;
+  function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
+  code_execution?: object;
+  google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval;
 };
 
 export type AxAIGoogleGeminiToolConfig = {
-  functionCallingConfig: {
+  function_calling_config: {
     mode: 'ANY' | 'NONE' | 'AUTO';
-    allowedFunctionNames?: string[];
+    allowed_function_names?: string[];
   };
 };
 
@@ -113,7 +115,7 @@ export type AxAIGoogleGeminiSafetySettings = {
 export type AxAIGoogleGeminiChatRequest = {
   contents: AxAIGoogleGeminiContent[];
   tools?: AxAIGoogleGeminiTool[];
-  toolConfig?: AxAIGoogleGeminiToolConfig;
+  tool_config?: AxAIGoogleGeminiToolConfig;
   systemInstruction?: AxAIGoogleGeminiContent;
   generationConfig: AxAIGoogleGeminiGenerationConfig;
   safetySettings?: AxAIGoogleGeminiSafetySettings;

@@ -145,11 +145,11 @@ const functions: AxFunction[] = [
 //   apiKey: process.env.OPENAI_APIKEY as string
 // });
 
-// const ai = new AxAI({
-//   name: 'google-gemini',
-//   apiKey: process.env.GOOGLE_APIKEY as string,
-//   config: { model: 'gemini-2.0-flash-exp' }
-// });
+const ai = new AxAI({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: 'gemini-exp-1206' }
+});
 
 // const ai = new AxAI({
 //   name: 'groq',
@@ -161,10 +161,10 @@ const functions: AxFunction[] = [
 //   apiKey: process.env.COHERE_APIKEY as string
 // });
 
-const ai = new AxAI({
-  name: 'anthropic',
-  apiKey: process.env.ANTHROPIC_APIKEY as string
-});
+// const ai = new AxAI({
+//   name: 'anthropic',
+//   apiKey: process.env.ANTHROPIC_APIKEY as string
+// });
 
 ai.setOptions({ debug: true });
 
