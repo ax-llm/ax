@@ -1,5 +1,19 @@
 
 
+## [10.0.18](https://github.com/ax-llm/ax/compare/10.0.16...10.0.17) (2024-12-19)
+
+
+### Bug Fixes
+
+* gemini function calling issues ([ad865d7](https://github.com/ax-llm/ax/commit/ad865d74c1b95e8d61a3bc5c259924867eb9c1e0))
+
+## [10.0.17](https://github.com/ax-llm/ax/compare/10.0.16...10.0.17) (2024-12-18)
+
+
+### Features
+
+* major prompt refactor for better performance ([3b718a0](https://github.com/ax-llm/ax/commit/3b718a00ecc727bc10c4a4657e1d24f3ec9fe455))
+
 ## [10.0.17](https://github.com/ax-llm/ax/compare/10.0.15...10.0.16) (2024-12-18)
 
 
