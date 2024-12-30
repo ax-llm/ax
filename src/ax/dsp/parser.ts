@@ -33,6 +33,7 @@ export type TypeNotClass =
   | "boolean"
   | "json"
   | "image"
+  | "audio"
   | "datetime"
   | "date";
 export type Type = TypeNotClass | "class";
@@ -161,7 +162,7 @@ class SignatureParser {
   }
 
   private parseTypeNotClass(): TypeNotClass {
-    const types: TypeNotClass[] = ["string", "number", "boolean", "json", "image", "datetime", "date"];
+    const types: TypeNotClass[] = ["string", "number", "boolean", "json", "image", "audio", "datetime", "date"];
     for (const type of types) {
       if (this.match(type)) {
         return type;

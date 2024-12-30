@@ -116,6 +116,12 @@ export type AxChatRequest = {
                   details?: 'high' | 'low' | 'auto';
                   cache?: boolean;
                 }
+              | {
+                  type: 'audio';
+                  data: string;
+                  format?: string;
+                  cache?: boolean;
+                }
             )[];
       }
     | {

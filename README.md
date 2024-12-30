@@ -218,6 +218,21 @@ const res = await gen.forward(ai, {
 });
 ```
 
+When using models like `gpt-4o-audio-preview` that support multi-modal prompts with audio support, we support using audio fields, and this works with the whole DSP pipeline.
+
+```typescript
+const audio = fs
+  .readFileSync('./src/examples/assets/comment.wav')
+  .toString('base64');
+
+const gen = new AxGen(`question, commentAudio:audio -> answer`);
+
+const res = await gen.forward(ai, {
+  question: 'What family does this animal belong to?',
+  commentAudio: { format: 'wav', data: audio }
+});
+```
+
 ## Streaming
 
 We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without waiting for the whole output, saving tokens and costs and reducing latency. Assertions are a powerful way to ensure the output matches your requirements; they also work with streaming.

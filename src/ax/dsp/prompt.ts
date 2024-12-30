@@ -324,6 +324,52 @@ export class AxPromptTemplate {
       return result;
     }
 
+    if (field.type?.name === 'audio') {
+      const validateAudio = (
+        value: Readonly<AxFieldValue>
+      ): { mimeType: string; data: string } => {
+        if (!value) {
+          throw new Error('Audio field value is required.');
+        }
+
+        if (typeof value !== 'object') {
+          throw new Error('Audio field value must be an object.');
+        }
+        if (!('data' in value)) {
+          throw new Error('Audio field must have data');
+        }
+        return value;
+      };
+
+      let result: ChatRequestUserMessage = [
+        { type: 'text', text: `${field.title}: ` as string }
+      ];
+
+      if (field.type.isArray) {
+        if (!Array.isArray(value)) {
+          throw new Error('Image field value must be an array.');
+        }
+        result = result.concat(
+          value.map((v) => {
+            v = validateAudio(v);
+            return {
+              type: 'audio',
+              format: v.format ?? 'wav',
+              data: v.data
+            };
+          })
+        );
+      } else {
+        const v = validateAudio(value);
+        result.push({
+          type: 'audio',
+          format: v.format ?? 'wav',
+          data: v.data
+        });
+      }
+      return result;
+    }
+
     const text = [field.title, ': '];
 
     if (Array.isArray(value)) {
@@ -374,6 +420,9 @@ const processValue = (
     return formatDateWithTimezone(value);
   }
   if (field.type?.name === 'image' && typeof value === 'object') {
+    return value;
+  }
+  if (field.type?.name === 'audio' && typeof value === 'object') {
     return value;
   }
   if (typeof value === 'string') {

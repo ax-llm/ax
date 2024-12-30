@@ -39,7 +39,7 @@ The LLMs are pre-configured with sensible defaults such as models and other coni
 Prompts are usually stressful and complex. You never know what the right prompt is, and blobs of text in your code are hard to deal with. We fix this by adopting the prompt signatures from the popular Stanford DSPy paper.
 
 A prompt signature is a list of _typed_ input and output fields along with a task description prefix.
-the following fields are supported `'string' | 'number' | 'boolean' | 'json' | 'image'` add a `[]` to convert a field into an array field eg. `string[]`, `number[]`, etc. Additionally a `?` marks the field as an optional field `context?:string`.
+the following fields are supported `'string' | 'number' | 'boolean' | 'json' | 'image' | 'audio'` add a `[]` to convert a field into an array field eg. `string[]`, `number[]`, etc. Additionally a `?` marks the field as an optional field `context?:string`.
 
 **Summarize some text**
 
