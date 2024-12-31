@@ -119,7 +119,7 @@ export type AxChatRequest = {
               | {
                   type: 'audio';
                   data: string;
-                  format?: string;
+                  format?: 'wav';
                   cache?: boolean;
                 }
             )[];

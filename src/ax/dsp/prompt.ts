@@ -327,7 +327,7 @@ export class AxPromptTemplate {
     if (field.type?.name === 'audio') {
       const validateAudio = (
         value: Readonly<AxFieldValue>
-      ): { mimeType: string; data: string } => {
+      ): { format?: 'wav'; data: string } => {
         if (!value) {
           throw new Error('Audio field value is required.');
         }
