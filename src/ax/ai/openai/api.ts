@@ -394,6 +394,13 @@ function createMessages(
                     image_url: { url, details: c.details ?? 'auto' }
                   };
                 }
+                case 'audio': {
+                  const data = c.data;
+                  return {
+                    type: 'input_audio' as const,
+                    input_audio: { data, format: c.format ?? 'wav' }
+                  };
+                }
                 default:
                   throw new Error('Invalid content type');
               }

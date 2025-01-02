@@ -22,7 +22,9 @@ export type AxFieldValue =
   | null
   | undefined
   | { mimeType: string; data: string }
-  | { mimeType: string; data: string }[];
+  | { mimeType: string; data: string }[]
+  | { format?: 'wav'; data: string }
+  | { format?: 'wav'; data: string }[];
 
 export type AxGenIn = { [key: symbol]: AxFieldValue };
 

@@ -270,6 +270,20 @@ function convertToAxChatPrompt(
                   image
                 };
               }
+              case 'audio': {
+                if (!part.data) {
+                  throw new Error('Audio part must have a audio');
+                }
+                if (!ArrayBuffer.isView(part.data)) {
+                  throw new Error('Audio part must have an ArrayBuffer');
+                }
+                const data = Buffer.from(part.data).toString('base64');
+                return {
+                  type: 'audio',
+                  format: 'wav',
+                  data
+                };
+              }
             }
           })
         });

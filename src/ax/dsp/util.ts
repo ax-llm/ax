@@ -86,6 +86,34 @@ export const validateValue = (
     return;
   }
 
+  const validAudio = (val: Readonly<AxFieldValue>): boolean => {
+    if (!val || typeof val !== 'object' || !('data' in val)) {
+      return false;
+    }
+    return true;
+  };
+
+  if (field.type?.name === 'audio') {
+    let msg;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!validAudio(item)) {
+          msg = 'object ({ data: string; format?: string })';
+          break;
+        }
+      }
+    } else if (!validAudio(value)) {
+      msg = 'object ({ data: string; format?: string })';
+    }
+
+    if (msg) {
+      throw new Error(
+        `Validation failed: Expected '${field.name}' to be a ${msg} instead got '${value}'`
+      );
+    }
+    return;
+  }
+
   let isValid = true;
 
   if (ft.isArray) {

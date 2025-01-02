@@ -79,6 +79,10 @@ export type AxAIOpenAIChatRequest = {
                   type: 'image_url';
                   image_url: { url: string; details?: 'high' | 'low' | 'auto' };
                 }
+              | {
+                  type: 'input_audio';
+                  input_audio: { data: string; format?: 'wav' };
+                }
             )[];
         name?: string;
       }

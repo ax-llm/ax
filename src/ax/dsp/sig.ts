@@ -20,6 +20,7 @@ export interface AxField {
       | 'boolean'
       | 'json'
       | 'image'
+      | 'audio'
       | 'date'
       | 'datetime'
       | 'class';
