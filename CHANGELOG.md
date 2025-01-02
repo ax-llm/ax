@@ -1,5 +1,19 @@
 
 
+## [10.0.19](https://github.com/ax-llm/ax/compare/10.0.17...10.0.18) (2025-01-02)
+
+
+### Features
+
+* add input audio type compatibility ([#78](https://github.com/ax-llm/ax/issues/78)) ([23189d4](https://github.com/ax-llm/ax/commit/23189d443de85fc7045d560223181aad9e1e528c))
+
+## [10.0.18](https://github.com/ax-llm/ax/compare/10.0.17...10.0.18) (2024-12-19)
+
+
+### Bug Fixes
+
+* gemini function calling issues ([ad865d7](https://github.com/ax-llm/ax/commit/ad865d74c1b95e8d61a3bc5c259924867eb9c1e0))
+
 ## [10.0.18](https://github.com/ax-llm/ax/compare/10.0.16...10.0.17) (2024-12-19)
 
 
