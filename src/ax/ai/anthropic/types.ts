@@ -1,10 +1,13 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIAnthropicModel {
-  Claude35Sonnet = 'claude-3-5-sonnet-20240620',
-  Claude3Opus = 'claude-3-opus-20240229',
+  Claude35Sonnet = 'claude-3-5-sonnet-latest',
+  Claude35Haiku = 'claude-3-5-haiku-latest',
+
+  Claude3Opus = 'claude-3-opus-latest',
   Claude3Sonnet = 'claude-3-sonnet-20240229',
   Claude3Haiku = 'claude-3-haiku-20240307',
+
   Claude21 = 'claude-2.1',
   ClaudeInstant12 = 'claude-instant-1.2'
 }

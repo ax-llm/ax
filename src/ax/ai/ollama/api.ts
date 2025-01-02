@@ -53,7 +53,7 @@ export class AxAIOllama extends AxAIOpenAI {
       apiKey,
       options,
       config: _config,
-      apiURL: new URL('/api', url).href,
+      apiURL: url,
       modelMap
     });
 

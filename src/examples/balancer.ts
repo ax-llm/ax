@@ -29,7 +29,7 @@ const ai2 = new AxAI({
   }
 });
 
-const gen = new AxChainOfThought(
+const gen = new AxChainOfThought<{ textToSummarize: string }>(
   `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
 );
 

@@ -25,8 +25,7 @@ import {
   type extractionState,
   extractValues,
   streamingExtractFinalValue,
-  streamingExtractValues,
-  ValidationError
+  streamingExtractValues
 } from './extract.js';
 import {
   type AxChatResponseFunctionCall,
@@ -43,6 +42,7 @@ import {
 } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature } from './sig.js';
+import { AxValidationError } from './validate.js';
 
 export interface AxGenOptions {
   maxCompletions?: number;
@@ -378,7 +378,7 @@ export class AxGen<
     const stream =
       options?.stream ?? this.options?.stream ?? modelConfig.stream ?? true;
 
-    let err: ValidationError | AxAssertionError | undefined;
+    let err: AxValidationError | AxAssertionError | undefined;
 
     if (options?.functions && options?.functions.length > 0) {
       const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate;
@@ -430,7 +430,7 @@ export class AxGen<
           let extraFields;
           span?.recordAxSpanException(e as Error);
 
-          if (e instanceof ValidationError) {
+          if (e instanceof AxValidationError) {
             extraFields = e.getFixingInstructions();
             err = e;
           } else if (e instanceof AxAssertionError) {

@@ -386,8 +386,7 @@ export class AxPromptTemplate {
 
   private renderFields = (fields: readonly AxField[]) => {
     // Header
-    const header =
-      'Field Name | Type | Required/Optional | Format | Description';
+    const header = 'Field Name | Field Type | Required/Optional | Description';
     const separator = '|';
 
     // Transform each field into table row
@@ -395,12 +394,9 @@ export class AxPromptTemplate {
       const name = field.title;
       const type = field.type?.name ? toFieldType(field.type) : 'string';
       const required = field.isOptional ? 'optional' : 'required';
-      const format = field.type?.isArray ? 'array' : 'single';
       const description = field.description ?? '';
 
-      return [name, type, required, format, description]
-        .join(` ${separator} `)
-        .trim();
+      return [name, type, required, description].join(` ${separator} `).trim();
     });
 
     // Combine header and rows
@@ -442,24 +438,28 @@ const processValue = (
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
 export const toFieldType = (type: Readonly<AxField['type']>) => {
-  switch (type?.name) {
-    case 'string':
-      return 'string';
-    case 'number':
-      return 'number';
-    case 'boolean':
-      return 'boolean';
-    case 'date':
-      return 'date ("YYYY-MM-DD" format)';
-    case 'datetime':
-      return 'date time ("YYYY-MM-DD HH:mm Timezone" format)';
-    case 'json':
-      return 'JSON object';
-    case 'class':
-      return `classification class (allowed classes: ${type.classes?.join(', ')})`;
-    default:
-      return 'string';
-  }
+  const baseType = (() => {
+    switch (type?.name) {
+      case 'string':
+        return 'string';
+      case 'number':
+        return 'number';
+      case 'boolean':
+        return 'boolean';
+      case 'date':
+        return 'date ("YYYY-MM-DD" format)';
+      case 'datetime':
+        return 'date time ("YYYY-MM-DD HH:mm Timezone" format)';
+      case 'json':
+        return 'JSON object';
+      case 'class':
+        return `classification class (allowed classes: ${type.classes?.join(', ')})`;
+      default:
+        return 'string';
+    }
+  })();
+
+  return type?.isArray ? `json array of ${baseType} items` : baseType;
 };
 
 function combineConsecutiveStrings(separator: string) {

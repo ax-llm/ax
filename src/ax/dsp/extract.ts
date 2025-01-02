@@ -3,7 +3,6 @@
 import JSON5 from 'json5';
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
-import { toFieldType } from './prompt.js';
 import type { AxField, AxSignature } from './sig.js';
 
 export const extractValues = (
@@ -178,54 +177,6 @@ function validateAndParseFieldValue(
 
   // If validation passes, return null to indicate no error
   return value;
-}
-
-export class ValidationError extends Error {
-  private field: AxField;
-  private value: string;
-
-  constructor({
-    message,
-    field,
-    value
-  }: Readonly<{
-    message: string;
-    field: AxField;
-    value: string;
-  }>) {
-    super(message);
-    this.field = field;
-    this.value = value;
-    this.name = this.constructor.name;
-    Error.captureStackTrace(this, this.constructor);
-  }
-
-  public getField = () => this.field;
-  public getValue = () => this.value;
-
-  public getFixingInstructions = () => {
-    const f = this.field;
-
-    const extraFields = [
-      // {
-      //   name: `past_${f.name}`,
-      //   title: `Past ${f.title}`,
-      //   description: this.value
-      // },
-      {
-        name: `invalidField`,
-        title: `Invalid Field`,
-        description: `The field \`${f.title}\` is invalid. Got value: \`${this.value}\`, expected ${toFieldType(f.type)}`
-      }
-      //   {
-      //     name: 'instructions',
-      //     title: 'Instructions',
-      //     description: this.message
-      //   }
-    ];
-
-    return extraFields;
-  };
 }
 
 export const extractBlock = (input: string): string => {

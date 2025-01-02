@@ -6,7 +6,9 @@ import { AxAI, AxChainOfThought } from '@ax-llm/ax';
 // });
 
 // setup the prompt program
-const gen = new AxChainOfThought(`question:string -> answerInPoints:string`);
+const gen = new AxChainOfThought<{ question: string }>(
+  `question:string -> answerInPoints:string`
+);
 
 // add a assertion to ensure all lines start with a number and a dot.
 gen.addStreamingAssert(

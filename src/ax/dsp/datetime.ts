@@ -1,7 +1,7 @@
 import moment from 'moment-timezone';
 
-import { ValidationError } from './extract.js';
 import type { AxField } from './sig.js';
+import { AxValidationError } from './validate.js';
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
 export function parseLLMFriendlyDate(
@@ -12,7 +12,7 @@ export function parseLLMFriendlyDate(
     return _parseLLMFriendlyDate(dateStr);
   } catch (err) {
     const message = (err as Error).message;
-    throw new ValidationError({ field, message, value: dateStr });
+    throw new AxValidationError({ field, message, value: dateStr });
   }
 }
 
@@ -39,7 +39,7 @@ export function parseLLMFriendlyDateTime(
     return _parseLLMFriendlyDateTime(dateStr);
   } catch (err) {
     const message = (err as Error).message;
-    throw new ValidationError({ field, message, value: dateStr });
+    throw new AxValidationError({ field, message, value: dateStr });
   }
 }
 

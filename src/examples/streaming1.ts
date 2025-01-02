@@ -6,7 +6,7 @@ import { AxAI, AxChainOfThought } from '@ax-llm/ax';
 // });
 
 // setup the prompt program
-const gen = new AxChainOfThought(
+const gen = new AxChainOfThought<{ startNumber: number }>(
   `startNumber:number -> next10Numbers:number[]`
 );
 
