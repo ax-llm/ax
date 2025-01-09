@@ -14,7 +14,7 @@ There are various prompts available in Ax, pick one based on your needs.
 1. **Generate** - Generic prompt that all other prompts inherit from.
 2. **ChainOfThough** - Increasing performance by reasoning before providing the answer
 3. **RAG** - Uses a vector database to add context and improve performance and accuracy.
-$. **Agent** - For agentic workflows
+4. **Agent** - For agentic workflows
 
 
 ## Create a signature
