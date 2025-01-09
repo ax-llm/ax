@@ -1,5 +1,19 @@
 
 
+## [10.0.20](https://github.com/ax-llm/ax/compare/10.0.18...10.0.19) (2025-01-09)
+
+
+### Bug Fixes
+
+* various issues including [#80](https://github.com/ax-llm/ax/issues/80) ([9a3d5d4](https://github.com/ax-llm/ax/commit/9a3d5d4bec68ce2a221a5133eaaa31dd3382b4b7))
+
+## [10.0.19](https://github.com/ax-llm/ax/compare/10.0.18...10.0.19) (2025-01-02)
+
+
+### Features
+
+* add input audio type compatibility ([#78](https://github.com/ax-llm/ax/issues/78)) ([23189d4](https://github.com/ax-llm/ax/commit/23189d443de85fc7045d560223181aad9e1e528c))
+
 ## [10.0.19](https://github.com/ax-llm/ax/compare/10.0.17...10.0.18) (2025-01-02)
 
 
