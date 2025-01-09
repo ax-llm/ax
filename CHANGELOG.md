@@ -1,5 +1,21 @@
 
 
+## [10.0.22](https://github.com/ax-llm/ax/compare/10.0.20...10.0.21) (2025-01-09)
+
+
+### Features
+
+* Add configurable comparator for AxBalance service order ([#81](https://github.com/ax-llm/ax/issues/81)) ([9f9864b](https://github.com/ax-llm/ax/commit/9f9864b0796df1ff5fe5c0d7a8400ad100b8d7d4))
+
+## [10.0.21](https://github.com/ax-llm/ax/compare/10.0.20...10.0.21) (2025-01-09)
+
+
+### Bug Fixes
+
+* added claude 35 haiku to the info list ([6c6f446](https://github.com/ax-llm/ax/commit/6c6f446ccfde0f2634aa1aaeb19e6cd0a2d72293))
+* improved model matching for info search ([5c8c8e3](https://github.com/ax-llm/ax/commit/5c8c8e3d5c325872ca2217c813f224394273ce6a))
+* type issue ([9b16404](https://github.com/ax-llm/ax/commit/9b1640457be7092d0abf8a7f492a5d2a987549dc))
+
 ## [10.0.21](https://github.com/ax-llm/ax/compare/10.0.19...10.0.20) (2025-01-09)
 
 
