@@ -14,27 +14,47 @@ import type {
   AxModelInfoWithProvider
 } from './types.js';
 
+/**
+ * Service comparator that sorts services by cost.
+ */
+export const axCostComparator = (a: AxAIService, b: AxAIService) => {
+  const aInfo = a.getModelInfo();
+  const bInfo = b.getModelInfo();
+  const aTotalCost =
+    (aInfo.promptTokenCostPer1M || Infinity) +
+    (aInfo.completionTokenCostPer1M || Infinity);
+  const bTotalCost =
+    (bInfo.promptTokenCostPer1M || Infinity) +
+    (bInfo.completionTokenCostPer1M || Infinity);
+  return aTotalCost - bTotalCost;
+};
+
+/**
+ * Service comparator that respects the input order of services.
+ */
+export const axInputOrderComparator = () => 0;
+
+/**
+ * Options for the balancer.
+ */
+export type AxBalancerOptions = {
+  comparator?: (a: AxAIService, b: AxAIService) => number;
+};
+
+/**
+ * Balancer that rotates through services.
+ */
 export class AxBalancer implements AxAIService {
   private services: AxAIService[];
   private currentServiceIndex: number = 0;
   private currentService: AxAIService;
 
-  constructor(services: readonly AxAIService[]) {
+  constructor(services: readonly AxAIService[], options?: AxBalancerOptions) {
     if (services.length === 0) {
       throw new Error('No AI services provided.');
     }
 
-    this.services = [...services].sort((a, b) => {
-      const aInfo = a.getModelInfo();
-      const bInfo = b.getModelInfo();
-      const aTotalCost =
-        (aInfo.promptTokenCostPer1M || Infinity) +
-        (aInfo.completionTokenCostPer1M || Infinity);
-      const bTotalCost =
-        (bInfo.promptTokenCostPer1M || Infinity) +
-        (bInfo.completionTokenCostPer1M || Infinity);
-      return aTotalCost - bTotalCost;
-    });
+    this.services = [...services].sort(options?.comparator ?? axCostComparator);
 
     const cs = this.services[this.currentServiceIndex];
     if (cs === undefined) {
