@@ -85,3 +85,4 @@ shadcn
 Streamable
 jwtx
 datetime
+modelinfo

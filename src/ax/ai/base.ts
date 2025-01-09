@@ -1,5 +1,6 @@
 import type { ReadableStream } from 'stream/web';
 
+import { axGetModelInfo } from '../dsp/modelinfo.js';
 import { type AxSpan, axSpanAttributes, AxSpanKind } from '../trace/index.js';
 import { type API, apiCall } from '../util/apicall.js';
 import { ColorLog } from '../util/log.js';
@@ -162,33 +163,32 @@ export class AxBaseAI<
     }
   }
 
-  private _getModelInfo(model: string): Readonly<AxModelInfo> {
-    const _model = this.modelMap?.[model] ?? model;
-    const modelName = _model.replace(/-0\d+$|-\d{2,}$/, '');
-    return (
-      this.modelInfo.filter((v) => v.name === modelName).at(0) ?? {
-        name: model,
-        currency: 'usd',
-        promptTokenCostPer1M: 0,
-        completionTokenCostPer1M: 0
-      }
-    );
-  }
-
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
+    const mi = axGetModelInfo({
+      model: this.models.model,
+      modelInfo: this.modelInfo,
+      modelMap: this.modelMap
+    });
     return {
-      ...this._getModelInfo(this.models.model),
+      ...mi,
       provider: this.name
     };
   }
 
   getEmbedModelInfo(): AxModelInfoWithProvider | undefined {
-    if (this.models.embedModel) {
-      return {
-        ...this._getModelInfo(this.models.embedModel),
-        provider: this.name
-      };
+    if (!this.models.embedModel) {
+      return;
     }
+
+    const mi = axGetModelInfo({
+      model: this.models.embedModel,
+      modelInfo: this.modelInfo,
+      modelMap: this.modelMap
+    });
+    return {
+      ...mi,
+      provider: this.name
+    };
   }
 
   getModelMap(): AxAIModelMap | undefined {
