@@ -40,7 +40,7 @@ export type AxAIOllamaArgs = {
 export class AxAIOllama extends AxAIOpenAI {
   constructor({
     apiKey = 'not-set',
-    url = 'http://localhost:11434',
+    url = 'http://localhost:11434/v1',
     config,
     options,
     modelMap

@@ -1,4 +1,4 @@
-import { AxAI, AxChainOfThought } from '@ax-llm/ax';
+import { AxAI, AxAIGoogleGeminiModel, AxChainOfThought } from '@ax-llm/ax';
 
 const cot = new AxChainOfThought(
   `
@@ -16,9 +16,22 @@ const values = {
   ]
 };
 
+// const ai = new AxAI({
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string
+// });
+// ai.setOptions({ debug: true });
+
+// const ai = new AxAI({
+//   name: 'ollama',
+//   config: { stream: false }
+// });
+// ai.setOptions({ debug: true });
+
 const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: AxAIGoogleGeminiModel.Gemini15Flash }
 });
 ai.setOptions({ debug: true });
 

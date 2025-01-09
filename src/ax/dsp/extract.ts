@@ -4,6 +4,7 @@ import JSON5 from 'json5';
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
 import type { AxField, AxSignature } from './sig.js';
+import { AxValidationError } from './validate.js';
 
 export const extractValues = (
   sig: Readonly<AxSignature>,
@@ -122,7 +123,7 @@ const expectedTypeError = (
     ? `array of ${field.type.name}`
     : field.type?.name;
   const message = `Error '${err.message}', expected '${exp}' got '${value}'`;
-  return new ValidationError({ message, field, value });
+  return new AxValidationError({ message, field, value });
 };
 
 function validateAndParseFieldValue(

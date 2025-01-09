@@ -73,7 +73,7 @@ export class AxAICohere extends AxBaseAI<
     };
     super({
       name: 'Cohere',
-      apiURL: 'https://api.cohere.ai',
+      apiURL: 'https://api.cohere.ai/v1',
       headers: { Authorization: `Bearer ${apiKey}` },
       modelInfo: axModelInfoCohere,
       models: { model: _config.model },
@@ -162,7 +162,7 @@ export class AxAICohere extends AxBaseAI<
       });
 
     const apiConfig = {
-      name: '/v1/chat'
+      name: '/chat'
     };
 
     const reqValue: AxAICohereChatRequest = {
@@ -201,7 +201,7 @@ export class AxAICohere extends AxBaseAI<
     }
 
     const apiConfig = {
-      name: '/v1/embed'
+      name: '/embed'
     };
 
     const reqValue = {

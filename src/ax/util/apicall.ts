@@ -59,9 +59,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     });
 
     if (res.status >= 400) {
-      const respBody = JSON.stringify(await res.json(), null, 2);
+      const reqBody = JSON.stringify(json, null, 2);
       throw new Error(
-        `${res.status}, ${res.statusText}\n:Response Body: ${respBody}`
+        `API Request Error: ${res.status}, ${res.statusText}\n:Request Body: ${reqBody}`
       );
     }
 
@@ -83,9 +83,10 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     if (api.span?.isRecording()) {
       api.span.recordAxSpanException(e as Error);
     }
+
     const reqBody = JSON.stringify(json, null, 2);
     throw new Error(
-      `API Error: ${apiUrl.href}, ${e}\nRequest Body: ${reqBody}`
+      `API Response Error: ${apiUrl.href}, ${e}\nRequest Body: ${reqBody}`
     );
   }
 };
