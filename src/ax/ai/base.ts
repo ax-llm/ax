@@ -217,8 +217,22 @@ export class AxBaseAI<
       ? this.modelMap?.[req.model] ?? req.model
       : this.modelMap?.[this.models.model] ?? this.models.model;
 
+    const modelConfig = {
+      ...this.getModelConfig(),
+      ...req.modelConfig
+    };
+
+    // stream is true by default unless explicitly set to false
+    modelConfig.stream =
+      (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
+      true;
+
+    const canStream = this.getFeatures(model).streaming;
+    if (!canStream) {
+      modelConfig.stream = false;
+    }
+
     if (this.tracer) {
-      const mc = this.getModelConfig();
       return await this.tracer?.startActiveSpan(
         'Chat Request',
         {
@@ -226,35 +240,37 @@ export class AxBaseAI<
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_REQUEST_MODEL]: model,
-            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: mc.maxTokens,
-            [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: mc.temperature,
-            [axSpanAttributes.LLM_REQUEST_TOP_P]: mc.topP,
-            [axSpanAttributes.LLM_REQUEST_TOP_K]: mc.topK,
+            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: modelConfig.maxTokens,
+            [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: modelConfig.temperature,
+            [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP,
+            [axSpanAttributes.LLM_REQUEST_TOP_K]: modelConfig.topK,
             [axSpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]:
-              mc.frequencyPenalty,
-            [axSpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]: mc.presencePenalty,
+              modelConfig.frequencyPenalty,
+            [axSpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]:
+              modelConfig.presencePenalty,
             [axSpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
-              mc.stopSequences?.join(', '),
-            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: mc.stream
+              modelConfig.stopSequences?.join(', '),
+            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream
             // [AxSpanAttributes.LLM_PROMPTS]: _req.chatPrompt
             //   ?.map((v) => v.content)
             //   .join('\n')
           }
         },
         async (span) => {
-          const res = await this._chat(model, req, options, span);
+          const res = await this._chat(model, modelConfig, req, options, span);
           span.end();
           return res;
         }
       );
     }
-    return await this._chat(model, req, options);
+    return await this._chat(model, modelConfig, req, options);
   }
 
-  async _chat(
+  private async _chat(
     model: string,
-    chatReq: Readonly<AxChatRequest>,
-    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>,
+    modelConfig: Readonly<AxModelConfig>,
+    chatReq: Readonly<Omit<AxChatRequest, 'modelConfig'>>,
+    options?: Readonly<AxAIServiceActionOptions>,
     span?: AxSpan
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.generateChatReq) {
@@ -262,7 +278,6 @@ export class AxBaseAI<
     }
 
     const reqFn = this.generateChatReq;
-    const stream = options?.stream ?? chatReq.modelConfig?.stream;
 
     let functions;
     if (chatReq.functions && chatReq.functions.length > 0) {
@@ -273,7 +288,7 @@ export class AxBaseAI<
       ...chatReq,
       model,
       functions,
-      modelConfig: { ...chatReq.modelConfig, stream }
+      modelConfig
     };
 
     const fn = async () => {
@@ -284,7 +299,7 @@ export class AxBaseAI<
           name: apiConfig.name,
           url: this.apiURL,
           headers: this.buildHeaders(apiConfig.headers),
-          stream,
+          stream: modelConfig.stream,
           debug: this.debug,
           fetch: this.fetch,
           span
@@ -301,7 +316,7 @@ export class AxBaseAI<
     const rt = options?.rateLimiter ?? this.rt;
     const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
 
-    if (stream) {
+    if (modelConfig.stream) {
       if (!this.generateChatStreamResp) {
         throw new Error('generateChatResp not implemented');
       }

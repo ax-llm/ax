@@ -6,7 +6,6 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
-  AxModelConfig,
   AxRateLimiterFunction
 } from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
@@ -82,7 +81,7 @@ export class AxGen<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>
 > extends AxProgramWithSignature<IN, OUT> {
-  private pt: AxPromptTemplate;
+  private promptTemplate: AxPromptTemplate;
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
   private options?: Omit<AxGenOptions, 'functions'>;
@@ -96,7 +95,7 @@ export class AxGen<
     super(signature, { description: options?.description });
 
     this.options = options;
-    this.pt = new (options?.promptTemplate ?? AxPromptTemplate)(
+    this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
       options?.functions
     );
@@ -127,19 +126,25 @@ export class AxGen<
   };
 
   private async forwardSendRequest({
-    mem,
-    sessionId,
-    traceId,
     ai,
-    modelConfig,
-    stream,
-    model,
-    rateLimiter,
-    functions,
-    functionCall: _functionCall
-  }: Readonly<
-    Omit<AxProgramForwardOptions, 'ai'> & { ai: AxAIService; stream: boolean }
-  >) {
+    mem,
+    options
+  }: Readonly<{
+    ai: Readonly<AxAIService>;
+    mem: AxAIMemory;
+    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+  }>) {
+    const {
+      sessionId,
+      traceId,
+      modelConfig,
+      model,
+      rateLimiter,
+      stream,
+      functions,
+      functionCall: _functionCall
+    } = options ?? {};
+
     const chatPrompt = mem?.history(sessionId) ?? [];
 
     if (chatPrompt.length === 0) {
@@ -168,39 +173,25 @@ export class AxGen<
   }
 
   private async forwardCore({
-    mem,
-    sessionId,
-    traceId,
     ai,
-    modelConfig,
-    model,
-    rateLimiter,
-    stream,
-    functions,
-    functionCall
-  }: Readonly<
-    Omit<AxProgramForwardOptions, 'ai' | 'mem' | 'stream'> & {
-      ai: Readonly<AxAIService>;
-      mem: AxAIMemory;
-      stream: boolean;
-    }
-  >): Promise<OUT> {
+    mem,
+    options
+  }: Readonly<{
+    ai: Readonly<AxAIService>;
+    mem: AxAIMemory;
+    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+  }>): Promise<OUT> {
+    const { sessionId, traceId, model, functions } = options ?? {};
+
     const usageInfo = {
       ai: ai.getName(),
       model: ai.getModelInfo().name
     };
 
     const res = await this.forwardSendRequest({
-      mem,
-      sessionId,
-      traceId,
       ai,
-      stream,
-      modelConfig,
-      model,
-      rateLimiter,
-      functions,
-      functionCall
+      mem,
+      options
     });
 
     if (res instanceof ReadableStream) {
@@ -369,23 +360,17 @@ export class AxGen<
     const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
     const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
 
-    const modelConfig = mergeAxModelConfigs(
-      ai.getModelConfig(),
-      options?.modelConfig ?? {}
-    );
-
-    const canStream = ai.getFeatures(options?.model).streaming;
-    const stream =
-      options?.stream ?? this.options?.stream ?? modelConfig.stream ?? true;
-
     let err: AxValidationError | AxAssertionError | undefined;
 
     if (options?.functions && options?.functions.length > 0) {
       const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate;
-      this.pt = new promptTemplate(this.signature, options.functions);
+      this.promptTemplate = new promptTemplate(
+        this.signature,
+        options.functions
+      );
     }
 
-    const prompt = this.pt.render<IN>(values, {
+    const prompt = this.promptTemplate.render<IN>(values, {
       examples: this.examples,
       demos: this.demos
     });
@@ -396,17 +381,9 @@ export class AxGen<
       for (let i = 0; i < maxRetries; i++) {
         try {
           const output = await this.forwardCore({
+            options,
             ai,
-            mem,
-            sessionId: options?.sessionId,
-            traceId: options?.traceId,
-            modelConfig,
-            model: options?.model,
-            stream: canStream && stream,
-            maxSteps: options?.maxSteps,
-            rateLimiter: options?.rateLimiter,
-            functions: options?.functions,
-            functionCall: options?.functionCall
+            mem
           });
 
           const lastMemItem = mem.getLast(options?.sessionId);
@@ -442,7 +419,7 @@ export class AxGen<
           }
 
           if (extraFields) {
-            const content = this.pt.renderExtraFields(extraFields);
+            const content = this.promptTemplate.renderExtraFields(extraFields);
             mem.add({ role: 'user' as const, content }, options?.sessionId);
 
             if (options?.debug) {
@@ -502,17 +479,4 @@ export class AxGen<
       }
     );
   }
-}
-
-function mergeAxModelConfigs(
-  baseConfig: Readonly<AxModelConfig>,
-  overrideConfig: Readonly<AxModelConfig>
-): AxModelConfig {
-  return {
-    ...baseConfig,
-    ...overrideConfig,
-    // Merge arrays to avoid overriding entirely
-    stopSequences: overrideConfig.stopSequences ?? baseConfig.stopSequences,
-    endSequences: overrideConfig.endSequences ?? baseConfig.endSequences
-  };
 }

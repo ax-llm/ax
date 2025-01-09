@@ -94,7 +94,9 @@ export class AxAICohere extends AxBaseAI<
       frequencyPenalty: config.frequencyPenalty,
       presencePenalty: config.presencePenalty,
       endSequences: config.endSequences,
-      stopSequences: config.stopSequences
+      stopSequences: config.stopSequences,
+      stream: config.stream,
+      n: config.n
     } as AxModelConfig;
   }
 

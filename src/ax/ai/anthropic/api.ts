@@ -85,7 +85,12 @@ export class AxAIAnthropic extends AxBaseAI<
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
-      stream: config.stream
+      stream: config.stream,
+      stopSequences: config.stopSequences,
+      endSequences: config.endSequences,
+      presencePenalty: config.presencePenalty,
+      frequencyPenalty: config.frequencyPenalty,
+      n: config.n
     } as AxModelConfig;
   }
 

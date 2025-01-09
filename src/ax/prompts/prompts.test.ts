@@ -22,7 +22,7 @@ const examples = [
   }
 ];
 
-const mockFetch = async (): Promise<Response> => {
+const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
   const mockRes = {
     choices: [
       {
@@ -33,6 +33,12 @@ const mockFetch = async (): Promise<Response> => {
       }
     ]
   };
+
+  const body = JSON.parse((req as { body: string }).body);
+
+  if (body.stream !== undefined && body.stream !== true) {
+    throw new Error('stream must be false or undefined');
+  }
 
   return new Promise((resolve) => {
     resolve({

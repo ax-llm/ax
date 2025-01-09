@@ -120,6 +120,7 @@ export class AxAIOpenAI extends AxBaseAI<
       presencePenalty: config.presencePenalty,
       frequencyPenalty: config.frequencyPenalty,
       stopSequences: config.stopSequences,
+      endSequences: config.endSequences,
       topP: config.topP,
       n: config.n,
       stream: config.stream

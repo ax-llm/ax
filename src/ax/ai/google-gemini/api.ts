@@ -162,7 +162,13 @@ export class AxAIGoogleGemini extends AxBaseAI<
       maxTokens: config.maxTokens,
       temperature: config.temperature,
       topP: config.topP,
-      topK: config.topK
+      topK: config.topK,
+      presencePenalty: config.presencePenalty,
+      frequencyPenalty: config.frequencyPenalty,
+      stopSequences: config.stopSequences,
+      endSequences: config.endSequences,
+      stream: config.stream,
+      n: config.n
     } as AxModelConfig;
   }
 

@@ -4,8 +4,8 @@ const noteText = `The technological singularityâ€”or simply the singularity[1]â€
 
 // const ai = new AxAI({ name: 'ollama', model: 'nous-hermes2' });
 
-const gen = new AxChainOfThought(
-  `noteText -> shortSummary "summarize in 5 to 10 words"`
+const gen = new AxChainOfThought<{ noteText: string }>(
+  `noteText -> shortSummary "summarize 5 to 10 words"`
 );
 gen.setExamples([
   {
@@ -37,12 +37,8 @@ const ai = new AxAI({
   }
 });
 
-const res = await gen.forward(
-  ai,
-  { noteText },
-  { modelConfig: { stream: true } }
-);
+const res = await gen.forward(ai, { noteText });
 
-console.log('Traces:\n', gen.getTraces());
+// console.log('Traces:\n', gen.getTraces());
 
 console.log('Result:\n', res);
