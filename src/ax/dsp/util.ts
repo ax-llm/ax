@@ -158,3 +158,53 @@ export function mergeProgramUsage(
 
   return Object.values(usageMap);
 }
+
+/**
+ * Parses a markdown list from a string. This is a very forgiving parser that
+ * will try to handle anything that looks vaguely like a markdown list.
+ */
+export const parseMarkdownList = (input: string): string[] => {
+  // Handle empty input
+  if (!input.trim()) {
+    return [];
+  }
+
+  const listBullets = new Set(['-', '*', '+']);
+  const numberedListRegex = /^\d+[\s]*[.)\]]\s*/;
+
+  const lines = input.split('\n');
+  const list = [];
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    // Skip empty lines
+    if (!trimmedLine) {
+      continue;
+    }
+
+    // Check for bullet points
+    if (trimmedLine[0] && listBullets.has(trimmedLine[0])) {
+      list.push(trimmedLine.slice(1).trim());
+    }
+    // Check for numbered lists (e.g., "1.", "2.", etc.)
+    else if (numberedListRegex.test(trimmedLine)) {
+      list.push(trimmedLine.replace(numberedListRegex, '').trim());
+    }
+    // If it's not a list item and we haven't collected any items yet, skip it
+    else if (list.length === 0) {
+      continue;
+    }
+    // If we've already started collecting list items, then this non-list line
+    //is an error
+    else {
+      throw new Error('Could not parse markdown list: mixed content detected');
+    }
+  }
+
+  // If we didn't find any list items, throw error
+  if (list.length === 0) {
+    throw new Error('Could not parse markdown list: no valid list items found');
+  }
+
+  return list;
+};

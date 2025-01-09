@@ -4,6 +4,7 @@ import JSON5 from 'json5';
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
 import type { AxField, AxSignature } from './sig.js';
+import { parseMarkdownList } from './util.js';
 import { AxValidationError } from './validate.js';
 
 export const extractValues = (
@@ -151,7 +152,12 @@ function validateAndParseFieldValue(
 
   if (field.type?.isArray) {
     try {
-      value = JSON5.parse(fieldValue);
+      try {
+        value = JSON5.parse(fieldValue);
+      } catch (e) {
+        // If JSON parsing fails, try markdown parsing
+        value = parseMarkdownList(fieldValue);
+      }
       if (!Array.isArray(value)) {
         throw new Error('Expected an array');
       }

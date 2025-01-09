@@ -374,7 +374,7 @@ export class AxPromptTemplate {
 
     if (Array.isArray(value)) {
       text.push('\n');
-      text.push(value.map((v, i) => `[${i + 1}] ${v}`).join('\n'));
+      text.push(value.map((v) => `- ${v}`).join('\n'));
     } else {
       text.push(value as string);
     }

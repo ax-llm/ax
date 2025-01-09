@@ -198,3 +198,27 @@ test('error handling for malformed content', (t) => {
   // Should not extract any values
   t.deepEqual(values, {});
 });
+
+test('extractValues: handles array output JSON', (t) => {
+  const sig = new AxSignature('input -> output1:string[]');
+  const values: Record<string, unknown> = {};
+
+  const content = 'Output 1: ["test", "test2"]';
+
+  extractValues(sig, values, content);
+
+  t.deepEqual(values, { output1: ['test', 'test2'] });
+});
+
+test('extractValues: handles array output markdown', (t) => {
+  const sig = new AxSignature('input -> output1:string[]');
+  const values: Record<string, unknown> = {};
+
+  const content = `Output 1:
+  - test
+  - test2`;
+
+  extractValues(sig, values, content);
+
+  t.deepEqual(values, { output1: ['test', 'test2'] });
+});
