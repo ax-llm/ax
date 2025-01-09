@@ -1,5 +1,21 @@
 
 
+## [10.0.21](https://github.com/ax-llm/ax/compare/10.0.19...10.0.20) (2025-01-09)
+
+
+### Bug Fixes
+
+* added claude 35 haiku to the info list ([6c6f446](https://github.com/ax-llm/ax/commit/6c6f446ccfde0f2634aa1aaeb19e6cd0a2d72293))
+* improved model matching for info search ([5c8c8e3](https://github.com/ax-llm/ax/commit/5c8c8e3d5c325872ca2217c813f224394273ce6a))
+* type issue ([9b16404](https://github.com/ax-llm/ax/commit/9b1640457be7092d0abf8a7f492a5d2a987549dc))
+
+## [10.0.20](https://github.com/ax-llm/ax/compare/10.0.19...10.0.20) (2025-01-09)
+
+
+### Bug Fixes
+
+* various issues including [#80](https://github.com/ax-llm/ax/issues/80) ([9a3d5d4](https://github.com/ax-llm/ax/commit/9a3d5d4bec68ce2a221a5133eaaa31dd3382b4b7))
+
 ## [10.0.20](https://github.com/ax-llm/ax/compare/10.0.18...10.0.19) (2025-01-09)
 
 
