@@ -1,5 +1,19 @@
 
 
+## [10.0.23](https://github.com/ax-llm/ax/compare/10.0.21...10.0.22) (2025-01-09)
+
+
+### Bug Fixes
+
+* refactor to ensure config values are correctly handled ([ee5b068](https://github.com/ax-llm/ax/commit/ee5b06859fe60533b620b115a6b954b9b25eebe2))
+
+## [10.0.22](https://github.com/ax-llm/ax/compare/10.0.21...10.0.22) (2025-01-09)
+
+
+### Features
+
+* Add configurable comparator for AxBalance service order ([#81](https://github.com/ax-llm/ax/issues/81)) ([9f9864b](https://github.com/ax-llm/ax/commit/9f9864b0796df1ff5fe5c0d7a8400ad100b8d7d4))
+
 ## [10.0.22](https://github.com/ax-llm/ax/compare/10.0.20...10.0.21) (2025-01-09)
 
 
