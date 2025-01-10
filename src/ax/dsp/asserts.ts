@@ -9,7 +9,7 @@ export interface AxAssertion {
 
 export interface AxStreamingAssertion {
   fieldName: string;
-  fn(content: string): boolean | undefined;
+  fn(content: string, done?: boolean): boolean | undefined;
   message?: string;
   optional?: boolean;
 }
@@ -87,7 +87,8 @@ export const assertStreamingAssertions = (
   asserts: readonly AxStreamingAssertion[],
   values: Record<string, unknown>,
   xstate: Readonly<extractionState>,
-  content: string
+  content: string,
+  final: boolean
 ) => {
   if (
     !xstate.currField ||
@@ -112,7 +113,7 @@ export const assertStreamingAssertions = (
     const { message, optional, fn } = assert;
 
     try {
-      const res = fn(currValue);
+      const res = fn(currValue, final);
       if (res === undefined) {
         continue;
       }

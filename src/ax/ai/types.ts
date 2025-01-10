@@ -156,6 +156,35 @@ export type AxChatRequest = {
   model?: string;
 };
 
+export interface AxAIServiceMetrics {
+  latency: {
+    chat: {
+      mean: number;
+      p95: number;
+      p99: number;
+      samples: number[];
+    };
+    embed: {
+      mean: number;
+      p95: number;
+      p99: number;
+      samples: number[];
+    };
+  };
+  errors: {
+    chat: {
+      count: number;
+      rate: number;
+      total: number;
+    };
+    embed: {
+      count: number;
+      rate: number;
+      total: number;
+    };
+  };
+}
+
 export type AxInternalChatRequest = Omit<AxChatRequest, 'model'> &
   Required<Pick<AxChatRequest, 'model'>>;
 
@@ -197,6 +226,7 @@ export interface AxAIService {
   getModelConfig(): Readonly<AxModelConfig>;
   getFeatures(model?: string): { functions: boolean; streaming: boolean };
   getModelMap(): AxAIModelMap | undefined;
+  getMetrics(): AxAIServiceMetrics;
 
   chat(
     req: Readonly<AxChatRequest>,

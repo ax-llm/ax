@@ -11,6 +11,7 @@ import type {
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
+  AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
@@ -99,6 +100,36 @@ export class AxBaseAI<
   protected supportFor:
     | AxBaseAIFeatures
     | ((model: string) => AxBaseAIFeatures);
+
+  // Add private metrics tracking properties
+  private metrics: AxAIServiceMetrics = {
+    latency: {
+      chat: {
+        mean: 0,
+        p95: 0,
+        p99: 0,
+        samples: []
+      },
+      embed: {
+        mean: 0,
+        p95: 0,
+        p99: 0,
+        samples: []
+      }
+    },
+    errors: {
+      chat: {
+        count: 0,
+        rate: 0,
+        total: 0
+      },
+      embed: {
+        count: 0,
+        rate: 0,
+        total: 0
+      }
+    }
+  };
 
   constructor({
     name,
@@ -209,7 +240,69 @@ export class AxBaseAI<
     throw new Error('getModelConfig not implemented');
   }
 
+  // Method to calculate percentiles
+  private calculatePercentile(
+    samples: readonly number[],
+    percentile: number
+  ): number {
+    if (samples.length === 0) return 0;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const index = Math.ceil((percentile / 100) * sorted.length) - 1;
+    return sorted[index] ?? 0;
+  }
+
+  // Method to update latency metrics
+  private updateLatencyMetrics(type: 'chat' | 'embed', duration: number): void {
+    const metrics = this.metrics.latency[type];
+    metrics.samples.push(duration);
+
+    // Keep only last 1000 samples to prevent memory issues
+    if (metrics.samples.length > 1000) {
+      metrics.samples.shift();
+    }
+
+    // Update statistics
+    metrics.mean =
+      metrics.samples.reduce((a, b) => a + b, 0) / metrics.samples.length;
+    metrics.p95 = this.calculatePercentile(metrics.samples, 95);
+    metrics.p99 = this.calculatePercentile(metrics.samples, 99);
+  }
+
+  // Method to update error metrics
+  private updateErrorMetrics(type: 'chat' | 'embed', isError: boolean): void {
+    const metrics = this.metrics.errors[type];
+    metrics.total++;
+    if (isError) {
+      metrics.count++;
+    }
+    metrics.rate = metrics.count / metrics.total;
+  }
+
+  // Public method to get metrics
+  public getMetrics(): AxAIServiceMetrics {
+    return structuredClone(this.metrics);
+  }
+
   async chat(
+    req: Readonly<AxChatRequest>,
+    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
+  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
+    const startTime = performance.now();
+    let isError = false;
+
+    try {
+      return this._chat1(req, options);
+    } catch (error) {
+      isError = true;
+      throw error;
+    } finally {
+      const duration = performance.now() - startTime;
+      this.updateLatencyMetrics('chat', duration);
+      this.updateErrorMetrics('chat', isError);
+    }
+  }
+
+  async _chat1(
     req: Readonly<AxChatRequest>,
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
@@ -257,16 +350,16 @@ export class AxBaseAI<
           }
         },
         async (span) => {
-          const res = await this._chat(model, modelConfig, req, options, span);
+          const res = await this._chat2(model, modelConfig, req, options, span);
           span.end();
           return res;
         }
       );
     }
-    return await this._chat(model, modelConfig, req, options);
+    return await this._chat2(model, modelConfig, req, options);
   }
 
-  private async _chat(
+  private async _chat2(
     model: string,
     modelConfig: Readonly<AxModelConfig>,
     chatReq: Readonly<Omit<AxChatRequest, 'modelConfig'>>,
@@ -383,6 +476,25 @@ export class AxBaseAI<
     req: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
+    const startTime = performance.now();
+    let isError = false;
+
+    try {
+      return this._embed1(req, options);
+    } catch (error) {
+      isError = true;
+      throw error;
+    } finally {
+      const duration = performance.now() - startTime;
+      this.updateLatencyMetrics('embed', duration);
+      this.updateErrorMetrics('embed', isError);
+    }
+  }
+
+  async _embed1(
+    req: Readonly<AxEmbedRequest>,
+    options?: Readonly<AxAIServiceActionOptions>
+  ): Promise<AxEmbedResponse> {
     const embedModel = req.embedModel
       ? this.modelMap?.[req.embedModel] ?? req.embedModel
       : this.modelMap?.[this.models.embedModel ?? ''] ?? this.models.embedModel;
@@ -403,16 +515,16 @@ export class AxBaseAI<
           }
         },
         async (span) => {
-          const res = await this._embed(embedModel, req, options, span);
+          const res = await this._embed2(embedModel, req, options, span);
           span.end();
           return res;
         }
       );
     }
-    return this._embed(embedModel, req, options);
+    return this._embed2(embedModel, req, options);
   }
 
-  async _embed(
+  async _embed2(
     embedModel: string,
     embedReq: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>,

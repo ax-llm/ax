@@ -13,8 +13,10 @@ const gen = new AxChainOfThought<{ question: string }>(
 // add a assertion to ensure all lines start with a number and a dot.
 gen.addStreamingAssert(
   'answerInPoints',
-  (value: string) => {
+  (value: string, done?: boolean) => {
     const re = /^\d+\./;
+
+    console.log('>>>', done, value);
 
     // split the value by lines, trim each line,
     // filter out very short lines and check if all lines match the regex

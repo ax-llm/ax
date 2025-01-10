@@ -37,3 +37,5 @@ ai.setOptions({ debug: true });
 
 const res = await cot.forward(ai, values);
 console.log(res);
+
+console.log(ai.getMetrics());

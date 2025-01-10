@@ -40,6 +40,7 @@ import type {
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
+  AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
@@ -148,6 +149,10 @@ export class AxAI implements AxAIService {
 
   getModelMap(): AxAIModelMap | undefined {
     return this.ai.getModelMap();
+  }
+
+  getMetrics(): AxAIServiceMetrics {
+    return this.ai.getMetrics();
   }
 
   async chat(

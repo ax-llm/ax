@@ -253,7 +253,8 @@ export class AxGen<
             this.streamingAsserts,
             values,
             xstate,
-            content
+            content,
+            false
           );
           streamingExtractValues(this.signature, values, xstate, content);
           assertAssertions(this.asserts, values);
@@ -291,6 +292,13 @@ export class AxGen<
     }
 
     streamingExtractFinalValue(values, xstate, content);
+    assertStreamingAssertions(
+      this.streamingAsserts,
+      values,
+      xstate,
+      content,
+      true
+    );
     assertAssertions(this.asserts, values);
 
     return { ...values } as unknown as OUT;
