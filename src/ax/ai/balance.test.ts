@@ -5,6 +5,7 @@ import type {
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
+  AxAIServiceMetrics,
   AxChatRequest,
   AxChatResponse,
   AxEmbedResponse
@@ -32,6 +33,7 @@ class MockService implements AxAIService {
   getModelConfig = () => ({});
   getFeatures = () => ({ functions: false, streaming: false });
   getModelMap = () => undefined;
+  getMetrics = () => ({}) as AxAIServiceMetrics;
 
   embed = async () => ({}) as AxEmbedResponse;
   setOptions = () => {};
