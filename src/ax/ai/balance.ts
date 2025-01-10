@@ -5,6 +5,7 @@ import type {
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
+  AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
@@ -103,6 +104,10 @@ export class AxBalancer implements AxAIService {
 
   getFeatures(model?: string) {
     return this.currentService.getFeatures(model);
+  }
+
+  getMetrics(): AxAIServiceMetrics {
+    return this.currentService.getMetrics();
   }
 
   async chat(
