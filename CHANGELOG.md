@@ -1,6 +1,11 @@
+## [10.0.25](https://github.com/ax-llm/ax/compare/10.0.24...10.0.25) (2025-01-10)
 
 
-## [10.0.24](https://github.com/ax-llm/ax/compare/10.0.22...10.0.23) (2025-01-10)
+### Bug Fixes
+
+* Add missing getMetrics call in AxBalancer and test mock (#83) [383a9cf](https://github.com/ax-llm/ax/commit/383a9cffe2255f98eb6697a5e2b9d8b06d07365e)
+
+## [10.0.24](https://github.com/ax-llm/ax/compare/10.0.23...10.0.24) (2025-01-10)
 
 
 ### Features
