@@ -1,5 +1,19 @@
 
 
+## [10.0.24](https://github.com/ax-llm/ax/compare/10.0.22...10.0.23) (2025-01-10)
+
+
+### Features
+
+* new getMetrics() method on AxAIService for latency and error metrics ([088aaca](https://github.com/ax-llm/ax/commit/088aaca85b2d4b75718f377f48094c22fb978832))
+
+## [10.0.23](https://github.com/ax-llm/ax/compare/10.0.22...10.0.23) (2025-01-09)
+
+
+### Bug Fixes
+
+* refactor to ensure config values are correctly handled ([ee5b068](https://github.com/ax-llm/ax/commit/ee5b06859fe60533b620b115a6b954b9b25eebe2))
+
 ## [10.0.23](https://github.com/ax-llm/ax/compare/10.0.21...10.0.22) (2025-01-09)
 
 
