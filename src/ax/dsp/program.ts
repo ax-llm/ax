@@ -4,14 +4,14 @@ import type {
   AxChatResponse,
   AxFunction,
   AxModelConfig,
-  AxRateLimiterFunction
-} from '../ai/types.js';
-import type { AxAIMemory } from '../mem/types.js';
-import type { AxTracer } from '../trace/index.js';
+  AxRateLimiterFunction,
+} from '../ai/types.js'
+import type { AxAIMemory } from '../mem/types.js'
+import type { AxTracer } from '../trace/trace.js'
 
-import { AxInstanceRegistry } from './registry.js';
-import { AxSignature } from './sig.js';
-import { mergeProgramUsage, validateValue } from './util.js';
+import { AxInstanceRegistry } from './registry.js'
+import { AxSignature } from './sig.js'
+import { mergeProgramUsage, validateValue } from './util.js'
 
 export type AxFieldValue =
   | string
@@ -24,104 +24,104 @@ export type AxFieldValue =
   | { mimeType: string; data: string }
   | { mimeType: string; data: string }[]
   | { format?: 'wav'; data: string }
-  | { format?: 'wav'; data: string }[];
+  | { format?: 'wav'; data: string }[]
 
-export type AxGenIn = { [key: symbol]: AxFieldValue };
+export type AxGenIn = { [key: symbol]: AxFieldValue }
 
-export type AxGenOut = Record<string, AxFieldValue>;
+export type AxGenOut = Record<string, AxFieldValue>
 
 export type AxProgramTrace = {
   //   examples: Record<string, Value>[];
-  trace: Record<string, AxFieldValue>;
-  programId: string;
-};
+  trace: Record<string, AxFieldValue>
+  programId: string
+}
 
 export type AxProgramDemos = {
   //   examples: Record<string, Value>[];
-  traces: Record<string, AxFieldValue>[];
-  programId: string;
-};
+  traces: Record<string, AxFieldValue>[]
+  programId: string
+}
 
-export type AxProgramExamples = AxProgramDemos | AxProgramDemos['traces'];
+export type AxProgramExamples = AxProgramDemos | AxProgramDemos['traces']
 
 export type AxProgramForwardOptions = {
-  maxCompletions?: number;
-  maxRetries?: number;
-  maxSteps?: number;
-  mem?: AxAIMemory;
-  ai?: AxAIService;
-  modelConfig?: AxModelConfig;
-  model?: string;
-  sessionId?: string;
-  traceId?: string | undefined;
-  tracer?: AxTracer;
-  rateLimiter?: AxRateLimiterFunction;
-  stream?: boolean;
-  debug?: boolean;
-  functions?: AxFunction[];
-  functionCall?: AxChatRequest['functionCall'];
-  stopFunction?: string;
-};
+  maxCompletions?: number
+  maxRetries?: number
+  maxSteps?: number
+  mem?: AxAIMemory
+  ai?: AxAIService
+  modelConfig?: AxModelConfig
+  model?: string
+  sessionId?: string
+  traceId?: string | undefined
+  tracer?: AxTracer
+  rateLimiter?: AxRateLimiterFunction
+  stream?: boolean
+  debug?: boolean
+  functions?: AxFunction[]
+  functionCall?: AxChatRequest['functionCall']
+  stopFunction?: string
+}
 
 export interface AxTunable {
-  setExamples: (examples: Readonly<AxProgramExamples>) => void;
-  setId: (id: string) => void;
-  setParentId: (parentId: string) => void;
-  getTraces: () => AxProgramTrace[];
-  setDemos: (demos: readonly AxProgramDemos[]) => void;
+  setExamples: (examples: Readonly<AxProgramExamples>) => void
+  setId: (id: string) => void
+  setParentId: (parentId: string) => void
+  getTraces: () => AxProgramTrace[]
+  setDemos: (demos: readonly AxProgramDemos[]) => void
 }
 
 export interface AxUsable {
-  getUsage: () => AxProgramUsage[];
-  resetUsage: () => void;
+  getUsage: () => AxProgramUsage[]
+  resetUsage: () => void
 }
 
 export type AxProgramUsage = AxChatResponse['modelUsage'] & {
-  ai: string;
-  model: string;
-};
+  ai: string
+  model: string
+}
 
 export interface AxProgramWithSignatureOptions {
-  description?: string;
+  description?: string
 }
 
 export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxTunable, AxUsable
 {
-  protected signature: AxSignature;
-  protected sigHash: string;
+  protected signature: AxSignature
+  protected sigHash: string
 
-  protected examples?: Record<string, AxFieldValue>[];
-  protected demos?: Record<string, AxFieldValue>[];
-  protected trace?: Record<string, AxFieldValue>;
-  protected usage: AxProgramUsage[] = [];
+  protected examples?: Record<string, AxFieldValue>[]
+  protected demos?: Record<string, AxFieldValue>[]
+  protected trace?: Record<string, AxFieldValue>
+  protected usage: AxProgramUsage[] = []
 
-  private key: { id: string; custom?: boolean };
-  private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>;
+  private key: { id: string; custom?: boolean }
+  private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>
 
   constructor(
     signature: Readonly<AxSignature | string>,
     options?: Readonly<AxProgramWithSignatureOptions>
   ) {
-    this.signature = new AxSignature(signature);
-    this.sigHash = this.signature?.hash();
-    this.children = new AxInstanceRegistry();
-    this.key = { id: this.constructor.name };
+    this.signature = new AxSignature(signature)
+    this.sigHash = this.signature?.hash()
+    this.children = new AxInstanceRegistry()
+    this.key = { id: this.constructor.name }
 
     if (options?.description) {
-      this.signature.setDescription(options.description);
+      this.signature.setDescription(options.description)
     }
   }
 
   public getSignature() {
-    return this.signature;
+    return this.signature
   }
 
   public register(prog: Readonly<AxTunable & AxUsable>) {
     if (this.key) {
-      prog.setParentId(this.key.id);
+      prog.setParentId(this.key.id)
     }
-    this.children.register(prog);
+    this.children.register(prog)
   }
 
   public async forward(
@@ -132,91 +132,91 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    throw new Error('forward() not implemented');
+    throw new Error('forward() not implemented')
   }
 
   public setId(id: string) {
-    this.key = { id, custom: true };
+    this.key = { id, custom: true }
     for (const child of this.children) {
-      child.setParentId(id);
+      child.setParentId(id)
     }
   }
 
   public setParentId(parentId: string) {
     if (!this.key.custom) {
-      this.key.id = [parentId, this.key.id].join('/');
+      this.key.id = [parentId, this.key.id].join('/')
     }
   }
 
   public setExamples(examples: Readonly<AxProgramExamples>) {
-    this._setExamples(examples);
+    this._setExamples(examples)
 
     if (!('programId' in examples)) {
-      return;
+      return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples);
+      child.setExamples(examples)
     }
   }
 
   private _setExamples(examples: Readonly<AxProgramExamples>) {
-    let traces: Record<string, AxFieldValue>[] = [];
+    let traces: Record<string, AxFieldValue>[] = []
 
     if ('programId' in examples && examples.programId === this.key.id) {
-      traces = examples.traces;
+      traces = examples.traces
     }
 
     if (Array.isArray(examples)) {
-      traces = examples;
+      traces = examples
     }
 
     if (traces) {
-      const sig = this.signature;
-      const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
+      const sig = this.signature
+      const fields = [...sig.getInputFields(), ...sig.getOutputFields()]
 
       this.examples = traces.map((e) => {
-        const res: Record<string, AxFieldValue> = {};
+        const res: Record<string, AxFieldValue> = {}
         for (const f of fields) {
-          const value = e[f.name];
+          const value = e[f.name]
           if (value) {
-            validateValue(f, value);
-            res[f.name] = value;
+            validateValue(f, value)
+            res[f.name] = value
           }
         }
-        return res;
-      });
+        return res
+      })
     }
   }
 
   public getTraces(): AxProgramTrace[] {
-    let traces: AxProgramTrace[] = [];
+    let traces: AxProgramTrace[] = []
 
     if (this.trace) {
-      traces.push({ trace: this.trace, programId: this.key.id });
+      traces.push({ trace: this.trace, programId: this.key.id })
     }
 
     for (const child of this.children) {
-      const _traces = child.getTraces();
-      traces = [...traces, ..._traces];
+      const _traces = child.getTraces()
+      traces = [...traces, ..._traces]
     }
-    return traces;
+    return traces
   }
 
   public getUsage(): AxProgramUsage[] {
-    let usage: AxProgramUsage[] = [...(this.usage ?? [])];
+    let usage: AxProgramUsage[] = [...(this.usage ?? [])]
 
     for (const child of this.children) {
-      const cu = child.getUsage();
-      usage = [...usage, ...cu];
+      const cu = child.getUsage()
+      usage = [...usage, ...cu]
     }
-    return mergeProgramUsage(usage);
+    return mergeProgramUsage(usage)
   }
 
   public resetUsage() {
-    this.usage = [];
+    this.usage = []
     for (const child of this.children) {
-      child.resetUsage();
+      child.resetUsage()
     }
   }
 
@@ -224,10 +224,10 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     this.demos = demos
       .filter((v) => v.programId === this.key.id)
       .map((v) => v.traces)
-      .flat();
+      .flat()
 
     for (const child of this.children) {
-      child.setDemos(demos);
+      child.setDemos(demos)
     }
   }
 }
@@ -235,22 +235,22 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
 export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxTunable, AxUsable
 {
-  protected trace?: Record<string, AxFieldValue>;
-  protected usage: AxProgramUsage[] = [];
+  protected trace?: Record<string, AxFieldValue>
+  protected usage: AxProgramUsage[] = []
 
-  private key: { id: string; custom?: boolean };
-  private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>;
+  private key: { id: string; custom?: boolean }
+  private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>
 
   constructor() {
-    this.children = new AxInstanceRegistry();
-    this.key = { id: this.constructor.name };
+    this.children = new AxInstanceRegistry()
+    this.key = { id: this.constructor.name }
   }
 
   public register(prog: Readonly<AxTunable & AxUsable>) {
     if (this.key) {
-      prog.setParentId(this.key.id);
+      prog.setParentId(this.key.id)
     }
-    this.children.register(prog);
+    this.children.register(prog)
   }
 
   public async forward(
@@ -261,66 +261,66 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    throw new Error('forward() not implemented');
+    throw new Error('forward() not implemented')
   }
 
   public setId(id: string) {
-    this.key = { id, custom: true };
+    this.key = { id, custom: true }
     for (const child of this.children) {
-      child.setParentId(id);
+      child.setParentId(id)
     }
   }
 
   public setParentId(parentId: string) {
     if (!this.key.custom) {
-      this.key.id = [parentId, this.key.id].join('/');
+      this.key.id = [parentId, this.key.id].join('/')
     }
   }
 
   public setExamples(examples: Readonly<AxProgramExamples>) {
     if (!('programId' in examples)) {
-      return;
+      return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples);
+      child.setExamples(examples)
     }
   }
 
   public getTraces(): AxProgramTrace[] {
-    let traces: AxProgramTrace[] = [];
+    let traces: AxProgramTrace[] = []
 
     if (this.trace) {
-      traces.push({ trace: this.trace, programId: this.key.id });
+      traces.push({ trace: this.trace, programId: this.key.id })
     }
 
     for (const child of this.children) {
-      const _traces = child.getTraces();
-      traces = [...traces, ..._traces];
+      const _traces = child.getTraces()
+      traces = [...traces, ..._traces]
     }
-    return traces;
+    return traces
   }
 
   public getUsage(): AxProgramUsage[] {
-    let usage: AxProgramUsage[] = [...(this.usage ?? [])];
+    let usage: AxProgramUsage[] = [...(this.usage ?? [])]
 
     for (const child of this.children) {
-      const cu = child.getUsage();
-      usage = [...usage, ...cu];
+      const cu = child.getUsage()
+      usage = [...usage, ...cu]
     }
-    return mergeProgramUsage(usage);
+    return mergeProgramUsage(usage)
   }
 
   public resetUsage() {
-    this.usage = [];
+    this.usage = []
     for (const child of this.children) {
-      child.resetUsage();
+      child.resetUsage()
     }
   }
 
   public setDemos(demos: readonly AxProgramDemos[]) {
     for (const child of this.children) {
-      child.setDemos(demos);
+      child.setDemos(demos)
     }
   }
 }

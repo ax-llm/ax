@@ -1,37 +1,37 @@
 import {
   axBaseAIDefaultConfig,
-  axBaseAIDefaultCreativeConfig
-} from '../base.js';
-import { AxAIOpenAI } from '../openai/api.js';
-import type { AxAIOpenAIConfig } from '../openai/types.js';
-import type { AxAIServiceOptions } from '../types.js';
+  axBaseAIDefaultCreativeConfig,
+} from '../base.js'
+import { AxAIOpenAI } from '../openai/api.js'
+import type { AxAIOpenAIConfig } from '../openai/types.js'
+import type { AxAIServiceOptions } from '../types.js'
 
-export type AxAIOllamaAIConfig = AxAIOpenAIConfig;
+export type AxAIOllamaAIConfig = AxAIOpenAIConfig
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaAIConfig =>
   structuredClone({
     ...axBaseAIDefaultConfig(),
     model: 'nous-hermes2',
-    embedModel: 'all-minilm'
-  });
+    embedModel: 'all-minilm',
+  })
 
 export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaAIConfig =>
   structuredClone({
     ...axBaseAIDefaultCreativeConfig(),
     model: 'nous-hermes2',
-    embedModel: 'all-minilm'
-  });
+    embedModel: 'all-minilm',
+  })
 
 export type AxAIOllamaArgs = {
-  name: 'ollama';
-  model?: string;
-  embedModel?: string;
-  url?: string;
-  apiKey?: string;
-  config?: Readonly<Partial<AxAIOllamaAIConfig>>;
-  options?: Readonly<AxAIServiceOptions>;
-  modelMap?: Record<string, string>;
-};
+  name: 'ollama'
+  model?: string
+  embedModel?: string
+  url?: string
+  apiKey?: string
+  config?: Readonly<Partial<AxAIOllamaAIConfig>>
+  options?: Readonly<AxAIServiceOptions>
+  modelMap?: Record<string, string>
+}
 
 /**
  * OllamaAI: AI Service
@@ -43,20 +43,20 @@ export class AxAIOllama extends AxAIOpenAI {
     url = 'http://localhost:11434/v1',
     config,
     options,
-    modelMap
+    modelMap,
   }: Readonly<Omit<AxAIOllamaArgs, 'name'>>) {
     const _config = {
       ...axAIOllamaDefaultConfig(),
-      ...config
-    };
+      ...config,
+    }
     super({
       apiKey,
       options,
       config: _config,
       apiURL: url,
-      modelMap
-    });
+      modelMap,
+    })
 
-    super.setName('Ollama');
+    super.setName('Ollama')
   }
 }

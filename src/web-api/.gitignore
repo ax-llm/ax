@@ -1,7 +1,0 @@
-node_modules
-.env
-.env.*
-dist
-public/assets
-public/index.html
-.DS_Store

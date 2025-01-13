@@ -1,46 +1,45 @@
-import type { ReadableStream } from 'stream/web';
+import type { ReadableStream } from 'stream/web'
 
-import { axGetModelInfo } from '../dsp/modelinfo.js';
-import { type AxSpan, axSpanAttributes, AxSpanKind } from '../trace/index.js';
-import { type API, apiCall } from '../util/apicall.js';
-import { ColorLog } from '../util/log.js';
-import { RespTransformStream } from '../util/transform.js';
+import { axGetModelInfo } from '../dsp/modelinfo.js'
+import { type AxSpan, axSpanAttributes, AxSpanKind } from '../trace/trace.js'
+import { apiCall } from '../util/apicall.js'
+import { ColorLog } from '../util/log.js'
+import { RespTransformStream } from '../util/transform.js'
 
 import type {
   AxAIModelMap,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
+  AxAIServiceImpl,
   AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
-  AxInternalChatRequest,
-  AxInternalEmbedRequest,
   AxModelConfig,
   AxModelInfo,
   AxModelInfoWithProvider,
-  AxTokenUsage
-} from './types.js';
+  AxTokenUsage,
+} from './types.js'
 
-const colorLog = new ColorLog();
+const colorLog = new ColorLog()
 
 export interface AxBaseAIFeatures {
-  functions: boolean;
-  streaming: boolean;
+  functions: boolean
+  streaming: boolean
 }
 
 export interface AxBaseAIArgs {
-  name: string;
-  apiURL: string;
-  headers: Record<string, string>;
-  modelInfo: Readonly<AxModelInfo[]>;
-  models: Readonly<{ model: string; embedModel?: string }>;
-  options?: Readonly<AxAIServiceOptions>;
-  supportFor: AxBaseAIFeatures | ((model: string) => AxBaseAIFeatures);
-  modelMap?: AxAIModelMap;
+  name: string
+  apiURL: string
+  headers: Record<string, string>
+  modelInfo: Readonly<AxModelInfo[]>
+  models: Readonly<{ model: string; embedModel?: string }>
+  options?: Readonly<AxAIServiceOptions>
+  supportFor: AxBaseAIFeatures | ((model: string) => AxBaseAIFeatures)
+  modelMap?: AxAIModelMap
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -48,8 +47,8 @@ export const axBaseAIDefaultConfig = (): AxModelConfig =>
     maxTokens: 2000,
     temperature: 0,
     topK: 40,
-    frequencyPenalty: 0.2
-  });
+    frequencyPenalty: 0.2,
+  })
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
@@ -57,49 +56,33 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
     temperature: 0.4,
     topP: 0.7,
     frequencyPenalty: 0.2,
-    presencePenalty: 0.2
-  });
+    presencePenalty: 0.2,
+  })
 
 export class AxBaseAI<
   TChatRequest,
   TEmbedRequest,
   TChatResponse,
   TChatResponseDelta,
-  TEmbedResponse
+  TEmbedResponse,
 > implements AxAIService
 {
-  generateChatReq?: (
-    req: Readonly<AxInternalChatRequest>,
-    config: Readonly<AxAIPromptConfig>
-  ) => [API, TChatRequest];
-  generateEmbedReq?: (
-    req: Readonly<AxInternalEmbedRequest>
-  ) => [API, TEmbedRequest];
-  generateChatResp?: (resp: Readonly<TChatResponse>) => AxChatResponse;
-  generateChatStreamResp?: (
-    resp: Readonly<TChatResponseDelta>,
-    state: object
-  ) => AxChatResponse;
-  generateEmbedResp?: (resp: Readonly<TEmbedResponse>) => AxEmbedResponse;
+  private debug = false
 
-  private debug = false;
+  private rt?: AxAIServiceOptions['rateLimiter']
+  private fetch?: AxAIServiceOptions['fetch']
+  private tracer?: AxAIServiceOptions['tracer']
+  private modelMap?: AxAIModelMap
 
-  private rt?: AxAIServiceOptions['rateLimiter'];
-  private fetch?: AxAIServiceOptions['fetch'];
-  private tracer?: AxAIServiceOptions['tracer'];
-  private modelMap?: AxAIModelMap;
+  private modelInfo: readonly AxModelInfo[]
+  private modelUsage?: AxTokenUsage
+  private embedModelUsage?: AxTokenUsage
+  private models: AxBaseAIArgs['models']
 
-  private modelInfo: readonly AxModelInfo[];
-  private modelUsage?: AxTokenUsage;
-  private embedModelUsage?: AxTokenUsage;
-  private models: AxBaseAIArgs['models'];
-
-  protected apiURL: string;
-  protected name: string;
-  protected headers: Record<string, string>;
-  protected supportFor:
-    | AxBaseAIFeatures
-    | ((model: string) => AxBaseAIFeatures);
+  protected apiURL: string
+  protected name: string
+  protected headers: Record<string, string>
+  protected supportFor: AxBaseAIFeatures | ((model: string) => AxBaseAIFeatures)
 
   // Add private metrics tracking properties
   private metrics: AxAIServiceMetrics = {
@@ -108,89 +91,100 @@ export class AxBaseAI<
         mean: 0,
         p95: 0,
         p99: 0,
-        samples: []
+        samples: [],
       },
       embed: {
         mean: 0,
         p95: 0,
         p99: 0,
-        samples: []
-      }
+        samples: [],
+      },
     },
     errors: {
       chat: {
         count: 0,
         rate: 0,
-        total: 0
+        total: 0,
       },
       embed: {
         count: 0,
         rate: 0,
-        total: 0
-      }
-    }
-  };
+        total: 0,
+      },
+    },
+  }
 
-  constructor({
-    name,
-    apiURL,
-    headers,
-    modelInfo,
-    models,
-    options = {},
-    supportFor,
-    modelMap
-  }: Readonly<AxBaseAIArgs>) {
-    this.name = name;
-    this.apiURL = apiURL;
-    this.headers = headers;
-    this.supportFor = supportFor;
-    this.tracer = options.tracer;
-    this.modelInfo = modelInfo;
-    this.modelMap = modelMap;
+  constructor(
+    private readonly aiImpl: Readonly<
+      AxAIServiceImpl<
+        TChatRequest,
+        TEmbedRequest,
+        TChatResponse,
+        TChatResponseDelta,
+        TEmbedResponse
+      >
+    >,
+    {
+      name,
+      apiURL,
+      headers,
+      modelInfo,
+      models,
+      options = {},
+      supportFor,
+      modelMap,
+    }: Readonly<AxBaseAIArgs>
+  ) {
+    this.name = name
+    this.apiURL = apiURL
+    this.headers = headers
+    this.supportFor = supportFor
+    this.tracer = options.tracer
+    this.modelInfo = modelInfo
+    this.modelMap = modelMap
     this.models = {
       model: modelMap?.[models.model] ?? models.model,
-      embedModel: modelMap?.[models.embedModel ?? ''] ?? models.embedModel
-    };
+      embedModel: modelMap?.[models.embedModel ?? ''] ?? models.embedModel,
+    }
 
     if (
       !models.model ||
       typeof models.model !== 'string' ||
       models.model === ''
     ) {
-      throw new Error('No model defined');
+      throw new Error('No model defined')
     }
 
-    this.setOptions(options);
+    this.setOptions(options)
   }
 
   public setName(name: string): void {
-    this.name = name;
+    this.name = name
   }
 
   public setAPIURL(apiURL: string): void {
-    this.apiURL = apiURL;
+    this.apiURL = apiURL
   }
 
   public setHeaders(headers: Record<string, string>): void {
-    this.headers = headers;
+    this.headers = headers
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
     if (options.debug) {
-      this.debug = options.debug;
+      this.debug = options.debug
     }
 
     if (options.rateLimiter) {
-      this.rt = options.rateLimiter;
+      this.rt = options.rateLimiter
     }
 
     if (options.fetch) {
-      this.fetch = options.fetch;
+      this.fetch = options.fetch
     }
 
     if (options.tracer) {
-      this.tracer = options.tracer;
+      this.tracer = options.tracer
     }
   }
 
@@ -198,46 +192,42 @@ export class AxBaseAI<
     const mi = axGetModelInfo({
       model: this.models.model,
       modelInfo: this.modelInfo,
-      modelMap: this.modelMap
-    });
+      modelMap: this.modelMap,
+    })
     return {
       ...mi,
-      provider: this.name
-    };
+      provider: this.name,
+    }
   }
 
   getEmbedModelInfo(): AxModelInfoWithProvider | undefined {
     if (!this.models.embedModel) {
-      return;
+      return
     }
 
     const mi = axGetModelInfo({
       model: this.models.embedModel,
       modelInfo: this.modelInfo,
-      modelMap: this.modelMap
-    });
+      modelMap: this.modelMap,
+    })
     return {
       ...mi,
-      provider: this.name
-    };
+      provider: this.name,
+    }
   }
 
   getModelMap(): AxAIModelMap | undefined {
-    return this.modelMap;
+    return this.modelMap
   }
 
   getName(): string {
-    return this.name;
+    return this.name
   }
 
   getFeatures(model?: string): AxBaseAIFeatures {
     return typeof this.supportFor === 'function'
       ? this.supportFor(model ?? this.models.model)
-      : this.supportFor;
-  }
-
-  getModelConfig(): AxModelConfig {
-    throw new Error('getModelConfig not implemented');
+      : this.supportFor
   }
 
   // Method to calculate percentiles
@@ -245,60 +235,60 @@ export class AxBaseAI<
     samples: readonly number[],
     percentile: number
   ): number {
-    if (samples.length === 0) return 0;
-    const sorted = [...samples].sort((a, b) => a - b);
-    const index = Math.ceil((percentile / 100) * sorted.length) - 1;
-    return sorted[index] ?? 0;
+    if (samples.length === 0) return 0
+    const sorted = [...samples].sort((a, b) => a - b)
+    const index = Math.ceil((percentile / 100) * sorted.length) - 1
+    return sorted[index] ?? 0
   }
 
   // Method to update latency metrics
   private updateLatencyMetrics(type: 'chat' | 'embed', duration: number): void {
-    const metrics = this.metrics.latency[type];
-    metrics.samples.push(duration);
+    const metrics = this.metrics.latency[type]
+    metrics.samples.push(duration)
 
     // Keep only last 1000 samples to prevent memory issues
     if (metrics.samples.length > 1000) {
-      metrics.samples.shift();
+      metrics.samples.shift()
     }
 
     // Update statistics
     metrics.mean =
-      metrics.samples.reduce((a, b) => a + b, 0) / metrics.samples.length;
-    metrics.p95 = this.calculatePercentile(metrics.samples, 95);
-    metrics.p99 = this.calculatePercentile(metrics.samples, 99);
+      metrics.samples.reduce((a, b) => a + b, 0) / metrics.samples.length
+    metrics.p95 = this.calculatePercentile(metrics.samples, 95)
+    metrics.p99 = this.calculatePercentile(metrics.samples, 99)
   }
 
   // Method to update error metrics
   private updateErrorMetrics(type: 'chat' | 'embed', isError: boolean): void {
-    const metrics = this.metrics.errors[type];
-    metrics.total++;
+    const metrics = this.metrics.errors[type]
+    metrics.total++
     if (isError) {
-      metrics.count++;
+      metrics.count++
     }
-    metrics.rate = metrics.count / metrics.total;
+    metrics.rate = metrics.count / metrics.total
   }
 
   // Public method to get metrics
   public getMetrics(): AxAIServiceMetrics {
-    return structuredClone(this.metrics);
+    return structuredClone(this.metrics)
   }
 
   async chat(
     req: Readonly<AxChatRequest>,
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const startTime = performance.now();
-    let isError = false;
+    const startTime = performance.now()
+    let isError = false
 
     try {
-      return this._chat1(req, options);
+      return this._chat1(req, options)
     } catch (error) {
-      isError = true;
-      throw error;
+      isError = true
+      throw error
     } finally {
-      const duration = performance.now() - startTime;
-      this.updateLatencyMetrics('chat', duration);
-      this.updateErrorMetrics('chat', isError);
+      const duration = performance.now() - startTime
+      this.updateLatencyMetrics('chat', duration)
+      this.updateErrorMetrics('chat', isError)
     }
   }
 
@@ -307,22 +297,22 @@ export class AxBaseAI<
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const model = req.model
-      ? this.modelMap?.[req.model] ?? req.model
-      : this.modelMap?.[this.models.model] ?? this.models.model;
+      ? (this.modelMap?.[req.model] ?? req.model)
+      : (this.modelMap?.[this.models.model] ?? this.models.model)
 
     const modelConfig = {
-      ...this.getModelConfig(),
-      ...req.modelConfig
-    };
+      ...this.aiImpl.getModelConfig(),
+      ...req.modelConfig,
+    }
 
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
       (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
-      true;
+      true
 
-    const canStream = this.getFeatures(model).streaming;
+    const canStream = this.getFeatures(model).streaming
     if (!canStream) {
-      modelConfig.stream = false;
+      modelConfig.stream = false
     }
 
     if (this.tracer) {
@@ -343,20 +333,20 @@ export class AxBaseAI<
               modelConfig.presencePenalty,
             [axSpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
               modelConfig.stopSequences?.join(', '),
-            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream
+            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream,
             // [AxSpanAttributes.LLM_PROMPTS]: _req.chatPrompt
             //   ?.map((v) => v.content)
             //   .join('\n')
-          }
+          },
         },
         async (span) => {
-          const res = await this._chat2(model, modelConfig, req, options, span);
-          span.end();
-          return res;
+          const res = await this._chat2(model, modelConfig, req, options, span)
+          span.end()
+          return res
         }
-      );
+      )
     }
-    return await this._chat2(model, modelConfig, req, options);
+    return await this._chat2(model, modelConfig, req, options)
   }
 
   private async _chat2(
@@ -366,26 +356,27 @@ export class AxBaseAI<
     options?: Readonly<AxAIServiceActionOptions>,
     span?: AxSpan
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    if (!this.generateChatReq) {
-      throw new Error('generateChatReq not implemented');
+    if (!this.aiImpl.createChatReq) {
+      throw new Error('generateChatReq not implemented')
     }
 
-    const reqFn = this.generateChatReq;
-
-    let functions;
+    let functions
     if (chatReq.functions && chatReq.functions.length > 0) {
-      functions = chatReq.functions;
+      functions = chatReq.functions
     }
 
     const req = {
       ...chatReq,
       model,
       functions,
-      modelConfig
-    };
+      modelConfig,
+    }
 
     const fn = async () => {
-      const [apiConfig, reqValue] = reqFn(req, options as AxAIPromptConfig);
+      const [apiConfig, reqValue] = this.aiImpl.createChatReq(
+        req,
+        options as AxAIPromptConfig
+      )
 
       const res = await apiCall(
         {
@@ -395,99 +386,99 @@ export class AxBaseAI<
           stream: modelConfig.stream,
           debug: this.debug,
           fetch: this.fetch,
-          span
+          span,
         },
         reqValue
-      );
-      return res;
-    };
-
-    if (this.debug) {
-      logChatRequest(req);
+      )
+      return res
     }
 
-    const rt = options?.rateLimiter ?? this.rt;
-    const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
+    if (this.debug) {
+      logChatRequest(req)
+    }
+
+    const rt = options?.rateLimiter ?? this.rt
+    const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn()
 
     if (modelConfig.stream) {
-      if (!this.generateChatStreamResp) {
-        throw new Error('generateChatResp not implemented');
+      if (!this.aiImpl.createChatStreamResp) {
+        throw new Error('generateChatResp not implemented')
       }
 
-      const respFn = this.generateChatStreamResp;
+      const respFn = this.aiImpl.createChatStreamResp
       const wrappedRespFn =
         (state: object) => (resp: Readonly<TChatResponseDelta>) => {
-          const res = respFn(resp, state);
-          res.sessionId = options?.sessionId;
+          const res = respFn(resp, state)
+          res.sessionId = options?.sessionId
 
           if (res.modelUsage) {
-            this.modelUsage = res.modelUsage;
+            this.modelUsage = res.modelUsage
           }
 
           if (span?.isRecording()) {
-            setResponseAttr(res, span);
+            setResponseAttr(res, span)
           }
 
           if (this.debug) {
-            logStreamingResponse(res);
+            logStreamingResponse(res)
           }
-          return res;
-        };
+          return res
+        }
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
         if (this.debug) {
-          process.stdout.write('\n');
+          process.stdout.write('\n')
         }
-      };
+      }
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
         new RespTransformStream<TChatResponseDelta, AxChatResponse>(
           wrappedRespFn({}),
           doneCb
         )
-      );
-      return st;
+      )
+      return st
     }
 
-    if (!this.generateChatResp) {
-      throw new Error('generateChatResp not implemented');
+    if (!this.aiImpl.createChatResp) {
+      throw new Error('generateChatResp not implemented')
     }
-    const res = this.generateChatResp(rv as TChatResponse);
-    res.sessionId = options?.sessionId;
+    const res = this.aiImpl.createChatResp(rv as TChatResponse)
+    res.sessionId = options?.sessionId
 
     if (res.modelUsage) {
-      this.modelUsage = res.modelUsage;
+      this.modelUsage = res.modelUsage
     }
 
     if (span?.isRecording()) {
-      setResponseAttr(res, span);
+      setResponseAttr(res, span)
     }
 
     if (this.debug) {
-      logResponse(res);
+      logResponse(res)
     }
 
-    span?.end();
-    return res;
+    span?.end()
+    return res
   }
 
   async embed(
     req: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
-    const startTime = performance.now();
-    let isError = false;
+    const startTime = performance.now()
+    let isError = false
 
     try {
-      return this._embed1(req, options);
+      return this._embed1(req, options)
     } catch (error) {
-      isError = true;
-      throw error;
+      isError = true
+      throw error
     } finally {
-      const duration = performance.now() - startTime;
-      this.updateLatencyMetrics('embed', duration);
-      this.updateErrorMetrics('embed', isError);
+      const duration = performance.now() - startTime
+      this.updateLatencyMetrics('embed', duration)
+      this.updateErrorMetrics('embed', isError)
     }
   }
 
@@ -496,11 +487,12 @@ export class AxBaseAI<
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
     const embedModel = req.embedModel
-      ? this.modelMap?.[req.embedModel] ?? req.embedModel
-      : this.modelMap?.[this.models.embedModel ?? ''] ?? this.models.embedModel;
+      ? (this.modelMap?.[req.embedModel] ?? req.embedModel)
+      : (this.modelMap?.[this.models.embedModel ?? ''] ??
+        this.models.embedModel)
 
     if (!embedModel) {
-      throw new Error('No embed model defined');
+      throw new Error('No embed model defined')
     }
 
     if (this.tracer) {
@@ -511,17 +503,17 @@ export class AxBaseAI<
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_REQUEST_MODEL]:
-              req.embedModel ?? this.models.embedModel
-          }
+              req.embedModel ?? this.models.embedModel,
+          },
         },
         async (span) => {
-          const res = await this._embed2(embedModel, req, options, span);
-          span.end();
-          return res;
+          const res = await this._embed2(embedModel, req, options, span)
+          span.end()
+          return res
         }
-      );
+      )
     }
-    return this._embed2(embedModel, req, options);
+    return this._embed2(embedModel, req, options)
   }
 
   async _embed2(
@@ -530,20 +522,20 @@ export class AxBaseAI<
     options?: Readonly<AxAIServiceActionOptions>,
     span?: AxSpan
   ): Promise<AxEmbedResponse> {
-    if (!this.generateEmbedReq) {
-      throw new Error('generateEmbedReq not implemented');
+    if (!this.aiImpl.createEmbedReq) {
+      throw new Error('generateEmbedReq not implemented')
     }
-    if (!this.generateEmbedResp) {
-      throw new Error('generateEmbedResp not implemented');
+    if (!this.aiImpl.createEmbedResp) {
+      throw new Error('generateEmbedResp not implemented')
     }
 
     const req = {
       ...embedReq,
-      embedModel
-    };
+      embedModel,
+    }
 
     const fn = async () => {
-      const [apiConfig, reqValue] = this.generateEmbedReq!(req);
+      const [apiConfig, reqValue] = this.aiImpl.createEmbedReq!(req)
 
       const res = await apiCall(
         {
@@ -552,41 +544,41 @@ export class AxBaseAI<
           headers: this.buildHeaders(apiConfig.headers),
           debug: this.debug,
           fetch: this.fetch,
-          span
+          span,
         },
         reqValue
-      );
+      )
 
-      return res;
-    };
+      return res
+    }
 
     const resValue = this.rt
       ? await this.rt(fn, { embedModelUsage: this.embedModelUsage })
-      : await fn();
-    const res = this.generateEmbedResp!(resValue as TEmbedResponse);
+      : await fn()
+    const res = this.aiImpl.createEmbedResp!(resValue as TEmbedResponse)
 
-    res.sessionId = options?.sessionId;
+    res.sessionId = options?.sessionId
 
     if (span?.isRecording()) {
       if (res.modelUsage) {
-        this.embedModelUsage = res.modelUsage;
+        this.embedModelUsage = res.modelUsage
         span.setAttributes({
           [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
             res.modelUsage.completionTokens ?? 0,
           [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
-            res.modelUsage.promptTokens
-        });
+            res.modelUsage.promptTokens,
+        })
       }
     }
 
-    span?.end();
-    return res;
+    span?.end()
+    return res
   }
 
   private buildHeaders(
     headers: Record<string, string> = {}
   ): Record<string, string> {
-    return { ...headers, ...this.headers };
+    return { ...headers, ...this.headers }
   }
 }
 
@@ -594,24 +586,24 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
   const items = req.chatPrompt?.map((msg) => {
     switch (msg.role) {
       case 'system':
-        return `System: ${colorLog.whiteBright(msg.content)}`;
+        return `System: ${colorLog.whiteBright(msg.content)}`
       case 'function':
-        return `Function Result: ${colorLog.whiteBright(msg.result)}`;
+        return `Function Result: ${colorLog.whiteBright(msg.result)}`
       case 'user': {
         if (typeof msg.content === 'string') {
-          return `User: ${colorLog.whiteBright(msg.content)}`;
+          return `User: ${colorLog.whiteBright(msg.content)}`
         }
         const items = msg.content.map((v) => {
           switch (v.type) {
             case 'text':
-              return `(Text) ${colorLog.whiteBright(v.text)}`;
+              return `(Text) ${colorLog.whiteBright(v.text)}`
             case 'image':
-              return `(Image, ${v.mimeType}) ${colorLog.whiteBright(v.image.substring(0, 10))}`;
+              return `(Image, ${v.mimeType}) ${colorLog.whiteBright(v.image.substring(0, 10))}`
             default:
-              throw new Error('Invalid content type');
+              throw new Error('Invalid content type')
           }
-        });
-        return `User:\n${items.join('\n')}`;
+        })
+        return `User:\n${items.join('\n')}`
       }
       case 'assistant': {
         if (msg.functionCalls) {
@@ -619,70 +611,70 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
             const args =
               typeof fn.params !== 'string'
                 ? JSON.stringify(fn.params, null, 2)
-                : fn.params;
-            return `${fn.name}(${args})`;
-          });
-          return `Functions:\n${colorLog.whiteBright(fns.join('\n'))}`;
+                : fn.params
+            return `${fn.name}(${args})`
+          })
+          return `Functions:\n${colorLog.whiteBright(fns.join('\n'))}`
         }
-        return `Assistant:\n${colorLog.whiteBright(msg.content ?? '<empty>')}`;
+        return `Assistant:\n${colorLog.whiteBright(msg.content ?? '<empty>')}`
       }
       default:
-        throw new Error('Invalid role');
+        throw new Error('Invalid role')
     }
-  });
+  })
 
   if (items) {
-    console.log('\n==========');
-    console.log(items.join('\n'));
+    console.log('\n==========')
+    console.log(items.join('\n'))
   }
-};
+}
 
 const logResponse = (resp: Readonly<AxChatResponse>) => {
   for (const r of resp.results) {
     if (r.content) {
-      console.log(colorLog.greenBright(r.content));
+      console.log(colorLog.greenBright(r.content))
     }
     if (r.functionCalls) {
-      process.stdout.write(colorLog.yellow(`Executing functions:\n`));
+      process.stdout.write(colorLog.yellow(`Executing functions:\n`))
 
       for (const f of r.functionCalls) {
         const args =
           typeof f.function.params !== 'string'
             ? JSON.stringify(f.function.params, null, 2)
-            : f.function.params;
-        process.stdout.write(colorLog.yellow(`${f.function.name}(${args})`));
+            : f.function.params
+        process.stdout.write(colorLog.yellow(`${f.function.name}(${args})`))
       }
     }
   }
-};
+}
 
 const logStreamingResponse = (resp: Readonly<AxChatResponse>) => {
   if (!resp.results) {
-    return;
+    return
   }
   for (const r of resp.results) {
     if (r.content) {
-      process.stdout.write(colorLog.greenBright(r.content));
+      process.stdout.write(colorLog.greenBright(r.content))
     }
     if (r.functionCalls) {
       for (const f of r.functionCalls) {
         if (f.function.name) {
-          process.stdout.write(colorLog.blueBright(f.function.name));
+          process.stdout.write(colorLog.blueBright(f.function.name))
         }
         if (f.function.params) {
-          process.stdout.write(colorLog.yellow(f.function.params as string));
+          process.stdout.write(colorLog.yellow(f.function.params as string))
         }
       }
     }
   }
-};
+}
 
 const setResponseAttr = (res: Readonly<AxChatResponse>, span: AxSpan) => {
   if (res.modelUsage) {
     span.setAttributes({
       [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
         res.modelUsage.completionTokens ?? 0,
-      [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens
-    });
+      [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens,
+    })
   }
-};
+}

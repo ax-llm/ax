@@ -1,33 +1,33 @@
-import { apiCall } from '../util/apicall.js';
+import { apiCall } from '../util/apicall.js'
 
-import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
+import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js'
 import type {
   AxDBQueryRequest,
   AxDBQueryResponse,
   AxDBUpsertRequest,
-  AxDBUpsertResponse
-} from './types.js';
+  AxDBUpsertResponse,
+} from './types.js'
 
-export type AxDBPineconeOpOptions = AxDBBaseOpOptions;
+export type AxDBPineconeOpOptions = AxDBBaseOpOptions
 
 type AxPineconeQueryRequest = {
-  namespace?: string;
-  topK: number;
-  filter?: Record<string, string>;
-  includeValues: boolean;
-  includeMetadata: boolean;
-  vector: readonly number[];
-  id?: string;
-};
+  namespace?: string
+  topK: number
+  filter?: Record<string, string>
+  includeValues: boolean
+  includeMetadata: boolean
+  vector: readonly number[]
+  id?: string
+}
 
 type AxPineconeQueryResponse = {
   matches: {
-    id: string;
-    score: number;
-    values: number[];
-    metadata?: Record<string, string>;
-  }[];
-};
+    id: string
+    score: number
+    values: number[]
+    metadata?: Record<string, string>
+  }[]
+}
 
 const createPineconeQueryRequest = (
   req: Readonly<AxDBQueryRequest>
@@ -39,17 +39,17 @@ const createPineconeQueryRequest = (
     includeValues: true,
     includeMetadata: true,
     vector: req.values ?? [],
-    id: req.id
-  };
+    id: req.id,
+  }
 
-  return pineconeQueryRequest;
-};
+  return pineconeQueryRequest
+}
 
 export interface AxDBPineconeArgs extends AxDBBaseArgs {
-  name: 'pinecone';
-  apiKey: string;
-  host: string;
-  fetch?: typeof fetch;
+  name: 'pinecone'
+  apiKey: string
+  host: string
+  fetch?: typeof fetch
 }
 
 /**
@@ -57,21 +57,21 @@ export interface AxDBPineconeArgs extends AxDBBaseArgs {
  * @export
  */
 export class AxDBPinecone extends AxDBBase {
-  private apiKey: string;
-  private apiURL: string;
+  private apiKey: string
+  private apiURL: string
 
   constructor({
     apiKey,
     host,
     fetch,
-    tracer
+    tracer,
   }: Readonly<Omit<AxDBPineconeArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('Pinecone API key not set');
+      throw new Error('Pinecone API key not set')
     }
-    super({ name: 'Pinecone', fetch, tracer });
-    this.apiKey = apiKey;
-    this.apiURL = host;
+    super({ name: 'Pinecone', fetch, tracer })
+    this.apiKey = apiKey
+    this.apiURL = host
   }
 
   override _upsert = async (
@@ -79,9 +79,9 @@ export class AxDBPinecone extends AxDBBase {
     update?: boolean,
     options?: Readonly<AxDBPineconeOpOptions>
   ): Promise<AxDBUpsertResponse> => {
-    await this._batchUpsert([req], update, options);
-    return { ids: [req.id] };
-  };
+    await this._batchUpsert([req], update, options)
+    return { ids: [req.id] }
+  }
 
   override _batchUpsert = async (
     batchReq: Readonly<AxDBUpsertRequest[]>,
@@ -89,7 +89,7 @@ export class AxDBPinecone extends AxDBBase {
     options?: Readonly<AxDBPineconeOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     if (batchReq.length === 0) {
-      throw new Error('Batch request is empty');
+      throw new Error('Batch request is empty')
     }
     await apiCall(
       {
@@ -97,24 +97,24 @@ export class AxDBPinecone extends AxDBBase {
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/vectors/upsert',
         fetch: this.fetch,
-        span: options?.span
+        span: options?.span,
       },
       batchReq.map(({ id, values = [], metadata }) => ({
         id,
         values,
-        metadata
+        metadata,
       }))
-    );
+    )
 
-    return { ids: batchReq.map(({ id }) => id) };
-  };
+    return { ids: batchReq.map(({ id }) => id) }
+  }
 
   override query = async (
     req: Readonly<AxDBQueryRequest>,
     options?: Readonly<AxDBPineconeOpOptions>
   ): Promise<AxDBQueryResponse> => {
     if (req.text) {
-      throw new Error('Pinecone does not support text');
+      throw new Error('Pinecone does not support text')
     }
 
     const res = (await apiCall(
@@ -123,18 +123,18 @@ export class AxDBPinecone extends AxDBBase {
         headers: { Authorization: `Bearer ${this.apiKey}` },
         name: '/query',
         fetch: this.fetch,
-        span: options?.span
+        span: options?.span,
       },
       createPineconeQueryRequest(req)
-    )) as AxPineconeQueryResponse;
+    )) as AxPineconeQueryResponse
 
     const matches = res.matches.map(({ id, score, values, metadata }) => ({
       id,
       score,
       metadata,
-      values
-    }));
+      values,
+    }))
 
-    return { matches };
-  };
+    return { matches }
+  }
 }

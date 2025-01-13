@@ -13,29 +13,35 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
-    "build": "run-s build:*",
-    "build:clean": "node ../../scripts/clean.js build",
-    "build:module": "tsc -p tsconfig.build.module.json",
-    "build:cjs": "tsc -p tsconfig.build.cjs.json",
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "test": "run-s test:*",
+    "test:type-check": "tsc --noEmit",
+    "test:lint": "eslint",
+    "test:format": "prettier --check \"**/*.{ts,json,md}\"",
+    "fix": "run-s fix:*",
+    "fix:lint": "eslint --fix",
+    "fix:format": "prettier --write \"**/*.{ts,json,md}\"",
+    "coverage": "c8 ava",
+    "prepare": "husky install",
     "tsx": "node --env-file=.env --import=tsx",
-    "publish": "npm run build && cd build && npm publish",
-    "postbuild": "node ../../scripts/postbuild.js",
-    "release": "release-it"
+    "release": "release-it",
+    "publish": "npm run build && cd dist && npm publish",
+    "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ai-sdk/provider-utils": "^1.0.2",
-    "@ax-llm/ax": "10.0.25",
-    "ai": "^3.2.37",
+    "@ai-sdk/provider-utils": "^2.0.7 ",
+    "@ax-llm/ax": "^10.0.25",
+    "ai": "^4.0.33",
     "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/react": "^18.3.3",
-    "npm-run-all": "^4.1.5",
-    "tsx": "^4.7.1"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
   },
   "homepage": "https://github.com/@ax-llm/ax#readme",
-  "author": "Vikram <https://twitter.com/dosco>"
+  "author": "Vikram <https://twitter.com/dosco>",
+  "devDependencies": {
+    "@types/react": "^19.0.5"
+  }
 }

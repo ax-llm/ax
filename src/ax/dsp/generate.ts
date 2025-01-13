@@ -1,4 +1,4 @@
-import { ReadableStream } from 'stream/web';
+import { ReadableStream } from 'stream/web'
 
 import type {
   AxAIService,
@@ -6,11 +6,12 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
-  AxRateLimiterFunction
-} from '../ai/types.js';
-import { mergeFunctionCalls } from '../ai/util.js';
-import { type AxAIMemory, AxMemory } from '../mem/index.js';
-import { type AxSpan, AxSpanKind, type AxTracer } from '../trace/index.js';
+  AxRateLimiterFunction,
+} from '../ai/types.js'
+import { mergeFunctionCalls } from '../ai/util.js'
+import { AxMemory } from '../mem/memory.js'
+import type { AxAIMemory } from '../mem/types.js'
+import { type AxSpan, AxSpanKind, type AxTracer } from '../trace/trace.js'
 
 import {
   assertAssertions,
@@ -18,93 +19,95 @@ import {
   assertStreamingAssertions,
   type AxAssertion,
   AxAssertionError,
-  type AxStreamingAssertion
-} from './asserts.js';
+  type AxStreamingAssertion,
+} from './asserts.js'
 import {
   type extractionState,
   extractValues,
   streamingExtractFinalValue,
-  streamingExtractValues
-} from './extract.js';
+  streamingExtractValues,
+} from './extract.js'
 import {
   type AxChatResponseFunctionCall,
   type InputFunctionType,
   parseFunctionCalls,
   parseFunctions,
-  processFunctions
-} from './functions.js';
+  processFunctions,
+} from './functions.js'
 import {
   type AxGenIn,
   type AxGenOut,
   type AxProgramForwardOptions,
-  AxProgramWithSignature
-} from './program.js';
-import { AxPromptTemplate } from './prompt.js';
-import { AxSignature } from './sig.js';
-import { AxValidationError } from './validate.js';
+  AxProgramWithSignature,
+} from './program.js'
+import { AxPromptTemplate } from './prompt.js'
+import { AxSignature } from './sig.js'
+import { AxValidationError } from './validate.js'
 
 export interface AxGenOptions {
-  maxCompletions?: number;
-  maxRetries?: number;
-  maxSteps?: number;
-  mem?: AxAIMemory;
-  tracer?: AxTracer;
-  rateLimiter?: AxRateLimiterFunction;
-  stream?: boolean;
-  debug?: boolean;
-  description?: string;
+  maxCompletions?: number
+  maxRetries?: number
+  maxSteps?: number
+  mem?: AxAIMemory
+  tracer?: AxTracer
+  rateLimiter?: AxRateLimiterFunction
+  stream?: boolean
+  debug?: boolean
+  description?: string
 
-  functions?: InputFunctionType;
-  functionCall?: AxChatRequest['functionCall'];
-  stopFunction?: string;
-  promptTemplate?: typeof AxPromptTemplate;
-  asserts?: AxAssertion[];
-  streamingAsserts?: AxStreamingAssertion[];
+  functions?: InputFunctionType
+  functionCall?: AxChatRequest['functionCall']
+  stopFunction?: string
+  promptTemplate?: typeof AxPromptTemplate
+  asserts?: AxAssertion[]
+  streamingAsserts?: AxStreamingAssertion[]
 }
 
 export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
-  functions?: AxChatResponseFunctionCall[];
-};
+  functions?: AxChatResponseFunctionCall[]
+}
 
 export interface AxResponseHandlerArgs<T> {
-  ai: Readonly<AxAIService>;
-  model?: string;
-  res: T;
-  usageInfo: { ai: string; model: string };
-  mem: AxAIMemory;
-  sessionId?: string;
-  traceId?: string;
-  functions?: Readonly<AxFunction[]>;
+  ai: Readonly<AxAIService>
+  model?: string
+  res: T
+  usageInfo: { ai: string; model: string }
+  mem: AxAIMemory
+  sessionId?: string
+  traceId?: string
+  functions?: Readonly<AxFunction[]>
 }
+
+export class Test {}
 
 export class AxGen<
   IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>
+  OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>,
 > extends AxProgramWithSignature<IN, OUT> {
-  private promptTemplate: AxPromptTemplate;
-  private asserts: AxAssertion[];
-  private streamingAsserts: AxStreamingAssertion[];
-  private options?: Omit<AxGenOptions, 'functions'>;
-  private functions?: AxFunction[];
-  private functionsExecuted: Set<string> = new Set<string>();
+  private promptTemplate: AxPromptTemplate
+  private asserts: AxAssertion[]
+  private streamingAsserts: AxStreamingAssertion[]
+  private options?: Omit<AxGenOptions, 'functions'>
+  private functions?: AxFunction[]
+  private functionsExecuted: Set<string> = new Set<string>()
 
   constructor(
     signature: Readonly<AxSignature | string>,
     options?: Readonly<AxGenOptions>
   ) {
-    super(signature, { description: options?.description });
+    super(signature, { description: options?.description })
 
-    this.options = options;
+    this.options = options
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
       options?.functions
-    );
-    this.asserts = this.options?.asserts ?? [];
-    this.streamingAsserts = this.options?.streamingAsserts ?? [];
-    this.usage = [];
+    )
+    this.asserts = this.options?.asserts ?? []
+    this.streamingAsserts = this.options?.streamingAsserts ?? []
+    this.usage = []
 
     if (options?.functions) {
-      this.functions = parseFunctions(options.functions);
+      this.functions = parseFunctions(options.functions)
     }
   }
 
@@ -113,8 +116,8 @@ export class AxGen<
     message?: string,
     optional?: boolean
   ) => {
-    this.asserts.push({ fn, message, optional });
-  };
+    this.asserts.push({ fn, message, optional })
+  }
 
   public addStreamingAssert = (
     fieldName: string,
@@ -122,17 +125,17 @@ export class AxGen<
     message?: string,
     optional?: boolean
   ) => {
-    this.streamingAsserts.push({ fieldName, fn, message, optional });
-  };
+    this.streamingAsserts.push({ fieldName, fn, message, optional })
+  }
 
   private async forwardSendRequest({
     ai,
     mem,
-    options
+    options,
   }: Readonly<{
-    ai: Readonly<AxAIService>;
-    mem: AxAIMemory;
-    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+    ai: Readonly<AxAIService>
+    mem: AxAIMemory
+    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
   }>) {
     const {
       sessionId,
@@ -142,16 +145,16 @@ export class AxGen<
       rateLimiter,
       stream,
       functions,
-      functionCall: _functionCall
-    } = options ?? {};
+      functionCall: _functionCall,
+    } = options ?? {}
 
-    const chatPrompt = mem?.history(sessionId) ?? [];
+    const chatPrompt = mem?.history(sessionId) ?? []
 
     if (chatPrompt.length === 0) {
-      throw new Error('No chat prompt found');
+      throw new Error('No chat prompt found')
     }
 
-    const functionCall = _functionCall ?? this.options?.functionCall;
+    const functionCall = _functionCall ?? this.options?.functionCall
 
     const res = await ai.chat(
       {
@@ -159,40 +162,40 @@ export class AxGen<
         functions,
         functionCall,
         modelConfig,
-        model
+        model,
       },
       {
         sessionId,
         traceId,
         rateLimiter,
-        stream
+        stream,
       }
-    );
+    )
 
-    return res;
+    return res
   }
 
   private async forwardCore({
     ai,
     mem,
-    options
+    options,
   }: Readonly<{
-    ai: Readonly<AxAIService>;
-    mem: AxAIMemory;
-    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+    ai: Readonly<AxAIService>
+    mem: AxAIMemory
+    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
   }>): Promise<OUT> {
-    const { sessionId, traceId, model, functions } = options ?? {};
+    const { sessionId, traceId, model, functions } = options ?? {}
 
     const usageInfo = {
       ai: ai.getName(),
-      model: ai.getModelInfo().name
-    };
+      model: ai.getModelInfo().name,
+    }
 
     const res = await this.forwardSendRequest({
       ai,
       mem,
-      options
-    });
+      options,
+    })
 
     if (res instanceof ReadableStream) {
       return (await this.processSteamingResponse({
@@ -203,8 +206,8 @@ export class AxGen<
         mem,
         traceId,
         sessionId,
-        functions
-      })) as unknown as OUT;
+        functions,
+      })) as unknown as OUT
     }
 
     return (await this.processResponse({
@@ -215,8 +218,8 @@ export class AxGen<
       mem,
       traceId,
       sessionId,
-      functions
-    })) as unknown as OUT;
+      functions,
+    })) as unknown as OUT
   }
 
   private async processSteamingResponse({
@@ -227,27 +230,26 @@ export class AxGen<
     mem,
     sessionId,
     traceId,
-    functions
+    functions,
   }: Readonly<
     AxResponseHandlerArgs<ReadableStream<AxChatResponse>>
   >): Promise<OUT> {
-    const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> =
-      [];
-    const values = {};
-    const xstate: extractionState = { s: -1 };
+    const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
+    const values = {}
+    const xstate: extractionState = { s: -1 }
 
-    let content = '';
+    let content = ''
 
     for await (const v of res) {
       for (const result of v.results ?? []) {
         if (v.modelUsage) {
-          this.usage.push({ ...usageInfo, ...v.modelUsage });
+          this.usage.push({ ...usageInfo, ...v.modelUsage })
         }
 
         if (result.content) {
-          content += result.content;
+          content += result.content
 
-          mem.updateResult({ name: result.name, content }, sessionId);
+          mem.updateResult({ name: result.name, content }, sessionId)
 
           assertStreamingAssertions(
             this.streamingAsserts,
@@ -255,30 +257,30 @@ export class AxGen<
             xstate,
             content,
             false
-          );
-          streamingExtractValues(this.signature, values, xstate, content);
-          assertAssertions(this.asserts, values);
+          )
+          streamingExtractValues(this.signature, values, xstate, content)
+          assertAssertions(this.asserts, values)
         }
 
         if (result.functionCalls) {
-          mergeFunctionCalls(functionCalls, result.functionCalls);
+          mergeFunctionCalls(functionCalls, result.functionCalls)
 
           mem.updateResult(
             { name: result.name, content, functionCalls },
             sessionId
-          );
+          )
         }
 
         if (result.finishReason === 'length') {
-          throw new Error('Max tokens reached before completion');
+          throw new Error('Max tokens reached before completion')
         }
       }
     }
 
-    const funcs = parseFunctionCalls(ai, functionCalls, values, model);
+    const funcs = parseFunctionCalls(ai, functionCalls, values, model)
     if (funcs) {
       if (!functions) {
-        throw new Error('Functions are not defined');
+        throw new Error('Functions are not defined')
       }
       const fx = await processFunctions(
         ai,
@@ -287,21 +289,21 @@ export class AxGen<
         mem,
         sessionId,
         traceId
-      );
-      this.functionsExecuted = new Set([...this.functionsExecuted, ...fx]);
+      )
+      this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
     }
 
-    streamingExtractFinalValue(values, xstate, content);
+    streamingExtractFinalValue(values, xstate, content)
     assertStreamingAssertions(
       this.streamingAsserts,
       values,
       xstate,
       content,
       true
-    );
-    assertAssertions(this.asserts, values);
+    )
+    assertAssertions(this.asserts, values)
 
-    return { ...values } as unknown as OUT;
+    return { ...values } as unknown as OUT
   }
 
   private async processResponse({
@@ -311,28 +313,28 @@ export class AxGen<
     mem,
     sessionId,
     traceId,
-    functions
+    functions,
   }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
-    const values = {};
+    const values = {}
 
     for (const result of res.results ?? []) {
       if (res.modelUsage) {
-        this.usage.push({ ...usageInfo, ...res.modelUsage });
+        this.usage.push({ ...usageInfo, ...res.modelUsage })
       }
 
-      mem.addResult(result, sessionId);
+      mem.addResult(result, sessionId)
 
       if (result.content) {
-        extractValues(this.signature, values, result.content);
-        assertAssertions(this.asserts, values);
+        extractValues(this.signature, values, result.content)
+        assertAssertions(this.asserts, values)
       }
 
       if (result.functionCalls) {
-        const funcs = parseFunctionCalls(ai, result.functionCalls, values);
+        const funcs = parseFunctionCalls(ai, result.functionCalls, values)
 
         if (funcs) {
           if (!functions) {
-            throw new Error('Functions are not defined');
+            throw new Error('Functions are not defined')
           }
           const fx = await processFunctions(
             ai,
@@ -341,17 +343,17 @@ export class AxGen<
             mem,
             sessionId,
             traceId
-          );
-          this.functionsExecuted = new Set([...this.functionsExecuted, ...fx]);
+          )
+          this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
         }
       }
 
       if (result.finishReason === 'length') {
-        throw new Error('Max tokens reached before completion');
+        throw new Error('Max tokens reached before completion')
       }
     }
 
-    return { ...values } as unknown as OUT;
+    return { ...values } as unknown as OUT
   }
 
   private async _forward(
@@ -362,28 +364,28 @@ export class AxGen<
   ): Promise<OUT> {
     const stopFunction = (
       options?.stopFunction ?? this.options?.stopFunction
-    )?.toLowerCase();
+    )?.toLowerCase()
 
-    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 15;
-    const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10;
-    const mem = options?.mem ?? this.options?.mem ?? new AxMemory();
+    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 15
+    const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10
+    const mem = options?.mem ?? this.options?.mem ?? new AxMemory()
 
-    let err: AxValidationError | AxAssertionError | undefined;
+    let err: AxValidationError | AxAssertionError | undefined
 
     if (options?.functions && options?.functions.length > 0) {
-      const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate;
+      const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate
       this.promptTemplate = new promptTemplate(
         this.signature,
         options.functions
-      );
+      )
     }
 
     const prompt = this.promptTemplate.render<IN>(values, {
       examples: this.examples,
-      demos: this.demos
-    });
+      demos: this.demos,
+    })
 
-    mem.add(prompt, options?.sessionId);
+    mem.add(prompt, options?.sessionId)
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       for (let i = 0; i < maxRetries; i++) {
@@ -391,60 +393,60 @@ export class AxGen<
           const output = await this.forwardCore({
             options,
             ai,
-            mem
-          });
+            mem,
+          })
 
-          const lastMemItem = mem.getLast(options?.sessionId);
+          const lastMemItem = mem.getLast(options?.sessionId)
 
           const stopFunctionExecuted =
-            stopFunction && this.functionsExecuted.has(stopFunction);
+            stopFunction && this.functionsExecuted.has(stopFunction)
 
           if (lastMemItem?.role === 'function') {
             if (!stopFunction || !stopFunctionExecuted) {
-              continue multiStepLoop;
+              continue multiStepLoop
             }
           }
 
           if (!stopFunctionExecuted) {
-            assertRequiredFields(this.signature, output);
+            assertRequiredFields(this.signature, output)
           }
 
-          this.trace = { ...values, ...output };
-          return output;
+          this.trace = { ...values, ...output }
+          return output
         } catch (e) {
-          let extraFields;
-          span?.recordAxSpanException(e as Error);
+          let extraFields
+          span?.recordAxSpanException(e as Error)
 
           if (e instanceof AxValidationError) {
-            extraFields = e.getFixingInstructions();
-            err = e;
+            extraFields = e.getFixingInstructions()
+            err = e
           } else if (e instanceof AxAssertionError) {
-            const e1 = e as AxAssertionError;
-            extraFields = e1.getFixingInstructions(this.signature);
-            err = e;
+            const e1 = e as AxAssertionError
+            extraFields = e1.getFixingInstructions(this.signature)
+            err = e
           } else {
-            throw e;
+            throw e
           }
 
           if (extraFields) {
-            const content = this.promptTemplate.renderExtraFields(extraFields);
-            mem.add({ role: 'user' as const, content }, options?.sessionId);
+            const content = this.promptTemplate.renderExtraFields(extraFields)
+            mem.add({ role: 'user' as const, content }, options?.sessionId)
 
             if (options?.debug) {
-              console.log('Error Correction:', content);
+              console.log('Error Correction:', content)
             }
           }
         }
       }
 
       if (err instanceof AxAssertionError && err.getOptional()) {
-        return err.getValue() as OUT;
+        return err.getValue() as OUT
       }
 
-      throw new Error(`Unable to fix validation error: ${err?.message}`);
+      throw new Error(`Unable to fix validation error: ${err?.message}`)
     }
 
-    throw new Error(`Max steps reached: ${maxSteps}`);
+    throw new Error(`Max steps reached: ${maxSteps}`)
   }
 
   public override async forward(
@@ -452,39 +454,39 @@ export class AxGen<
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const tracer = this.options?.tracer ?? options?.tracer;
+    const tracer = this.options?.tracer ?? options?.tracer
 
-    let functions: AxFunction[] | undefined = this.functions;
+    let functions: AxFunction[] | undefined = this.functions
 
     if (options?.functions) {
-      functions = parseFunctions(options.functions, this.functions);
+      functions = parseFunctions(options.functions, this.functions)
     }
 
     if (!tracer) {
       return await this._forward(ai, values, {
         ...options,
-        functions
-      });
+        functions,
+      })
     }
 
-    const funcNames = functions?.map((f) => f.name).join(',');
+    const funcNames = functions?.map((f) => f.name).join(',')
 
     const attributes = {
       ['generate.signature']: this.signature.toString(),
-      ['generate.functions']: funcNames ?? ''
-    };
+      ['generate.functions']: funcNames ?? '',
+    }
 
     return await tracer.startActiveSpan(
       'Generate',
       {
         kind: AxSpanKind.SERVER,
-        attributes
+        attributes,
       },
       async (span) => {
-        const res = this._forward(ai, values, options, span);
-        span.end();
-        return res;
+        const res = this._forward(ai, values, options, span)
+        span.end()
+        return res
       }
-    );
+    )
   }
 }

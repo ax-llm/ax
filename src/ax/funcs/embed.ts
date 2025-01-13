@@ -1,40 +1,40 @@
 import type {
   AxAIService,
   AxAIServiceActionOptions,
-  AxFunction
-} from '../ai/index.js';
+  AxFunction,
+} from '../ai/types.js'
 
 export class AxEmbeddingAdapter {
-  private aiService: AxAIService;
+  private aiService: AxAIService
   private info: {
-    name: string;
-    description: string;
-    argumentDescription: string;
-  };
+    name: string
+    description: string
+    argumentDescription: string
+  }
   private func: (
     args: readonly number[],
     extra?: Readonly<AxAIServiceActionOptions>
-  ) => Promise<unknown>;
+  ) => Promise<unknown>
 
   constructor({
     ai,
     info,
-    func
+    func,
   }: Readonly<{
-    ai: AxAIService;
+    ai: AxAIService
     info: Readonly<{
-      name: string;
-      description: string;
-      argumentDescription: string;
-    }>;
+      name: string
+      description: string
+      argumentDescription: string
+    }>
     func: (
       args: readonly number[],
       extra?: Readonly<AxAIServiceActionOptions>
-    ) => Promise<unknown>;
+    ) => Promise<unknown>
   }>) {
-    this.aiService = ai;
-    this.info = info;
-    this.func = func;
+    this.aiService = ai
+    this.info = info
+    this.func = func
   }
 
   private async embedAdapter(
@@ -44,16 +44,14 @@ export class AxEmbeddingAdapter {
     const embedRes = await this.aiService.embed(
       { texts: [text] },
       { sessionId: extra?.sessionId }
-    );
-    const embeds = embedRes.embeddings.at(0);
+    )
+    const embeds = embedRes.embeddings.at(0)
 
     if (!embeds) {
-      throw new Error('Failed to embed text');
+      throw new Error('Failed to embed text')
     }
 
-    return this.func.length === 2
-      ? this.func(embeds, extra)
-      : this.func(embeds);
+    return this.func.length === 2 ? this.func(embeds, extra) : this.func(embeds)
   }
 
   public toFunction(): AxFunction {
@@ -65,13 +63,13 @@ export class AxEmbeddingAdapter {
         properties: {
           text: {
             type: 'string',
-            description: this.info.argumentDescription
-          }
+            description: this.info.argumentDescription,
+          },
         },
-        required: ['text']
+        required: ['text'],
       },
       func: ({ text }: Readonly<{ text: string }>, options) =>
-        this.embedAdapter(text, options)
-    };
+        this.embedAdapter(text, options),
+    }
   }
 }

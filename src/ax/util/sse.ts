@@ -1,83 +1,82 @@
-import { TransformStream, TransformStreamDefaultController } from 'stream/web';
+import { TransformStream, TransformStreamDefaultController } from 'stream/web'
 
 interface CurrentEventState {
-  event?: string;
-  rawData: string;
-  id?: string;
-  retry?: number;
+  event?: string
+  rawData: string
+  id?: string
+  retry?: number
 }
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export class SSEParser<T = unknown> extends TransformStream<string, T> {
-  private buffer: string = '';
-  private currentEvent: CurrentEventState = { rawData: '' };
+  private buffer: string = ''
+  private currentEvent: CurrentEventState = { rawData: '' }
 
   constructor(private readonly dataParser: (data: string) => T = JSON.parse) {
     super({
       transform: (chunk, controller) => this.handleChunk(chunk, controller),
-      flush: (controller) => this.handleFlush(controller)
-    });
+      flush: (controller) => this.handleFlush(controller),
+    })
   }
 
   private handleChunk(
     chunk: string,
     controller: TransformStreamDefaultController<T>
   ): void {
-    this.buffer += chunk;
-    this.processBuffer(controller);
+    this.buffer += chunk
+    this.processBuffer(controller)
   }
 
   private handleFlush(controller: TransformStreamDefaultController<T>): void {
-    this.processBuffer(controller);
+    this.processBuffer(controller)
     if (this.currentEvent.rawData) {
-      this.emitEvent(controller);
+      this.emitEvent(controller)
     }
   }
 
   private processBuffer(controller: TransformStreamDefaultController<T>): void {
-    const lines = this.buffer.split(/\r\n|\r|\n/);
-    this.buffer = lines.pop() || '';
+    const lines = this.buffer.split(/\r\n|\r|\n/)
+    this.buffer = lines.pop() || ''
 
     for (const line of lines) {
       if (line.trim() === '') {
-        this.emitEvent(controller);
+        this.emitEvent(controller)
       } else {
-        this.parseLine(line);
+        this.parseLine(line)
       }
     }
   }
 
   private parseLine(line: string): void {
-    const colonIndex = line.indexOf(':');
+    const colonIndex = line.indexOf(':')
     if (colonIndex === -1) {
       // If there's no colon, treat the whole line as data
       this.currentEvent.rawData += this.currentEvent.rawData
         ? '\n' + line.trim()
-        : line.trim();
-      return;
+        : line.trim()
+      return
     }
 
-    const field = line.slice(0, colonIndex).trim();
-    const value = line.slice(colonIndex + 1).trim();
+    const field = line.slice(0, colonIndex).trim()
+    const value = line.slice(colonIndex + 1).trim()
 
     switch (field) {
       case 'event':
-        this.currentEvent.event = value;
-        break;
+        this.currentEvent.event = value
+        break
       case 'data':
         this.currentEvent.rawData += this.currentEvent.rawData
           ? '\n' + value
-          : value;
-        break;
+          : value
+        break
       case 'id':
-        this.currentEvent.id = value;
-        break;
+        this.currentEvent.id = value
+        break
       case 'retry': {
-        const retryValue = parseInt(value, 10);
+        const retryValue = parseInt(value, 10)
         if (!isNaN(retryValue)) {
-          this.currentEvent.retry = retryValue;
+          this.currentEvent.retry = retryValue
         }
-        break;
+        break
       }
     }
   }
@@ -89,25 +88,25 @@ export class SSEParser<T = unknown> extends TransformStream<string, T> {
         this.currentEvent.rawData.trim() === '[DONE]' ||
         this.currentEvent.rawData.trim().startsWith('[')
       ) {
-        return;
+        return
       } else {
         try {
           // Attempt to parse the data using the provided dataParser
-          const parsedData: T = this.dataParser(this.currentEvent.rawData);
+          const parsedData: T = this.dataParser(this.currentEvent.rawData)
           // Emit only if we successfully parsed the data
-          controller.enqueue(parsedData);
+          controller.enqueue(parsedData)
         } catch (e) {
           // If parsing fails, log the error without emitting
-          console.warn('Failed to parse event data:', e);
+          console.warn('Failed to parse event data:', e)
           console.log(
             'Raw data that failed to parse:',
             this.currentEvent.rawData
-          );
+          )
         }
       }
 
       // Reset the current event
-      this.currentEvent = { rawData: '' };
+      this.currentEvent = { rawData: '' }
     }
   }
 }

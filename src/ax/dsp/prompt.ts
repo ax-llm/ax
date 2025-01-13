@@ -1,69 +1,69 @@
-import type { AxChatRequest } from '../ai/types.js';
+import type { AxChatRequest } from '../ai/types.js'
 
-import { formatDateWithTimezone } from './datetime.js';
-import type { InputFunctionType } from './functions.js';
-import { type AxFieldValue } from './program.js';
-import type { AxField, AxIField, AxSignature } from './sig.js';
-import { validateValue } from './util.js';
+import { formatDateWithTimezone } from './datetime.js'
+import type { InputFunctionType } from './functions.js'
+import { type AxFieldValue } from './program.js'
+import type { AxField, AxIField, AxSignature } from './sig.js'
+import { validateValue } from './util.js'
 
-type Writeable<T> = { -readonly [P in keyof T]: T[P] };
-type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
+type Writeable<T> = { -readonly [P in keyof T]: T[P] }
+type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>
 
 type ChatRequestUserMessage = Exclude<
   Extract<AxChatRequestChatPrompt, { role: 'user' }>['content'],
   string
->;
+>
 
 export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
   value: Readonly<AxFieldValue>
-) => ChatRequestUserMessage;
+) => ChatRequestUserMessage
 
 export class AxPromptTemplate {
-  private sig: Readonly<AxSignature>;
-  private fieldTemplates?: Record<string, AxFieldTemplateFn>;
-  private task: { type: 'text'; text: string };
+  private sig: Readonly<AxSignature>
+  private fieldTemplates?: Record<string, AxFieldTemplateFn>
+  private task: { type: 'text'; text: string }
 
   constructor(
     sig: Readonly<AxSignature>,
     functions?: Readonly<InputFunctionType>,
     fieldTemplates?: Record<string, AxFieldTemplateFn>
   ) {
-    this.sig = sig;
-    this.fieldTemplates = fieldTemplates;
+    this.sig = sig
+    this.fieldTemplates = fieldTemplates
 
-    const inArgs = this.renderDescFields(this.sig.getInputFields());
-    const outArgs = this.renderDescFields(this.sig.getOutputFields());
+    const inArgs = this.renderDescFields(this.sig.getInputFields())
+    const outArgs = this.renderDescFields(this.sig.getOutputFields())
     const task = [
-      `#Task\nGiven the fields ${inArgs}, produce the fields ${outArgs}.`
-    ];
+      `#Task\nGiven the fields ${inArgs}, produce the fields ${outArgs}.`,
+    ]
 
     const fnNames = functions?.map((f) => {
       if ('toFunction' in f) {
-        return f.toFunction().name;
+        return f.toFunction().name
       }
-      return f.name;
-    });
+      return f.name
+    })
 
-    const funcList = fnNames?.map((fname) => `'${fname}'`).join(', ');
+    const funcList = fnNames?.map((fname) => `'${fname}'`).join(', ')
 
     if (funcList && funcList.length > 0) {
       task.push(
         `Use the following functions ${funcList} to complete the task. The functions must be used to resolve the output field values.`
-      );
+      )
     }
 
-    const desc = this.sig.getDescription();
+    const desc = this.sig.getDescription()
     if (desc) {
-      task.push(desc.endsWith('.') ? desc : desc + '.');
+      task.push(desc.endsWith('.') ? desc : desc + '.')
     }
 
     task.push(
       'Ensure the output strictly follows a plain text format, `key: value` separated by a new line.'
-    );
+    )
 
-    const inputFields = this.renderFields(this.sig.getInputFields());
-    const outputFields = this.renderFields(this.sig.getOutputFields());
+    const inputFields = this.renderFields(this.sig.getInputFields())
+    const outputFields = this.renderFields(this.sig.getOutputFields())
 
     task.push(
       [
@@ -72,65 +72,65 @@ export class AxPromptTemplate {
         inputFields,
         '\n',
         '## Output Fields',
-        outputFields
+        outputFields,
       ].join('\n')
-    );
+    )
 
     this.task = {
       type: 'text' as const,
-      text: task.join(' ')
-    };
+      text: task.join(' '),
+    }
   }
 
   public render = <T extends Record<string, AxFieldValue>>(
     values: T,
     {
       examples,
-      demos
+      demos,
     }: Readonly<{
-      skipSystemPrompt?: boolean;
-      examples?: Record<string, AxFieldValue>[];
-      demos?: Record<string, AxFieldValue>[];
+      skipSystemPrompt?: boolean
+      examples?: Record<string, AxFieldValue>[]
+      demos?: Record<string, AxFieldValue>[]
     }>
   ): AxChatRequest['chatPrompt'] => {
     const renderedExamples = examples
       ? [
           { type: 'text' as const, text: 'Examples:\n' },
-          ...this.renderExamples(examples)
+          ...this.renderExamples(examples),
         ]
-      : [];
+      : []
 
-    const renderedDemos = demos ? this.renderDemos(demos) : [];
+    const renderedDemos = demos ? this.renderDemos(demos) : []
 
-    const completion = this.renderInputFields(values);
+    const completion = this.renderInputFields(values)
 
     const promptList: ChatRequestUserMessage = [
       ...renderedExamples,
       ...renderedDemos,
-      ...completion
-    ];
+      ...completion,
+    ]
 
-    const prompt = promptList.filter((v) => v !== undefined);
+    const prompt = promptList.filter((v) => v !== undefined)
 
     const systemPrompt = {
       role: 'system' as const,
-      content: this.task.text
-    };
+      content: this.task.text,
+    }
 
     const userContent = prompt.every((v) => v.type === 'text')
       ? prompt.map((v) => v.text).join('\n')
-      : prompt.reduce(combineConsecutiveStrings('\n'), []);
+      : prompt.reduce(combineConsecutiveStrings('\n'), [])
 
     const userPrompt = {
       role: 'user' as const,
-      content: userContent
-    };
+      content: userContent,
+    }
 
-    return [systemPrompt, userPrompt];
-  };
+    return [systemPrompt, userPrompt]
+  }
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {
-    const prompt: ChatRequestUserMessage = [];
+    const prompt: ChatRequestUserMessage = []
 
     if (extraFields && extraFields.length > 0) {
       extraFields.forEach((field) => {
@@ -138,93 +138,90 @@ export class AxPromptTemplate {
         //   throw new Error(`Value for field '${field.name}' is required.`);
         // }
         const fn =
-          this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
+          this.fieldTemplates?.[field.name] ?? this.defaultRenderInField
         // if (!field.description || field.description.length === 0) {
         //   throw new Error(`Description for field '${field.name}' is required`);
         // }
-        prompt.push(...fn(field, field.description));
-      });
+        prompt.push(...fn(field, field.description))
+      })
     }
     if (prompt.every((v) => v.type === 'text')) {
-      return prompt.map((v) => v.text).join('\n\n');
+      return prompt.map((v) => v.text).join('\n\n')
     }
 
-    return prompt.reduce(combineConsecutiveStrings('\n'), []);
-  };
+    return prompt.reduce(combineConsecutiveStrings('\n'), [])
+  }
 
   private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {
-    const list: ChatRequestUserMessage = [];
+    const list: ChatRequestUserMessage = []
 
     for (const [index, item] of data.entries()) {
       const renderedInputItem = this.sig
         .getInputFields()
         .map((field) => this.renderInField(field, item, true))
         .filter((v) => v !== undefined)
-        .flat();
+        .flat()
 
       const renderedOutputItem = this.sig
         .getOutputFields()
         .map((field) => this.renderInField(field, item, true))
         .filter((v) => v !== undefined)
-        .flat();
+        .flat()
 
       if (renderedOutputItem.length === 0) {
         throw new Error(
           `Output fields are required in examples: index: ${index}, data: ${JSON.stringify(item)}`
-        );
+        )
       }
 
-      const renderedItem = [...renderedInputItem, ...renderedOutputItem];
+      const renderedItem = [...renderedInputItem, ...renderedOutputItem]
 
       renderedItem.forEach((v) => {
         if ('text' in v) {
-          v.text = v.text + '\n';
+          v.text = v.text + '\n'
         }
         if ('image' in v) {
-          v.image = v.image + '\n';
+          v.image = v.image + '\n'
         }
-        list.push(v);
-      });
+        list.push(v)
+      })
 
       if (renderedItem.length > 0) {
-        list.push({ type: 'text', text: '\n' });
+        list.push({ type: 'text', text: '\n' })
       }
     }
 
-    return list;
-  };
+    return list
+  }
 
   private renderDemos = (data: Readonly<Record<string, AxFieldValue>[]>) => {
-    const list: ChatRequestUserMessage = [];
+    const list: ChatRequestUserMessage = []
 
-    const fields = [
-      ...this.sig.getInputFields(),
-      ...this.sig.getOutputFields()
-    ];
+    const fields = [...this.sig.getInputFields(), ...this.sig.getOutputFields()]
 
     for (const item of data) {
       const renderedItem = fields
         .map((field) => this.renderInField(field, item, true))
         .filter((v) => v !== undefined)
-        .flat();
+        .flat()
 
       renderedItem.slice(0, -1).forEach((v) => {
         if ('text' in v) {
-          v.text = v.text + '\n';
+          v.text = v.text + '\n'
         }
         if ('image' in v) {
-          v.image = v.image + '\n';
+          v.image = v.image + '\n'
         }
-        list.push(v);
-      });
+        list.push(v)
+      })
 
       if (renderedItem.length > 0) {
-        list.push({ type: 'text', text: '\n\n---\n\n' });
+        list.push({ type: 'text', text: '\n\n---\n\n' })
       }
     }
 
-    return list;
-  };
+    return list
+  }
 
   private renderInputFields = <T extends Record<string, AxFieldValue>>(
     values: T
@@ -233,43 +230,43 @@ export class AxPromptTemplate {
       .getInputFields()
       .map((field) => this.renderInField(field, values))
       .filter((v) => v !== undefined)
-      .flat();
+      .flat()
 
     renderedItems
       .filter((v) => v.type === 'text')
       .forEach((v) => {
-        v.text = v.text + '\n\n';
-      });
+        v.text = v.text + '\n\n'
+      })
 
-    return renderedItems;
-  };
+    return renderedItems
+  }
 
   private renderInField = (
     field: Readonly<AxField>,
     values: Readonly<Record<string, AxFieldValue>>,
     skipMissing?: boolean
   ) => {
-    const value = values[field.name];
+    const value = values[field.name]
 
     if (skipMissing && !value) {
-      return;
+      return
     }
 
     if (isEmptyValue(field, value)) {
-      return;
+      return
     }
 
     if (field.type) {
-      validateValue(field, value!);
+      validateValue(field, value!)
     }
 
-    const processedValue = processValue(field, value!);
+    const processedValue = processValue(field, value!)
 
     const textFieldFn: AxFieldTemplateFn =
-      this.fieldTemplates?.[field.name] ?? this.defaultRenderInField;
+      this.fieldTemplates?.[field.name] ?? this.defaultRenderInField
 
-    return textFieldFn(field, processedValue);
-  };
+    return textFieldFn(field, processedValue)
+  }
 
   private defaultRenderInField = (
     field: Readonly<AxField>,
@@ -280,48 +277,48 @@ export class AxPromptTemplate {
         value: Readonly<AxFieldValue>
       ): { mimeType: string; data: string } => {
         if (!value) {
-          throw new Error('Image field value is required.');
+          throw new Error('Image field value is required.')
         }
 
         if (typeof value !== 'object') {
-          throw new Error('Image field value must be an object.');
+          throw new Error('Image field value must be an object.')
         }
         if (!('mimeType' in value)) {
-          throw new Error('Image field must have mimeType');
+          throw new Error('Image field must have mimeType')
         }
         if (!('data' in value)) {
-          throw new Error('Image field must have data');
+          throw new Error('Image field must have data')
         }
-        return value;
-      };
+        return value
+      }
 
       let result: ChatRequestUserMessage = [
-        { type: 'text', text: `${field.title}: ` as string }
-      ];
+        { type: 'text', text: `${field.title}: ` as string },
+      ]
 
       if (field.type.isArray) {
         if (!Array.isArray(value)) {
-          throw new Error('Image field value must be an array.');
+          throw new Error('Image field value must be an array.')
         }
         result = result.concat(
           value.map((v) => {
-            v = validateImage(v);
+            v = validateImage(v)
             return {
               type: 'image',
               mimeType: v.mimeType,
-              image: v.data
-            };
+              image: v.data,
+            }
           })
-        );
+        )
       } else {
-        const v = validateImage(value);
+        const v = validateImage(value)
         result.push({
           type: 'image',
           mimeType: v.mimeType,
-          image: v.data
-        });
+          image: v.data,
+        })
       }
-      return result;
+      return result
     }
 
     if (field.type?.name === 'audio') {
@@ -329,79 +326,79 @@ export class AxPromptTemplate {
         value: Readonly<AxFieldValue>
       ): { format?: 'wav'; data: string } => {
         if (!value) {
-          throw new Error('Audio field value is required.');
+          throw new Error('Audio field value is required.')
         }
 
         if (typeof value !== 'object') {
-          throw new Error('Audio field value must be an object.');
+          throw new Error('Audio field value must be an object.')
         }
         if (!('data' in value)) {
-          throw new Error('Audio field must have data');
+          throw new Error('Audio field must have data')
         }
-        return value;
-      };
+        return value
+      }
 
       let result: ChatRequestUserMessage = [
-        { type: 'text', text: `${field.title}: ` as string }
-      ];
+        { type: 'text', text: `${field.title}: ` as string },
+      ]
 
       if (field.type.isArray) {
         if (!Array.isArray(value)) {
-          throw new Error('Image field value must be an array.');
+          throw new Error('Image field value must be an array.')
         }
         result = result.concat(
           value.map((v) => {
-            v = validateAudio(v);
+            v = validateAudio(v)
             return {
               type: 'audio',
               format: v.format ?? 'wav',
-              data: v.data
-            };
+              data: v.data,
+            }
           })
-        );
+        )
       } else {
-        const v = validateAudio(value);
+        const v = validateAudio(value)
         result.push({
           type: 'audio',
           format: v.format ?? 'wav',
-          data: v.data
-        });
+          data: v.data,
+        })
       }
-      return result;
+      return result
     }
 
-    const text = [field.title, ': '];
+    const text = [field.title, ': ']
 
     if (Array.isArray(value)) {
-      text.push('\n');
-      text.push(value.map((v) => `- ${v}`).join('\n'));
+      text.push('\n')
+      text.push(value.map((v) => `- ${v}`).join('\n'))
     } else {
-      text.push(value as string);
+      text.push(value as string)
     }
-    return [{ type: 'text', text: text.join('') }];
-  };
+    return [{ type: 'text', text: text.join('') }]
+  }
 
   private renderDescFields = (list: readonly AxField[]) =>
-    list.map((v) => `\`${v.title}\``).join(', ');
+    list.map((v) => `\`${v.title}\``).join(', ')
 
   private renderFields = (fields: readonly AxField[]) => {
     // Header
-    const header = 'Field Name | Field Type | Required/Optional | Description';
-    const separator = '|';
+    const header = 'Field Name | Field Type | Required/Optional | Description'
+    const separator = '|'
 
     // Transform each field into table row
     const rows = fields.map((field) => {
-      const name = field.title;
-      const type = field.type?.name ? toFieldType(field.type) : 'string';
-      const required = field.isOptional ? 'optional' : 'required';
-      const description = field.description ?? '';
+      const name = field.title
+      const type = field.type?.name ? toFieldType(field.type) : 'string'
+      const required = field.isOptional ? 'optional' : 'required'
+      const description = field.description ?? ''
 
-      return [name, type, required, description].join(` ${separator} `).trim();
-    });
+      return [name, type, required, description].join(` ${separator} `).trim()
+    })
 
     // Combine header and rows
-    return [header, ...rows].join('\n');
-  };
+    return [header, ...rows].join('\n')
+  }
 }
 
 const processValue = (
@@ -409,26 +406,26 @@ const processValue = (
   value: Readonly<AxFieldValue>
 ): AxFieldValue => {
   if (field.type?.name === 'date' && value instanceof Date) {
-    const v = value.toISOString();
-    return v.slice(0, v.indexOf('T'));
+    const v = value.toISOString()
+    return v.slice(0, v.indexOf('T'))
   }
   if (field.type?.name === 'datetime' && value instanceof Date) {
-    return formatDateWithTimezone(value);
+    return formatDateWithTimezone(value)
   }
   if (field.type?.name === 'image' && typeof value === 'object') {
-    return value;
+    return value
   }
   if (field.type?.name === 'audio' && typeof value === 'object') {
-    return value;
+    return value
   }
   if (typeof value === 'string') {
-    return value;
+    return value
   }
   if (Array.isArray(value)) {
-    return value;
+    return value
   }
-  return JSON.stringify(value);
-};
+  return JSON.stringify(value)
+}
 
 // const toVar = (name: string, type?: Readonly<Field['type']>) => {
 //   const fmt = type ? type.name + (type.isArray ? '[]' : '') : undefined;
@@ -436,54 +433,52 @@ const processValue = (
 //   return '${' + name + (fmt ? `:${fmt}` : '') + '}';
 // };
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export const toFieldType = (type: Readonly<AxField['type']>) => {
   const baseType = (() => {
     switch (type?.name) {
       case 'string':
-        return 'string';
+        return 'string'
       case 'number':
-        return 'number';
+        return 'number'
       case 'boolean':
-        return 'boolean';
+        return 'boolean'
       case 'date':
-        return 'date ("YYYY-MM-DD" format)';
+        return 'date ("YYYY-MM-DD" format)'
       case 'datetime':
-        return 'date time ("YYYY-MM-DD HH:mm Timezone" format)';
+        return 'date time ("YYYY-MM-DD HH:mm Timezone" format)'
       case 'json':
-        return 'JSON object';
+        return 'JSON object'
       case 'class':
-        return `classification class (allowed classes: ${type.classes?.join(', ')})`;
+        return `classification class (allowed classes: ${type.classes?.join(', ')})`
       default:
-        return 'string';
+        return 'string'
     }
-  })();
+  })()
 
-  return type?.isArray ? `json array of ${baseType} items` : baseType;
-};
+  return type?.isArray ? `json array of ${baseType} items` : baseType
+}
 
 function combineConsecutiveStrings(separator: string) {
   return (
-    // eslint-disable-next-line functional/prefer-immutable-types
     acc: ChatRequestUserMessage,
-    // eslint-disable-next-line functional/prefer-immutable-types
+
     current: ChatRequestUserMessage[0]
   ) => {
     if (current.type === 'text') {
-      const previous = acc.length > 0 ? acc[acc.length - 1] : null;
+      const previous = acc.length > 0 ? acc[acc.length - 1] : null
       if (previous && previous.type === 'text') {
         // If the last item in the accumulator is a string, append the current string to it with the separator
-        previous.text += separator + current.text;
+        previous.text += separator + current.text
       } else {
         // Otherwise, push the current string into the accumulator
-        acc.push(current);
+        acc.push(current)
       }
     } else {
       // If current is not of type 'text', just add it to the accumulator
-      acc.push(current);
+      acc.push(current)
     }
-    return acc;
-  };
+    return acc
+  }
 }
 
 const isEmptyValue = (
@@ -492,7 +487,7 @@ const isEmptyValue = (
 ) => {
   // Boolean type can't be empty
   if (typeof value === 'boolean') {
-    return false;
+    return false
   }
 
   if (
@@ -500,9 +495,9 @@ const isEmptyValue = (
     ((Array.isArray(value) || typeof value === 'string') && value.length === 0)
   ) {
     if (field.isOptional) {
-      return true;
+      return true
     }
-    throw new Error(`Value for input field '${field.name}' is required.`);
+    throw new Error(`Value for input field '${field.name}' is required.`)
   }
-  return false;
-};
+  return false
+}

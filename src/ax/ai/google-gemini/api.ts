@@ -1,10 +1,11 @@
-import type { API } from '../../util/apicall.js';
+import type { API } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
-  axBaseAIDefaultCreativeConfig
-} from '../base.js';
+  axBaseAIDefaultCreativeConfig,
+} from '../base.js'
 import type {
+  AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatResponse,
   AxChatResponseResult,
@@ -12,10 +13,10 @@ import type {
   AxInternalChatRequest,
   AxInternalEmbedRequest,
   AxModelConfig,
-  AxTokenUsage
-} from '../types.js';
+  AxTokenUsage,
+} from '../types.js'
 
-import { axModelInfoGoogleGemini } from './info.js';
+import { axModelInfoGoogleGemini } from './info.js'
 import {
   type AxAIGoogleGeminiBatchEmbedRequest,
   type AxAIGoogleGeminiBatchEmbedResponse,
@@ -27,27 +28,27 @@ import {
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiSafetyCategory,
   type AxAIGoogleGeminiSafetySettings,
-  AxAIGoogleGeminiSafetyThreshold
-} from './types.js';
+  AxAIGoogleGeminiSafetyThreshold,
+} from './types.js'
 
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
   {
     category: AxAIGoogleGeminiSafetyCategory.HarmCategoryHarassment,
-    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone
+    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone,
   },
   {
     category: AxAIGoogleGeminiSafetyCategory.HarmCategoryHateSpeech,
-    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone
+    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone,
   },
   {
     category: AxAIGoogleGeminiSafetyCategory.HarmCategorySexuallyExplicit,
-    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone
+    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone,
   },
   {
     category: AxAIGoogleGeminiSafetyCategory.HarmCategoryDangerousContent,
-    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone
-  }
-];
+    threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone,
+  },
+]
 
 /**
  * AxAIGoogleGemini: Default Model options for text generation
@@ -58,8 +59,8 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
     model: AxAIGoogleGeminiModel.Gemini15Pro,
     embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
     safetySettings,
-    ...axBaseAIDefaultConfig()
-  });
+    ...axBaseAIDefaultConfig(),
+  })
 
 export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
@@ -67,97 +68,49 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
       model: AxAIGoogleGeminiModel.Gemini15Flash,
       embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
       safetySettings,
-      ...axBaseAIDefaultCreativeConfig()
-    });
+      ...axBaseAIDefaultCreativeConfig(),
+    })
 
 export interface AxAIGoogleGeminiOptionsTools {
-  codeExecution?: boolean;
+  codeExecution?: boolean
   googleSearchRetrieval?: {
-    mode?: 'MODE_DYNAMIC';
-    dynamicThreshold?: number;
-  };
+    mode?: 'MODE_DYNAMIC'
+    dynamicThreshold?: number
+  }
 }
 
 export interface AxAIGoogleGeminiArgs {
-  name: 'google-gemini';
-  apiKey: string;
-  projectId?: string;
-  region?: string;
-  config?: Readonly<Partial<AxAIGoogleGeminiConfig>>;
-  options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>;
+  name: 'google-gemini'
+  apiKey: string
+  projectId?: string
+  region?: string
+  config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
+  options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
   modelMap?: Record<
     string,
     AxAIGoogleGeminiModel | AxAIGoogleGeminiEmbedModel | string
-  >;
+  >
 }
 
-/**
- * AxAIGoogleGemini: AI Service
- * @export
- */
-export class AxAIGoogleGemini extends AxBaseAI<
-  AxAIGoogleGeminiChatRequest,
-  AxAIGoogleGeminiBatchEmbedRequest,
-  AxAIGoogleGeminiChatResponse,
-  AxAIGoogleGeminiChatResponseDelta,
-  AxAIGoogleGeminiBatchEmbedResponse
-> {
-  private options?: AxAIGoogleGeminiArgs['options'];
-  private config: AxAIGoogleGeminiConfig;
-  private apiKey: string;
-  private isVertex: boolean;
+class AxAIGoogleGeminiImpl
+  implements
+    AxAIServiceImpl<
+      AxAIGoogleGeminiChatRequest,
+      AxAIGoogleGeminiBatchEmbedRequest,
+      AxAIGoogleGeminiChatResponse,
+      AxAIGoogleGeminiChatResponseDelta,
+      AxAIGoogleGeminiBatchEmbedResponse
+    >
+{
+  constructor(
+    private config: AxAIGoogleGeminiConfig,
+    private apiKey: string,
+    private isVertex: boolean,
+    private options?: AxAIGoogleGeminiArgs['options']
+  ) {}
 
-  constructor({
-    apiKey,
-    projectId,
-    region,
-    config,
-    options,
-    modelMap
-  }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
-    if (!apiKey || apiKey === '') {
-      throw new Error('GoogleGemini AI API key not set');
-    }
-
-    const isVertex = projectId !== undefined && region !== undefined;
-
-    let apiURL;
-    let headers;
-
-    if (isVertex) {
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/`;
-      headers = { Authorization: `Bearer ${apiKey}` };
-    } else {
-      apiURL = 'https://generativelanguage.googleapis.com/v1beta';
-      headers = {};
-    }
-
-    const _config = {
-      ...axAIGoogleGeminiDefaultConfig(),
-      ...config
-    };
-
-    super({
-      name: 'GoogleGeminiAI',
-      apiURL,
-      headers,
-      modelInfo: axModelInfoGoogleGemini,
-      models: {
-        model: _config.model as AxAIGoogleGeminiModel,
-        embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel
-      },
-      options,
-      supportFor: { functions: true, streaming: true },
-      modelMap
-    });
-    this.options = options;
-    this.config = _config;
-    this.apiKey = apiKey;
-    this.isVertex = isVertex;
-  }
-
-  override getModelConfig(): AxModelConfig {
-    const { config } = this;
+  getModelConfig(): AxModelConfig {
+    const { config } = this
     return {
       maxTokens: config.maxTokens,
       temperature: config.temperature,
@@ -168,42 +121,42 @@ export class AxAIGoogleGemini extends AxBaseAI<
       stopSequences: config.stopSequences,
       endSequences: config.endSequences,
       stream: config.stream,
-      n: config.n
-    } as AxModelConfig;
+      n: config.n,
+    } as AxModelConfig
   }
 
-  override generateChatReq = (
+  createChatReq = (
     req: Readonly<AxInternalChatRequest>
   ): [API, AxAIGoogleGeminiChatRequest] => {
-    const model = req.model;
-    const stream = req.modelConfig?.stream ?? this.config.stream;
+    const model = req.model
+    const stream = req.modelConfig?.stream ?? this.config.stream
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
-      throw new Error('Chat prompt is empty');
+      throw new Error('Chat prompt is empty')
     }
 
     const apiConfig = {
       name: stream
         ? `/models/${model}:streamGenerateContent?alt=sse`
-        : `/models/${model}:generateContent`
-    };
+        : `/models/${model}:createContent`,
+    }
 
     if (this.isVertex === false) {
-      const pf = stream ? '&' : '?';
-      apiConfig.name += `${pf}key=${this.apiKey}`;
+      const pf = stream ? '&' : '?'
+      apiConfig.name += `${pf}key=${this.apiKey}`
     }
 
     const systemPrompts = req.chatPrompt
       .filter((p) => p.role === 'system')
-      .map((p) => p.content);
+      .map((p) => p.content)
 
     const systemInstruction =
       systemPrompts.length > 0
         ? {
             role: 'user' as const,
-            parts: [{ text: systemPrompts.join(' ') }]
+            parts: [{ text: systemPrompts.join(' ') }],
           }
-        : undefined;
+        : undefined
 
     const contents: AxAIGoogleGeminiChatRequest['contents'] = req.chatPrompt
       .filter((p) => p.role !== 'system')
@@ -217,68 +170,68 @@ export class AxAIGoogleGemini extends AxBaseAI<
               ? msg.content.map((c, i) => {
                   switch (c.type) {
                     case 'text':
-                      return { text: c.text };
+                      return { text: c.text }
                     case 'image':
                       return {
-                        inlineData: { mimeType: c.mimeType, data: c.image }
-                      };
+                        inlineData: { mimeType: c.mimeType, data: c.image },
+                      }
                     default:
                       throw new Error(
                         `Chat prompt content type not supported (index: ${i})`
-                      );
+                      )
                   }
                 })
-              : [{ text: msg.content }];
+              : [{ text: msg.content }]
             return {
               role: 'user' as const,
-              parts
-            };
+              parts,
+            }
           }
 
           case 'assistant': {
             let parts: Extract<
               AxAIGoogleGeminiChatRequest['contents'][0],
               { role: 'model' }
-            >['parts'] = [];
+            >['parts'] = []
 
             if (msg.functionCalls) {
               parts = msg.functionCalls.map((f) => {
                 const args =
                   typeof f.function.params === 'string'
                     ? JSON.parse(f.function.params)
-                    : f.function.params;
+                    : f.function.params
                 return {
                   functionCall: {
                     name: f.function.name,
-                    args: args
-                  }
-                };
-              });
+                    args: args,
+                  },
+                }
+              })
 
               if (!parts) {
-                throw new Error('Function call is empty');
+                throw new Error('Function call is empty')
               }
 
               return {
                 role: 'model' as const,
-                parts
-              };
+                parts,
+              }
             }
 
             if (!msg.content) {
-              throw new Error('Assistant content is empty');
+              throw new Error('Assistant content is empty')
             }
 
-            parts = [{ text: msg.content }];
+            parts = [{ text: msg.content }]
             return {
               role: 'model' as const,
-              parts
-            };
+              parts,
+            }
           }
 
           case 'function': {
             if (!('functionId' in msg)) {
-              throw new Error(`Chat prompt functionId is empty (index: ${i})`);
+              throw new Error(`Chat prompt functionId is empty (index: ${i})`)
             }
             const parts: Extract<
               AxAIGoogleGeminiChatRequest['contents'][0],
@@ -287,69 +240,68 @@ export class AxAIGoogleGemini extends AxBaseAI<
               {
                 functionResponse: {
                   name: msg.functionId,
-                  response: { result: msg.result }
-                }
-              }
-            ];
+                  response: { result: msg.result },
+                },
+              },
+            ]
 
             return {
               role: 'function' as const,
-              parts
-            };
+              parts,
+            }
           }
 
           default:
-            throw new Error('Invalid role');
+            throw new Error('Invalid role')
         }
-      });
+      })
 
-    let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
+    let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = []
 
     if (req.functions && req.functions.length > 0) {
-      tools.push({ function_declarations: req.functions });
+      tools.push({ function_declarations: req.functions })
     }
 
     if (this.options?.codeExecution) {
-      tools.push({ code_execution: {} });
+      tools.push({ code_execution: {} })
     }
 
     if (this.options?.googleSearchRetrieval) {
       tools.push({
         google_search_retrieval: {
-          dynamic_retrieval_config: this.options.googleSearchRetrieval
-        }
-      });
+          dynamic_retrieval_config: this.options.googleSearchRetrieval,
+        },
+      })
     }
 
     if (tools.length === 0) {
-      tools = undefined;
+      tools = undefined
     }
 
-    // eslint-disable-next-line @typescript-eslint/naming-convention
-    let tool_config;
+    let toolConfig
 
     if (req.functionCall) {
       if (req.functionCall === 'none') {
-        tool_config = { function_calling_config: { mode: 'NONE' as const } };
+        toolConfig = { function_calling_config: { mode: 'NONE' as const } }
       } else if (req.functionCall === 'auto') {
-        tool_config = { function_calling_config: { mode: 'AUTO' as const } };
+        toolConfig = { function_calling_config: { mode: 'AUTO' as const } }
       } else if (req.functionCall === 'required') {
-        tool_config = {
-          function_calling_config: { mode: 'ANY' as const }
-        };
+        toolConfig = {
+          function_calling_config: { mode: 'ANY' as const },
+        }
       } else {
         const allowedFunctionNames = req.functionCall.function?.name
           ? {
-              allowedFunctionNames: [req.functionCall.function.name]
+              allowedFunctionNames: [req.functionCall.function.name],
             }
-          : {};
-        tool_config = {
+          : {}
+        toolConfig = {
           function_calling_config: { mode: 'ANY' as const },
-          ...allowedFunctionNames
-        };
+          ...allowedFunctionNames,
+        }
       }
     } else if (tools && tools.length > 0) {
-      tool_config = { function_calling_config: { mode: 'AUTO' as const } };
+      toolConfig = { function_calling_config: { mode: 'AUTO' as const } }
     }
 
     const generationConfig = {
@@ -358,80 +310,81 @@ export class AxAIGoogleGemini extends AxBaseAI<
       topP: req.modelConfig?.topP ?? this.config.topP,
       topK: req.modelConfig?.topK ?? this.config.topK,
       candidateCount: 1,
-      stopSequences: req.modelConfig?.stopSequences ?? this.config.stopSequences
-    };
+      stopSequences:
+        req.modelConfig?.stopSequences ?? this.config.stopSequences,
+    }
 
-    const safetySettings = this.config.safetySettings;
+    const safetySettings = this.config.safetySettings
 
     const reqValue: AxAIGoogleGeminiChatRequest = {
       contents,
       tools,
-      tool_config,
+      toolConfig,
       systemInstruction,
       generationConfig,
-      safetySettings
-    };
+      safetySettings,
+    }
 
-    return [apiConfig, reqValue];
-  };
+    return [apiConfig, reqValue]
+  }
 
-  override generateEmbedReq = (
+  createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
   ): [API, AxAIGoogleGeminiBatchEmbedRequest] => {
-    const model = req.embedModel;
+    const model = req.embedModel
 
     if (!model) {
-      throw new Error('Embed model not set');
+      throw new Error('Embed model not set')
     }
 
     if (!req.texts || req.texts.length === 0) {
-      throw new Error('Embed texts is empty');
+      throw new Error('Embed texts is empty')
     }
 
     const apiConfig = {
-      name: `/models/${model}:batchEmbedContents?key=${this.apiKey}`
-    };
+      name: `/models/${model}:batchEmbedContents?key=${this.apiKey}`,
+    }
 
     const reqValue: AxAIGoogleGeminiBatchEmbedRequest = {
       requests: req.texts.map((text) => ({
         model: 'models/' + model,
-        content: { parts: [{ text }] }
-      }))
-    };
+        content: { parts: [{ text }] },
+      })),
+    }
 
-    return [apiConfig, reqValue];
-  };
+    return [apiConfig, reqValue]
+  }
 
-  override generateChatResp = (
+  createChatResp = (
     resp: Readonly<AxAIGoogleGeminiChatResponse>
   ): AxChatResponse => {
     const results: AxChatResponseResult[] = resp.candidates?.map(
       (candidate) => {
-        const result: AxChatResponseResult = {};
+        const result: AxChatResponseResult = {}
 
         switch (candidate.finishReason) {
           case 'MAX_TOKENS':
-            result.finishReason = 'length';
-            break;
+            result.finishReason = 'length'
+            break
           case 'STOP':
-            result.finishReason = 'stop';
-            break;
+            result.finishReason = 'stop'
+            break
           case 'SAFETY':
-            throw new Error('Finish reason: SAFETY');
+            throw new Error('Finish reason: SAFETY')
           case 'RECITATION':
-            throw new Error('Finish reason: RECITATION');
+            throw new Error('Finish reason: RECITATION')
           case 'MALFORMED_FUNCTION_CALL':
-            throw new Error('Finish reason: MALFORMED_FUNCTION_CALL');
+            throw new Error('Finish reason: MALFORMED_FUNCTION_CALL')
         }
 
         if (!candidate.content || !candidate.content.parts) {
-          return result;
+          return result
         }
 
         for (const part of candidate.content.parts) {
           if ('text' in part) {
-            result.content = part.text;
-            continue;
+            result.content = part.text
+            continue
           }
           if ('functionCall' in part) {
             result.functionCalls = [
@@ -440,43 +393,102 @@ export class AxAIGoogleGemini extends AxBaseAI<
                 type: 'function',
                 function: {
                   name: part.functionCall.name,
-                  params: part.functionCall.args
-                }
-              }
-            ];
+                  params: part.functionCall.args,
+                },
+              },
+            ]
           }
         }
-        return result;
+        return result
       }
-    );
+    )
 
-    let modelUsage: AxTokenUsage | undefined;
+    let modelUsage: AxTokenUsage | undefined
     if (resp.usageMetadata) {
       modelUsage = {
         totalTokens: resp.usageMetadata.totalTokenCount,
         promptTokens: resp.usageMetadata.promptTokenCount,
-        completionTokens: resp.usageMetadata.candidatesTokenCount
-      };
+        completionTokens: resp.usageMetadata.candidatesTokenCount,
+      }
     }
     return {
       results,
-      modelUsage
-    };
-  };
+      modelUsage,
+    }
+  }
 
-  override generateChatStreamResp = (
+  createChatStreamResp = (
     resp: Readonly<AxAIGoogleGeminiChatResponseDelta>
   ): AxChatResponse => {
-    return this.generateChatResp(resp);
-  };
+    return this.createChatResp(resp)
+  }
 
-  override generateEmbedResp = (
+  createEmbedResp = (
     resp: Readonly<AxAIGoogleGeminiBatchEmbedResponse>
   ): AxEmbedResponse => {
-    const embeddings = resp.embeddings.map((embedding) => embedding.values);
+    const embeddings = resp.embeddings.map((embedding) => embedding.values)
 
     return {
-      embeddings
-    };
-  };
+      embeddings,
+    }
+  }
+}
+
+/**
+ * AxAIGoogleGemini: AI Service
+ * @export
+ */
+export class AxAIGoogleGemini extends AxBaseAI<
+  AxAIGoogleGeminiChatRequest,
+  AxAIGoogleGeminiBatchEmbedRequest,
+  AxAIGoogleGeminiChatResponse,
+  AxAIGoogleGeminiChatResponseDelta,
+  AxAIGoogleGeminiBatchEmbedResponse
+> {
+  constructor({
+    apiKey,
+    projectId,
+    region,
+    config,
+    options,
+    modelMap,
+  }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
+    if (!apiKey || apiKey === '') {
+      throw new Error('GoogleGemini AI API key not set')
+    }
+
+    const isVertex = projectId !== undefined && region !== undefined
+
+    let apiURL
+    let headers
+
+    if (isVertex) {
+      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/`
+      headers = { Authorization: `Bearer ${apiKey}` }
+    } else {
+      apiURL = 'https://generativelanguage.googleapis.com/v1beta'
+      headers = {}
+    }
+
+    const _config = {
+      ...axAIGoogleGeminiDefaultConfig(),
+      ...config,
+    }
+
+    const aiImpl = new AxAIGoogleGeminiImpl(_config, apiKey, isVertex, options)
+
+    super(aiImpl, {
+      name: 'GoogleGeminiAI',
+      apiURL,
+      headers,
+      modelInfo: axModelInfoGoogleGemini,
+      models: {
+        model: _config.model as AxAIGoogleGeminiModel,
+        embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel,
+      },
+      options,
+      supportFor: { functions: true, streaming: true },
+      modelMap,
+    })
+  }
 }

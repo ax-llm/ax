@@ -1,4 +1,4 @@
-import { stopwords } from './stopwords.js';
+import { stopwords } from './stopwords.js'
 
 /**
  * Filters out tokens based on a set of exclusion tokens.
@@ -11,7 +11,7 @@ function filterTokens(
   tokens: readonly string[],
   exclusions: ReadonlySet<string>
 ): string[] {
-  return tokens.filter((token) => !exclusions.has(token));
+  return tokens.filter((token) => !exclusions.has(token))
 }
 
 /**
@@ -25,11 +25,11 @@ function filterTokens(
  * @returns A Counter object mapping each token to its count.
  */
 function countTokens(tokens: readonly string[]): Record<string, number> {
-  const counter: Record<string, number> = {};
+  const counter: Record<string, number> = {}
   for (const token of tokens) {
-    counter[token] = (counter[token] || 0) + 1;
+    counter[token] = (counter[token] || 0) + 1
   }
-  return counter;
+  return counter
 }
 
 /**
@@ -43,11 +43,11 @@ function countTokens(tokens: readonly string[]): Record<string, number> {
  * @returns A normalized string.
  */
 function normalizeText(s: string): string {
-  s = s.normalize('NFD');
-  s = s.replace(/\b(a|an|the)\b/g, ' ');
-  s = s.split(/\s+/).join(' ');
-  s = s.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '');
-  return s.toLowerCase();
+  s = s.normalize('NFD')
+  s = s.replace(/\b(a|an|the)\b/g, ' ')
+  s = s.split(/\s+/).join(' ')
+  s = s.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '')
+  return s.toLowerCase()
 }
 
 /**
@@ -61,7 +61,7 @@ function normalizeText(s: string): string {
  * @returns A boolean indicating if the prediction exactly matches the ground truth.
  */
 function emScore(prediction: string, groundTruth: string): boolean {
-  return normalizeText(prediction) === normalizeText(groundTruth);
+  return normalizeText(prediction) === normalizeText(groundTruth)
 }
 
 /**
@@ -76,26 +76,26 @@ function emScore(prediction: string, groundTruth: string): boolean {
  * @returns The F1 score as a number.
  */
 function f1Score(prediction: string, groundTruth: string): number {
-  const predictionTokens = normalizeText(prediction).split(' ');
-  const groundTruthTokens = normalizeText(groundTruth).split(' ');
+  const predictionTokens = normalizeText(prediction).split(' ')
+  const groundTruthTokens = normalizeText(groundTruth).split(' ')
 
   // Calculate the intersection of common tokens between prediction and ground truth
-  const predictionCounts = countTokens(predictionTokens);
-  const groundTruthCounts = countTokens(groundTruthTokens);
+  const predictionCounts = countTokens(predictionTokens)
+  const groundTruthCounts = countTokens(groundTruthTokens)
 
-  let numSame = 0;
+  let numSame = 0
   for (const token in predictionCounts) {
-    const v1 = predictionCounts[token] ?? 0;
-    const v2 = groundTruthCounts[token] ?? 0;
-    numSame += Math.min(v1, v2);
+    const v1 = predictionCounts[token] ?? 0
+    const v2 = groundTruthCounts[token] ?? 0
+    numSame += Math.min(v1, v2)
   }
   if (numSame === 0) {
-    return 0;
+    return 0
   }
 
-  const precision = numSame / predictionTokens.length;
-  const recall = numSame / groundTruthTokens.length;
-  return (2 * precision * recall) / (precision + recall);
+  const precision = numSame / predictionTokens.length
+  const recall = numSame / groundTruthTokens.length
+  return (2 * precision * recall) / (precision + recall)
 }
 
 /**
@@ -118,30 +118,30 @@ function novelF1ScoreOptimized(
   returnRecall: boolean = false
 ): number {
   // Normalize and split the input texts into tokens
-  const historyTokens = normalizeText(history).split(' ');
-  let predictionTokens = normalizeText(prediction).split(' ');
-  let groundTruthTokens = normalizeText(groundTruth).split(' ');
+  const historyTokens = normalizeText(history).split(' ')
+  let predictionTokens = normalizeText(prediction).split(' ')
+  let groundTruthTokens = normalizeText(groundTruth).split(' ')
 
   // Combine stopwords and history tokens for exclusion
-  const exclusions = new Set([...stopwords, ...historyTokens]);
+  const exclusions = new Set([...stopwords, ...historyTokens])
 
   // Filter prediction and ground truth tokens against the exclusions
-  predictionTokens = filterTokens(predictionTokens, exclusions);
-  groundTruthTokens = filterTokens(groundTruthTokens, exclusions);
+  predictionTokens = filterTokens(predictionTokens, exclusions)
+  groundTruthTokens = filterTokens(groundTruthTokens, exclusions)
 
   // Proceed with calculating common tokens, precision, recall, and F1 score as previously outlined
 
   // Placeholder for the calculation logic
-  const numSame = 0; // This should be calculated as before
-  const precision = numSame / predictionTokens.length;
-  const recall = numSame / groundTruthTokens.length;
-  const f1 = (2 * precision * recall) / (precision + recall);
+  const numSame = 0 // This should be calculated as before
+  const precision = numSame / predictionTokens.length
+  const recall = numSame / groundTruthTokens.length
+  const f1 = (2 * precision * recall) / (precision + recall)
 
-  return returnRecall ? recall : f1;
+  return returnRecall ? recall : f1
 }
 
 export const axEvalUtil = {
   emScore,
   f1Score,
-  novelF1ScoreOptimized
-};
+  novelF1ScoreOptimized,
+}

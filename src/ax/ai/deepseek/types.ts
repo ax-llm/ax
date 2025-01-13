@@ -4,5 +4,5 @@
  */
 export enum AxAIDeepSeekModel {
   DeepSeekChat = 'deepseek-chat',
-  DeepSeekCoder = 'deepseek-coder'
+  DeepSeekCoder = 'deepseek-coder',
 }

@@ -1,10 +1,9 @@
-import type { AxFunctionJSONSchema } from '../ai/index.js';
+import type { AxFunctionJSONSchema } from '../ai/types.js'
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export const validateJSONSchema = (
   schema: Readonly<AxFunctionJSONSchema>
 ): void => {
-  const errors: string[] = [];
+  const errors: string[] = []
 
   const validateSchemaObject = (
     schema: Readonly<AxFunctionJSONSchema>,
@@ -17,12 +16,12 @@ export const validateJSONSchema = (
       'string',
       'boolean',
       'null',
-      'object'
-    ];
+      'object',
+    ]
 
     if (!validTypes.includes(schema.type)) {
-      errors.push(`Invalid type '${schema.type}' at ${path || 'root'}`);
-      return;
+      errors.push(`Invalid type '${schema.type}' at ${path || 'root'}`)
+      return
     }
 
     if (schema.type === 'object' && schema.properties) {
@@ -30,38 +29,38 @@ export const validateJSONSchema = (
         typeof schema.properties !== 'object' ||
         Array.isArray(schema.properties)
       ) {
-        errors.push(`Invalid properties object at ${path || 'root'}`);
+        errors.push(`Invalid properties object at ${path || 'root'}`)
       } else {
         for (const key in schema.properties) {
-          const value = schema.properties[key];
+          const value = schema.properties[key]
           if (typeof value !== 'object') {
-            errors.push(`Invalid schema object at ${path}${key}`);
-            continue;
+            errors.push(`Invalid schema object at ${path}${key}`)
+            continue
           }
-          validateSchemaObject(value, `${path}${key}.`);
+          validateSchemaObject(value, `${path}${key}.`)
         }
       }
 
       if (schema.required && !Array.isArray(schema.required)) {
-        errors.push(`'required' should be an array at ${path || 'root'}`);
+        errors.push(`'required' should be an array at ${path || 'root'}`)
       }
     }
 
     if (schema.type === 'array' && schema.items) {
       if (typeof schema.items !== 'object') {
-        errors.push(`Invalid items schema at ${path || 'root'}`);
+        errors.push(`Invalid items schema at ${path || 'root'}`)
       } else {
-        validateSchemaObject(schema.items, `${path}items.`);
+        validateSchemaObject(schema.items, `${path}items.`)
       }
     }
-  };
+  }
 
-  validateSchemaObject(schema);
+  validateSchemaObject(schema)
 
   if (errors.length > 0) {
-    throw new Error(errors.join('; '));
+    throw new Error(errors.join('; '))
   }
-};
+}
 
 // Example Usage:
 

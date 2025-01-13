@@ -1,4 +1,4 @@
-import type { AxModelConfig } from '../types.js';
+import type { AxModelConfig } from '../types.js'
 
 export enum AxAIOpenAIModel {
   O1Preview = 'o1-preview',
@@ -12,173 +12,173 @@ export enum AxAIOpenAIModel {
   GPT35TurboInstruct = 'gpt-3.5-turbo-instruct',
   GPT35TextDavinci002 = 'text-davinci-002',
   GPT3TextBabbage002 = 'text-babbage-002',
-  GPT3TextAda001 = 'text-ada-001'
+  GPT3TextAda001 = 'text-ada-001',
 }
 
 export enum AxAIOpenAIEmbedModel {
   TextEmbeddingAda002 = 'text-embedding-ada-002',
   TextEmbedding3Small = 'text-embedding-3-small',
-  TextEmbedding3Large = 'text-embedding-3-large'
+  TextEmbedding3Large = 'text-embedding-3-large',
 }
 
 export type AxAIOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
-  model: AxAIOpenAIModel | string;
-  embedModel?: AxAIOpenAIEmbedModel | string;
-  user?: string;
-  responseFormat?: 'json_object';
-  bestOf?: number;
-  logitBias?: Map<string, number>;
-  suffix?: string | null;
-  stop?: string[];
-  logprobs?: number;
-  echo?: boolean;
-  dimensions?: number;
-};
+  model: AxAIOpenAIModel | string
+  embedModel?: AxAIOpenAIEmbedModel | string
+  user?: string
+  responseFormat?: 'json_object'
+  bestOf?: number
+  logitBias?: Map<string, number>
+  suffix?: string | null
+  stop?: string[]
+  logprobs?: number
+  echo?: boolean
+  dimensions?: number
+}
 
 export type AxAIOpenAILogprob = {
-  tokens: string[];
-  token_logprobs: number[];
-  top_logprobs: Map<string, number>;
-  text_offset: number[];
-};
+  tokens: string[]
+  token_logprobs: number[]
+  top_logprobs: Map<string, number>
+  text_offset: number[]
+}
 
 export type AxAIOpenAIUsage = {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-};
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
 
 export interface AxAIOpenAIResponseDelta<T> {
-  id: string;
-  object: string;
-  created: number;
-  model: string;
+  id: string
+  object: string
+  created: number
+  model: string
   choices: {
-    index: number;
-    delta: T;
-    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
-  }[];
-  usage?: AxAIOpenAIUsage;
-  system_fingerprint: string;
+    index: number
+    delta: T
+    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls'
+  }[]
+  usage?: AxAIOpenAIUsage
+  system_fingerprint: string
 }
 
 export type AxAIOpenAIChatRequest = {
-  model: string;
+  model: string
   messages: (
     | { role: 'system'; content: string }
     | {
-        role: 'user';
+        role: 'user'
         content:
           | string
           | (
               | {
-                  type: 'text';
-                  text: string;
+                  type: 'text'
+                  text: string
                 }
               | {
-                  type: 'image_url';
-                  image_url: { url: string; details?: 'high' | 'low' | 'auto' };
+                  type: 'image_url'
+                  image_url: { url: string; details?: 'high' | 'low' | 'auto' }
                 }
               | {
-                  type: 'input_audio';
-                  input_audio: { data: string; format?: 'wav' };
+                  type: 'input_audio'
+                  input_audio: { data: string; format?: 'wav' }
                 }
-            )[];
-        name?: string;
+            )[]
+        name?: string
       }
     | {
-        role: 'assistant';
-        content: string;
-        name?: string;
+        role: 'assistant'
+        content: string
+        name?: string
         tool_calls?: {
-          type: 'function';
+          type: 'function'
           function: {
-            name: string;
+            name: string
             // eslint-disable-next-line functional/functional-parameters
-            arguments?: string;
-          };
-        }[];
+            arguments?: string
+          }
+        }[]
       }
     | { role: 'tool'; content: string; tool_call_id: string }
-  )[];
+  )[]
   tools?: {
-    type: 'function';
+    type: 'function'
     function: {
-      name: string;
-      description: string;
-      parameters?: object;
-    };
-  }[];
+      name: string
+      description: string
+      parameters?: object
+    }
+  }[]
   tool_choice?:
     | 'none'
     | 'auto'
     | 'required'
-    | { type: 'function'; function: { name: string } };
-  response_format?: { type: string };
-  max_tokens: number;
-  temperature?: number;
-  top_p?: number;
-  n?: number;
-  stream?: boolean;
-  stop?: readonly string[];
-  presence_penalty?: number;
-  frequency_penalty?: number;
-  logit_bias?: Map<string, number>;
-  user?: string;
-  organization?: string;
-};
+    | { type: 'function'; function: { name: string } }
+  response_format?: { type: string }
+  max_tokens: number
+  temperature?: number
+  top_p?: number
+  n?: number
+  stream?: boolean
+  stop?: readonly string[]
+  presence_penalty?: number
+  frequency_penalty?: number
+  logit_bias?: Map<string, number>
+  user?: string
+  organization?: string
+}
 
 export type AxAIOpenAIChatResponse = {
-  id: string;
-  object: 'chat.completion';
-  created: number;
-  model: string;
+  id: string
+  object: 'chat.completion'
+  created: number
+  model: string
   choices: {
-    index: number;
+    index: number
     message: {
-      role: string;
-      content: string;
+      role: string
+      content: string
       tool_calls?: {
-        id: string;
-        type: 'function';
+        id: string
+        type: 'function'
         // eslint-disable-next-line functional/functional-parameters
-        function: { name: string; arguments: string };
-      }[];
-    };
-    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
-  }[];
-  usage?: AxAIOpenAIUsage;
+        function: { name: string; arguments: string }
+      }[]
+    }
+    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls'
+  }[]
+  usage?: AxAIOpenAIUsage
   error?: {
-    message: string;
-    type: string;
-    param: string;
-    code: number;
-  };
-  system_fingerprint: string;
-};
+    message: string
+    type: string
+    param: string
+    code: number
+  }
+  system_fingerprint: string
+}
 
 export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
-  content: string;
-  role?: string;
+  content: string
+  role?: string
   tool_calls?: (NonNullable<
     AxAIOpenAIChatResponse['choices'][0]['message']['tool_calls']
   >[0] & {
-    index: number;
-  })[];
-}>;
+    index: number
+  })[]
+}>
 
 export type AxAIOpenAIEmbedRequest = {
-  input: readonly string[];
-  model: string;
-  dimensions?: number;
-  user?: string;
-};
+  input: readonly string[]
+  model: string
+  dimensions?: number
+  user?: string
+}
 
 export type AxAIOpenAIEmbedResponse = {
-  model: string;
+  model: string
   data: {
-    embedding: readonly number[];
-    index: number;
-  }[];
-  usage: AxAIOpenAIUsage;
-};
+    embedding: readonly number[]
+    index: number
+  }[]
+  usage: AxAIOpenAIUsage
+}

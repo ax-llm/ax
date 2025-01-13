@@ -11,5 +11,5 @@
       "@ax-llm/*": ["src/*"]
     }
   },
-  "exclude": ["node_modules/**", "build/**", "src/*/build/**"]
+  "exclude": ["node_modules/**", "dist/**", "src/*/dist/**"]
 }

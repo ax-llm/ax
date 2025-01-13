@@ -1,4 +1,4 @@
-import fs from 'fs';
+import fs from 'fs'
 
 import {
   AxAI,
@@ -6,18 +6,18 @@ import {
   axEvalUtil,
   AxHFDataLoader,
   type AxMetricFn,
-  AxTestPrompt
-} from '@ax-llm/ax';
+  AxTestPrompt,
+} from '@ax-llm/ax'
 
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(
   `question -> answer "in short 2 or 3 words"`
-);
+)
 
-const values = await fs.promises.readFile('./qna-tune-demos.json', 'utf8');
-const demos = JSON.parse(values);
+const values = await fs.promises.readFile('./qna-tune-demos.json', 'utf8')
+const demos = JSON.parse(values)
 
 // load tuning data
-program.setDemos(demos);
+program.setDemos(demos)
 
 // use directly
 // const res = await gen.forward({
@@ -30,29 +30,29 @@ const hf = new AxHFDataLoader({
   dataset: 'yixuantt/MultiHopRAG',
   split: 'train',
   config: 'MultiHopRAG',
-  options: { length: 20 }
-});
+  options: { length: 20 },
+})
 
-await hf.loadData();
+await hf.loadData()
 
 const examples = await hf.getRows<{ question: string; answer: string }>({
   count: 10,
   fields: ['query', 'answer'],
-  renameMap: { query: 'question', answer: 'answer' }
-});
+  renameMap: { query: 'question', answer: 'answer' },
+})
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
 const metricFn: AxMetricFn = ({ prediction, example }) => {
   return axEvalUtil.emScore(
     prediction.answer as string,
     example.answer as string
-  );
-};
+  )
+}
 
 const ai = new AxAI({
   name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
 
-const ev = new AxTestPrompt({ ai, program, examples });
-await ev.run(metricFn);
+const ev = new AxTestPrompt({ ai, program, examples })
+await ev.run(metricFn)

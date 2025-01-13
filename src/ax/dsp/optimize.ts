@@ -1,4 +1,4 @@
-import type { AxAIService } from '../ai/types.js';
+import type { AxAIService } from '../ai/types.js'
 
 import type {
   AxFieldValue,
@@ -6,53 +6,53 @@ import type {
   AxGenOut,
   AxProgram,
   AxProgramDemos,
-  AxProgramTrace
-} from './program.js';
-import { updateProgressBar } from './util.js';
+  AxProgramTrace,
+} from './program.js'
+import { updateProgressBar } from './util.js'
 
-export type AxExample = Record<string, AxFieldValue>;
+export type AxExample = Record<string, AxFieldValue>
 
 export type AxMetricFn = <T extends AxGenOut = AxGenOut>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
-) => boolean;
+) => boolean
 
-export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
+export type AxMetricFnArgs = Parameters<AxMetricFn>[0]
 
 export type AxOptimizerArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
-  ai: AxAIService;
-  program: Readonly<AxProgram<IN, OUT>>;
-  examples: Readonly<AxExample[]>;
-  options?: { maxRounds?: number; maxExamples?: number; maxDemos?: number };
-};
+  ai: AxAIService
+  program: Readonly<AxProgram<IN, OUT>>
+  examples: Readonly<AxExample[]>
+  options?: { maxRounds?: number; maxExamples?: number; maxDemos?: number }
+}
 
 export class AxBootstrapFewShot<
   IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenOut = AxGenOut
+  OUT extends AxGenOut = AxGenOut,
 > {
-  private ai: AxAIService;
-  private program: Readonly<AxProgram<IN, OUT>>;
-  private examples: Readonly<AxExample[]>;
-  private maxRounds: number;
-  private maxDemos: number;
-  private maxExamples: number;
-  private traces: AxProgramTrace[] = [];
+  private ai: AxAIService
+  private program: Readonly<AxProgram<IN, OUT>>
+  private examples: Readonly<AxExample[]>
+  private maxRounds: number
+  private maxDemos: number
+  private maxExamples: number
+  private traces: AxProgramTrace[] = []
 
   constructor({
     ai,
     program,
     examples = [],
-    options
+    options,
   }: Readonly<AxOptimizerArgs<IN, OUT>>) {
     if (examples.length == 0) {
-      throw new Error('No examples found');
+      throw new Error('No examples found')
     }
-    this.maxRounds = options?.maxRounds ?? 3;
-    this.maxDemos = options?.maxDemos ?? 4;
-    this.maxExamples = options?.maxExamples ?? 16;
+    this.maxRounds = options?.maxRounds ?? 3
+    this.maxDemos = options?.maxDemos ?? 4
+    this.maxExamples = options?.maxExamples ?? 16
 
-    this.ai = ai;
-    this.program = program;
-    this.examples = examples;
+    this.ai = ai
+    this.program = program
+    this.examples = examples
   }
 
   private async compileRound(
@@ -60,32 +60,32 @@ export class AxBootstrapFewShot<
     metricFn: AxMetricFn,
     options?: Readonly<AxOptimizerArgs<IN, OUT>['options']>
   ) {
-    const st = new Date().getTime();
-    const maxDemos = options?.maxDemos ?? this.maxDemos;
-    const aiOpt = { modelConfig: { temperature: 0.7 } };
-    const examples = randomSample(this.examples, this.maxExamples);
+    const st = new Date().getTime()
+    const maxDemos = options?.maxDemos ?? this.maxDemos
+    const aiOpt = { modelConfig: { temperature: 0.7 } }
+    const examples = randomSample(this.examples, this.maxExamples)
 
     for (let i = 0; i < examples.length; i++) {
       if (i > 0) {
-        aiOpt.modelConfig.temperature = 0.7 + 0.001 * i;
+        aiOpt.modelConfig.temperature = 0.7 + 0.001 * i
       }
 
-      const ex = examples[i];
+      const ex = examples[i]
       if (!ex) {
-        throw new Error('Invalid example');
+        throw new Error('Invalid example')
       }
-      const exList = [...examples.slice(0, i), ...examples.slice(i + 1)];
-      this.program.setExamples(exList);
+      const exList = [...examples.slice(0, i), ...examples.slice(i + 1)]
+      this.program.setExamples(exList)
 
-      const res = await this.program.forward(this.ai, ex as IN, aiOpt);
-      const success = metricFn({ prediction: res, example: ex });
+      const res = await this.program.forward(this.ai, ex as IN, aiOpt)
+      const success = metricFn({ prediction: res, example: ex })
       if (success) {
-        this.traces = [...this.traces, ...this.program.getTraces()];
+        this.traces = [...this.traces, ...this.program.getTraces()]
       }
 
-      const current = i + examples.length * roundIndex;
-      const total = examples.length * this.maxRounds;
-      const et = new Date().getTime() - st;
+      const current = i + examples.length * roundIndex
+      const total = examples.length * this.maxRounds
+      const et = new Date().getTime() - st
 
       updateProgressBar(
         current,
@@ -94,10 +94,10 @@ export class AxBootstrapFewShot<
         et,
         30,
         'Tuning Prompt'
-      );
+      )
 
       if (this.traces.length > maxDemos) {
-        return;
+        return
       }
     }
   }
@@ -106,62 +106,62 @@ export class AxBootstrapFewShot<
     metricFn: AxMetricFn,
     options?: Readonly<AxOptimizerArgs<IN, OUT>['options']>
   ) {
-    const maxRounds = options?.maxRounds ?? this.maxRounds;
-    this.traces = [];
+    const maxRounds = options?.maxRounds ?? this.maxRounds
+    this.traces = []
 
     for (let i = 0; i < maxRounds; i++) {
-      await this.compileRound(i, metricFn, options);
+      await this.compileRound(i, metricFn, options)
     }
 
     if (this.traces.length === 0) {
       throw new Error(
         'No demonstrations found. Either provider more examples or improve the existing ones.'
-      );
+      )
     }
 
-    const demos: AxProgramDemos[] = groupTracesByKeys(this.traces);
-    return demos;
+    const demos: AxProgramDemos[] = groupTracesByKeys(this.traces)
+    return demos
   }
 }
 
 function groupTracesByKeys(
   programTraces: readonly AxProgramTrace[]
 ): AxProgramDemos[] {
-  const groupedTraces = new Map<string, Record<string, AxFieldValue>[]>();
+  const groupedTraces = new Map<string, Record<string, AxFieldValue>[]>()
 
   // Group all traces by their keys
   for (const programTrace of programTraces) {
     if (groupedTraces.has(programTrace.programId)) {
-      groupedTraces.get(programTrace.programId)!.push(programTrace.trace);
+      groupedTraces.get(programTrace.programId)!.push(programTrace.trace)
     } else {
-      groupedTraces.set(programTrace.programId, [programTrace.trace]);
+      groupedTraces.set(programTrace.programId, [programTrace.trace])
     }
   }
 
   // Convert the Map into an array of ProgramDemos
-  const programDemosArray: AxProgramDemos[] = [];
+  const programDemosArray: AxProgramDemos[] = []
   groupedTraces.forEach((traces, programId) => {
-    programDemosArray.push({ traces, programId });
-  });
+    programDemosArray.push({ traces, programId })
+  })
 
-  return programDemosArray;
+  return programDemosArray
 }
 
 const randomSample = <T>(array: readonly T[], n: number): T[] => {
   // Clone the array to avoid modifying the original array
-  const clonedArray = [...array];
+  const clonedArray = [...array]
   // Shuffle the cloned array
   for (let i = clonedArray.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const caI = clonedArray[i];
-    const caJ = clonedArray[j];
+    const j = Math.floor(Math.random() * (i + 1))
+    const caI = clonedArray[i]
+    const caJ = clonedArray[j]
 
     if (!caI || !caJ) {
-      throw new Error('Invalid array elements');
+      throw new Error('Invalid array elements')
     }
 
-    [clonedArray[i], clonedArray[j]] = [caJ, caI];
+    ;[clonedArray[i], clonedArray[j]] = [caJ, caI]
   }
   // Return the first `n` items of the shuffled array
-  return clonedArray.slice(0, n);
-};
+  return clonedArray.slice(0, n)
+}

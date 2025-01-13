@@ -1,31 +1,31 @@
-import { axBaseAIDefaultConfig } from '../base.js';
-import { AxAIOpenAI } from '../openai/api.js';
-import type { AxAIOpenAIConfig } from '../openai/types.js';
-import type { AxAIServiceOptions } from '../types.js';
+import { axBaseAIDefaultConfig } from '../base.js'
+import { AxAIOpenAI } from '../openai/api.js'
+import type { AxAIOpenAIConfig } from '../openai/types.js'
+import type { AxAIServiceOptions } from '../types.js'
 
-import { axModelInfoMistral } from './info.js';
-import { AxAIMistralEmbedModels, AxAIMistralModel } from './types.js';
+import { axModelInfoMistral } from './info.js'
+import { AxAIMistralEmbedModels, AxAIMistralModel } from './types.js'
 
-type MistralConfig = AxAIOpenAIConfig;
+type MistralConfig = AxAIOpenAIConfig
 
 export const axAIMistralDefaultConfig = (): MistralConfig =>
   structuredClone({
     model: AxAIMistralModel.MistralSmall,
-    ...axBaseAIDefaultConfig()
-  });
+    ...axBaseAIDefaultConfig(),
+  })
 
 export const axAIMistralBestConfig = (): AxAIOpenAIConfig =>
   structuredClone({
     ...axAIMistralDefaultConfig(),
-    model: AxAIMistralModel.MistralLarge
-  });
+    model: AxAIMistralModel.MistralLarge,
+  })
 
 export interface AxAIMistralArgs {
-  name: 'mistral';
-  apiKey: string;
-  config?: Readonly<Partial<MistralConfig>>;
-  options?: Readonly<AxAIServiceOptions>;
-  modelMap?: Record<string, AxAIMistralModel | AxAIMistralEmbedModels | string>;
+  name: 'mistral'
+  apiKey: string
+  config?: Readonly<Partial<MistralConfig>>
+  options?: Readonly<AxAIServiceOptions>
+  modelMap?: Record<string, AxAIMistralModel | AxAIMistralEmbedModels | string>
 }
 
 export class AxAIMistral extends AxAIOpenAI {
@@ -33,24 +33,24 @@ export class AxAIMistral extends AxAIOpenAI {
     apiKey,
     config,
     options,
-    modelMap
+    modelMap,
   }: Readonly<Omit<AxAIMistralArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('Mistral API key not set');
+      throw new Error('Mistral API key not set')
     }
     const _config = {
       ...axAIMistralDefaultConfig(),
-      ...config
-    };
+      ...config,
+    }
     super({
       apiKey,
       config: _config,
       options,
       apiURL: 'https://api.mistral.ai/v1',
       modelInfo: axModelInfoMistral,
-      modelMap
-    });
+      modelMap,
+    })
 
-    super.setName('Mistral');
+    super.setName('Mistral')
   }
 }

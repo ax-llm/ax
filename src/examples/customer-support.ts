@@ -1,4 +1,4 @@
-import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax';
+import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax'
 
 const gen = new AxGen(
   `customerEmail:string  -> productName:string "The name of the product",
@@ -6,7 +6,7 @@ issueDescription:string "A description of the issue",
 issueSummary:string "A summary of the issue",
 paymentMethod:string "The method of payment"
 `
-);
+)
 
 const customerMessage = `
 Hello Support Team,
@@ -19,7 +19,7 @@ Thank you for your attention to this matter.
 
 Best regards,
 John Doe.
-  `;
+  `
 
 // const ai = new AxAI({
 //   name: 'openai',
@@ -29,13 +29,13 @@ John Doe.
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B }
-});
+  config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
+})
 
-ai.setOptions({ debug: true });
+ai.setOptions({ debug: true })
 
-const res = await gen.forward(ai, { customerEmail: customerMessage });
+const res = await gen.forward(ai, { customerEmail: customerMessage })
 
-console.log('Traces:\n', gen.getTraces());
+console.log('Traces:\n', gen.getTraces())
 
-console.log('Result:\n', res);
+console.log('Result:\n', res)

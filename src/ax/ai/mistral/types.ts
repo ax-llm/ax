@@ -8,9 +8,9 @@ export enum AxAIMistralModel {
   MistralLarge = 'mistral-large-latest',
   Codestral = 'codestral-latest',
   OpenCodestralMamba = 'open-codestral-mamba',
-  OpenMistralNemo = 'open-mistral-nemo-latest'
+  OpenMistralNemo = 'open-mistral-nemo-latest',
 }
 
 export enum AxAIMistralEmbedModels {
-  MistralEmbed = 'mistral-embed'
+  MistralEmbed = 'mistral-embed',
 }

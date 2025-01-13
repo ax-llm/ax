@@ -1,25 +1,25 @@
-import { AxAgent, AxAI } from '@ax-llm/ax';
+import { AxAgent, AxAI } from '@ax-llm/ax'
 
 const researcher = new AxAgent({
   name: 'Physics Researcher',
   description:
     'Researcher for physics questions can answer questions about advanced physics',
-  signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`
-});
+  signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`,
+})
 
 const summarizer = new AxAgent({
   name: 'Science Summarizer',
   description:
     'Summarizer can write short summaries of advanced science topics',
-  signature: `answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"`
-});
+  signature: `answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"`,
+})
 
 const agent = new AxAgent({
   name: 'Scientist',
   description: 'An agent that can answer advanced science questions',
   signature: `question -> answer`,
-  agents: [researcher, summarizer]
-});
+  agents: [researcher, summarizer],
+})
 
 const question = `
   Why is gravity not a real force? Why is light pure energy? 
@@ -27,13 +27,13 @@ const question = `
   Why is the centrifugal force talked about so much if it's not real? 
   For each question include a summary with the bullet points.
   Include the summary and bullet points in the answer.
-  Return this only if you can answer all the questions.`;
+  Return this only if you can answer all the questions.`
 
 const ai = new AxAI({
   name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string
-});
-ai.setOptions({ debug: true });
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
+ai.setOptions({ debug: true })
 
 // const ai = new AxAI({
 //   name: 'google-gemini',
@@ -47,5 +47,5 @@ ai.setOptions({ debug: true });
 
 // ai.setOptions({ debug: true });
 
-const res = await agent.forward(ai, { question });
-console.log('>', res);
+const res = await agent.forward(ai, { question })
+console.log('>', res)

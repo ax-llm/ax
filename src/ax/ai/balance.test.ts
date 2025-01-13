@@ -1,6 +1,6 @@
-import test from 'ava';
+import test from 'ava'
 
-import { AxBalancer, axInputOrderComparator } from './balance.js';
+import { AxBalancer, axInputOrderComparator } from './balance.js'
 import type {
   AxAIPromptConfig,
   AxAIService,
@@ -8,8 +8,8 @@ import type {
   AxAIServiceMetrics,
   AxChatRequest,
   AxChatResponse,
-  AxEmbedResponse
-} from './types.js';
+  AxEmbedResponse,
+} from './types.js'
 
 /**
  * Mock service for testing
@@ -20,23 +20,23 @@ class MockService implements AxAIService {
     private readonly cost: number = 100
   ) {}
 
-  getName = () => 'mock';
+  getName = () => 'mock'
 
   getModelInfo = () => ({
     name: 'mock',
     provider: 'mock',
     promptTokenCostPer1M: this.cost,
-    completionTokenCostPer1M: this.cost
-  });
+    completionTokenCostPer1M: this.cost,
+  })
 
-  getEmbedModelInfo = () => undefined;
-  getModelConfig = () => ({});
-  getFeatures = () => ({ functions: false, streaming: false });
-  getModelMap = () => undefined;
-  getMetrics = () => ({}) as AxAIServiceMetrics;
+  getEmbedModelInfo = () => undefined
+  getModelConfig = () => ({})
+  getFeatures = () => ({ functions: false, streaming: false })
+  getModelMap = () => undefined
+  getMetrics = () => ({}) as AxAIServiceMetrics
 
-  embed = async () => ({}) as AxEmbedResponse;
-  setOptions = () => {};
+  embed = async () => ({}) as AxEmbedResponse
+  setOptions = () => {}
 
   chat = async (
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -44,93 +44,93 @@ class MockService implements AxAIService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ) => {
-    this.chatFn();
-    return Promise.resolve({} as AxChatResponse);
-  };
+    this.chatFn()
+    return Promise.resolve({} as AxChatResponse)
+  }
 }
 
 test('first service works', async (t) => {
-  let calledService: number | undefined;
+  let calledService: number | undefined
   const services: AxAIService[] = [
     new MockService(() => {
-      calledService = 0;
+      calledService = 0
     }, 2.0),
     new MockService(() => {
-      calledService = 1;
-    }, 1.0)
-  ];
+      calledService = 1
+    }, 1.0),
+  ]
 
-  const balancer = new AxBalancer(services);
+  const balancer = new AxBalancer(services)
   await balancer.chat({
     chatPrompt: [{ role: 'user', content: 'test' }],
-    model: 'mock'
-  });
+    model: 'mock',
+  })
 
-  t.is(calledService, 1);
-});
+  t.is(calledService, 1)
+})
 
 test('first service fails', async (t) => {
-  let calledService: number | undefined;
+  let calledService: number | undefined
   const services: AxAIService[] = [
     new MockService(() => {
-      calledService = 0;
+      calledService = 0
     }, 2.0),
     new MockService(() => {
-      throw new Error('test');
-    }, 1.0)
-  ];
+      throw new Error('test')
+    }, 1.0),
+  ]
 
-  const balancer = new AxBalancer(services);
+  const balancer = new AxBalancer(services)
   await balancer.chat({
     chatPrompt: [{ role: 'user', content: 'test' }],
-    model: 'mock'
-  });
+    model: 'mock',
+  })
 
-  t.is(calledService, 0);
-});
+  t.is(calledService, 0)
+})
 
 test('first service works comparator', async (t) => {
-  let calledService: number | undefined;
+  let calledService: number | undefined
   const services: AxAIService[] = [
     new MockService(() => {
-      calledService = 0;
+      calledService = 0
     }, 2.0),
     new MockService(() => {
-      calledService = 1;
-    }, 1.0)
-  ];
+      calledService = 1
+    }, 1.0),
+  ]
 
   const balancer = new AxBalancer(services, {
-    comparator: axInputOrderComparator
-  });
+    comparator: axInputOrderComparator,
+  })
 
   await balancer.chat({
     chatPrompt: [{ role: 'user', content: 'test' }],
-    model: 'mock'
-  });
+    model: 'mock',
+  })
 
-  t.is(calledService, 0);
-});
+  t.is(calledService, 0)
+})
 
 test('first service fails comparator', async (t) => {
-  let calledService: number | undefined;
+  let calledService: number | undefined
   const services: AxAIService[] = [
     new MockService(() => {
-      throw new Error('test');
+      throw new Error('test')
     }, 2.0),
     new MockService(() => {
-      calledService = 1;
-    }, 1.0)
-  ];
+      calledService = 1
+    }, 1.0),
+  ]
 
   const balancer = new AxBalancer(services, {
-    comparator: axInputOrderComparator
-  });
+    comparator: axInputOrderComparator,
+  })
 
   await balancer.chat({
     chatPrompt: [{ role: 'user', content: 'test' }],
-    model: 'mock'
-  });
+    model: 'mock',
+  })
 
-  t.is(calledService, 1);
-});
+  t.is(calledService, 1)
+})

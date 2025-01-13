@@ -1,23 +1,22 @@
 import {
   type Transformer,
   TransformStream,
-  type TransformStreamDefaultController
-} from 'stream/web';
+  type TransformStreamDefaultController,
+} from 'stream/web'
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export interface TextDecoderCommon {
-  readonly encoding: string;
-  readonly fatal: boolean;
-  readonly ignoreBOM: boolean;
+  readonly encoding: string
+  readonly fatal: boolean
+  readonly ignoreBOM: boolean
 }
 
 class TextDecodeTransformer
   implements Transformer<ArrayBuffer | Uint8Array, string>
 {
-  private decoder;
+  private decoder
 
   constructor() {
-    this.decoder = new TextDecoder();
+    this.decoder = new TextDecoder()
   }
 
   transform(
@@ -25,28 +24,27 @@ class TextDecodeTransformer
     controller: TransformStreamDefaultController<string>
   ) {
     if (!(chunk instanceof ArrayBuffer || ArrayBuffer.isView(chunk))) {
-      throw new TypeError('Input data must be a BufferSource');
+      throw new TypeError('Input data must be a BufferSource')
     }
-    const text = this.decoder.decode(chunk, { stream: true });
+    const text = this.decoder.decode(chunk, { stream: true })
     if (text.length !== 0) {
-      controller.enqueue(text);
+      controller.enqueue(text)
     }
   }
 
   flush(controller: TransformStreamDefaultController<string>) {
-    const text = this.decoder.decode();
+    const text = this.decoder.decode()
     if (text.length !== 0) {
-      controller.enqueue(text);
+      controller.enqueue(text)
     }
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
 export class TextDecoderStreamPolyfill extends TransformStream<
   ArrayBuffer | Uint8Array,
   string
 > {
   constructor() {
-    super(new TextDecodeTransformer());
+    super(new TextDecodeTransformer())
   }
 }

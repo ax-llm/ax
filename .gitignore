@@ -2,6 +2,7 @@
 .idea/*
 .nyc_output
 build
+dist
 node_modules
 test
 coverage
@@ -16,4 +17,5 @@ demos.json
 site/dist
 .astro
 .tsimp
-
+*.mp4
+*.webm

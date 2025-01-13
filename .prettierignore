@@ -1,7 +1,0 @@
-# package.json is formatted by package managers, so we ignore it here
-package.json
-src/ax/dsp/parser.ts
-src/docs
-src/*/build
-node_modules
-

@@ -1,25 +1,25 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
-import JSON5 from 'json5';
+import JSON5 from 'json5'
 
-import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
-import type { AxField, AxSignature } from './sig.js';
-import { parseMarkdownList } from './util.js';
-import { AxValidationError } from './validate.js';
+import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js'
+import type { AxField, AxSignature } from './sig.js'
+import { parseMarkdownList } from './util.js'
+import { AxValidationError } from './validate.js'
 
 export const extractValues = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
   content: string
 ) => {
-  const xstate = { s: -1 };
-  streamingExtractValues(sig, values, xstate, content);
-  streamingExtractFinalValue(values, xstate, content);
-};
+  const xstate = { s: -1 }
+  streamingExtractValues(sig, values, xstate, content)
+  streamingExtractFinalValue(values, xstate, content)
+}
 
 export interface extractionState {
-  currField?: AxField;
-  s: number;
+  currField?: AxField
+  s: number
 }
 
 export const streamingExtractValues = (
@@ -29,18 +29,18 @@ export const streamingExtractValues = (
   state: extractionState,
   content: string
 ) => {
-  const fields = sig.getOutputFields();
+  const fields = sig.getOutputFields()
 
   for (const field of fields) {
     if (field.name in values) {
-      continue;
+      continue
     }
 
-    const prefix = field.title + ':';
-    const e = content.indexOf(prefix, state.s + 1);
+    const prefix = field.title + ':'
+    const e = content.indexOf(prefix, state.s + 1)
 
     if (e === -1) {
-      continue;
+      continue
     }
 
     if (state.currField) {
@@ -48,18 +48,18 @@ export const streamingExtractValues = (
         .substring(state.s, e)
         .trim()
         .replace(/---+$/, '')
-        .trim();
+        .trim()
 
       values[state.currField.name] = validateAndParseFieldValue(
         state.currField,
         val
-      );
+      )
     }
 
-    state.s = e + prefix.length;
-    state.currField = field;
+    state.s = e + prefix.length
+    state.currField = field
   }
-};
+}
 
 export const streamingExtractFinalValue = (
   values: Record<string, unknown>,
@@ -68,52 +68,52 @@ export const streamingExtractFinalValue = (
   content: string
 ) => {
   if (!state.currField) {
-    return;
+    return
   }
-  const val = content.substring(state.s).trim().replace(/---+$/, '').trim();
+  const val = content.substring(state.s).trim().replace(/---+$/, '').trim()
 
   values[state.currField.name] = validateAndParseFieldValue(
     state.currField,
     val
-  );
-};
+  )
+}
 
 const convertValueToType = (field: Readonly<AxField>, val: string) => {
   switch (field.type?.name) {
     case 'string':
-      return val as string;
+      return val as string
     case 'number': {
-      const v = Number(val);
+      const v = Number(val)
       if (Number.isNaN(v)) {
-        throw new Error('Invalid number');
+        throw new Error('Invalid number')
       }
-      return v;
+      return v
     }
     case 'boolean': {
-      const v = val.toLowerCase();
+      const v = val.toLowerCase()
       if (v === 'true') {
-        return true;
+        return true
       } else if (v === 'false') {
-        return false;
+        return false
       } else {
-        throw new Error('Invalid boolean');
+        throw new Error('Invalid boolean')
       }
     }
     case 'date':
-      return parseLLMFriendlyDate(field, val as string);
+      return parseLLMFriendlyDate(field, val as string)
     case 'datetime':
-      return parseLLMFriendlyDateTime(field, val as string);
+      return parseLLMFriendlyDateTime(field, val as string)
     case 'class':
       if (field.type.classes && !field.type.classes.includes(val)) {
         throw new Error(
           `Invalid class '${val}', expected one of the following: ${field.type.classes.join(', ')}`
-        );
+        )
       }
-      return val as string;
+      return val as string
     default:
-      return val as string; // Unknown type
+      return val as string // Unknown type
   }
-};
+}
 
 const expectedTypeError = (
   field: Readonly<AxField>,
@@ -122,81 +122,81 @@ const expectedTypeError = (
 ) => {
   const exp = field.type?.isArray
     ? `array of ${field.type.name}`
-    : field.type?.name;
-  const message = `Error '${err.message}', expected '${exp}' got '${value}'`;
-  return new AxValidationError({ message, field, value });
-};
+    : field.type?.name
+  const message = `Error '${err.message}', expected '${exp}' got '${value}'`
+  return new AxValidationError({ message, field, value })
+}
 
 function validateAndParseFieldValue(
   field: Readonly<AxField>,
   fieldValue: string | undefined
 ): unknown {
-  const fv = fieldValue?.toLocaleLowerCase();
+  const fv = fieldValue?.toLocaleLowerCase()
   if (!fieldValue || !fv || fv === '' || fv === 'null' || fv === 'undefined') {
     if (field.isOptional) {
-      return;
+      return
     }
-    throw expectedTypeError(field, new Error('Empty value'), fieldValue);
+    throw expectedTypeError(field, new Error('Empty value'), fieldValue)
   }
-  let value: unknown = fieldValue;
+  let value: unknown = fieldValue
 
   if (field.type?.name === 'json') {
     try {
-      const text = extractBlock(fieldValue);
-      value = JSON5.parse(text);
-      return value;
+      const text = extractBlock(fieldValue)
+      value = JSON5.parse(text)
+      return value
     } catch (e) {
-      throw expectedTypeError(field, e as Error, fieldValue);
+      throw expectedTypeError(field, e as Error, fieldValue)
     }
   }
 
   if (field.type?.isArray) {
     try {
       try {
-        value = JSON5.parse(fieldValue);
-      } catch (e) {
+        value = JSON5.parse(fieldValue)
+      } catch {
         // If JSON parsing fails, try markdown parsing
-        value = parseMarkdownList(fieldValue);
+        value = parseMarkdownList(fieldValue)
       }
       if (!Array.isArray(value)) {
-        throw new Error('Expected an array');
+        throw new Error('Expected an array')
       }
     } catch (e) {
-      throw expectedTypeError(field, e as Error, fieldValue);
+      throw expectedTypeError(field, e as Error, fieldValue)
     }
   }
 
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
       try {
-        value[index] = convertValueToType(field, item);
+        value[index] = convertValueToType(field, item)
       } catch (e) {
-        throw expectedTypeError(field, e as Error, item);
+        throw expectedTypeError(field, e as Error, item)
       }
     }
   } else {
     try {
-      value = convertValueToType(field, fieldValue);
+      value = convertValueToType(field, fieldValue)
     } catch (e) {
-      throw expectedTypeError(field, e as Error, fieldValue);
+      throw expectedTypeError(field, e as Error, fieldValue)
     }
   }
 
   // If validation passes, return null to indicate no error
-  return value;
+  return value
 }
 
 export const extractBlock = (input: string): string => {
-  const jsonBlockPattern = /```([A-Za-z]+)?\s*([\s\S]*?)\s*```/g;
-  const match = jsonBlockPattern.exec(input);
+  const jsonBlockPattern = /```([A-Za-z]+)?\s*([\s\S]*?)\s*```/g
+  const match = jsonBlockPattern.exec(input)
   if (!match) {
-    return input;
+    return input
   }
   if (match.length === 3) {
-    return match[2] as string;
+    return match[2] as string
   }
   if (match.length === 2) {
-    return match[1] as string;
+    return match[1] as string
   }
-  return input;
-};
+  return input
+}
