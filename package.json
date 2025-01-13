@@ -15,7 +15,7 @@
     "test:tests": "npm run test --workspaces --if-present",
     "test:spelling": "cspell --quiet \"{README.md,.github/*.md,src/**/*.ts}\"",
     "coverage": "npm run fix --workspaces --if-present",
-    "doc:build": "run-s doc:*",
+    "doc:build": "run-s doc:build:markdown doc:build:html",
     "doc:build:markdown": "npm run doc:build:markdown --workspaces --if-present",
     "doc:build:html": "npm run build --workspace=@ax-llm/ax-docs",
     "version": "standard-version",
