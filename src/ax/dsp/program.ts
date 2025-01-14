@@ -1,3 +1,5 @@
+import { type Tracer } from '@opentelemetry/api'
+
 import type {
   AxAIService,
   AxChatRequest,
@@ -7,7 +9,6 @@ import type {
   AxRateLimiterFunction,
 } from '../ai/types.js'
 import type { AxAIMemory } from '../mem/types.js'
-import type { AxTracer } from '../trace/trace.js'
 
 import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
@@ -54,7 +55,7 @@ export type AxProgramForwardOptions = {
   model?: string
   sessionId?: string
   traceId?: string | undefined
-  tracer?: AxTracer
+  tracer?: Tracer
   rateLimiter?: AxRateLimiterFunction
   stream?: boolean
   debug?: boolean

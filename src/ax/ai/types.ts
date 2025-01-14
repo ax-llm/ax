@@ -1,6 +1,7 @@
 import type { ReadableStream } from 'stream/web'
 
-import type { AxTracer } from '../trace/trace.js'
+import type { Tracer } from '@opentelemetry/api'
+
 import type { AxAPI } from '../util/apicall.js'
 
 export type AxAIModelMap = Record<string, string>
@@ -210,7 +211,7 @@ export type AxAIServiceOptions = {
   debug?: boolean
   rateLimiter?: AxRateLimiterFunction
   fetch?: typeof fetch
-  tracer?: AxTracer
+  tracer?: Tracer
 }
 
 export type AxAIServiceActionOptions = {

@@ -1,9 +1,6 @@
-import {
-  type AxSpan,
-  axSpanAttributes,
-  AxSpanKind,
-  type AxTracer,
-} from '../trace/trace.js'
+import { type Span, SpanKind, type Tracer } from '@opentelemetry/api'
+
+import { axSpanAttributes } from '../trace/trace.js'
 
 import type {
   AxDBQueryRequest,
@@ -15,17 +12,17 @@ import type {
 
 export interface AxDBBaseArgs {
   fetch?: typeof fetch
-  tracer?: AxTracer
+  tracer?: Tracer
 }
 
 export interface AxDBBaseOpOptions {
-  span?: AxSpan
+  span?: Span
 }
 
 export class AxDBBase implements AxDBService {
   protected name: string
   protected fetch?: typeof fetch
-  private tracer?: AxTracer
+  private tracer?: Tracer
 
   _upsert?: (
     req: Readonly<AxDBUpsertRequest>,
@@ -69,7 +66,7 @@ export class AxDBBase implements AxDBService {
     return await this.tracer?.startActiveSpan(
       'DB Upsert Request',
       {
-        kind: AxSpanKind.SERVER,
+        kind: SpanKind.SERVER,
         attributes: {
           [axSpanAttributes.DB_SYSTEM]: this.name,
           [axSpanAttributes.DB_OPERATION_NAME]: 'upsert',
@@ -107,7 +104,7 @@ export class AxDBBase implements AxDBService {
     return await this.tracer?.startActiveSpan(
       'DB Batch Upsert Request',
       {
-        kind: AxSpanKind.SERVER,
+        kind: SpanKind.SERVER,
         attributes: {
           [axSpanAttributes.DB_SYSTEM]: this.name,
           [axSpanAttributes.DB_OPERATION_NAME]: 'upsert',
@@ -135,7 +132,7 @@ export class AxDBBase implements AxDBService {
     return await this.tracer?.startActiveSpan(
       'DB Query Request',
       {
-        kind: AxSpanKind.SERVER,
+        kind: SpanKind.SERVER,
         attributes: {
           [axSpanAttributes.DB_SYSTEM]: this.name,
           [axSpanAttributes.DB_OPERATION_NAME]: 'upsert',

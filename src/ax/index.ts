@@ -233,20 +233,7 @@ import {
 } from './funcs/code.js';
 import {
   AxLLMRequestTypeValues,
-  AxSpanKind,
   AxSpanKindValues,
-  AxSpanStatusCode,
-  type AxContext,
-  type AxSpan,
-  type AxSpanAttributeValue,
-  type AxSpanAttributes,
-  type AxSpanContext,
-  type AxSpanException,
-  type AxSpanLink,
-  type AxSpanOptions,
-  type AxSpanStatus,
-  type AxSpanTimeInput,
-  type AxTracer
 } from './trace/trace.js';
 import {
   AxProgram,
@@ -393,9 +380,7 @@ export { AxRateLimiterTokenUsage };
 export { AxRoute };
 export { AxRouter };
 export { AxSignature };
-export { AxSpanKind };
 export { AxSpanKindValues };
-export { AxSpanStatusCode };
 export { AxTestPrompt };
 export { AxValidationError };
 
@@ -490,7 +475,6 @@ export type { AxChatRequest };
 export type { AxChatResponse };
 export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
-export type { AxContext };
 export type { AxDBArgs };
 export type { AxDBBaseArgs };
 export type { AxDBBaseOpOptions };
@@ -553,17 +537,7 @@ export type { AxResponseHandlerArgs };
 export type { AxRewriteIn };
 export type { AxRewriteOut };
 export type { AxRouterForwardOptions };
-export type { AxSpan };
-export type { AxSpanAttributeValue };
-export type { AxSpanAttributes };
-export type { AxSpanContext };
-export type { AxSpanException };
-export type { AxSpanLink };
-export type { AxSpanOptions };
-export type { AxSpanStatus };
-export type { AxSpanTimeInput };
 export type { AxStreamingAssertion };
 export type { AxTokenUsage };
-export type { AxTracer };
 export type { AxTunable };
 export type { AxUsable };
