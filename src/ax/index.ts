@@ -233,7 +233,7 @@ import {
 } from './funcs/code.js';
 import {
   AxLLMRequestTypeValues,
-  AxSpanKindValues,
+  AxSpanKindValues
 } from './trace/trace.js';
 import {
   AxProgram,

@@ -56,7 +56,7 @@
     "directory": "./"
   },
   "files": [
-    "dist/**/*"
+    "**/*"
   ],
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
