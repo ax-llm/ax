@@ -1,7 +1,9 @@
 import type { ReadableStream } from 'stream/web'
 
+import { type Span, SpanKind } from '@opentelemetry/api'
+
 import { getModelInfo } from '../dsp/modelinfo.js'
-import { type AxSpan, axSpanAttributes, AxSpanKind } from '../trace/trace.js'
+import { axSpanAttributes } from '../trace/trace.js'
 import { apiCall } from '../util/apicall.js'
 import { ColorLog } from '../util/log.js'
 import { RespTransformStream } from '../util/transform.js'
@@ -319,7 +321,7 @@ export class AxBaseAI<
       return await this.tracer?.startActiveSpan(
         'Chat Request',
         {
-          kind: AxSpanKind.SERVER,
+          kind: SpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_REQUEST_MODEL]: model,
@@ -354,7 +356,7 @@ export class AxBaseAI<
     modelConfig: Readonly<AxModelConfig>,
     chatReq: Readonly<Omit<AxChatRequest, 'modelConfig'>>,
     options?: Readonly<AxAIServiceActionOptions>,
-    span?: AxSpan
+    span?: Span
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.aiImpl.createChatReq) {
       throw new Error('generateChatReq not implemented')
@@ -496,10 +498,10 @@ export class AxBaseAI<
     }
 
     if (this.tracer) {
-      return await this.tracer?.startActiveSpan(
+      await this.tracer?.startActiveSpan(
         'Embed Request',
         {
-          kind: AxSpanKind.SERVER,
+          kind: SpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_REQUEST_MODEL]:
@@ -520,7 +522,7 @@ export class AxBaseAI<
     embedModel: string,
     embedReq: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>,
-    span?: AxSpan
+    span?: Span
   ): Promise<AxEmbedResponse> {
     if (!this.aiImpl.createEmbedReq) {
       throw new Error('generateEmbedReq not implemented')
@@ -654,7 +656,7 @@ const logResponse = (resp: Readonly<AxChatResponse>) => {
   }
 }
 
-const setResponseAttr = (res: Readonly<AxChatResponse>, span: AxSpan) => {
+const setResponseAttr = (res: Readonly<AxChatResponse>, span: Span) => {
   if (res.modelUsage) {
     span.setAttributes({
       [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:

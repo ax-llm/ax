@@ -1,3 +1,5 @@
+import { SpanKind } from '@opentelemetry/api'
+
 import type { AxAIService, AxFunction } from '../ai/types.js'
 import { AxGen, type AxGenOptions } from '../dsp/generate.js'
 import {
@@ -11,7 +13,6 @@ import {
   type AxUsable,
 } from '../dsp/program.js'
 import { AxSignature } from '../dsp/sig.js'
-import { AxSpanKind } from '../trace/trace.js'
 
 export interface AxAgentic extends AxTunable, AxUsable {
   getFunction(): AxFunction
@@ -173,7 +174,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return await options?.tracer.startActiveSpan(
       'Agent',
       {
-        kind: AxSpanKind.SERVER,
+        kind: SpanKind.SERVER,
         attributes,
       },
       async (span) => {

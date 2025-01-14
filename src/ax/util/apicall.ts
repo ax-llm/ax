@@ -4,7 +4,7 @@ import {
   TextDecoderStream as TextDecoderStreamNative,
 } from 'stream/web'
 
-import type { AxSpan } from '../trace/trace.js'
+import { type Span } from '@opentelemetry/api'
 
 import { SSEParser } from './sse.js'
 import { TextDecoderStreamPolyfill } from './stream.js'
@@ -27,7 +27,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       stream?: boolean
       debug?: boolean
       fetch?: typeof fetch
-      span?: AxSpan
+      span?: Span
     }
   >,
   json: TRequest
@@ -78,7 +78,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     return st
   } catch (e) {
     if (api.span?.isRecording()) {
-      api.span.recordAxSpanException(e as Error)
+      api.span.recordException(e as Error)
     }
 
     const reqBody = JSON.stringify(json, null, 2)

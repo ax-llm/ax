@@ -1,5 +1,7 @@
 import { ReadableStream } from 'stream/web'
 
+import { type Span, SpanKind, type Tracer } from '@opentelemetry/api'
+
 import type {
   AxAIService,
   AxChatRequest,
@@ -11,7 +13,6 @@ import type {
 import { mergeFunctionCalls } from '../ai/util.js'
 import { AxMemory } from '../mem/memory.js'
 import type { AxAIMemory } from '../mem/types.js'
-import { type AxSpan, AxSpanKind, type AxTracer } from '../trace/trace.js'
 
 import {
   assertAssertions,
@@ -49,7 +50,7 @@ export interface AxGenOptions {
   maxRetries?: number
   maxSteps?: number
   mem?: AxAIMemory
-  tracer?: AxTracer
+  tracer?: Tracer
   rateLimiter?: AxRateLimiterFunction
   stream?: boolean
   debug?: boolean
@@ -360,7 +361,7 @@ export class AxGen<
     ai: Readonly<AxAIService>,
     values: IN,
     options?: Readonly<AxProgramForwardOptions>,
-    span?: AxSpan
+    span?: Span
   ): Promise<OUT> {
     const stopFunction = (
       options?.stopFunction ?? this.options?.stopFunction
@@ -415,7 +416,7 @@ export class AxGen<
           return output
         } catch (e) {
           let extraFields
-          span?.recordAxSpanException(e as Error)
+          span?.recordException(e as Error)
 
           if (e instanceof AxValidationError) {
             extraFields = e.getFixingInstructions()
@@ -479,7 +480,7 @@ export class AxGen<
     return await tracer.startActiveSpan(
       'Generate',
       {
-        kind: AxSpanKind.SERVER,
+        kind: SpanKind.SERVER,
         attributes,
       },
       async (span) => {
