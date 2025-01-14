@@ -1,4 +1,9 @@
-# Changelog
+## [10.0.28](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-14)
+
+### Bug Fixes
+
+- Fix: file path issue in ax build
+  ([3264a11](https://github.com/ax-llm/ax/commit/3264a11387272387efeb029872b5406156ea3fa4))
 
 ## [10.0.27](https://github.com/ax-llm/ax/compare/10.0.26...10.0.27) (2025-01-14)
 
