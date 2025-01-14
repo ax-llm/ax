@@ -1,3 +1,17 @@
+# Changelog
+
+## [10.0.26](https://github.com/ax-llm/ax/compare/10.0.24...10.0.25) (2025-01-14)
+
+### Features
+
+* redesigned docs, improved system prompts and other fixes ([6cd870e](https://github.com/ax-llm/ax/commit/6cd870e7ae89aa32f1d73b87da31de886303cf9d))
+
+### Bug Fixes
+
+* big refactor and improved tooling ([e83059f](https://github.com/ax-llm/ax/commit/e83059f7bb695f9eb201bfcb5c4db39233265c61))
+* issue with doc:build ([a504956](https://github.com/ax-llm/ax/commit/a504956bbd7c3569dea49393d9f007b6ec917232))
+## [10.0.25](https://github.com/ax-llm/ax/compare/10.0.24...10.0.25) (2025-01-10)
+
 ## [10.0.25](https://github.com/ax-llm/ax/compare/10.0.24...10.0.25) (2025-01-10)
 
 
@@ -843,7 +857,7 @@
 
 * model map issue ([ab29d6e](https://github.com/ax-llm/ax/commit/ab29d6e6cf39255a6b1f488043cb378387bcb5ac))
 
-# Changelog
+
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
