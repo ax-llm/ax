@@ -1,7 +1,7 @@
 import type { ReadableStream } from 'stream/web'
 
 import type { AxTracer } from '../trace/trace.js'
-import type { API } from '../util/apicall.js'
+import type { AxAPI } from '../util/apicall.js'
 
 export type AxAIModelMap = Record<string, string>
 
@@ -250,7 +250,7 @@ export interface AxAIServiceImpl<
   createChatReq(
     req: Readonly<AxInternalChatRequest>,
     config: Readonly<AxAIPromptConfig>
-  ): [API, TChatRequest]
+  ): [AxAPI, TChatRequest]
 
   createChatResp(resp: Readonly<TChatResponse>): AxChatResponse
 
@@ -259,7 +259,7 @@ export interface AxAIServiceImpl<
     state: object
   ): AxChatResponse
 
-  createEmbedReq?(req: Readonly<AxInternalEmbedRequest>): [API, TEmbedRequest]
+  createEmbedReq?(req: Readonly<AxInternalEmbedRequest>): [AxAPI, TEmbedRequest]
 
   createEmbedResp?(resp: Readonly<TEmbedResponse>): AxEmbedResponse
 

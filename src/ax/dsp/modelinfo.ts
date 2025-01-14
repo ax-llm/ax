@@ -6,7 +6,7 @@ interface GetModelInfoParams {
   modelMap?: Record<string, string>
 }
 
-export function axGetModelInfo({
+export function getModelInfo({
   model,
   modelInfo,
   modelMap = {},

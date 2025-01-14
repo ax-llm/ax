@@ -36,6 +36,7 @@ const ai = new AxAI({
     'model-a': AxAIOpenAIModel.GPT4OMini,
   },
 })
+ai.setOptions({ debug: true })
 
 const res = await gen.forward(ai, { noteText })
 

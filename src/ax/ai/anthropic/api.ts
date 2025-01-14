@@ -1,4 +1,4 @@
-import type { API } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js'
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js'
 import type {
   AxAIServiceImpl,
@@ -69,7 +69,7 @@ class AxAIAnthropicImpl
 
   createChatReq = (
     req: Readonly<AxInternalChatRequest>
-  ): [API, AxAIAnthropicChatRequest] => {
+  ): [AxAPI, AxAIAnthropicChatRequest] => {
     const model = req.model
 
     const apiConfig = {

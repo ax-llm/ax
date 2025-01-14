@@ -3,14 +3,19 @@
   "plugin": [
     "typedoc-plugin-markdown",
     "typedoc-plugin-frontmatter",
-    "./custom-frontmatter.mjs"
+    "./customFrontmatter.mjs"
   ],
   "pretty": true,
-  "mergeReadme": true,
   "cleanOutputDir": true,
+  "hidePageTitle": true,
+  "hideGroupHeadings": true,
+  "parametersFormat": "table",
+  "typeDeclarationVisibility": "compact",
   "hidePageHeader": true,
   "hideBreadcrumbs": true,
   "useHTMLAnchors": true,
-  "preserveAnchorCasing": false,
-  "readme": "README.md"
+  "preserveAnchorCasing": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "flattenOutputFiles": true
 }

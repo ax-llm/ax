@@ -1,10 +1,13 @@
 import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
 
-import type { AxAIMemory, AxWritableChatPrompt } from './types.js'
+import type { AxAIMemory } from './types.js'
+
+type Writeable<T> = { -readonly [P in keyof T]: T[P] }
+type WritableChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>[]
 
 export class AxMemory implements AxAIMemory {
-  private data: AxWritableChatPrompt = []
-  private sdata = new Map<string, AxWritableChatPrompt>()
+  private data: WritableChatPrompt = []
+  private sdata = new Map<string, WritableChatPrompt>()
   private limit: number
 
   constructor(limit = 50) {
@@ -86,7 +89,7 @@ export class AxMemory implements AxAIMemory {
     }
   }
 
-  private get(sessionId?: string): AxWritableChatPrompt {
+  private get(sessionId?: string): WritableChatPrompt {
     if (!sessionId) {
       return this.data
     }

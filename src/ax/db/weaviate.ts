@@ -35,7 +35,6 @@ export interface AxDBWeaviateArgs extends AxDBBaseArgs {
 
 /**
  * Weaviate: DB Service
- * @export
  */
 export class AxDBWeaviate extends AxDBBase {
   private apiKey: string

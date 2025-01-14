@@ -16,7 +16,6 @@ export type AxDBState = Record<string, Record<string, AxDBUpsertRequest>>
 
 /**
  * MemoryDB: DB Service
- * @export
  */
 export class AxDBMemory extends AxDBBase {
   private state: AxDBState

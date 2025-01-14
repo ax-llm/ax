@@ -158,7 +158,6 @@ export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse
 
 /**
  * AxAIGoogleGeminiConfig: Configuration options for Google Gemini API
- * @export
  */
 export type AxAIGoogleGeminiConfig = AxModelConfig & {
   model: AxAIGoogleGeminiModel | string
@@ -168,7 +167,6 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
 
 /**
  * AxAIGoogleGeminiEmbedRequest: Structure for making an embedding request to the Google Gemini API.
- * @export
  */
 export type AxAIGoogleGeminiBatchEmbedRequest = {
   requests: {
@@ -181,7 +179,6 @@ export type AxAIGoogleGeminiBatchEmbedRequest = {
 
 /**
  * AxAIGoogleGeminiEmbedResponse: Structure for handling responses from the Google Gemini API embedding requests.
- * @export
  */
 export type AxAIGoogleGeminiBatchEmbedResponse = {
   embeddings: {

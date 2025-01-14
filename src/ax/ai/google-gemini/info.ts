@@ -4,7 +4,6 @@ import { AxAIGoogleGeminiModel } from './types.js'
 
 /**
  * AxAIGoogleGemini: Model information
- * @export
  */
 export const axModelInfoGoogleGemini: AxModelInfo[] = [
   {

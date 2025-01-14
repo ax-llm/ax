@@ -1,7 +1,7 @@
 import type { AxChatRequest } from '../ai/types.js'
 
 import { formatDateWithTimezone } from './datetime.js'
-import type { InputFunctionType } from './functions.js'
+import type { AxInputFunctionType } from './functions.js'
 import { type AxFieldValue } from './program.js'
 import type { AxField, AxIField, AxSignature } from './sig.js'
 import { validateValue } from './util.js'
@@ -26,7 +26,7 @@ export class AxPromptTemplate {
 
   constructor(
     sig: Readonly<AxSignature>,
-    functions?: Readonly<InputFunctionType>,
+    functions?: Readonly<AxInputFunctionType>,
     fieldTemplates?: Record<string, AxFieldTemplateFn>
   ) {
     this.sig = sig
@@ -104,18 +104,36 @@ export class AxPromptTemplate {
 
     const completion = this.renderInputFields(values)
 
-    const promptList: ChatRequestUserMessage = [
-      ...renderedExamples,
-      ...renderedDemos,
-      ...completion,
-    ]
+    // Check if demos and examples are all text type
+    const allTextExamples = renderedExamples.every((v) => v.type === 'text')
+    const allTextDemos = renderedDemos.every((v) => v.type === 'text')
 
-    const prompt = promptList.filter((v) => v !== undefined)
+    let systemContent = this.task.text
+
+    if (allTextExamples && allTextDemos) {
+      const combinedItems = [
+        { type: 'text' as const, text: this.task.text },
+        ...renderedExamples,
+        ...renderedDemos,
+      ]
+      combinedItems.reduce(combineConsecutiveStrings('\n'), [])
+
+      if (combinedItems && combinedItems[0]) {
+        systemContent = combinedItems[0].text
+      }
+    }
 
     const systemPrompt = {
       role: 'system' as const,
-      content: this.task.text,
+      content: systemContent,
     }
+
+    const promptList: ChatRequestUserMessage =
+      allTextExamples && allTextDemos
+        ? completion
+        : [...renderedExamples, ...renderedDemos, ...completion]
+
+    const prompt = promptList.filter((v) => v !== undefined)
 
     const userContent = prompt.every((v) => v.type === 'text')
       ? prompt.map((v) => v.text).join('\n')
@@ -178,10 +196,10 @@ export class AxPromptTemplate {
 
       renderedItem.forEach((v) => {
         if ('text' in v) {
-          v.text = v.text + '\n'
+          v.text = v.text
         }
         if ('image' in v) {
-          v.image = v.image + '\n'
+          v.image = v.image
         }
         list.push(v)
       })
@@ -207,16 +225,16 @@ export class AxPromptTemplate {
 
       renderedItem.slice(0, -1).forEach((v) => {
         if ('text' in v) {
-          v.text = v.text + '\n'
+          v.text = v.text
         }
         if ('image' in v) {
-          v.image = v.image + '\n'
+          v.image = v.image
         }
         list.push(v)
       })
 
       if (renderedItem.length > 0) {
-        list.push({ type: 'text', text: '\n\n---\n\n' })
+        list.push({ type: 'text', text: '\n' })
       }
     }
 

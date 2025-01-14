@@ -3,7 +3,6 @@ import type { AxModelInfo } from '../types.js'
 import { AxAIRekaModel } from './types.js'
 /**
  * OpenAI: Model information
- * @export
  */
 export const axModelInfoReka: AxModelInfo[] = [
   {

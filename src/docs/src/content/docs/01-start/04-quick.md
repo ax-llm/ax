@@ -1,23 +1,8 @@
 ---
-title: Quick Start
-description: Jump into building with Ax
+title: Using Ax
+description: A more detailed guide to using Ax
 ---
 
-Building intelligent agents is a breeze with the Ax framework, inspired by the power of "Agentic workflows" and the Stanford DSPy paper. It seamlessly integrates with multiple LLMs and VectorDBs to build RAG pipelines or collaborative agents that can solve complex problems. Plus, it offers advanced features like streaming validation, multi-modal DSPy, etc.
-
-## Install
-
-With NPM
-
-```console
-npm install @ax-llm/ax
-```
-
-With Yarn
-
-```console
-yarn add @ax-llm/ax
-```
 
 ## Pick an LLM
 

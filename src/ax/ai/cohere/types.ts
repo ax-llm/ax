@@ -2,7 +2,6 @@ import type { AxModelConfig } from '../types.js'
 
 /**
  * Cohere: Models for text generation
- * @export
  */
 export enum AxAICohereModel {
   CommandRPlus = 'command-r-plus',
@@ -13,7 +12,6 @@ export enum AxAICohereModel {
 
 /**
  * Cohere: Models for use in embeddings
- * @export
  */
 export enum AxAICohereEmbedModel {
   EmbedEnglishV30 = 'embed-english-v3.0',
@@ -24,7 +22,6 @@ export enum AxAICohereEmbedModel {
 
 /**
  * Cohere: Model options for text generation
- * @export
  */
 export type AxAICohereConfig = AxModelConfig & {
   model: AxAICohereModel

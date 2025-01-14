@@ -4,7 +4,6 @@ import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './types.js'
 
 /**
  * OpenAI: Model information
- * @export
  */
 export const axModelInfoOpenAI: AxModelInfo[] = [
   {

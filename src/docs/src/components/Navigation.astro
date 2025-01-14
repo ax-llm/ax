@@ -1,0 +1,156 @@
+---
+// src/components/Navigation.astro
+interface Props {
+  groupedDocs: Record<string, any[]>
+}
+
+const { groupedDocs } = Astro.props
+
+const sections = Object.entries(groupedDocs).sort((a, b) => {
+  const aNum = parseInt(a[0].match(/\d+/)?.[0] || '99')
+  const bNum = parseInt(b[0].match(/\d+/)?.[0] || '99')
+  return aNum - bNum
+})
+---
+
+<nav
+  class="sticky top-0 z-50 backdrop-blur-md bg-warmGray-100/80 border-b border-gray-200 mb-8"
+>
+  <div class="max-w-6xl mx-auto">
+    <div class="flex items-center justify-between p-4">
+      <!-- Logo/Title Area -->
+      <div
+        id="logo-area"
+        class="flex items-center space-x-4 cursor-pointer hover:opacity-80 transition-opacity"
+      >
+        <div class="w-2 h-8 bg-blue-400 animate-pulse"></div>
+        <div class="text-sm font-bold text-gray-700">AX FRAMEWORK</div>
+      </div>
+
+      <!-- Navigation Links -->
+      <div class="hidden md:block flex-1 px-8">
+        <div class="flex items-center space-x-6">
+          {
+            sections.map(([section, docs]) => (
+              <div class="group relative">
+                <button class="nav-section-button text-xs text-gray-600 hover:text-blue-500 transition-colors py-2 flex items-center space-x-2">
+                  <span class="w-1 h-1 bg-gray-400 rounded-full group-hover:bg-blue-400" />
+                  <span>{section}</span>
+                </button>
+                <div class="absolute hidden group-hover:block pt-2 left-0">
+                  <div class="bg-gray-800 rounded-lg shadow-xl p-2 min-w-48 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-blue-400/20 scrollbar-track-gray-700/20">
+                    {docs.map((doc) => (
+                      <a
+                        href={`#${doc.slug}`}
+                        class="nav-link block px-4 py-2 text-xs text-gray-300 hover:text-blue-300 hover:bg-gray-700/50 rounded transition-colors"
+                        data-slug={doc.slug}
+                      >
+                        {doc.data.title}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+
+      <!-- Mobile Menu Button -->
+      <button
+        id="mobile-menu-button"
+        class="md:hidden text-gray-600 hover:text-blue-500 transition-colors"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-6 w-6"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 6h16M4 12h16m-7 6h7"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Mobile Menu (Hidden by default) -->
+    <div id="mobile-menu" class="hidden md:hidden px-4 pb-4">
+      {
+        sections.map(([section, docs]) => (
+          <div class="mb-4">
+            <div class="text-xs font-bold text-gray-600 mb-2">{section}</div>
+            <div class="space-y-2">
+              {docs.map((doc) => (
+                <a
+                  href={`#${doc.slug}`}
+                  class="nav-link block text-xs text-gray-600 hover:text-blue-500 hover:bg-gray-100 rounded px-2 py-1 transition-colors"
+                  data-slug={doc.slug}
+                >
+                  {doc.data.title}
+                </a>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <!-- Decorative Elements -->
+  <div
+    class="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-400/20 to-transparent"
+  >
+  </div>
+  <div
+    class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-400/10 to-transparent"
+  >
+  </div>
+</nav>
+
+<script>
+  // Mobile menu toggle
+  const mobileMenuButton = document.getElementById('mobile-menu-button')
+  const mobileMenu = document.getElementById('mobile-menu')
+
+  if (mobileMenuButton && mobileMenu) {
+    mobileMenuButton.addEventListener('click', () => {
+      mobileMenu.classList.toggle('hidden')
+    })
+  }
+
+  // Logo click to scroll to top
+  const logoArea = document.getElementById('logo-area')
+  if (logoArea) {
+    logoArea.addEventListener('click', () => {
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      })
+    })
+  }
+
+  // Smooth scroll for navigation links
+  document.querySelectorAll('.nav-link').forEach((anchor) => {
+    anchor.addEventListener('click', (e) => {
+      e.preventDefault()
+
+      const slug = anchor.getAttribute('data-slug')
+      const target = slug ? document.getElementById(slug) : null
+
+      if (target) {
+        target.scrollIntoView({
+          behavior: 'smooth',
+        })
+
+        // Close mobile menu if open
+        if (mobileMenu) {
+          mobileMenu.classList.add('hidden')
+        }
+      }
+    })
+  })
+</script>

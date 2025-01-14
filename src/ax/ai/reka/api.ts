@@ -1,4 +1,4 @@
-import type { API } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -88,7 +88,7 @@ class AxAIRekaImpl
     req: Readonly<AxInternalChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
-  ): [API, AxAIRekaChatRequest] => {
+  ): [AxAPI, AxAIRekaChatRequest] => {
     const model = req.model
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {

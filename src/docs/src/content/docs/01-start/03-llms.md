@@ -7,7 +7,7 @@ Ax supports all the top LLM providers and models, along with their advanced capa
 
 Our defaults, including default models, are selected to ensure solid agent performance.
 
-## OpenAI
+### OpenAI
 
 ```typescript title="Use defaults"
 const ai = new AxAI({
@@ -28,7 +28,7 @@ const ai = new AxAI({
 });
 ```
 
-## Azure OpenAI
+### Azure OpenAI
 
 Azure requires you to set a resource name and a deployment name
 
@@ -43,7 +43,7 @@ const ai = new AxAI({
 });
 ```
 
-## Together
+### Together
 
 Together runs a diverse array of open-source models, each designed for a specific use case. This variety ensures that you can find the perfect model for your needs.
 
@@ -59,7 +59,7 @@ const ai = new AxAI({
 });
 ```
 
-## Anthropic
+### Anthropic
 
 ```typescript title="Use defaults"
 const ai = new AxAI({
@@ -68,7 +68,7 @@ const ai = new AxAI({
 });
 ```
 
-# Groq
+### Groq
 
 Groq uses specialized hardware to serve open-source models with the lowest latency. It supports a small number of good models.
 
@@ -79,7 +79,7 @@ const ai = new AxAI({
 });
 ```
 
-# Google Gemini
+### Google Gemini
 
 An excellent model family with very long context lengths at the lowest price points. Gemini has built-in support for compute (code execution); their models can write and run code in the backend if needed.
 
@@ -91,7 +91,7 @@ const ai = new AxAI({
 });
 ```
 
-# Cohere
+### Cohere
 
 ```typescript title="Use defaults"
 const ai = new AxAI({
@@ -100,16 +100,7 @@ const ai = new AxAI({
 });
 ```
 
-# Huggingface
-
-```typescript title="Use defaults"
-const ai = new AxAI({
-  name: 'huggingface',
-  apiKey: process.env.HF_APIKEY as string
-});
-```
-
-# Mistral
+### Mistral
 
 ```typescript title="Use defaults"
 const ai = new AxAI({
@@ -118,7 +109,7 @@ const ai = new AxAI({
 });
 ```
 
-# Deepseek
+### Deepseek
 
 Deepseek is an LLM provider from China that has excellent models.
 
@@ -129,7 +120,7 @@ const ai = new AxAI({
 });
 ```
 
-# Ollama
+### Ollama
 
 Ollama is an engine for running open-source models locally on your laptop. We default to `nous-hermes21` for inference and `all-minilm` for embedding.
 
@@ -139,5 +130,14 @@ const ai = new AxAI({
   apiKey: process.env.DEEPSEEK_APIKEY as string,
   url: 'http://localhost:11434'
   config: { model: 'nous-hermes2', embedModel: 'all-minilm' }
+});
+```
+
+### Huggingface
+
+```typescript title="Use defaults"
+const ai = new AxAI({
+  name: 'huggingface',
+  apiKey: process.env.HF_APIKEY as string
 });
 ```

@@ -54,7 +54,6 @@ export interface AxDBPineconeArgs extends AxDBBaseArgs {
 
 /**
  * Pinecone: DB Service
- * @export
  */
 export class AxDBPinecone extends AxDBBase {
   private apiKey: string

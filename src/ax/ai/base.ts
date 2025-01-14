@@ -1,6 +1,6 @@
 import type { ReadableStream } from 'stream/web'
 
-import { axGetModelInfo } from '../dsp/modelinfo.js'
+import { getModelInfo } from '../dsp/modelinfo.js'
 import { type AxSpan, axSpanAttributes, AxSpanKind } from '../trace/trace.js'
 import { apiCall } from '../util/apicall.js'
 import { ColorLog } from '../util/log.js'
@@ -189,7 +189,7 @@ export class AxBaseAI<
   }
 
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
-    const mi = axGetModelInfo({
+    const mi = getModelInfo({
       model: this.models.model,
       modelInfo: this.modelInfo,
       modelMap: this.modelMap,
@@ -205,7 +205,7 @@ export class AxBaseAI<
       return
     }
 
-    const mi = axGetModelInfo({
+    const mi = getModelInfo({
       model: this.models.embedModel,
       modelInfo: this.modelInfo,
       modelMap: this.modelMap,
@@ -292,7 +292,7 @@ export class AxBaseAI<
     }
   }
 
-  async _chat1(
+  private async _chat1(
     req: Readonly<AxChatRequest>,
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
@@ -420,7 +420,7 @@ export class AxBaseAI<
           }
 
           if (this.debug) {
-            logStreamingResponse(res)
+            logResponse(res)
           }
           return res
         }
@@ -482,7 +482,7 @@ export class AxBaseAI<
     }
   }
 
-  async _embed1(
+  private async _embed1(
     req: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
@@ -516,7 +516,7 @@ export class AxBaseAI<
     return this._embed2(embedModel, req, options)
   }
 
-  async _embed2(
+  private async _embed2(
     embedModel: string,
     embedReq: Readonly<AxEmbedRequest>,
     options?: Readonly<AxAIServiceActionOptions>,
@@ -586,12 +586,12 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
   const items = req.chatPrompt?.map((msg) => {
     switch (msg.role) {
       case 'system':
-        return `System: ${colorLog.whiteBright(msg.content)}`
+        return `${colorLog.blueBright('System:')}\n${colorLog.whiteBright(msg.content)}`
       case 'function':
-        return `Function Result: ${colorLog.whiteBright(msg.result)}`
+        return `${colorLog.blueBright('Function Result:')}\n${colorLog.whiteBright(msg.result)}`
       case 'user': {
         if (typeof msg.content === 'string') {
-          return `User: ${colorLog.whiteBright(msg.content)}`
+          return `${colorLog.blueBright('User:')}\n${colorLog.whiteBright(msg.content)}`
         }
         const items = msg.content.map((v) => {
           switch (v.type) {
@@ -603,7 +603,7 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
               throw new Error('Invalid content type')
           }
         })
-        return `User:\n${items.join('\n')}`
+        return `${colorLog.blueBright('User:')}\n${items.join('\n')}`
       }
       case 'assistant': {
         if (msg.functionCalls) {
@@ -614,9 +614,9 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
                 : fn.params
             return `${fn.name}(${args})`
           })
-          return `Functions:\n${colorLog.whiteBright(fns.join('\n'))}`
+          return `${colorLog.blueBright('Functions:')}\n${colorLog.whiteBright(fns.join('\n'))}`
         }
-        return `Assistant:\n${colorLog.whiteBright(msg.content ?? '<empty>')}`
+        return `${colorLog.blueBright('Assistant:')}\n${colorLog.whiteBright(msg.content ?? '<empty>')}`
       }
       default:
         throw new Error('Invalid role')
@@ -630,25 +630,6 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
 }
 
 const logResponse = (resp: Readonly<AxChatResponse>) => {
-  for (const r of resp.results) {
-    if (r.content) {
-      console.log(colorLog.greenBright(r.content))
-    }
-    if (r.functionCalls) {
-      process.stdout.write(colorLog.yellow(`Executing functions:\n`))
-
-      for (const f of r.functionCalls) {
-        const args =
-          typeof f.function.params !== 'string'
-            ? JSON.stringify(f.function.params, null, 2)
-            : f.function.params
-        process.stdout.write(colorLog.yellow(`${f.function.name}(${args})`))
-      }
-    }
-  }
-}
-
-const logStreamingResponse = (resp: Readonly<AxChatResponse>) => {
   if (!resp.results) {
     return
   }
@@ -657,12 +638,16 @@ const logStreamingResponse = (resp: Readonly<AxChatResponse>) => {
       process.stdout.write(colorLog.greenBright(r.content))
     }
     if (r.functionCalls) {
-      for (const f of r.functionCalls) {
+      for (const [i, f] of r.functionCalls.entries()) {
         if (f.function.name) {
-          process.stdout.write(colorLog.blueBright(f.function.name))
+          process.stdout.write(
+            `\nFunction ${i + 1} -> ${colorLog.greenBright(f.function.name)} `
+          )
         }
         if (f.function.params) {
-          process.stdout.write(colorLog.yellow(f.function.params as string))
+          process.stdout.write(
+            colorLog.greenBright(f.function.params as string)
+          )
         }
       }
     }

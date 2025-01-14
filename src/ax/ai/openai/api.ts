@@ -1,4 +1,4 @@
-import type { API } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -100,7 +100,7 @@ class AxAIOpenAIImpl
     req: Readonly<AxInternalChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
-  ): [API, AxAIOpenAIChatRequest] {
+  ): [AxAPI, AxAIOpenAIChatRequest] {
     const model = req.model
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -167,7 +167,7 @@ class AxAIOpenAIImpl
 
   createEmbedReq(
     req: Readonly<AxInternalEmbedRequest>
-  ): [API, AxAIOpenAIEmbedRequest] {
+  ): [AxAPI, AxAIOpenAIEmbedRequest] {
     const model = req.embedModel
 
     if (!model) {

@@ -1,6 +1,6 @@
 ---
 title: DSPy Explained
-description: Whats DSPy and how to use it.
+description: Whats DSPy, why it matters and how to use it.
 ---
 
 Demonstrate, search, predict, or DSPy is a now-famous Stanford paper focused on optimizing the prompting of LLMs. The basic idea is to provide examples instead of instructions.

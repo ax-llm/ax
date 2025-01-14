@@ -11,9 +11,8 @@ import { TextDecoderStreamPolyfill } from './stream.js'
 
 /**
  * Util: API details
- * @export
  */
-export type API = {
+export type AxAPI = {
   name?: string
   headers?: Record<string, string>
   put?: boolean
@@ -23,7 +22,7 @@ const textDecoderStream = TextDecoderStreamNative ?? TextDecoderStreamPolyfill
 
 export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   api: Readonly<
-    API & {
+    AxAPI & {
       url: string | URL
       stream?: boolean
       debug?: boolean

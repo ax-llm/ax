@@ -35,7 +35,6 @@ export type AxAIOllamaArgs = {
 
 /**
  * OllamaAI: AI Service
- * @export
  */
 export class AxAIOllama extends AxAIOpenAI {
   constructor({

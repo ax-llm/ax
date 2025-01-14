@@ -40,7 +40,6 @@ export interface AxDBCloudflareArgs extends AxDBBaseArgs {
 
 /**
  * Cloudflare: DB Service
- * @export
  */
 export class AxDBCloudflare extends AxDBBase {
   private apiKey: string

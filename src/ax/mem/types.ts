@@ -1,8 +1,5 @@
 import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
 
-type Writeable<T> = { -readonly [P in keyof T]: T[P] }
-export type AxWritableChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>[]
-
 export interface AxAIMemory {
   add(
     result: Readonly<

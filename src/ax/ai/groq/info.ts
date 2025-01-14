@@ -4,7 +4,6 @@ import { AxAIGroqModel } from './types.js'
 
 /**
  * AxAIGroq: Model information
- * @export
  */
 export const axModelInfoGroq: AxModelInfo[] = [
   {

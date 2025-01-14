@@ -1,4 +1,4 @@
-import type { API } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -52,7 +52,6 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
 
 /**
  * AxAIGoogleGemini: Default Model options for text generation
- * @export
  */
 export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
   structuredClone({
@@ -127,7 +126,7 @@ class AxAIGoogleGeminiImpl
 
   createChatReq = (
     req: Readonly<AxInternalChatRequest>
-  ): [API, AxAIGoogleGeminiChatRequest] => {
+  ): [AxAPI, AxAIGoogleGeminiChatRequest] => {
     const model = req.model
     const stream = req.modelConfig?.stream ?? this.config.stream
 
@@ -330,7 +329,7 @@ class AxAIGoogleGeminiImpl
 
   createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
-  ): [API, AxAIGoogleGeminiBatchEmbedRequest] => {
+  ): [AxAPI, AxAIGoogleGeminiBatchEmbedRequest] => {
     const model = req.embedModel
 
     if (!model) {
@@ -436,7 +435,6 @@ class AxAIGoogleGeminiImpl
 
 /**
  * AxAIGoogleGemini: AI Service
- * @export
  */
 export class AxAIGoogleGemini extends AxBaseAI<
   AxAIGoogleGeminiChatRequest,

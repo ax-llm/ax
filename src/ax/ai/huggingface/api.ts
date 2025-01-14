@@ -1,4 +1,4 @@
-import type { API } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -69,7 +69,7 @@ class AxAIHuggingFaceImpl
     req: Readonly<AxInternalChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
-  ): [API, AxAIHuggingFaceRequest] => {
+  ): [AxAPI, AxAIHuggingFaceRequest] => {
     const model = req.model
 
     const functionsList = req.functions

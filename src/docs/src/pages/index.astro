@@ -1,36 +1,144 @@
 ---
-// import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
-import { Icon } from '@astrojs/starlight/components';
+// src/pages/index.astro
+import { getCollection } from 'astro:content'
+import Navigation from '../components/Navigation.astro'
 
-import {
-  BackgroundImage,
-  ImageSupportDetection,
-} from "astro-imagetools/components";
+function getOrderFromPath(path: string): number[] {
+  // Split path into segments
+  const segments = path.split('/')
 
+  // Map each segment to its order number
+  return segments.map((segment) => {
+    // Extract number from start of segment (e.g., "01-introduction" => 1)
+    const match = segment.match(/^(\d+)-/)
+    // If there's no match or no capture group, return a high number
+    if (!match || !match[1]) {
+      return Number.MAX_SAFE_INTEGER
+    }
+    return parseInt(match[1], 10)
+  })
+}
+
+function compareOrderedPaths(a: string, b: string): number {
+  const aOrders = getOrderFromPath(a)
+  const bOrders = getOrderFromPath(b)
+
+  // Compare each segment's order number
+  const minLength = Math.min(aOrders.length, bOrders.length)
+
+  for (let i = 0; i < minLength; i++) {
+    const aOrder = aOrders[i] ?? Number.MAX_SAFE_INTEGER
+    const bOrder = bOrders[i] ?? Number.MAX_SAFE_INTEGER
+
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder
+    }
+  }
+
+  // If all segments match, shorter paths come first
+  return aOrders.length - bOrders.length
+}
+
+// Get all markdown files from content/docs
+const allDocs = await getCollection('docs')
+
+// Sort by the number prefix in filename
+const sortedDocs = allDocs.sort((a, b) => compareOrderedPaths(a.slug, b.slug))
+
+// Render all markdown content
+const renderedDocs = await Promise.all(
+  sortedDocs.map(async (doc) => {
+    const { Content } = await doc.render()
+    return { ...doc, Content }
+  })
+)
+
+// Group docs by section (using first two digits of order)
+const groupedDocs = sortedDocs.reduce(
+  (acc, doc) => {
+    const sectionNum = doc.slug.match(/^(\d{2})/)?.[1] || '99'
+    const section = `Section ${sectionNum}`
+    if (!acc[section]) {
+      acc[section] = []
+    }
+    acc[section].push(doc)
+    return acc
+  },
+  {} as Record<string, typeof sortedDocs>
+)
 ---
-<ImageSupportDetection />
-<BackgroundImage src="/src/assets/mattress.png" 
-backgroundSize="cover" 
->
-    <div class="backdrop-brightness-90 w-full">
-    <div class="space-y-6 h-[calc(100dvh)] flex flex-col w-full lg:w-8/12 justify-between lg:justify-start py-[100px] px-8">
-        <div>
-            <div class="px-4 font-semibold text-white text-9xl lg:text-8xl">
-                <span class="text-7xl text-lime-400">Meet Ax,</span> <br/>The AI framework for those building the future
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ax Documentation</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body class="bg-warmGray-100 font-mono min-h-screen">
+    <Navigation groupedDocs={groupedDocs} />
+    <div class="max-w-6xl mx-auto p-8">
+      <!-- Header Section -->
+      <header class="mb-12">
+        <div class="flex justify-between items-center mb-8">
+          <div class="space-y-1">
+            <div class="text-gray-500 text-xs">AX AGENT FRAMEWORK</div>
+            <div class="text-gray-500 text-xs">
+              TYPESCRIPT-FIRST LLM INFRASTRUCTURE
             </div>
-            <div class="flex items-start lg:items-center gap-6 text-7xl lg:text-xl px-4 pt-6">
-                <a href="start/quick/" class="flex items-center justify-between gap-3 py-4 px-5 rounded-full bg-lime-400 hover:bg-lime-500 text-black">
-                    Quick Start <Icon name="right-arrow" size="2rem" />
-                </a>
-                <a href="https://github.com/ax-llm/ax" class="flex items-center justify-between gap-3 py-4 px-5 rounded-full border bg-white/80 hover:bg-white text-black">
-                    <div class="flex items-center gap-2"><Icon name="github" />Code</div>
-                    <Icon name="right-arrow" size="2rem" />
-                </a>
-            </div>
+          </div>
+          <div class="flex space-x-2">
+            <div class="w-3 h-3 rounded-full bg-red-400"></div>
+            <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
+            <div class="w-3 h-3 rounded-full bg-green-400"></div>
+          </div>
         </div>
-        <div class="text-white text-7xl lg:text-4xl font-light rounded-xl w-full px-4 lg:w-8/12">
-            Build LLM agents and agentic workflows. Based on the Stanford DSPy paper. Chat, RAG, streaming, multi-modal, and more.
+
+        <div class="bg-gray-800 text-blue-200 p-6 rounded-lg shadow-lg">
+          <h1 class="text-2xl font-bold mb-2">Ax Framework</h1>
+          <div class="text-lg">Build LLM-Powered Agents with TypeScript</div>
         </div>
+      </header>
+
+      <!-- Main Content - Rendered Markdown Sections -->
+      <main class="mt-12 space-y-24">
+        {
+          renderedDocs.map(({ Content, slug, data }) => (
+            <section
+              id={slug}
+              class="bg-warmGray-50 rounded-lg p-8 shadow-lg border border-gray-200"
+            >
+              <div class="mb-6">
+                <h2 class="text-xl text-gray-700 font-bold flex items-center">
+                  <span class="text-blue-400 mr-2">></span>
+                  {data.title}
+                </h2>
+                {data.description && (
+                  <p class="text-gray-600 mt-2">{data.description}</p>
+                )}
+              </div>
+
+              <div class="prose !max-w-none prose-inline-code:p-1 prose-inline-code:bg-indigo-50 prose-inline-code:before:content-none prose-inline-code:after:content-none prose-gray prose-pre:bg-gray-800 prose-pre:text-gray-100">
+                <Content />
+              </div>
+            </section>
+          ))
+        }
+      </main>
+
+      <!-- Footer -->
+      <footer class="mt-12 pt-6 border-t border-gray-300">
+        <div class="flex justify-between text-gray-500 text-sm">
+          <span>Based on Stanford DSPy</span>
+          <span>Machines as Agents™</span>
+          <span>TypeScript First</span>
+        </div>
+      </footer>
     </div>
-</div>
-</BackgroundImage>
+  </body>
+</html>

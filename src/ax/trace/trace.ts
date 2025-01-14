@@ -158,31 +158,26 @@ export interface AxSpanLink {
 export interface AxSpanOptions {
   /**
    * Optional attributes that can be attached to the AxSpan.
-   * @optional
    */
   attributes?: AxSpanAttributes
 
   /**
    * The kind of span, defaults to AxSpanKind.INTERNAL if not specified.
-   * @optional
    */
   kind?: AxSpanKind
 
   /**
    *  AxSpanLinks that associate this new AxSpan with other AxSpans.
-   * @optional
    */
   links?: AxSpanLink[]
 
   /**
    * Indicates whether the span should be a root span, ignoring any parent span from the context.
-   * @optional
    */
   root?: boolean
 
   /**
    * A manually specified start time for the span, if required.
-   * @optional
    */
   startTime?: AxSpanTimeInput
 }

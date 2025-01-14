@@ -1,4 +1,4 @@
-import type { API } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -82,7 +82,7 @@ class AxAICohereImpl
     req: Readonly<AxInternalChatRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
-  ): [API, AxAICohereChatRequest] {
+  ): [AxAPI, AxAICohereChatRequest] {
     const model = req.model
 
     const lastChatMsg = req.chatPrompt.at(-1)
@@ -168,7 +168,7 @@ class AxAICohereImpl
 
   createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
-  ): [API, AxAICohereEmbedRequest] => {
+  ): [AxAPI, AxAICohereEmbedRequest] => {
     const model = req.embedModel
 
     if (!model) {

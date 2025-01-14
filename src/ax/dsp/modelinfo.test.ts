@@ -1,6 +1,6 @@
 import test from 'ava'
 
-import { axGetModelInfo } from './modelinfo.js'
+import { getModelInfo } from './modelinfo.js'
 
 const modelMap = {
   'claude-3': 'claude-3-5-sonnet',
@@ -22,19 +22,19 @@ const modelInfo = [
 ]
 
 test('exact match should return correct model info', (t) => {
-  const result = axGetModelInfo({ model: 'claude-3-5-sonnet', modelInfo })
+  const result = getModelInfo({ model: 'claude-3-5-sonnet', modelInfo })
   t.is(result.name, 'claude-3-5-sonnet')
   t.is(result.promptTokenCostPer1M, 15000)
 })
 
 test('should handle model mapping', (t) => {
-  const result = axGetModelInfo({ model: 'claude-3', modelInfo, modelMap })
+  const result = getModelInfo({ model: 'claude-3', modelInfo, modelMap })
   t.is(result.name, 'claude-3-5-sonnet')
   t.is(result.promptTokenCostPer1M, 15000)
 })
 
 test('should handle vendor prefixes', (t) => {
-  const result = axGetModelInfo({
+  const result = getModelInfo({
     model: 'anthropic.claude-3-5-sonnet',
     modelInfo,
   })
@@ -43,7 +43,7 @@ test('should handle vendor prefixes', (t) => {
 })
 
 test('should handle date postfix', (t) => {
-  const result = axGetModelInfo({
+  const result = getModelInfo({
     model: 'claude-3-5-sonnet-20241022',
     modelInfo,
   })
@@ -51,12 +51,12 @@ test('should handle date postfix', (t) => {
 })
 
 test('should handle version postfix', (t) => {
-  const result = axGetModelInfo({ model: 'claude-3-5-sonnet-v2:0', modelInfo })
+  const result = getModelInfo({ model: 'claude-3-5-sonnet-v2:0', modelInfo })
   t.is(result.name, 'claude-3-5-sonnet')
 })
 
 test('should handle alternative date format', (t) => {
-  const result = axGetModelInfo({
+  const result = getModelInfo({
     model: 'claude-3-5-sonnet@20241022',
     modelInfo,
   })
@@ -64,7 +64,7 @@ test('should handle alternative date format', (t) => {
 })
 
 test('should handle latest postfix', (t) => {
-  const result = axGetModelInfo({
+  const result = getModelInfo({
     model: 'claude-3-5-sonnet-latest',
     modelInfo,
   })
@@ -72,12 +72,12 @@ test('should handle latest postfix', (t) => {
 })
 
 test('should handle numeric id postfix', (t) => {
-  const result = axGetModelInfo({ model: 'gpt-4o-mini-8388383', modelInfo })
+  const result = getModelInfo({ model: 'gpt-4o-mini-8388383', modelInfo })
   t.is(result.name, 'gpt-4o-mini')
 })
 
 test('should handle unknown model', (t) => {
-  const result = axGetModelInfo({ model: 'unknown-model', modelInfo })
+  const result = getModelInfo({ model: 'unknown-model', modelInfo })
   t.is(result.name, 'unknown-model')
   t.is(result.promptTokenCostPer1M, 0)
   t.is(result.completionTokenCostPer1M, 0)
@@ -85,7 +85,7 @@ test('should handle unknown model', (t) => {
 })
 
 test('should handle complex version with date', (t) => {
-  const result = axGetModelInfo({
+  const result = getModelInfo({
     model: 'claude-3-5-sonnet-v2@20241022',
     modelInfo,
   })
@@ -93,7 +93,7 @@ test('should handle complex version with date', (t) => {
 })
 
 test('should handle vendor prefix with version', (t) => {
-  const result = axGetModelInfo({
+  const result = getModelInfo({
     model: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
     modelInfo,
   })

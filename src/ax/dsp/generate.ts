@@ -29,7 +29,7 @@ import {
 } from './extract.js'
 import {
   type AxChatResponseFunctionCall,
-  type InputFunctionType,
+  type AxInputFunctionType,
   parseFunctionCalls,
   parseFunctions,
   processFunctions,
@@ -55,7 +55,7 @@ export interface AxGenOptions {
   debug?: boolean
   description?: string
 
-  functions?: InputFunctionType
+  functions?: AxInputFunctionType
   functionCall?: AxChatRequest['functionCall']
   stopFunction?: string
   promptTemplate?: typeof AxPromptTemplate

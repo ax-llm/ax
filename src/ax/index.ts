@@ -214,7 +214,8 @@ import {
 import {
   AxFunctionProcessor,
   type AxChatResponseFunctionCall,
-  type AxFunctionExec
+  type AxFunctionExec,
+  type AxInputFunctionType
 } from './dsp/functions.js';
 import {
   AxGen,
@@ -285,10 +286,6 @@ import {
   type AxEvaluateArgs
 } from './dsp/evaluate.js';
 import {
-  type AxAIMemory,
-  type AxWritableChatPrompt
-} from './mem/types.js';
-import {
   type AxAIModelMap,
   type AxAIPromptConfig,
   type AxAIService,
@@ -330,7 +327,8 @@ import {AxInstanceRegistry} from './dsp/registry.js';
 import {AxMemory} from './mem/memory.js';
 import {AxRAG} from './prompts/rag.js';
 import {AxValidationError} from './dsp/validate.js';
-import {axGetModelInfo} from './dsp/modelinfo.js';
+import {type AxAIMemory} from './mem/types.js';
+import {type AxAPI} from './util/apicall.js';
 
 // Value exports
 export { AxAI };
@@ -400,7 +398,6 @@ export { AxSpanKindValues };
 export { AxSpanStatusCode };
 export { AxTestPrompt };
 export { AxValidationError };
-export { axGetModelInfo };
 
 // Type exports
 export type { AxAIAnthropicArgs };
@@ -480,6 +477,7 @@ export type { AxAIServiceImpl };
 export type { AxAIServiceMetrics };
 export type { AxAIServiceOptions };
 export type { AxAITogetherArgs };
+export type { AxAPI };
 export type { AxAgentOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
@@ -532,6 +530,7 @@ export type { AxGenOptions };
 export type { AxGenOut };
 export type { AxGenerateResult };
 export type { AxIField };
+export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
 export type { AxMetricFn };
@@ -568,4 +567,3 @@ export type { AxTokenUsage };
 export type { AxTracer };
 export type { AxTunable };
 export type { AxUsable };
-export type { AxWritableChatPrompt };
