@@ -25,7 +25,7 @@
     "fix": "run-s fix:*",
     "fix:lint": "eslint --fix",
     "fix:format": "prettier --write \"**/*.{ts,json,md}\"",
-    "doc:build:markdown": "typedoc",
+    "doc:build:markdown": "typedoc --readme none",
     "coverage": "c8 ava",
     "prepare": "husky install",
     "tsx": "node --env-file=.env --import=tsx",

@@ -4,7 +4,7 @@ description: A more detailed guide to using Ax
 ---
 
 
-## Pick an LLM
+### Pick an LLM
 
 Ax is a zero-dependency framework. Every LLM API integration we build is solid, works well with Ax, and supports all required features, such as function calling, multi-modal, JSON, streaming, etc.
 
@@ -19,7 +19,7 @@ const ai = new AxAI({
 
 The LLMs are pre-configured with sensible defaults such as models and other conifgurations such as topK, temperature, etc
 
-## Prompting
+### Prompting
 
 Prompts are usually stressful and complex. You never know what the right prompt is, and blobs of text in your code are hard to deal with. We fix this by adopting the prompt signatures from the popular Stanford DSPy paper.
 
@@ -46,7 +46,7 @@ question:string, animalImage:image -> answer:string
 question:string, answers:string[] -> rating:number[]
 ```
 
-## Putting it all together
+### Putting it all together
 
 Use the above AI and a prompt to build an LLM-powered program to summarize the text.
 
@@ -80,7 +80,7 @@ tsx example.ts
 }
 ```
 
-## Build your first agent
+### Build your first agent
 
 Ax makes it really simple to build agents. An agent requires a `name`, `description` and `signature`. it can optionally use `functions` and other `agents`.
 

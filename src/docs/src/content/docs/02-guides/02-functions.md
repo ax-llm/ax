@@ -73,7 +73,7 @@ class GoogleSearch {
 ```
 
 
-## How to use these functions
+### How to use these functions
 
 Just set the function on the prompt
 
@@ -87,7 +87,7 @@ Or in the case of function classes
 const prompt = new AxGen('inputs -> output', { functions: [ new GoogleSearch(apiKey) ] })
 ```
 
-## Restaurant finding agent
+### Restaurant finding agent
 
 Let's create an agent to help find a restaurant based on the diner's preferences. To do this, we'll start by creating some dummy APIs specifically for this example. We’ll need a function to get the weather, and another one to look up places to eat at.
 

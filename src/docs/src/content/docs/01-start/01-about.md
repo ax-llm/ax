@@ -7,7 +7,7 @@ Building intelligent agents is a breeze with the Ax framework, inspired by the p
 
 Large language models (LLMs) are becoming really powerful and have reached a point where they can work as the backend for your entire product. However, there's still a lot of complexity to manage from using the correct prompts, models, streaming, function calls, error correction, and much more. We aim help manage this complexity via this easy-to-use library that can work with all state-of-the-art LLMs. Additionally, we are using the latest research to add new capabilities like DSPy to the library.
 
-## Install
+### Install
 
 With NPM
 
@@ -37,7 +37,7 @@ yarn add @ax-llm/ax
 - Lite weight, zero-dependencies
 
 
-## Quick Start
+### Quick Start
 
 1. Pick an AI to work with
 
@@ -69,6 +69,6 @@ const res = await ai.chat([
 ]);
 ```
 
-## Reach out
+### Reach out
 
 https://twitter.com/dosco

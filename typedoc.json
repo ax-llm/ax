@@ -17,5 +17,6 @@
   "preserveAnchorCasing": true,
   "excludePrivate": true,
   "excludeProtected": true,
-  "flattenOutputFiles": true
+  "flattenOutputFiles": true,
+  "mergeReadme": false
 }

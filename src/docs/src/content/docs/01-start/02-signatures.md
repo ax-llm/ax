@@ -9,7 +9,7 @@ Efficient type-safe prompts are auto-generated from a simple signature. A prompt
 
 You can have multiple input and output fields, and each field can be of the types `string`, `number`, `boolean`, `date`, `datetime`, `class "class1, class2"`, `JSON`, or an array of any of these, e.g., `string[]`. When a type is not defined, it defaults to `string`. The underlying AI is encouraged to generate the correct JSON when the `JSON` type is used.
 
-## Output Field Types
+### Output Field Types
 
 | Type                      | Description                       | Usage                      | Example Output                                     |
 |---------------------------|-----------------------------------|----------------------------|----------------------------------------------------|

@@ -56,8 +56,10 @@ const renderedDocs = await Promise.all(
 // Group docs by section (using first two digits of order)
 const groupedDocs = sortedDocs.reduce(
   (acc, doc) => {
-    const sectionNum = doc.slug.match(/^(\d{2})/)?.[1] || '99'
-    const section = `Section ${sectionNum}`
+    const match = doc.slug.match(/^(\d{2})-(\w+)/)
+    // Ensure section is always a string by using type assertion
+    const section = (match ? match[2] : 'other') as string
+
     if (!acc[section]) {
       acc[section] = []
     }
