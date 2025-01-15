@@ -1,3 +1,16 @@
+# Changelog
+
+## [10.0.29](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-15)
+
+### Bug Fixes
+
+* prompt improvements ([79891d6](https://github.com/ax-llm/ax/commit/79891d6c756385bae19b9fa4ed674c9d597d725c))
+## [10.0.28](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-14)
+
+### Bug Fixes
+
+* file path issue in ax build ([3264a11](https://github.com/ax-llm/ax/commit/3264a11387272387efeb029872b5406156ea3fa4))
+
 ## [10.0.28](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-14)
 
 ### Bug Fixes
