@@ -590,10 +590,10 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
       case 'system':
         return `${colorLog.blueBright('System:')}\n${colorLog.whiteBright(msg.content)}`
       case 'function':
-        return `${colorLog.blueBright('Function Result:')}\n${colorLog.whiteBright(msg.result)}`
+        return `${colorLog.blueBright('\nFunction Result:')}\n${colorLog.whiteBright(msg.result)}`
       case 'user': {
         if (typeof msg.content === 'string') {
-          return `${colorLog.blueBright('User:')}\n${colorLog.whiteBright(msg.content)}`
+          return `${colorLog.blueBright('\nUser:')}\n${colorLog.whiteBright(msg.content)}`
         }
         const items = msg.content.map((v) => {
           switch (v.type) {
@@ -605,7 +605,7 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
               throw new Error('Invalid content type')
           }
         })
-        return `${colorLog.blueBright('User:')}\n${items.join('\n')}`
+        return `${colorLog.blueBright('\nUser:')}\n${items.join('\n')}`
       }
       case 'assistant': {
         if (msg.functionCalls) {
@@ -616,9 +616,9 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
                 : fn.params
             return `${fn.name}(${args})`
           })
-          return `${colorLog.blueBright('Functions:')}\n${colorLog.whiteBright(fns.join('\n'))}`
+          return `${colorLog.blueBright('\nFunctions:')}\n${colorLog.whiteBright(fns.join('\n'))}`
         }
-        return `${colorLog.blueBright('Assistant:')}\n${colorLog.whiteBright(msg.content ?? '<empty>')}`
+        return `${colorLog.blueBright('\nAssistant:')}\n${colorLog.whiteBright(msg.content ?? '<empty>')}`
       }
       default:
         throw new Error('Invalid role')
