@@ -53,7 +53,9 @@ export class AxPromptTemplate {
     )
 
     const funcList = funcs
-      ?.map((fn) => `\`${fn.name}\`: ${capitalizeFirstLetter(fn.description)}`)
+      ?.map(
+        (fn) => `- \`${fn.name}\`: ${capitalizeFirstLetter(fn.description)}`
+      )
       .join('\n')
 
     if (funcList && funcList.length > 0) {

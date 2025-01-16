@@ -642,14 +642,19 @@ const logResponse = (resp: Readonly<AxChatResponse>) => {
     if (r.functionCalls) {
       for (const [i, f] of r.functionCalls.entries()) {
         if (f.function.name) {
+          if (i > 0) {
+            process.stdout.write('\n\n')
+          }
           process.stdout.write(
-            `\nFunction ${i + 1} -> ${colorLog.greenBright(f.function.name)} `
+            `Function ${i + 1} -> ${colorLog.greenBright(f.function.name)} `
           )
         }
         if (f.function.params) {
-          process.stdout.write(
-            colorLog.greenBright(f.function.params as string)
-          )
+          const params =
+            typeof f.function.params === 'string'
+              ? f.function.params
+              : JSON.stringify(f.function.params, null, 2)
+          process.stdout.write(`${colorLog.greenBright(params)}`)
         }
       }
     }
