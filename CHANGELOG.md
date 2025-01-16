@@ -1,5 +1,16 @@
 # Changelog
 
+## [10.0.30](https://github.com/ax-llm/ax/compare/10.0.28...10.0.29) (2025-01-16)
+
+### Bug Fixes
+
+* prompt updates ([6f51a92](https://github.com/ax-llm/ax/commit/6f51a92e26a1e543a5546321f4ab5bf9e39233b0))
+## [10.0.29](https://github.com/ax-llm/ax/compare/10.0.28...10.0.29) (2025-01-15)
+
+### Bug Fixes
+
+* prompt improvements ([79891d6](https://github.com/ax-llm/ax/commit/79891d6c756385bae19b9fa4ed674c9d597d725c))
+
 ## [10.0.29](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-15)
 
 ### Bug Fixes
