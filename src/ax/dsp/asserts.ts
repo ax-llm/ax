@@ -131,7 +131,9 @@ export const assertRequiredFields = (
   values: Record<string, unknown>
 ) => {
   const fields = sig.getOutputFields()
-  const missingFields = fields.filter((f) => !(f.name in values))
+  const missingFields = fields.filter(
+    (f) => !f.isOptional && !(f.name in values)
+  )
   if (missingFields.length > 0) {
     throw new AxAssertionError({
       message: `Output must include: ${missingFields.map((f) => `\`${f.title}:\``).join(', ')}`,
