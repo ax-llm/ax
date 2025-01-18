@@ -1,37 +1,51 @@
-# Changelog
+## [10.0.32](https://github.com/ax-llm/ax/compare/10.0.31...10.0.32) (2025-01-18)
+
+### Bug Fixes
+
+- Fix: don't fail validation on missing optional field (#94)
+  ([432f8fc](https://github.com/ax-llm/ax/commit/432f8fc53980a2316a0b0953cff4811592641ff0))
 
 ## [10.0.31](https://github.com/ax-llm/ax/compare/10.0.29...10.0.30) (2025-01-16)
 
 ### Bug Fixes
 
-* debug logs ([7939cde](https://github.com/ax-llm/ax/commit/7939cde6d82a42c79daa8197d27c2f25140c636b))
+- debug logs
+  ([7939cde](https://github.com/ax-llm/ax/commit/7939cde6d82a42c79daa8197d27c2f25140c636b))
+
 ## [10.0.30](https://github.com/ax-llm/ax/compare/10.0.29...10.0.30) (2025-01-16)
 
 ### Bug Fixes
 
-* prompt updates ([6f51a92](https://github.com/ax-llm/ax/commit/6f51a92e26a1e543a5546321f4ab5bf9e39233b0))
+- prompt updates
+  ([6f51a92](https://github.com/ax-llm/ax/commit/6f51a92e26a1e543a5546321f4ab5bf9e39233b0))
 
 ## [10.0.30](https://github.com/ax-llm/ax/compare/10.0.28...10.0.29) (2025-01-16)
 
 ### Bug Fixes
 
-* prompt updates ([6f51a92](https://github.com/ax-llm/ax/commit/6f51a92e26a1e543a5546321f4ab5bf9e39233b0))
+- prompt updates
+  ([6f51a92](https://github.com/ax-llm/ax/commit/6f51a92e26a1e543a5546321f4ab5bf9e39233b0))
+
 ## [10.0.29](https://github.com/ax-llm/ax/compare/10.0.28...10.0.29) (2025-01-15)
 
 ### Bug Fixes
 
-* prompt improvements ([79891d6](https://github.com/ax-llm/ax/commit/79891d6c756385bae19b9fa4ed674c9d597d725c))
+- prompt improvements
+  ([79891d6](https://github.com/ax-llm/ax/commit/79891d6c756385bae19b9fa4ed674c9d597d725c))
 
 ## [10.0.29](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-15)
 
 ### Bug Fixes
 
-* prompt improvements ([79891d6](https://github.com/ax-llm/ax/commit/79891d6c756385bae19b9fa4ed674c9d597d725c))
+- prompt improvements
+  ([79891d6](https://github.com/ax-llm/ax/commit/79891d6c756385bae19b9fa4ed674c9d597d725c))
+
 ## [10.0.28](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-14)
 
 ### Bug Fixes
 
-* file path issue in ax build ([3264a11](https://github.com/ax-llm/ax/commit/3264a11387272387efeb029872b5406156ea3fa4))
+- file path issue in ax build
+  ([3264a11](https://github.com/ax-llm/ax/commit/3264a11387272387efeb029872b5406156ea3fa4))
 
 ## [10.0.28](https://github.com/ax-llm/ax/compare/10.0.27...10.0.28) (2025-01-14)
 
