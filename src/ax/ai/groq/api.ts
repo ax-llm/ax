@@ -1,5 +1,5 @@
 import { AxRateLimiterTokenUsage } from '../../util/rate-limit.js'
-import { axBaseAIDefaultConfig, type AxBaseAIFeatures } from '../base.js'
+import { axBaseAIDefaultConfig } from '../base.js'
 import { AxAIOpenAI } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
 import type { AxAIServiceOptions, AxRateLimiterFunction } from '../types.js'
