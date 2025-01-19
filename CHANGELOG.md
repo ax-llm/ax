@@ -1,15 +1,26 @@
 # Changelog
 
+## [10.0.34](https://github.com/ax-llm/ax/compare/10.0.33...10.0.34) (2025-01-19)
+
+### Bug Fixes
+
+- Fix: ci failure (#96)
+  ([ba835f4](https://github.com/ax-llm/ax/commit/ba835f4620b1a79367cc7706aa7b5539c0517f49))
+
 ## [10.0.33](https://github.com/ax-llm/ax/compare/10.0.31...10.0.32) (2025-01-19)
 
 ### Bug Fixes
 
-* gemini flash function calling issue ([6480d2c](https://github.com/ax-llm/ax/commit/6480d2c450f96b77b8fbb30815cc375a49875168))
+- gemini flash function calling issue
+  ([6480d2c](https://github.com/ax-llm/ax/commit/6480d2c450f96b77b8fbb30815cc375a49875168))
+
 ## [10.0.32](https://github.com/ax-llm/ax/compare/10.0.31...10.0.32) (2025-01-18)
 
 ### Bug Fixes
 
-* don't fail validation on missing optional field ([#94](https://github.com/ax-llm/ax/issues/94)) ([432f8fc](https://github.com/ax-llm/ax/commit/432f8fc53980a2316a0b0953cff4811592641ff0))
+- don't fail validation on missing optional field
+  ([#94](https://github.com/ax-llm/ax/issues/94))
+  ([432f8fc](https://github.com/ax-llm/ax/commit/432f8fc53980a2316a0b0953cff4811592641ff0))
 
 ## [10.0.32](https://github.com/ax-llm/ax/compare/10.0.31...10.0.32) (2025-01-18)
 
