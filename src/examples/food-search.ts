@@ -64,7 +64,7 @@ const opentableAPI = ({
       cuisine: 'sushi',
       rating: 4.7,
       price_range: '$$',
-      outdoor_seating: true,
+      outdoor_seating: false,
     },
     {
       name: 'Oyster Bar',
@@ -75,16 +75,16 @@ const opentableAPI = ({
       outdoor_seating: true,
     },
     {
-      name: 'Quay',
-      city: 'tokyo',
-      cuisine: 'sushi',
+      name: 'China Express',
+      city: 'san francisco',
+      cuisine: 'chinese',
       rating: 4.6,
       price_range: '$$$$',
       outdoor_seating: true,
     },
     {
       name: 'White Rabbit',
-      city: 'tokyo',
+      city: 'san francisco',
       cuisine: 'indian',
       rating: 4.7,
       price_range: '$$$',
@@ -148,26 +148,28 @@ const functions: AxFunction[] = [
   },
 ]
 
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
-})
-
 // const ai = new AxAI({
-//   name: 'google-gemini',
-//   apiKey: process.env.GOOGLE_APIKEY as string,
-//   config: { model: AxAIGoogleGeminiModel.Gemini15Flash },
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string,
+//   config: { model: AxAIOpenAIModel.GPT4OMini },
 // })
+
+const ai = new AxAI({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: AxAIGoogleGeminiModel.Gemini15Flash },
+})
 
 // const ai = new AxAI({
 //   name: 'groq',
 //   apiKey: process.env.GROQ_APIKEY as string,
+//   config: { stream: false },
 // })
 
 // const ai = new AxAI({
 //   name: 'cohere',
 //   apiKey: process.env.COHERE_APIKEY as string,
+//   config: { stream: false },
 // })
 
 // const ai = new AxAI({
@@ -179,10 +181,10 @@ const ai = new AxAI({
 ai.setOptions({ debug: true })
 
 const customerQuery =
-  "Give me an ideas for lunch today in San Francisco. I like sushi but I don't want to spend too much or other options are fine as well. Also if its a nice day I'd rather sit outside."
+  "Give me an ideas for lunch today in San Francisco. I like sushi, chinese, indian. Also if its a nice day I'd rather sit outside. Find me something."
 
 const signature = new AxSignature(
-  `customerQuery:string  -> restaurant:string, priceRange:string "use $ signs to indicate price range"`
+  `customerQuery:string  -> plan: string "detailed plan to find a place to eat", restaurant:string, priceRange:string "use $ signs to indicate price range"`
 )
 
 const gen = new AxAgent<

@@ -49,8 +49,8 @@ export class AxAssertionError extends Error {
     // }
 
     extraFields.push({
-      name: 'instructions',
-      title: 'Instructions',
+      name: 'error',
+      title: 'Error',
       description: this.message,
     })
 

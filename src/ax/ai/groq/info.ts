@@ -7,14 +7,14 @@ import { AxAIGroqModel } from './types.js'
  */
 export const axModelInfoGroq: AxModelInfo[] = [
   {
-    name: AxAIGroqModel.Gemma_7B,
+    name: AxAIGroqModel.Gemma2_9B,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 0.2,
     completionTokenCostPer1M: 0.2,
   },
   {
-    name: AxAIGroqModel.Llama3_70B,
+    name: AxAIGroqModel.Llama33_70B,
     currency: 'usd',
     characterIsToken: true,
     promptTokenCostPer1M: 0.59,
