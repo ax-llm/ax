@@ -137,7 +137,7 @@ class AxAIGoogleGeminiImpl
     const apiConfig = {
       name: stream
         ? `/models/${model}:streamGenerateContent?alt=sse`
-        : `/models/${model}:createContent`,
+        : `/models/${model}:generateContent`,
     }
 
     if (this.isVertex === false) {
