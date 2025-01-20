@@ -1,5 +1,16 @@
 # Changelog
 
+## [10.0.35](https://github.com/ax-llm/ax/compare/10.0.33...10.0.34) (2025-01-20)
+
+### Bug Fixes
+
+* gemini non-streaming endpoint fix ([11179ad](https://github.com/ax-llm/ax/commit/11179ad312989b56b79c9144527e5e8371a1c281))
+## [10.0.34](https://github.com/ax-llm/ax/compare/10.0.33...10.0.34) (2025-01-19)
+
+### Bug Fixes
+
+* ci failure ([#96](https://github.com/ax-llm/ax/issues/96)) ([ba835f4](https://github.com/ax-llm/ax/commit/ba835f4620b1a79367cc7706aa7b5539c0517f49))
+
 ## [10.0.34](https://github.com/ax-llm/ax/compare/10.0.33...10.0.34) (2025-01-19)
 
 ### Bug Fixes
