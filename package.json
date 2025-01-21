@@ -80,7 +80,7 @@
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
-  "version": "10.0.35",
+  "version": "10.0.36",
   "dependencies": {
     "@total-typescript/tsconfig": "^1.0.4"
   }

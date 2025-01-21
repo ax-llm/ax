@@ -1,5 +1,16 @@
 # Changelog
 
+## [10.0.36](https://github.com/ax-llm/ax/compare/10.0.34...10.0.35) (2025-01-21)
+
+### Features
+
+* new tagging api for memory ([2538a46](https://github.com/ax-llm/ax/commit/2538a460894634b16dc8fb5b64b1db68e6024709))
+## [10.0.35](https://github.com/ax-llm/ax/compare/10.0.34...10.0.35) (2025-01-20)
+
+### Bug Fixes
+
+* gemini non-streaming endpoint fix ([11179ad](https://github.com/ax-llm/ax/commit/11179ad312989b56b79c9144527e5e8371a1c281))
+
 ## [10.0.35](https://github.com/ax-llm/ax/compare/10.0.33...10.0.34) (2025-01-20)
 
 ### Bug Fixes
