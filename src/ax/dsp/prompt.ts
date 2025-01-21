@@ -48,7 +48,7 @@ export class AxPromptTemplate {
     const inArgs = this.renderDescFields(this.sig.getInputFields())
     const outArgs = this.renderDescFields(this.sig.getOutputFields())
     const task = [
-      `You will be provided with the following fields: ${inArgs}. Your task is to generate two new fields: ${outArgs}.`,
+      `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`,
     ]
 
     const funcs = functions?.map((f) =>
@@ -171,6 +171,7 @@ export class AxPromptTemplate {
         prompt.push(...fn(field, field.description))
       })
     }
+
     if (prompt.every((v) => v.type === 'text')) {
       return prompt.map((v) => v.text).join('\n\n')
     }

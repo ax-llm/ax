@@ -1,7 +1,7 @@
 import moment from 'moment-timezone'
 
 import type { AxField } from './sig.js'
-import { AxValidationError } from './validate.js'
+import { ValidationError } from './validate.js'
 
 export function parseLLMFriendlyDate(
   field: Readonly<AxField>,
@@ -11,7 +11,7 @@ export function parseLLMFriendlyDate(
     return _parseLLMFriendlyDate(dateStr)
   } catch (err) {
     const message = (err as Error).message
-    throw new AxValidationError({ field, message, value: dateStr })
+    throw new ValidationError({ field, message, value: dateStr })
   }
 }
 
@@ -37,7 +37,7 @@ export function parseLLMFriendlyDateTime(
     return _parseLLMFriendlyDateTime(dateStr)
   } catch (err) {
     const message = (err as Error).message
-    throw new AxValidationError({ field, message, value: dateStr })
+    throw new ValidationError({ field, message, value: dateStr })
   }
 }
 

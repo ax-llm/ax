@@ -142,4 +142,8 @@ export class AxBalancer implements AxAIService {
   setOptions(options: Readonly<AxAIServiceOptions>): void {
     this.currentService.setOptions(options)
   }
+
+  getOptions(): Readonly<AxAIServiceOptions> {
+    return this.currentService.getOptions()
+  }
 }

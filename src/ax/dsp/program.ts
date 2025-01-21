@@ -58,7 +58,6 @@ export type AxProgramForwardOptions = {
   tracer?: Tracer
   rateLimiter?: AxRateLimiterFunction
   stream?: boolean
-  debug?: boolean
   functions?: AxFunction[]
   functionCall?: AxChatRequest['functionCall']
   stopFunction?: string

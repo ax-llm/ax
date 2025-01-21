@@ -36,21 +36,12 @@ export class AxAssertionError extends Error {
   public getValue = () => this.values
   public getOptional = () => this.optional
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public getFixingInstructions = (_sig: Readonly<AxSignature>) => {
+  public getFixingInstructions = () => {
     const extraFields = []
-
-    // for (const f of sig.getOutputFields()) {
-    //   extraFields.push({
-    //     name: `past_${f.name}`,
-    //     title: `Past ${f.title}`,
-    //     description: JSON.stringify(this.values[f.name])
-    //   });
-    // }
 
     extraFields.push({
       name: 'error',
-      title: 'Error',
+      title: 'Error In Output',
       description: this.message,
     })
 
@@ -65,17 +56,12 @@ export const assertAssertions = (
   for (const assert of asserts) {
     const { fn, message, optional } = assert
 
-    try {
-      const res = fn(values)
-      if (res === undefined) {
-        continue
-      }
+    const res = fn(values)
+    if (res === undefined) {
+      continue
+    }
 
-      if (!res && message) {
-        throw new AxAssertionError({ message, values, optional })
-      }
-    } catch (e) {
-      const message = (e as Error).message
+    if (!res && message) {
       throw new AxAssertionError({ message, values, optional })
     }
   }
@@ -110,17 +96,12 @@ export const assertStreamingAssertions = (
   for (const assert of fieldAsserts) {
     const { message, optional, fn } = assert
 
-    try {
-      const res = fn(currValue, final)
-      if (res === undefined) {
-        continue
-      }
+    const res = fn(currValue, final)
+    if (res === undefined) {
+      continue
+    }
 
-      if (!res && message) {
-        throw new AxAssertionError({ message, values, optional })
-      }
-    } catch (e) {
-      const message = (e as Error).message
+    if (!res && message) {
       throw new AxAssertionError({ message, values, optional })
     }
   }

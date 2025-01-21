@@ -13,6 +13,7 @@ import type {
 import { mergeFunctionCalls } from '../ai/util.js'
 import { AxMemory } from '../mem/memory.js'
 import type { AxAIMemory } from '../mem/types.js'
+import { ColorLog } from '../util/log.js'
 
 import {
   assertAssertions,
@@ -43,7 +44,9 @@ import {
 } from './program.js'
 import { AxPromptTemplate } from './prompt.js'
 import { AxSignature } from './sig.js'
-import { AxValidationError } from './validate.js'
+import { ValidationError } from './validate.js'
+
+const colorLog = new ColorLog()
 
 export interface AxGenOptions {
   maxCompletions?: number
@@ -53,7 +56,6 @@ export interface AxGenOptions {
   tracer?: Tracer
   rateLimiter?: AxRateLimiterFunction
   stream?: boolean
-  debug?: boolean
   description?: string
 
   functions?: AxInputFunctionType
@@ -367,11 +369,11 @@ export class AxGen<
       options?.stopFunction ?? this.options?.stopFunction
     )?.toLowerCase()
 
-    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 15
+    const maxRetries = options?.maxRetries ?? this.options?.maxRetries ?? 3
     const maxSteps = options?.maxSteps ?? this.options?.maxSteps ?? 10
     const mem = options?.mem ?? this.options?.mem ?? new AxMemory()
 
-    let err: AxValidationError | AxAssertionError | undefined
+    let err: ValidationError | AxAssertionError | undefined
 
     if (options?.functions && options?.functions.length > 0) {
       const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate
@@ -389,7 +391,7 @@ export class AxGen<
     mem.add(prompt, options?.sessionId)
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
-      for (let i = 0; i < maxRetries; i++) {
+      for (let errCount = 0; errCount < maxRetries; errCount++) {
         try {
           const output = await this.forwardCore({
             options,
@@ -399,42 +401,54 @@ export class AxGen<
 
           const lastMemItem = mem.getLast(options?.sessionId)
 
-          const stopFunctionExecuted =
-            stopFunction && this.functionsExecuted.has(stopFunction)
+          if (lastMemItem) {
+            const stopFunctionExecuted =
+              stopFunction && this.functionsExecuted.has(stopFunction)
 
-          if (lastMemItem?.role === 'function') {
-            if (!stopFunction || !stopFunctionExecuted) {
-              continue multiStepLoop
+            if (lastMemItem.role === 'function') {
+              if (!stopFunction || !stopFunctionExecuted) {
+                continue multiStepLoop
+              }
             }
-          }
 
-          if (!stopFunctionExecuted) {
-            assertRequiredFields(this.signature, output)
+            if (!stopFunctionExecuted) {
+              assertRequiredFields(this.signature, output)
+            }
           }
 
           this.trace = { ...values, ...output }
           return output
         } catch (e) {
-          let extraFields
+          let errorFields
           span?.recordException(e as Error)
 
-          if (e instanceof AxValidationError) {
-            extraFields = e.getFixingInstructions()
+          if (e instanceof ValidationError) {
+            errorFields = e.getFixingInstructions()
             err = e
           } else if (e instanceof AxAssertionError) {
             const e1 = e as AxAssertionError
-            extraFields = e1.getFixingInstructions(this.signature)
+            errorFields = e1.getFixingInstructions()
             err = e
           } else {
             throw e
           }
 
-          if (extraFields) {
-            const content = this.promptTemplate.renderExtraFields(extraFields)
-            mem.add({ role: 'user' as const, content }, options?.sessionId)
+          if (errorFields) {
+            mem.add(
+              {
+                role: 'user' as const,
+                content: this.promptTemplate.renderExtraFields(errorFields),
+              },
+              options?.sessionId
+            )
+            mem.addTag('error')
 
-            if (options?.debug) {
-              console.log('Error Correction:', content)
+            if (ai.getOptions().debug) {
+              process.stdout.write(
+                colorLog.red(
+                  `Error Correction:\n${JSON.stringify(errorFields, null, 2)}\n`
+                )
+              )
             }
           }
         }

@@ -15,12 +15,17 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
   return next10Numbers ? !next10Numbers.includes(5) : undefined
 }, 'Numbers 5 is not allowed')
 
+gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
+  return next10Numbers ? !next10Numbers.includes(2) : undefined
+}, 'Numbers 2 is not allowed')
+
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
 })
+ai.setOptions({ debug: true })
 
 // run the program with streaming enabled
-const res = await gen.forward(ai, { startNumber: 1 }, { debug: true })
+const res = await gen.forward(ai, { startNumber: 1 })
 
 console.log('>', res)

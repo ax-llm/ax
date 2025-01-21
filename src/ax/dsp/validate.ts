@@ -1,7 +1,7 @@
 import { toFieldType } from './prompt.js'
 import type { AxField } from './sig.js'
 
-export class AxValidationError extends Error {
+export class ValidationError extends Error {
   private field: AxField
   private value: string
 
@@ -29,9 +29,9 @@ export class AxValidationError extends Error {
 
     const extraFields = [
       {
-        name: `invalidField`,
-        title: `Invalid Field`,
-        description: `Ensure the field \`${f.title}\` is of type \`${toFieldType(f.type)}\``,
+        name: `outputError`,
+        title: `Invalid Output Field`,
+        description: `Invalid format for field \`${f.title}\` of type \`${toFieldType(f.type)}\`, format should match: \`${f.description}\``,
       },
     ]
 

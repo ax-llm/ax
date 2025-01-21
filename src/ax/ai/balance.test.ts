@@ -37,6 +37,7 @@ class MockService implements AxAIService {
 
   embed = async () => ({}) as AxEmbedResponse
   setOptions = () => {}
+  getOptions = () => ({})
 
   chat = async (
     // eslint-disable-next-line @typescript-eslint/no-unused-vars

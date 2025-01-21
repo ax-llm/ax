@@ -239,6 +239,7 @@ export interface AxAIService {
   ): Promise<AxEmbedResponse>
 
   setOptions(options: Readonly<AxAIServiceOptions>): void
+  getOptions(): Readonly<AxAIServiceOptions>
 }
 
 export interface AxAIServiceImpl<

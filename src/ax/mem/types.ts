@@ -14,4 +14,7 @@ export interface AxAIMemory {
   reset(sessionId?: string): void
 
   getLast(sessionId?: string): AxChatRequest['chatPrompt'][0] | undefined
+
+  addTag(name: string, sessionId?: string): void
+  rewindToTag(name: string, sessionId?: string): AxChatRequest['chatPrompt']
 }

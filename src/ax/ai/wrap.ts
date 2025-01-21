@@ -164,4 +164,8 @@ export class AxAI implements AxAIService {
   setOptions(options: Readonly<AxAIServiceOptions>): void {
     this.ai.setOptions(options)
   }
+
+  getOptions(): Readonly<AxAIServiceOptions> {
+    return this.ai.getOptions()
+  }
 }

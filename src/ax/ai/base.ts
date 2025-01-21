@@ -190,6 +190,15 @@ export class AxBaseAI<
     }
   }
 
+  getOptions(): Readonly<AxAIServiceOptions> {
+    return {
+      debug: this.debug,
+      rateLimiter: this.rt,
+      fetch: this.fetch,
+      tracer: this.tracer,
+    }
+  }
+
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
     const mi = getModelInfo({
       model: this.models.model,
@@ -590,10 +599,10 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
       case 'system':
         return `${colorLog.blueBright('System:')}\n${colorLog.whiteBright(msg.content)}`
       case 'function':
-        return `${colorLog.blueBright('\nFunction Result:')}\n${colorLog.whiteBright(msg.result)}`
+        return `${colorLog.blueBright('Function Result:')}\n${colorLog.whiteBright(msg.result)}`
       case 'user': {
         if (typeof msg.content === 'string') {
-          return `${colorLog.blueBright('\nUser:')}\n${colorLog.whiteBright(msg.content)}`
+          return `${colorLog.blueBright('User:')}\n${colorLog.whiteBright(msg.content)}`
         }
         const items = msg.content.map((v) => {
           switch (v.type) {
@@ -605,7 +614,7 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
               throw new Error('Invalid content type')
           }
         })
-        return `${colorLog.blueBright('\nUser:')}\n${items.join('\n')}`
+        return `${colorLog.blueBright('User:')}\n${items.join('\n')}`
       }
       case 'assistant': {
         if (msg.functionCalls) {
@@ -626,8 +635,7 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
   })
 
   if (items) {
-    console.log('\n==========')
-    console.log(items.join('\n'))
+    process.stdout.write('\n===\n' + items.join('\n') + '\n\n---\n')
   }
 }
 

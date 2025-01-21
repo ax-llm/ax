@@ -3,18 +3,154 @@ import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
 import type { AxAIMemory } from './types.js'
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] }
-type WritableChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>[]
+type WriteableChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>
 
-export class AxMemory implements AxAIMemory {
-  private data: WritableChatPrompt = []
-  private sdata = new Map<string, WritableChatPrompt>()
-  private limit: number
+type MemoryData = {
+  tags?: string[]
+  chat: WriteableChatPrompt
+}[]
 
-  constructor(limit = 50) {
+const defaultLimit = 10000
+
+export class MemoryImpl {
+  private data: MemoryData = []
+
+  constructor(private limit = defaultLimit) {
     if (limit <= 0) {
       throw Error("argument 'limit' must be greater than 0")
     }
-    this.limit = limit
+  }
+
+  add(
+    value: Readonly<
+      AxChatRequest['chatPrompt'][0] | AxChatRequest['chatPrompt']
+    >
+  ): void {
+    if (Array.isArray(value)) {
+      this.data.push(...value.map((chat) => ({ chat: structuredClone(chat) })))
+    } else {
+      this.data.push({
+        chat: structuredClone(value) as WriteableChatPrompt,
+      })
+    }
+
+    if (this.data.length > this.limit) {
+      const removeCount = this.data.length - this.limit
+      this.data.splice(0, removeCount)
+    }
+  }
+
+  addResult({
+    content,
+    name,
+    functionCalls,
+  }: Readonly<AxChatResponseResult>): void {
+    if (!content && (!functionCalls || functionCalls.length === 0)) {
+      return
+    }
+    this.add({ content, name, role: 'assistant', functionCalls })
+  }
+
+  updateResult({
+    content,
+    name,
+    functionCalls,
+  }: Readonly<AxChatResponseResult>): void {
+    const lastItem = this.data.at(-1)
+
+    if (!lastItem || lastItem.chat.role !== 'assistant') {
+      this.addResult({ content, name, functionCalls })
+      return
+    }
+
+    if ('content' in lastItem.chat && content) {
+      lastItem.chat.content = content
+    }
+    if ('name' in lastItem.chat && name) {
+      lastItem.chat.name = name
+    }
+    if ('functionCalls' in lastItem.chat && functionCalls) {
+      lastItem.chat.functionCalls = functionCalls
+    }
+  }
+
+  addTag(name: string): void {
+    const lastItem = this.data.at(-1)
+    if (!lastItem) {
+      return
+    }
+
+    if (!lastItem.tags) {
+      lastItem.tags = []
+    }
+
+    if (!lastItem.tags.includes(name)) {
+      lastItem.tags.push(name)
+    }
+  }
+
+  rewindToTag(name: string): AxChatRequest['chatPrompt'] {
+    const tagIndex = this.data.findIndex((item) => item.tags?.includes(name))
+    if (tagIndex === -1) {
+      throw new Error(`Tag "${name}" not found`)
+    }
+
+    // Remove and return the tagged item and everything after it
+    const removedItems = this.data.splice(tagIndex)
+    return removedItems.map((item) => item.chat)
+  }
+
+  removeByTag(name: string): AxChatRequest['chatPrompt'] {
+    const indices = this.data.reduce<number[]>((acc, item, index) => {
+      if (item.tags?.includes(name)) {
+        acc.push(index)
+      }
+      return acc
+    }, [])
+
+    if (indices.length === 0) {
+      throw new Error(`No items found with tag "${name}"`)
+    }
+
+    return indices
+      .reverse()
+      .map((index) => this.data.splice(index, 1).at(0)?.chat)
+      .filter(Boolean)
+      .reverse() as AxChatRequest['chatPrompt']
+  }
+
+  history(): AxChatRequest['chatPrompt'] {
+    return this.data.map((item) => item.chat)
+  }
+
+  getLast(): AxChatRequest['chatPrompt'][0] | undefined {
+    const lastItem = this.data.at(-1)
+    return lastItem?.chat
+  }
+
+  reset(): void {
+    this.data = []
+  }
+}
+
+export class AxMemory implements AxAIMemory {
+  private memories = new Map<string, MemoryImpl>()
+  private defaultMemory: MemoryImpl
+
+  constructor(private limit = defaultLimit) {
+    this.defaultMemory = new MemoryImpl(limit)
+  }
+
+  private getMemory(sessionId?: string): MemoryImpl {
+    if (!sessionId) {
+      return this.defaultMemory
+    }
+
+    if (!this.memories.has(sessionId)) {
+      this.memories.set(sessionId, new MemoryImpl(this.limit))
+    }
+
+    return this.memories.get(sessionId)!
   }
 
   add(
@@ -23,81 +159,41 @@ export class AxMemory implements AxAIMemory {
     >,
     sessionId?: string
   ): void {
-    const d = this.get(sessionId)
-    let n = 0
-
-    if (Array.isArray(value)) {
-      n = d.push(...structuredClone(value))
-    } else {
-      n = d.push({
-        ...structuredClone(value),
-      } as AxChatRequest['chatPrompt'][0])
-    }
-    if (d.length > this.limit) {
-      d.splice(0, this.limit + n - this.limit)
-    }
+    this.getMemory(sessionId).add(value)
   }
 
-  addResult(
-    { content, name, functionCalls }: Readonly<AxChatResponseResult>,
-    sessionId?: string
-  ): void {
-    if (!content && (!functionCalls || functionCalls.length === 0)) {
-      return
-    }
-    this.add({ content, name, role: 'assistant', functionCalls }, sessionId)
+  addResult(result: Readonly<AxChatResponseResult>, sessionId?: string): void {
+    this.getMemory(sessionId).addResult(result)
   }
 
   updateResult(
-    { content, name, functionCalls }: Readonly<AxChatResponseResult>,
+    result: Readonly<AxChatResponseResult>,
     sessionId?: string
   ): void {
-    const items = this.get(sessionId)
+    this.getMemory(sessionId).updateResult(result)
+  }
 
-    const lastItem = items.at(-1)
+  addTag(name: string, sessionId?: string): void {
+    this.getMemory(sessionId).addTag(name)
+  }
 
-    if (!lastItem || lastItem.role !== 'assistant') {
-      this.addResult({ content, name, functionCalls }, sessionId)
-      return
-    }
-
-    if ('content' in lastItem && content) {
-      lastItem.content = content
-    }
-    if ('name' in lastItem && name) {
-      lastItem.name = name
-    }
-    if ('functionCalls' in lastItem && functionCalls) {
-      lastItem.functionCalls = functionCalls
-    }
+  rewindToTag(name: string, sessionId?: string): AxChatRequest['chatPrompt'] {
+    return this.getMemory(sessionId).rewindToTag(name)
   }
 
   history(sessionId?: string): AxChatRequest['chatPrompt'] {
-    return this.get(sessionId)
+    return this.getMemory(sessionId).history()
   }
 
   getLast(sessionId?: string): AxChatRequest['chatPrompt'][0] | undefined {
-    const d = this.get(sessionId)
-    return d.at(-1)
+    return this.getMemory(sessionId).getLast()
   }
 
-  reset(sessionId?: string) {
+  reset(sessionId?: string): void {
     if (!sessionId) {
-      this.data = []
+      this.defaultMemory.reset()
     } else {
-      this.sdata.set(sessionId, [])
+      this.memories.set(sessionId, new MemoryImpl(this.limit))
     }
-  }
-
-  private get(sessionId?: string): WritableChatPrompt {
-    if (!sessionId) {
-      return this.data
-    }
-
-    if (!this.sdata.has(sessionId)) {
-      this.sdata.set(sessionId, [])
-    }
-
-    return this.sdata.get(sessionId) || []
   }
 }
