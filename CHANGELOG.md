@@ -1,5 +1,11 @@
 # Changelog
 
+## [10.0.37](https://github.com/ax-llm/ax/compare/10.0.36...10.0.37) (2025-01-23)
+
+### Features
+
+* Add logging for balancer failover (#101) ([de5287a](https://github.com/ax-llm/ax/commit/de5287a4652e209d0911a25aa609cc131db21135))
+
 ## [10.0.36](https://github.com/ax-llm/ax/compare/10.0.34...10.0.35) (2025-01-21)
 
 ### Features
