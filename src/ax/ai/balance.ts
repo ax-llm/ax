@@ -115,9 +115,11 @@ export class AxBalancer implements AxAIService {
       try {
         return await this.currentService.chat(req, options)
       } catch (e) {
+        console.warn(`Service ${this.currentService.getName()} failed`)
         if (!this.getNextService()) {
           throw e
         }
+        console.warn(`Switching to service ${this.currentService.getName()}`)
       }
     }
   }
@@ -132,9 +134,11 @@ export class AxBalancer implements AxAIService {
       try {
         return await this.currentService.embed(req, options)
       } catch (e) {
+        console.warn(`Service ${this.currentService.getName()} failed`)
         if (!this.getNextService()) {
           throw e
         }
+        console.warn(`Switching to service ${this.currentService.getName()}`)
       }
     }
   }
