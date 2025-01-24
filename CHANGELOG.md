@@ -1,4 +1,10 @@
-# Changelog
+
+
+## [10.0.38](https://github.com/ax-llm/ax/compare/10.0.37...10.0.38) (2025-01-24)
+
+### Bug Fixes
+
+* Move service comparators inside AxBalancer class (#104) ([0be9db5](https://github.com/ax-llm/ax/commit/0be9db5bad13ae709c17031a3fca4797e2e768f2))
 
 ## [10.0.37](https://github.com/ax-llm/ax/compare/10.0.36...10.0.37) (2025-01-23)
 
