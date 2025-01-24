@@ -31,7 +31,7 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ai-sdk/provider-utils": "^2.0.7 ",
+    "@ai-sdk/provider-utils": "^2.1.2",
     "@ax-llm/ax": "10.0.38",
     "ai": "^4.0.33",
     "zod": "^3.23.8"
