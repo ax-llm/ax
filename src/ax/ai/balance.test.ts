@@ -1,6 +1,6 @@
 import test from 'ava'
 
-import { AxBalancer, axInputOrderComparator } from './balance.js'
+import { AxBalancer } from './balance.js'
 import type {
   AxAIPromptConfig,
   AxAIService,
@@ -102,7 +102,7 @@ test('first service works comparator', async (t) => {
   ]
 
   const balancer = new AxBalancer(services, {
-    comparator: axInputOrderComparator,
+    comparator: AxBalancer.inputOrderComparator,
   })
 
   await balancer.chat({
@@ -125,7 +125,7 @@ test('first service fails comparator', async (t) => {
   ]
 
   const balancer = new AxBalancer(services, {
-    comparator: axInputOrderComparator,
+    comparator: AxBalancer.inputOrderComparator,
   })
 
   await balancer.chat({
