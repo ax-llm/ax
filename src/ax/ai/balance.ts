@@ -15,26 +15,6 @@ import type {
 } from './types.js'
 
 /**
- * Service comparator that sorts services by cost.
- */
-export const axCostComparator = (a: AxAIService, b: AxAIService) => {
-  const aInfo = a.getModelInfo()
-  const bInfo = b.getModelInfo()
-  const aTotalCost =
-    (aInfo.promptTokenCostPer1M || Infinity) +
-    (aInfo.completionTokenCostPer1M || Infinity)
-  const bTotalCost =
-    (bInfo.promptTokenCostPer1M || Infinity) +
-    (bInfo.completionTokenCostPer1M || Infinity)
-  return aTotalCost - bTotalCost
-}
-
-/**
- * Service comparator that respects the input order of services.
- */
-export const axInputOrderComparator = () => 0
-
-/**
  * Options for the balancer.
  */
 export type AxBalancerOptions = {
@@ -54,13 +34,35 @@ export class AxBalancer implements AxAIService {
       throw new Error('No AI services provided.')
     }
 
-    this.services = [...services].sort(options?.comparator ?? axCostComparator)
+    this.services = [...services].sort(
+      options?.comparator ?? AxBalancer.costComparator
+    )
 
     const cs = this.services[this.currentServiceIndex]
     if (cs === undefined) {
       throw new Error('Error initializing the AI services.') // More specific error message
     }
     this.currentService = cs
+  }
+
+  /**
+   * Service comparator that respects the input order of services.
+   */
+  public static inputOrderComparator = () => 0
+
+  /**
+   * Service comparator that sorts services by cost.
+   */
+  public static costComparator = (a: AxAIService, b: AxAIService) => {
+    const aInfo = a.getModelInfo()
+    const bInfo = b.getModelInfo()
+    const aTotalCost =
+      (aInfo.promptTokenCostPer1M || Infinity) +
+      (aInfo.completionTokenCostPer1M || Infinity)
+    const bTotalCost =
+      (bInfo.promptTokenCostPer1M || Infinity) +
+      (bInfo.completionTokenCostPer1M || Infinity)
+    return aTotalCost - bTotalCost
   }
 
   getModelMap(): AxAIModelMap | undefined {
