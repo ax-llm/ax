@@ -185,3 +185,23 @@ export type AxAIGoogleGeminiBatchEmbedResponse = {
     values: number[]
   }[]
 }
+
+/**
+ * AxAIGoogleVertexBatchEmbedRequest: Structure for making an embedding request to the Google Vertex API.
+ */
+export type AxAIGoogleVertexBatchEmbedRequest = {
+  instances: {
+    content: string
+  }[]
+}
+
+/**
+ * AxAIGoogleVertexBatchEmbedResponse: Structure for handling responses from the Google Vertex API embedding requests.
+ */
+export type AxAIGoogleVertexBatchEmbedResponse = {
+  predictions: {
+    embeddings: {
+      values: number[]
+    }
+  }[]
+}
