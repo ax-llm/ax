@@ -29,6 +29,8 @@ import {
   AxAIGoogleGeminiSafetyCategory,
   type AxAIGoogleGeminiSafetySettings,
   AxAIGoogleGeminiSafetyThreshold,
+  type AxAIGoogleVertexBatchEmbedRequest,
+  type AxAIGoogleVertexBatchEmbedResponse,
 } from './types.js'
 
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
@@ -95,10 +97,10 @@ class AxAIGoogleGeminiImpl
   implements
     AxAIServiceImpl<
       AxAIGoogleGeminiChatRequest,
-      AxAIGoogleGeminiBatchEmbedRequest,
+      AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
       AxAIGoogleGeminiChatResponse,
       AxAIGoogleGeminiChatResponseDelta,
-      AxAIGoogleGeminiBatchEmbedResponse
+      AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
     >
 {
   constructor(
@@ -329,7 +331,10 @@ class AxAIGoogleGeminiImpl
 
   createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest>
-  ): [AxAPI, AxAIGoogleGeminiBatchEmbedRequest] => {
+  ): [
+    AxAPI,
+    AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
+  ] => {
     const model = req.embedModel
 
     if (!model) {
@@ -340,15 +345,32 @@ class AxAIGoogleGeminiImpl
       throw new Error('Embed texts is empty')
     }
 
-    const apiConfig = {
-      name: `/models/${model}:batchEmbedContents?key=${this.apiKey}`,
-    }
+    let apiConfig
+    let reqValue:
+      | AxAIGoogleGeminiBatchEmbedRequest
+      | AxAIGoogleVertexBatchEmbedRequest
 
-    const reqValue: AxAIGoogleGeminiBatchEmbedRequest = {
-      requests: req.texts.map((text) => ({
-        model: 'models/' + model,
-        content: { parts: [{ text }] },
-      })),
+    if (this.isVertex) {
+      apiConfig = {
+        name: `/models/${model}:predict`,
+      }
+
+      reqValue = {
+        instances: req.texts.map((text) => ({
+          content: text,
+        })),
+      }
+    } else {
+      apiConfig = {
+        name: `/models/${model}:batchEmbedContents?key=${this.apiKey}`,
+      }
+
+      reqValue = {
+        requests: req.texts.map((text) => ({
+          model: 'models/' + model,
+          content: { parts: [{ text }] },
+        })),
+      }
     }
 
     return [apiConfig, reqValue]
@@ -423,9 +445,20 @@ class AxAIGoogleGeminiImpl
   }
 
   createEmbedResp = (
-    resp: Readonly<AxAIGoogleGeminiBatchEmbedResponse>
+    resp: Readonly<
+      AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
+    >
   ): AxEmbedResponse => {
-    const embeddings = resp.embeddings.map((embedding) => embedding.values)
+    let embeddings: number[][]
+    if (this.isVertex) {
+      embeddings = (resp as AxAIGoogleVertexBatchEmbedResponse).predictions.map(
+        (prediction) => prediction.embeddings.values
+      )
+    } else {
+      embeddings = (resp as AxAIGoogleGeminiBatchEmbedResponse).embeddings.map(
+        (embedding) => embedding.values
+      )
+    }
 
     return {
       embeddings,
@@ -438,10 +471,10 @@ class AxAIGoogleGeminiImpl
  */
 export class AxAIGoogleGemini extends AxBaseAI<
   AxAIGoogleGeminiChatRequest,
-  AxAIGoogleGeminiBatchEmbedRequest,
+  AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
   AxAIGoogleGeminiChatResponse,
   AxAIGoogleGeminiChatResponseDelta,
-  AxAIGoogleGeminiBatchEmbedResponse
+  AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
 > {
   constructor({
     apiKey,
