@@ -34,9 +34,10 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "google-auth-library": "^9.15.1",
     "json5": "^2.2.3",
-    "moment-timezone": "^0.5.46",
-    "@opentelemetry/api": "^1.9.0"
+    "moment-timezone": "^0.5.46"
   },
   "ava": {
     "failFast": true,

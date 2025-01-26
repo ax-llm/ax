@@ -288,7 +288,7 @@ export class AxAIReka extends AxBaseAI<
     super(aiImpl, {
       name: 'Reka',
       apiURL: apiURL ? apiURL : 'https://api.reka.ai/v1/chat',
-      headers: { 'X-Api-Key': apiKey },
+      headers: async () => ({ 'X-Api-Key': apiKey }),
       modelInfo,
       models: {
         model: _config.model as string,

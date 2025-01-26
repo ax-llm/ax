@@ -69,6 +69,6 @@ export class AxAIAzureOpenAI extends AxAIOpenAI {
       ).href
     )
 
-    super.setHeaders({ 'api-key': apiKey })
+    super.setHeaders(async () => ({ 'api-key': apiKey }))
   }
 }

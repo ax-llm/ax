@@ -309,7 +309,7 @@ export class AxAICohere extends AxBaseAI<
     super(aiImpl, {
       name: 'Cohere',
       apiURL: 'https://api.cohere.ai/v1',
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo: axModelInfoCohere,
       models: { model: _config.model },
       supportFor: { functions: true, streaming: true },
