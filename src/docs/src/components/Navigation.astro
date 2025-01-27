@@ -18,13 +18,40 @@ const sections = Object.entries(groupedDocs).sort((a, b) => {
 >
   <div class="max-w-6xl mx-auto">
     <div class="flex items-center justify-between p-4">
-      <!-- Logo/Title Area -->
-      <div
-        id="logo-area"
-        class="flex items-center space-x-4 cursor-pointer hover:opacity-80 transition-opacity"
-      >
-        <div class="w-2 h-8 bg-blue-400 animate-pulse"></div>
-        <div class="text-sm font-bold text-gray-700">AX FRAMEWORK</div>
+      <!-- Left Section: Logo/Title and GitHub -->
+      <div class="flex items-center space-x-6">
+        <div
+          id="logo-area"
+          class="flex items-center space-x-4 cursor-pointer hover:opacity-80 transition-opacity"
+        >
+          <div class="w-2 h-8 bg-blue-400 animate-pulse"></div>
+          <div class="text-sm font-bold text-gray-700">AX FRAMEWORK</div>
+        </div>
+
+        <a
+          href="https://github.com/ax-llm/ax"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex items-center space-x-2 px-3 py-1 rounded-full bg-lime-500 text-white hover:bg-lime-600 transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="inline-block"
+          >
+            <path
+              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
+            ></path>
+          </svg>
+          <span class="text-xs font-medium">GitHub</span>
+        </a>
       </div>
 
       <!-- Navigation Links -->
