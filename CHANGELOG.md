@@ -1,3 +1,15 @@
+# Changelog
+
+## [10.0.39](https://github.com/ax-llm/ax/compare/10.0.38...10.0.39) (2025-01-27)
+
+### Features
+
+* Add auth for Google Vertex API (#106) ([e6c661a](https://github.com/ax-llm/ax/commit/e6c661aea4dbef01a89565ca4a1694e9fd6a53d2))
+* Add support for Google text-embedding-005 model (#109) ([ee9f1f6](https://github.com/ax-llm/ax/commit/ee9f1f6d953f54ede04c4977102a2f975010beb7))
+
+### Bug Fixes
+
+* Fix: embedding requests on Google Vertex API (#107) ([25282f6](https://github.com/ax-llm/ax/commit/25282f6277e1f5d52aceebd86503256d19218b6d))
 
 
 ## [10.0.38](https://github.com/ax-llm/ax/compare/10.0.37...10.0.38) (2025-01-24)
