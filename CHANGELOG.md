@@ -1,5 +1,22 @@
 # Changelog
 
+## [10.0.40](https://github.com/ax-llm/ax/compare/10.0.38...10.0.39) (2025-01-27)
+
+### Features
+
+* end-to-end streaming with parsing, error-correction, validation and function calling ([3b59665](https://github.com/ax-llm/ax/commit/3b596658221d8b6fef089e972bb32b44d0df600e))
+
+### Bug Fixes
+
+* build fixes ([81809a4](https://github.com/ax-llm/ax/commit/81809a4129cd0508b9740ae7a382413445edd79e))
+* doc build fix ([b6c110b](https://github.com/ax-llm/ax/commit/b6c110b151c78b2096b21b4ec32f573796a3b9de))
+* don't render extraneous period at the end of task prompt ([#111](https://github.com/ax-llm/ax/issues/111)) ([3c30c47](https://github.com/ax-llm/ax/commit/3c30c47d06c1f5dbcb425eb840166d436e9ac709))
+## [10.0.39](https://github.com/ax-llm/ax/compare/10.0.38...10.0.39) (2025-01-27)
+
+### Bug Fixes
+
+* embedding requests on Google Vertex API ([#107](https://github.com/ax-llm/ax/issues/107)) ([25282f6](https://github.com/ax-llm/ax/commit/25282f6277e1f5d52aceebd86503256d19218b6d))
+
 ## [10.0.39](https://github.com/ax-llm/ax/compare/10.0.38...10.0.39) (2025-01-27)
 
 ### Features
