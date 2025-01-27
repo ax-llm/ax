@@ -79,8 +79,9 @@ export class AxPromptTemplate {
 
     const desc = this.sig.getDescription()
     if (desc) {
+      const capitalized = capitalizeFirstLetter(desc.trim())
       task.push(
-        `## TASK DESCRIPTION\n${capitalizeFirstLetter(desc.endsWith('.') ? desc : desc + '.')}`
+        `## TASK DESCRIPTION\n${capitalized.endsWith('.') ? capitalized : capitalized + '.'}`
       )
     }
 
