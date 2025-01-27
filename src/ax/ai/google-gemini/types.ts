@@ -11,6 +11,7 @@ export enum AxAIGoogleGeminiModel {
 
 export enum AxAIGoogleGeminiEmbedModel {
   TextEmbedding004 = 'text-embedding-004',
+  TextEmbedding005 = 'text-embedding-005',
 }
 
 export enum AxAIGoogleGeminiSafetyCategory {
