@@ -310,11 +310,11 @@ export class AxAIAnthropic extends AxBaseAI<
     super(aiImpl, {
       name: 'Anthropic',
       apiURL: 'https://api.anthropic.com/v1',
-      headers: {
+      headers: async () => ({
         'anthropic-version': '2023-06-01',
         'anthropic-beta': 'prompt-caching-2024-07-31',
         'x-api-key': apiKey,
-      },
+      }),
       modelInfo: axModelInfoAnthropic,
       models: { model: _config.model },
       options,

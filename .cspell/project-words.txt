@@ -91,3 +91,4 @@ weaviate
 Weaviate
 xlarge
 xstate
+googleauth

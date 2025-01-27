@@ -178,7 +178,7 @@ export class AxAIHuggingFace extends AxBaseAI<
     super(aiImpl, {
       name: 'HuggingFace',
       apiURL: 'https://api-inference.huggingface.co',
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo: axModelInfoHuggingFace,
       models: { model: _config.model },
       options,

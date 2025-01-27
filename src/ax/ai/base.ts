@@ -36,7 +36,7 @@ export interface AxBaseAIFeatures {
 export interface AxBaseAIArgs {
   name: string
   apiURL: string
-  headers: Record<string, string>
+  headers: () => Promise<Record<string, string>>
   modelInfo: Readonly<AxModelInfo[]>
   models: Readonly<{ model: string; embedModel?: string }>
   options?: Readonly<AxAIServiceOptions>
@@ -83,7 +83,7 @@ export class AxBaseAI<
 
   protected apiURL: string
   protected name: string
-  protected headers: Record<string, string>
+  protected headers: () => Promise<Record<string, string>>
   protected supportFor: AxBaseAIFeatures | ((model: string) => AxBaseAIFeatures)
 
   // Add private metrics tracking properties
@@ -168,7 +168,7 @@ export class AxBaseAI<
     this.apiURL = apiURL
   }
 
-  public setHeaders(headers: Record<string, string>): void {
+  public setHeaders(headers: () => Promise<Record<string, string>>): void {
     this.headers = headers
   }
 
@@ -393,7 +393,7 @@ export class AxBaseAI<
         {
           name: apiConfig.name,
           url: this.apiURL,
-          headers: this.buildHeaders(apiConfig.headers),
+          headers: await this.buildHeaders(apiConfig.headers),
           stream: modelConfig.stream,
           debug: this.debug,
           fetch: this.fetch,
@@ -552,7 +552,7 @@ export class AxBaseAI<
         {
           name: apiConfig.name,
           url: this.apiURL,
-          headers: this.buildHeaders(apiConfig.headers),
+          headers: await this.buildHeaders(apiConfig.headers),
           debug: this.debug,
           fetch: this.fetch,
           span,
@@ -586,10 +586,10 @@ export class AxBaseAI<
     return res
   }
 
-  private buildHeaders(
+  private async buildHeaders(
     headers: Record<string, string> = {}
-  ): Record<string, string> {
-    return { ...headers, ...this.headers }
+  ): Promise<Record<string, string>> {
+    return { ...headers, ...(await this.headers()) }
   }
 }
 

@@ -438,7 +438,7 @@ export class AxAIOpenAI extends AxBaseAI<
     super(aiImpl, {
       name: 'OpenAI',
       apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo,
       models: {
         model: _config.model as string,

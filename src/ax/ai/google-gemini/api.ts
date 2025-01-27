@@ -16,6 +16,7 @@ import type {
   AxTokenUsage,
 } from '../types.js'
 
+import { GoogleVertexAuth } from './auth.js'
 import { axModelInfoGoogleGemini } from './info.js'
 import {
   type AxAIGoogleGeminiBatchEmbedRequest,
@@ -82,9 +83,10 @@ export interface AxAIGoogleGeminiOptionsTools {
 
 export interface AxAIGoogleGeminiArgs {
   name: 'google-gemini'
-  apiKey: string
+  apiKey?: string
   projectId?: string
   region?: string
+  keyFile?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
   modelMap?: Record<
@@ -105,8 +107,9 @@ class AxAIGoogleGeminiImpl
 {
   constructor(
     private config: AxAIGoogleGeminiConfig,
-    private apiKey: string,
     private isVertex: boolean,
+    private apiKey?: string,
+    private keyFile?: string,
     private options?: AxAIGoogleGeminiArgs['options']
   ) {}
 
@@ -142,7 +145,7 @@ class AxAIGoogleGeminiImpl
         : `/models/${model}:generateContent`,
     }
 
-    if (this.isVertex === false) {
+    if (!this.isVertex) {
       const pf = stream ? '&' : '?'
       apiConfig.name += `${pf}key=${this.apiKey}`
     }
@@ -480,14 +483,11 @@ export class AxAIGoogleGemini extends AxBaseAI<
     apiKey,
     projectId,
     region,
+    keyFile,
     config,
     options,
     modelMap,
   }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
-    if (!apiKey || apiKey === '') {
-      throw new Error('GoogleGemini AI API key not set')
-    }
-
     const isVertex = projectId !== undefined && region !== undefined
 
     let apiURL
@@ -495,10 +495,22 @@ export class AxAIGoogleGemini extends AxBaseAI<
 
     if (isVertex) {
       apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/`
-      headers = { Authorization: `Bearer ${apiKey}` }
+      if (apiKey) {
+        headers = async () => ({ Authorization: `Bearer ${apiKey}` })
+      } else {
+        const vertexAuth = new GoogleVertexAuth({
+          keyFile,
+        })
+        headers = async () => ({
+          Authorization: `Bearer ${await vertexAuth.getAccessToken()}`,
+        })
+      }
     } else {
+      if (!apiKey) {
+        throw new Error('GoogleGemini AI API key not set')
+      }
       apiURL = 'https://generativelanguage.googleapis.com/v1beta'
-      headers = {}
+      headers = async () => ({})
     }
 
     const _config = {
@@ -506,7 +518,13 @@ export class AxAIGoogleGemini extends AxBaseAI<
       ...config,
     }
 
-    const aiImpl = new AxAIGoogleGeminiImpl(_config, apiKey, isVertex, options)
+    const aiImpl = new AxAIGoogleGeminiImpl(
+      _config,
+      isVertex,
+      apiKey,
+      keyFile,
+      options
+    )
 
     super(aiImpl, {
       name: 'GoogleGeminiAI',
