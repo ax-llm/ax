@@ -17,7 +17,13 @@ const messageGuidelines = [
   'Employs emojis and friendly language',
 ]
 
-const gen = new AxGen(
+const gen = new AxGen<{
+  productName: string
+  productDescription: string
+  toName: string
+  toDescription: string
+  messageGuidelines: string
+}>(
   `productName, productDescription, toName, toDescription, messageGuidelines -> message`
 )
 

@@ -1,50 +1,52 @@
-import test from 'ava'
+import { describe, expect, it } from 'vitest'
 
 import { parseMarkdownList } from './util.js'
 
 // Tests for parseMarkdownList
-test('parseMarkdownList: parses a simple markdown list', (t) => {
-  const content = `Output 1:
-  - value1
-  - value2
-  - value3`
+describe('parseMarkdownList', () => {
+  it('parses a simple markdown list', () => {
+    const content = `Output 1:
+    - value1
+    - value2
+    - value3`
 
-  const result = parseMarkdownList(content)
+    const result = parseMarkdownList(content)
 
-  t.deepEqual(result, ['value1', 'value2', 'value3'])
-})
+    expect(result).toEqual(['value1', 'value2', 'value3'])
+  })
 
-test('parseMarkdownList: parses a simple markdown list 2', (t) => {
-  const content = `
-    * value1
-    * value2
-    * value3`
+  it('parses a simple markdown list 2', () => {
+    const content = `
+      * value1
+      * value2
+      * value3`
 
-  const result = parseMarkdownList(content)
-  t.deepEqual(result, ['value1', 'value2', 'value3'])
-})
+    const result = parseMarkdownList(content)
+    expect(result).toEqual(['value1', 'value2', 'value3'])
+  })
 
-test('parseMarkdownList: parses a numbered markdown list', (t) => {
-  const content = `Output 1:
-  1. value1
-  2. value2
-  3. value3`
+  it('parses a numbered markdown list', () => {
+    const content = `Output 1:
+    1. value1
+    2. value2
+    3. value3`
 
-  const result = parseMarkdownList(content)
-  t.deepEqual(result, ['value1', 'value2', 'value3'])
-})
+    const result = parseMarkdownList(content)
+    expect(result).toEqual(['value1', 'value2', 'value3'])
+  })
 
-test('parseMarkdownList: fails on non-list content', (t) => {
-  const content = 'not a list'
+  it('fails on non-list content', () => {
+    const content = 'not a list'
 
-  t.throws(() => parseMarkdownList(content))
-})
+    expect(() => parseMarkdownList(content)).toThrow()
+  })
 
-test('parseMarkdownList: fails on mixed content', (t) => {
-  const content = `
-  - value1
-  Header
-  - value3`
+  it('fails on mixed content', () => {
+    const content = `
+    - value1
+    Header
+    - value3`
 
-  t.throws(() => parseMarkdownList(content))
+    expect(() => parseMarkdownList(content)).toThrow()
+  })
 })

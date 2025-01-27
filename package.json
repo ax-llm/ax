@@ -30,7 +30,6 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@ava/typescript": "^5.0.0",
     "@release-it/bumper": "^7.0.0",
     "@release-it/conventional-changelog": "^10.0.0",
     "@types/node": "^22.10.5",
@@ -61,7 +60,8 @@
     "typedoc": "^0.27.0",
     "typedoc-plugin-frontmatter": "^1.0.0",
     "typedoc-plugin-markdown": "^4.1.1",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.3"
   },
   "config": {
     "commitizen": {

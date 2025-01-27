@@ -159,25 +159,55 @@ export class AxPromptTemplate {
   public renderExtraFields = (extraFields: readonly AxIField[]) => {
     const prompt: ChatRequestUserMessage = []
 
-    if (extraFields && extraFields.length > 0) {
-      extraFields.forEach((field) => {
-        // if (!field.isOptional && !field.value) {
-        //   throw new Error(`Value for field '${field.name}' is required.`);
-        // }
-        const fn =
-          this.fieldTemplates?.[field.name] ?? this.defaultRenderInField
-        // if (!field.description || field.description.length === 0) {
-        //   throw new Error(`Description for field '${field.name}' is required`);
-        // }
-        prompt.push(...fn(field, field.description))
+    if (!extraFields || extraFields.length === 0) {
+      return prompt
+    }
+
+    // First, group fields by title
+    const groupedFields = extraFields.reduce(
+      (acc, field) => {
+        const title = field.title
+        if (!acc[title]) {
+          acc[title] = []
+        }
+        acc[title].push(field)
+        return acc
+      },
+      {} as Record<string, AxIField[]>
+    )
+
+    // Convert grouped fields into formatted data
+    const formattedGroupedFields = Object.entries(groupedFields)
+      .map(([title, fields]) => {
+        if (fields.length === 1) {
+          // Single field case
+          const field = fields[0]!
+          return {
+            title,
+            name: field.name,
+            description: field.description,
+          }
+        } else if (fields.length > 1) {
+          // Multiple fields case - format as markdown list
+          const valuesList = fields
+            .map((field) => `- ${field.description}`)
+            .join('\n')
+          return {
+            title,
+            name: fields[0]!.name,
+            description: valuesList,
+          }
+        }
       })
-    }
+      .filter(Boolean) as AxIField[]
 
-    if (prompt.every((v) => v.type === 'text')) {
-      return prompt.map((v) => v.text).join('\n\n')
-    }
+    // Now render each formatted group using the appropriate template
+    formattedGroupedFields.forEach((field) => {
+      const fn = this.fieldTemplates?.[field.name] ?? this.defaultRenderInField
+      prompt.push(...fn(field, field.description))
+    })
 
-    return prompt.reduce(combineConsecutiveStrings('\n'), [])
+    return prompt
   }
 
   private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {

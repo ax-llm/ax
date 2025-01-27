@@ -97,14 +97,12 @@ const invalidSchema: any = {
 
 try {
   validateSchemaStructure(validSchema);
-  console.log('Schema is valid!');
 } catch (error) {
   console.error('Schema validation failed:', error.message);
 }
 
 try {
   validateSchemaStructure(invalidSchema);
-  console.log('Schema is valid!');
 } catch (error) {
   console.error('Schema validation failed:', error.message);
 }

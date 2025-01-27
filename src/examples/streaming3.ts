@@ -1,4 +1,4 @@
-import { AxAI, AxChainOfThought } from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxChainOfThought } from '@ax-llm/ax'
 
 // Setup the prompt program for movie reviews
 const gen = new AxChainOfThought<{ movieTitle: string }>(
@@ -54,10 +54,15 @@ gen.addAssert(
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
 })
-// ai.setOptions({ debug: true });
+// ai.setOptions({ debug: true })
 
 // Run the program
-const res = await gen.forward(ai, { movieTitle: 'The Grand Budapest Hotel' })
+const generator = await gen.streamingForward(ai, {
+  movieTitle: 'The Grand Budapest Hotel',
+})
 
-console.log('>', res)
+for await (const res of generator) {
+  console.log(res)
+}

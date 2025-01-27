@@ -1,7 +1,6 @@
 # Ax - Build LLM-Powered Agents (Typescript)
 
-Use Ax and get a streaming, multi-modal DSPy framework with agents and typed signatures. Works with all LLMs. Ax is always streaming and handles output type validation while streaming for faster responses and lower token usage.
-
+Use Ax and get an end-to-end streaming, multi-modal DSPy framework with agents and typed signatures. Works with all LLMs. Ax is always streaming and handles parsing, validating, error-correcting and function calling all while streaming. Ax is fastest framework which also lowers your token usage.
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
@@ -9,8 +8,9 @@ Use Ax and get a streaming, multi-modal DSPy framework with agents and typed sig
 
 ## Why use Ax?
 
-- Support for various LLMs and Vector DBs
+- Support for all top LLMs
 - Prompts auto-generated from simple signatures
+- Full native end-to-end streaming
 - Build Agents that can call other agents
 - Convert docs of any format to text
 - RAG, smart chunking, embedding, querying
@@ -243,6 +243,10 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
 
 // run the program with streaming enabled
 const res = await gen.forward({ startNumber: 1 }, { stream: true });
+
+// or run the program with end-to-end streaming
+const generator = await gen.streamingForward({ startNumber: 1 }, { stream: true });
+for await (const res of generator) {}
 ```
 
 The above example allows you to validate entire output fields as they are streamed in. This validation works with streaming and when not streaming and is triggered when the whole field value is available. For true validation while streaming, check out the example below. This will massively improve performance and save tokens at scale in production.
@@ -274,7 +278,7 @@ const res = await gen.forward(
 );
 ```
 
-## Fast LLM Router
+<!-- ## Fast LLM Router
 
 A special router that uses no LLM calls, only embeddings, to route user requests smartly.
 
@@ -315,7 +319,7 @@ if (tag === "customerSupport") {
 if (tag === "technicalSupport") {
     ...
 }
-```
+``` -->
 
 ## Vercel AI SDK Integration
 
@@ -538,6 +542,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | qna-use-tuned.ts    | Use the optimized tuned prompts                         |
 | streaming1.ts       | Output fields validation while streaming                |
 | streaming2.ts       | Per output field validation while streaming             |
+| streaming3.ts       | End-to-end streaming example `streamingForward()`       |
 | smart-hone.ts       | Agent looks for dog in smart home                       |
 | multi-modal.ts      | Use an image input along with other text inputs         |
 | balancer.ts         | Balance between various llm's based on cost, etc        |

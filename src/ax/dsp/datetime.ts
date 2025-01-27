@@ -11,7 +11,7 @@ export function parseLLMFriendlyDate(
     return _parseLLMFriendlyDate(dateStr)
   } catch (err) {
     const message = (err as Error).message
-    throw new ValidationError({ field, message, value: dateStr })
+    throw new ValidationError({ fields: [field], message, value: dateStr })
   }
 }
 
@@ -37,7 +37,7 @@ export function parseLLMFriendlyDateTime(
     return _parseLLMFriendlyDateTime(dateStr)
   } catch (err) {
     const message = (err as Error).message
-    throw new ValidationError({ field, message, value: dateStr })
+    throw new ValidationError({ fields: [field], message, value: dateStr })
   }
 }
 

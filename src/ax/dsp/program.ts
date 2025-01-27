@@ -63,6 +63,22 @@ export type AxProgramForwardOptions = {
   stopFunction?: string
 }
 
+export type AxProgramStreamingForwardOptions = Omit<
+  AxProgramForwardOptions,
+  'stream'
+>
+
+export type AxGenDeltaOut<OUT> = {
+  version: number
+  delta: Partial<OUT>
+}
+
+export type AxGenStreamingOut<OUT> = AsyncGenerator<
+  AxGenDeltaOut<OUT>,
+  void | OUT,
+  unknown
+>
+
 export interface AxTunable {
   setExamples: (examples: Readonly<AxProgramExamples>) => void
   setId: (id: string) => void
@@ -133,6 +149,17 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     throw new Error('forward() not implemented')
+  }
+
+  public async *streamingForward(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _ai: Readonly<AxAIService>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _values: IN,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<AxProgramStreamingForwardOptions>
+  ): AxGenStreamingOut<OUT> {
+    throw new Error('streamingForward() not implemented')
   }
 
   public setId(id: string) {
@@ -262,6 +289,17 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     throw new Error('forward() not implemented')
+  }
+
+  public async *streamingForward(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _ai: Readonly<AxAIService>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _values: IN,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<AxProgramStreamingForwardOptions>
+  ): AxGenStreamingOut<OUT> {
+    throw new Error('streamingForward() not implemented')
   }
 
   public setId(id: string) {

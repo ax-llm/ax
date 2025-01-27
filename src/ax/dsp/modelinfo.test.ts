@@ -1,4 +1,4 @@
-import test from 'ava'
+import { describe, expect, it } from 'vitest'
 
 import { getModelInfo } from './modelinfo.js'
 
@@ -21,81 +21,90 @@ const modelInfo = [
   },
 ]
 
-test('exact match should return correct model info', (t) => {
-  const result = getModelInfo({ model: 'claude-3-5-sonnet', modelInfo })
-  t.is(result.name, 'claude-3-5-sonnet')
-  t.is(result.promptTokenCostPer1M, 15000)
-})
-
-test('should handle model mapping', (t) => {
-  const result = getModelInfo({ model: 'claude-3', modelInfo, modelMap })
-  t.is(result.name, 'claude-3-5-sonnet')
-  t.is(result.promptTokenCostPer1M, 15000)
-})
-
-test('should handle vendor prefixes', (t) => {
-  const result = getModelInfo({
-    model: 'anthropic.claude-3-5-sonnet',
-    modelInfo,
+describe('getModelInfo', () => {
+  it('should return correct model info for exact match', () => {
+    const result = getModelInfo({ model: 'claude-3-5-sonnet', modelInfo })
+    expect(result.name).toBe('claude-3-5-sonnet')
+    expect(result.promptTokenCostPer1M).toBe(15000)
   })
-  t.is(result.name, 'claude-3-5-sonnet')
-  t.is(result.promptTokenCostPer1M, 15000)
-})
 
-test('should handle date postfix', (t) => {
-  const result = getModelInfo({
-    model: 'claude-3-5-sonnet-20241022',
-    modelInfo,
+  it('should handle model mapping', () => {
+    const result = getModelInfo({ model: 'claude-3', modelInfo, modelMap })
+    expect(result.name).toBe('claude-3-5-sonnet')
+    expect(result.promptTokenCostPer1M).toBe(15000)
   })
-  t.is(result.name, 'claude-3-5-sonnet')
-})
 
-test('should handle version postfix', (t) => {
-  const result = getModelInfo({ model: 'claude-3-5-sonnet-v2:0', modelInfo })
-  t.is(result.name, 'claude-3-5-sonnet')
-})
-
-test('should handle alternative date format', (t) => {
-  const result = getModelInfo({
-    model: 'claude-3-5-sonnet@20241022',
-    modelInfo,
+  it('should handle vendor prefixes', () => {
+    const result = getModelInfo({
+      model: 'anthropic.claude-3-5-sonnet',
+      modelInfo,
+    })
+    expect(result.name).toBe('claude-3-5-sonnet')
+    expect(result.promptTokenCostPer1M).toBe(15000)
   })
-  t.is(result.name, 'claude-3-5-sonnet')
-})
 
-test('should handle latest postfix', (t) => {
-  const result = getModelInfo({
-    model: 'claude-3-5-sonnet-latest',
-    modelInfo,
+  describe('model name variations', () => {
+    it('should handle date postfix', () => {
+      const result = getModelInfo({
+        model: 'claude-3-5-sonnet-20241022',
+        modelInfo,
+      })
+      expect(result.name).toBe('claude-3-5-sonnet')
+    })
+
+    it('should handle version postfix', () => {
+      const result = getModelInfo({
+        model: 'claude-3-5-sonnet-v2:0',
+        modelInfo,
+      })
+      expect(result.name).toBe('claude-3-5-sonnet')
+    })
+
+    it('should handle alternative date format', () => {
+      const result = getModelInfo({
+        model: 'claude-3-5-sonnet@20241022',
+        modelInfo,
+      })
+      expect(result.name).toBe('claude-3-5-sonnet')
+    })
+
+    it('should handle latest postfix', () => {
+      const result = getModelInfo({
+        model: 'claude-3-5-sonnet-latest',
+        modelInfo,
+      })
+      expect(result.name).toBe('claude-3-5-sonnet')
+    })
+
+    it('should handle numeric id postfix', () => {
+      const result = getModelInfo({ model: 'gpt-4o-mini-8388383', modelInfo })
+      expect(result.name).toBe('gpt-4o-mini')
+    })
+
+    it('should handle complex version with date', () => {
+      const result = getModelInfo({
+        model: 'claude-3-5-sonnet-v2@20241022',
+        modelInfo,
+      })
+      expect(result.name).toBe('claude-3-5-sonnet')
+    })
+
+    it('should handle vendor prefix with version', () => {
+      const result = getModelInfo({
+        model: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+        modelInfo,
+      })
+      expect(result.name).toBe('claude-3-5-sonnet')
+    })
   })
-  t.is(result.name, 'claude-3-5-sonnet')
-})
 
-test('should handle numeric id postfix', (t) => {
-  const result = getModelInfo({ model: 'gpt-4o-mini-8388383', modelInfo })
-  t.is(result.name, 'gpt-4o-mini')
-})
-
-test('should handle unknown model', (t) => {
-  const result = getModelInfo({ model: 'unknown-model', modelInfo })
-  t.is(result.name, 'unknown-model')
-  t.is(result.promptTokenCostPer1M, 0)
-  t.is(result.completionTokenCostPer1M, 0)
-  t.is(result.currency, 'usd')
-})
-
-test('should handle complex version with date', (t) => {
-  const result = getModelInfo({
-    model: 'claude-3-5-sonnet-v2@20241022',
-    modelInfo,
+  it('should handle unknown model', () => {
+    const result = getModelInfo({ model: 'unknown-model', modelInfo })
+    expect(result).toEqual({
+      name: 'unknown-model',
+      promptTokenCostPer1M: 0,
+      completionTokenCostPer1M: 0,
+      currency: 'usd',
+    })
   })
-  t.is(result.name, 'claude-3-5-sonnet')
-})
-
-test('should handle vendor prefix with version', (t) => {
-  const result = getModelInfo({
-    model: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
-    modelInfo,
-  })
-  t.is(result.name, 'claude-3-5-sonnet')
 })

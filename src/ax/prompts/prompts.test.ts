@@ -1,4 +1,4 @@
-import test from 'ava'
+import { describe, expect, it } from 'vitest'
 
 import { AxAI } from '../ai/wrap.js'
 import { AxSignature } from '../dsp/sig.js'
@@ -49,29 +49,33 @@ const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
   })
 }
 
-test('generate prompt', async (t) => {
-  const ai = new AxAI({
-    name: 'openai',
-    apiKey: 'no-key',
-    options: { fetch: mockFetch },
-    config: { stream: false },
-  })
+describe('AxChainOfThought', () => {
+  it('should generate prompt correctly', async () => {
+    const ai = new AxAI({
+      name: 'openai',
+      apiKey: 'no-key',
+      options: { fetch: mockFetch },
+      config: { stream: false },
+    })
 
-  // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
+    // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
 
-  const gen = new AxChainOfThought<{ someText: string }>(
-    `someText -> shortSummary "summarize in 5 to 10 words"`
-  )
-  gen.setExamples(examples)
+    const gen = new AxChainOfThought<{ someText: string }>(
+      `someText -> shortSummary "summarize in 5 to 10 words"`
+    )
+    gen.setExamples(examples)
 
-  const res = await gen.forward(ai, { someText })
+    const res = await gen.forward(ai, { someText })
 
-  t.deepEqual(res, {
-    reason: 'Blah blah blah',
-    shortSummary: 'More blah blah blah',
+    expect(res).toEqual({
+      reason: 'Blah blah blah',
+      shortSummary: 'More blah blah blah',
+    })
   })
 })
 
-test('generate prompt: invalid signature', async (t) => {
-  t.throws(() => new AxSignature(`someText -> output:image`))
+describe('AxSignature', () => {
+  it('should throw error for invalid signature', () => {
+    expect(() => new AxSignature(`someText -> output:image`)).toThrow()
+  })
 })

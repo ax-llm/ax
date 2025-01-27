@@ -76,6 +76,32 @@ class AxAIAnthropicImpl
       name: '/messages',
     }
 
+    let toolsChoice
+
+    if (req.functionCall && req.functions && req.functions.length > 0) {
+      if (typeof req.functionCall === 'string') {
+        switch (req.functionCall) {
+          case 'auto':
+            toolsChoice = { tool_choice: { type: 'auto' as const } }
+            break
+          case 'required':
+            toolsChoice = { tool_choice: { type: 'any' as const } }
+            break
+          case 'none':
+            throw new Error('functionCall none not supported')
+        }
+      } else if ('function' in req.functionCall) {
+        toolsChoice = {
+          tool_choice: {
+            type: 'tool' as const,
+            name: req.functionCall.function.name,
+          },
+        }
+      } else {
+        throw new Error('Invalid function call type, must be string or object')
+      }
+    }
+
     const system = req.chatPrompt
       .filter((msg) => msg.role === 'system')
       .map((msg) => ({
@@ -106,9 +132,8 @@ class AxAIAnthropicImpl
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
       top_k: req.modelConfig?.topK ?? this.config.topK,
-      ...(tools && tools.length > 0
-        ? { tools, tool_choice: { type: 'auto' } }
-        : {}),
+      ...toolsChoice,
+      ...(tools && tools.length > 0 ? { tools } : {}),
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
       messages,

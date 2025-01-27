@@ -207,3 +207,31 @@ export const parseMarkdownList = (input: string): string[] => {
 
   return list
 }
+
+export function mergeDeltas<T>(
+  base: Partial<T>,
+  delta: Partial<T>
+): Partial<T> {
+  const merged = { ...base }
+
+  for (const key in delta) {
+    const baseValue = base[key]
+    const deltaValue = delta[key]
+
+    if (Array.isArray(baseValue) && Array.isArray(deltaValue)) {
+      // Concatenate arrays
+      merged[key] = [...baseValue, ...deltaValue] as T[Extract<keyof T, string>]
+    } else if (
+      typeof baseValue === 'string' &&
+      typeof deltaValue === 'string'
+    ) {
+      // Concatenate strings
+      merged[key] = (baseValue + deltaValue) as T[Extract<keyof T, string>]
+    } else {
+      // For all other types, overwrite with the new value
+      merged[key] = deltaValue
+    }
+  }
+
+  return merged
+}

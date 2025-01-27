@@ -351,9 +351,11 @@ export class AxBaseAI<
           },
         },
         async (span) => {
-          const res = await this._chat2(model, modelConfig, req, options, span)
-          span.end()
-          return res
+          try {
+            return await this._chat2(model, modelConfig, req, options, span)
+          } finally {
+            span.end()
+          }
         }
       )
     }
@@ -518,9 +520,11 @@ export class AxBaseAI<
           },
         },
         async (span) => {
-          const res = await this._embed2(embedModel, req, options, span)
-          span.end()
-          return res
+          try {
+            return await this._embed2(embedModel, req, options, span)
+          } finally {
+            span.end()
+          }
         }
       )
     }
@@ -607,7 +611,7 @@ const logChatRequest = (req: Readonly<AxChatRequest>) => {
         const items = msg.content.map((v) => {
           switch (v.type) {
             case 'text':
-              return `(Text) ${colorLog.whiteBright(v.text)}`
+              return `${colorLog.whiteBright(v.text)}`
             case 'image':
               return `(Image, ${v.mimeType}) ${colorLog.whiteBright(v.image.substring(0, 10))}`
             default:

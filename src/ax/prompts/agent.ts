@@ -1,13 +1,13 @@
-import { SpanKind } from '@opentelemetry/api'
-
 import type { AxAIService, AxFunction } from '../ai/types.js'
 import { AxGen, type AxGenOptions } from '../dsp/generate.js'
 import {
   type AxGenIn,
   type AxGenOut,
+  type AxGenStreamingOut,
   type AxProgramDemos,
   type AxProgramExamples,
   type AxProgramForwardOptions,
+  type AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
   type AxTunable,
   type AxUsable,
@@ -142,11 +142,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public async forward(
+  private init(
     ai: Readonly<AxAIService>,
-    values: IN,
-    options?: Readonly<AxProgramForwardOptions>
-  ): Promise<OUT> {
+    options: Readonly<AxProgramForwardOptions> | undefined
+  ) {
     const _ai = this.ai ?? ai
 
     const funcs: AxFunction[] = [
@@ -160,29 +159,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const opt = { ...options, functions: funcs }
       this.program = new AxGen<IN, OUT>(this.signature, opt)
     }
+    return { _ai, opt }
+  }
 
-    if (!options?.tracer) {
-      return await this.program.forward(_ai, values, opt)
-    }
+  public async forward(
+    ai: Readonly<AxAIService>,
+    values: IN,
+    options?: Readonly<AxProgramForwardOptions>
+  ): Promise<OUT> {
+    const { _ai, opt } = this.init(ai, options)
+    return await this.program.forward(_ai, values, opt)
+  }
 
-    const attributes = {
-      ['agent.name']: this.name,
-      ['agent.description']: this.description,
-      ['agent.subAgents']: this.subAgentList ?? 'none',
-    }
-
-    return await options?.tracer.startActiveSpan(
-      'Agent',
-      {
-        kind: SpanKind.SERVER,
-        attributes,
-      },
-      async (span) => {
-        const res = await this.program.forward(_ai, values, opt)
-        span.end()
-        return res
-      }
-    )
+  public async *streamingForward(
+    ai: Readonly<AxAIService>,
+    values: IN,
+    options?: Readonly<AxProgramStreamingForwardOptions>
+  ): AxGenStreamingOut<OUT> {
+    const { _ai, opt } = this.init(ai, options)
+    return yield* this.program.streamingForward(_ai, values, opt)
   }
 }
 

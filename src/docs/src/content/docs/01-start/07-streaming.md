@@ -3,7 +3,7 @@ title: Streaming Outputs
 description: Learn how to use streaming outputs in ax, including streaming validation and assertions for the output fields and function execution.
 ---
 
-We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without waiting for the whole output, saving tokens and costs and reducing latency. Assertions are a powerful way to ensure the output matches your requirements; they also work with streaming.
+We support parsing output fields and function execution while streaming. And end-to-end streaming with parsing, validating and function calling while streaming. This allows for fail-fast and error correction without waiting for the whole output, saving tokens and costs and reducing latency. Assertions are a powerful way to ensure the output matches your requirements; they also work with streaming.
 
 ```typescript
 // setup the prompt program
@@ -19,6 +19,10 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
 
 // run the program with streaming enabled
 const res = await gen.forward({ startNumber: 1 }, { stream: true });
+
+// or run the program with end-to-end streaming
+const generator = await gen.streamingForward({ startNumber: 1 }, { stream: true });
+for await (const res of generator) {}
 ```
 
 The above example allows you to validate entire output fields as they are streamed in. This validation works with streaming and when not streaming and is triggered when the whole field value is available. For true validation while streaming, check out the example below. This will massively improve performance and save tokens at scale in production.

@@ -39,7 +39,7 @@ const ai = new AxAI({
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini15Flash, stream: false },
 })
-ai.setOptions({ debug: true })
+// ai.setOptions({ debug: true })
 
 const res = await cot.forward(ai, values)
 console.log(res)

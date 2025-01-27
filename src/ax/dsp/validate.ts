@@ -1,40 +1,61 @@
-import { toFieldType } from './prompt.js'
-import type { AxField } from './sig.js'
+import type { AxAIService } from '../ai/types.js'
+import type { AxAIMemory } from '../mem/types.js'
+import { ColorLog } from '../util/log.js'
+
+import { AxPromptTemplate, toFieldType } from './prompt.js'
+import type { AxField, AxIField } from './sig.js'
+
+const colorLog = new ColorLog()
 
 export class ValidationError extends Error {
-  private field: AxField
-  private value: string
+  private fields: AxField[]
 
   constructor({
     message,
-    field,
-    value,
+    fields,
   }: Readonly<{
     message: string
-    field: AxField
-    value: string
+    fields: AxField[]
+    value?: string
   }>) {
     super(message)
-    this.field = field
-    this.value = value
+    this.fields = fields
     this.name = this.constructor.name
     Error.captureStackTrace(this, this.constructor)
   }
 
-  public getField = () => this.field
-  public getValue = () => this.value
+  public getFields = () => this.fields
 
   public getFixingInstructions = () => {
-    const f = this.field
+    return this.fields.map((field) => ({
+      name: 'outputError',
+      title: 'Error In Output',
+      description: `Please fix and return the field \`${field.title}\` of type \`${toFieldType(field.type)}\`, ${this.message}.`,
+    }))
+  }
+}
 
-    const extraFields = [
-      {
-        name: `outputError`,
-        title: `Invalid Output Field`,
-        description: `Invalid format for field \`${f.title}\` of type \`${toFieldType(f.type)}\`, format should match: \`${f.description}\``,
-      },
-    ]
+export function handleValidationError(
+  mem: AxAIMemory,
+  errorFields: AxIField[],
+  ai: Readonly<AxAIService>,
+  promptTemplate: Readonly<AxPromptTemplate>,
+  sessionId?: string
+) {
+  mem.add(
+    {
+      role: 'user' as const,
+      content: promptTemplate.renderExtraFields(errorFields),
+    },
+    sessionId
+  )
+  mem.addTag('error')
 
-    return extraFields
+  if (ai.getOptions().debug) {
+    process.stdout.write(
+      colorLog.red(
+        `\nError Correction:\n${JSON.stringify(errorFields, null, 2)}\n`
+      )
+    )
   }
 }

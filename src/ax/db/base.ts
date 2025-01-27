@@ -76,9 +76,11 @@ export class AxDBBase implements AxDBService {
         },
       },
       async (span) => {
-        const res = await this._upsert!(req, update, { span })
-        span.end()
-        return res
+        try {
+          return await this._upsert!(req, update, { span })
+        } finally {
+          span.end()
+        }
       }
     )
   }
@@ -114,9 +116,11 @@ export class AxDBBase implements AxDBService {
         },
       },
       async (span) => {
-        const res = await this._batchUpsert!(req, update, { span })
-        span.end()
-        return res
+        try {
+          return await this._batchUpsert!(req, update, { span })
+        } finally {
+          span.end()
+        }
       }
     )
   }
@@ -142,9 +146,11 @@ export class AxDBBase implements AxDBService {
         },
       },
       async (span) => {
-        const res = await this._query!(req, { span })
-        span.end()
-        return res
+        try {
+          return await this._query!(req, { span })
+        } finally {
+          span.end()
+        }
       }
     )
   }
