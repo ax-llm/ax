@@ -26,7 +26,7 @@ import {
   extractValues,
   streamingExtractFinalValue,
   streamingExtractValues,
-  streamingValues,
+  streamValues,
 } from './extract.js'
 import {
   type AxChatResponseFunctionCall,
@@ -241,12 +241,13 @@ export class AxGen<
     sessionId,
     traceId,
     functions,
-  }: Readonly<
-    AxResponseHandlerArgs<ReadableStream<AxChatResponse>>
-  >): AsyncGenerator<Partial<OUT>, OUT, unknown> {
+  }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
     const values = {}
-    const xstate: extractionState = { extractedFields: [], s: -1 }
+    const xstate: extractionState = {
+      extractedFields: [],
+      s: -1,
+    }
 
     let content = ''
 
@@ -265,6 +266,16 @@ export class AxGen<
         content += result.content
         mem.updateResult({ name: result.name, content }, sessionId)
 
+        const skip = streamingExtractValues(
+          this.signature,
+          values,
+          xstate,
+          content
+        )
+        if (skip) {
+          continue
+        }
+
         assertStreamingAssertions(
           this.streamingAsserts,
           values,
@@ -272,9 +283,8 @@ export class AxGen<
           content,
           false
         )
-        streamingExtractValues(this.signature, values, xstate, content)
         assertAssertions(this.asserts, values)
-        yield* streamingValues<OUT>(this.signature, values, xstate, content)
+        yield* streamValues<OUT>(this.signature, values, xstate, content)
       }
 
       if (result.functionCalls) {
@@ -316,8 +326,7 @@ export class AxGen<
     )
     streamingExtractFinalValue(this.signature, values, xstate, content)
     assertAssertions(this.asserts, values)
-
-    return values as unknown as OUT
+    yield* streamValues<OUT>(this.signature, values, xstate, content)
   }
 
   private async processResponse({
@@ -411,9 +420,8 @@ export class AxGen<
         try {
           const generator = this.forwardCore({ options, ai, mem })
           for await (const delta of generator) {
-            yield {
-              version: errCount,
-              delta,
+            if (delta !== undefined) {
+              yield { version: errCount, delta }
             }
           }
 
@@ -545,9 +553,15 @@ export class AxGen<
     })
 
     let buffer = {} as Partial<OUT>
+    let currentVersion = 0
 
-    for await (const delta of generator) {
-      buffer = mergeDeltas(buffer, delta.delta)
+    for await (const item of generator) {
+      // Clear buffer if version changes
+      if (item.version !== currentVersion) {
+        buffer = {}
+      }
+      currentVersion = item.version
+      buffer = mergeDeltas(buffer, item.delta)
     }
 
     this.trace = { ...values, ...buffer }

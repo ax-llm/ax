@@ -1,10 +1,5 @@
 import { AxAI, AxChainOfThought } from '@ax-llm/ax'
 
-// const ai = new AxAI({
-//   name: 'openai',
-//   apiKey: process.env.OPENAI_APIKEY as string
-// });
-
 // setup the prompt program
 const gen = new AxChainOfThought<{ startNumber: number }>(
   `startNumber:number -> next10Numbers:number[]`
@@ -20,9 +15,14 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
 }, 'Numbers 2 is not allowed')
 
 const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
 })
+
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string,
+// })
 ai.setOptions({ debug: true })
 
 // run the program with streaming enabled

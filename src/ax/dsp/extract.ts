@@ -4,7 +4,7 @@ import JSON5 from 'json5'
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js'
 import type { AxField, AxSignature } from './sig.js'
-import { parseMarkdownList } from './util.js'
+import { matchesContent, parseMarkdownList } from './util.js'
 import { ValidationError } from './validate.js'
 
 export const extractValues = (
@@ -55,6 +55,10 @@ export const streamingExtractValues = (
   xstate: extractionState,
   content: string
 ) => {
+  if (content.endsWith('\n')) {
+    return true
+  }
+
   const fields = sig.getOutputFields()
 
   for (const [index, field] of fields.entries()) {
@@ -63,13 +67,27 @@ export const streamingExtractValues = (
     }
 
     const prefix = field.title + ':'
-    const e = content.indexOf(prefix, xstate.s + 1)
-    if (e === -1) {
-      continue
+    let e = matchesContent(content, prefix, xstate.s + 1)
+
+    switch (e) {
+      case -1:
+        continue // Field is not found, continue to the next field
+      case -2:
+        return true // Partial match at end, skip and gather more content
     }
 
+    let prefixLen = prefix.length
+
+    // Check if the prefix is at the beginning of the line, include the newline
+    if (e - 1 >= 0 && content[e - 1] === '\n') {
+      e -= 1
+      prefixLen += 1
+    }
+
+    // We found the full match at the index e
+
     if (xstate.currField) {
-      const val = content.substring(xstate.s, e)
+      const val = content.substring(xstate.s, e).trim()
       const parsedValue = validateAndParseFieldValue(xstate.currField, val)
       if (parsedValue !== undefined) {
         values[xstate.currField.name] = parsedValue
@@ -78,7 +96,7 @@ export const streamingExtractValues = (
 
     checkMissingRequiredFields(xstate, values, index)
 
-    xstate.s = e + prefix.length
+    xstate.s = e + prefixLen
     xstate.currField = field
 
     if (!xstate.extractedFields.includes(field)) {
@@ -95,7 +113,7 @@ export const streamingExtractFinalValue = (
   content: string
 ) => {
   if (xstate.currField) {
-    const val = content.substring(xstate.s)
+    const val = content.substring(xstate.s).trim()
     const parsedValue = validateAndParseFieldValue(xstate.currField, val)
     if (parsedValue !== undefined) {
       values[xstate.currField.name] = parsedValue
@@ -111,7 +129,8 @@ export const streamingExtractFinalValue = (
 const convertValueToType = (field: Readonly<AxField>, val: string) => {
   switch (field.type?.name) {
     case 'string':
-      return val as string
+      return val
+
     case 'number': {
       const v = Number(val)
       if (Number.isNaN(v)) {
@@ -119,7 +138,11 @@ const convertValueToType = (field: Readonly<AxField>, val: string) => {
       }
       return v
     }
+
     case 'boolean': {
+      if (typeof val === 'boolean') {
+        return val
+      }
       const v = val.toLowerCase()
       if (v === 'true') {
         return true
@@ -131,21 +154,25 @@ const convertValueToType = (field: Readonly<AxField>, val: string) => {
     }
     case 'date':
       return parseLLMFriendlyDate(field, val)
+
     case 'datetime':
       return parseLLMFriendlyDateTime(field, val)
+
     case 'class':
-      if (field.type.classes && !field.type.classes.includes(val)) {
+      const className = val
+      if (field.type.classes && !field.type.classes.includes(className)) {
         throw new Error(
           `Invalid class '${val}', expected one of the following: ${field.type.classes.join(', ')}`
         )
       }
-      return val as string
+      return className as string
+
     default:
       return val as string // Unknown type
   }
 }
 
-export function* streamingValues<OUT>(
+export function* streamValues<OUT>(
   sig: Readonly<AxSignature>,
   values: Readonly<Record<string, OUT>>,
   // eslint-disable-next-line functional/prefer-immutable-types
@@ -166,10 +193,12 @@ export function* streamingValues<OUT>(
     !xstate.currField.type ||
     (!xstate.currField.type.isArray && xstate.currField.type.name === 'string')
   ) {
-    const s = xstate.s + (xstate.streamedIndex[fieldName] ?? 0)
+    const pos = xstate.streamedIndex[fieldName] ?? 0
+    const s = xstate.s + pos
     const v = content.substring(s)
-    yield { [fieldName]: v } as Partial<OUT>
-    xstate.streamedIndex[fieldName] = v.length
+
+    yield { [fieldName]: pos === 0 ? v.trimStart() : v } as Partial<OUT>
+    xstate.streamedIndex[fieldName] = pos + v.length
     return
   }
 
@@ -177,18 +206,18 @@ export function* streamingValues<OUT>(
     const value = values[key]
 
     if (Array.isArray(value)) {
-      const s = xstate.streamedIndex[fieldName] ?? 0
+      const s = xstate.streamedIndex[key] ?? 0
       const v = value.slice(s)
       if (v) {
-        yield { [fieldName]: v } as Partial<OUT>
-        xstate.streamedIndex[fieldName] = s + 1
+        yield { [key]: v } as Partial<OUT>
+        xstate.streamedIndex[key] = s + 1
       }
       continue
     }
 
-    if (!xstate.streamedIndex[fieldName]) {
-      yield { [fieldName]: value } as Partial<OUT>
-      xstate.streamedIndex[fieldName] = 1
+    if (!xstate.streamedIndex[key]) {
+      yield { [key]: value } as Partial<OUT>
+      xstate.streamedIndex[key] = 1
     }
   }
 }
@@ -197,15 +226,12 @@ function validateAndParseFieldValue(
   field: Readonly<AxField>,
   fieldValue: string | undefined
 ): unknown {
-  const fv = fieldValue?.trim()
-
   if (
-    !fv ||
-    !fv ||
-    fv === '' ||
-    fv === 'null' ||
-    fv === 'NULL' ||
-    fv === 'undefined'
+    !fieldValue ||
+    fieldValue === '' ||
+    fieldValue === 'null' ||
+    fieldValue === 'NULL' ||
+    fieldValue === 'undefined'
   ) {
     if (field.isOptional) {
       return
@@ -213,7 +239,7 @@ function validateAndParseFieldValue(
     throw new ValidationError({
       message: 'Required field is missing',
       fields: [field],
-      value: fv,
+      value: fieldValue,
     })
   }
 
@@ -221,14 +247,14 @@ function validateAndParseFieldValue(
 
   if (field.type?.name === 'json') {
     try {
-      const text = extractBlock(fv)
+      const text = extractBlock(fieldValue)
       value = JSON5.parse(text)
       return value
     } catch (e) {
       throw new ValidationError({
         message: 'Invalid JSON: ' + (e as Error).message,
         fields: [field],
-        value: fv,
+        value: fieldValue,
       })
     }
   }
@@ -236,19 +262,19 @@ function validateAndParseFieldValue(
   if (field.type?.isArray) {
     try {
       try {
-        value = JSON5.parse(fv)
+        value = JSON5.parse(fieldValue)
       } catch {
         // If JSON parsing fails, try markdown parsing
-        value = parseMarkdownList(fv)
+        value = parseMarkdownList(fieldValue)
       }
       if (!Array.isArray(value)) {
         throw new Error('Expected an array')
       }
     } catch (e) {
       throw new ValidationError({
-        message: 'Invalid array: ' + (e as Error).message,
+        message: 'Invalid Array: ' + (e as Error).message,
         fields: [field],
-        value: fv,
+        value: fieldValue,
       })
     }
   }
@@ -256,10 +282,13 @@ function validateAndParseFieldValue(
   try {
     if (Array.isArray(value)) {
       for (const [index, item] of value.entries()) {
-        value[index] = convertValueToType(field, item)
+        if (item !== undefined) {
+          const v = typeof item === 'string' ? item.trim() : item
+          value[index] = convertValueToType(field, v)
+        }
       }
     } else {
-      value = convertValueToType(field, fv)
+      value = convertValueToType(field, fieldValue)
     }
   } catch (e) {
     throw new ValidationError({
@@ -269,8 +298,11 @@ function validateAndParseFieldValue(
     })
   }
 
-  // If validation passes, return null to indicate no error
-  return value ?? fv
+  if (typeof value === 'string' && value === '') {
+    return undefined
+  }
+
+  return value
 }
 
 export const extractBlock = (input: string): string => {

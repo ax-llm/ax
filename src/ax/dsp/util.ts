@@ -1,6 +1,6 @@
 import { ColorLog } from '../util/log.js'
 
-import type { AxFieldValue, AxProgramUsage } from './program.js'
+import type { AxFieldValue, AxGenOut, AxProgramUsage } from './program.js'
 import type { AxField } from './sig.js'
 
 const colorLog = new ColorLog()
@@ -208,30 +208,115 @@ export const parseMarkdownList = (input: string): string[] => {
   return list
 }
 
-export function mergeDeltas<T>(
-  base: Partial<T>,
-  delta: Partial<T>
-): Partial<T> {
-  const merged = { ...base }
-
-  for (const key in delta) {
+export function mergeDeltas<OUT>(
+  base: Partial<AxGenOut>,
+  delta: Partial<AxGenOut>
+) {
+  for (const key of Object.keys(delta)) {
     const baseValue = base[key]
     const deltaValue = delta[key]
 
-    if (Array.isArray(baseValue) && Array.isArray(deltaValue)) {
+    if (
+      (baseValue === undefined || Array.isArray(baseValue)) &&
+      Array.isArray(deltaValue)
+    ) {
       // Concatenate arrays
-      merged[key] = [...baseValue, ...deltaValue] as T[Extract<keyof T, string>]
+      base[key] = [...(baseValue ?? []), ...deltaValue]
     } else if (
-      typeof baseValue === 'string' &&
+      (baseValue === undefined || typeof baseValue === 'string') &&
       typeof deltaValue === 'string'
     ) {
       // Concatenate strings
-      merged[key] = (baseValue + deltaValue) as T[Extract<keyof T, string>]
+      base[key] = (baseValue ?? '') + deltaValue
     } else {
       // For all other types, overwrite with the new value
-      merged[key] = deltaValue
+      base[key] = deltaValue
+    }
+  }
+  return base as OUT
+}
+
+export class LRUCache<K, V> {
+  private cache = new Map<K, V>()
+  private readonly maxSize: number
+
+  constructor(maxSize: number) {
+    this.maxSize = maxSize
+  }
+
+  get(key: K): V | undefined {
+    const value = this.cache.get(key)
+    if (value) {
+      // Refresh position by deleting and re-adding
+      this.cache.delete(key)
+      this.cache.set(key, value)
+    }
+    return value
+  }
+
+  set(key: K, value: V): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key)
+    } else if (this.cache.size >= this.maxSize) {
+      // Remove oldest entry (first item in map)
+      const firstKey = this.cache.keys().next().value
+      if (firstKey) {
+        this.cache.delete(firstKey)
+      }
+    }
+    this.cache.set(key, value)
+  }
+}
+
+const globalPrefixCache = new LRUCache<string, string[]>(500)
+
+/**
+ * Checks if a streaming string matches a prefix, either fully or partially from the end.
+ * For streaming content, partial matches are checked from shortest to longest since
+ * the content grows at the end and we want to detect partial prefixes as they form.
+ * @param content The string to check (potentially streaming)
+ * @param prefix The prefix to look for
+ * @param startIndex Optional starting index for the search (default: 0)
+ * @returns
+ *   - index >= 0: Position of full match
+ *   - -1: No match found
+ *   - -2: Partial match from the end
+ */
+export function matchesContent(
+  content: string,
+  prefix: string,
+  startIndex: number = 0,
+  prefixCache: LRUCache<string, string[]> = globalPrefixCache
+): number {
+  // First check if the complete prefix exists anywhere after startIndex
+  const exactMatchIndex = content.indexOf(prefix, startIndex)
+  if (exactMatchIndex !== -1) {
+    return exactMatchIndex
+  }
+
+  // Get or create cached prefixes
+  const prefixes =
+    prefixCache.get(prefix) ??
+    Array.from({ length: prefix.length }, (_, i) => prefix.slice(0, i + 1))
+
+  // Set in cache if it wasn't there
+  if (!prefixCache.get(prefix)) {
+    prefixCache.set(prefix, prefixes)
+  }
+
+  // Get the content slice we'll check for partial matches
+  const contentEnd = content.slice(
+    Math.max(startIndex, content.length - prefix.length)
+  )
+
+  // Check for partial matches at the end, starting from shortest to longest
+  // Skip the full prefix as it was already checked
+  for (let i = 0; i < prefixes.length - 1; i++) {
+    const partialPrefix = prefixes[i]!
+    if (contentEnd.endsWith(partialPrefix)) {
+      return -2
     }
   }
 
-  return merged
+  return -1
 }

@@ -52,10 +52,10 @@ export function handleValidationError(
   mem.addTag('error')
 
   if (ai.getOptions().debug) {
-    process.stdout.write(
-      colorLog.red(
-        `\nError Correction:\n${JSON.stringify(errorFields, null, 2)}\n`
-      )
-    )
+    const errors = errorFields
+      .map((field) => `- ${field.title}: ${field.description}`)
+      .join('\n')
+
+    process.stdout.write(colorLog.red(`\nError Correction:\n${errors}\n`))
   }
 }

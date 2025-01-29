@@ -1,4 +1,4 @@
-import { AxAI, AxChainOfThought } from '@ax-llm/ax'
+import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '@ax-llm/ax'
 
 // const ai = new AxAI({
 //     name: 'anthropic'
@@ -31,6 +31,7 @@ gen.addStreamingAssert(
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 })
 
 // run the program with streaming enabled

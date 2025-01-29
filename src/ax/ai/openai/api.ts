@@ -39,19 +39,19 @@ export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig =>
 export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig =>
   structuredClone({
     ...axAIOpenAIDefaultConfig(),
-    model: AxAIOpenAIModel.GPT4Turbo,
+    model: AxAIOpenAIModel.GPT4O,
   })
 
 export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT4Turbo,
+    model: AxAIOpenAIModel.GPT4O,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig(),
   })
 
 export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig => ({
   ...axAIOpenAIDefaultConfig(),
-  model: AxAIOpenAIModel.GPT4O,
+  model: AxAIOpenAIModel.GPT4OMini,
 })
 
 export interface AxAIOpenAIArgs {
