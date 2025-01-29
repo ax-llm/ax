@@ -1,5 +1,16 @@
 # Changelog
 
+## [10.0.42](https://github.com/ax-llm/ax/compare/10.0.40...10.0.41) (2025-01-29)
+
+### Bug Fixes
+
+* more streaming fixes ([ac3948b](https://github.com/ax-llm/ax/commit/ac3948bcedf4c4304ebfc1a62a1c70d8e69e1c87))
+## [10.0.41](https://github.com/ax-llm/ax/compare/10.0.40...10.0.41) (2025-01-29)
+
+### Bug Fixes
+
+* parsing while end-to-end streaming ([fee7775](https://github.com/ax-llm/ax/commit/fee7775ae9283903aa7e8815c04a149727bcdbd1))
+
 ## [10.0.41](https://github.com/ax-llm/ax/compare/10.0.39...10.0.40) (2025-01-29)
 
 ### Bug Fixes
