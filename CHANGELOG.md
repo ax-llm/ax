@@ -1,5 +1,22 @@
 # Changelog
 
+## [10.0.41](https://github.com/ax-llm/ax/compare/10.0.39...10.0.40) (2025-01-29)
+
+### Bug Fixes
+
+* parsing while end-to-end streaming ([fee7775](https://github.com/ax-llm/ax/commit/fee7775ae9283903aa7e8815c04a149727bcdbd1))
+## [10.0.40](https://github.com/ax-llm/ax/compare/10.0.39...10.0.40) (2025-01-27)
+
+### Features
+
+* end-to-end streaming with parsing, error-correction, validation and function calling ([3b59665](https://github.com/ax-llm/ax/commit/3b596658221d8b6fef089e972bb32b44d0df600e))
+
+### Bug Fixes
+
+* build fixes ([81809a4](https://github.com/ax-llm/ax/commit/81809a4129cd0508b9740ae7a382413445edd79e))
+* doc build fix ([b6c110b](https://github.com/ax-llm/ax/commit/b6c110b151c78b2096b21b4ec32f573796a3b9de))
+* don't render extraneous period at the end of task prompt ([#111](https://github.com/ax-llm/ax/issues/111)) ([3c30c47](https://github.com/ax-llm/ax/commit/3c30c47d06c1f5dbcb425eb840166d436e9ac709))
+
 ## [10.0.40](https://github.com/ax-llm/ax/compare/10.0.38...10.0.39) (2025-01-27)
 
 ### Features
