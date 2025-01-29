@@ -71,16 +71,9 @@ export const streamingExtractValues = (
       case -2:
         return true // Partial match at end, skip and gather more content
     }
+    // We found the full match at the index e
 
     let prefixLen = prefix.length
-
-    // Check if the prefix is at the beginning of the line, include the newline
-    // if (e - 1 >= 0 && content[e - 1] === '\n') {
-    //   e -= 1
-    //   prefixLen += 1
-    // }
-
-    // We found the full match at the index e
 
     if (xstate.currField) {
       const val = content.substring(xstate.s, e).trim()
