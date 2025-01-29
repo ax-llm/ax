@@ -4,6 +4,7 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
+import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -16,7 +17,6 @@ import type {
   AxTokenUsage,
 } from '../types.js'
 
-import { GoogleVertexAuth } from './auth.js'
 import { axModelInfoGoogleGemini } from './info.js'
 import {
   type AxAIGoogleGeminiBatchEmbedRequest,
@@ -86,7 +86,6 @@ export interface AxAIGoogleGeminiArgs {
   apiKey?: string
   projectId?: string
   region?: string
-  keyFile?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
   modelMap?: Record<
@@ -109,7 +108,6 @@ class AxAIGoogleGeminiImpl
     private config: AxAIGoogleGeminiConfig,
     private isVertex: boolean,
     private apiKey?: string,
-    private keyFile?: string,
     private options?: AxAIGoogleGeminiArgs['options']
   ) {}
 
@@ -483,7 +481,6 @@ export class AxAIGoogleGemini extends AxBaseAI<
     apiKey,
     projectId,
     region,
-    keyFile,
     config,
     options,
     modelMap,
@@ -498,9 +495,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
       if (apiKey) {
         headers = async () => ({ Authorization: `Bearer ${apiKey}` })
       } else {
-        const vertexAuth = new GoogleVertexAuth({
-          keyFile,
-        })
+        const vertexAuth = new GoogleVertexAuth()
         headers = async () => ({
           Authorization: `Bearer ${await vertexAuth.getAccessToken()}`,
         })
@@ -518,13 +513,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
       ...config,
     }
 
-    const aiImpl = new AxAIGoogleGeminiImpl(
-      _config,
-      isVertex,
-      apiKey,
-      keyFile,
-      options
-    )
+    const aiImpl = new AxAIGoogleGeminiImpl(_config, isVertex, apiKey, options)
 
     super(aiImpl, {
       name: 'GoogleGeminiAI',
