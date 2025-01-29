@@ -13,6 +13,7 @@ import {
 } from './ai/anthropic/api.js';
 import {
   AxAIAnthropicModel,
+  AxAIAnthropicVertexModel,
   type AxAIAnthropicChatError,
   type AxAIAnthropicChatRequest,
   type AxAIAnthropicChatRequestCacheParam,
@@ -327,6 +328,7 @@ import {type AxAPI} from './util/apicall.js';
 export { AxAI };
 export { AxAIAnthropic };
 export { AxAIAnthropicModel };
+export { AxAIAnthropicVertexModel };
 export { AxAIAzureOpenAI };
 export { AxAICohere };
 export { AxAICohereEmbedModel };

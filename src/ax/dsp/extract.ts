@@ -55,10 +55,6 @@ export const streamingExtractValues = (
   xstate: extractionState,
   content: string
 ) => {
-  if (content.endsWith('\n')) {
-    return true
-  }
-
   const fields = sig.getOutputFields()
 
   for (const [index, field] of fields.entries()) {
@@ -79,10 +75,10 @@ export const streamingExtractValues = (
     let prefixLen = prefix.length
 
     // Check if the prefix is at the beginning of the line, include the newline
-    if (e - 1 >= 0 && content[e - 1] === '\n') {
-      e -= 1
-      prefixLen += 1
-    }
+    // if (e - 1 >= 0 && content[e - 1] === '\n') {
+    //   e -= 1
+    //   prefixLen += 1
+    // }
 
     // We found the full match at the index e
 
@@ -177,7 +173,8 @@ export function* streamValues<OUT>(
   values: Readonly<Record<string, OUT>>,
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState,
-  content: string
+  content: string,
+  final: boolean = false
 ) {
   if (!xstate.currField) {
     return
@@ -189,17 +186,25 @@ export function* streamValues<OUT>(
     xstate.streamedIndex = { [fieldName]: 0 }
   }
 
-  if (
-    !xstate.currField.type ||
-    (!xstate.currField.type.isArray && xstate.currField.type.name === 'string')
-  ) {
-    const pos = xstate.streamedIndex[fieldName] ?? 0
-    const s = xstate.s + pos
-    const v = content.substring(s)
+  if (!final) {
+    if (
+      !xstate.currField.type ||
+      (!xstate.currField.type.isArray &&
+        xstate.currField.type.name === 'string')
+    ) {
+      const pos = xstate.streamedIndex[fieldName] ?? 0
+      const s = xstate.s + pos
 
-    yield { [fieldName]: pos === 0 ? v.trimStart() : v } as Partial<OUT>
-    xstate.streamedIndex[fieldName] = pos + v.length
-    return
+      const v = content.substring(s)
+      const v1 = v.replace(/[\s\n\t]+$/, '')
+      const v2 = pos === 0 ? v1.trimStart() : v1
+
+      yield { [fieldName]: v2 } as Partial<OUT>
+
+      // Ignore the length that was trimmed from the end not the beginning
+      xstate.streamedIndex[fieldName] = pos + v1.length
+      return
+    }
   }
 
   for (const key of Object.keys(values)) {

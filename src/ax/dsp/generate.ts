@@ -317,6 +317,8 @@ export class AxGen<
       this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
     }
 
+    streamingExtractFinalValue(this.signature, values, xstate, content)
+
     assertStreamingAssertions(
       this.streamingAsserts,
       values,
@@ -324,9 +326,8 @@ export class AxGen<
       content,
       true
     )
-    streamingExtractFinalValue(this.signature, values, xstate, content)
     assertAssertions(this.asserts, values)
-    yield* streamValues<OUT>(this.signature, values, xstate, content)
+    yield* streamValues<OUT>(this.signature, values, xstate, content, true)
   }
 
   private async processResponse({

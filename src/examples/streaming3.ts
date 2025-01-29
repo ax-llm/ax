@@ -1,4 +1,9 @@
-import { AxAI, AxAIGoogleGeminiModel, AxChainOfThought } from '@ax-llm/ax'
+import {
+  AxAI,
+  AxAIGoogleGeminiModel,
+  AxAIOpenAIModel,
+  AxChainOfThought,
+} from '@ax-llm/ax'
 
 // Setup the prompt program for movie reviews
 const gen = new AxChainOfThought<{ movieTitle: string }>(
@@ -52,9 +57,9 @@ gen.addAssert(
 )
 
 const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini15Flash },
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 })
 // ai.setOptions({ debug: true })
 

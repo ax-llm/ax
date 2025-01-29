@@ -14,15 +14,15 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
   return next10Numbers ? !next10Numbers.includes(2) : undefined
 }, 'Numbers 2 is not allowed')
 
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-})
-
 // const ai = new AxAI({
-//   name: 'google-gemini',
-//   apiKey: process.env.GOOGLE_APIKEY as string,
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string,
 // })
+
+const ai = new AxAI({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+})
 ai.setOptions({ debug: true })
 
 // run the program with streaming enabled
