@@ -12,8 +12,16 @@ export enum AxAIAnthropicModel {
   ClaudeInstant12 = 'claude-instant-1.2',
 }
 
+export enum AxAIAnthropicVertexModel {
+  Claude35Haiku = 'claude-3-5-haiku',
+  Claude35Sonnet = 'claude-3-5-sonnet',
+  Claude35SonnetV2 = 'claude-3-5-sonnet-v2',
+  Claude3Haiku = 'claude-3-haiku',
+  Claude3Opus = 'claude-3-opus',
+}
+
 export type AxAIAnthropicConfig = AxModelConfig & {
-  model: AxAIAnthropicModel
+  model: AxAIAnthropicModel | AxAIAnthropicVertexModel
 }
 
 export type AxAIAnthropicChatRequestCacheParam = {
@@ -22,7 +30,8 @@ export type AxAIAnthropicChatRequestCacheParam = {
 
 // Type for the request to create a message using Anthropic's Messages API
 export type AxAIAnthropicChatRequest = {
-  model: string
+  model?: string
+  anthropic_version?: string
   messages: (
     | {
         role: 'user'

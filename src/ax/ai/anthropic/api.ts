@@ -1,5 +1,6 @@
 import type { AxAPI } from '../../util/apicall.js'
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js'
+import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -33,7 +34,9 @@ export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
 
 export interface AxAIAnthropicArgs {
   name: 'anthropic'
-  apiKey: string
+  apiKey?: string
+  projectId?: string
+  region?: string
   config?: Readonly<Partial<AxAIAnthropicConfig>>
   options?: Readonly<AxAIServiceOptions>
   modelMap?: Record<string, AxAIAnthropicModel | string>
@@ -49,7 +52,10 @@ class AxAIAnthropicImpl
       unknown
     >
 {
-  constructor(private config: AxAIAnthropicConfig) {}
+  constructor(
+    private config: AxAIAnthropicConfig,
+    private isVertex: boolean
+  ) {}
 
   getModelConfig(): AxModelConfig {
     const { config } = this
@@ -71,9 +77,19 @@ class AxAIAnthropicImpl
     req: Readonly<AxInternalChatRequest>
   ): [AxAPI, AxAIAnthropicChatRequest] => {
     const model = req.model
+    const stream = req.modelConfig?.stream ?? this.config.stream
 
-    const apiConfig = {
-      name: '/messages',
+    let apiConfig
+    if (this.isVertex) {
+      apiConfig = {
+        name: stream
+          ? `/models/${model}:streamRawPredict?alt=sse`
+          : `/models/${model}:rawPredict`,
+      }
+    } else {
+      apiConfig = {
+        name: '/messages',
+      }
     }
 
     let toolsChoice
@@ -122,10 +138,10 @@ class AxAIAnthropicImpl
       })
     )
 
-    const stream = req.modelConfig?.stream ?? this.config.stream
-
     const reqValue: AxAIAnthropicChatRequest = {
-      model,
+      ...(this.isVertex
+        ? { anthropic_version: 'vertex-2023-10-16' }
+        : { model }),
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       stop_sequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
@@ -318,28 +334,50 @@ export class AxAIAnthropic extends AxBaseAI<
 > {
   constructor({
     apiKey,
+    projectId,
+    region,
     config,
     options,
     modelMap,
   }: Readonly<Omit<AxAIAnthropicArgs, 'name'>>) {
-    if (!apiKey || apiKey === '') {
-      throw new Error('Anthropic API key not set')
+    const isVertex = projectId !== undefined && region !== undefined
+
+    let apiURL
+    let headers
+
+    if (isVertex) {
+      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`
+      if (apiKey) {
+        headers = async () => ({ Authorization: `Bearer ${apiKey}` })
+      } else {
+        const vertexAuth = new GoogleVertexAuth()
+        headers = async () => ({
+          Authorization: `Bearer ${await vertexAuth.getAccessToken()}`,
+        })
+      }
+    } else {
+      if (!apiKey) {
+        throw new Error('Anthropic API key not set')
+      }
+      apiURL = 'https://api.anthropic.com/v1'
+      headers = async () => ({
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
+        'x-api-key': apiKey,
+      })
     }
+
     const _config = {
       ...axAIAnthropicDefaultConfig(),
       ...config,
     }
 
-    const aiImpl = new AxAIAnthropicImpl(_config)
+    const aiImpl = new AxAIAnthropicImpl(_config, isVertex)
 
     super(aiImpl, {
       name: 'Anthropic',
-      apiURL: 'https://api.anthropic.com/v1',
-      headers: async () => ({
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31',
-        'x-api-key': apiKey,
-      }),
+      apiURL,
+      headers,
       modelInfo: axModelInfoAnthropic,
       models: { model: _config.model },
       options,
