@@ -1,5 +1,3 @@
-import JSON5 from 'json5'
-
 import type {
   AxAIService,
   AxAIServiceActionOptions,
@@ -36,7 +34,7 @@ export class AxFunctionProcessor {
     let args
 
     if (typeof func.args === 'string' && func.args.length > 0) {
-      args = JSON5.parse(func.args)
+      args = JSON.parse(func.args)
     } else {
       args = func.args
     }

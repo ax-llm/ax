@@ -1,7 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
-import JSON5 from 'json5'
-
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js'
 import type { AxField, AxSignature } from './sig.js'
 import { matchesContent, parseMarkdownList } from './util.js'
@@ -246,7 +244,7 @@ function validateAndParseFieldValue(
   if (field.type?.name === 'json') {
     try {
       const text = extractBlock(fieldValue)
-      value = JSON5.parse(text)
+      value = JSON.parse(text)
       return value
     } catch (e) {
       throw new ValidationError({
@@ -260,7 +258,7 @@ function validateAndParseFieldValue(
   if (field.type?.isArray) {
     try {
       try {
-        value = JSON5.parse(fieldValue)
+        value = JSON.parse(fieldValue)
       } catch {
         // If JSON parsing fails, try markdown parsing
         value = parseMarkdownList(fieldValue)

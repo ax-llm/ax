@@ -154,11 +154,11 @@ const functions: AxFunction[] = [
 //   config: { model: AxAIOpenAIModel.GPT4OMini },
 // })
 
-const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini15Flash },
-})
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string,
+//   config: { model: AxAIGoogleGeminiModel.Gemini15Flash },
+// })
 
 // const ai = new AxAI({
 //   name: 'groq',
@@ -172,11 +172,11 @@ const ai = new AxAI({
 //   config: { stream: false },
 // })
 
-// const ai = new AxAI({
-//   name: 'anthropic',
-//   apiKey: process.env.ANTHROPIC_APIKEY as string,
-//   config: { model: AxAIAnthropicModel.Claude35Haiku },
-// })
+const ai = new AxAI({
+  name: 'anthropic',
+  apiKey: process.env.ANTHROPIC_APIKEY as string,
+  config: { model: AxAIAnthropicModel.Claude35Haiku },
+})
 
 ai.setOptions({ debug: true })
 
@@ -198,6 +198,6 @@ const gen = new AxAgent<
   functions,
 })
 
-const res = await gen.forward(ai, { customerQuery })
+const res = await gen.forward(ai, { customerQuery }, { stream: false })
 
-console.log('>', res)
+console.log('\n>', res)

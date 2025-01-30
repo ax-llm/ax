@@ -341,46 +341,41 @@ export class AxGen<
   }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
     const values = {}
 
-    const result = res.results[0]
-    if (!result) {
-      throw new Error('No result found')
-    }
+    for (const result of res.results ?? []) {
+      if (res.modelUsage) {
+        this.usage.push({ ...usageInfo, ...res.modelUsage })
+      }
 
-    // for (const result of res.results ?? []) {
-    if (res.modelUsage) {
-      this.usage.push({ ...usageInfo, ...res.modelUsage })
-    }
+      mem.addResult(result, sessionId)
 
-    mem.addResult(result, sessionId)
+      if (result.content) {
+        extractValues(this.signature, values, result.content)
+        assertAssertions(this.asserts, values)
+      }
 
-    if (result.content) {
-      extractValues(this.signature, values, result.content)
-      assertAssertions(this.asserts, values)
-    }
+      if (result.functionCalls) {
+        const funcs = parseFunctionCalls(ai, result.functionCalls, values)
 
-    if (result.functionCalls) {
-      const funcs = parseFunctionCalls(ai, result.functionCalls, values)
-
-      if (funcs) {
-        if (!functions) {
-          throw new Error('Functions are not defined')
+        if (funcs) {
+          if (!functions) {
+            throw new Error('Functions are not defined')
+          }
+          const fx = await processFunctions(
+            ai,
+            functions,
+            funcs,
+            mem,
+            sessionId,
+            traceId
+          )
+          this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
         }
-        const fx = await processFunctions(
-          ai,
-          functions,
-          funcs,
-          mem,
-          sessionId,
-          traceId
-        )
-        this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
+      }
+
+      if (result.finishReason === 'length') {
+        throw new Error('Max tokens reached before completion')
       }
     }
-
-    if (result.finishReason === 'length') {
-      throw new Error('Max tokens reached before completion')
-    }
-    // }
 
     return { ...values } as unknown as OUT
   }

@@ -42,11 +42,11 @@ describe('signature parsing', () => {
     })
   })
 
-  // it('throws error for invalid signature', () => {
-  //   expect(() =>
-  //     parseSignature(
-  //       `context?:string, query:boom -> test:image, answers:string[]`
-  //     )
-  //   ).toThrow();
-  // });
+  it('throws error for invalid signature', () => {
+    expect(() =>
+      parseSignature(
+        `context?:string, query:boom -> test:image, answers:string[]`
+      )
+    ).toThrow()
+  })
 })
