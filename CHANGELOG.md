@@ -1,5 +1,17 @@
 # Changelog
 
+## [10.0.43](https://github.com/ax-llm/ax/compare/10.0.41...10.0.42) (2025-01-30)
+
+### Bug Fixes
+
+* anthropic function calling ([73f5491](https://github.com/ax-llm/ax/commit/73f5491137dc738c1793411d0388c1c2012829f9))
+* cleanup ([e005c68](https://github.com/ax-llm/ax/commit/e005c681652036ddd04075f2c3ca9ba372525f55))
+## [10.0.42](https://github.com/ax-llm/ax/compare/10.0.41...10.0.42) (2025-01-29)
+
+### Bug Fixes
+
+* more streaming fixes ([ac3948b](https://github.com/ax-llm/ax/commit/ac3948bcedf4c4304ebfc1a62a1c70d8e69e1c87))
+
 ## [10.0.42](https://github.com/ax-llm/ax/compare/10.0.40...10.0.41) (2025-01-29)
 
 ### Bug Fixes

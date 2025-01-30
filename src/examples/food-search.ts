@@ -198,6 +198,6 @@ const gen = new AxAgent<
   functions,
 })
 
-const res = await gen.forward(ai, { customerQuery }, { stream: false })
+const res = await gen.forward(ai, { customerQuery })
 
 console.log('\n>', res)
