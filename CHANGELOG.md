@@ -1,5 +1,11 @@
 # Changelog
 
+## [10.0.46](https://github.com/ax-llm/ax/compare/10.0.45...10.0.46) (2025-01-31)
+
+### Bug fixes
+
+* fix: allow google auth lib to manage token lifecycle (#119) ([48a2322](https://github.com/ax-llm/ax/commit/48a2322f8f4b29dbd165223fc4c186666e2d6b11))
+
 ## [10.0.45](https://github.com/ax-llm/ax/compare/10.0.44...10.0.45) (2025-01-31)
 
 ### Bug fixes
