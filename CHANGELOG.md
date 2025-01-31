@@ -1,6 +1,12 @@
 # Changelog
 
-## [10.0.44](https://github.com/ax-llm/ax/compare/10.0.42...10.0.43) (2025-01-31)
+## [10.0.45](https://github.com/ax-llm/ax/compare/10.0.44...10.0.45) (2025-01-31)
+
+### Bug fixes
+
+* fix: don't swallow error in AxBalancer (#118) ([aa25c7a](https://github.com/ax-llm/ax/commit/aa25c7a3afc2f71af8537ddb2425633d693e43c0))
+
+## [10.0.44](https://github.com/ax-llm/ax/compare/10.0.43...10.0.44) (2025-01-31)
 
 ### Features
 
