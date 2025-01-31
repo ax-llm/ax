@@ -3,7 +3,6 @@ import type {
   GoogleAuthOptions,
   JSONClient,
 } from 'google-auth-library/build/src/auth/googleauth.js'
-import type { GetAccessTokenResponse } from 'google-auth-library/build/src/auth/oauth2client.js'
 
 /**
  * This class is used to authenticate with the Google Vertex AI API.
@@ -11,8 +10,6 @@ import type { GetAccessTokenResponse } from 'google-auth-library/build/src/auth/
 export class GoogleVertexAuth {
   private auth: GoogleAuth
   private client?: JSONClient
-  private currentToken?: string | null
-  private tokenExpiry?: number
 
   constructor(config: GoogleAuthOptions = {}) {
     this.auth = new GoogleAuth({
@@ -29,52 +26,11 @@ export class GoogleVertexAuth {
   }
 
   async getAccessToken() {
-    // Check if we have a valid cached token
-    if (
-      this.currentToken &&
-      this.tokenExpiry &&
-      Date.now() < this.tokenExpiry
-    ) {
-      return this.currentToken
-    }
-
     const client = await this.getAuthenticatedClient()
-    const tokenResponse = await client.getAccessToken()
-
-    // Cache the token
-    this.currentToken = tokenResponse.token
-
-    // Set expiry
-    const expiry = this.getExpiry(tokenResponse)
-
-    // Set expiry 10 minutes before actual expiry to be safe
-    const tenMinutes = 10 * 60 * 1000
-    this.tokenExpiry = expiry - tenMinutes
-
-    return this.currentToken
-  }
-
-  /**
-   * Get the expiry date from the token response.
-   */
-  getExpiry(tokenResponse: GetAccessTokenResponse) {
-    // Default to 1 hour (the typical expiry for a token)
-    const oneHour = 3600 * 1000
-    let expiry = Date.now() + oneHour
-
-    let responseExpiry = tokenResponse.res?.data?.expiry_date
-    if (responseExpiry) {
-      if (typeof responseExpiry === 'number') {
-        expiry = responseExpiry
-      } else if (responseExpiry instanceof Date) {
-        expiry = responseExpiry.getTime()
-      } else if (typeof responseExpiry === 'string') {
-        expiry = new Date(responseExpiry).getTime()
-      } else {
-        console.warn('Unknown expiry type', responseExpiry)
-      }
+    const response = await client.getAccessToken()
+    if (!response.token) {
+      throw new Error('Failed to obtain access token')
     }
-
-    return expiry
+    return response.token
   }
 }
