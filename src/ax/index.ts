@@ -136,6 +136,17 @@ import {
   type AxAIRekaUsage
 } from './ai/reka/types.js';
 import {
+  AxAIServiceAuthenticationError,
+  AxAIServiceError,
+  AxAIServiceNetworkError,
+  AxAIServiceResponseError,
+  AxAIServiceStatusError,
+  AxAIServiceStreamTerminatedError,
+  AxAIServiceTimeoutError,
+  type AxAPI,
+  type AxAPIConfig
+} from './util/apicall.js';
+import {
   AxAITogether,
   type AxAITogetherArgs
 } from './ai/together/api.js';
@@ -322,7 +333,6 @@ import {AxMemory} from './mem/memory.js';
 import {AxMockAIService} from './ai/mock/api.js';
 import {AxRAG} from './prompts/rag.js';
 import {type AxAIMemory} from './mem/types.js';
-import {type AxAPI} from './util/apicall.js';
 
 // Value exports
 export { AxAI };
@@ -353,6 +363,13 @@ export { AxAIOpenAIEmbedModel };
 export { AxAIOpenAIModel };
 export { AxAIReka };
 export { AxAIRekaModel };
+export { AxAIServiceAuthenticationError };
+export { AxAIServiceError };
+export { AxAIServiceNetworkError };
+export { AxAIServiceResponseError };
+export { AxAIServiceStatusError };
+export { AxAIServiceStreamTerminatedError };
+export { AxAIServiceTimeoutError };
 export { AxAITogether };
 export { AxAgent };
 export { AxApacheTika };
@@ -473,6 +490,7 @@ export type { AxAIServiceMetrics };
 export type { AxAIServiceOptions };
 export type { AxAITogetherArgs };
 export type { AxAPI };
+export type { AxAPIConfig };
 export type { AxAgentOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };

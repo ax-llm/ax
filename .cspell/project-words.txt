@@ -27,6 +27,7 @@ dosco
 fres
 frontmatter
 fstate
+googleauth
 groq
 Groq
 Hono
@@ -63,6 +64,7 @@ région
 reka
 rerank
 reranker
+retryable
 retval
 sandboxed
 sdata
@@ -91,4 +93,3 @@ weaviate
 Weaviate
 xlarge
 xstate
-googleauth

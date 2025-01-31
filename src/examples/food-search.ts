@@ -1,12 +1,4 @@
-import {
-  AxAgent,
-  AxAI,
-  AxAIAnthropicModel,
-  AxAIGoogleGeminiModel,
-  AxAIOpenAIModel,
-  type AxFunction,
-  AxSignature,
-} from '@ax-llm/ax'
+import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax'
 
 const choice = Math.round(Math.random())
 
@@ -151,19 +143,19 @@ const functions: AxFunction[] = [
 // const ai = new AxAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
-//   config: { model: AxAIOpenAIModel.GPT4OMini },
+//   config: { stream: true },
 // })
 
-// const ai = new AxAI({
-//   name: 'google-gemini',
-//   apiKey: process.env.GOOGLE_APIKEY as string,
-//   config: { model: AxAIGoogleGeminiModel.Gemini15Flash },
-// })
+const ai = new AxAI({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { stream: true },
+})
 
 // const ai = new AxAI({
 //   name: 'groq',
 //   apiKey: process.env.GROQ_APIKEY as string,
-//   config: { stream: false },
+//   config: { stream: true },
 // })
 
 // const ai = new AxAI({
@@ -172,11 +164,11 @@ const functions: AxFunction[] = [
 //   config: { stream: false },
 // })
 
-const ai = new AxAI({
-  name: 'anthropic',
-  apiKey: process.env.ANTHROPIC_APIKEY as string,
-  config: { model: AxAIAnthropicModel.Claude35Haiku },
-})
+// const ai = new AxAI({
+//   name: 'anthropic',
+//   apiKey: process.env.ANTHROPIC_APIKEY as string,
+//   config: { stream: false },
+// })
 
 ai.setOptions({ debug: true })
 

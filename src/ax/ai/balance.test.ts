@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
+import { AxAIServiceNetworkError } from '../util/apicall.js'
+
 import { AxBalancer } from './balance.js'
 import { AxMockAIService } from './mock/api.js'
 import type { AxAIService, AxChatRequest, AxChatResponse } from './types.js'
@@ -125,7 +127,7 @@ describe('AxBalancer', () => {
       createMockService({
         name: 'service-1',
         chatResponse: async () => {
-          throw new Error('test')
+          throw new AxAIServiceNetworkError(new Error('test'), 'test-url')
         },
       }),
     ]
@@ -202,7 +204,7 @@ describe('AxBalancer', () => {
         name: 'service-0',
         latencyMs: 200,
         chatResponse: async () => {
-          throw new Error('test')
+          throw new AxAIServiceNetworkError(new Error('test'), 'test-url')
         },
       }),
       createMockService({

@@ -1,5 +1,15 @@
 import type { ReadableStream } from 'stream/web'
 
+import {
+  AxAIServiceAuthenticationError,
+  AxAIServiceError,
+  AxAIServiceNetworkError,
+  AxAIServiceResponseError,
+  AxAIServiceStatusError,
+  AxAIServiceStreamTerminatedError,
+  AxAIServiceTimeoutError,
+} from '../util/apicall.js'
+
 import type {
   AxAIModelMap,
   AxAIPromptConfig,
@@ -117,6 +127,40 @@ export class AxBalancer implements AxAIService {
       try {
         return await this.currentService.chat(req, options)
       } catch (e) {
+        if (!(e instanceof AxAIServiceError)) {
+          throw e
+        }
+
+        switch (e.constructor) {
+          case AxAIServiceAuthenticationError:
+            // Handle authentication failure, e.g., refresh token, prompt user to re-login
+            throw e
+
+          case AxAIServiceStatusError:
+            // Handle specific HTTP error codes, e.g., display a user-friendly message for a 404 Not Found
+            break
+
+          case AxAIServiceNetworkError:
+            // Handle network issues, e.g., display a message about checking network connectivity
+            break
+
+          case AxAIServiceResponseError:
+            // Handle errors related to processing the response, e.g., log the error and retry the request
+            break
+
+          case AxAIServiceStreamTerminatedError:
+            // Handle unexpected stream termination, e.g., retry the request or display an error message
+            break
+
+          case AxAIServiceTimeoutError:
+            // Handle request timeouts, e.g., increase timeout, retry, or display an error message
+            break
+
+          default:
+            throw e
+          // Handle unexpected AxAIServiceErrors
+        }
+
         console.warn(`Service ${this.currentService.getName()} failed`)
         if (!this.getNextService()) {
           throw e
