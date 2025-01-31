@@ -1,5 +1,17 @@
 # Changelog
 
+## [10.0.44](https://github.com/ax-llm/ax/compare/10.0.42...10.0.43) (2025-01-31)
+
+### Features
+
+* apicall and sse updates ([74d70b6](https://github.com/ax-llm/ax/commit/74d70b61de38664dca7ce97ff4619f5f516ae27e))
+## [10.0.43](https://github.com/ax-llm/ax/compare/10.0.42...10.0.43) (2025-01-30)
+
+### Bug Fixes
+
+* anthropic function calling ([73f5491](https://github.com/ax-llm/ax/commit/73f5491137dc738c1793411d0388c1c2012829f9))
+* cleanup ([e005c68](https://github.com/ax-llm/ax/commit/e005c681652036ddd04075f2c3ca9ba372525f55))
+
 ## [10.0.43](https://github.com/ax-llm/ax/compare/10.0.41...10.0.42) (2025-01-30)
 
 ### Bug Fixes
