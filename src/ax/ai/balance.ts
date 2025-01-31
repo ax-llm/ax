@@ -161,11 +161,16 @@ export class AxBalancer implements AxAIService {
           // Handle unexpected AxAIServiceErrors
         }
 
-        console.warn(`Service ${this.currentService.getName()} failed`)
+        console.warn(
+          `AxBalancer: Service ${this.currentService.getName()} failed`,
+          e
+        )
         if (!this.getNextService()) {
           throw e
         }
-        console.warn(`Switching to service ${this.currentService.getName()}`)
+        console.warn(
+          `AxBalancer: Switching to service ${this.currentService.getName()}`
+        )
       }
     }
   }

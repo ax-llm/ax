@@ -11,7 +11,7 @@ import type { GetAccessTokenResponse } from 'google-auth-library/build/src/auth/
 export class GoogleVertexAuth {
   private auth: GoogleAuth
   private client?: JSONClient
-  private currentToken?: string
+  private currentToken?: string | null
   private tokenExpiry?: number
 
   constructor(config: GoogleAuthOptions = {}) {
@@ -42,14 +42,14 @@ export class GoogleVertexAuth {
     const tokenResponse = await client.getAccessToken()
 
     // Cache the token
-    this.currentToken = tokenResponse.token ?? undefined
+    this.currentToken = tokenResponse.token
 
     // Set expiry
     const expiry = this.getExpiry(tokenResponse)
 
-    // Set expiry 5 minutes before actual expiry to be safe
-    const fiveMinutes = 5 * 60 * 1000
-    this.tokenExpiry = expiry - fiveMinutes
+    // Set expiry 10 minutes before actual expiry to be safe
+    const tenMinutes = 10 * 60 * 1000
+    this.tokenExpiry = expiry - tenMinutes
 
     return this.currentToken
   }
@@ -73,8 +73,6 @@ export class GoogleVertexAuth {
       } else {
         console.warn('Unknown expiry type', responseExpiry)
       }
-    } else {
-      console.warn('No expiry date found in response', tokenResponse.res?.data)
     }
 
     return expiry
