@@ -1,5 +1,17 @@
 # Changelog
 
+## [10.0.48](https://github.com/ax-llm/ax/compare/10.0.46...10.0.47) (2025-02-01)
+
+### Features
+
+* new AxFunctionError for function arg error correction ([6f14c0d](https://github.com/ax-llm/ax/commit/6f14c0dd491167b52ef7673412e68560485072e0))
+## [10.0.47](https://github.com/ax-llm/ax/compare/10.0.46...10.0.47) (2025-02-01)
+
+### Bug Fixes
+
+* path fix in new apicall: ([2afc899](https://github.com/ax-llm/ax/commit/2afc8993f6820269d76f99c273c600de645cc864))
+* retry logic in apicall ([db83ba4](https://github.com/ax-llm/ax/commit/db83ba4b6a36286ca56ab99f6d6ace5fb7871f34))
+
 ## [10.0.47](https://github.com/ax-llm/ax/compare/10.0.45...10.0.46) (2025-02-01)
 
 ### Bug Fixes
