@@ -120,10 +120,6 @@ class AxAIOpenAIImpl
       },
     }))
 
-    if (tools && isO1Model(model)) {
-      throw new Error('Functions are not supported for O1 models')
-    }
-
     const toolsChoice =
       !req.functionCall && req.functions && req.functions.length > 0
         ? 'auto'
@@ -136,9 +132,11 @@ class AxAIOpenAIImpl
 
     const stream = req.modelConfig?.stream ?? this.config.stream
 
-    if (stream && isO1Model(model)) {
-      throw new Error('Streaming is not supported for O1 models')
-    }
+    const reasoningEffort = isReasoningModel(model)
+      ? this.config.reasoningEffort
+      : undefined
+
+    const store = this.config.store
 
     const reqValue: AxAIOpenAIChatRequest = {
       model,
@@ -160,6 +158,8 @@ class AxAIOpenAIImpl
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...(store ? { store: store } : {}),
     }
 
     return [apiConfig, reqValue]
@@ -337,12 +337,6 @@ function createMessages(
   req: Readonly<AxInternalChatRequest>
 ): AxAIOpenAIChatRequest['messages'] {
   return req.chatPrompt.map((msg) => {
-    if (msg.role === 'system' && isO1Model(req.model)) {
-      msg = {
-        role: 'user',
-        content: msg.content,
-      }
-    }
     switch (msg.role) {
       case 'system':
         return { role: 'system' as const, content: msg.content }
@@ -445,17 +439,15 @@ export class AxAIOpenAI extends AxBaseAI<
         embedModel: _config.embedModel as string,
       },
       options,
-      supportFor: (model: string) => {
-        return isO1Model(model)
-          ? { functions: false, streaming: false }
-          : { functions: true, streaming: true }
+      supportFor: () => {
+        return { functions: true, streaming: true }
       },
       modelMap,
     })
   }
 }
 
-const isO1Model = (model: string): boolean =>
-  [AxAIOpenAIModel.O1Mini, AxAIOpenAIModel.O1Preview].includes(
+const isReasoningModel = (model: string): boolean =>
+  [AxAIOpenAIModel.O1Mini, AxAIOpenAIModel.O1, AxAIOpenAIModel.O3Mini].includes(
     model as AxAIOpenAIModel
   )

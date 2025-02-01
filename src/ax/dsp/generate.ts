@@ -13,6 +13,7 @@ import type {
 import { mergeFunctionCalls } from '../ai/util.js'
 import { AxMemory } from '../mem/memory.js'
 import type { AxAIMemory } from '../mem/types.js'
+import { AxAIServiceStreamTerminatedError } from '../util/apicall.js'
 
 import {
   assertAssertions,
@@ -443,6 +444,8 @@ export class AxGen<
             const e1 = e as AxAssertionError
             errorFields = e1.getFixingInstructions()
             err = e
+          } else if (e instanceof AxAIServiceStreamTerminatedError) {
+            // Do nothing allow error correction to happen
           } else {
             throw e
           }

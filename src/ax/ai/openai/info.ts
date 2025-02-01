@@ -7,7 +7,7 @@ import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './types.js'
  */
 export const axModelInfoOpenAI: AxModelInfo[] = [
   {
-    name: AxAIOpenAIModel.O1Preview,
+    name: AxAIOpenAIModel.O1,
     currency: 'usd',
     promptTokenCostPer1M: 15,
     completionTokenCostPer1M: 60,
@@ -15,8 +15,14 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
   {
     name: AxAIOpenAIModel.O1Mini,
     currency: 'usd',
-    promptTokenCostPer1M: 3,
-    completionTokenCostPer1M: 12,
+    promptTokenCostPer1M: 1.1,
+    completionTokenCostPer1M: 14.4,
+  },
+  {
+    name: AxAIOpenAIModel.O3Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.1,
+    completionTokenCostPer1M: 4.4,
   },
   {
     name: AxAIOpenAIModel.GPT4,

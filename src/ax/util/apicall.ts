@@ -1,7 +1,7 @@
-import path from 'path'
 import {
   ReadableStream,
   TextDecoderStream as TextDecoderStreamNative,
+  TransformStream,
 } from 'stream/web'
 
 import { type Span } from '@opentelemetry/api'
@@ -24,13 +24,45 @@ export interface RequestMetrics {
   lastRetryTime?: number
   streamChunks?: number
   lastChunkTime?: number
+  streamDuration?: number
+  errorTime?: number
+}
+
+// Validation Interfaces
+interface RequestValidation {
+  validateRequest?: (request: unknown) => boolean | Promise<boolean>
+}
+
+interface ResponseValidation {
+  validateResponse?: (response: unknown) => boolean | Promise<boolean>
+}
+
+// API Base Types
+export interface AxAPI {
+  name?: string
+  headers?: Record<string, string>
+  put?: boolean
+}
+
+// Enhanced API Configuration
+export interface AxAPIConfig
+  extends AxAPI,
+    RequestValidation,
+    ResponseValidation {
+  url: string | URL
+  stream?: boolean
+  debug?: boolean
+  fetch?: typeof fetch
+  span?: Span
+  timeout?: number
+  retry?: Partial<RetryConfig>
 }
 
 // Default Configurations
 export const defaultRetryConfig: RetryConfig = {
   maxRetries: 3,
   initialDelayMs: 1000,
-  maxDelayMs: 60000, // Increased to 60 seconds
+  maxDelayMs: 60000,
   backoffFactor: 2,
   retryableStatusCodes: [500, 408, 429, 502, 503, 504],
 }
@@ -38,23 +70,23 @@ export const defaultRetryConfig: RetryConfig = {
 const defaultTimeoutMs = 30000
 const textDecoderStream = TextDecoderStreamNative ?? TextDecoderStreamPolyfill
 
-/**
- * Base Error class with enhanced error tracking
- */
+// Error Classes
 export class AxAIServiceError extends Error {
   public readonly timestamp: string
   public readonly errorId: string
+  public readonly context: Record<string, unknown>
 
   constructor(
     message: string,
     public readonly url: string,
     public readonly requestBody?: unknown,
-    public readonly context: Record<string, unknown> = {}
+    context: Record<string, unknown> = {}
   ) {
     super(message)
     this.name = 'AxAIServiceError'
     this.timestamp = new Date().toISOString()
     this.errorId = crypto.randomUUID()
+    this.context = context
   }
 
   override toString(): string {
@@ -65,7 +97,9 @@ URL: ${this.url}${
         ? `\nRequest Body: ${JSON.stringify(this.requestBody, null, 2)}`
         : ''
     }${
-      this.context ? `\nContext: ${JSON.stringify(this.context, null, 2)}` : ''
+      Object.keys(this.context).length
+        ? `\nContext: ${JSON.stringify(this.context, null, 2)}`
+        : ''
     }`
   }
 
@@ -83,9 +117,6 @@ URL: ${this.url}${
   }
 }
 
-/**
- * HTTP Status Error with enhanced context
- */
 export class AxAIServiceStatusError extends AxAIServiceError {
   constructor(
     public readonly status: number,
@@ -103,9 +134,6 @@ export class AxAIServiceStatusError extends AxAIServiceError {
   }
 }
 
-/**
- * Network/IO Error with enhanced context
- */
 export class AxAIServiceNetworkError extends AxAIServiceError {
   constructor(
     public readonly originalError: Error,
@@ -123,9 +151,6 @@ export class AxAIServiceNetworkError extends AxAIServiceError {
   }
 }
 
-/**
- * Response Processing Error with validation context
- */
 export class AxAIServiceResponseError extends AxAIServiceError {
   constructor(
     message: string,
@@ -138,9 +163,6 @@ export class AxAIServiceResponseError extends AxAIServiceError {
   }
 }
 
-/**
- * Stream Terminated Error with enhanced context
- */
 export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
   constructor(
     url: string,
@@ -156,9 +178,6 @@ export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
   }
 }
 
-/**
- * Request timeout error
- */
 export class AxAIServiceTimeoutError extends AxAIServiceError {
   constructor(
     url: string,
@@ -174,9 +193,6 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
   }
 }
 
-/**
- * Authentication error
- */
 export class AxAIServiceAuthenticationError extends AxAIServiceError {
   constructor(
     url: string,
@@ -188,31 +204,7 @@ export class AxAIServiceAuthenticationError extends AxAIServiceError {
   }
 }
 
-/**
- * API Configuration interface
- */
-export interface AxAPI {
-  name?: string
-  headers?: Record<string, string>
-  put?: boolean
-}
-
-/**
- * Extended API Configuration
- */
-export interface AxAPIConfig extends AxAPI {
-  url: string | URL
-  stream?: boolean
-  debug?: boolean
-  fetch?: typeof fetch
-  span?: Span
-  timeout?: number
-  retry?: Partial<RetryConfig>
-}
-
-/**
- * Calculate retry delay using exponential backoff with jitter
- */
+// Utility Functions
 function calculateRetryDelay(
   attempt: number,
   config: Readonly<RetryConfig>
@@ -221,13 +213,9 @@ function calculateRetryDelay(
     config.maxDelayMs,
     config.initialDelayMs * Math.pow(config.backoffFactor, attempt)
   )
-  // Add random jitter of ±25%
   return delay * (0.75 + Math.random() * 0.5)
 }
 
-/**
- * Create request metrics object
- */
 function createRequestMetrics(): RequestMetrics {
   return {
     startTime: Date.now(),
@@ -235,18 +223,28 @@ function createRequestMetrics(): RequestMetrics {
   }
 }
 
-/**
- * Update metrics for retries
- */
 // eslint-disable-next-line functional/prefer-immutable-types
 function updateRetryMetrics(metrics: RequestMetrics): void {
   metrics.retryCount++
   metrics.lastRetryTime = Date.now()
 }
 
-/**
- * Enhanced API call function with comprehensive error handling, retries, and monitoring
- */
+function shouldRetry(
+  error: Error,
+  status: number | undefined,
+  attempt: number,
+  config: Readonly<RetryConfig>
+): boolean {
+  if (attempt >= config.maxRetries) return false
+  if (status && config.retryableStatusCodes.includes(status)) return true
+
+  return (
+    error instanceof AxAIServiceNetworkError &&
+    !(error instanceof AxAIServiceAuthenticationError)
+  )
+}
+
+// Enhanced API Call Function
 export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   api: Readonly<AxAPIConfig>,
   json: TRequest
@@ -254,14 +252,35 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const retryConfig: RetryConfig = { ...defaultRetryConfig, ...api.retry }
   const timeoutMs = api.timeout ?? defaultTimeoutMs
   const metrics = createRequestMetrics()
+  let timeoutId: NodeJS.Timeout
 
   const baseUrl = new URL(process.env['PROXY'] ?? api.url)
-  const apiPath = path.join(baseUrl.pathname, api.name ?? '/', baseUrl.search)
-  const apiUrl = new URL(apiPath, baseUrl)
 
-  // Request ID for tracking
+  // Ensure that api.name is appended properly to the pathname
+  baseUrl.pathname = [
+    baseUrl.pathname.replace(/\/+$/, ''),
+    api.name ?? '',
+  ].join('/')
+
+  // If you need to handle query strings, you can work with baseUrl.search separately.
+  const apiUrl = baseUrl
+
   const requestId = crypto.randomUUID()
 
+  // Validate request if validator is provided
+  if (api.validateRequest) {
+    const isValid = await api.validateRequest(json)
+    if (!isValid) {
+      throw new AxAIServiceResponseError(
+        'Invalid request data',
+        apiUrl.href,
+        json,
+        { validation: 'request' }
+      )
+    }
+  }
+
+  // Set up telemetry
   if (api.span?.isRecording()) {
     api.span.setAttributes({
       'http.request.method': api.put ? 'PUT' : 'POST',
@@ -275,11 +294,14 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
   while (true) {
     const controller = new AbortController()
-    let timeoutId = setTimeout(() => {
+
+    timeoutId = setTimeout(() => {
       controller.abort('Request timeout')
     }, timeoutMs)
 
     try {
+      // Set up timeout with proper cleanup
+
       const res = await (api.fetch ?? fetch)(apiUrl, {
         method: api.put ? 'PUT' : 'POST',
         headers: {
@@ -294,7 +316,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
       clearTimeout(timeoutId)
 
-      // Handle authentication errors specifically
+      // Handle authentication errors
       if (res.status === 401 || res.status === 403) {
         throw new AxAIServiceAuthenticationError(apiUrl.href, json, { metrics })
       }
@@ -302,8 +324,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       // Handle retryable status codes
       if (
         res.status >= 400 &&
-        attempt < retryConfig.maxRetries &&
-        retryConfig.retryableStatusCodes.includes(res.status)
+        shouldRetry(new Error(), res.status, attempt, retryConfig)
       ) {
         const delay = calculateRetryDelay(attempt, retryConfig)
         attempt++
@@ -320,7 +341,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           })
         }
 
-        clearTimeout(timeoutId)
+        await new Promise((resolve) => setTimeout(resolve, delay))
         continue
       }
 
@@ -334,8 +355,22 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         )
       }
 
+      // Handle non-streaming response
       if (!api.stream) {
         const resJson = await res.json()
+
+        // Validate response if validator is provided
+        if (api.validateResponse) {
+          const isValid = await api.validateResponse(resJson)
+          if (!isValid) {
+            throw new AxAIServiceResponseError(
+              'Invalid response data',
+              apiUrl.href,
+              json,
+              { validation: 'response' }
+            )
+          }
+        }
 
         if (api.span?.isRecording()) {
           api.span.setAttributes({
@@ -347,6 +382,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         return resJson as TResponse
       }
 
+      // Handle streaming response
       if (!res.body) {
         throw new AxAIServiceResponseError(
           'Response body is null',
@@ -359,7 +395,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       let lastChunk: TResponse | undefined
       let chunkCount = 0
 
-      //   Enhanced transform stream with chunk counting and validation
+      // Enhanced tracking stream
       const trackingStream = new TransformStream<TResponse, TResponse>({
         transform(chunk, controller) {
           lastChunk = chunk
@@ -368,7 +404,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           metrics.lastChunkTime = Date.now()
           controller.enqueue(chunk)
         },
-        flush(controller) {
+        flush() {
           if (api.span?.isRecording()) {
             api.span.setAttributes({
               'stream.chunks': chunkCount,
@@ -376,12 +412,14 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
               'response.retries': metrics.retryCount,
             })
           }
-          controller.terminate()
         },
       })
 
-      // 🚀 **Wrap the original stream inside a proxy ReadableStream**
-      const wrappedStream = new ReadableStream<TResponse>({
+      // Flag to track if the controller is closed.
+      let closed = false
+
+      // Enhanced wrapped stream
+      return new ReadableStream<TResponse>({
         start(controller) {
           const reader = res
             .body!.pipeThrough(new textDecoderStream())
@@ -394,15 +432,19 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
               while (true) {
                 const { done, value } = await reader.read()
                 if (done) {
-                  controller.close()
+                  if (!closed) {
+                    closed = true
+                    controller.close()
+                  }
                   break
-                } else {
-                  controller.enqueue(value)
                 }
+
+                // Check if the controller is already closed before enqueuing.
+                if (closed) break
+                controller.enqueue(value)
               }
             } catch (e) {
               const error = e as Error
-
               const streamMetrics = {
                 ...metrics,
                 streamDuration: Date.now() - metrics.startTime,
@@ -420,30 +462,46 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                     { streamMetrics }
                   )
                 )
-              } else {
+              } else if (
+                error instanceof TypeError &&
+                error.message.includes('cancelled')
+              ) {
                 controller.error(
-                  new AxAIServiceResponseError(
-                    `Stream processing error: ${(error as Error).message}`,
+                  new AxAIServiceStreamTerminatedError(
                     apiUrl.href,
                     json,
-                    { streamMetrics }
+                    lastChunk,
+                    {
+                      streamMetrics,
+                      cancelReason: 'Stream cancelled by client',
+                    }
                   )
                 )
+              } else {
+                controller.error(
+                  new AxAIServiceNetworkError(error, apiUrl.href, json, {
+                    streamMetrics,
+                  })
+                )
               }
+              throw error
             } finally {
-              reader.releaseLock() // release the reader lock in case of error
+              clearTimeout(timeoutId)
+              reader.releaseLock()
+              if (api.span?.isRecording()) {
+                api.span.end()
+              }
             }
           }
 
           read()
         },
+        // When the consumer cancels the stream, set our flag to stop processing further.
+        cancel() {
+          closed = true
+        },
       })
-
-      return wrappedStream
     } catch (error) {
-      // Clear timeout on error
-      clearTimeout(timeoutId)
-
       if (error instanceof Error && error.name === 'AbortError') {
         throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs, json, {
           metrics,
@@ -461,7 +519,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       // Handle retryable network errors
       if (
         error instanceof AxAIServiceNetworkError &&
-        attempt < retryConfig.maxRetries
+        shouldRetry(error, undefined, attempt, retryConfig)
       ) {
         const delay = calculateRetryDelay(attempt, retryConfig)
         attempt++
@@ -477,6 +535,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             'metrics.lastRetryTime': metrics.lastRetryTime,
           })
         }
+
+        await new Promise((resolve) => setTimeout(resolve, delay))
         continue
       }
 
@@ -485,13 +545,18 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       }
 
       throw error
+    } finally {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId)
+      }
+
+      if (api.span?.isRecording()) {
+        api.span.end()
+      }
     }
   }
 }
 
-/**
- * Utility function to create API config with defaults
- */
 export function createApiConfig(
   config: Readonly<Partial<AxAPIConfig>>
 ): AxAPIConfig {

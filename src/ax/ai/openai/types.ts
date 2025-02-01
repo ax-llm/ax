@@ -1,8 +1,9 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIOpenAIModel {
-  O1Preview = 'o1-preview',
+  O1 = 'o1',
   O1Mini = 'o1-mini',
+  O3Mini = 'o3-mini',
   GPT4 = 'gpt-4',
   GPT4O = 'gpt-4o',
   GPT4OMini = 'gpt-4o-mini',
@@ -33,6 +34,8 @@ export type AxAIOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
   logprobs?: number
   echo?: boolean
   dimensions?: number
+  reasoningEffort?: 'low' | 'medium' | 'high'
+  store?: boolean
 }
 
 export type AxAIOpenAILogprob = {
@@ -64,6 +67,8 @@ export interface AxAIOpenAIResponseDelta<T> {
 
 export type AxAIOpenAIChatRequest = {
   model: string
+  reasoning_effort?: 'low' | 'medium' | 'high'
+  store?: boolean
   messages: (
     | { role: 'system'; content: string }
     | {

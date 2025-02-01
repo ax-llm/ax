@@ -190,10 +190,12 @@ export function* streamValues<OUT>(
       const v1 = v.replace(/[\s\n\t]+$/, '')
       const v2 = pos === 0 ? v1.trimStart() : v1
 
-      yield { [fieldName]: v2 } as Partial<OUT>
+      if (v2.length > 0) {
+        yield { [fieldName]: v2 } as Partial<OUT>
 
-      // Ignore the length that was trimmed from the end not the beginning
-      xstate.streamedIndex[fieldName] = pos + v1.length
+        // Ignore the length that was trimmed from the end not the beginning
+        xstate.streamedIndex[fieldName] = pos + v1.length
+      }
       return
     }
   }
@@ -204,7 +206,7 @@ export function* streamValues<OUT>(
     if (Array.isArray(value)) {
       const s = xstate.streamedIndex[key] ?? 0
       const v = value.slice(s)
-      if (v) {
+      if (v && v.length > 0) {
         yield { [key]: v } as Partial<OUT>
         xstate.streamedIndex[key] = s + 1
       }

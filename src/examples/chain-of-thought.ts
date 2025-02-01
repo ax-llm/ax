@@ -22,23 +22,22 @@ const values = {
   ],
 }
 
-// const ai = new AxAI({
-//   name: 'openai',
-//   apiKey: process.env.OPENAI_APIKEY as string,
-// })
-// ai.setOptions({ debug: true })
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
 
 // const ai = new AxAI({
 //   name: 'ollama',
 //   config: { stream: false }
 // });
-// ai.setOptions({ debug: true });
 
-const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini15Flash, stream: false },
-})
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string,
+//   config: { model: AxAIGoogleGeminiModel.Gemini15Flash, stream: false },
+// })
+
 // ai.setOptions({ debug: true })
 
 const res = await cot.forward(ai, values)
