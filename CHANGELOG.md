@@ -1,5 +1,17 @@
 # Changelog
 
+## [10.0.47](https://github.com/ax-llm/ax/compare/10.0.45...10.0.46) (2025-02-01)
+
+### Bug Fixes
+
+* path fix in new apicall: ([2afc899](https://github.com/ax-llm/ax/commit/2afc8993f6820269d76f99c273c600de645cc864))
+* retry logic in apicall ([db83ba4](https://github.com/ax-llm/ax/commit/db83ba4b6a36286ca56ab99f6d6ace5fb7871f34))
+## [10.0.46](https://github.com/ax-llm/ax/compare/10.0.45...10.0.46) (2025-01-31)
+
+### Bug Fixes
+
+* allow google auth lib to manage token lifecycle ([#119](https://github.com/ax-llm/ax/issues/119)) ([48a2322](https://github.com/ax-llm/ax/commit/48a2322f8f4b29dbd165223fc4c186666e2d6b11))
+
 ## [10.0.46](https://github.com/ax-llm/ax/compare/10.0.45...10.0.46) (2025-01-31)
 
 ### Bug fixes
