@@ -132,7 +132,7 @@ describe('AxBalancer', () => {
       }),
     ]
 
-    const balancer = new AxBalancer(services)
+    const balancer = new AxBalancer(services, { debug: false })
     await balancer.chat({
       chatPrompt: [{ role: 'user', content: 'test' }],
       model: 'mock',
@@ -187,6 +187,7 @@ describe('AxBalancer', () => {
 
     const balancer = new AxBalancer(services, {
       comparator: AxBalancer.inputOrderComparator,
+      debug: false,
     })
 
     await balancer.chat({
@@ -230,6 +231,7 @@ describe('AxBalancer', () => {
 
     const balancer = new AxBalancer(services, {
       comparator: AxBalancer.inputOrderComparator,
+      debug: false,
     })
 
     await balancer.chat({

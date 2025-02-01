@@ -255,15 +255,11 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   let timeoutId: NodeJS.Timeout
 
   const baseUrl = new URL(process.env['PROXY'] ?? api.url)
-
-  // Ensure that api.name is appended properly to the pathname
-  baseUrl.pathname = [
-    baseUrl.pathname.replace(/\/+$/, ''),
-    api.name ?? '',
-  ].join('/')
-
-  // If you need to handle query strings, you can work with baseUrl.search separately.
-  const apiUrl = baseUrl
+  const apiPath = [baseUrl.pathname, api.name]
+    .filter(Boolean)
+    .join('/')
+    .replace(/\/+/g, '/')
+  const apiUrl = new URL(apiPath, baseUrl)
 
   const requestId = crypto.randomUUID()
 

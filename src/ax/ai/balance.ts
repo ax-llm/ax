@@ -29,6 +29,7 @@ import type {
  */
 export type AxBalancerOptions = {
   comparator?: (a: AxAIService, b: AxAIService) => number
+  debug?: boolean
 }
 
 /**
@@ -38,6 +39,7 @@ export class AxBalancer implements AxAIService {
   private services: AxAIService[]
   private currentServiceIndex: number = 0
   private currentService: AxAIService
+  private debug: boolean
 
   constructor(services: readonly AxAIService[], options?: AxBalancerOptions) {
     if (services.length === 0) {
@@ -53,6 +55,7 @@ export class AxBalancer implements AxAIService {
       throw new Error('Error initializing the AI services.') // More specific error message
     }
     this.currentService = cs
+    this.debug = options?.debug ?? true
   }
 
   /**
@@ -161,16 +164,20 @@ export class AxBalancer implements AxAIService {
           // Handle unexpected AxAIServiceErrors
         }
 
-        console.warn(
-          `AxBalancer: Service ${this.currentService.getName()} failed`,
-          e
-        )
+        if (this.debug) {
+          console.warn(
+            `AxBalancer: Service ${this.currentService.getName()} failed`,
+            e
+          )
+        }
         if (!this.getNextService()) {
           throw e
         }
-        console.warn(
-          `AxBalancer: Switching to service ${this.currentService.getName()}`
-        )
+        if (this.debug) {
+          console.warn(
+            `AxBalancer: Switching to service ${this.currentService.getName()}`
+          )
+        }
       }
     }
   }
@@ -185,11 +192,15 @@ export class AxBalancer implements AxAIService {
       try {
         return await this.currentService.embed(req, options)
       } catch (e) {
-        console.warn(`Service ${this.currentService.getName()} failed`)
+        if (this.debug) {
+          console.warn(`Service ${this.currentService.getName()} failed`)
+        }
         if (!this.getNextService()) {
           throw e
         }
-        console.warn(`Switching to service ${this.currentService.getName()}`)
+        if (this.debug) {
+          console.warn(`Switching to service ${this.currentService.getName()}`)
+        }
       }
     }
   }

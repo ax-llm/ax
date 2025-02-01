@@ -146,16 +146,16 @@ const functions: AxFunction[] = [
 //   config: { stream: true },
 // })
 
-const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { stream: true },
-})
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string,
+//   config: { stream: true },
+// })
 
 // const ai = new AxAI({
 //   name: 'groq',
 //   apiKey: process.env.GROQ_APIKEY as string,
-//   config: { stream: true },
+//   config: { stream: false },
 // })
 
 // const ai = new AxAI({
@@ -164,11 +164,11 @@ const ai = new AxAI({
 //   config: { stream: false },
 // })
 
-// const ai = new AxAI({
-//   name: 'anthropic',
-//   apiKey: process.env.ANTHROPIC_APIKEY as string,
-//   config: { stream: false },
-// })
+const ai = new AxAI({
+  name: 'anthropic',
+  apiKey: process.env.ANTHROPIC_APIKEY as string,
+  config: { stream: true },
+})
 
 ai.setOptions({ debug: true })
 
