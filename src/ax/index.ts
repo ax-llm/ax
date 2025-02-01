@@ -226,6 +226,7 @@ import {
   type AxDockerContainer
 } from './funcs/docker.js';
 import {
+  AxFunctionError,
   AxFunctionProcessor,
   type AxChatResponseFunctionCall,
   type AxFunctionExec,
@@ -389,6 +390,7 @@ export { AxDefaultQueryRewriter };
 export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
+export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGen };
 export { AxHFDataLoader };

@@ -8,6 +8,70 @@ import type { AxMemory } from '../mem/memory.js'
 
 import { validateJSONSchema } from './jsonschema.js'
 
+export class AxFunctionError extends Error {
+  constructor(
+    private fields: {
+      field: string
+      message: string
+    }[]
+  ) {
+    super()
+    this.name = this.constructor.name
+  }
+
+  getFields = () => this.fields
+}
+
+type FunctionFieldErrors = ConstructorParameters<typeof AxFunctionError>[0]
+
+export class FunctionError extends Error {
+  private fields: FunctionFieldErrors
+  private func: AxFunction
+
+  constructor({
+    fields,
+    func,
+  }: Readonly<{
+    fields: FunctionFieldErrors
+    func: AxFunction
+  }>) {
+    super()
+    this.fields = fields
+    this.func = func
+    this.name = this.constructor.name
+  }
+
+  private getFieldDescription(fieldName: string): string {
+    if (!this.func.parameters?.properties?.[fieldName]) {
+      return ''
+    }
+
+    const fieldSchema = this.func.parameters.properties[fieldName]
+    let description = fieldSchema.description
+
+    if (fieldSchema.enum?.length) {
+      description += ` Allowed values are: ${fieldSchema.enum.join(', ')}`
+    }
+
+    return description
+  }
+
+  public getFixingInstructions = () => {
+    return this.fields.map((fieldError) => {
+      const schemaDescription = this.getFieldDescription(fieldError.field)
+      const fullDescription = schemaDescription
+        ? `${fieldError.message}. ${schemaDescription}`
+        : fieldError.message
+
+      return {
+        name: 'functionArgumentError',
+        title: `Errors in Function '${this.func.name}' Arguments`,
+        description: `Please fix the argument '${fieldError.field}' in function '${this.func.name}': ${fullDescription}`,
+      }
+    })
+  }
+}
+
 export type AxChatResponseFunctionCall = {
   id?: string
   name: string
@@ -83,7 +147,17 @@ export class AxFunctionProcessor {
     }
 
     // execute value function calls
-    return await this.executeFunction(fnSpec, func, options)
+    try {
+      return await this.executeFunction(fnSpec, func, options)
+    } catch (e) {
+      if (e instanceof AxFunctionError) {
+        throw new FunctionError({
+          fields: e.getFields(),
+          func: fnSpec,
+        })
+      }
+      throw e
+    }
   }
 }
 

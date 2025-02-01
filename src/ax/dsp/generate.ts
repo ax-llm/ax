@@ -32,6 +32,7 @@ import {
 import {
   type AxChatResponseFunctionCall,
   type AxInputFunctionType,
+  FunctionError,
   parseFunctionCalls,
   parseFunctions,
   processFunctions,
@@ -122,21 +123,16 @@ export class AxGen<
     }
   }
 
-  public addAssert = (
-    fn: AxAssertion['fn'],
-    message?: string,
-    optional?: boolean
-  ) => {
-    this.asserts.push({ fn, message, optional })
+  public addAssert = (fn: AxAssertion['fn'], message?: string) => {
+    this.asserts.push({ fn, message })
   }
 
   public addStreamingAssert = (
     fieldName: string,
     fn: AxStreamingAssertion['fn'],
-    message?: string,
-    optional?: boolean
+    message?: string
   ) => {
-    this.streamingAsserts.push({ fieldName, fn, message, optional })
+    this.streamingAsserts.push({ fieldName, fn, message })
   }
 
   private async forwardSendRequest({
@@ -444,6 +440,9 @@ export class AxGen<
             const e1 = e as AxAssertionError
             errorFields = e1.getFixingInstructions()
             err = e
+          } else if (e instanceof FunctionError) {
+            errorFields = e.getFixingInstructions()
+            err = e
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
@@ -460,10 +459,6 @@ export class AxGen<
             )
           }
         }
-      }
-
-      if (err instanceof AxAssertionError && err.getOptional()) {
-        return err.getValue() as OUT
       }
 
       throw new Error(`Unable to fix validation error: ${err?.message}`)

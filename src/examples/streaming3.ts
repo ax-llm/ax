@@ -61,7 +61,7 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4OMini },
 })
-ai.setOptions({ debug: true })
+// ai.setOptions({ debug: true })
 
 // Run the program
 const generator = await gen.streamingForward(ai, {

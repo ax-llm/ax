@@ -83,7 +83,7 @@ export class AxAIServiceError extends Error {
     context: Record<string, unknown> = {}
   ) {
     super(message)
-    this.name = 'AxAIServiceError'
+    this.name = this.constructor.name
     this.timestamp = new Date().toISOString()
     this.errorId = crypto.randomUUID()
     this.context = context
@@ -130,7 +130,7 @@ export class AxAIServiceStatusError extends AxAIServiceError {
       httpStatusText: statusText,
       ...context,
     })
-    this.name = 'AxAIServiceStatusError'
+    this.name = this.constructor.name
   }
 }
 
@@ -146,7 +146,7 @@ export class AxAIServiceNetworkError extends AxAIServiceError {
       originalErrorStack: originalError.stack,
       ...context,
     })
-    this.name = 'AxAIServiceNetworkError'
+    this.name = this.constructor.name
     this.stack = originalError.stack
   }
 }
@@ -159,7 +159,7 @@ export class AxAIServiceResponseError extends AxAIServiceError {
     context?: Record<string, unknown>
   ) {
     super(message, url, requestBody, context)
-    this.name = 'AxAIServiceResponseError'
+    this.name = this.constructor.name
   }
 }
 
@@ -174,7 +174,7 @@ export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
       lastChunk,
       ...context,
     })
-    this.name = 'AxAIServiceStreamTerminatedError'
+    this.name = this.constructor.name
   }
 }
 
@@ -189,7 +189,7 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
       timeoutMs,
       ...context,
     })
-    this.name = 'AxAIServiceTimeoutError'
+    this.name = this.constructor.name
   }
 }
 
@@ -200,7 +200,7 @@ export class AxAIServiceAuthenticationError extends AxAIServiceError {
     context?: Record<string, unknown>
   ) {
     super('Authentication failed', url, requestBody, context)
-    this.name = 'AxAIServiceAuthenticationError'
+    this.name = this.constructor.name
   }
 }
 

@@ -4,37 +4,24 @@ import type { AxSignature } from './sig.js'
 export interface AxAssertion {
   fn(values: Record<string, unknown>): boolean | undefined
   message?: string
-  optional?: boolean
 }
 
 export interface AxStreamingAssertion {
   fieldName: string
   fn(content: string, done?: boolean): boolean | undefined
   message?: string
-  optional?: boolean
 }
 
 export class AxAssertionError extends Error {
-  private values: Record<string, unknown>
-  private optional?: boolean
-
   constructor({
     message,
-    values,
-    optional,
   }: Readonly<{
     message: string
-    values: Record<string, unknown>
-    optional?: boolean
   }>) {
     super(message)
-    this.values = values
-    this.optional = optional
     this.name = this.constructor.name
     this.stack = new Error().stack
   }
-  public getValue = () => this.values
-  public getOptional = () => this.optional
 
   public getFixingInstructions = () => {
     const extraFields = []
@@ -54,15 +41,18 @@ export const assertAssertions = (
   values: Record<string, unknown>
 ) => {
   for (const assert of asserts) {
-    const { fn, message, optional } = assert
+    const { fn, message } = assert
 
     const res = fn(values)
     if (res === undefined) {
       continue
     }
 
-    if (!res && message) {
-      throw new AxAssertionError({ message, values, optional })
+    if (!res) {
+      if (!message) {
+        throw new Error(`Assertion Failed: No message provided for assertion`)
+      }
+      throw new AxAssertionError({ message })
     }
   }
 }
@@ -94,7 +84,7 @@ export const assertStreamingAssertions = (
   const currValue = content.substring(xstate.s)
 
   for (const assert of fieldAsserts) {
-    const { message, optional, fn } = assert
+    const { message, fn } = assert
 
     const res = fn(currValue, final)
     if (res === undefined) {
@@ -102,7 +92,7 @@ export const assertStreamingAssertions = (
     }
 
     if (!res && message) {
-      throw new AxAssertionError({ message, values, optional })
+      throw new AxAssertionError({ message })
     }
   }
 }
@@ -118,7 +108,6 @@ export const assertRequiredFields = (
   if (missingFields.length > 0) {
     throw new AxAssertionError({
       message: `You must include the following fields in the output as instructed above: ${missingFields.map((f) => `\`${f.title}\``).join(', ')}`,
-      values,
     })
   }
 }

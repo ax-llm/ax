@@ -21,15 +21,12 @@ export class ValidationError extends Error {
     super(message)
     this.fields = fields
     this.name = this.constructor.name
-    Error.captureStackTrace(this, this.constructor)
   }
-
-  public getFields = () => this.fields
 
   public getFixingInstructions = () => {
     return this.fields.map((field) => ({
       name: 'outputError',
-      title: 'Error In Output',
+      title: 'Errors In Output Fields',
       description: `Please fix and return the field \`${field.title}\` of type \`${toFieldType(field.type)}\`, ${this.message}.`,
     }))
   }
