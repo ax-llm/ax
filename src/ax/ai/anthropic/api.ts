@@ -387,22 +387,32 @@ export class AxAIAnthropic extends AxBaseAI<
   }
 }
 
+type AnthropicMsg = AxAIAnthropicChatRequest['messages'][0]
+type AnthropicMsgRoleUser = Extract<AnthropicMsg, { role: 'user' }>
+type AnthropicMsgRoleUserToolResult = Extract<
+  AnthropicMsgRoleUser['content'][0],
+  { type: 'tool_result' }
+>
+
 function createMessages(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>
 ): AxAIAnthropicChatRequest['messages'] {
   const items: AxAIAnthropicChatRequest['messages'] = chatPrompt.map((msg) => {
     switch (msg.role) {
       case 'function':
+        const content: AnthropicMsgRoleUserToolResult[] = [
+          {
+            type: 'tool_result' as const,
+            content: msg.result,
+            tool_use_id: msg.functionId,
+            ...(msg.isError ? { is_error: true } : {}),
+            ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
+          },
+        ]
+
         return {
           role: 'user' as const,
-          content: [
-            {
-              type: 'tool_result',
-              content: msg.result,
-              tool_use_id: msg.functionId,
-              ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
-            },
-          ],
+          content,
         }
       case 'user': {
         if (typeof msg.content === 'string') {

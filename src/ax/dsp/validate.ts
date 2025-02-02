@@ -53,6 +53,6 @@ export function handleValidationError(
       .map((field) => `- ${field.title}: ${field.description}`)
       .join('\n')
 
-    process.stdout.write(colorLog.red(`\nError Correction:\n${errors}\n`))
+    process.stdout.write(colorLog.red(`\n❌ Error Correction:\n${errors}\n`))
   }
 }

@@ -229,7 +229,6 @@ import {
   AxFunctionError,
   AxFunctionProcessor,
   type AxChatResponseFunctionCall,
-  type AxFunctionExec,
   type AxInputFunctionType
 } from './dsp/functions.js';
 import {
@@ -536,7 +535,6 @@ export type { AxField };
 export type { AxFieldTemplateFn };
 export type { AxFieldValue };
 export type { AxFunction };
-export type { AxFunctionExec };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxGenDeltaOut };

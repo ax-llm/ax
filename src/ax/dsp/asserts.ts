@@ -20,7 +20,6 @@ export class AxAssertionError extends Error {
   }>) {
     super(message)
     this.name = this.constructor.name
-    this.stack = new Error().stack
   }
 
   public getFixingInstructions = () => {

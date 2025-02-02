@@ -32,7 +32,6 @@ import {
 import {
   type AxChatResponseFunctionCall,
   type AxInputFunctionType,
-  FunctionError,
   parseFunctionCalls,
   parseFunctions,
   processFunctions,
@@ -439,9 +438,6 @@ export class AxGen<
           } else if (e instanceof AxAssertionError) {
             const e1 = e as AxAssertionError
             errorFields = e1.getFixingInstructions()
-            err = e
-          } else if (e instanceof FunctionError) {
-            errorFields = e.getFixingInstructions()
             err = e
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen

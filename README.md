@@ -528,7 +528,8 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | Example             | Description                                             |
 | ------------------- | ------------------------------------------------------- |
 | customer-support.ts | Extract valuable details from customer communications   |
-| food-search.ts      | Use multiple APIs are used to find dinning options      |
+| function.ts         | Simple single function calling example                  |
+| food-search.ts      | Multi-step, multi-function calling example              |
 | marketing.ts        | Generate short effective marketing sms messages         |
 | vectordb.ts         | Chunk, embed and search text                            |
 | fibonacci.ts        | Use the JS code interpreter to compute fibonacci        |

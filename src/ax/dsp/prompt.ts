@@ -22,9 +22,9 @@ const functionCallInstructions = `
 
 const formattingRules = `
 ## Output Formatting Rules
+- Output must strictly follow the defined plaintext \`key: value\` field format.
 - Each output key, value must strictly adhere to the specified output field formatting rules.
 - No preamble, postscript, or supplementary information.
-- Output must be in plain text, with each \`key: value\` pair on a new line.
 - Do not repeat output fields.`
 
 export type AxFieldTemplateFn = (

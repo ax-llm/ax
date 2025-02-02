@@ -1,12 +1,16 @@
 import type {
   AxAIService,
   AxAIServiceActionOptions,
+  AxChatRequest,
   AxChatResponseResult,
   AxFunction,
 } from '../ai/types.js'
 import type { AxMemory } from '../mem/memory.js'
+import { ColorLog } from '../util/log.js'
 
 import { validateJSONSchema } from './jsonschema.js'
+
+const colorLog = new ColorLog()
 
 export class AxFunctionError extends Error {
   constructor(
@@ -25,21 +29,15 @@ export class AxFunctionError extends Error {
 type FunctionFieldErrors = ConstructorParameters<typeof AxFunctionError>[0]
 
 export class FunctionError extends Error {
-  private fields: FunctionFieldErrors
-  private func: AxFunction
-
-  constructor({
-    fields,
-    func,
-  }: Readonly<{
-    fields: FunctionFieldErrors
-    func: AxFunction
-  }>) {
+  constructor(
+    private readonly fields: FunctionFieldErrors,
+    private readonly func: Readonly<AxFunction>,
+    private readonly funcId?: string
+  ) {
     super()
-    this.fields = fields
-    this.func = func
-    this.name = this.constructor.name
   }
+
+  getFunctionId = () => this.funcId
 
   private getFieldDescription(fieldName: string): string {
     if (!this.func.parameters?.properties?.[fieldName]) {
@@ -57,30 +55,19 @@ export class FunctionError extends Error {
   }
 
   public getFixingInstructions = () => {
-    return this.fields.map((fieldError) => {
-      const schemaDescription = this.getFieldDescription(fieldError.field)
-      const fullDescription = schemaDescription
-        ? `${fieldError.message}. ${schemaDescription}`
-        : fieldError.message
-
-      return {
-        name: 'functionArgumentError',
-        title: `Errors in Function '${this.func.name}' Arguments`,
-        description: `Please fix the argument '${fieldError.field}' in function '${this.func.name}': ${fullDescription}`,
-      }
+    const bulletPoints = this.fields.map((fieldError) => {
+      const schemaDescription = this.getFieldDescription(fieldError.field) || ''
+      return `- \`${fieldError.field}\` - ${fieldError.message} (${schemaDescription}).`
     })
+
+    return `Errors In Function Arguments: Fix the following invalid arguments to '${this.func.name}'\n${bulletPoints.join('\n')}`
   }
 }
 
 export type AxChatResponseFunctionCall = {
-  id?: string
+  id: string
   name: string
   args: string
-}
-
-export type AxFunctionExec = {
-  id?: string
-  result?: string
 }
 
 export class AxFunctionProcessor {
@@ -94,7 +81,7 @@ export class AxFunctionProcessor {
     fnSpec: Readonly<AxFunction>,
     func: Readonly<AxChatResponseFunctionCall>,
     options?: Readonly<AxAIServiceActionOptions>
-  ): Promise<AxFunctionExec> => {
+  ) => {
     let args
 
     if (typeof func.args === 'string' && func.args.length > 0) {
@@ -115,10 +102,7 @@ export class AxFunctionProcessor {
       const res =
         fnSpec.func.length === 1 ? await fnSpec.func(opt) : await fnSpec.func()
 
-      return {
-        id: func.id,
-        result: JSON.stringify(res, null, 2),
-      }
+      return typeof res === 'string' ? res : JSON.stringify(res, null, 2)
     }
 
     const res =
@@ -126,16 +110,13 @@ export class AxFunctionProcessor {
         ? await fnSpec.func(args, opt)
         : await fnSpec.func(args)
 
-    return {
-      id: func.id,
-      result: JSON.stringify(res, null, 2),
-    }
+    return typeof res === 'string' ? res : JSON.stringify(res, null, 2)
   }
 
   public execute = async (
     func: Readonly<AxChatResponseFunctionCall>,
     options?: Readonly<AxAIServiceActionOptions>
-  ): Promise<AxFunctionExec> => {
+  ) => {
     const fnSpec = this.funcList.find(
       (v) => v.name.localeCompare(func.name) === 0
     )
@@ -151,10 +132,7 @@ export class AxFunctionProcessor {
       return await this.executeFunction(fnSpec, func, options)
     } catch (e) {
       if (e instanceof AxFunctionError) {
-        throw new FunctionError({
-          fields: e.getFields(),
-          func: fnSpec,
-        })
+        throw new FunctionError(e.getFields(), fnSpec, func.id)
       }
       throw e
     }
@@ -189,6 +167,11 @@ export const parseFunctions = (
   return [...(existingFuncs ?? []), ...functions]
 }
 
+type FunctionPromise = Promise<void | Extract<
+  AxChatRequest['chatPrompt'][number],
+  { role: 'function' }
+>>
+
 export const processFunctions = async (
   ai: Readonly<AxAIService>,
   functionList: Readonly<AxFunction[]>,
@@ -201,20 +184,48 @@ export const processFunctions = async (
   const functionsExecuted = new Set<string>()
 
   // Map each function call to a promise that resolves to the function result or null
-  const promises = functionCalls.map((func) =>
-    funcProc?.execute(func, { sessionId, traceId, ai }).then((fres) => {
-      functionsExecuted.add(func.name.toLowerCase())
+  const promises = functionCalls.map((func) => {
+    if (!func.id) {
+      throw new Error(`Function ${func.name} did not return an ID`)
+    }
 
-      if (fres?.id) {
+    const promise: FunctionPromise = funcProc
+      .execute(func, { sessionId, traceId, ai })
+      .then((functionResult) => {
+        functionsExecuted.add(func.name.toLowerCase())
+
         return {
           role: 'function' as const,
-          result: fres.result ?? '',
-          functionId: fres.id,
+          result: functionResult ?? '',
+          functionId: func.id,
         }
-      }
-      return null // Returning null for function calls that don't meet the condition
-    })
-  )
+      })
+      .catch((e) => {
+        if (e instanceof FunctionError) {
+          const result = e.getFixingInstructions()
+          mem.add(
+            {
+              role: 'function' as const,
+              functionId: func.id,
+              isError: true,
+              result,
+            },
+            sessionId
+          )
+          mem.addTag('error')
+
+          if (ai.getOptions().debug) {
+            process.stdout.write(
+              colorLog.red(`\n❌ Function Error Correction:\n${result}\n`)
+            )
+          }
+        } else {
+          throw e
+        }
+      })
+
+    return promise
+  })
 
   // Wait for all promises to resolve
   const results = await Promise.all(promises)

@@ -140,6 +140,7 @@ export type AxChatRequest = {
     | {
         role: 'function'
         result: string
+        isError?: boolean
         functionId: string
         cache?: boolean
       }
