@@ -1,5 +1,16 @@
 # Changelog
 
+## [10.0.49](https://github.com/ax-llm/ax/compare/10.0.47...10.0.48) (2025-02-02)
+
+### Features
+
+* improved function argument error correction ([4325101](https://github.com/ax-llm/ax/commit/4325101b9b951556d9d8c44b4b835058cc87ad81))
+## [10.0.48](https://github.com/ax-llm/ax/compare/10.0.47...10.0.48) (2025-02-01)
+
+### Features
+
+* new AxFunctionError for function arg error correction ([6f14c0d](https://github.com/ax-llm/ax/commit/6f14c0dd491167b52ef7673412e68560485072e0))
+
 ## [10.0.48](https://github.com/ax-llm/ax/compare/10.0.46...10.0.47) (2025-02-01)
 
 ### Features
