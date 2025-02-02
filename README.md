@@ -1,6 +1,6 @@
 # Ax - Build LLM-Powered Agents (Typescript)
 
-Use Ax and get an end-to-end streaming, multi-modal DSPy framework with agents and typed signatures. Works with all LLMs. Ax is always streaming and handles parsing, validating, error-correcting and function calling all while streaming. Ax is fastest framework which also lowers your token usage.
+Use Ax and get an end-to-end streaming, multi-modal DSPy framework with agents and typed signatures. Works with all LLMs. Ax is always streaming and handles parsing, validating, error-correcting and function calling all while streaming. Ax is easy, fast and lowers your token usage.
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
@@ -51,20 +51,7 @@ You can have multiple input and output fields, and each field can be of the type
 
 ## LLMs Supported
 
-| Provider      | Best Models               | Tested  |
-| ------------- | ------------------------- | ------- |
-| OpenAI        | GPT: All 4/o1 models      | 🟢 100% |
-| Azure OpenAI  | GPT: All 4/o1 models      | 🟢 100% |
-| Together      | Several OSS Models        | 🟢 100% |
-| Cohere        | CommandR, Command         | 🟢 100% |
-| Anthropic     | Claude 2, Claude 3        | 🟢 100% |
-| Mistral       | 7B, 8x7B, S, L            | 🟢 100% |
-| Groq          | Lama2-70B, Mixtral-8x7b   | 🟢 100% |
-| DeepSeek      | Chat and Code             | 🟢 100% |
-| Ollama        | All models                | 🟢 100% |
-| Google Gemini | Gemini: Flash, Pro, Gemma | 🟢 100% |
-| Hugging Face  | OSS Model                 | 🟡 50%  |
-| Reka          | Core, Flash, Edge         | 🟡 50%  |
+`Google Gemini`, `Google Vertex`, `OpenAI`, `Azure OpenAI`, `TogetherAI`, `Anthropic`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`, `Reka`, `Hugging Face`
 
 ## Install
 
