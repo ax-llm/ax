@@ -1,5 +1,4 @@
 import type { extractionState } from './extract.js'
-import type { AxSignature } from './sig.js'
 
 export interface AxAssertion {
   fn(values: Record<string, unknown>): boolean | undefined
@@ -93,20 +92,5 @@ export const assertStreamingAssertions = (
     if (!res && message) {
       throw new AxAssertionError({ message })
     }
-  }
-}
-
-export const assertRequiredFields = (
-  sig: Readonly<AxSignature>,
-  values: Record<string, unknown>
-) => {
-  const fields = sig.getOutputFields()
-  const missingFields = fields.filter(
-    (f) => !f.isOptional && !(f.name in values)
-  )
-  if (missingFields.length > 0) {
-    throw new AxAssertionError({
-      message: `You must include the following fields in the output as instructed above: ${missingFields.map((f) => `\`${f.title}\``).join(', ')}`,
-    })
   }
 }

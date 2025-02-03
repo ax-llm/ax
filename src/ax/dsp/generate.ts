@@ -238,6 +238,7 @@ export class AxGen<
     traceId,
     functions,
   }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
+    const streamingValidation = !functions || functions.length == 0
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
     const values = {}
     const xstate: extractionState = {
@@ -258,7 +259,13 @@ export class AxGen<
         this.usage.push({ ...usageInfo, ...v.modelUsage })
       }
 
-      if (result.content) {
+      if (result.functionCalls) {
+        mergeFunctionCalls(functionCalls, result.functionCalls)
+        mem.updateResult(
+          { name: result.name, content, functionCalls },
+          sessionId
+        )
+      } else if (result.content) {
         content += result.content
         mem.updateResult({ name: result.name, content }, sessionId)
 
@@ -266,7 +273,8 @@ export class AxGen<
           this.signature,
           values,
           xstate,
-          content
+          content,
+          streamingValidation
         )
         if (skip) {
           continue
@@ -281,14 +289,6 @@ export class AxGen<
         )
         assertAssertions(this.asserts, values)
         yield* streamValues<OUT>(this.signature, values, xstate, content)
-      }
-
-      if (result.functionCalls) {
-        mergeFunctionCalls(functionCalls, result.functionCalls)
-        mem.updateResult(
-          { name: result.name, content, functionCalls },
-          sessionId
-        )
       }
 
       if (result.finishReason === 'length') {
@@ -311,19 +311,19 @@ export class AxGen<
         traceId
       )
       this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
+    } else {
+      streamingExtractFinalValue(this.signature, values, xstate, content)
+
+      assertStreamingAssertions(
+        this.streamingAsserts,
+        values,
+        xstate,
+        content,
+        true
+      )
+      assertAssertions(this.asserts, values)
+      yield* streamValues<OUT>(this.signature, values, xstate, content, true)
     }
-
-    streamingExtractFinalValue(this.signature, values, xstate, content)
-
-    assertStreamingAssertions(
-      this.streamingAsserts,
-      values,
-      xstate,
-      content,
-      true
-    )
-    assertAssertions(this.asserts, values)
-    yield* streamValues<OUT>(this.signature, values, xstate, content, true)
   }
 
   private async processResponse({
@@ -337,17 +337,21 @@ export class AxGen<
   }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
     const values = {}
 
-    for (const result of res.results ?? []) {
+    let results = res.results ?? []
+
+    // If there are multiple results, filter out the ones that don't have function calls
+    // Anthropic for example generates chain-of-though content before function calls which
+    // we want to ignore
+    if (res.results.length > 1) {
+      results = res.results.filter((r) => r.functionCalls)
+    }
+
+    for (const result of results) {
       if (res.modelUsage) {
         this.usage.push({ ...usageInfo, ...res.modelUsage })
       }
 
       mem.addResult(result, sessionId)
-
-      if (result.content) {
-        extractValues(this.signature, values, result.content)
-        assertAssertions(this.asserts, values)
-      }
 
       if (result.functionCalls) {
         const funcs = parseFunctionCalls(ai, result.functionCalls, values)
@@ -366,6 +370,9 @@ export class AxGen<
           )
           this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
         }
+      } else if (result.content) {
+        extractValues(this.signature, values, result.content)
+        assertAssertions(this.asserts, values)
       }
 
       if (result.finishReason === 'length') {

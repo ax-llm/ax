@@ -17,6 +17,7 @@ export const extractValues = (
 
 export interface extractionState {
   currField?: AxField
+  currFieldIndex?: number
   extractedFields: AxField[]
   streamedIndex?: Record<string, number>
   s: number
@@ -51,7 +52,8 @@ export const streamingExtractValues = (
   values: Record<string, unknown>,
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState,
-  content: string
+  content: string,
+  streamingValidation: boolean = false
 ) => {
   const fields = sig.getOutputFields()
 
@@ -65,6 +67,12 @@ export const streamingExtractValues = (
 
     switch (e) {
       case -1:
+        if (streamingValidation && xstate.s == -1 && !field.isOptional) {
+          throw new ValidationError({
+            message: 'Required field not found',
+            fields: [field],
+          })
+        }
         continue // Field is not found, continue to the next field
       case -2:
         return true // Partial match at end, skip and gather more content
@@ -85,6 +93,7 @@ export const streamingExtractValues = (
 
     xstate.s = e + prefixLen
     xstate.currField = field
+    xstate.currFieldIndex = index
 
     if (!xstate.extractedFields.includes(field)) {
       xstate.extractedFields.push(field)
@@ -106,11 +115,10 @@ export const streamingExtractFinalValue = (
       values[xstate.currField.name] = parsedValue
     }
   }
-
-  const fields = sig.getOutputFields()
+  const sigFields = sig.getOutputFields()
 
   // Check all previous required fields before processing current field
-  checkMissingRequiredFields(xstate, values, fields.length - 1)
+  checkMissingRequiredFields(xstate, values, sigFields.length)
 }
 
 const convertValueToType = (field: Readonly<AxField>, val: string) => {
