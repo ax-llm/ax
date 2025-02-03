@@ -1,5 +1,16 @@
 # Changelog
 
+## [10.0.50](https://github.com/ax-llm/ax/compare/10.0.48...10.0.49) (2025-02-03)
+
+### Bug Fixes
+
+* required values validation ([f997236](https://github.com/ax-llm/ax/commit/f997236f698fe1745fb3db49afda0af772f82d58))
+## [10.0.49](https://github.com/ax-llm/ax/compare/10.0.48...10.0.49) (2025-02-02)
+
+### Features
+
+* improved function argument error correction ([4325101](https://github.com/ax-llm/ax/commit/4325101b9b951556d9d8c44b4b835058cc87ad81))
+
 ## [10.0.49](https://github.com/ax-llm/ax/compare/10.0.47...10.0.48) (2025-02-02)
 
 ### Features
