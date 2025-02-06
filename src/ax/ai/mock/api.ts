@@ -28,6 +28,7 @@ export class AxMockAIService implements AxAIService {
   constructor(
     private readonly config: {
       name?: string
+      id?: string
       modelInfo?: Partial<AxModelInfoWithProvider>
       embedModelInfo?: AxModelInfoWithProvider
       features?: { functions?: boolean; streaming?: boolean }
@@ -46,10 +47,16 @@ export class AxMockAIService implements AxAIService {
       errorMessage?: string
       latencyMs?: number
     } = {}
-  ) {}
+  ) {
+    this.config.id = this.config.id ?? crypto.randomUUID()
+  }
 
   getName(): string {
     return this.config.name ?? 'mock-ai-service'
+  }
+
+  getId(): string {
+    return this.config.id ?? 'mock-ai-service-id'
   }
 
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
