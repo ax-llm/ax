@@ -1,5 +1,5 @@
 import { axBaseAIDefaultConfig } from '../base.js'
-import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
 import type { AxAIServiceOptions } from '../types.js'
 
@@ -25,15 +25,15 @@ export const axAIMistralBestConfig = (): AxAIMistralConfig =>
 
 export type AxAIMistralArgs = AxAIOpenAIArgs<
   'mistral',
-  AxAIMistralConfig,
-  AxAIMistralModel | AxAIMistralEmbedModels
+  AxAIMistralModel,
+  AxAIMistralEmbedModels
 > & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
 }
 
-export class AxAIMistral extends AxAIOpenAI<
-  Omit<AxAIMistralArgs, 'name'>,
-  AxAIMistralModel | AxAIMistralEmbedModels
+export class AxAIMistral extends AxAIOpenAIBase<
+  AxAIMistralModel,
+  AxAIMistralEmbedModels
 > {
   constructor({
     apiKey,

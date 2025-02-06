@@ -14,7 +14,7 @@ export type AxAIHuggingFaceConfig = AxModelConfig & {
 }
 
 export type AxAIHuggingFaceRequest = {
-  model: AxAIHuggingFaceModel | string
+  model: AxAIHuggingFaceModel
   inputs: string
   parameters: {
     max_new_tokens?: number

@@ -26,8 +26,8 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   AxModelConfig,
   'topK'
 > & {
-  model: TModel | string
-  embedModel?: TEmbedModel | string
+  model: TModel
+  embedModel?: TEmbedModel
   user?: string
   responseFormat?: 'json_object'
   bestOf?: number
@@ -68,8 +68,8 @@ export interface AxAIOpenAIResponseDelta<T> {
   system_fingerprint: string
 }
 
-export type AxAIOpenAIChatRequest = {
-  model: string
+export type AxAIOpenAIChatRequest<TModel> = {
+  model: TModel
   reasoning_effort?: 'low' | 'medium' | 'high'
   store?: boolean
   messages: (
@@ -175,9 +175,9 @@ export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
   })[]
 }>
 
-export type AxAIOpenAIEmbedRequest = {
+export type AxAIOpenAIEmbedRequest<TEmbedModel> = {
   input: readonly string[]
-  model: string
+  model: TEmbedModel
   dimensions?: number
   user?: string
 }

@@ -25,6 +25,7 @@ import {
   type AxAIAnthropicMessageDeltaEvent,
   type AxAIAnthropicMessageStartEvent,
   AxAIAnthropicModel,
+  AxAIAnthropicVertexModel,
 } from './types.js'
 
 export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
@@ -40,12 +41,14 @@ export interface AxAIAnthropicArgs {
   region?: string
   config?: Readonly<Partial<AxAIAnthropicConfig>>
   options?: Readonly<AxAIServiceOptions>
-  models?: AxAIModelList<AxAIAnthropicModel | string>
+  models?: AxAIModelList<AxAIAnthropicModel>
 }
 
 class AxAIAnthropicImpl
   implements
     AxAIServiceImpl<
+      AxAIAnthropicModel | AxAIAnthropicVertexModel,
+      unknown,
       AxAIAnthropicChatRequest,
       unknown,
       AxAIAnthropicChatResponse,
@@ -75,7 +78,9 @@ class AxAIAnthropicImpl
   }
 
   createChatReq = (
-    req: Readonly<AxInternalChatRequest>
+    req: Readonly<
+      AxInternalChatRequest<AxAIAnthropicModel | AxAIAnthropicVertexModel>
+    >
   ): [AxAPI, AxAIAnthropicChatRequest] => {
     const model = req.model
     const stream = req.modelConfig?.stream ?? this.config.stream
@@ -327,6 +332,8 @@ class AxAIAnthropicImpl
 }
 
 export class AxAIAnthropic extends AxBaseAI<
+  AxAIAnthropicModel | AxAIAnthropicVertexModel,
+  unknown,
   AxAIAnthropicChatRequest,
   unknown,
   AxAIAnthropicChatResponse,

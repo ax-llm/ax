@@ -45,6 +45,8 @@ export interface AxAIHuggingFaceArgs {
 class AxAIHuggingFaceImpl
   implements
     AxAIServiceImpl<
+      AxAIHuggingFaceModel,
+      unknown,
       AxAIHuggingFaceRequest,
       unknown,
       AxAIHuggingFaceResponse,
@@ -67,7 +69,7 @@ class AxAIHuggingFaceImpl
   }
 
   createChatReq = (
-    req: Readonly<AxInternalChatRequest>,
+    req: Readonly<AxInternalChatRequest<AxAIHuggingFaceModel>>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIHuggingFaceRequest] => {
@@ -154,6 +156,8 @@ class AxAIHuggingFaceImpl
 }
 
 export class AxAIHuggingFace extends AxBaseAI<
+  AxAIHuggingFaceModel,
+  unknown,
   AxAIHuggingFaceRequest,
   unknown,
   AxAIHuggingFaceResponse,

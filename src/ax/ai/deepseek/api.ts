@@ -2,7 +2,7 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
-import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
 
 import { axModelInfoDeepSeek } from './info.js'
@@ -24,14 +24,11 @@ export const axAIDeepSeekCodeConfig = (): DeepSeekConfig =>
 
 export type AxAIDeepSeekArgs = AxAIOpenAIArgs<
   'deepseek',
-  DeepSeekConfig,
-  AxAIDeepSeekModel
+  AxAIDeepSeekModel,
+  undefined
 >
 
-export class AxAIDeepSeek extends AxAIOpenAI<
-  Omit<AxAIDeepSeekArgs, 'name'>,
-  AxAIDeepSeekModel
-> {
+export class AxAIDeepSeek extends AxAIOpenAIBase<AxAIDeepSeekModel, undefined> {
   constructor({
     apiKey,
     config,

@@ -165,7 +165,7 @@ export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse
  * AxAIGoogleGeminiConfig: Configuration options for Google Gemini API
  */
 export type AxAIGoogleGeminiConfig = AxModelConfig & {
-  model: AxAIGoogleGeminiModel | string
+  model: AxAIGoogleGeminiModel
   embedModel?: AxAIGoogleGeminiEmbedModel
   safetySettings?: AxAIGoogleGeminiSafetySettings
 }

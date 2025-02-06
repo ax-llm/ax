@@ -62,7 +62,7 @@ export type AxAICohereChatRequest = {
       }
   )[]
 
-  model: AxAICohereModel | string
+  model: AxAICohereModel
   max_tokens?: number
   temperature?: number
   k?: number
@@ -116,13 +116,13 @@ export type AxAICohereChatResponseDelta = AxAICohereChatResponse & {
 
 export type AxAICohereEmbedRequest = {
   texts: readonly string[]
-  model: AxAICohereModel | string
+  model: AxAICohereEmbedModel
   truncate: string
 }
 
 export type AxAICohereEmbedResponse = {
   id: string
   texts: string[]
-  model: string
+  model: AxAICohereEmbedModel
   embeddings: number[][]
 }

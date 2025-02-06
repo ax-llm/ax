@@ -6,7 +6,7 @@ import type { AxAPI } from '../util/apicall.js'
 
 import type { AxAIFeatures } from './base.js'
 
-export type AxAIModelList<T = string> = {
+export type AxAIModelList<T = unknown> = {
   key: string
   model: T
   description: string
@@ -103,7 +103,7 @@ export type AxEmbedResponse = {
 
 export type AxModelInfoWithProvider = AxModelInfo & { provider: string }
 
-export type AxChatRequest = {
+export type AxChatRequest<TModel = string> = {
   chatPrompt: Readonly<
     | { role: 'system'; content: string; cache?: boolean }
     | {
@@ -162,7 +162,7 @@ export type AxChatRequest = {
     | 'required'
     | { type: 'function'; function: { name: string } }
   modelConfig?: Readonly<AxModelConfig>
-  model?: string
+  model?: TModel
 }
 
 export interface AxAIServiceMetrics {
@@ -194,16 +194,19 @@ export interface AxAIServiceMetrics {
   }
 }
 
-export type AxInternalChatRequest = Omit<AxChatRequest, 'model'> &
-  Required<Pick<AxChatRequest, 'model'>>
+export type AxInternalChatRequest<TModel> = Omit<AxChatRequest, 'model'> &
+  Required<Pick<AxChatRequest<TModel>, 'model'>>
 
-export type AxEmbedRequest = {
+export type AxEmbedRequest<TEmbedModel = string> = {
   texts?: readonly string[]
-  embedModel?: string
+  embedModel?: TEmbedModel
 }
 
-export type AxInternalEmbedRequest = Omit<AxEmbedRequest, 'embedModel'> &
-  Required<Pick<AxEmbedRequest, 'embedModel'>>
+export type AxInternalEmbedRequest<TEmbedModel> = Omit<
+  AxEmbedRequest,
+  'embedModel'
+> &
+  Required<Pick<AxEmbedRequest<TEmbedModel>, 'embedModel'>>
 
 export type AxRateLimiterFunction = <T = unknown>(
   reqFunc: () => Promise<T | ReadableStream<T>>,
@@ -221,29 +224,34 @@ export type AxAIServiceOptions = {
   tracer?: Tracer
 }
 
-export type AxAIServiceActionOptions = {
-  ai?: Readonly<AxAIService>
+export type AxAIServiceActionOptions<
+  TModel = unknown,
+  TEmbedModel = unknown,
+> = {
+  ai?: Readonly<AxAIService<TModel, TEmbedModel>>
   sessionId?: string
   traceId?: string
   rateLimiter?: AxRateLimiterFunction
 }
 
-export interface AxAIService {
+export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   getId(): string
   getName(): string
   getModelInfo(): Readonly<AxModelInfoWithProvider>
   getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined
-  getFeatures(model?: string): AxAIFeatures
-  getModelList(): AxAIModelList | undefined
+  getFeatures(model?: TModel): AxAIFeatures
+  getModelList(): AxAIModelList<TModel> | undefined
   getMetrics(): AxAIServiceMetrics
 
   chat(
-    req: Readonly<AxChatRequest>,
-    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
+    req: Readonly<AxChatRequest<TModel>>,
+    options?: Readonly<
+      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+    >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>>
   embed(
-    req: Readonly<AxEmbedRequest>,
-    options?: Readonly<AxAIServiceActionOptions & AxAIServiceActionOptions>
+    req: Readonly<AxEmbedRequest<TEmbedModel>>,
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
   ): Promise<AxEmbedResponse>
 
   setOptions(options: Readonly<AxAIServiceOptions>): void
@@ -251,6 +259,8 @@ export interface AxAIService {
 }
 
 export interface AxAIServiceImpl<
+  TModel,
+  TEmbedModel,
   TChatRequest,
   TEmbedRequest,
   TChatResponse,
@@ -258,7 +268,7 @@ export interface AxAIServiceImpl<
   TEmbedResponse,
 > {
   createChatReq(
-    req: Readonly<AxInternalChatRequest>,
+    req: Readonly<AxInternalChatRequest<TModel>>,
     config: Readonly<AxAIPromptConfig>
   ): [AxAPI, TChatRequest]
 
@@ -269,7 +279,9 @@ export interface AxAIServiceImpl<
     state: object
   ): AxChatResponse
 
-  createEmbedReq?(req: Readonly<AxInternalEmbedRequest>): [AxAPI, TEmbedRequest]
+  createEmbedReq?(
+    req: Readonly<AxInternalEmbedRequest<TEmbedModel>>
+  ): [AxAPI, TEmbedRequest]
 
   createEmbedResp?(resp: Readonly<TEmbedResponse>): AxEmbedResponse
 

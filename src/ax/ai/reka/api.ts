@@ -56,12 +56,14 @@ export interface AxAIRekaArgs {
   config?: Readonly<Partial<AxAIRekaConfig>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo?: Readonly<AxModelInfo[]>
-  models?: AxAIModelList<AxAIRekaModel | string>
+  models?: AxAIModelList<AxAIRekaModel>
 }
 
 class AxAIRekaImpl
   implements
     AxAIServiceImpl<
+      AxAIRekaModel,
+      undefined,
       AxAIRekaChatRequest,
       unknown,
       AxAIRekaChatResponse,
@@ -86,7 +88,7 @@ class AxAIRekaImpl
   }
 
   createChatReq = (
-    req: Readonly<AxInternalChatRequest>,
+    req: Readonly<AxInternalChatRequest<AxAIRekaModel>>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIRekaChatRequest] => {
@@ -262,6 +264,8 @@ function createMessages(
 }
 
 export class AxAIReka extends AxBaseAI<
+  AxAIRekaModel,
+  undefined,
   AxAIRekaChatRequest,
   unknown,
   AxAIRekaChatResponse,
@@ -292,7 +296,7 @@ export class AxAIReka extends AxBaseAI<
       headers: async () => ({ 'X-Api-Key': apiKey }),
       modelInfo,
       defaults: {
-        model: _config.model as string,
+        model: _config.model,
       },
       options,
       supportFor: { functions: true, streaming: true },

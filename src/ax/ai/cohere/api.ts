@@ -48,12 +48,14 @@ export interface AxAICohereArgs {
   apiKey: string
   config?: Readonly<Partial<AxAICohereConfig>>
   options?: Readonly<AxAIServiceOptions>
-  models?: AxAIModelList<AxAICohereModel | AxAICohereEmbedModel | string>
+  models?: AxAIModelList<AxAICohereModel>
 }
 
 class AxAICohereImpl
   implements
     AxAIServiceImpl<
+      AxAICohereModel,
+      AxAICohereEmbedModel,
       AxAICohereChatRequest,
       AxAICohereEmbedRequest,
       AxAICohereChatResponse,
@@ -80,7 +82,7 @@ class AxAICohereImpl
   }
 
   createChatReq(
-    req: Readonly<AxInternalChatRequest>,
+    req: Readonly<AxInternalChatRequest<AxAICohereModel>>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAICohereChatRequest] {
@@ -168,7 +170,7 @@ class AxAICohereImpl
   }
 
   createEmbedReq = (
-    req: Readonly<AxInternalEmbedRequest>
+    req: Readonly<AxInternalEmbedRequest<AxAICohereEmbedModel>>
   ): [AxAPI, AxAICohereEmbedRequest] => {
     const model = req.embedModel
 
@@ -285,6 +287,8 @@ class AxAICohereImpl
 }
 
 export class AxAICohere extends AxBaseAI<
+  AxAICohereModel,
+  AxAICohereEmbedModel,
   AxAICohereChatRequest,
   AxAICohereEmbedRequest,
   AxAICohereChatResponse,

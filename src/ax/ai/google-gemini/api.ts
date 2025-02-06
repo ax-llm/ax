@@ -89,14 +89,14 @@ export interface AxAIGoogleGeminiArgs {
   region?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
-  models?: AxAIModelList<
-    AxAIGoogleGeminiModel | AxAIGoogleGeminiEmbedModel | string
-  >
+  models?: AxAIModelList<AxAIGoogleGeminiModel>
 }
 
 class AxAIGoogleGeminiImpl
   implements
     AxAIServiceImpl<
+      AxAIGoogleGeminiModel,
+      AxAIGoogleGeminiEmbedModel,
       AxAIGoogleGeminiChatRequest,
       AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
       AxAIGoogleGeminiChatResponse,
@@ -128,7 +128,7 @@ class AxAIGoogleGeminiImpl
   }
 
   createChatReq = (
-    req: Readonly<AxInternalChatRequest>
+    req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>
   ): [AxAPI, AxAIGoogleGeminiChatRequest] => {
     const model = req.model
     const stream = req.modelConfig?.stream ?? this.config.stream
@@ -331,7 +331,7 @@ class AxAIGoogleGeminiImpl
   }
 
   createEmbedReq = (
-    req: Readonly<AxInternalEmbedRequest>
+    req: Readonly<AxInternalEmbedRequest<AxAIGoogleGeminiEmbedModel>>
   ): [
     AxAPI,
     AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
@@ -471,6 +471,8 @@ class AxAIGoogleGeminiImpl
  * AxAIGoogleGemini: AI Service
  */
 export class AxAIGoogleGemini extends AxBaseAI<
+  AxAIGoogleGeminiModel,
+  AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiChatRequest,
   AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
   AxAIGoogleGeminiChatResponse,

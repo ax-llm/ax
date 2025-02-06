@@ -69,13 +69,11 @@ export type AxAIModels =
   | AxAIHuggingFaceModel
   | AxAIMistralModel
   | AxAIDeepSeekModel
-  | string
 
 export type AxAIEmbedModels =
   | AxAIOpenAIEmbedModel
   | AxAIGoogleGeminiEmbedModel
   | AxAICohereEmbedModel
-  | string
 
 export class AxAI implements AxAIService {
   private ai: AxAIService
@@ -142,9 +140,8 @@ export class AxAI implements AxAIService {
   getFeatures(model?: string): { functions: boolean; streaming: boolean } {
     return this.ai.getFeatures(model)
   }
-
   getModelList(): AxAIModelList | undefined {
-    return this.ai.getModelList()
+    return this.ai.getModelList() as AxAIModelList | undefined
   }
 
   getMetrics(): AxAIServiceMetrics {

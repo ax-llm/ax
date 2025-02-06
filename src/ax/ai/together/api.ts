@@ -1,10 +1,10 @@
 import { axBaseAIDefaultConfig } from '../base.js'
-import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
 
 import { axModelInfoTogether } from './info.js'
 
-type TogetherAIConfig = AxAIOpenAIConfig<string, undefined>
+type TogetherAIConfig = AxAIOpenAIConfig<string, unknown>
 
 export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
   structuredClone({
@@ -13,16 +13,9 @@ export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
     ...axBaseAIDefaultConfig(),
   })
 
-export type AxAITogetherArgs = AxAIOpenAIArgs<
-  'together',
-  TogetherAIConfig,
-  string
->
+export type AxAITogetherArgs = AxAIOpenAIArgs<'together', string, unknown>
 
-export class AxAITogether extends AxAIOpenAI<
-  Omit<AxAITogetherArgs, 'name'>,
-  string
-> {
+export class AxAITogether extends AxAIOpenAIBase<string, unknown> {
   constructor({
     apiKey,
     config,

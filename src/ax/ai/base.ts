@@ -34,15 +34,15 @@ export interface AxAIFeatures {
   functionCot?: boolean
 }
 
-export interface AxBaseAIArgs {
+export interface AxBaseAIArgs<TModel, TEmbedModel> {
   name: string
   apiURL: string
   headers: () => Promise<Record<string, string>>
   modelInfo: Readonly<AxModelInfo[]>
-  defaults: Readonly<{ model: string; embedModel?: string }>
+  defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>
   options?: Readonly<AxAIServiceOptions>
-  supportFor: AxAIFeatures | ((model: string) => AxAIFeatures)
-  models?: AxAIModelList
+  supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
+  models?: AxAIModelList<TModel>
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -63,30 +63,32 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   })
 
 export class AxBaseAI<
+  TModel,
+  TEmbedModel,
   TChatRequest,
   TEmbedRequest,
   TChatResponse,
   TChatResponseDelta,
   TEmbedResponse,
-> implements AxAIService
+> implements AxAIService<TModel, TEmbedModel>
 {
   private debug = false
 
   private rt?: AxAIServiceOptions['rateLimiter']
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
-  private models?: AxAIModelList
+  private models?: AxAIModelList<TModel>
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxTokenUsage
   private embedModelUsage?: AxTokenUsage
-  private defaults: AxBaseAIArgs['defaults']
+  private defaults: AxBaseAIArgs<TModel, TEmbedModel>['defaults']
 
   protected apiURL: string
   protected name: string
   protected id: string
   protected headers: () => Promise<Record<string, string>>
-  protected supportFor: AxAIFeatures | ((model: string) => AxAIFeatures)
+  protected supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
 
   // Add private metrics tracking properties
   private metrics: AxAIServiceMetrics = {
@@ -121,6 +123,8 @@ export class AxBaseAI<
   constructor(
     private readonly aiImpl: Readonly<
       AxAIServiceImpl<
+        TModel,
+        TEmbedModel,
         TChatRequest,
         TEmbedRequest,
         TChatResponse,
@@ -137,7 +141,7 @@ export class AxBaseAI<
       options = {},
       supportFor,
       models,
-    }: Readonly<AxBaseAIArgs>
+    }: Readonly<AxBaseAIArgs<TModel, TEmbedModel>>
   ) {
     this.name = name
     this.apiURL = apiURL
@@ -152,9 +156,7 @@ export class AxBaseAI<
       this.models?.find((v) => v.key === defaults.model)?.model ??
       defaults.model
 
-    const embedModel =
-      this.models?.find((v) => v.key === defaults.embedModel)?.model ??
-      defaults.embedModel
+    const embedModel = defaults.embedModel
 
     this.defaults = { model, embedModel }
 
@@ -213,7 +215,7 @@ export class AxBaseAI<
   }
 
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
-    const mi = getModelInfo({
+    const mi = getModelInfo<TModel>({
       model: this.defaults.model,
       modelInfo: this.modelInfo,
       models: this.models,
@@ -229,10 +231,9 @@ export class AxBaseAI<
       return
     }
 
-    const mi = getModelInfo({
+    const mi = getModelInfo<TEmbedModel>({
       model: this.defaults.embedModel,
       modelInfo: this.modelInfo,
-      models: this.models,
     })
     return {
       ...mi,
@@ -240,7 +241,7 @@ export class AxBaseAI<
     }
   }
 
-  getModelList(): AxAIModelList | undefined {
+  getModelList(): AxAIModelList<TModel> | undefined {
     return this.models
   }
 
@@ -248,7 +249,7 @@ export class AxBaseAI<
     return this.name
   }
 
-  getFeatures(model?: string): AxAIFeatures {
+  getFeatures(model?: TModel): AxAIFeatures {
     return typeof this.supportFor === 'function'
       ? this.supportFor(model ?? this.defaults.model)
       : this.supportFor
@@ -298,8 +299,10 @@ export class AxBaseAI<
   }
 
   async chat(
-    req: Readonly<AxChatRequest>,
-    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
+    req: Readonly<AxChatRequest<TModel>>,
+    options?: Readonly<
+      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+    >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const startTime = performance.now()
     let isError = false
@@ -317,8 +320,10 @@ export class AxBaseAI<
   }
 
   private async _chat1(
-    req: Readonly<AxChatRequest>,
-    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
+    req: Readonly<AxChatRequest<TModel>>,
+    options?: Readonly<
+      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+    >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const model = req.model
       ? (this.models?.find((v) => v.key === req.model)?.model ?? req.model)
@@ -346,7 +351,7 @@ export class AxBaseAI<
           kind: SpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
-            [axSpanAttributes.LLM_REQUEST_MODEL]: model,
+            [axSpanAttributes.LLM_REQUEST_MODEL]: model as string,
             [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: modelConfig.maxTokens,
             [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: modelConfig.temperature,
             [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP,
@@ -376,10 +381,10 @@ export class AxBaseAI<
   }
 
   private async _chat2(
-    model: string,
+    model: TModel,
     modelConfig: Readonly<AxModelConfig>,
-    chatReq: Readonly<Omit<AxChatRequest, 'modelConfig'>>,
-    options?: Readonly<AxAIServiceActionOptions>,
+    chatReq: Readonly<Omit<AxChatRequest<TModel>, 'modelConfig'>>,
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>,
     span?: Span
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.aiImpl.createChatReq) {
@@ -420,7 +425,7 @@ export class AxBaseAI<
     }
 
     if (this.debug) {
-      logChatRequest(req)
+      logChatRequest(req as AxChatRequest)
     }
 
     const rt = options?.rateLimiter ?? this.rt
@@ -490,8 +495,8 @@ export class AxBaseAI<
   }
 
   async embed(
-    req: Readonly<AxEmbedRequest>,
-    options?: Readonly<AxAIServiceActionOptions>
+    req: Readonly<AxEmbedRequest<TEmbedModel>>,
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
   ): Promise<AxEmbedResponse> {
     const startTime = performance.now()
     let isError = false
@@ -509,13 +514,10 @@ export class AxBaseAI<
   }
 
   private async _embed1(
-    req: Readonly<AxEmbedRequest>,
-    options?: Readonly<AxAIServiceActionOptions>
+    req: Readonly<AxEmbedRequest<TEmbedModel>>,
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
   ): Promise<AxEmbedResponse> {
-    const embedModel = req.embedModel
-      ? (this.models?.find((v) => v.key === req.embedModel)?.model ??
-        req.embedModel)
-      : this.defaults.embedModel
+    const embedModel = req.embedModel ?? this.defaults.embedModel
 
     if (!embedModel) {
       throw new Error('No embed model defined')
@@ -528,8 +530,7 @@ export class AxBaseAI<
           kind: SpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
-            [axSpanAttributes.LLM_REQUEST_MODEL]:
-              req.embedModel ?? this.defaults.embedModel,
+            [axSpanAttributes.LLM_REQUEST_MODEL]: embedModel as string,
           },
         },
         async (span) => {
@@ -545,9 +546,9 @@ export class AxBaseAI<
   }
 
   private async _embed2(
-    embedModel: string,
-    embedReq: Readonly<AxEmbedRequest>,
-    options?: Readonly<AxAIServiceActionOptions>,
+    embedModel: TEmbedModel,
+    embedReq: Readonly<AxEmbedRequest<TEmbedModel>>,
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>,
     span?: Span
   ): Promise<AxEmbedResponse> {
     if (!this.aiImpl.createEmbedReq) {

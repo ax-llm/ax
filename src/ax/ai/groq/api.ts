@@ -1,6 +1,6 @@
 import { AxRateLimiterTokenUsage } from '../../util/rate-limit.js'
 import { axBaseAIDefaultConfig } from '../base.js'
-import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
 import type { AxAIServiceOptions, AxRateLimiterFunction } from '../types.js'
 
@@ -15,18 +15,11 @@ const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
     ...axBaseAIDefaultConfig(),
   })
 
-export type AxAIGroqArgs = AxAIOpenAIArgs<
-  'groq',
-  AxAIGroqAIConfig,
-  AxAIGroqModel
-> & {
+export type AxAIGroqArgs = AxAIOpenAIArgs<'groq', AxAIGroqModel, undefined> & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
 }
 
-export class AxAIGroq extends AxAIOpenAI<
-  Omit<AxAIGroqArgs, 'name'>,
-  AxAIGroqModel
-> {
+export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
   constructor({
     apiKey,
     config,

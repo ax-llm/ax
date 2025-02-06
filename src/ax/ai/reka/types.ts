@@ -7,7 +7,7 @@ export enum AxAIRekaModel {
 }
 
 export type AxAIRekaConfig = Omit<AxModelConfig, 'topK'> & {
-  model: AxAIRekaModel | string
+  model: AxAIRekaModel
   stop?: readonly string[]
   useSearchEngine?: boolean
 }
