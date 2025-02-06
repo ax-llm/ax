@@ -1,5 +1,20 @@
 # Changelog
 
+## [11.0.1](https://github.com/ax-llm/ax/compare/10.0.50...11.0.0) (2025-02-06)
+
+### Bug Fixes
+
+* types cleanup, all model inputs are clearly typed ([192d9d4](https://github.com/ax-llm/ax/commit/192d9d43d0524ced16bf9257b20610b9a3040112))
+## [11.0.0](https://github.com/ax-llm/ax/compare/10.0.50...11.0.0) (2025-02-06)
+
+### Features
+
+* smart model routing for agents and sub-agents [Breaking Changes] ([1d313b4](https://github.com/ax-llm/ax/commit/1d313b450db62f6da9dd8bf4f4fd52a37b89120b))
+
+### Bug Fixes
+
+* package upgrades ([f969bd7](https://github.com/ax-llm/ax/commit/f969bd790d7e813ea4e450158d1f212598489039))
+
 ## [11.0.0](https://github.com/ax-llm/ax/compare/10.0.49...10.0.50) (2025-02-06)
 
 ### Features
