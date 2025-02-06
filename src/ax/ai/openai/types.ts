@@ -22,9 +22,12 @@ export enum AxAIOpenAIEmbedModel {
   TextEmbedding3Large = 'text-embedding-3-large',
 }
 
-export type AxAIOpenAIConfig = Omit<AxModelConfig, 'topK'> & {
-  model: AxAIOpenAIModel | string
-  embedModel?: AxAIOpenAIEmbedModel | string
+export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
+  AxModelConfig,
+  'topK'
+> & {
+  model: TModel | string
+  embedModel?: TEmbedModel | string
   user?: string
   responseFormat?: 'json_object'
   bestOf?: number

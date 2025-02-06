@@ -5,6 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -29,42 +30,61 @@ import {
   AxAIOpenAIModel,
 } from './types.js'
 
-export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig =>
+export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
+  AxAIOpenAIModel,
+  AxAIOpenAIEmbedModel
+> =>
   structuredClone({
     model: AxAIOpenAIModel.GPT4O,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig(),
   })
 
-export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig =>
+export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig<
+  AxAIOpenAIModel,
+  AxAIOpenAIEmbedModel
+> =>
   structuredClone({
     ...axAIOpenAIDefaultConfig(),
     model: AxAIOpenAIModel.GPT4O,
   })
 
-export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig =>
+export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
+  AxAIOpenAIModel,
+  AxAIOpenAIEmbedModel
+> =>
   structuredClone({
     model: AxAIOpenAIModel.GPT4O,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig(),
   })
 
-export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig => ({
+export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig<
+  AxAIOpenAIModel,
+  AxAIOpenAIEmbedModel
+> => ({
   ...axAIOpenAIDefaultConfig(),
   model: AxAIOpenAIModel.GPT4OMini,
 })
 
-export interface AxAIOpenAIArgs {
-  name: 'openai'
+export interface AxAIOpenAIArgs<
+  TName = 'openai',
+  TConfig = AxAIOpenAIConfig<
+    AxAIOpenAIModel | string,
+    AxAIOpenAIEmbedModel | string
+  >,
+  TModels = AxAIOpenAIModel | AxAIOpenAIEmbedModel,
+> {
+  name: TName
   apiKey: string
   apiURL?: string
-  config?: Readonly<Partial<AxAIOpenAIConfig>>
+  config?: Readonly<Partial<TConfig>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo?: Readonly<AxModelInfo[]>
-  modelMap?: Record<string, AxAIOpenAIModel | AxAIOpenAIEmbedModel | string>
+  models?: AxAIModelList<TModels | string>
 }
 
-class AxAIOpenAIImpl
+class AxAIOpenAIImpl<TModel, TEmbedModel>
   implements
     AxAIServiceImpl<
       AxAIOpenAIChatRequest,
@@ -75,7 +95,9 @@ class AxAIOpenAIImpl
     >
 {
   constructor(
-    private config: AxAIOpenAIConfig,
+    private readonly config: Readonly<
+      AxAIOpenAIConfig<TModel | string, TEmbedModel | string>
+    >,
     private streamingUsage: boolean,
     private dimensions?: number
   ) {}
@@ -399,7 +421,11 @@ function createMessages(
   })
 }
 
-export class AxAIOpenAI extends AxBaseAI<
+export class AxAIOpenAI<
+  TArgs extends Omit<AxAIOpenAIArgs, 'name'> = Omit<AxAIOpenAIArgs, 'name'>,
+  TModel = AxAIOpenAIModel,
+  TEmbedModel = AxAIOpenAIEmbedModel,
+> extends AxBaseAI<
   AxAIOpenAIChatRequest,
   AxAIOpenAIEmbedRequest,
   AxAIOpenAIChatResponse,
@@ -412,8 +438,8 @@ export class AxAIOpenAI extends AxBaseAI<
     options,
     apiURL,
     modelInfo = axModelInfoOpenAI,
-    modelMap,
-  }: Readonly<Omit<AxAIOpenAIArgs, 'name'>>) {
+    models,
+  }: Readonly<TArgs>) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set')
     }
@@ -423,7 +449,7 @@ export class AxAIOpenAI extends AxBaseAI<
       ...config,
     }
 
-    const aiImpl = new AxAIOpenAIImpl(
+    const aiImpl = new AxAIOpenAIImpl<TModel | string, TEmbedModel | string>(
       _config,
       options?.streamingUsage ?? true,
       config?.dimensions
@@ -434,7 +460,7 @@ export class AxAIOpenAI extends AxBaseAI<
       apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo,
-      models: {
+      defaults: {
         model: _config.model as string,
         embedModel: _config.embedModel as string,
       },
@@ -442,7 +468,7 @@ export class AxAIOpenAI extends AxBaseAI<
       supportFor: () => {
         return { functions: true, streaming: true }
       },
-      modelMap,
+      models,
     })
   }
 }

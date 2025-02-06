@@ -1,4 +1,9 @@
-import type { AxAIService, AxFunction } from '../ai/types.js'
+import type {
+  AxAIModelList,
+  AxAIService,
+  AxFunction,
+  AxFunctionJSONSchema,
+} from '../ai/types.js'
 import { AxGen, type AxGenOptions } from '../dsp/generate.js'
 import {
   type AxGenIn,
@@ -20,12 +25,13 @@ export interface AxAgentic extends AxTunable, AxUsable {
 
 export type AxAgentOptions = Omit<AxGenOptions, 'functions'>
 
-export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
+export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   implements AxAgentic
 {
   private ai?: AxAIService
   private signature: AxSignature
   private program: AxProgramWithSignature<IN, OUT>
+  private functions?: AxFunction[]
   private agents?: AxAgentic[]
 
   private name: string
@@ -53,17 +59,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ) {
     this.ai = ai
     this.agents = agents
+    this.functions = functions
 
     this.signature = new AxSignature(signature)
     this.signature.setDescription(description)
-
-    const funcs: AxFunction[] = [
-      ...(functions ?? []),
-      ...(agents?.map((a) => a.getFunction()) ?? []),
-    ]
-
-    const opt = { ...options, functions: funcs }
-    this.program = new AxGen<IN, OUT>(this.signature, opt)
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -77,6 +76,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       )
     }
 
+    this.program = new AxGen<IN, OUT>(this.signature, options)
+
+    for (const agent of agents ?? []) {
+      this.program.register(agent)
+    }
+
     this.name = name
     this.description = description
     this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ')
@@ -88,8 +93,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       func: () => this.forward,
     }
 
-    for (const agent of agents ?? []) {
-      this.program.register(agent)
+    const mm = ai?.getModelList()
+    // if model map exists add a extra model param to the function parameter json schema
+    if (mm) {
+      this.func.parameters = addModelParameter(this.func.parameters, mm)
     }
   }
 
@@ -126,14 +133,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // Create a wrapper function that excludes the 'ai' parameter
     const wrappedFunc = (
-      values: IN,
+      valuesAndModel: IN & { model: string },
       options?: Readonly<AxProgramForwardOptions>
     ) => {
+      const { model, ...values } = valuesAndModel
       const ai = this.ai ?? options?.ai
       if (!ai) {
         throw new Error('AI service is required to run the agent')
       }
-      return boundFunc(ai, values, options)
+      return boundFunc(ai, values as unknown as IN, { ...options, model })
     }
 
     return {
@@ -143,41 +151,44 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   private init(
-    ai: Readonly<AxAIService>,
+    parentAi: Readonly<AxAIService>,
     options: Readonly<AxProgramForwardOptions> | undefined
   ) {
-    const _ai = this.ai ?? ai
+    const ai = this.ai ?? parentAi
+    const mm = ai?.getModelList()
 
-    const funcs: AxFunction[] = [
-      ...(options?.functions ?? []),
-      ...(this.agents?.map((a) => a.getFunction()) ?? []),
+    const agentFuncs = this.agents
+      ?.map((a) => a.getFunction())
+      ?.map((f) =>
+        mm ? { ...f, parameters: addModelParameter(f.parameters, mm) } : f
+      )
+    const functions: AxFunction[] = [
+      ...(options?.functions ?? this.functions ?? []),
+      ...(agentFuncs ?? []),
     ]
 
-    const opt = options
-
-    if (funcs.length > 0) {
-      const opt = { ...options, functions: funcs }
-      this.program = new AxGen<IN, OUT>(this.signature, opt)
-    }
-    return { _ai, opt }
+    return { ai, functions }
   }
 
   public async forward(
-    ai: Readonly<AxAIService>,
+    parentAi: Readonly<AxAIService>,
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const { _ai, opt } = this.init(ai, options)
-    return await this.program.forward(_ai, values, opt)
+    const { ai, functions } = this.init(parentAi, options)
+    return await this.program.forward(ai, values, { ...options, functions })
   }
 
   public async *streamingForward(
-    ai: Readonly<AxAIService>,
+    parentAi: Readonly<AxAIService>,
     values: IN,
     options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
-    const { _ai, opt } = this.init(ai, options)
-    return yield* this.program.streamingForward(_ai, values, opt)
+    const { ai, functions } = this.init(parentAi, options)
+    return yield* this.program.streamingForward(ai, values, {
+      ...options,
+      functions,
+    })
   }
 }
 
@@ -201,4 +212,59 @@ function toCamelCase(inputString: string): string {
     .join('')
 
   return camelCaseString
+}
+
+/**
+ * Adds a required model parameter to a JSON Schema definition based on provided model mappings.
+ * The model parameter will be an enum with values from the model map keys.
+ *
+ * @param parameters - The original JSON Schema parameters definition (optional)
+ * @param models - Array of model mappings containing keys, model names and descriptions
+ * @returns Updated JSON Schema with added model parameter
+ */
+export function addModelParameter(
+  parameters: AxFunctionJSONSchema | undefined,
+  models: AxAIModelList
+): AxFunctionJSONSchema {
+  // If parameters is undefined, create a base schema
+  const baseSchema: AxFunctionJSONSchema = parameters
+    ? structuredClone(parameters)
+    : {
+        type: 'object',
+        properties: {},
+        required: [],
+      }
+
+  // Check if model parameter already exists
+  if (baseSchema.properties?.model) {
+    return baseSchema
+  }
+
+  // Create the model property schema
+  const modelProperty: AxFunctionJSONSchema & {
+    enum: string[]
+    description: string
+  } = {
+    type: 'string',
+    enum: models.map((m) => m.key),
+    description: `The AI model to use for this function call. Available options: ${models
+      .map((m) => `${m.key}: ${m.description}`)
+      .join(' | ')}`,
+  }
+
+  // Create new properties object with model parameter
+  const newProperties = {
+    ...(baseSchema.properties ?? {}),
+    model: modelProperty,
+  }
+
+  // Add model to required fields
+  const newRequired = [...(baseSchema.required ?? []), 'model']
+
+  // Return updated schema
+  return {
+    ...baseSchema,
+    properties: newProperties,
+    required: newRequired,
+  }
 }

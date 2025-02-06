@@ -2,11 +2,10 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
-import { AxAIOpenAI } from '../openai/api.js'
+import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
-import type { AxAIServiceOptions } from '../types.js'
 
-export type AxAIOllamaAIConfig = AxAIOpenAIConfig
+export type AxAIOllamaAIConfig = AxAIOpenAIConfig<string, undefined>
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaAIConfig =>
   structuredClone({
@@ -22,27 +21,29 @@ export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaAIConfig =>
     embedModel: 'all-minilm',
   })
 
-export type AxAIOllamaArgs = {
-  name: 'ollama'
+export type AxAIOllamaArgs = AxAIOpenAIArgs<
+  'ollama',
+  AxAIOllamaAIConfig,
+  string
+> & {
   model?: string
   embedModel?: string
   url?: string
-  apiKey?: string
-  config?: Readonly<Partial<AxAIOllamaAIConfig>>
-  options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, string>
 }
 
 /**
  * OllamaAI: AI Service
  */
-export class AxAIOllama extends AxAIOpenAI {
+export class AxAIOllama extends AxAIOpenAI<
+  Omit<AxAIOllamaArgs, 'name'>,
+  string
+> {
   constructor({
     apiKey = 'not-set',
     url = 'http://localhost:11434/v1',
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIOllamaArgs, 'name'>>) {
     const _config = {
       ...axAIOllamaDefaultConfig(),
@@ -53,7 +54,7 @@ export class AxAIOllama extends AxAIOpenAI {
       options,
       config: _config,
       apiURL: url,
-      modelMap,
+      models,
     })
 
     super.setName('Ollama')

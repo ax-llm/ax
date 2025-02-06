@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import { getModelInfo } from './modelinfo.js'
 
-const modelMap = {
-  'claude-3': 'claude-3-5-sonnet',
-}
+const models = [
+  {
+    key: 'claude-3',
+    model: 'claude-3-5-sonnet',
+    description: 'Claude 3.5 Sonnet',
+  },
+]
 
 const modelInfo = [
   {
@@ -29,7 +33,7 @@ describe('getModelInfo', () => {
   })
 
   it('should handle model mapping', () => {
-    const result = getModelInfo({ model: 'claude-3', modelInfo, modelMap })
+    const result = getModelInfo({ model: 'claude-3', modelInfo, models })
     expect(result.name).toBe('claude-3-5-sonnet')
     expect(result.promptTokenCostPer1M).toBe(15000)
   })

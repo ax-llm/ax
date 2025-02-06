@@ -11,7 +11,7 @@ import {
 } from '../util/apicall.js'
 
 import type {
-  AxAIModelMap,
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -78,7 +78,7 @@ export class AxBalancer implements AxAIService {
     return aTotalCost - bTotalCost
   }
 
-  getModelMap(): AxAIModelMap | undefined {
+  getModelList(): AxAIModelList | undefined {
     throw new Error('Method not implemented.')
   }
 

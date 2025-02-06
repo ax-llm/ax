@@ -33,7 +33,7 @@ import type { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './openai/types.js'
 import { AxAIReka, type AxAIRekaArgs } from './reka/api.js'
 import { AxAITogether, type AxAITogetherArgs } from './together/api.js'
 import type {
-  AxAIModelMap,
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -139,8 +139,8 @@ export class AxAI implements AxAIService {
     return this.ai.getFeatures(model)
   }
 
-  getModelMap(): AxAIModelMap | undefined {
-    return this.ai.getModelMap()
+  getModelList(): AxAIModelList | undefined {
+    return this.ai.getModelList()
   }
 
   getMetrics(): AxAIServiceMetrics {

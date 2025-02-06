@@ -1,4 +1,4 @@
-import { AxAI, AxChainOfThought } from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxChainOfThought } from '@ax-llm/ax'
 
 // setup the prompt program
 const gen = new AxChainOfThought<{ startNumber: number }>(
@@ -22,6 +22,7 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
 })
 ai.setOptions({ debug: true })
 

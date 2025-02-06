@@ -1,39 +1,45 @@
 import { axBaseAIDefaultConfig } from '../base.js'
-import { AxAIOpenAI } from '../openai/api.js'
+import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
 import type { AxAIServiceOptions } from '../types.js'
 
 import { axModelInfoMistral } from './info.js'
 import { AxAIMistralEmbedModels, AxAIMistralModel } from './types.js'
 
-type MistralConfig = AxAIOpenAIConfig
+type AxAIMistralConfig = AxAIOpenAIConfig<
+  AxAIMistralModel,
+  AxAIMistralEmbedModels
+>
 
-export const axAIMistralDefaultConfig = (): MistralConfig =>
+export const axAIMistralDefaultConfig = (): AxAIMistralConfig =>
   structuredClone({
     model: AxAIMistralModel.MistralSmall,
     ...axBaseAIDefaultConfig(),
   })
 
-export const axAIMistralBestConfig = (): AxAIOpenAIConfig =>
+export const axAIMistralBestConfig = (): AxAIMistralConfig =>
   structuredClone({
     ...axAIMistralDefaultConfig(),
     model: AxAIMistralModel.MistralLarge,
   })
 
-export interface AxAIMistralArgs {
-  name: 'mistral'
-  apiKey: string
-  config?: Readonly<Partial<MistralConfig>>
-  options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, AxAIMistralModel | AxAIMistralEmbedModels | string>
+export type AxAIMistralArgs = AxAIOpenAIArgs<
+  'mistral',
+  AxAIMistralConfig,
+  AxAIMistralModel | AxAIMistralEmbedModels
+> & {
+  options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
 }
 
-export class AxAIMistral extends AxAIOpenAI {
+export class AxAIMistral extends AxAIOpenAI<
+  Omit<AxAIMistralArgs, 'name'>,
+  AxAIMistralModel | AxAIMistralEmbedModels
+> {
   constructor({
     apiKey,
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIMistralArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set')
@@ -48,7 +54,7 @@ export class AxAIMistral extends AxAIOpenAI {
       options,
       apiURL: 'https://api.mistral.ai/v1',
       modelInfo: axModelInfoMistral,
-      modelMap,
+      models,
     })
 
     super.setName('Mistral')

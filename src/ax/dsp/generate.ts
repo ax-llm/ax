@@ -238,7 +238,7 @@ export class AxGen<
     traceId,
     functions,
   }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
-    const streamingValidation = !functions || functions.length == 0
+    const streamingValidation = ai.getFeatures().functionCot !== true
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
     const values = {}
     const xstate: extractionState = {

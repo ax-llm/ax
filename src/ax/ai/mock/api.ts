@@ -1,5 +1,5 @@
 import type {
-  AxAIModelMap,
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -31,7 +31,7 @@ export class AxMockAIService implements AxAIService {
       modelInfo?: Partial<AxModelInfoWithProvider>
       embedModelInfo?: AxModelInfoWithProvider
       features?: { functions?: boolean; streaming?: boolean }
-      modelMap?: AxAIModelMap
+      models?: AxAIModelList
       chatResponse?:
         | AxChatResponse
         | ((
@@ -74,8 +74,8 @@ export class AxMockAIService implements AxAIService {
     }
   }
 
-  getModelMap(): AxAIModelMap | undefined {
-    return this.config.modelMap
+  getModelList(): AxAIModelList | undefined {
+    return this.config.models
   }
 
   getMetrics(): AxAIServiceMetrics {

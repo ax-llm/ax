@@ -1,11 +1,10 @@
 import { axBaseAIDefaultConfig } from '../base.js'
-import { AxAIOpenAI } from '../openai/api.js'
+import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
-import type { AxAIServiceOptions } from '../types.js'
 
 import { axModelInfoTogether } from './info.js'
 
-type TogetherAIConfig = AxAIOpenAIConfig
+type TogetherAIConfig = AxAIOpenAIConfig<string, undefined>
 
 export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
   structuredClone({
@@ -14,20 +13,21 @@ export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
     ...axBaseAIDefaultConfig(),
   })
 
-export interface AxAITogetherArgs {
-  name: 'together'
-  apiKey: string
-  config?: Readonly<Partial<TogetherAIConfig>>
-  options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, string>
-}
+export type AxAITogetherArgs = AxAIOpenAIArgs<
+  'together',
+  TogetherAIConfig,
+  string
+>
 
-export class AxAITogether extends AxAIOpenAI {
+export class AxAITogether extends AxAIOpenAI<
+  Omit<AxAITogetherArgs, 'name'>,
+  string
+> {
   constructor({
     apiKey,
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAITogetherArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set')
@@ -42,7 +42,7 @@ export class AxAITogether extends AxAIOpenAI {
       options,
       apiURL: 'https://api.together.xyz/v1',
       modelInfo: axModelInfoTogether,
-      modelMap,
+      models,
     })
 
     super.setName('Together')

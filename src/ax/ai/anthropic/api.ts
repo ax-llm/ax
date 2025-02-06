@@ -2,6 +2,7 @@ import type { AxAPI } from '../../util/apicall.js'
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js'
 import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
+  AxAIModelList,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatRequest,
@@ -39,7 +40,7 @@ export interface AxAIAnthropicArgs {
   region?: string
   config?: Readonly<Partial<AxAIAnthropicConfig>>
   options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, AxAIAnthropicModel | string>
+  models?: AxAIModelList<AxAIAnthropicModel | string>
 }
 
 class AxAIAnthropicImpl
@@ -338,7 +339,7 @@ export class AxAIAnthropic extends AxBaseAI<
     region,
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIAnthropicArgs, 'name'>>) {
     const isVertex = projectId !== undefined && region !== undefined
 
@@ -379,10 +380,10 @@ export class AxAIAnthropic extends AxBaseAI<
       apiURL,
       headers,
       modelInfo: axModelInfoAnthropic,
-      models: { model: _config.model },
+      defaults: { model: _config.model },
       options,
-      supportFor: { functions: true, streaming: true },
-      modelMap,
+      supportFor: { functions: true, streaming: true, functionCot: true },
+      models,
     })
   }
 }

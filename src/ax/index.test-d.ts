@@ -185,7 +185,7 @@
 //     streaming: true,
 //   }),
 
-//   getModelMap: () => ({
+//   getModelList: () => ({
 //     'gpt-4': 'openai/gpt-4',
 //   }),
 

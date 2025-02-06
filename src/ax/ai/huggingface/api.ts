@@ -5,6 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -38,7 +39,7 @@ export interface AxAIHuggingFaceArgs {
   apiKey: string
   config?: Readonly<Partial<AxAIHuggingFaceConfig>>
   options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, AxAIHuggingFaceModel>
+  models?: AxAIModelList<AxAIHuggingFaceModel>
 }
 
 class AxAIHuggingFaceImpl
@@ -163,7 +164,7 @@ export class AxAIHuggingFace extends AxBaseAI<
     apiKey,
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIHuggingFaceArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('HuggingFace API key not set')
@@ -180,10 +181,10 @@ export class AxAIHuggingFace extends AxBaseAI<
       apiURL: 'https://api-inference.huggingface.co',
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo: axModelInfoHuggingFace,
-      models: { model: _config.model },
+      defaults: { model: _config.model },
       options,
       supportFor: { functions: false, streaming: false },
-      modelMap,
+      models,
     })
   }
 }

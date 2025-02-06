@@ -1,5 +1,6 @@
 import {
   AxAIOpenAI,
+  type AxAIOpenAIArgs,
   axAIOpenAIBestConfig,
   axAIOpenAICreativeConfig,
   axAIOpenAIDefaultConfig,
@@ -10,7 +11,6 @@ import type {
   AxAIOpenAIEmbedModel,
   AxAIOpenAIModel,
 } from '../openai/types.js'
-import type { AxAIServiceOptions } from '../types.js'
 
 export const axAIAzureOpenAIDefaultConfig = axAIOpenAIDefaultConfig
 
@@ -20,15 +20,18 @@ export const axAIAzureOpenAIFastConfig = axAIOpenAIFastConfig
 
 export const axAIAzureOpenAIBestConfig = axAIOpenAIBestConfig
 
-export interface AxAIAzureOpenAIArgs {
-  name: 'azure-openai'
-  apiKey: string
+export type AxAIAzureOpenAIConfig = AxAIOpenAIConfig<
+  AxAIOpenAIModel,
+  AxAIOpenAIEmbedModel
+>
+export type AxAIAzureOpenAIArgs = AxAIOpenAIArgs<
+  'azure-openai',
+  AxAIAzureOpenAIConfig,
+  AxAIOpenAIModel | AxAIOpenAIEmbedModel
+> & {
   resourceName: string
   deploymentName: string
   version?: string
-  config?: Readonly<Partial<AxAIOpenAIConfig>>
-  options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, AxAIOpenAIModel | AxAIOpenAIEmbedModel>
 }
 
 export class AxAIAzureOpenAI extends AxAIOpenAI {
@@ -39,7 +42,7 @@ export class AxAIAzureOpenAI extends AxAIOpenAI {
     version = 'api-version=2024-02-15-preview',
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIAzureOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set')
@@ -54,7 +57,7 @@ export class AxAIAzureOpenAI extends AxAIOpenAI {
       ...axAIAzureOpenAIDefaultConfig(),
       ...config,
     }
-    super({ apiKey, config: _config, options, modelMap })
+    super({ apiKey, config: _config, options, models })
 
     const host = resourceName.includes('://')
       ? resourceName

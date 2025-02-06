@@ -2,14 +2,13 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
-import { AxAIOpenAI } from '../openai/api.js'
+import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
-import type { AxAIServiceOptions } from '../types.js'
 
 import { axModelInfoDeepSeek } from './info.js'
 import { AxAIDeepSeekModel } from './types.js'
 
-type DeepSeekConfig = AxAIOpenAIConfig
+type DeepSeekConfig = AxAIOpenAIConfig<AxAIDeepSeekModel, undefined>
 
 export const axAIDeepSeekDefaultConfig = (): DeepSeekConfig =>
   structuredClone({
@@ -23,20 +22,21 @@ export const axAIDeepSeekCodeConfig = (): DeepSeekConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   })
 
-export interface AxAIDeepSeekArgs {
-  name: 'deepseek'
-  apiKey: string
-  config?: Readonly<Partial<DeepSeekConfig>>
-  options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, AxAIDeepSeekModel | string>
-}
+export type AxAIDeepSeekArgs = AxAIOpenAIArgs<
+  'deepseek',
+  DeepSeekConfig,
+  AxAIDeepSeekModel
+>
 
-export class AxAIDeepSeek extends AxAIOpenAI {
+export class AxAIDeepSeek extends AxAIOpenAI<
+  Omit<AxAIDeepSeekArgs, 'name'>,
+  AxAIDeepSeekModel
+> {
   constructor({
     apiKey,
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIDeepSeekArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('DeepSeek API key not set')
@@ -51,7 +51,7 @@ export class AxAIDeepSeek extends AxAIOpenAI {
       options,
       apiURL: 'https://api.deepseek.com',
       modelInfo: axModelInfoDeepSeek,
-      modelMap,
+      models,
     })
 
     super.setName('DeepSeek')

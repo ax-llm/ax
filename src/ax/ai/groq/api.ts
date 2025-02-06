@@ -1,13 +1,13 @@
 import { AxRateLimiterTokenUsage } from '../../util/rate-limit.js'
 import { axBaseAIDefaultConfig } from '../base.js'
-import { AxAIOpenAI } from '../openai/api.js'
+import { AxAIOpenAI, type AxAIOpenAIArgs } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
 import type { AxAIServiceOptions, AxRateLimiterFunction } from '../types.js'
 
 import { axModelInfoGroq } from './info.js'
 import { AxAIGroqModel } from './types.js'
 
-type AxAIGroqAIConfig = AxAIOpenAIConfig
+type AxAIGroqAIConfig = AxAIOpenAIConfig<AxAIGroqModel, undefined>
 
 const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
   structuredClone({
@@ -15,21 +15,24 @@ const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
     ...axBaseAIDefaultConfig(),
   })
 
-export interface AxAIGroqArgs {
-  name: 'groq'
-  apiKey: string
-  config?: Readonly<Partial<AxAIGroqAIConfig>>
+export type AxAIGroqArgs = AxAIOpenAIArgs<
+  'groq',
+  AxAIGroqAIConfig,
+  AxAIGroqModel
+> & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
-  modelMap?: Record<string, AxAIGroqModel>
 }
 
-export class AxAIGroq extends AxAIOpenAI {
+export class AxAIGroq extends AxAIOpenAI<
+  Omit<AxAIGroqArgs, 'name'>,
+  AxAIGroqModel
+> {
   constructor({
     apiKey,
     config,
     options,
-    modelMap,
-  }: Readonly<Omit<AxAIGroqArgs, 'groq'>>) {
+    models,
+  }: Readonly<Omit<AxAIGroqArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Groq API key not set')
     }
@@ -49,7 +52,7 @@ export class AxAIGroq extends AxAIOpenAI {
       options: _options,
       modelInfo: axModelInfoGroq,
       apiURL: 'https://api.groq.com/openai/v1',
-      modelMap,
+      models,
     })
 
     super.setName('Groq')

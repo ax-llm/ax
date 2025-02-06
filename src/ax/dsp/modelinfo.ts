@@ -1,18 +1,19 @@
-import type { AxModelInfo } from '../ai/types.js'
+import type { AxAIModelList, AxModelInfo } from '../ai/types.js'
 
-interface GetModelInfoParams {
+interface GetModelInfoParams<TModel = string, TEmbedModel = string> {
   model: string
   modelInfo: readonly AxModelInfo[]
-  modelMap?: Record<string, string>
+  models?: AxAIModelList<TModel | TEmbedModel | string>
 }
 
-export function getModelInfo({
+export function getModelInfo<TModel = string, TEmbedModel = string>({
   model,
   modelInfo,
-  modelMap = {},
-}: Readonly<GetModelInfoParams>): Readonly<AxModelInfo> {
+  models,
+}: Readonly<GetModelInfoParams<TModel, TEmbedModel>>): Readonly<AxModelInfo> {
   // First check if there's a mapping for this model
-  const mappedModel = modelMap?.[model] ?? model
+  const mappedModel = (models?.find((v) => v.key === model)?.model ??
+    model) as string
 
   // Try exact match first
   const exactMatch = modelInfo.find((v) => v.name === model)

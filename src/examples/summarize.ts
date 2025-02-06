@@ -37,9 +37,13 @@ gen.addAssert(({ reason }: Readonly<{ reason: string }>) => {
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 //   config: { model: 'model-a' },
-//   modelMap: {
-//     'model-a': AxAIOpenAIModel.GPT4OMini,
-//   },
+//   models: [
+//     {
+//       key: 'model-a',
+//       model: AxAIOpenAIModel.GPT4OMini,
+//       description: 'A model that is good for general purpose',
+//     },
+//   ],
 // })
 
 const ai = new AxAI({

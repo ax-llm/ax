@@ -4,7 +4,13 @@ import type { Tracer } from '@opentelemetry/api'
 
 import type { AxAPI } from '../util/apicall.js'
 
-export type AxAIModelMap = Record<string, string>
+import type { AxAIFeatures } from './base.js'
+
+export type AxAIModelList<T = string> = {
+  key: string
+  model: T
+  description: string
+}[]
 
 export type AxModelInfo = {
   name: string
@@ -226,8 +232,8 @@ export interface AxAIService {
   getName(): string
   getModelInfo(): Readonly<AxModelInfoWithProvider>
   getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined
-  getFeatures(model?: string): { functions: boolean; streaming: boolean }
-  getModelMap(): AxAIModelMap | undefined
+  getFeatures(model?: string): AxAIFeatures
+  getModelList(): AxAIModelList | undefined
   getMetrics(): AxAIServiceMetrics
 
   chat(

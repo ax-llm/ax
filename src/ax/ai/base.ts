@@ -9,7 +9,7 @@ import { ColorLog } from '../util/log.js'
 import { RespTransformStream } from '../util/transform.js'
 
 import type {
-  AxAIModelMap,
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -28,9 +28,10 @@ import type {
 
 const colorLog = new ColorLog()
 
-export interface AxBaseAIFeatures {
+export interface AxAIFeatures {
   functions: boolean
   streaming: boolean
+  functionCot?: boolean
 }
 
 export interface AxBaseAIArgs {
@@ -38,10 +39,10 @@ export interface AxBaseAIArgs {
   apiURL: string
   headers: () => Promise<Record<string, string>>
   modelInfo: Readonly<AxModelInfo[]>
-  models: Readonly<{ model: string; embedModel?: string }>
+  defaults: Readonly<{ model: string; embedModel?: string }>
   options?: Readonly<AxAIServiceOptions>
-  supportFor: AxBaseAIFeatures | ((model: string) => AxBaseAIFeatures)
-  modelMap?: AxAIModelMap
+  supportFor: AxAIFeatures | ((model: string) => AxAIFeatures)
+  models?: AxAIModelList
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -74,17 +75,17 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter']
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
-  private modelMap?: AxAIModelMap
+  private models?: AxAIModelList
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxTokenUsage
   private embedModelUsage?: AxTokenUsage
-  private models: AxBaseAIArgs['models']
+  private defaults: AxBaseAIArgs['defaults']
 
   protected apiURL: string
   protected name: string
   protected headers: () => Promise<Record<string, string>>
-  protected supportFor: AxBaseAIFeatures | ((model: string) => AxBaseAIFeatures)
+  protected supportFor: AxAIFeatures | ((model: string) => AxAIFeatures)
 
   // Add private metrics tracking properties
   private metrics: AxAIServiceMetrics = {
@@ -131,10 +132,10 @@ export class AxBaseAI<
       apiURL,
       headers,
       modelInfo,
-      models,
+      defaults,
       options = {},
       supportFor,
-      modelMap,
+      models,
     }: Readonly<AxBaseAIArgs>
   ) {
     this.name = name
@@ -143,16 +144,22 @@ export class AxBaseAI<
     this.supportFor = supportFor
     this.tracer = options.tracer
     this.modelInfo = modelInfo
-    this.modelMap = modelMap
-    this.models = {
-      model: modelMap?.[models.model] ?? models.model,
-      embedModel: modelMap?.[models.embedModel ?? ''] ?? models.embedModel,
-    }
+    this.models = models
+
+    const model =
+      this.models?.find((v) => v.key === defaults.model)?.model ??
+      defaults.model
+
+    const embedModel =
+      this.models?.find((v) => v.key === defaults.embedModel)?.model ??
+      defaults.embedModel
+
+    this.defaults = { model, embedModel }
 
     if (
-      !models.model ||
-      typeof models.model !== 'string' ||
-      models.model === ''
+      !defaults.model ||
+      typeof defaults.model !== 'string' ||
+      defaults.model === ''
     ) {
       throw new Error('No model defined')
     }
@@ -201,9 +208,9 @@ export class AxBaseAI<
 
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
     const mi = getModelInfo({
-      model: this.models.model,
+      model: this.defaults.model,
       modelInfo: this.modelInfo,
-      modelMap: this.modelMap,
+      models: this.models,
     })
     return {
       ...mi,
@@ -212,14 +219,14 @@ export class AxBaseAI<
   }
 
   getEmbedModelInfo(): AxModelInfoWithProvider | undefined {
-    if (!this.models.embedModel) {
+    if (!this.defaults.embedModel) {
       return
     }
 
     const mi = getModelInfo({
-      model: this.models.embedModel,
+      model: this.defaults.embedModel,
       modelInfo: this.modelInfo,
-      modelMap: this.modelMap,
+      models: this.models,
     })
     return {
       ...mi,
@@ -227,17 +234,17 @@ export class AxBaseAI<
     }
   }
 
-  getModelMap(): AxAIModelMap | undefined {
-    return this.modelMap
+  getModelList(): AxAIModelList | undefined {
+    return this.models
   }
 
   getName(): string {
     return this.name
   }
 
-  getFeatures(model?: string): AxBaseAIFeatures {
+  getFeatures(model?: string): AxAIFeatures {
     return typeof this.supportFor === 'function'
-      ? this.supportFor(model ?? this.models.model)
+      ? this.supportFor(model ?? this.defaults.model)
       : this.supportFor
   }
 
@@ -308,8 +315,8 @@ export class AxBaseAI<
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const model = req.model
-      ? (this.modelMap?.[req.model] ?? req.model)
-      : (this.modelMap?.[this.models.model] ?? this.models.model)
+      ? (this.models?.find((v) => v.key === req.model)?.model ?? req.model)
+      : this.defaults.model
 
     const modelConfig = {
       ...this.aiImpl.getModelConfig(),
@@ -500,9 +507,9 @@ export class AxBaseAI<
     options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
     const embedModel = req.embedModel
-      ? (this.modelMap?.[req.embedModel] ?? req.embedModel)
-      : (this.modelMap?.[this.models.embedModel ?? ''] ??
-        this.models.embedModel)
+      ? (this.models?.find((v) => v.key === req.embedModel)?.model ??
+        req.embedModel)
+      : this.defaults.embedModel
 
     if (!embedModel) {
       throw new Error('No embed model defined')
@@ -516,7 +523,7 @@ export class AxBaseAI<
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_REQUEST_MODEL]:
-              req.embedModel ?? this.models.embedModel,
+              req.embedModel ?? this.defaults.embedModel,
           },
         },
         async (span) => {

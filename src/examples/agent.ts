@@ -1,4 +1,4 @@
-import { AxAgent, AxAI } from '@ax-llm/ax'
+import { AxAgent, AxAI, AxAIOpenAIModel } from '@ax-llm/ax'
 
 const researcher = new AxAgent({
   name: 'Physics Researcher',
@@ -14,24 +14,33 @@ const summarizer = new AxAgent({
   signature: `answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"`,
 })
 
-const agent = new AxAgent({
+const agent = new AxAgent<{ question: string }>({
   name: 'Scientist',
   description: 'An agent that can answer advanced science questions',
   signature: `question -> answer`,
   agents: [researcher, summarizer],
 })
 
-const question = `
-  Why is gravity not a real force? Why is light pure energy? 
-  Why is physics scale invariant? 
-  Why is the centrifugal force talked about so much if it's not real? 
-  For each question include a summary with the bullet points.
-  Include the summary and bullet points in the answer.
-  Return this only if you can answer all the questions.`
-
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
+  models: [
+    {
+      key: 'dumb',
+      model: AxAIOpenAIModel.GPT35Turbo,
+      description: 'Use the dumb model for very simple questions',
+    },
+    {
+      key: 'smart',
+      model: AxAIOpenAIModel.GPT4OMini,
+      description: 'Use the smart model for advanced questions',
+    },
+    {
+      key: 'smartest',
+      model: AxAIOpenAIModel.GPT4O,
+      description: 'Use the smartest model for the most advanced questions',
+    },
+  ],
 })
 ai.setOptions({ debug: true })
 
@@ -46,6 +55,9 @@ ai.setOptions({ debug: true })
 // });
 
 // ai.setOptions({ debug: true });
+
+// const question = `What is a cat?`
+const question = `Why is gravity not a real force?`
 
 const res = await agent.forward(ai, { question })
 console.log('>', res)

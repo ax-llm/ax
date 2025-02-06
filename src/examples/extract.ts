@@ -9,18 +9,26 @@ const currentDate = new Date()
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 //   config: { model: 'model-a' },
-//   modelMap: {
-//     'model-a': AxAIOpenAIModel.GPT4OMini,
-//   },
+//   models: [
+//     {
+//       key: 'model-a',
+//       model: AxAIOpenAIModel.GPT4OMini,
+//       description: 'A model that is good for general purpose',
+//     },
+//   ],
 // })
 
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
-  modelMap: {
-    'model-a': AxAIGoogleGeminiModel.Gemini15Flash8B,
-  },
+  models: [
+    {
+      key: 'model-a',
+      model: AxAIGoogleGeminiModel.Gemini15Flash8B,
+      description: 'A model that is good for general purpose',
+    },
+  ],
 })
 ai.setOptions({ debug: true })
 

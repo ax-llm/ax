@@ -5,6 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -47,7 +48,7 @@ export interface AxAICohereArgs {
   apiKey: string
   config?: Readonly<Partial<AxAICohereConfig>>
   options?: Readonly<AxAIServiceOptions>
-  modelMap?: Record<string, AxAICohereModel | AxAICohereEmbedModel | string>
+  models?: AxAIModelList<AxAICohereModel | AxAICohereEmbedModel | string>
 }
 
 class AxAICohereImpl
@@ -294,7 +295,7 @@ export class AxAICohere extends AxBaseAI<
     apiKey,
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAICohereArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set')
@@ -311,10 +312,10 @@ export class AxAICohere extends AxBaseAI<
       apiURL: 'https://api.cohere.ai/v1',
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo: axModelInfoCohere,
-      models: { model: _config.model },
+      defaults: { model: _config.model },
       supportFor: { functions: true, streaming: true },
       options,
-      modelMap,
+      models,
     })
   }
 }

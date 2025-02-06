@@ -6,6 +6,7 @@ import {
 } from '../base.js'
 import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
+  AxAIModelList,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatResponse,
@@ -88,8 +89,7 @@ export interface AxAIGoogleGeminiArgs {
   region?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
-  modelMap?: Record<
-    string,
+  models?: AxAIModelList<
     AxAIGoogleGeminiModel | AxAIGoogleGeminiEmbedModel | string
   >
 }
@@ -483,7 +483,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     region,
     config,
     options,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
     const isVertex = projectId !== undefined && region !== undefined
 
@@ -520,13 +520,13 @@ export class AxAIGoogleGemini extends AxBaseAI<
       apiURL,
       headers,
       modelInfo: axModelInfoGoogleGemini,
-      models: {
+      defaults: {
         model: _config.model as AxAIGoogleGeminiModel,
         embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel,
       },
       options,
       supportFor: { functions: true, streaming: true },
-      modelMap,
+      models,
     })
   }
 }

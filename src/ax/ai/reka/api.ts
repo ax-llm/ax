@@ -5,6 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
+  AxAIModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -55,7 +56,7 @@ export interface AxAIRekaArgs {
   config?: Readonly<Partial<AxAIRekaConfig>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo?: Readonly<AxModelInfo[]>
-  modelMap?: Record<string, AxAIRekaModel | string>
+  models?: AxAIModelList<AxAIRekaModel | string>
 }
 
 class AxAIRekaImpl
@@ -273,7 +274,7 @@ export class AxAIReka extends AxBaseAI<
     options,
     apiURL,
     modelInfo = axModelInfoReka,
-    modelMap,
+    models,
   }: Readonly<Omit<AxAIRekaArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Reka API key not set')
@@ -290,12 +291,12 @@ export class AxAIReka extends AxBaseAI<
       apiURL: apiURL ? apiURL : 'https://api.reka.ai/v1/chat',
       headers: async () => ({ 'X-Api-Key': apiKey }),
       modelInfo,
-      models: {
+      defaults: {
         model: _config.model as string,
       },
       options,
       supportFor: { functions: true, streaming: true },
-      modelMap,
+      models,
     })
   }
 }
