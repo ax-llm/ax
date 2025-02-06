@@ -1,5 +1,20 @@
 # Changelog
 
+## [11.0.0](https://github.com/ax-llm/ax/compare/10.0.49...10.0.50) (2025-02-06)
+
+### Features
+
+* smart model routing for agents and sub-agents [Breaking Changes] ([1d313b4](https://github.com/ax-llm/ax/commit/1d313b450db62f6da9dd8bf4f4fd52a37b89120b))
+
+### Bug Fixes
+
+* package upgrades ([f969bd7](https://github.com/ax-llm/ax/commit/f969bd790d7e813ea4e450158d1f212598489039))
+## [10.0.50](https://github.com/ax-llm/ax/compare/10.0.49...10.0.50) (2025-02-03)
+
+### Bug Fixes
+
+* required values validation ([f997236](https://github.com/ax-llm/ax/commit/f997236f698fe1745fb3db49afda0af772f82d58))
+
 ## [10.0.50](https://github.com/ax-llm/ax/compare/10.0.48...10.0.49) (2025-02-03)
 
 ### Bug Fixes

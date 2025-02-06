@@ -79,7 +79,7 @@
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
-  "version": "10.0.50",
+  "version": "11.0.0",
   "dependencies": {
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/react": "^19.0.8"
