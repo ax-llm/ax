@@ -30,6 +30,9 @@ import type {
 export type AxBalancerOptions = {
   comparator?: (a: AxAIService, b: AxAIService) => number
   debug?: boolean
+  initialBackoffMs?: number
+  maxBackoffMs?: number
+  maxRetries?: number
 }
 
 /**
@@ -40,6 +43,13 @@ export class AxBalancer implements AxAIService {
   private currentServiceIndex: number = 0
   private currentService: AxAIService
   private debug: boolean
+  private initialBackoffMs: number
+  private maxBackoffMs: number
+  private maxRetries: number
+  private serviceFailures: Map<
+    string,
+    { retries: number; lastFailureTime: number }
+  > = new Map()
 
   constructor(services: readonly AxAIService[], options?: AxBalancerOptions) {
     if (services.length === 0) {
@@ -56,6 +66,9 @@ export class AxBalancer implements AxAIService {
     }
     this.currentService = cs
     this.debug = options?.debug ?? true
+    this.initialBackoffMs = options?.initialBackoffMs ?? 1000
+    this.maxBackoffMs = options?.maxBackoffMs ?? 32000
+    this.maxRetries = options?.maxRetries ?? 3
   }
 
   /**
@@ -79,7 +92,7 @@ export class AxBalancer implements AxAIService {
   }
 
   getModelList(): AxAIModelList | undefined {
-    throw new Error('Method not implemented.')
+    return this.currentService.getModelList()
   }
 
   private getNextService(): boolean {
@@ -104,6 +117,10 @@ export class AxBalancer implements AxAIService {
     return this.currentService.getName()
   }
 
+  getId(): string {
+    return this.currentService.getId()
+  }
+
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
     return this.currentService.getModelInfo()
   }
@@ -120,6 +137,52 @@ export class AxBalancer implements AxAIService {
     return this.currentService.getMetrics()
   }
 
+  private canRetryService(): boolean {
+    const failure = this.serviceFailures.get(this.currentService.getId())
+    if (!failure) return true
+
+    const { retries, lastFailureTime } = failure
+    const timeSinceLastFailure = Date.now() - lastFailureTime
+
+    const backoffMs = Math.min(
+      this.initialBackoffMs * Math.pow(2, retries),
+      this.maxBackoffMs
+    )
+    return timeSinceLastFailure >= backoffMs
+  }
+
+  private handleFailure(): boolean {
+    const failure = this.serviceFailures.get(this.currentService.getId())
+    const retries = (failure?.retries ?? 0) + 1
+
+    this.serviceFailures.set(this.currentService.getId(), {
+      retries,
+      lastFailureTime: Date.now(),
+    })
+
+    if (this.debug) {
+      console.warn(
+        `AxBalancer: Service ${this.currentService.getName()} failed (retry ${retries}/${this.maxRetries})`
+      )
+    }
+
+    if (retries >= this.maxRetries) {
+      const gotNextService = this.getNextService()
+      if (this.debug) {
+        console.warn(
+          `AxBalancer: Switching to service ${this.currentService.getName()}`
+        )
+      }
+      return gotNextService
+    }
+
+    return true
+  }
+
+  private handleSuccess(): void {
+    this.serviceFailures.delete(this.currentService.getId())
+  }
+
   async chat(
     req: Readonly<AxChatRequest>,
     options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions> | undefined
@@ -127,8 +190,17 @@ export class AxBalancer implements AxAIService {
     this.reset()
 
     while (true) {
+      if (!this.canRetryService()) {
+        if (!this.getNextService()) {
+          throw new Error('All services exhausted')
+        }
+        continue
+      }
+
       try {
-        return await this.currentService.chat(req, options)
+        const response = await this.currentService.chat(req, options)
+        this.handleSuccess()
+        return response
       } catch (e) {
         if (!(e instanceof AxAIServiceError)) {
           throw e
@@ -164,19 +236,8 @@ export class AxBalancer implements AxAIService {
           // Handle unexpected AxAIServiceErrors
         }
 
-        if (this.debug) {
-          console.warn(
-            `AxBalancer: Service ${this.currentService.getName()} failed`,
-            e
-          )
-        }
-        if (!this.getNextService()) {
+        if (!this.handleFailure()) {
           throw e
-        }
-        if (this.debug) {
-          console.warn(
-            `AxBalancer: Switching to service ${this.currentService.getName()}`
-          )
         }
       }
     }
@@ -189,17 +250,20 @@ export class AxBalancer implements AxAIService {
     this.reset()
 
     while (true) {
-      try {
-        return await this.currentService.embed(req, options)
-      } catch (e) {
-        if (this.debug) {
-          console.warn(`Service ${this.currentService.getName()} failed`)
-        }
+      if (!this.canRetryService()) {
         if (!this.getNextService()) {
-          throw e
+          throw new Error('All services exhausted')
         }
-        if (this.debug) {
-          console.warn(`Switching to service ${this.currentService.getName()}`)
+        continue
+      }
+
+      try {
+        const response = await this.currentService.embed(req, options)
+        this.handleSuccess()
+        return response
+      } catch (e) {
+        if (!this.handleFailure()) {
+          throw e
         }
       }
     }

@@ -229,6 +229,7 @@ export type AxAIServiceActionOptions = {
 }
 
 export interface AxAIService {
+  getId(): string
   getName(): string
   getModelInfo(): Readonly<AxModelInfoWithProvider>
   getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined

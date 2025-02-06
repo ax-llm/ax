@@ -127,6 +127,10 @@ export class AxAI implements AxAIService {
     return this.ai.getName()
   }
 
+  getId(): string {
+    return this.ai.getId()
+  }
+
   getModelInfo(): Readonly<AxModelInfoWithProvider> {
     return this.ai.getModelInfo()
   }

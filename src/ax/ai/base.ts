@@ -84,6 +84,7 @@ export class AxBaseAI<
 
   protected apiURL: string
   protected name: string
+  protected id: string
   protected headers: () => Promise<Record<string, string>>
   protected supportFor: AxAIFeatures | ((model: string) => AxAIFeatures)
 
@@ -145,6 +146,7 @@ export class AxBaseAI<
     this.tracer = options.tracer
     this.modelInfo = modelInfo
     this.models = models
+    this.id = crypto.randomUUID()
 
     const model =
       this.models?.find((v) => v.key === defaults.model)?.model ??
@@ -169,6 +171,10 @@ export class AxBaseAI<
 
   public setName(name: string): void {
     this.name = name
+  }
+
+  public getId(): string {
+    return this.id
   }
 
   public setAPIURL(apiURL: string): void {
