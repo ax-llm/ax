@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.2](https://github.com/ax-llm/ax/compare/11.0.0...11.0.1) (2025-02-07)
+
+### Bug Fixes
+
+* option to disable smart routing in agents ([ce1b25f](https://github.com/ax-llm/ax/commit/ce1b25ff4e288647d01f032afad109a762940f4b))
+## [11.0.1](https://github.com/ax-llm/ax/compare/11.0.0...11.0.1) (2025-02-06)
+
+### Bug Fixes
+
+* types cleanup, all model inputs are clearly typed ([192d9d4](https://github.com/ax-llm/ax/commit/192d9d43d0524ced16bf9257b20610b9a3040112))
+
 ## [11.0.1](https://github.com/ax-llm/ax/compare/10.0.50...11.0.0) (2025-02-06)
 
 ### Bug Fixes
