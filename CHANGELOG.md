@@ -1,5 +1,11 @@
 # Changelog
 
+## [11.0.4](https://github.com/ax-llm/ax/compare/11.0.3...11.0.4) (2025-02-07)
+
+### Features
+
+* Add Gemini 1.5 Flash 002 model, since Vertex defaults to 001 (#130) ([d9ddc68](https://github.com/ax-llm/ax/commit/d9ddc68b1aacc8e94bb0a2f84dbb852ca52a8ed5))
+
 ## [11.0.3](https://github.com/ax-llm/ax/compare/11.0.2...11.0.3) (2025-02-07)
 
 ### Bug Fixes
