@@ -1,6 +1,12 @@
 # Changelog
 
-## [11.0.2](https://github.com/ax-llm/ax/compare/11.0.0...11.0.1) (2025-02-07)
+## [11.0.3](https://github.com/ax-llm/ax/compare/11.0.2...11.0.3) (2025-02-07)
+
+### Bug Fixes
+
+* Fix: deepseek r1 on together.ai returning empty result (#128) ([250ed54](https://github.com/ax-llm/ax/commit/250ed54e9d7e0d1f40aa5cc8b58e684badd4583d))
+
+## [11.0.2](https://github.com/ax-llm/ax/compare/11.0.1...11.0.2) (2025-02-07)
 
 ### Bug Fixes
 
