@@ -1,5 +1,11 @@
 # Changelog
 
+## [11.0.6](https://github.com/ax-llm/ax/compare/11.0.5...11.0.6) (2025-02-07)
+
+### Bug fixes
+
+* fix: TypeError: Cannot read properties of undefined (reading 'length') (#131) ([a997f5b](https://github.com/ax-llm/ax/commit/a997f5be14be512fd3457c67f9aa2948f01c0d4a))
+
 ## [11.0.5](https://github.com/ax-llm/ax/compare/11.0.4...11.0.5) (2025-02-07)
 
 ### Bug Fixes
