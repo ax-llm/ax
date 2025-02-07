@@ -41,7 +41,7 @@ export interface AxAIAnthropicArgs {
   region?: string
   config?: Readonly<Partial<AxAIAnthropicConfig>>
   options?: Readonly<AxAIServiceOptions>
-  models?: AxAIModelList<AxAIAnthropicModel>
+  models?: AxAIModelList<AxAIAnthropicModel | AxAIAnthropicVertexModel>
 }
 
 class AxAIAnthropicImpl
