@@ -342,8 +342,8 @@ export class AxGen<
     // If there are multiple results, filter out the ones that don't have function calls
     // Anthropic for example generates chain-of-though content before function calls which
     // we want to ignore
-    if (res.results.length > 1) {
-      results = res.results.filter((r) => r.functionCalls)
+    if (results.length > 1) {
+      results = results.filter((r) => r.functionCalls)
     }
 
     for (const result of results) {
