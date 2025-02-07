@@ -1,5 +1,11 @@
 # Changelog
 
+## [11.0.5](https://github.com/ax-llm/ax/compare/11.0.4...11.0.5) (2025-02-07)
+
+### Bug Fixes
+
+* Fix: allow Anthropic Vertex API models in model list ([348c71e](https://github.com/ax-llm/ax/commit/348c71ecde4397fe7c99a879317f6ead90ed81e1))
+
 ## [11.0.4](https://github.com/ax-llm/ax/compare/11.0.3...11.0.4) (2025-02-07)
 
 ### Features
