@@ -21,9 +21,16 @@ import { AxSignature } from '../dsp/sig.js'
 
 export interface AxAgentic extends AxTunable, AxUsable {
   getFunction(): AxFunction
+  getFeatures(): AxAgentFeatures
 }
 
-export type AxAgentOptions = Omit<AxGenOptions, 'functions'>
+export type AxAgentOptions = Omit<AxGenOptions, 'functions'> & {
+  disableSmartModelRouting?: boolean
+}
+
+export interface AxAgentFeatures {
+  canConfigureSmartModelRouting: boolean
+}
 
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   implements AxAgentic
@@ -33,6 +40,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   private program: AxProgramWithSignature<IN, OUT>
   private functions?: AxFunction[]
   private agents?: AxAgentic[]
+  private disableSmartModelRouting?: boolean
 
   private name: string
   private description: string
@@ -60,6 +68,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     this.ai = ai
     this.agents = agents
     this.functions = functions
+    this.disableSmartModelRouting = options?.disableSmartModelRouting
 
     this.signature = new AxSignature(signature)
     this.signature.setDescription(description)
@@ -94,8 +103,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     }
 
     const mm = ai?.getModelList()
-    // if model map exists add a extra model param to the function parameter json schema
-    if (mm) {
+    // Only add model parameter if smart routing is enabled and model list exists
+    if (mm && !this.disableSmartModelRouting) {
       this.func.parameters = addModelParameter(this.func.parameters, mm)
     }
   }
@@ -150,6 +159,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     }
   }
 
+  public getFeatures(): AxAgentFeatures {
+    return {
+      canConfigureSmartModelRouting: this.ai !== undefined,
+    }
+  }
+
   private init(
     parentAi: Readonly<AxAIService>,
     options: Readonly<AxProgramForwardOptions> | undefined
@@ -160,7 +175,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     const agentFuncs = this.agents
       ?.map((a) => a.getFunction())
       ?.map((f) =>
-        mm ? { ...f, parameters: addModelParameter(f.parameters, mm) } : f
+        mm &&
+        !this.disableSmartModelRouting &&
+        this.agents?.find((a) => a.getFunction().name === f.name)?.getFeatures()
+          .canConfigureSmartModelRouting
+          ? { ...f, parameters: addModelParameter(f.parameters, mm) }
+          : f
       )
     const functions: AxFunction[] = [
       ...(options?.functions ?? this.functions ?? []),

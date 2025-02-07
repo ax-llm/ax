@@ -155,6 +155,7 @@ import {
 } from './ai/together/api.js';
 import {
   AxAgent,
+  type AxAgentFeatures,
   type AxAgentOptions,
   type AxAgentic
 } from './prompts/agent.js';
@@ -499,6 +500,7 @@ export type { AxAIServiceOptions };
 export type { AxAITogetherArgs };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxAgentFeatures };
 export type { AxAgentOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
