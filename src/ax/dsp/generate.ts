@@ -353,7 +353,7 @@ export class AxGen<
 
       mem.addResult(result, sessionId)
 
-      if (result.functionCalls) {
+      if (result.functionCalls?.length) {
         const funcs = parseFunctionCalls(ai, result.functionCalls, values)
 
         if (funcs) {
