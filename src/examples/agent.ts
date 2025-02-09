@@ -4,7 +4,7 @@ const researcher = new AxAgent({
   name: 'Physics Researcher',
   description:
     'Researcher for physics questions can answer questions about advanced physics',
-  signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`,
+  signature: `question, physicsQuestion "physics questions" -> answer "reply in bullet points"`,
 })
 
 const summarizer = new AxAgent({
