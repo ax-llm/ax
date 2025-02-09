@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.7](https://github.com/ax-llm/ax/compare/11.0.5...11.0.6) (2025-02-09)
+
+### Features
+
+* agents can now have pass through fields in agent swarms ([2e1c021](https://github.com/ax-llm/ax/commit/2e1c021f330e17227b5340316a27a7aed6cf46df))
+## [11.0.6](https://github.com/ax-llm/ax/compare/11.0.5...11.0.6) (2025-02-07)
+
+### Bug Fixes
+
+* TypeError: Cannot read properties of undefined (reading 'length') ([#131](https://github.com/ax-llm/ax/issues/131)) ([a997f5b](https://github.com/ax-llm/ax/commit/a997f5be14be512fd3457c67f9aa2948f01c0d4a))
+
 ## [11.0.6](https://github.com/ax-llm/ax/compare/11.0.5...11.0.6) (2025-02-07)
 
 ### Bug fixes
