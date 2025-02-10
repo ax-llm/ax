@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.9](https://github.com/ax-llm/ax/compare/11.0.7...11.0.8) (2025-02-10)
+
+### Bug Fixes
+
+* issue with agent set description ([7c9af34](https://github.com/ax-llm/ax/commit/7c9af34276ac527f0fe8bbaa3994690ca7b335d9))
+## [11.0.8](https://github.com/ax-llm/ax/compare/11.0.7...11.0.8) (2025-02-10)
+
+### Bug Fixes
+
+* whitespace streaming extract issue ([9706b4f](https://github.com/ax-llm/ax/commit/9706b4f1fecb6db3d74cde2271e8627208204c45))
+
 ## [11.0.8](https://github.com/ax-llm/ax/compare/11.0.6...11.0.7) (2025-02-10)
 
 ### Bug Fixes
