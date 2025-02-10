@@ -59,7 +59,7 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
  */
 export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
   structuredClone({
-    model: AxAIGoogleGeminiModel.Gemini15Pro,
+    model: AxAIGoogleGeminiModel.Gemini20Flash,
     embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
     safetySettings,
     ...axBaseAIDefaultConfig(),
@@ -68,7 +68,7 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
 export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
     structuredClone({
-      model: AxAIGoogleGeminiModel.Gemini15Flash,
+      model: AxAIGoogleGeminiModel.Gemini20Flash,
       embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
       safetySettings,
       ...axBaseAIDefaultCreativeConfig(),

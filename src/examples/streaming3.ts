@@ -57,10 +57,16 @@ gen.addAssert(
 )
 
 const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-  config: { model: AxAIOpenAIModel.GPT4OMini },
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
 })
+
+// const ai = new AxAI({
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string,
+//   config: { model: AxAIOpenAIModel.GPT4OMini },
+// })
 // ai.setOptions({ debug: true })
 
 // Run the program

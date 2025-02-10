@@ -51,6 +51,7 @@ function processChildAgentFunction<IN extends AxGenIn>(
   parentInputKeys: string[],
   modelList: AxAIModelList | undefined,
   options: Readonly<{
+    debug: boolean
     disableSmartModelRouting: boolean
     excludeFieldsFromPassthrough: string[]
     canConfigureSmartModelRouting: boolean
@@ -81,15 +82,23 @@ function processChildAgentFunction<IN extends AxGenIn>(
 
       // Wrap function to inject parent values
       const originalFunc = processedFunction.func
-      processedFunction.func = (childArgs, funcOptions) =>
-        originalFunc(
-          {
-            ...childArgs,
-            ...pick(parentValues, injectionKeys as (keyof IN)[]),
-          },
-          funcOptions
-        )
+      // add debug logging if enabled
+      processedFunction.func = (childArgs, funcOptions) => {
+        const updatedChildArgs = {
+          ...childArgs,
+          ...pick(parentValues, injectionKeys as (keyof IN)[]),
+        }
+        if (options.debug && injectionKeys.length > 0) {
+          process.stdout.write(
+            `Function Params: ${JSON.stringify(updatedChildArgs, null, 2)}`
+          )
+        }
+
+        return originalFunc(updatedChildArgs, funcOptions)
+      }
     }
+
+    return processedFunction
   }
 
   // Apply smart model routing if enabled
@@ -260,16 +269,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     const mm = ai?.getModelList()
 
     // Get parent's input schema and keys
-    const parentSchema = this.signature.toJSONSchema()
-    const parentKeys = parentSchema.properties
-      ? Object.keys(parentSchema.properties)
-      : []
+    const parentSchema = this.signature.getInputFields()
+    const parentKeys = parentSchema.map((p) => p.name)
 
     // Process each child agent's function
     const agentFuncs = this.agents?.map((agent) => {
       const f = agent.getFeatures()
 
       const processOptions = {
+        debug: ai?.getOptions()?.debug ?? false,
         disableSmartModelRouting: !!this.disableSmartModelRouting,
         excludeFieldsFromPassthrough: f.excludeFieldsFromPassthrough,
         canConfigureSmartModelRouting: f.canConfigureSmartModelRouting,
@@ -390,8 +398,8 @@ export function addModelParameter(
     type: 'string',
     enum: models.map((m) => m.key),
     description: `The AI model to use for this function call. Available options: ${models
-      .map((m) => `${m.key}: ${m.description}`)
-      .join(' | ')}`,
+      .map((m) => `\`${m.key}\` ${m.description}`)
+      .join(', ')}`,
   }
 
   // Create new properties object with model parameter

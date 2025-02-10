@@ -281,6 +281,7 @@ const globalPrefixCache = new LRUCache<string, string[]>(500)
  *   - index >= 0: Position of full match
  *   - -1: No match found
  *   - -2: Partial match from the end
+ *   - -3: String is only whitespace
  */
 export function matchesContent(
   content: string,
@@ -288,6 +289,11 @@ export function matchesContent(
   startIndex: number = 0,
   prefixCache: LRUCache<string, string[]> = globalPrefixCache
 ): number {
+  // Check if string is only whitespace
+  if (/^\s*$/.test(content)) {
+    return -3
+  }
+
   // First check if the complete prefix exists anywhere after startIndex
   const exactMatchIndex = content.indexOf(prefix, startIndex)
   if (exactMatchIndex !== -1) {

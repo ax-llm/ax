@@ -114,7 +114,13 @@ describe('matchesContent', () => {
 
   describe('edge cases', () => {
     test('should handle empty content', () => {
-      expect(matchesContent('', 'are you')).toBe(-1)
+      expect(matchesContent('', 'are you')).toBe(-3)
+    })
+
+    test('should handle whitespace-only content', () => {
+      expect(matchesContent('   ', 'are you')).toBe(-3)
+      expect(matchesContent('\t\n  ', 'are you')).toBe(-3)
+      expect(matchesContent('\n\n', 'are you')).toBe(-3)
     })
 
     test('should handle empty prefix', () => {

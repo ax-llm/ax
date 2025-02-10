@@ -76,6 +76,8 @@ export const streamingExtractValues = (
         continue // Field is not found, continue to the next field
       case -2:
         return true // Partial match at end, skip and gather more content
+      case -3:
+        return true // String is only whitespace, skip and gather more content
     }
     // We found the full match at the index e
 
