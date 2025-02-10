@@ -124,7 +124,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   implements AxAgentic
 {
   private ai?: AxAIService
-  private signature: AxSignature
   private program: AxProgramWithSignature<IN, OUT>
   private functions?: AxFunction[]
   private agents?: AxAgentic[]
@@ -132,7 +131,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   private excludeFieldsFromPassthrough: string[]
 
   private name: string
-  private description: string
   private subAgentList?: string
   private func: AxFunction
 
@@ -161,8 +159,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     this.excludeFieldsFromPassthrough =
       options?.excludeFieldsFromPassthrough ?? []
 
-    this.signature = new AxSignature(signature)
-    this.signature.setDescription(description)
+    const sig = new AxSignature(signature)
+    sig.setDescription(description)
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -176,20 +174,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       )
     }
 
-    this.program = new AxGen<IN, OUT>(this.signature, options)
+    this.program = new AxGen<IN, OUT>(sig, options)
 
     for (const agent of agents ?? []) {
       this.program.register(agent)
     }
 
     this.name = name
-    this.description = description
     this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ')
 
     this.func = {
       name: toCamelCase(this.name),
-      description: this.description,
-      parameters: this.signature.toJSONSchema(),
+      description,
+      parameters: sig.toJSONSchema(),
       func: () => this.forward,
     }
 
@@ -269,7 +266,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     const mm = ai?.getModelList()
 
     // Get parent's input schema and keys
-    const parentSchema = this.signature.getInputFields()
+    const parentSchema = this.program.getSignature().getInputFields()
     const parentKeys = parentSchema.map((p) => p.name)
 
     // Process each child agent's function
@@ -336,8 +333,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       )
     }
 
-    this.description = description
-    this.signature.setDescription(description)
+    this.program.getSignature().setDescription(description)
     this.func.description = description
   }
 }

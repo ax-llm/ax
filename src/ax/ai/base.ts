@@ -308,7 +308,8 @@ export class AxBaseAI<
     let isError = false
 
     try {
-      return this._chat1(req, options)
+      const result = await this._chat1(req, options)
+      return result
     } catch (error) {
       isError = true
       throw error
@@ -380,6 +381,43 @@ export class AxBaseAI<
     return await this._chat2(model, modelConfig, req, options)
   }
 
+  private cleanupFunctionSchema(
+    fn: Readonly<NonNullable<AxChatRequest['functions']>[number]>
+  ): NonNullable<AxChatRequest['functions']>[number] {
+    const cleanFn = { ...fn }
+    if (cleanFn.parameters) {
+      const cleanParams = { ...cleanFn.parameters }
+
+      // Remove empty required array
+      if (
+        Array.isArray(cleanParams.required) &&
+        cleanParams.required.length === 0
+      ) {
+        delete cleanParams.required
+      }
+
+      // Remove empty properties object
+      if (
+        cleanParams.properties &&
+        Object.keys(cleanParams.properties).length === 0
+      ) {
+        delete cleanParams.properties
+      }
+
+      // After cleaning, remove the entire parameters object if it's effectively empty
+      // i.e., either no keys left or just { type: 'object' } remaining.
+      if (
+        Object.keys(cleanParams).length === 0 ||
+        (Object.keys(cleanParams).length === 1 && cleanParams.type === 'object')
+      ) {
+        delete cleanFn.parameters
+      } else {
+        cleanFn.parameters = cleanParams
+      }
+    }
+    return cleanFn
+  }
+
   private async _chat2(
     model: TModel,
     modelConfig: Readonly<AxModelConfig>,
@@ -393,7 +431,7 @@ export class AxBaseAI<
 
     let functions
     if (chatReq.functions && chatReq.functions.length > 0) {
-      functions = chatReq.functions
+      functions = chatReq.functions.map((fn) => this.cleanupFunctionSchema(fn))
     }
 
     const req = {
