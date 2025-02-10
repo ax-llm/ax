@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.8](https://github.com/ax-llm/ax/compare/11.0.6...11.0.7) (2025-02-10)
+
+### Bug Fixes
+
+* whitespace streaming extract issue ([9706b4f](https://github.com/ax-llm/ax/commit/9706b4f1fecb6db3d74cde2271e8627208204c45))
+## [11.0.7](https://github.com/ax-llm/ax/compare/11.0.6...11.0.7) (2025-02-09)
+
+### Features
+
+* agents can now have pass through fields in agent swarms ([2e1c021](https://github.com/ax-llm/ax/commit/2e1c021f330e17227b5340316a27a7aed6cf46df))
+
 ## [11.0.7](https://github.com/ax-llm/ax/compare/11.0.5...11.0.6) (2025-02-09)
 
 ### Features
