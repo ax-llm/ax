@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.12](https://github.com/ax-llm/ax/compare/11.0.10...11.0.11) (2025-02-13)
+
+### Features
+
+* added additional tests for agent ([e463f20](https://github.com/ax-llm/ax/commit/e463f209103152ea585af06fb4dd974bd22d5124))
+## [11.0.11](https://github.com/ax-llm/ax/compare/11.0.10...11.0.11) (2025-02-13)
+
+### Bug Fixes
+
+* build issue ([201d331](https://github.com/ax-llm/ax/commit/201d33126c69dca4907101fab974d6e5e6ba42fd))
+
 ## [11.0.11](https://github.com/ax-llm/ax/compare/11.0.9...11.0.10) (2025-02-13)
 
 ### Bug Fixes
