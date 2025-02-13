@@ -1,1 +1,2 @@
-export { AxAgentProvider } from './provider.js'
+import { AxAgentProvider } from './provider.js'
+export { AxAgentProvider }
