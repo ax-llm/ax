@@ -116,6 +116,14 @@ function processChildAgentFunction<IN extends AxGenIn>(
   return processedFunction
 }
 
+const descriptionError = new Error(
+  'Agent description must be at least 20 characters (explain in detail what the agent does)'
+)
+
+const definitionError = new Error(
+  'Agent definition is the prompt you give to the LLM for the agent. It must be detailed and at least 100 characters'
+)
+
 /**
  * An AI agent that can process inputs using an AI service and coordinate with child agents.
  * Supports features like smart model routing and automatic input field passing to child agents.
@@ -165,25 +173,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
     if (!name || name.length < 5) {
       throw new Error(
-        `Agent name must be at least 10 characters (more descriptive): ${name}`
+        `Agent name must be at least 10 characters (more descriptive)`
       )
     }
 
     if (!description || description.length < 20) {
-      throw new Error(
-        `Agent description must be at least 20 characters (explain in detail what the agent does): ${description}`
-      )
+      throw descriptionError
     }
 
     if (definition && definition.length < 100) {
-      throw new Error(
-        `Agent definition is the prompt you give to the LLM for the agent. It must be detailed and at least 100 characters`
-      )
+      throw definitionError
     }
 
     this.program = new AxGen<IN, OUT>(signature, {
       ...options,
-      description: definition,
+      description: definition ?? description,
     })
 
     for (const agent of agents ?? []) {
@@ -354,13 +358,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
    */
   public setDescription(description: string): void {
     if (!description || description.length < 20) {
-      throw new Error(
-        'Agent description must be at least 20 characters (explain in detail what the agent does)'
-      )
+      throw descriptionError
     }
 
     this.program.getSignature().setDescription(description)
     this.func.description = description
+  }
+
+  public setDefinition(definition: string): void {
+    if (!definition || definition.length < 100) {
+      throw definitionError
+    }
+
+    this.program.getSignature().setDescription(definition)
   }
 }
 
