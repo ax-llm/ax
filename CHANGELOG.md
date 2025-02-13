@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.10](https://github.com/ax-llm/ax/compare/11.0.8...11.0.9) (2025-02-13)
+
+### Features
+
+* seperate description and definition for agents ([bbf644c](https://github.com/ax-llm/ax/commit/bbf644c497501905cba3aee691e552961543ce8e))
+## [11.0.9](https://github.com/ax-llm/ax/compare/11.0.8...11.0.9) (2025-02-10)
+
+### Bug Fixes
+
+* issue with agent set description ([7c9af34](https://github.com/ax-llm/ax/commit/7c9af34276ac527f0fe8bbaa3994690ca7b335d9))
+
 ## [11.0.9](https://github.com/ax-llm/ax/compare/11.0.7...11.0.8) (2025-02-10)
 
 ### Bug Fixes
