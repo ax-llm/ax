@@ -48,16 +48,10 @@ export class AxPromptTemplate {
 
     const task = []
 
-    const desc = this.sig.getDescription()
-    if (desc) {
-      const capitalized = capitalizeFirstLetter(desc.trim())
-      task.push(capitalized.endsWith('.') ? capitalized : capitalized + '.')
-    }
-
     const inArgs = this.renderDescFields(this.sig.getInputFields())
     const outArgs = this.renderDescFields(this.sig.getOutputFields())
     task.push(
-      `## Processing Instructions\nYou will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
+      `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
     )
 
     const funcs = functions?.map((f) =>
@@ -85,6 +79,13 @@ export class AxPromptTemplate {
     }
 
     task.push(formattingRules.trim())
+
+    const desc = this.sig.getDescription()
+    if (desc) {
+      const capitalized = capitalizeFirstLetter(desc.trim())
+      const text = capitalized.endsWith('.') ? capitalized : capitalized + '.'
+      task.push(`---\n${text}`)
+    }
 
     this.task = {
       type: 'text' as const,
@@ -442,8 +443,8 @@ export class AxPromptTemplate {
         ? `: ${capitalizeFirstLetter(field.description)}`
         : ''
 
-      // Eg. - `Conversation` (string, optional): The conversation context.
-      return `- \`${name}\` (${type}, ${required})${description}.`.trim()
+      // Eg. `Conversation:` (string, optional): The conversation context.
+      return `- \`${name}:\` (${type}, ${required}) ${description}.`.trim()
     })
 
     return rows.join('\n')
