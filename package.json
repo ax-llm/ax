@@ -62,6 +62,10 @@
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   },
+  "overrides": {
+    "ajv": "^8.17.1",
+    "whatwg-url": "^14.0.0"
+  },
   "config": {
     "commitizen": {
       "path": "cz-conventional-changelog"

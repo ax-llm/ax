@@ -11,6 +11,8 @@ const summarizer = new AxAgent({
   name: 'Science Summarizer',
   description:
     'Summarizer can write short summaries of advanced science topics',
+  definition:
+    'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.',
   signature: `answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"`,
 })
 

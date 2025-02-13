@@ -131,7 +131,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   private excludeFieldsFromPassthrough: string[]
 
   private name: string
-  private subAgentList?: string
+  //   private subAgentList?: string
   private func: AxFunction
 
   constructor(
@@ -139,6 +139,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       ai,
       name,
       description,
+      definition,
       signature,
       agents,
       functions,
@@ -146,21 +147,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       ai?: Readonly<AxAIService>
       name: string
       description: string
+      definition?: string
       signature: AxSignature | string
       agents?: AxAgentic[]
       functions?: AxFunction[]
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
+    const { disableSmartModelRouting, excludeFieldsFromPassthrough } =
+      options ?? {}
+
     this.ai = ai
     this.agents = agents
     this.functions = functions
-    this.disableSmartModelRouting = options?.disableSmartModelRouting
-    this.excludeFieldsFromPassthrough =
-      options?.excludeFieldsFromPassthrough ?? []
-
-    const sig = new AxSignature(signature)
-    sig.setDescription(description)
+    this.disableSmartModelRouting = disableSmartModelRouting
+    this.excludeFieldsFromPassthrough = excludeFieldsFromPassthrough ?? []
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -174,19 +175,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       )
     }
 
-    this.program = new AxGen<IN, OUT>(sig, options)
+    if (definition && definition.length < 100) {
+      throw new Error(
+        `Agent definition is the prompt you give to the LLM for the agent. It must be detailed and at least 100 characters`
+      )
+    }
+
+    this.program = new AxGen<IN, OUT>(signature, {
+      ...options,
+      description: definition,
+    })
 
     for (const agent of agents ?? []) {
       this.program.register(agent)
     }
 
     this.name = name
-    this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ')
+    // this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ')
 
     this.func = {
       name: toCamelCase(this.name),
       description,
-      parameters: sig.toJSONSchema(),
+      parameters: this.program.getSignature().toJSONSchema(),
       func: () => this.forward,
     }
 
@@ -229,16 +239,32 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     const boundFunc = this.forward.bind(this)
 
     // Create a wrapper function that excludes the 'ai' parameter
-    const wrappedFunc = (
+    const wrappedFunc = async (
       valuesAndModel: IN & { model: string },
       options?: Readonly<AxProgramForwardOptions>
-    ) => {
+    ): Promise<string> => {
       const { model, ...values } = valuesAndModel
       const ai = this.ai ?? options?.ai
       if (!ai) {
         throw new Error('AI service is required to run the agent')
       }
-      return boundFunc(ai, values as unknown as IN, { ...options, model })
+      const ret = await boundFunc(ai, values as unknown as IN, {
+        ...options,
+        model,
+      })
+      const sig = this.program.getSignature()
+      const outFields = sig.getOutputFields()
+      const result = Object.keys(ret)
+        .map((k) => {
+          const field = outFields.find((f) => f.name === k)
+          if (field) {
+            return `${field.title}: ${ret[k]}`
+          }
+          return `${k}: ${ret[k]}`
+        })
+        .join('\n')
+
+      return result
     }
 
     return {

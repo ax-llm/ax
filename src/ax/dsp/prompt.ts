@@ -15,17 +15,18 @@ type ChatRequestUserMessage = Exclude<
 >
 
 const functionCallInstructions = `
-## Function Call Instructions
+### Function Call Instructions
 - Complete the task, using the functions defined earlier in this prompt. 
 - Call functions step-by-step, using the output of one function as input to the next.
 - Use the function results to generate the output fields.`
 
 const formattingRules = `
-## Output Formatting Rules
-- Output must strictly follow the defined plaintext \`key: value\` field format.
+### Output Formatting Rules
+- Output must strictly follow the defined plain-text \`key: value\` field format.
 - Each output key, value must strictly adhere to the specified output field formatting rules.
 - No preamble, postscript, or supplementary information.
-- Do not repeat output fields.`
+- Do not repeat output fields.
+- Do not use JSON to format the output.`
 
 export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
@@ -45,11 +46,19 @@ export class AxPromptTemplate {
     this.sig = sig
     this.fieldTemplates = fieldTemplates
 
+    const task = []
+
+    const desc = this.sig.getDescription()
+    if (desc) {
+      const capitalized = capitalizeFirstLetter(desc.trim())
+      task.push(capitalized.endsWith('.') ? capitalized : capitalized + '.')
+    }
+
     const inArgs = this.renderDescFields(this.sig.getInputFields())
     const outArgs = this.renderDescFields(this.sig.getOutputFields())
-    const task = [
-      `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`,
-    ]
+    task.push(
+      `## Processing Instructions\nYou will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
+    )
 
     const funcs = functions?.map((f) =>
       'toFunction' in f ? f.toFunction() : f
@@ -62,28 +71,20 @@ export class AxPromptTemplate {
       .join('\n')
 
     if (funcList && funcList.length > 0) {
-      task.push(`## Available Functions\n${funcList}`)
+      task.push(`### Available Functions\n${funcList}`)
     }
 
     const inputFields = this.renderFields(this.sig.getInputFields())
-    task.push(`## Input Fields\n${inputFields}`)
+    task.push(`### Input Fields\n${inputFields}`)
 
     const outputFields = this.renderFields(this.sig.getOutputFields())
-    task.push(`## Output Fields\n${outputFields}`)
+    task.push(`### Output Fields\n${outputFields}`)
 
     if (funcList && funcList.length > 0) {
       task.push(functionCallInstructions.trim())
     }
 
     task.push(formattingRules.trim())
-
-    const desc = this.sig.getDescription()
-    if (desc) {
-      const capitalized = capitalizeFirstLetter(desc.trim())
-      task.push(
-        `## TASK DESCRIPTION\n${capitalized.endsWith('.') ? capitalized : capitalized + '.'}`
-      )
-    }
 
     this.task = {
       type: 'text' as const,

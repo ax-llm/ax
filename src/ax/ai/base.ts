@@ -650,7 +650,12 @@ export class AxBaseAI<
 }
 
 const logChatRequest = (req: Readonly<AxChatRequest>) => {
+  const hasAssistant = req.chatPrompt?.some((msg) => msg.role === 'assistant')
+
   const items = req.chatPrompt?.map((msg) => {
+    if (hasAssistant && msg.role === 'system') {
+      return ''
+    }
     switch (msg.role) {
       case 'system':
         return `${colorLog.blueBright('System:')}\n${colorLog.whiteBright(msg.content)}`
