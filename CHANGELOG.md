@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.13](https://github.com/ax-llm/ax/compare/11.0.11...11.0.12) (2025-02-13)
+
+### Bug Fixes
+
+* prompt ordering ([80dd8f2](https://github.com/ax-llm/ax/commit/80dd8f28c9812bbbea77754aa36c75e2967b5a7b))
+## [11.0.12](https://github.com/ax-llm/ax/compare/11.0.11...11.0.12) (2025-02-13)
+
+### Features
+
+* added additional tests for agent ([e463f20](https://github.com/ax-llm/ax/commit/e463f209103152ea585af06fb4dd974bd22d5124))
+
 ## [11.0.12](https://github.com/ax-llm/ax/compare/11.0.10...11.0.11) (2025-02-13)
 
 ### Features
