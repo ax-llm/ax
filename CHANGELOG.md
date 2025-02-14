@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.14](https://github.com/ax-llm/ax/compare/11.0.12...11.0.13) (2025-02-14)
+
+### Features
+
+* new earlyFail option ([0bac127](https://github.com/ax-llm/ax/commit/0bac127134a3905bbf893f69ef9ee333a9c6f48e))
+## [11.0.13](https://github.com/ax-llm/ax/compare/11.0.12...11.0.13) (2025-02-13)
+
+### Bug Fixes
+
+* prompt ordering ([80dd8f2](https://github.com/ax-llm/ax/commit/80dd8f28c9812bbbea77754aa36c75e2967b5a7b))
+
 ## [11.0.13](https://github.com/ax-llm/ax/compare/11.0.11...11.0.12) (2025-02-13)
 
 ### Bug Fixes
