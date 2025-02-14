@@ -79,6 +79,7 @@ export interface AxResponseHandlerArgs<T> {
   sessionId?: string
   traceId?: string
   functions?: Readonly<AxFunction[]>
+  earlyFail?: boolean
 }
 
 export interface AxStreamingEvent<T> {
@@ -190,7 +191,7 @@ export class AxGen<
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
   }>) {
-    const { sessionId, traceId, model, functions } = options ?? {}
+    const { sessionId, traceId, model, functions, earlyFail } = options ?? {}
 
     const usageInfo = {
       ai: ai.getName(),
@@ -213,6 +214,7 @@ export class AxGen<
         traceId,
         sessionId,
         functions,
+        earlyFail,
       })
     } else {
       yield await this.processResponse({
@@ -237,8 +239,10 @@ export class AxGen<
     sessionId,
     traceId,
     functions,
+    earlyFail,
   }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
-    const streamingValidation = ai.getFeatures().functionCot !== true
+    const streamingValidation =
+      earlyFail ?? ai.getFeatures().functionCot !== true
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
     const values = {}
     const xstate: extractionState = {

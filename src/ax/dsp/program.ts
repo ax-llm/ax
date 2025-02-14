@@ -61,6 +61,7 @@ export type AxProgramForwardOptions = {
   functions?: AxFunction[]
   functionCall?: AxChatRequest['functionCall']
   stopFunction?: string
+  earlyFail?: boolean
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

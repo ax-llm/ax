@@ -15,13 +15,13 @@ type ChatRequestUserMessage = Exclude<
 >
 
 const functionCallInstructions = `
-### Function Call Instructions
+## Function Call Instructions
 - Complete the task, using the functions defined earlier in this prompt. 
 - Call functions step-by-step, using the output of one function as input to the next.
 - Use the function results to generate the output fields.`
 
 const formattingRules = `
-### Output Formatting Rules
+## Output Formatting Rules
 - Output must strictly follow the defined plain-text \`key: value\` field format.
 - Each output key, value must strictly adhere to the specified output field formatting rules.
 - No preamble, postscript, or supplementary information.
@@ -65,14 +65,14 @@ export class AxPromptTemplate {
       .join('\n')
 
     if (funcList && funcList.length > 0) {
-      task.push(`### Available Functions\n${funcList}`)
+      task.push(`## Available Functions\n${funcList}`)
     }
 
     const inputFields = this.renderFields(this.sig.getInputFields())
-    task.push(`### Input Fields\n${inputFields}`)
+    task.push(`## Input Fields\n${inputFields}`)
 
     const outputFields = this.renderFields(this.sig.getOutputFields())
-    task.push(`### Output Fields\n${outputFields}`)
+    task.push(`## Output Fields\n${outputFields}`)
 
     if (funcList && funcList.length > 0) {
       task.push(functionCallInstructions.trim())
