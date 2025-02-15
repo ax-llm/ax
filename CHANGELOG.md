@@ -1,6 +1,13 @@
 # Changelog
 
-## [11.0.14](https://github.com/ax-llm/ax/compare/11.0.12...11.0.13) (2025-02-14)
+## [11.0.15](https://github.com/ax-llm/ax/compare/11.0.14...11.0.15) (2025-02-14)
+
+### Bug Fixes
+
+* Allow json examples to pass validation (#144) ([0ec2694](https://github.com/ax-llm/ax/commit/0ec26946c0478a92739bef97859d5dee23c1dcc7))
+
+
+## [11.0.14](https://github.com/ax-llm/ax/compare/11.0.13...11.0.14) (2025-02-14)
 
 ### Features
 
