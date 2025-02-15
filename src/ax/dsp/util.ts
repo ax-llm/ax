@@ -47,6 +47,8 @@ export const validateValue = (
         return val instanceof Date || typeof val === 'string'
       case 'datetime':
         return val instanceof Date || typeof val === 'string'
+      case 'json':
+        return typeof val === 'object' || typeof val === 'string'
       default:
         return false // Unknown or unsupported type
     }
