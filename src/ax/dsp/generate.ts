@@ -64,6 +64,7 @@ export interface AxGenOptions {
   promptTemplate?: typeof AxPromptTemplate
   asserts?: AxAssertion[]
   streamingAsserts?: AxStreamingAssertion[]
+  fastFail?: boolean
 }
 
 export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
@@ -79,7 +80,7 @@ export interface AxResponseHandlerArgs<T> {
   sessionId?: string
   traceId?: string
   functions?: Readonly<AxFunction[]>
-  earlyFail?: boolean
+  fastFail?: boolean
 }
 
 export interface AxStreamingEvent<T> {
@@ -191,7 +192,8 @@ export class AxGen<
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
   }>) {
-    const { sessionId, traceId, model, functions, earlyFail } = options ?? {}
+    const { sessionId, traceId, model, functions } = options ?? {}
+    const fastFail = options?.fastFail ?? this.options?.fastFail
 
     const usageInfo = {
       ai: ai.getName(),
@@ -214,7 +216,7 @@ export class AxGen<
         traceId,
         sessionId,
         functions,
-        earlyFail,
+        fastFail,
       })
     } else {
       yield await this.processResponse({
@@ -239,10 +241,10 @@ export class AxGen<
     sessionId,
     traceId,
     functions,
-    earlyFail,
+    fastFail,
   }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
     const streamingValidation =
-      earlyFail ?? ai.getFeatures().functionCot !== true
+      fastFail ?? ai.getFeatures().functionCot !== true
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
     const values = {}
     const xstate: extractionState = {
