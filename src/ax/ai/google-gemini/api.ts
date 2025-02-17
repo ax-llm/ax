@@ -87,6 +87,7 @@ export interface AxAIGoogleGeminiArgs {
   apiKey?: string
   projectId?: string
   region?: string
+  endpoint?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
   models?: AxAIModelList<AxAIGoogleGeminiModel>
@@ -107,6 +108,7 @@ class AxAIGoogleGeminiImpl
   constructor(
     private config: AxAIGoogleGeminiConfig,
     private isVertex: boolean,
+    private endpoint?: string,
     private apiKey?: string,
     private options?: AxAIGoogleGeminiArgs['options']
   ) {}
@@ -137,10 +139,19 @@ class AxAIGoogleGeminiImpl
       throw new Error('Chat prompt is empty')
     }
 
-    const apiConfig = {
-      name: stream
-        ? `/models/${model}:streamGenerateContent?alt=sse`
-        : `/models/${model}:generateContent`,
+    let apiConfig
+    if (this.endpoint) {
+      apiConfig = {
+        name: stream
+          ? `/${this.endpoint}:streamGenerateContent?alt=sse`
+          : `/${this.endpoint}:generateContent`,
+      }
+    } else {
+      apiConfig = {
+        name: stream
+          ? `/models/${model}:streamGenerateContent?alt=sse`
+          : `/models/${model}:generateContent`,
+      }
     }
 
     if (!this.isVertex) {
@@ -352,8 +363,14 @@ class AxAIGoogleGeminiImpl
       | AxAIGoogleVertexBatchEmbedRequest
 
     if (this.isVertex) {
-      apiConfig = {
-        name: `/models/${model}:predict`,
+      if (this.endpoint) {
+        apiConfig = {
+          name: `/${this.endpoint}:predict`,
+        }
+      } else {
+        apiConfig = {
+          name: `/models/${model}:predict`,
+        }
       }
 
       reqValue = {
@@ -483,6 +500,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     apiKey,
     projectId,
     region,
+    endpoint,
     config,
     options,
     models,
@@ -493,7 +511,14 @@ export class AxAIGoogleGemini extends AxBaseAI<
     let headers
 
     if (isVertex) {
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/`
+      let path
+      if (endpoint) {
+        path = 'endpoints'
+      } else {
+        path = 'publishers/google'
+      }
+
+      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/${path}`
       if (apiKey) {
         headers = async () => ({ Authorization: `Bearer ${apiKey}` })
       } else {
@@ -515,7 +540,13 @@ export class AxAIGoogleGemini extends AxBaseAI<
       ...config,
     }
 
-    const aiImpl = new AxAIGoogleGeminiImpl(_config, isVertex, apiKey, options)
+    const aiImpl = new AxAIGoogleGeminiImpl(
+      _config,
+      isVertex,
+      endpoint,
+      apiKey,
+      options
+    )
 
     super(aiImpl, {
       name: 'GoogleGeminiAI',
