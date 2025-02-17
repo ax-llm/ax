@@ -1,5 +1,11 @@
 # Changelog
 
+## [11.0.16](https://github.com/ax-llm/ax/compare/11.0.15...11.0.16) (2025-02-14)
+
+### Features
+
+* Add support for Vertex API custom model endpoints (#146) ([94aa007](https://github.com/ax-llm/ax/commit/94aa007b6056de5a230ef38e3304c917881c8285))
+
 ## [11.0.15](https://github.com/ax-llm/ax/compare/11.0.14...11.0.15) (2025-02-14)
 
 ### Bug Fixes
