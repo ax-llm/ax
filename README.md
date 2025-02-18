@@ -214,6 +214,8 @@ const res = await gen.forward(ai, {
 
 ## Streaming
 
+### Assertions
+
 We support parsing output fields and function execution while streaming. This allows for fail-fast and error correction without waiting for the whole output, saving tokens and costs and reducing latency. Assertions are a powerful way to ensure the output matches your requirements; they also work with streaming.
 
 ```typescript
@@ -264,6 +266,29 @@ const res = await gen.forward(
   { stream: true, debug: true }
 );
 ```
+
+### Field Processors
+
+Field processors are a powerful way to process fields in a prompt. They are used to process fields in a prompt before the prompt is sent to the LLM.
+
+```typescript
+const gen = new AxChainOfThought(
+  ai,
+  `startNumber:number -> next10Numbers:number[]`
+);  
+
+const streamValue = false
+
+const processorFunction = (value) => {
+  return value.map((x) => x + 1);
+}
+
+// Add a field processor to the program     
+const processor = new AxFieldProcessor(gen, 'next10Numbers', processorFunction, streamValue);
+
+const res = await gen.forward({ startNumber: 1 });
+```
+
 
 <!-- ## Fast LLM Router
 
@@ -535,6 +560,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | multi-modal.ts      | Use an image input along with other text inputs         |
 | balancer.ts         | Balance between various llm's based on cost, etc        |
 | docker.ts           | Use the docker sandbox to find files by description     |
+| prime.ts            | Using field processors to process fields in a prompt    |
 
 ## Our Goal
 

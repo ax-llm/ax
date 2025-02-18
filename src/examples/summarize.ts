@@ -51,10 +51,13 @@ const ai = new AxAI({
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
 })
-// ai.setOptions({ debug: true })
+ai.setOptions({ debug: true })
 
-const generator = gen.streamingForward(ai, { noteText })
+// const generator = gen.streamingForward(ai, { noteText })
 
-for await (const res of generator) {
-  console.log(res)
-}
+// for await (const res of generator) {
+//   console.log(res)
+// }
+
+const res = await gen.forward(ai, { noteText })
+console.log(res)

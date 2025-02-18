@@ -87,33 +87,29 @@ export class AxAIServiceError extends Error {
     this.timestamp = new Date().toISOString()
     this.errorId = crypto.randomUUID()
     this.context = context
+
+    this.stack = this.toString()
   }
 
   override toString(): string {
-    return `${this.name} [${this.errorId}]: ${this.message}
-Timestamp: ${this.timestamp}
-URL: ${this.url}${
-      this.requestBody
-        ? `\nRequest Body: ${JSON.stringify(this.requestBody, null, 2)}`
-        : ''
-    }${
-      Object.keys(this.context).length
-        ? `\nContext: ${JSON.stringify(this.context, null, 2)}`
-        : ''
-    }`
+    return [
+      `${this.name}: ${this.message}`,
+      `URL: ${this.url}`,
+      `Request Body: ${JSON.stringify(this.requestBody, null, 2)}`,
+      `Context: ${JSON.stringify(this.context, null, 2)}`,
+      `Timestamp: ${this.timestamp}`,
+      `Error ID: ${this.errorId}`,
+    ].join('\n')
   }
 
-  toJSON(): Record<string, unknown> {
-    return {
-      name: this.name,
-      errorId: this.errorId,
-      message: this.message,
-      timestamp: this.timestamp,
-      url: this.url,
-      requestBody: this.requestBody,
-      context: this.context,
-      stack: this.stack,
-    }
+  // For Node.js, override the custom inspect method so console.log shows our custom string.
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString()
   }
 }
 

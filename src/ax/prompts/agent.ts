@@ -2,6 +2,7 @@ import type {
   AxAIModelList,
   AxAIService,
   AxFunction,
+  AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js'
 import { AxGen, type AxGenOptions } from '../dsp/generate.js'
@@ -32,6 +33,7 @@ export type AxAgentOptions = Omit<AxGenOptions, 'functions'> & {
   disableSmartModelRouting?: boolean
   /** List of field names that should not be automatically passed from parent to child agents */
   excludeFieldsFromPassthrough?: string[]
+  debug?: boolean
 }
 
 export interface AxAgentFeatures {
@@ -83,18 +85,19 @@ function processChildAgentFunction<IN extends AxGenIn>(
       // Wrap function to inject parent values
       const originalFunc = processedFunction.func
       // add debug logging if enabled
-      processedFunction.func = (childArgs, funcOptions) => {
+      processedFunction.func = async (childArgs, funcOptions) => {
         const updatedChildArgs = {
           ...childArgs,
           ...pick(parentValues, injectionKeys as (keyof IN)[]),
         }
+
         if (options.debug && injectionKeys.length > 0) {
           process.stdout.write(
-            `Function Params: ${JSON.stringify(updatedChildArgs, null, 2)}`
+            `\nFunction Params: ${JSON.stringify(updatedChildArgs, null, 2)}`
           )
         }
 
-        return originalFunc(updatedChildArgs, funcOptions)
+        return await originalFunc(updatedChildArgs, funcOptions)
       }
     }
 
@@ -137,6 +140,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   private agents?: AxAgentic[]
   private disableSmartModelRouting?: boolean
   private excludeFieldsFromPassthrough: string[]
+  private debug?: boolean
 
   private name: string
   //   private subAgentList?: string
@@ -162,7 +166,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
-    const { disableSmartModelRouting, excludeFieldsFromPassthrough } =
+    const { disableSmartModelRouting, excludeFieldsFromPassthrough, debug } =
       options ?? {}
 
     this.ai = ai
@@ -170,6 +174,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     this.functions = functions
     this.disableSmartModelRouting = disableSmartModelRouting
     this.excludeFieldsFromPassthrough = excludeFieldsFromPassthrough ?? []
+    this.debug = debug
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -243,19 +248,31 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     const boundFunc = this.forward.bind(this)
 
     // Create a wrapper function that excludes the 'ai' parameter
-    const wrappedFunc = async (
+    const wrappedFunc: AxFunctionHandler = async (
       valuesAndModel: IN & { model: string },
-      options?: Readonly<AxProgramForwardOptions>
+      options?
     ): Promise<string> => {
       const { model, ...values } = valuesAndModel
+
       const ai = this.ai ?? options?.ai
       if (!ai) {
         throw new Error('AI service is required to run the agent')
       }
+      const debug = this.getDebug(ai, options)
+
+      if (debug) {
+        process.stdout.write(`\n--- Agent Engaged: ${this.name} ---\n`)
+      }
+
       const ret = await boundFunc(ai, values as unknown as IN, {
         ...options,
         model,
       })
+
+      if (debug) {
+        process.stdout.write(`\n--- Agent Done: ${this.name} ---\n`)
+      }
+
       const sig = this.program.getSignature()
       const outFields = sig.getOutputFields()
       const result = Object.keys(ret)
@@ -298,13 +315,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     // Get parent's input schema and keys
     const parentSchema = this.program.getSignature().getInputFields()
     const parentKeys = parentSchema.map((p) => p.name)
+    const debug = this.getDebug(ai, options)
 
     // Process each child agent's function
     const agentFuncs = this.agents?.map((agent) => {
       const f = agent.getFeatures()
 
       const processOptions = {
-        debug: ai?.getOptions()?.debug ?? false,
+        debug,
         disableSmartModelRouting: !!this.disableSmartModelRouting,
         excludeFieldsFromPassthrough: f.excludeFieldsFromPassthrough,
         canConfigureSmartModelRouting: f.canConfigureSmartModelRouting,
@@ -325,7 +343,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       ...(agentFuncs ?? []),
     ]
 
-    return { ai, functions }
+    return { ai, functions, debug }
   }
 
   public async forward(
@@ -333,8 +351,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const { ai, functions } = this.init(parentAi, values, options)
-    return await this.program.forward(ai, values, { ...options, functions })
+    const { ai, functions, debug } = this.init(parentAi, values, options)
+    return await this.program.forward(ai, values, {
+      ...options,
+      debug,
+      functions,
+    })
   }
 
   public async *streamingForward(
@@ -342,9 +364,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     values: IN,
     options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
-    const { ai, functions } = this.init(parentAi, values, options)
+    const { ai, functions, debug } = this.init(parentAi, values, options)
     return yield* this.program.streamingForward(ai, values, {
       ...options,
+      debug,
       functions,
     })
   }
@@ -371,6 +394,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     }
 
     this.program.getSignature().setDescription(definition)
+  }
+
+  private getDebug(
+    ai: AxAIService,
+    options?: Readonly<AxProgramForwardOptions>
+  ): boolean {
+    return options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false
   }
 }
 
@@ -451,10 +481,8 @@ export function addModelParameter(
   }
 }
 
-// ----------------------------------------------------------------------
 // New helper: removePropertiesFromSchema
 //    Clones a JSON schema and removes properties and required fields matching the provided keys.
-// ----------------------------------------------------------------------
 function removePropertiesFromSchema(
   schema: Readonly<AxFunctionJSONSchema>,
   keys: string[]
@@ -478,10 +506,8 @@ function removePropertiesFromSchema(
   return newSchema
 }
 
-// ----------------------------------------------------------------------
 // New helper: pick
 //    Returns an object composed of the picked object properties.
-// ----------------------------------------------------------------------
 function pick<T extends object, K extends keyof T>(
   obj: T,
   keys: K[]

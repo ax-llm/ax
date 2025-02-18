@@ -37,6 +37,10 @@ export const validateValue = (
     val: Readonly<AxFieldValue>
   ): boolean => {
     switch (expectedType) {
+      case 'code':
+        return typeof val === 'string'
+      case 'json':
+        return typeof val === 'object'
       case 'string':
         return typeof val === 'string'
       case 'number':
@@ -291,8 +295,13 @@ export function matchesContent(
   startIndex: number = 0,
   prefixCache: LRUCache<string, string[]> = globalPrefixCache
 ): number {
+  // Check if string starts with a markdown block with optional language
+  if (/^```[a-zA-Z]*\s*$/.test(content)) {
+    return -4
+  }
+
   // Check if string is only whitespace
-  if (/^\s*$/.test(content)) {
+  if (/^[\s`]*$/.test(content)) {
     return -3
   }
 

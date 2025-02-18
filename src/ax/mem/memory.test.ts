@@ -75,11 +75,11 @@ describe('MemoryImpl', () => {
     memory.addResult(result)
 
     const last = memory.getLast()
-    expect(last?.role).toBe('assistant')
-    if (last?.role === 'assistant') {
-      expect(last.content).toBe(result.content)
-      expect(last.name).toBe(result.name)
+    if (!last || last.chat.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
     }
+    expect(last.chat.content).toBe(result.content)
+    expect(last.chat.name).toBe(result.name)
   })
 
   it('rewindToTag should remove and return items from tagged message onwards', () => {
@@ -191,11 +191,11 @@ describe('MemoryImpl', () => {
     memory.updateResult(update)
 
     const last = memory.getLast()
-    expect(last?.role).toBe('assistant')
-    if (last?.role === 'assistant') {
-      expect(last.content).toBe(update.content)
-      expect(last.name).toBe(update.name)
+    if (!last || last.chat.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
     }
+    expect(last.chat.content).toBe(update.content)
+    expect(last.chat.name).toBe(update.name)
   })
 
   it('updateResult should add new message if last message is not assistant', () => {
@@ -218,11 +218,10 @@ describe('MemoryImpl', () => {
     expect(history[0]).toEqual(userMessage)
 
     const lastMessage = history[1]
-    expect(lastMessage).toBeDefined()
-    expect(lastMessage?.role).toBe('assistant')
-    if (lastMessage?.role === 'assistant') {
-      expect(lastMessage.content).toBe(update.content)
+    if (!lastMessage || lastMessage.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
     }
+    expect(lastMessage.content).toBe(update.content)
   })
 
   it('addTag should add tag to last message', () => {
@@ -322,6 +321,6 @@ describe('MemoryImpl', () => {
     memory.add(messages)
 
     const last = memory.getLast()
-    expect(last).toEqual(messages[1])
+    expect(last?.chat).toEqual(messages[1])
   })
 })

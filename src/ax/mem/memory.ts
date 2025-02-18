@@ -1,13 +1,16 @@
+import {
+  logChatRequest,
+  logChatRequestMessage,
+  logResponseDelta,
+  logResponseResult,
+} from '../ai/debug.js'
 import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
 
 import type { AxAIMemory } from './types.js'
 
-type Writeable<T> = { -readonly [P in keyof T]: T[P] }
-type WriteableChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>
-
 type MemoryData = {
   tags?: string[]
-  chat: WriteableChatPrompt
+  chat: AxChatRequest['chatPrompt'][number]
 }[]
 
 const defaultLimit = 10000
@@ -15,22 +18,23 @@ const defaultLimit = 10000
 export class MemoryImpl {
   private data: MemoryData = []
 
-  constructor(private limit = defaultLimit) {
+  constructor(
+    private limit = defaultLimit,
+    private debug: boolean = false
+  ) {
     if (limit <= 0) {
       throw Error("argument 'limit' must be greater than 0")
     }
   }
 
-  add(
-    value: Readonly<
-      AxChatRequest['chatPrompt'][0] | AxChatRequest['chatPrompt']
-    >
+  private addMemory(
+    value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt']
   ): void {
     if (Array.isArray(value)) {
       this.data.push(...value.map((chat) => ({ chat: structuredClone(chat) })))
     } else {
       this.data.push({
-        chat: structuredClone(value) as WriteableChatPrompt,
+        chat: structuredClone(value),
       })
     }
 
@@ -40,7 +44,17 @@ export class MemoryImpl {
     }
   }
 
-  addResult({
+  add(
+    value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt']
+  ): void {
+    this.addMemory(value)
+
+    if (this.debug) {
+      debugRequest(value)
+    }
+  }
+
+  private addResultMessage({
     content,
     name,
     functionCalls,
@@ -48,29 +62,49 @@ export class MemoryImpl {
     if (!content && (!functionCalls || functionCalls.length === 0)) {
       return
     }
-    this.add({ content, name, role: 'assistant', functionCalls })
+    this.addMemory({ content, name, role: 'assistant', functionCalls })
+  }
+
+  addResult({
+    content,
+    name,
+    functionCalls,
+  }: Readonly<AxChatResponseResult>): void {
+    this.addResultMessage({ content, name, functionCalls })
+
+    if (this.debug) {
+      debugResponse({ content, name, functionCalls })
+    }
   }
 
   updateResult({
     content,
     name,
     functionCalls,
-  }: Readonly<AxChatResponseResult>): void {
+    delta,
+  }: Readonly<AxChatResponseResult & { delta?: string }>): void {
     const lastItem = this.data.at(-1)
 
     if (!lastItem || lastItem.chat.role !== 'assistant') {
-      this.addResult({ content, name, functionCalls })
-      return
+      this.addResultMessage({ content, name, functionCalls })
+    } else {
+      if ('content' in lastItem.chat && content) {
+        lastItem.chat.content = content
+      }
+      if ('name' in lastItem.chat && name) {
+        lastItem.chat.name = name
+      }
+      if ('functionCalls' in lastItem.chat && functionCalls) {
+        lastItem.chat.functionCalls = functionCalls
+      }
     }
 
-    if ('content' in lastItem.chat && content) {
-      lastItem.chat.content = content
-    }
-    if ('name' in lastItem.chat && name) {
-      lastItem.chat.name = name
-    }
-    if ('functionCalls' in lastItem.chat && functionCalls) {
-      lastItem.chat.functionCalls = functionCalls
+    if (this.debug) {
+      if (delta) {
+        debugResponseDelta(delta)
+      } else if (lastItem) {
+        debugResponse({ content, name, functionCalls })
+      }
     }
   }
 
@@ -123,9 +157,16 @@ export class MemoryImpl {
     return this.data.map((item) => item.chat)
   }
 
-  getLast(): AxChatRequest['chatPrompt'][0] | undefined {
+  getLast():
+    | { chat: AxChatRequest['chatPrompt'][number]; tags?: string[] }
+    | undefined {
     const lastItem = this.data.at(-1)
-    return lastItem?.chat
+    if (!lastItem) return undefined
+    // Merge the tags into the chat object so that consumers can inspect them.
+    return {
+      chat: lastItem.chat,
+      tags: lastItem.tags,
+    }
   }
 
   reset(): void {
@@ -137,8 +178,11 @@ export class AxMemory implements AxAIMemory {
   private memories = new Map<string, MemoryImpl>()
   private defaultMemory: MemoryImpl
 
-  constructor(private limit = defaultLimit) {
-    this.defaultMemory = new MemoryImpl(limit)
+  constructor(
+    private limit = defaultLimit,
+    private debug = false
+  ) {
+    this.defaultMemory = new MemoryImpl(limit, debug)
   }
 
   private getMemory(sessionId?: string): MemoryImpl {
@@ -154,9 +198,7 @@ export class AxMemory implements AxAIMemory {
   }
 
   add(
-    value: Readonly<
-      AxChatRequest['chatPrompt'][0] | AxChatRequest['chatPrompt']
-    >,
+    value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt'],
     sessionId?: string
   ): void {
     this.getMemory(sessionId).add(value)
@@ -173,19 +215,19 @@ export class AxMemory implements AxAIMemory {
     this.getMemory(sessionId).updateResult(result)
   }
 
-  addTag(name: string, sessionId?: string): void {
+  addTag(name: string, sessionId?: string) {
     this.getMemory(sessionId).addTag(name)
   }
 
-  rewindToTag(name: string, sessionId?: string): AxChatRequest['chatPrompt'] {
+  rewindToTag(name: string, sessionId?: string) {
     return this.getMemory(sessionId).rewindToTag(name)
   }
 
-  history(sessionId?: string): AxChatRequest['chatPrompt'] {
+  history(sessionId?: string) {
     return this.getMemory(sessionId).history()
   }
 
-  getLast(sessionId?: string): AxChatRequest['chatPrompt'][0] | undefined {
+  getLast(sessionId?: string) {
     return this.getMemory(sessionId).getLast()
   }
 
@@ -196,4 +238,22 @@ export class AxMemory implements AxAIMemory {
       this.memories.set(sessionId, new MemoryImpl(this.limit))
     }
   }
+}
+
+function debugRequest(
+  value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt']
+) {
+  if (Array.isArray(value)) {
+    logChatRequest(value)
+  } else {
+    logChatRequestMessage(value)
+  }
+}
+
+function debugResponse(value: Readonly<AxChatResponseResult>) {
+  logResponseResult(value)
+}
+
+function debugResponseDelta(delta: string) {
+  logResponseDelta(delta)
 }

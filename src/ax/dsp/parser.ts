@@ -8,6 +8,7 @@ export type TypeNotClass =
   | 'audio'
   | 'datetime'
   | 'date'
+  | 'code'
 export type Type = TypeNotClass | 'class'
 export type ParsedIdentifier = string
 export type ParsedString = string
@@ -229,6 +230,7 @@ class SignatureParser {
       'audio',
       'datetime',
       'date',
+      'code',
     ]
 
     const foundType = types.find((type) => this.match(type))

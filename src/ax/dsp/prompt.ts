@@ -21,12 +21,11 @@ const functionCallInstructions = `
 - Use the function results to generate the output fields.`
 
 const formattingRules = `
-## Output Formatting Rules
-- Output must strictly follow the defined plain-text \`key: value\` field format.
-- Each output key, value must strictly adhere to the specified output field formatting rules.
-- No preamble, postscript, or supplementary information.
-- Do not repeat output fields.
-- Do not use JSON to format the output.`
+## Strict Output Formatting Rules
+- Output must strictly follow the defined plain-text \`field name: value\` field format.
+- Output field, values must strictly adhere to the specified output field formatting rules.
+- Do not add any text before or after the output fields, just the field name and value.
+- Do not use code blocks.`
 
 export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
@@ -48,8 +47,8 @@ export class AxPromptTemplate {
 
     const task = []
 
-    const inArgs = this.renderDescFields(this.sig.getInputFields())
-    const outArgs = this.renderDescFields(this.sig.getOutputFields())
+    const inArgs = renderDescFields(this.sig.getInputFields())
+    const outArgs = renderDescFields(this.sig.getOutputFields())
     task.push(
       `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
     )
@@ -59,19 +58,17 @@ export class AxPromptTemplate {
     )
 
     const funcList = funcs
-      ?.map(
-        (fn) => `- \`${fn.name}\`: ${capitalizeFirstLetter(fn.description)}.`
-      )
+      ?.map((fn) => `- \`${fn.name}\`: ${formatDescription(fn.description)}`)
       .join('\n')
 
     if (funcList && funcList.length > 0) {
       task.push(`## Available Functions\n${funcList}`)
     }
 
-    const inputFields = this.renderFields(this.sig.getInputFields())
+    const inputFields = renderInputFields(this.sig.getInputFields())
     task.push(`## Input Fields\n${inputFields}`)
 
-    const outputFields = this.renderFields(this.sig.getOutputFields())
+    const outputFields = renderOutputFields(this.sig.getOutputFields())
     task.push(`## Output Fields\n${outputFields}`)
 
     if (funcList && funcList.length > 0) {
@@ -82,9 +79,8 @@ export class AxPromptTemplate {
 
     const desc = this.sig.getDescription()
     if (desc) {
-      const capitalized = capitalizeFirstLetter(desc.trim())
-      const text = capitalized.endsWith('.') ? capitalized : capitalized + '.'
-      task.push(`---\n${text}`)
+      const text = formatDescription(desc)
+      task.push(text)
     }
 
     this.task = {
@@ -124,7 +120,7 @@ export class AxPromptTemplate {
 
     if (examplesInSystemPrompt) {
       const combinedItems = [
-        { type: 'text' as const, text: systemContent + '\n\n' },
+        { type: 'text' as const, text: systemContent },
         ...renderedExamples,
         ...renderedDemos,
       ]
@@ -429,26 +425,49 @@ export class AxPromptTemplate {
     }
     return [{ type: 'text', text: text.join('') }]
   }
+}
 
-  private renderDescFields = (list: readonly AxField[]) =>
-    list.map((v) => `\`${v.title}\``).join(', ')
+const renderDescFields = (list: readonly AxField[]) =>
+  list.map((v) => `\`${v.title}\``).join(', ')
 
-  private renderFields = (fields: readonly AxField[]) => {
-    // Transform each field into table row
-    const rows = fields.map((field) => {
-      const name = field.title
-      const type = field.type?.name ? toFieldType(field.type) : 'string'
-      const required = field.isOptional ? 'optional' : 'required'
-      const description = field.description
-        ? `: ${capitalizeFirstLetter(field.description)}`
-        : ''
+const renderInputFields = (fields: readonly AxField[]) => {
+  // Transform each field into table row
+  const rows = fields.map((field) => {
+    const name = field.title
+    const type = field.type?.name ? toFieldType(field.type) : 'string'
 
-      // Eg. `Conversation:` (string, optional): The conversation context.
-      return `- \`${name}:\` (${type}, ${required}) ${description}.`.trim()
-    })
+    const requiredMsg = field.isOptional
+      ? `This optional ${type} field may be omitted`
+      : `A ${type} field`
 
-    return rows.join('\n')
-  }
+    const description = field.description
+      ? ` ${formatDescription(field.description)}`
+      : ''
+
+    return `${name}: (${requiredMsg})${description}`.trim()
+  })
+
+  return rows.join('\n')
+}
+
+const renderOutputFields = (fields: readonly AxField[]) => {
+  // Transform each field into table row
+  const rows = fields.map((field) => {
+    const name = field.title
+    const type = field.type?.name ? toFieldType(field.type) : 'string'
+
+    const requiredMsg = field.isOptional
+      ? `Only include this ${type} field is it's value is available`
+      : `This ${type} field must be included`
+
+    const description = field.description
+      ? ` ${formatDescription(field.description)}`
+      : ''
+
+    return `${name}: (${requiredMsg})${description}`.trim()
+  })
+
+  return rows.join('\n')
 }
 
 const processValue = (
@@ -500,6 +519,8 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
         return 'JSON object'
       case 'class':
         return `classification class (allowed classes: ${type.classes?.join(', ')})`
+      case 'code':
+        return 'code'
       default:
         return 'string'
     }
@@ -552,9 +573,9 @@ const isEmptyValue = (
   return false
 }
 
-function capitalizeFirstLetter(str: string) {
-  if (str.length === 0) {
-    return ''
-  }
-  return `${str.charAt(0).toUpperCase()}${str.slice(1)}`
+function formatDescription(str: string) {
+  const value = str.trim()
+  return value.length > 0
+    ? `${value.charAt(0).toUpperCase()}${value.slice(1)}${value.endsWith('.') ? '' : '.'}`
+    : ''
 }

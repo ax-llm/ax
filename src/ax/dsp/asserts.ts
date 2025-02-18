@@ -57,10 +57,9 @@ export const assertAssertions = (
 
 export const assertStreamingAssertions = (
   asserts: readonly AxStreamingAssertion[],
-  values: Record<string, unknown>,
   xstate: Readonly<extractionState>,
   content: string,
-  final: boolean
+  final: boolean = false
 ) => {
   if (
     !xstate.currField ||

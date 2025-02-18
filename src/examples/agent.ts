@@ -56,8 +56,6 @@ ai.setOptions({ debug: true })
 //   apiKey: process.env.GROQ_APIKEY as string
 // });
 
-// ai.setOptions({ debug: true });
-
 // const question = `What is a cat?`
 const question = `Why is gravity not a real force?`
 

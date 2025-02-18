@@ -33,11 +33,12 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4OMini },
 })
-// ai.setOptions({ debug: true })
+ai.setOptions({ debug: true })
 
 // run the program with streaming enabled
 const res = await gen.forward(ai, {
-  question: 'Provide a list of 3 optimizations to speedup LLM inference.',
+  question:
+    'Provide a list of 3 optimizations to speedup LLM inference. Keep it short a few words each',
 })
 
 console.log('>', res)

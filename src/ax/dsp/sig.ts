@@ -24,6 +24,7 @@ export interface AxField {
       | 'date'
       | 'datetime'
       | 'class'
+      | 'code'
     isArray: boolean
     classes?: string[]
   }

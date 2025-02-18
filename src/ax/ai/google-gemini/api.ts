@@ -322,9 +322,12 @@ class AxAIGoogleGeminiImpl
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       topP: req.modelConfig?.topP ?? this.config.topP,
       topK: req.modelConfig?.topK ?? this.config.topK,
+      frequencyPenalty:
+        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       candidateCount: 1,
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
+      responseMimeType: 'text/plain',
     }
 
     const safetySettings = this.config.safetySettings

@@ -16,11 +16,13 @@ export const extractValues = (
 }
 
 export interface extractionState {
+  lastDelta?: string
   currField?: AxField
   currFieldIndex?: number
   extractedFields: AxField[]
   streamedIndex?: Record<string, number>
   s: number
+  inBlock?: boolean
 }
 
 // Helper function to check for missing required fields
@@ -67,7 +69,7 @@ export const streamingExtractValues = (
 
     switch (e) {
       case -1:
-        if (streamingValidation && xstate.s == -1 && !field.isOptional) {
+        if (streamingValidation && values.length == 0 && !field.isOptional) {
           throw new ValidationError({
             message: 'Required field not found',
             fields: [field],
@@ -78,6 +80,9 @@ export const streamingExtractValues = (
         return true // Partial match at end, skip and gather more content
       case -3:
         return true // String is only whitespace, skip and gather more content
+      case -4:
+        xstate.inBlock = true
+        return true // String is only backticks, skip and gather more content
     }
     // We found the full match at the index e
 
@@ -89,6 +94,7 @@ export const streamingExtractValues = (
       if (parsedValue !== undefined) {
         values[xstate.currField.name] = parsedValue
       }
+      xstate.lastDelta = val
     }
 
     checkMissingRequiredFields(xstate, values, index)
@@ -111,7 +117,8 @@ export const streamingExtractFinalValue = (
   content: string
 ) => {
   if (xstate.currField) {
-    const val = content.substring(xstate.s).trim()
+    let val = content.substring(xstate.s).trim()
+
     const parsedValue = validateAndParseFieldValue(xstate.currField, val)
     if (parsedValue !== undefined) {
       values[xstate.currField.name] = parsedValue
@@ -125,6 +132,9 @@ export const streamingExtractFinalValue = (
 
 const convertValueToType = (field: Readonly<AxField>, val: string) => {
   switch (field.type?.name) {
+    case 'code':
+      return extractBlock(val)
+
     case 'string':
       return val
 
@@ -169,13 +179,86 @@ const convertValueToType = (field: Readonly<AxField>, val: string) => {
   }
 }
 
+export function processStreamingDelta(
+  content: string,
+  // eslint-disable-next-line functional/prefer-immutable-types
+  xstate: extractionState
+) {
+  if (!xstate.currField) {
+    return null
+  }
+
+  const { name: fieldName, type: fieldType } = xstate.currField ?? {}
+  const { isArray: fieldIsArray, name: fieldTypeName } = fieldType ?? {}
+
+  if (!xstate.streamedIndex) {
+    xstate.streamedIndex = {}
+  }
+
+  if (fieldIsArray) {
+    if (xstate.streamedIndex[fieldName] === undefined) {
+      xstate.streamedIndex[fieldName] = 0
+    }
+    return null
+  }
+
+  if (fieldTypeName !== 'string' && fieldTypeName !== 'code') {
+    if (xstate.streamedIndex[fieldName] === undefined) {
+      xstate.streamedIndex[fieldName] = 0
+    }
+    return null
+  }
+
+  const pos = xstate.streamedIndex[fieldName] ?? 0
+  const s = xstate.s + pos
+  const isFirstChunk = pos === 0
+
+  // Grab everything from the current extract position
+  const d1 = content.substring(s)
+
+  // Remove trailing whitespace, tabs, and newlines
+  let d2 = d1.replace(/\s+$/, '')
+
+  // If this field is a "code" type, remove trailing backticks
+  if (xstate.currField?.type?.name === 'code') {
+    d2 = d2.replace(/\s*```\s*$/, '')
+  }
+
+  // Only trim start for the first chunk
+  let d3 = isFirstChunk ? d2.trimStart() : d2
+
+  // If this field is a "code" type, remove leading/trailing markdown fences
+  if (xstate.currField?.type?.name === 'code') {
+    // Remove any leading triple-backtick fences (with optional language specifier)
+    d3 = d3.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '')
+  }
+
+  if (d3.length > 0) {
+    xstate.streamedIndex[fieldName] = pos + d2.length
+  }
+
+  return d3
+}
+
+export function getStreamingDelta(
+  content: string,
+  // eslint-disable-next-line functional/prefer-immutable-types
+  xstate: extractionState
+) {
+  if (xstate.lastDelta) {
+    processStreamingDelta(xstate.lastDelta, xstate)
+    xstate.lastDelta = undefined
+  }
+
+  return processStreamingDelta(content, xstate)
+}
+
 export function* streamValues<OUT>(
   sig: Readonly<AxSignature>,
   values: Readonly<Record<string, OUT>>,
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState,
-  content: string,
-  final: boolean = false
+  delta: string | null
 ) {
   if (!xstate.currField) {
     return
@@ -183,49 +266,26 @@ export function* streamValues<OUT>(
 
   const fieldName = xstate.currField.name
 
-  if (!xstate.streamedIndex) {
-    xstate.streamedIndex = { [fieldName]: 0 }
-  }
-
-  if (!final) {
-    if (
-      !xstate.currField.type ||
-      (!xstate.currField.type.isArray &&
-        xstate.currField.type.name === 'string')
-    ) {
-      const pos = xstate.streamedIndex[fieldName] ?? 0
-      const s = xstate.s + pos
-
-      const v = content.substring(s)
-      const v1 = v.replace(/[\s\n\t]+$/, '')
-      const v2 = pos === 0 ? v1.trimStart() : v1
-
-      if (v2.length > 0) {
-        yield { [fieldName]: v2 } as Partial<OUT>
-
-        // Ignore the length that was trimmed from the end not the beginning
-        xstate.streamedIndex[fieldName] = pos + v1.length
-      }
-      return
-    }
+  if (delta && delta.length > 0) {
+    yield { [fieldName]: delta } as Partial<OUT>
+    return
   }
 
   for (const key of Object.keys(values)) {
     const value = values[key]
 
     if (Array.isArray(value)) {
-      const s = xstate.streamedIndex[key] ?? 0
+      if (xstate.streamedIndex?.[key] === undefined) {
+        throw new Error('Streamed index is not set for array field ' + key)
+      }
+      const s = xstate.streamedIndex[key]
       const v = value.slice(s)
       if (v && v.length > 0) {
         yield { [key]: v } as Partial<OUT>
         xstate.streamedIndex[key] = s + 1
       }
-      continue
-    }
-
-    if (!xstate.streamedIndex[key]) {
+    } else {
       yield { [key]: value } as Partial<OUT>
-      xstate.streamedIndex[key] = 1
     }
   }
 }
@@ -237,9 +297,7 @@ function validateAndParseFieldValue(
   if (
     !fieldValue ||
     fieldValue === '' ||
-    fieldValue === 'null' ||
-    fieldValue === 'NULL' ||
-    fieldValue === 'undefined'
+    /^(null|undefined)\s*$/i.test(fieldValue)
   ) {
     if (field.isOptional) {
       return
@@ -314,8 +372,8 @@ function validateAndParseFieldValue(
 }
 
 export const extractBlock = (input: string): string => {
-  const jsonBlockPattern = /```([A-Za-z]+)?\s*([\s\S]*?)\s*```/g
-  const match = jsonBlockPattern.exec(input)
+  const markdownBlockPattern = /```([A-Za-z]*)\n([\s\S]*?)\n```/g
+  const match = markdownBlockPattern.exec(input)
   if (!match) {
     return input
   }

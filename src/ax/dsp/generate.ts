@@ -25,10 +25,16 @@ import {
 import {
   type extractionState,
   extractValues,
+  getStreamingDelta,
   streamingExtractFinalValue,
   streamingExtractValues,
   streamValues,
 } from './extract.js'
+import {
+  type AxFieldProcessor,
+  processFieldProcessors,
+  processStreamingFieldProcessors,
+} from './fieldProcessor.js'
 import {
   type AxChatResponseFunctionCall,
   type AxInputFunctionType,
@@ -103,6 +109,8 @@ export class AxGen<
   private options?: Omit<AxGenOptions, 'functions'>
   private functions?: AxFunction[]
   private functionsExecuted: Set<string> = new Set<string>()
+  private fieldProcessors: AxFieldProcessor[] = []
+  private streamingFieldProcessors: AxFieldProcessor[] = []
 
   constructor(
     signature: Readonly<AxSignature | string>,
@@ -134,6 +142,34 @@ export class AxGen<
     message?: string
   ) => {
     this.streamingAsserts.push({ fieldName, fn, message })
+  }
+
+  public addFieldProcessor = (
+    fieldName: string,
+    fn: AxFieldProcessor['process'],
+    streaming: boolean = false
+  ) => {
+    const field = this.signature
+      .getOutputFields()
+      .find((f) => f.name === fieldName)
+
+    if (!field) {
+      throw new Error(`addFieldProcessor: field ${fieldName} not found`)
+    }
+
+    if (streaming) {
+      const ft = field.type?.name
+      const isText = !ft || ft === 'string' || ft === 'code'
+
+      if (!isText) {
+        throw new Error(
+          `addFieldProcessor: field ${fieldName} is must be a text field`
+        )
+      }
+      this.streamingFieldProcessors.push({ field, process: fn })
+    } else {
+      this.fieldProcessors.push({ field, process: fn })
+    }
   }
 
   private async forwardSendRequest({
@@ -177,6 +213,7 @@ export class AxGen<
         traceId,
         rateLimiter,
         stream,
+        debug: false,
       }
     )
 
@@ -260,7 +297,6 @@ export class AxGen<
         continue
       }
 
-      //for (const result of v.results ?? []) {
       if (v.modelUsage) {
         this.usage.push({ ...usageInfo, ...v.modelUsage })
       }
@@ -268,12 +304,20 @@ export class AxGen<
       if (result.functionCalls) {
         mergeFunctionCalls(functionCalls, result.functionCalls)
         mem.updateResult(
-          { name: result.name, content, functionCalls },
+          {
+            name: result.name,
+            content,
+            functionCalls,
+            delta: result.functionCalls?.[0]?.function?.params as string,
+          },
           sessionId
         )
       } else if (result.content) {
         content += result.content
-        mem.updateResult({ name: result.name, content }, sessionId)
+        mem.updateResult(
+          { name: result.name, content, delta: result.content },
+          sessionId
+        )
 
         const skip = streamingExtractValues(
           this.signature,
@@ -286,21 +330,27 @@ export class AxGen<
           continue
         }
 
-        assertStreamingAssertions(
-          this.streamingAsserts,
-          values,
-          xstate,
-          content,
-          false
-        )
+        assertStreamingAssertions(this.streamingAsserts, xstate, content)
         assertAssertions(this.asserts, values)
-        yield* streamValues<OUT>(this.signature, values, xstate, content)
+
+        if (this.streamingFieldProcessors.length !== 0) {
+          await processStreamingFieldProcessors(
+            this.streamingFieldProcessors,
+            content,
+            xstate,
+            mem,
+            values,
+            sessionId
+          )
+        }
+
+        const delta = getStreamingDelta(content, xstate)
+        yield* streamValues<OUT>(this.signature, values, xstate, delta)
       }
 
       if (result.finishReason === 'length') {
         throw new Error('Max tokens reached before completion')
       }
-      //  }
     }
 
     const funcs = parseFunctionCalls(ai, functionCalls, values, model)
@@ -320,15 +370,32 @@ export class AxGen<
     } else {
       streamingExtractFinalValue(this.signature, values, xstate, content)
 
-      assertStreamingAssertions(
-        this.streamingAsserts,
-        values,
-        xstate,
-        content,
-        true
-      )
+      assertStreamingAssertions(this.streamingAsserts, xstate, content, true)
       assertAssertions(this.asserts, values)
-      yield* streamValues<OUT>(this.signature, values, xstate, content, true)
+
+      if (this.fieldProcessors.length) {
+        await processFieldProcessors(
+          this.fieldProcessors,
+          values,
+          mem,
+          sessionId
+        )
+      }
+
+      if (this.streamingFieldProcessors.length !== 0) {
+        await processStreamingFieldProcessors(
+          this.streamingFieldProcessors,
+          content,
+          xstate,
+          mem,
+          values,
+          sessionId,
+          true
+        )
+      }
+
+      const delta = getStreamingDelta(content, xstate)
+      yield* streamValues<OUT>(this.signature, values, xstate, delta)
     }
   }
 
@@ -345,9 +412,6 @@ export class AxGen<
 
     let results = res.results ?? []
 
-    // If there are multiple results, filter out the ones that don't have function calls
-    // Anthropic for example generates chain-of-though content before function calls which
-    // we want to ignore
     if (results.length > 1) {
       results = results.filter((r) => r.functionCalls)
     }
@@ -361,7 +425,6 @@ export class AxGen<
 
       if (result.functionCalls?.length) {
         const funcs = parseFunctionCalls(ai, result.functionCalls, values)
-
         if (funcs) {
           if (!functions) {
             throw new Error('Functions are not defined')
@@ -379,6 +442,15 @@ export class AxGen<
       } else if (result.content) {
         extractValues(this.signature, values, result.content)
         assertAssertions(this.asserts, values)
+
+        if (this.fieldProcessors.length) {
+          await processFieldProcessors(
+            this.fieldProcessors,
+            values,
+            mem,
+            sessionId
+          )
+        }
       }
 
       if (result.finishReason === 'length') {
@@ -401,7 +473,8 @@ export class AxGen<
 
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10
-    const mem = options.mem ?? this.options?.mem ?? new AxMemory()
+    const debug = options.debug ?? ai.getOptions().debug
+    const mem = options.mem ?? this.options?.mem ?? new AxMemory(10000, debug)
 
     let err: ValidationError | AxAssertionError | undefined
 
@@ -438,6 +511,10 @@ export class AxGen<
 
           if (shouldContinue) {
             continue multiStepLoop
+          }
+
+          if (debug) {
+            process.stdout.write('\n')
           }
 
           return
@@ -477,21 +554,22 @@ export class AxGen<
   }
 
   private shouldContinueSteps(
-    lastMemItem: AxChatRequest['chatPrompt'][0] | undefined,
+    lastMemItem: ReturnType<AxAIMemory['getLast']>,
     stopFunction: string | undefined
   ) {
     const stopFunctionExecuted =
       stopFunction && this.functionsExecuted.has(stopFunction)
 
-    if (
-      lastMemItem?.role === 'function' &&
-      stopFunction &&
-      stopFunctionExecuted
-    ) {
+    const isFunction = lastMemItem?.chat?.role === 'function'
+    const isProcessor = lastMemItem?.tags
+      ? lastMemItem.tags.some((tag) => tag === 'processor')
+      : false
+
+    if (isFunction && stopFunction && stopFunctionExecuted) {
       return false
     }
 
-    if (lastMemItem?.role === 'function') {
+    if (isFunction || isProcessor) {
       return true
     }
 
@@ -559,7 +637,6 @@ export class AxGen<
     let currentVersion = 0
 
     for await (const item of generator) {
-      // Clear buffer if version changes
       if (item.version !== currentVersion) {
         buffer = {}
       }

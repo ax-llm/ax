@@ -11,6 +11,7 @@ const gen = new AxGen<{ numberSeriesTask: string }>(sig, {
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
+  config: { stream: true },
 })
 
 const res = await gen.forward(ai, {

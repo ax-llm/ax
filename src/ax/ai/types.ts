@@ -46,6 +46,8 @@ export type AxFunctionHandler = (
   extra?: Readonly<{
     sessionId?: string
     traceId?: string
+    debug?: boolean
+    ai?: AxAIService
   }>
 ) => unknown
 
@@ -104,7 +106,7 @@ export type AxEmbedResponse = {
 export type AxModelInfoWithProvider = AxModelInfo & { provider: string }
 
 export type AxChatRequest<TModel = string> = {
-  chatPrompt: Readonly<
+  chatPrompt: (
     | { role: 'system'; content: string; cache?: boolean }
     | {
         role: 'user'
@@ -150,7 +152,7 @@ export type AxChatRequest<TModel = string> = {
         functionId: string
         cache?: boolean
       }
-  >[]
+  )[]
   functions?: Readonly<{
     name: string
     description: string
@@ -161,7 +163,7 @@ export type AxChatRequest<TModel = string> = {
     | 'auto'
     | 'required'
     | { type: 'function'; function: { name: string } }
-  modelConfig?: Readonly<AxModelConfig>
+  modelConfig?: AxModelConfig
   model?: TModel
 }
 
@@ -232,6 +234,7 @@ export type AxAIServiceActionOptions<
   sessionId?: string
   traceId?: string
   rateLimiter?: AxRateLimiterFunction
+  debug?: boolean
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {

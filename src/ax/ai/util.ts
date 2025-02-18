@@ -43,7 +43,7 @@ export const parseFunction = (
   if ((v = functionCallRe.exec(value)) !== null) {
     const name = v.at(1)?.trim()
     const args = v.at(2)?.trim()
-    if (!name || name) {
+    if (!name || name.length === 0) {
       throw new Error(`Invalid function format: ${value}`)
     }
     return { name, args }

@@ -337,6 +337,7 @@ import {AxMemory} from './mem/memory.js';
 import {AxMockAIService} from './ai/mock/api.js';
 import {AxRAG} from './prompts/rag.js';
 import {type AxAIMemory} from './mem/types.js';
+import {type AxFieldProcessor} from './dsp/fieldProcessor.js';
 
 // Value exports
 export { AxAI };
@@ -540,6 +541,7 @@ export type { AxEmbedResponse };
 export type { AxEvaluateArgs };
 export type { AxExample };
 export type { AxField };
+export type { AxFieldProcessor };
 export type { AxFieldTemplateFn };
 export type { AxFieldValue };
 export type { AxFunction };
