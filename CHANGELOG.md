@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.18](https://github.com/ax-llm/ax/compare/11.0.16...11.0.17) (2025-02-18)
+
+### Bug Fixes
+
+* build issue ([879ef38](https://github.com/ax-llm/ax/commit/879ef381693ba0e62eaf9d8fbec28477ff0c582d))
+## [11.0.17](https://github.com/ax-llm/ax/compare/11.0.16...11.0.17) (2025-02-18)
+
+### Features
+
+* add field processing functions to output fields ([fb996da](https://github.com/ax-llm/ax/commit/fb996da34ee714c0bb906e4943feedf87ae8717f))
+* added fastFail to agents and axgen ([eac6a71](https://github.com/ax-llm/ax/commit/eac6a71b7e158cef7a6b235a25776926d14f96bd))
+
 ## [11.0.17](https://github.com/ax-llm/ax/compare/11.0.15...11.0.16) (2025-02-18)
 
 ### Features
