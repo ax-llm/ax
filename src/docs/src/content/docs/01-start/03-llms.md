@@ -127,8 +127,8 @@ Ollama is an engine for running open-source models locally on your laptop. We de
 ```typescript title="Use defaults"
 const ai = new AxAI({
   name: 'ollama',
-  apiKey: process.env.DEEPSEEK_APIKEY as string,
-  url: 'http://localhost:11434'
+  apiKey: "not-set",
+  url: 'http://localhost:11434/v1'
   config: { model: 'nous-hermes2', embedModel: 'all-minilm' }
 });
 ```
