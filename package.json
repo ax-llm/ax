@@ -82,6 +82,6 @@
   "version": "11.0.17",
   "dependencies": {
     "@total-typescript/tsconfig": "^1.0.4",
-    "@types/react": "^19.0.8"
+    "@types/react": "^19.0.10"
   }
 }
