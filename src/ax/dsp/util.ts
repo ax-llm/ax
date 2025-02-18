@@ -39,8 +39,6 @@ export const validateValue = (
     switch (expectedType) {
       case 'code':
         return typeof val === 'string'
-      case 'json':
-        return typeof val === 'object'
       case 'string':
         return typeof val === 'string'
       case 'number':
@@ -222,10 +220,9 @@ export function mergeDeltas<OUT>(
     const baseValue = base[key]
     const deltaValue = delta[key]
 
-    if (
-      (baseValue === undefined || Array.isArray(baseValue)) &&
-      Array.isArray(deltaValue)
-    ) {
+    if (baseValue === undefined && Array.isArray(deltaValue)) {
+      base[key] = [...deltaValue]
+    } else if (Array.isArray(baseValue) && Array.isArray(deltaValue)) {
       // Concatenate arrays
       base[key] = [...(baseValue ?? []), ...deltaValue]
     } else if (

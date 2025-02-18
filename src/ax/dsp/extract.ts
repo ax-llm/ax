@@ -192,20 +192,14 @@ export function processStreamingDelta(
   const { isArray: fieldIsArray, name: fieldTypeName } = fieldType ?? {}
 
   if (!xstate.streamedIndex) {
-    xstate.streamedIndex = {}
+    xstate.streamedIndex = { [fieldName]: 0 }
   }
 
   if (fieldIsArray) {
-    if (xstate.streamedIndex[fieldName] === undefined) {
-      xstate.streamedIndex[fieldName] = 0
-    }
     return null
   }
 
   if (fieldTypeName !== 'string' && fieldTypeName !== 'code') {
-    if (xstate.streamedIndex[fieldName] === undefined) {
-      xstate.streamedIndex[fieldName] = 0
-    }
     return null
   }
 
@@ -275,14 +269,16 @@ export function* streamValues<OUT>(
     const value = values[key]
 
     if (Array.isArray(value)) {
-      if (xstate.streamedIndex?.[key] === undefined) {
-        throw new Error('Streamed index is not set for array field ' + key)
-      }
-      const s = xstate.streamedIndex[key]
+      const s = xstate.streamedIndex?.[key] ?? 0
       const v = value.slice(s)
       if (v && v.length > 0) {
         yield { [key]: v } as Partial<OUT>
-        xstate.streamedIndex[key] = s + 1
+
+        if (xstate.streamedIndex) {
+          xstate.streamedIndex[key] = s + 1
+        } else {
+          xstate.streamedIndex = { [key]: s + 1 }
+        }
       }
     } else {
       yield { [key]: value } as Partial<OUT>
