@@ -457,7 +457,7 @@ const renderOutputFields = (fields: readonly AxField[]) => {
     const type = field.type?.name ? toFieldType(field.type) : 'string'
 
     const requiredMsg = field.isOptional
-      ? `Only include this ${type} field is it's value is available`
+      ? `Only include this ${type} field if its value is available`
       : `This ${type} field must be included`
 
     const description = field.description
