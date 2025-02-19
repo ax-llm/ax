@@ -1,5 +1,3 @@
-import vm from 'vm' // Use Node.js's vm module for safer execution
-
 import { AxAI, AxAIGoogleGeminiModel, AxGen, AxSignature } from '@ax-llm/ax'
 import type { AxFieldProcessor } from '@ax-llm/ax/dsp/fieldProcessor.js'
 

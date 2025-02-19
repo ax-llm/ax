@@ -138,7 +138,7 @@ export class AxSignature {
   public getDescription = () => this.description
 
   private toTitle = (name: string) => {
-    let result = name.replaceAll('_', ' ')
+    let result = name.replace(/_/g, ' ')
     result = result.replace(/([A-Z]|[0-9]+)/g, ' $1').trim()
     return result.charAt(0).toUpperCase() + result.slice(1)
   }

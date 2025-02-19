@@ -55,7 +55,6 @@ import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
 
 export interface AxGenOptions {
-  maxCompletions?: number
   maxRetries?: number
   maxSteps?: number
   mem?: AxAIMemory

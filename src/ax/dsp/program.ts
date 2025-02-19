@@ -46,7 +46,6 @@ export type AxProgramDemos = {
 export type AxProgramExamples = AxProgramDemos | AxProgramDemos['traces']
 
 export type AxProgramForwardOptions = {
-  maxCompletions?: number
   maxRetries?: number
   maxSteps?: number
   mem?: AxAIMemory

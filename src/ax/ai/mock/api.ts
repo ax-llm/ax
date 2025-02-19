@@ -1,3 +1,5 @@
+import type { ReadableStream } from 'stream/web'
+
 import type {
   AxAIModelList,
   AxAIPromptConfig,
@@ -12,8 +14,36 @@ import type {
   AxModelInfoWithProvider,
 } from '../types.js'
 
+export type AxMockAIServiceConfig = {
+  name?: string
+  id?: string
+  modelInfo?: Partial<AxModelInfoWithProvider>
+  embedModelInfo?: AxModelInfoWithProvider
+  features?: { functions?: boolean; streaming?: boolean }
+  models?: AxAIModelList
+  options?: AxAIServiceOptions
+  chatResponse?:
+    | AxChatResponse
+    | ReadableStream<AxChatResponse>
+    | (() => Promise<AxChatResponse | ReadableStream<AxChatResponse>>)
+    | ((
+        req: Readonly<AxChatRequest<unknown>>,
+        options?: Readonly<
+          AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown>
+        >
+      ) => Promise<AxChatResponse | ReadableStream<AxChatResponse>>)
+
+  embedResponse?:
+    | AxEmbedResponse
+    | ((
+        req: Readonly<AxEmbedRequest>
+      ) => AxEmbedResponse | Promise<AxEmbedResponse>)
+  shouldError?: boolean
+  errorMessage?: string
+  latencyMs?: number
+}
+
 export class AxMockAIService implements AxAIService {
-  private options: AxAIServiceOptions = {}
   private metrics: AxAIServiceMetrics = {
     latency: {
       chat: { mean: 0, p95: 0, p99: 0, samples: [] },
@@ -25,29 +55,7 @@ export class AxMockAIService implements AxAIService {
     },
   }
 
-  constructor(
-    private readonly config: {
-      name?: string
-      id?: string
-      modelInfo?: Partial<AxModelInfoWithProvider>
-      embedModelInfo?: AxModelInfoWithProvider
-      features?: { functions?: boolean; streaming?: boolean }
-      models?: AxAIModelList
-      chatResponse?:
-        | AxChatResponse
-        | ((
-            req: Readonly<AxChatRequest>
-          ) => AxChatResponse | Promise<AxChatResponse>)
-      embedResponse?:
-        | AxEmbedResponse
-        | ((
-            req: Readonly<AxEmbedRequest>
-          ) => AxEmbedResponse | Promise<AxEmbedResponse>)
-      shouldError?: boolean
-      errorMessage?: string
-      latencyMs?: number
-    } = {}
-  ) {
+  constructor(private readonly config: AxMockAIServiceConfig = {}) {
     this.config.id = this.config.id ?? crypto.randomUUID()
   }
 
@@ -90,10 +98,12 @@ export class AxMockAIService implements AxAIService {
   }
 
   async chat(
-    req: Readonly<AxChatRequest>,
+    req: Readonly<AxChatRequest<unknown>>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
-  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
+    options?: Readonly<
+      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown>
+    >
+  ) {
     if (this.config.latencyMs) {
       await new Promise((resolve) => setTimeout(resolve, this.config.latencyMs))
     }
@@ -105,7 +115,7 @@ export class AxMockAIService implements AxAIService {
     this.updateMetrics('chat')
 
     if (typeof this.config.chatResponse === 'function') {
-      return this.config.chatResponse(req)
+      return await this.config.chatResponse(req)
     }
 
     return (
@@ -157,11 +167,11 @@ export class AxMockAIService implements AxAIService {
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
-    this.options = options
+    this.config.options = options
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
-    return this.options
+    return this.config.options ?? {}
   }
 
   private updateMetrics(type: 'chat' | 'embed'): void {

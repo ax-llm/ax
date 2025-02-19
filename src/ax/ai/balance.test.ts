@@ -3,16 +3,13 @@ import { describe, expect, test } from 'vitest'
 import { AxAIServiceNetworkError } from '../util/apicall.js'
 
 import { AxBalancer } from './balance.js'
-import { AxMockAIService } from './mock/api.js'
-import type { AxAIService, AxChatRequest, AxChatResponse } from './types.js'
+import { AxMockAIService, type AxMockAIServiceConfig } from './mock/api.js'
+import type { AxAIService } from './types.js'
 
 const createMockService = ({
   name = 'test-service',
   latencyMs = 100,
-  chatResponse = async (
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _req: Readonly<AxChatRequest>
-  ): Promise<AxChatResponse> => ({
+  chatResponse = async () => ({
     results: [
       {
         content: 'test response',
@@ -28,7 +25,7 @@ const createMockService = ({
 }: {
   name?: string
   latencyMs?: number
-  chatResponse?: (req: Readonly<AxChatRequest>) => Promise<AxChatResponse>
+  chatResponse?: AxMockAIServiceConfig['chatResponse']
 } = {}) => {
   return new AxMockAIService({
     name,
@@ -59,7 +56,7 @@ describe('AxBalancer', () => {
             results: [
               {
                 content: 'test response',
-                finishReason: 'stop',
+                finishReason: 'stop' as const,
               },
             ],
             modelUsage: {
@@ -79,7 +76,7 @@ describe('AxBalancer', () => {
             results: [
               {
                 content: 'test response',
-                finishReason: 'stop',
+                finishReason: 'stop' as const,
               },
             ],
             modelUsage: {
@@ -113,7 +110,7 @@ describe('AxBalancer', () => {
             results: [
               {
                 content: 'test response',
-                finishReason: 'stop',
+                finishReason: 'stop' as const,
               },
             ],
             modelUsage: {
@@ -153,7 +150,7 @@ describe('AxBalancer', () => {
             results: [
               {
                 content: 'test response',
-                finishReason: 'stop',
+                finishReason: 'stop' as const,
               },
             ],
             modelUsage: {
@@ -172,7 +169,7 @@ describe('AxBalancer', () => {
             results: [
               {
                 content: 'test response',
-                finishReason: 'stop',
+                finishReason: 'stop' as const,
               },
             ],
             modelUsage: {
@@ -216,7 +213,7 @@ describe('AxBalancer', () => {
             results: [
               {
                 content: 'test response',
-                finishReason: 'stop',
+                finishReason: 'stop' as const,
               },
             ],
             modelUsage: {
