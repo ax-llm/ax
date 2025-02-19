@@ -25,7 +25,6 @@ import {
 import {
   type extractionState,
   extractValues,
-  getStreamingDelta,
   streamingExtractFinalValue,
   streamingExtractValues,
   streamValues,
@@ -285,6 +284,7 @@ export class AxGen<
     const values = {}
     const xstate: extractionState = {
       extractedFields: [],
+      streamedIndex: {},
       s: -1,
     }
 
@@ -325,12 +325,8 @@ export class AxGen<
           content,
           streamingValidation
         )
-        if (skip) {
-          continue
-        }
 
         assertStreamingAssertions(this.streamingAsserts, xstate, content)
-        assertAssertions(this.asserts, values)
 
         if (this.streamingFieldProcessors.length !== 0) {
           await processStreamingFieldProcessors(
@@ -343,8 +339,13 @@ export class AxGen<
           )
         }
 
-        const delta = getStreamingDelta(content, xstate)
-        yield* streamValues<OUT>(this.signature, values, xstate, delta)
+        yield* streamValues<OUT>(this.signature, content, values, xstate)
+
+        if (skip) {
+          continue
+        }
+
+        assertAssertions(this.asserts, values)
       }
 
       if (result.finishReason === 'length') {
@@ -393,8 +394,7 @@ export class AxGen<
         )
       }
 
-      const delta = getStreamingDelta(content, xstate)
-      yield* streamValues<OUT>(this.signature, values, xstate, delta)
+      yield* streamValues<OUT>(this.signature, content, values, xstate)
     }
   }
 
@@ -454,6 +454,14 @@ export class AxGen<
 
       if (result.finishReason === 'length') {
         throw new Error('Max tokens reached before completion')
+      }
+    }
+
+    // Strip out values whose signature fields have isInternal: true
+    const publicValues: AxGenOut = { ...values }
+    for (const field of this.signature.getOutputFields()) {
+      if (field.isInternal) {
+        delete publicValues[field.name]
       }
     }
 

@@ -1,4 +1,5 @@
-// Keeping the type definitions the same
+// Updated type definitions
+
 export type TypeNotClass =
   | 'string'
   | 'number'
@@ -15,28 +16,26 @@ export type ParsedString = string
 
 export type ParsedSignature = {
   desc?: string
-  inputs: InputParsedFieldList
-  outputs: OutputParsedFieldList
+  inputs: InputParsedField[]
+  outputs: OutputParsedField[]
 }
 
-export type InputParsedFieldList = InputParsedField[]
-export type OutputParsedFieldList = OutputParsedField[]
-
-export type ClassField = {
-  name: ParsedIdentifier
-  type: { name: 'class'; isArray: boolean; classes: string[] }
-  isOptional: boolean
-}
-
-export type NonClassField = {
+export type InputParsedField = {
   name: ParsedIdentifier
   desc?: string
-  type: NonNullable<{ name: TypeNotClass; isArray: boolean } | null> | undefined
-  isOptional: boolean
+  type?: { name: TypeNotClass; isArray: boolean }
+  isOptional?: boolean
 }
 
-export type InputParsedField = ClassField | NonClassField
-export type OutputParsedField = ClassField | NonClassField
+export type OutputParsedField = {
+  name: ParsedIdentifier
+  desc?: string
+  type?:
+    | { name: TypeNotClass; isArray: boolean }
+    | { name: 'class'; isArray: boolean; classes: string[] }
+  isOptional?: boolean
+  isInternal?: boolean
+}
 
 class SignatureParser {
   private input: string
@@ -53,7 +52,12 @@ class SignatureParser {
       this.skipWhitespace()
       const optionalDesc = this.parseParsedString()
       this.skipWhitespace()
-      const inputs = this.parseFieldList(this.parseField.bind(this), 'input')
+
+      // Use the specialized input field parser
+      const inputs = this.parseFieldList(
+        this.parseInputField.bind(this),
+        'input'
+      )
       this.skipWhitespace()
 
       if (this.position >= this.input.length) {
@@ -71,7 +75,11 @@ class SignatureParser {
         )
       }
 
-      const outputs = this.parseFieldList(this.parseField.bind(this), 'output')
+      // Use the specialized output field parser
+      const outputs = this.parseFieldList(
+        this.parseOutputField.bind(this),
+        'output'
+      )
 
       return {
         desc: optionalDesc?.trim(),
@@ -113,7 +121,9 @@ class SignatureParser {
       fields.push(parseFieldFn())
     } catch (error) {
       throw new Error(
-        `Invalid first ${section} field: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Invalid first ${section} field: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       )
     }
 
@@ -139,7 +149,9 @@ class SignatureParser {
           fields.push(parseFieldFn())
         } catch (error) {
           throw new Error(
-            `Invalid ${section} field after comma: ${error instanceof Error ? error.message : 'Unknown error'}`
+            `Invalid ${section} field after comma: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`
           )
         }
         this.skipWhitespace()
@@ -151,42 +163,38 @@ class SignatureParser {
     return fields
   }
 
-  private parseField(): InputParsedField | OutputParsedField {
+  // -------------------------------
+  // Parse input fields (no "class" type and no internal flag)
+  // -------------------------------
+  private parseInputField(): InputParsedField {
     this.skipWhitespace()
     const name = this.parseParsedIdentifier()
     this.currentFieldName = name
 
-    const isOptional = this.match('?')
-    let type:
-      | { name: TypeNotClass; isArray: boolean }
-      | { name: 'class'; isArray: boolean; classes: string[] }
-      | undefined
+    // Only the optional marker is allowed
+    let isOptional = undefined
+    while (true) {
+      if (this.match('?')) {
+        isOptional = true
+        continue
+      }
+      if (this.match('!')) {
+        throw new Error(
+          `Input field "${name}" does not support the internal marker "!"`
+        )
+      }
+      break
+    }
 
-    // Skip whitespace before the colon
+    let type: { name: TypeNotClass; isArray: boolean } | undefined
     this.skipWhitespace()
     if (this.match(':')) {
       this.skipWhitespace()
-      if (this.match('class')) {
-        const isArray = this.match('[]')
-        this.skipWhitespace()
-        const desc = this.parseParsedString()
-        if (!desc) {
-          throw new Error(
-            `Field "${name}": Expected class names in quotes after "class" type. Example: class "MyClass1, MyClass2"`
-          )
-        }
-        const classes = desc
-          .split(/[,\s]+/)
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0)
-
-        if (classes.length === 0) {
-          throw new Error(
-            `Field "${name}": Empty class list provided. At least one class name is required`
-          )
-        }
-
-        type = { name: 'class' as const, isArray, classes }
+      // Disallow the "class" type in input fields
+      if (/^class\b/.test(this.input.slice(this.position))) {
+        throw new Error(
+          `Input field "${name}" does not support the "class" type`
+        )
       } else {
         try {
           const typeName = this.parseTypeNotClass()
@@ -194,7 +202,9 @@ class SignatureParser {
           type = { name: typeName, isArray }
         } catch (error) {
           throw new Error(
-            `Field "${name}": ${error instanceof Error ? error.message : 'Unknown error'}`
+            `Input field "${name}": ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`
           )
         }
       }
@@ -203,20 +213,88 @@ class SignatureParser {
     this.skipWhitespace()
     const desc = this.parseParsedString()
 
-    if (type?.name === 'class') {
-      return {
-        name,
-        desc: desc?.trim(),
-        type,
-        isOptional,
+    return {
+      name,
+      desc: desc?.trim(),
+      type,
+      isOptional,
+    }
+  }
+
+  // -------------------------------
+  // Parse output fields (supports both "class" type and the internal marker)
+  // -------------------------------
+  private parseOutputField(): OutputParsedField {
+    this.skipWhitespace()
+    const name = this.parseParsedIdentifier()
+    this.currentFieldName = name
+
+    let isOptional = false
+    let isInternal = false
+    while (true) {
+      if (this.match('?')) {
+        isOptional = true
+        continue
       }
-    } else {
-      return {
-        name,
-        desc: desc?.trim(),
-        type,
-        isOptional,
+      if (this.match('!')) {
+        isInternal = true
+        continue
       }
+      break
+    }
+
+    let type:
+      | { name: TypeNotClass; isArray: boolean }
+      | { name: 'class'; isArray: boolean; classes: string[] }
+      | undefined
+    this.skipWhitespace()
+    if (this.match(':')) {
+      this.skipWhitespace()
+      if (this.match('class')) {
+        const isArray = this.match('[]')
+        this.skipWhitespace()
+        const classNamesString = this.parseParsedString()
+        if (!classNamesString) {
+          throw new Error(
+            `Output field "${name}": Expected class names in quotes after "class" type. Example: class "MyClass1, MyClass2"`
+          )
+        }
+        const classes = classNamesString
+          .split(/[,\s]+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+
+        if (classes.length === 0) {
+          throw new Error(
+            `Output field "${name}": Empty class list provided. At least one class name is required`
+          )
+        }
+
+        type = { name: 'class', isArray, classes }
+      } else {
+        try {
+          const typeName = this.parseTypeNotClass()
+          const isArray = this.match('[]')
+          type = { name: typeName, isArray }
+        } catch (error) {
+          throw new Error(
+            `Output field "${name}": ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`
+          )
+        }
+      }
+    }
+
+    this.skipWhitespace()
+    const desc = this.parseParsedString()
+
+    return {
+      name,
+      desc: desc?.trim(),
+      type,
+      isOptional,
+      isInternal,
     }
   }
 
@@ -254,7 +332,6 @@ class SignatureParser {
       return match[0]
     }
 
-    // Get the invalid identifier attempt
     const invalidMatch = /^\S+/.exec(this.input.slice(this.position))
     const invalidId = invalidMatch ? invalidMatch[0] : 'empty'
 
@@ -286,7 +363,6 @@ class SignatureParser {
           }
         }
 
-        // If we get here, the string was not terminated
         const partialString = this.input.slice(startPos, this.position)
         throw new Error(
           `Unterminated string starting at position ${startPos}: "${partialString}..."`

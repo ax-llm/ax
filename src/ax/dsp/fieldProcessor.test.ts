@@ -71,6 +71,7 @@ describe('Field Processor Functions', () => {
       currField: dummyStreamingProcessor.field,
       s: 0,
       extractedFields: [],
+      streamedIndex: {},
     }
 
     // Provide an initial content string.

@@ -30,12 +30,21 @@ const ai = new AxAI({
     },
   ],
 })
-ai.setOptions({ debug: true })
+// ai.setOptions({ debug: true })
 
-const gen = new AxGen(
-  `chatMessage, currentDate:datetime -> subject, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[], messageType:class "reminder, follow-up, meeting, other"`
+const gen = new AxGen<{ chatMessage: string; currentDate: Date }>(
+  `chatMessage, currentDate:datetime -> subject, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[], shortSummary, messageType:class "reminder, follow-up, meeting, other"`
 )
 
-const res = await gen.forward(ai, { chatMessage, currentDate })
+const stream = await gen.streamingForward(ai, { chatMessage, currentDate })
 
+console.log('# Streaming')
+
+for await (const chunk of stream) {
+  console.log('>', chunk)
+}
+
+console.log('\n\n# Not Streaming')
+
+const res = await gen.forward(ai, { chatMessage, currentDate })
 console.log('>', res)

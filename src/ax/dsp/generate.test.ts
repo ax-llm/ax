@@ -7,36 +7,54 @@ import type { AxChatResponse } from '../ai/types.js'
 
 import { AxGen } from './generate.js'
 
-// Helper to simulate a streaming response with a timer.
-const createStreamingResponse = (
-  chunks: AxChatResponse['results'],
-  delay = 20
-): AxChatResponse | ReadableStream<AxChatResponse> =>
-  new ReadableStream({
+function createStreamingResponse(
+  chunks: AxChatResponse['results']
+): ReadableStream<AxChatResponse> {
+  return new ReadableStream({
     start(controller) {
       let count = 0
-      const interval = setInterval(() => {
+
+      const processChunks = async () => {
+        if (count >= chunks.length) {
+          controller.close()
+          return
+        }
+
         const chunk = chunks[count]
         if (chunk) {
-          controller.enqueue({
-            results: [
-              { content: chunk.content, finishReason: chunk.finishReason },
-            ],
-            modelUsage: {
-              promptTokens: 0,
-              completionTokens: 0,
-              totalTokens: 0,
-            },
-          })
-          count++
+          try {
+            controller.enqueue({
+              results: [
+                { content: chunk.content, finishReason: chunk.finishReason },
+              ],
+              modelUsage: {
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              },
+            })
+            count++
+
+            // Use Promise-based delay instead of setTimeout
+            await new Promise((resolve) =>
+              setTimeout(resolve, Math.random() * 100 + 10)
+            )
+            processChunks() // Process next chunk immediately after delay
+          } catch (error) {
+            controller.error(error)
+          }
         }
-        if (count >= chunks.length) {
-          clearInterval(interval)
-          controller.close()
-        }
-      }, delay)
+      }
+
+      // Start processing chunks
+      processChunks().catch((error) => {
+        controller.error(error)
+      })
     },
+
+    cancel() {},
   })
+}
 
 describe('AxGen forward and streamingForward', () => {
   const signature = 'input:string -> output:string'
@@ -67,7 +85,7 @@ describe('AxGen forward and streamingForward', () => {
       { content: 'chunk 2 ' },
       { content: 'chunk 3', finishReason: 'stop' },
     ]
-    const streamingResponse = createStreamingResponse(chunks, 20)
+    const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
       // Provide chatResponse as a function that accepts request params and returns the stream
@@ -133,7 +151,7 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
         finishReason: 'stop',
       },
     ]
-    const streamingResponse = createStreamingResponse(chunks, 20)
+    const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
       chatResponse: streamingResponse,
@@ -160,11 +178,11 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
     const chunks: AxChatResponse['results'] = [
       { content: 'Output 1: Stream A ' },
       {
-        content: 'continuation of Output 1\nOutput 2: Stream B',
-        finishReason: 'stop',
+        content: 'continuation of previous Output 1 chunk\nOutput 2: Stream B',
       },
     ]
-    const streamingResponse = createStreamingResponse(chunks, 20)
+    // Use the generator function to simulate a streaming response.
+    const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
       chatResponse: streamingResponse,
@@ -179,14 +197,114 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
 
     // Use streamingForward to iterate through the yields.
     const results: Array<Record<string, string>> = []
-    for await (const res of gen.streamingForward(ai, { input: 'test' })) {
+    const stream = gen.streamingForward(ai, { input: 'test' })
+
+    for await (const res of stream) {
       results.push(res.delta)
     }
+
     expect(results).toEqual([
       { output1: 'Stream A' },
-      { output2: 'Stream B' },
-      { output1: 'Stream A continuation of Output 1' },
+      { output1: ' continuation of previous Output 1 chunk' },
       { output2: 'Stream B' },
     ])
   })
+})
+
+it('should yield streaming multi-output fields from streamingForward for a signature with five outputs', async () => {
+  // Prepare a streaming response that delivers five outputs across many small chunks
+  const chunks: AxChatResponse['results'] = [
+    { content: 'Output 1: The quick ' },
+    { content: 'brown fox ' },
+    { content: 'jumps over ' },
+    { content: 'the lazy ' },
+    { content: 'dog.\nOutput 2: In a ' },
+    { content: 'world full of ' },
+    { content: 'endless ' },
+    { content: 'possibilities, we ' },
+    { content: 'must seize every ' },
+    { content: 'opportunity.\nOutput 3: The ' },
+    { content: 'gentle breeze ' },
+    { content: 'whispers through ' },
+    { content: 'the autumn ' },
+    { content: 'leaves, carrying ' },
+    { content: 'secrets of seasons past.\nOutput 4: ' },
+    { content: 'As the sun sets ' },
+    { content: 'behind distant ' },
+    { content: 'mountains, painting ' },
+    { content: 'the sky in ' },
+    { content: 'brilliant hues of ' },
+    { content: 'orange and purple, ' },
+    {
+      content:
+        'nature reveals its timeless beauty.\nOutput 5: Through the looking ',
+    },
+    { content: 'glass of ' },
+    { content: 'imagination, we ' },
+    { content: 'discover worlds ' },
+    { content: 'beyond our ' },
+    { content: 'wildest dreams.' },
+  ]
+
+  // Use the generator function to simulate a streaming response
+  const streamingResponse = createStreamingResponse(chunks)
+  const ai = new AxMockAIService({
+    features: { functions: false, streaming: true },
+    chatResponse: streamingResponse,
+  })
+
+  // Define a signature with five outputs
+  const signature =
+    'input:string -> output1:string, output2:string, output3:string, output4:string, output5:string'
+  const gen = new AxGen<
+    { input: string },
+    {
+      output1: string
+      output2: string
+      output3: string
+      output4: string
+      output5: string
+    }
+  >(signature)
+
+  // Use streamingForward to iterate through the yields
+  const results: Array<Record<string, string>> = []
+  const stream = gen.streamingForward(ai, { input: 'test' })
+
+  for await (const res of stream) {
+    results.push(res.delta)
+  }
+
+  expect(results).toEqual([
+    { output1: 'The quick' },
+    { output1: ' brown fox' },
+    { output1: ' jumps over' },
+    { output1: ' the lazy' },
+    { output1: ' dog.' },
+    { output2: 'In a' },
+    { output2: ' world full of' },
+    { output2: ' endless' },
+    { output2: ' possibilities, we' },
+    { output2: ' must seize every' },
+    { output2: ' opportunity.' },
+    { output3: 'The' },
+    { output3: ' gentle breeze' },
+    { output3: ' whispers through' },
+    { output3: ' the autumn' },
+    { output3: ' leaves, carrying' },
+    { output3: ' secrets of seasons past.' },
+    { output4: 'As the sun sets' },
+    { output4: ' behind distant' },
+    { output4: ' mountains, painting' },
+    { output4: ' the sky in' },
+    { output4: ' brilliant hues of' },
+    { output4: ' orange and purple,' },
+    { output4: ' nature reveals its timeless beauty.' },
+    { output5: 'Through the looking' },
+    { output5: ' glass of' },
+    { output5: ' imagination, we' },
+    { output5: ' discover worlds' },
+    { output5: ' beyond our' },
+    { output5: ' wildest dreams.' },
+  ])
 })

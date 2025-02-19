@@ -12,6 +12,7 @@ import { AxSignature } from './sig.js'
 const createInitialState = (): extractionState => ({
   currField: undefined,
   extractedFields: [],
+  streamedIndex: {},
   s: -1,
 })
 

@@ -29,6 +29,7 @@ export interface AxField {
     classes?: string[]
   }
   isOptional?: boolean
+  isInternal?: boolean
 }
 
 export type AxIField = Omit<AxField, 'title'> & { title: string }
@@ -90,8 +91,9 @@ export class AxSignature {
       name: field.name,
       title,
       description: 'desc' in field ? field.desc : undefined,
-      isOptional: field.isOptional,
       type: field.type ?? { name: 'string', isArray: false },
+      ...('isInternal' in field ? { isInternal: field.isInternal } : {}),
+      ...('isOptional' in field ? { isOptional: field.isOptional } : {}),
     }
   }
 

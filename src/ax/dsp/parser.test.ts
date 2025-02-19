@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  type ClassField,
-  type NonClassField,
-  parseSignature,
-} from './parser.js'
+import { parseSignature } from './parser.js'
 
 describe('SignatureParser', () => {
   describe('basic parsing', () => {
@@ -15,13 +11,26 @@ describe('SignatureParser', () => {
       expect(sig.inputs).toHaveLength(1)
       expect(sig.outputs).toHaveLength(1)
 
-      const input0 = sig.inputs[0] as NonClassField
-      const output0 = sig.outputs[0] as NonClassField
+      const input0 = sig.inputs[0] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(input0).toEqual({
         name: 'input',
         type: { name: 'string', isArray: false },
-        isOptional: false,
+        isOptional: undefined,
         desc: undefined,
       })
 
@@ -29,6 +38,7 @@ describe('SignatureParser', () => {
         name: 'output',
         type: { name: 'number', isArray: false },
         isOptional: false,
+        isInternal: false,
         desc: undefined,
       })
     })
@@ -50,8 +60,21 @@ describe('SignatureParser', () => {
         'input:string "input description" -> output:number "output description"'
       )
 
-      const input0 = sig.inputs[0] as NonClassField
-      const output0 = sig.outputs[0] as NonClassField
+      const input0 = sig.inputs[0] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(input0.desc).toBe('input description')
       expect(output0.desc).toBe('output description')
@@ -62,9 +85,27 @@ describe('SignatureParser', () => {
         'input:string "double quotes", param:number \'single quotes\' -> output:string "result"'
       )
 
-      const input0 = sig.inputs[0] as NonClassField
-      const input1 = sig.inputs[1] as NonClassField
-      const output0 = sig.outputs[0] as NonClassField
+      const input0 = sig.inputs[0] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const input1 = sig.inputs[1] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(input0.desc).toBe('double quotes')
       expect(input1.desc).toBe('single quotes')
@@ -78,10 +119,20 @@ describe('SignatureParser', () => {
         'required:string, optional?:number -> output:string'
       )
 
-      const input0 = sig.inputs[0] as NonClassField
-      const input1 = sig.inputs[1] as NonClassField
+      const input0 = sig.inputs[0] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const input1 = sig.inputs[1] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
 
-      expect(input0.isOptional).toBe(false)
+      expect(input0.isOptional).toBe(undefined)
       expect(input1.isOptional).toBe(true)
     })
 
@@ -90,11 +141,64 @@ describe('SignatureParser', () => {
         'input:string -> required:string, optional?:number'
       )
 
-      const output0 = sig.outputs[0] as NonClassField
-      const output1 = sig.outputs[1] as NonClassField
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
+      const output1 = sig.outputs[1] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(output0.isOptional).toBe(false)
       expect(output1.isOptional).toBe(true)
+    })
+  })
+
+  describe('internal marker', () => {
+    it('parses output field with internal marker', () => {
+      const sig = parseSignature('input:string -> output!:number')
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
+      expect(output0.isInternal).toBe(true)
+    })
+
+    it('parses output field with both optional and internal markers', () => {
+      const sig = parseSignature('input:string -> output?!:number')
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
+      expect(output0.isOptional).toBe(true)
+      expect(output0.isInternal).toBe(true)
+    })
+
+    it('throws error for input field with internal marker', () => {
+      expect(() => parseSignature('input!:string -> output:number')).toThrow(
+        /does not support the internal marker/
+      )
     })
   })
 
@@ -102,8 +206,21 @@ describe('SignatureParser', () => {
     it('parses array types', () => {
       const sig = parseSignature('inputs:string[] -> outputs:number[]')
 
-      const input0 = sig.inputs[0] as NonClassField
-      const output0 = sig.outputs[0] as NonClassField
+      const input0 = sig.inputs[0] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(input0.type?.isArray).toBe(true)
       expect(output0.type?.isArray).toBe(true)
@@ -114,9 +231,27 @@ describe('SignatureParser', () => {
         'single:string, multiple:number[] -> result:boolean[]'
       )
 
-      const input0 = sig.inputs[0] as NonClassField
-      const input1 = sig.inputs[1] as NonClassField
-      const output0 = sig.outputs[0] as NonClassField
+      const input0 = sig.inputs[0] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const input1 = sig.inputs[1] as {
+        name: string
+        type: { name: string; isArray: boolean }
+        isOptional: boolean
+        desc?: string
+      }
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(input0.type?.isArray).toBe(false)
       expect(input1.type?.isArray).toBe(true)
@@ -128,7 +263,13 @@ describe('SignatureParser', () => {
     it('parses class types with single class', () => {
       const sig = parseSignature('input:string -> type:class "UserProfile"')
 
-      const output0 = sig.outputs[0] as ClassField
+      const output0 = sig.outputs[0] as {
+        name: string
+        type: { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(output0.type).toEqual({
         name: 'class',
@@ -142,7 +283,13 @@ describe('SignatureParser', () => {
         'input:string -> type:class "Error, Success, Pending"'
       )
 
-      const output0 = sig.outputs[0] as ClassField
+      const output0 = sig.outputs[0] as {
+        name: string
+        type: { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(output0.type).toEqual({
         name: 'class',
@@ -156,7 +303,13 @@ describe('SignatureParser', () => {
         'input:string -> types:class[] "Error, Success"'
       )
 
-      const output0 = sig.outputs[0] as ClassField
+      const output0 = sig.outputs[0] as {
+        name: string
+        type: { name: 'class'; isArray: boolean; classes: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
 
       expect(output0.type).toEqual({
         name: 'class',
@@ -191,13 +344,13 @@ describe('SignatureParser', () => {
           {
             name: 'query',
             type: { name: 'string', isArray: false },
-            isOptional: false,
+            isOptional: undefined,
             desc: 'Search query',
           },
           {
             name: 'options',
             type: { name: 'json', isArray: false },
-            isOptional: false,
+            isOptional: undefined,
             desc: 'Configuration options',
           },
         ],
@@ -206,12 +359,14 @@ describe('SignatureParser', () => {
             name: 'results',
             type: { name: 'string', isArray: true },
             isOptional: false,
+            isInternal: false,
             desc: 'Search results',
           },
           {
             name: 'metadata',
             type: { name: 'json', isArray: false },
             isOptional: false,
+            isInternal: false,
             desc: 'Response metadata',
           },
           {
@@ -222,6 +377,7 @@ describe('SignatureParser', () => {
               classes: ['success', 'error', 'pending'],
             },
             isOptional: false,
+            isInternal: false,
             desc: undefined,
           },
         ],
@@ -269,30 +425,29 @@ describe('SignatureParser', () => {
         ' input:string -> output:number ',
       ]
 
-      const expected = {
-        inputs: [
-          {
-            name: 'input',
-            type: { name: 'string', isArray: false },
-            isOptional: false,
-            desc: undefined,
-          },
-        ],
-        outputs: [
-          {
-            name: 'output',
-            type: { name: 'number', isArray: false },
-            isOptional: false,
-            desc: undefined,
-          },
-        ],
-      }
+      const expectedInput = [
+        {
+          name: 'input',
+          type: { name: 'string', isArray: false },
+          isOptional: undefined,
+          desc: undefined,
+        },
+      ]
+      const expectedOutput = [
+        {
+          name: 'output',
+          type: { name: 'number', isArray: false },
+          isOptional: false,
+          isInternal: false,
+          desc: undefined,
+        },
+      ]
 
       signatures.forEach((sig) => {
         const parsed = parseSignature(sig)
 
-        expect(parsed.inputs).toEqual(expected.inputs)
-        expect(parsed.outputs).toEqual(expected.outputs)
+        expect(parsed.inputs).toEqual(expectedInput)
+        expect(parsed.outputs).toEqual(expectedOutput)
       })
     })
   })

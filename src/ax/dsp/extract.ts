@@ -10,17 +10,17 @@ export const extractValues = (
   values: Record<string, unknown>,
   content: string
 ) => {
-  const xstate = { extractedFields: [], s: -1 }
+  const xstate = { extractedFields: [], streamedIndex: {}, s: -1 }
   streamingExtractValues(sig, values, xstate, content)
   streamingExtractFinalValue(sig, values, xstate, content)
 }
 
 export interface extractionState {
-  lastDelta?: string
+  prevField?: { field: AxField; s: number; e: number }
   currField?: AxField
   currFieldIndex?: number
   extractedFields: AxField[]
-  streamedIndex?: Record<string, number>
+  streamedIndex: Record<string, number>
   s: number
   inBlock?: boolean
 }
@@ -84,27 +84,33 @@ export const streamingExtractValues = (
         xstate.inBlock = true
         return true // String is only backticks, skip and gather more content
     }
-    // We found the full match at the index e
+    // We found the next field!!!
 
     let prefixLen = prefix.length
 
+    // Lets wrap up the last field which is still the current field
     if (xstate.currField) {
       const val = content.substring(xstate.s, e).trim()
       const parsedValue = validateAndParseFieldValue(xstate.currField, val)
       if (parsedValue !== undefined) {
         values[xstate.currField.name] = parsedValue
       }
-      xstate.lastDelta = val
+      xstate.prevField = { field: xstate.currField, s: xstate.s, e }
     }
 
     checkMissingRequiredFields(xstate, values, index)
 
+    // Lets update the state for the new current field
     xstate.s = e + prefixLen
     xstate.currField = field
     xstate.currFieldIndex = index
 
     if (!xstate.extractedFields.includes(field)) {
       xstate.extractedFields.push(field)
+    }
+
+    if (xstate.streamedIndex[field.name] === undefined) {
+      xstate.streamedIndex[field.name] = 0
     }
   }
 }
@@ -179,36 +185,32 @@ const convertValueToType = (field: Readonly<AxField>, val: string) => {
   }
 }
 
-export function processStreamingDelta(
+export function* yieldDelta<OUT>(
   content: string,
+  field: Readonly<AxField>,
+  s: number,
+  e: number,
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState
 ) {
-  if (!xstate.currField) {
-    return null
-  }
+  const { name: fieldName, isInternal } = field
+  const { isArray: fieldIsArray, name: fieldTypeName } = field.type ?? {}
 
-  const { name: fieldName, type: fieldType } = xstate.currField ?? {}
-  const { isArray: fieldIsArray, name: fieldTypeName } = fieldType ?? {}
-
-  if (!xstate.streamedIndex) {
-    xstate.streamedIndex = { [fieldName]: 0 }
-  }
-
-  if (fieldIsArray) {
-    return null
-  }
-
-  if (fieldTypeName !== 'string' && fieldTypeName !== 'code') {
-    return null
+  if (
+    isInternal ||
+    fieldIsArray ||
+    (fieldTypeName && fieldTypeName !== 'string' && fieldTypeName !== 'code')
+  ) {
+    return
   }
 
   const pos = xstate.streamedIndex[fieldName] ?? 0
-  const s = xstate.s + pos
   const isFirstChunk = pos === 0
 
-  // Grab everything from the current extract position
-  const d1 = content.substring(s)
+  const d1 = content.substring(s + pos, e)
+  if (d1.length === 0) {
+    return
+  }
 
   // Remove trailing whitespace, tabs, and newlines
   let d2 = d1.replace(/\s+$/, '')
@@ -221,51 +223,58 @@ export function processStreamingDelta(
   // Only trim start for the first chunk
   let d3 = isFirstChunk ? d2.trimStart() : d2
 
-  // If this field is a "code" type, remove leading/trailing markdown fences
   if (xstate.currField?.type?.name === 'code') {
     // Remove any leading triple-backtick fences (with optional language specifier)
     d3 = d3.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '')
   }
 
   if (d3.length > 0) {
+    yield { [fieldName]: d3 } as Partial<OUT>
     xstate.streamedIndex[fieldName] = pos + d2.length
   }
-
-  return d3
 }
 
-export function getStreamingDelta(
-  content: string,
-  // eslint-disable-next-line functional/prefer-immutable-types
-  xstate: extractionState
-) {
-  if (xstate.lastDelta) {
-    processStreamingDelta(xstate.lastDelta, xstate)
-    xstate.lastDelta = undefined
-  }
-
-  return processStreamingDelta(content, xstate)
-}
+// export function getStreamingDelta(
+//   values: Record<string, unknown>,
+//   // eslint-disable-next-line functional/prefer-immutable-types
+//   xstate: extractionState
+// ) {
+//   return processStreamingDelta(values, xstate)
+// }
 
 export function* streamValues<OUT>(
   sig: Readonly<AxSignature>,
+  content: string,
   values: Readonly<Record<string, OUT>>,
   // eslint-disable-next-line functional/prefer-immutable-types
-  xstate: extractionState,
-  delta: string | null
+  xstate: extractionState
 ) {
-  if (!xstate.currField) {
+  if (xstate.prevField && !xstate.prevField.field.isInternal) {
+    const { field, s, e } = xstate.prevField
+    yield* yieldDelta<OUT>(content, field, s, e, xstate)
+    xstate.prevField = undefined
+  }
+
+  if (!xstate.currField || xstate.currField.isInternal) {
     return
   }
 
-  const fieldName = xstate.currField.name
+  yield* yieldDelta<OUT>(
+    content,
+    xstate.currField,
+    xstate.s,
+    content.length,
+    xstate
+  )
 
-  if (delta && delta.length > 0) {
-    yield { [fieldName]: delta } as Partial<OUT>
-    return
-  }
+  const outputFields = sig.getOutputFields()
 
   for (const key of Object.keys(values)) {
+    const field = outputFields.find((f) => f.name === key)
+    if (!field || field.isInternal) {
+      continue
+    }
+
     const value = values[key]
 
     if (Array.isArray(value)) {
@@ -273,15 +282,14 @@ export function* streamValues<OUT>(
       const v = value.slice(s)
       if (v && v.length > 0) {
         yield { [key]: v } as Partial<OUT>
-
-        if (xstate.streamedIndex) {
-          xstate.streamedIndex[key] = s + 1
-        } else {
-          xstate.streamedIndex = { [key]: s + 1 }
-        }
+        xstate.streamedIndex[key] = s + 1
       }
-    } else {
+      continue
+    }
+
+    if (!xstate.streamedIndex[key]) {
       yield { [key]: value } as Partial<OUT>
+      xstate.streamedIndex[key] = 1
     }
   }
 }
