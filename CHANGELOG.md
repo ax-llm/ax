@@ -1,5 +1,11 @@
 # Changelog
 
+## [11.0.21](https://github.com/ax-llm/ax/compare/11.0.20...11.0.21) (2025-02-19)
+
+### Bug Fixes
+
+* Rename endpoint -> endpointId (to match Google docs) (#155) ([cc322a9](https://github.com/ax-llm/ax/commit/cc322a95895888529ccf302a95ff86fde3482d3f))
+
 ## [11.0.20](https://github.com/ax-llm/ax/compare/11.0.18...11.0.19) (2025-02-19)
 ## [11.0.19](https://github.com/ax-llm/ax/compare/11.0.18...11.0.19) (2025-02-19)
 
