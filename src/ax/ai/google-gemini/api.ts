@@ -87,7 +87,7 @@ export interface AxAIGoogleGeminiArgs {
   apiKey?: string
   projectId?: string
   region?: string
-  endpoint?: string
+  endpointId?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
   models?: AxAIModelList<AxAIGoogleGeminiModel>
@@ -108,7 +108,7 @@ class AxAIGoogleGeminiImpl
   constructor(
     private config: AxAIGoogleGeminiConfig,
     private isVertex: boolean,
-    private endpoint?: string,
+    private endpointId?: string,
     private apiKey?: string,
     private options?: AxAIGoogleGeminiArgs['options']
   ) {}
@@ -140,11 +140,11 @@ class AxAIGoogleGeminiImpl
     }
 
     let apiConfig
-    if (this.endpoint) {
+    if (this.endpointId) {
       apiConfig = {
         name: stream
-          ? `/${this.endpoint}:streamGenerateContent?alt=sse`
-          : `/${this.endpoint}:generateContent`,
+          ? `/${this.endpointId}:streamGenerateContent?alt=sse`
+          : `/${this.endpointId}:generateContent`,
       }
     } else {
       apiConfig = {
@@ -366,9 +366,9 @@ class AxAIGoogleGeminiImpl
       | AxAIGoogleVertexBatchEmbedRequest
 
     if (this.isVertex) {
-      if (this.endpoint) {
+      if (this.endpointId) {
         apiConfig = {
-          name: `/${this.endpoint}:predict`,
+          name: `/${this.endpointId}:predict`,
         }
       } else {
         apiConfig = {
@@ -503,7 +503,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     apiKey,
     projectId,
     region,
-    endpoint,
+    endpointId,
     config,
     options,
     models,
@@ -515,7 +515,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
 
     if (isVertex) {
       let path
-      if (endpoint) {
+      if (endpointId) {
         path = 'endpoints'
       } else {
         path = 'publishers/google'
@@ -546,7 +546,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     const aiImpl = new AxAIGoogleGeminiImpl(
       _config,
       isVertex,
-      endpoint,
+      endpointId,
       apiKey,
       options
     )
