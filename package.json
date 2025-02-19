@@ -79,7 +79,7 @@
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
-  "version": "11.0.19",
+  "version": "11.0.20",
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.1.8",
     "@astrojs/tailwind": "^6.0.0",
