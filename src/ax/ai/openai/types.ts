@@ -123,7 +123,7 @@ export type AxAIOpenAIChatRequest<TModel> = {
     | 'required'
     | { type: 'function'; function: { name: string } }
   response_format?: { type: string }
-  max_tokens: number
+  max_completion_tokens: number
   temperature?: number
   top_p?: number
   n?: number
