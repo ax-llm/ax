@@ -172,7 +172,7 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
         : undefined,
       tools,
       tool_choice: toolsChoice,
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
+      max_completion_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
