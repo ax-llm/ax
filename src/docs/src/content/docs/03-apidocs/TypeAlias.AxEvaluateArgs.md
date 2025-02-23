@@ -4,14 +4,14 @@ title: AxEvaluateArgs
 
 > **AxEvaluateArgs**\<`IN`, `OUT`\>: `object`
 
-Defined in: [src/ax/dsp/evaluate.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspevaluatetsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/evaluate.ts#L7
 
 ## Type Parameters
 
 | Type Parameter |
 | ------ |
-| `IN` *extends* [`AxGenIn`](#apidocs/typealiasaxgenin) |
-| `OUT` *extends* [`AxGenOut`](#apidocs/typealiasaxgenout) |
+| `IN` *extends* [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) |
+| `OUT` *extends* [`AxGenOut`](/api/#03-apidocs/typealiasaxgenout) |
 
 ## Type declaration
 
@@ -19,16 +19,16 @@ Defined in: [src/ax/dsp/evaluate.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### ai
 
-> **ai**: [`AxAIService`](#apidocs/interfaceaxaiservice)
+> **ai**: [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)
 
 <a id="examples"></a>
 
 ### examples
 
-> **examples**: `Readonly`\<[`AxExample`](#apidocs/typealiasaxexample)[]\>
+> **examples**: `Readonly`\<[`AxExample`](/api/#03-apidocs/typealiasaxexample)[]\>
 
 <a id="program"></a>
 
 ### program
 
-> **program**: `Readonly`\<[`AxProgram`](#apidocs/classaxprogram)\<`IN`, `OUT`\>\>
+> **program**: `Readonly`\<[`AxProgram`](/api/#03-apidocs/classaxprogram)\<`IN`, `OUT`\>\>

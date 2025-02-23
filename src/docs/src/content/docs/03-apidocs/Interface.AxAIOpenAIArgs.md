@@ -2,7 +2,19 @@
 title: AxAIOpenAIArgs
 ---
 
-Defined in: [src/ax/ai/openai/api.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl57)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L70
+
+## Extends
+
+- `Omit`\<[`AxAIOpenAIBaseArgs`](/api/#03-apidocs/interfaceaxaiopenaibaseargs)\<`TModel`, `TEmbedModel`\>, `"config"` \| `"modelInfo"`\>
+
+## Type Parameters
+
+| Type Parameter | Default type |
+| ------ | ------ |
+| `TName` | `"openai"` |
+| `TModel` | [`AxAIOpenAIModel`](/api/#03-apidocs/enumerationaxaiopenaimodel) |
+| `TEmbedModel` | [`AxAIOpenAIEmbedModel`](/api/#03-apidocs/enumerationaxaiopenaiembedmodel) |
 
 ## Properties
 
@@ -12,7 +24,11 @@ Defined in: [src/ax/ai/openai/api.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **apiKey**: `string`
 
-Defined in: [src/ax/ai/openai/api.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl59)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L83
+
+#### Inherited from
+
+`Omit.apiKey`
 
 ***
 
@@ -22,7 +38,11 @@ Defined in: [src/ax/ai/openai/api.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > `optional` **apiURL**: `string`
 
-Defined in: [src/ax/ai/openai/api.ts:60](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl60)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L84
+
+#### Inherited from
+
+`Omit.apiURL`
 
 ***
 
@@ -30,29 +50,23 @@ Defined in: [src/ax/ai/openai/api.ts:60](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### config?
 
-> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIOpenAIConfig`](#apidocs/typealiasaxaiopenaiconfig)\>\>
+> `optional` **config**: `Partial`\<`Readonly`\<[`AxAIOpenAIConfig`](/api/#03-apidocs/typealiasaxaiopenaiconfig)\<`TModel`, `TEmbedModel`\>\>\>
 
-Defined in: [src/ax/ai/openai/api.ts:61](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl61)
-
-***
-
-<a id="modelInfo"></a>
-
-### modelInfo?
-
-> `optional` **modelInfo**: readonly [`AxModelInfo`](#apidocs/typealiasaxmodelinfo)[]
-
-Defined in: [src/ax/ai/openai/api.ts:63](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl63)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L79
 
 ***
 
-<a id="modelMap"></a>
+<a id="models"></a>
 
-### modelMap?
+### models?
 
-> `optional` **modelMap**: `Record`\<`string`, `string`\>
+> `optional` **models**: `AxAIInputModelList`\<`TModel`\>
 
-Defined in: [src/ax/ai/openai/api.ts:64](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl64)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L88
+
+#### Inherited from
+
+`Omit.models`
 
 ***
 
@@ -60,9 +74,9 @@ Defined in: [src/ax/ai/openai/api.ts:64](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### name
 
-> **name**: `"openai"`
+> **name**: `TName`
 
-Defined in: [src/ax/ai/openai/api.ts:58](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl58)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L78
 
 ***
 
@@ -70,6 +84,10 @@ Defined in: [src/ax/ai/openai/api.ts:58](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### options?
 
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions) & `object`\>
+> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions) & `object`\>
 
-Defined in: [src/ax/ai/openai/api.ts:62](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaiapitsl62)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L86
+
+#### Inherited from
+
+`Omit.options`

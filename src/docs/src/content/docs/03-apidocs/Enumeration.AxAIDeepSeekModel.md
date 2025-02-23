@@ -2,7 +2,7 @@
 title: AxAIDeepSeekModel
 ---
 
-Defined in: [src/ax/ai/deepseek/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaideepseektypestsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/deepseek/types.ts#L4
 
 DeepSeek: Models for text generation
 
@@ -14,7 +14,7 @@ DeepSeek: Models for text generation
 
 > **DeepSeekChat**: `"deepseek-chat"`
 
-Defined in: [src/ax/ai/deepseek/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaideepseektypestsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/deepseek/types.ts#L5
 
 ***
 
@@ -24,4 +24,4 @@ Defined in: [src/ax/ai/deepseek/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3
 
 > **DeepSeekCoder**: `"deepseek-coder"`
 
-Defined in: [src/ax/ai/deepseek/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaideepseektypestsl6)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/deepseek/types.ts#L6

@@ -2,7 +2,7 @@
 title: AxAIGoogleGeminiModel
 ---
 
-Defined in: [src/ax/ai/google-gemini/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L3
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:3](#apidocs/httpsgithubcomax-llmax
 
 > **AQA**: `"aqa"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L14
 
 ***
 
@@ -22,7 +22,17 @@ Defined in: [src/ax/ai/google-gemini/types.ts:9](#apidocs/httpsgithubcomax-llmax
 
 > **Gemini15Flash**: `"gemini-1.5-flash"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L9
+
+***
+
+<a id="Gemini15Flash002"></a>
+
+### Gemini15Flash002
+
+> **Gemini15Flash002**: `"gemini-1.5-flash-002"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L10
 
 ***
 
@@ -32,7 +42,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:5](#apidocs/httpsgithubcomax-llmax
 
 > **Gemini15Flash8B**: `"gemini-1.5-flash-8b"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl6)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L11
 
 ***
 
@@ -42,7 +52,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:6](#apidocs/httpsgithubcomax-llmax
 
 > **Gemini15Pro**: `"gemini-1.5-pro"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L12
 
 ***
 
@@ -52,7 +62,47 @@ Defined in: [src/ax/ai/google-gemini/types.ts:7](#apidocs/httpsgithubcomax-llmax
 
 > **Gemini1Pro**: `"gemini-1.0-pro"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L8
+
+***
+
+<a id="Gemini20Flash"></a>
+
+### Gemini20Flash
+
+> **Gemini20Flash**: `"gemini-2.0-flash"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L5
+
+***
+
+<a id="Gemini20FlashLite"></a>
+
+### Gemini20FlashLite
+
+> **Gemini20FlashLite**: `"gemini-2.0-flash-lite-preview-02-05"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L6
+
+***
+
+<a id="Gemini20FlashThinking"></a>
+
+### Gemini20FlashThinking
+
+> **Gemini20FlashThinking**: `"gemini-2.0-flash-thinking-exp-01-21"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L7
+
+***
+
+<a id="Gemini20Pro"></a>
+
+### Gemini20Pro
+
+> **Gemini20Pro**: `"gemini-2.0-pro-exp-02-05"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L4
 
 ***
 
@@ -62,4 +112,4 @@ Defined in: [src/ax/ai/google-gemini/types.ts:4](#apidocs/httpsgithubcomax-llmax
 
 > **Gemma2**: `"gemma-2-27b-it"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L13

@@ -2,7 +2,7 @@
 title: AxAIAnthropicContentBlockStartEvent
 ---
 
-Defined in: [src/ax/ai/anthropic/types.ts:149](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl149)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L158
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:149](#apidocs/httpsgithubcomax-llmaxbl
 
 > **content\_block**: \{ `text`: `string`; `type`: `"text"`; \} \| \{ `id`: `string`; `input`: `object`; `name`: `string`; `type`: `"tool_use"`; \}
 
-Defined in: [src/ax/ai/anthropic/types.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl152)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L161
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:152](#apidocs/httpsgithubcomax-llmaxbl
 
 > **index**: `number`
 
-Defined in: [src/ax/ai/anthropic/types.ts:150](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl150)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L159
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [src/ax/ai/anthropic/types.ts:150](#apidocs/httpsgithubcomax-llmaxbl
 
 > **type**: `"content_block_start"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:151](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl151)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L160

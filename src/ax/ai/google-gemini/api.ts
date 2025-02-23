@@ -6,7 +6,7 @@ import {
 } from '../base.js'
 import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
-  AxAIModelList,
+  AxAIInputModelList,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatResponse,
@@ -80,6 +80,7 @@ export interface AxAIGoogleGeminiOptionsTools {
     mode?: 'MODE_DYNAMIC'
     dynamicThreshold?: number
   }
+  googleSearch?: boolean
 }
 
 export interface AxAIGoogleGeminiArgs {
@@ -90,7 +91,7 @@ export interface AxAIGoogleGeminiArgs {
   endpointId?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
-  models?: AxAIModelList<AxAIGoogleGeminiModel>
+  models?: AxAIInputModelList<AxAIGoogleGeminiModel>
 }
 
 class AxAIGoogleGeminiImpl

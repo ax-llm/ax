@@ -2,17 +2,17 @@
 title: AxHFDataLoader
 ---
 
-Defined in: [src/ax/dsp/loader.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsploadertsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L5
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxHFDataLoader()
 
-> **new AxHFDataLoader**(`__namedParameters`): [`AxHFDataLoader`](#apidocs/classaxhfdataloader)
+> **new AxHFDataLoader**(`__namedParameters`): [`AxHFDataLoader`](/api/#03-apidocs/classaxhfdataloader)
 
-Defined in: [src/ax/dsp/loader.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsploadertsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L14
 
 #### Parameters
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/dsp/loader.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Returns
 
-[`AxHFDataLoader`](#apidocs/classaxhfdataloader)
+[`AxHFDataLoader`](/api/#03-apidocs/classaxhfdataloader)
 
 ## Methods
 
@@ -30,13 +30,13 @@ Defined in: [src/ax/dsp/loader.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 ### getData()
 
-> **getData**(): [`AxDataRow`](#apidocs/typealiasaxdatarow)[]
+> **getData**(): [`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[]
 
-Defined in: [src/ax/dsp/loader.ts:67](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsploadertsl67)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L67
 
 #### Returns
 
-[`AxDataRow`](#apidocs/typealiasaxdatarow)[]
+[`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[]
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: [src/ax/dsp/loader.ts:67](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **getRows**\<`T`\>(`__namedParameters`): `Promise`\<`T`[]\>
 
-Defined in: [src/ax/dsp/loader.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsploadertsl71)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L71
 
 #### Type Parameters
 
@@ -70,13 +70,13 @@ Defined in: [src/ax/dsp/loader.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 ### loadData()
 
-> **loadData**(): `Promise`\<[`AxDataRow`](#apidocs/typealiasaxdatarow)[]\>
+> **loadData**(): `Promise`\<[`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[]\>
 
-Defined in: [src/ax/dsp/loader.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsploadertsl51)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L51
 
 #### Returns
 
-`Promise`\<[`AxDataRow`](#apidocs/typealiasaxdatarow)[]\>
+`Promise`\<[`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[]\>
 
 ***
 
@@ -86,13 +86,13 @@ Defined in: [src/ax/dsp/loader.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **setData**(`rows`): `void`
 
-Defined in: [src/ax/dsp/loader.ts:63](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsploadertsl63)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L63
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `rows` | [`AxDataRow`](#apidocs/typealiasaxdatarow)[] |
+| `rows` | [`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[] |
 
 #### Returns
 

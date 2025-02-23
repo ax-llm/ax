@@ -2,15 +2,15 @@
 title: AxAIRekaConfig
 ---
 
-> **AxAIRekaConfig**: `Omit`\<[`AxModelConfig`](#apidocs/typealiasaxmodelconfig), `"topK"`\> & `object`
+> **AxAIRekaConfig**: `Omit`\<[`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig), `"topK"`\> & `object`
 
-Defined in: [src/ax/ai/reka/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekatypestsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/types.ts#L9
 
 ## Type declaration
 
 ### model
 
-> **model**: [`AxAIRekaModel`](#apidocs/enumerationaxairekamodel) \| `string`
+> **model**: [`AxAIRekaModel`](/api/#03-apidocs/enumerationaxairekamodel)
 
 ### stop?
 

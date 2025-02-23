@@ -2,12 +2,14 @@
 title: AxAIServiceImpl
 ---
 
-Defined in: [src/ax/ai/types.ts:244](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl244)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L268
 
 ## Type Parameters
 
 | Type Parameter |
 | ------ |
+| `TModel` |
+| `TEmbedModel` |
 | `TChatRequest` |
 | `TEmbedRequest` |
 | `TChatResponse` |
@@ -20,20 +22,20 @@ Defined in: [src/ax/ai/types.ts:244](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### createChatReq()
 
-> **createChatReq**(`req`, `config`): \[[`AxAPI`](#apidocs/typealiasaxapi), `TChatRequest`\]
+> **createChatReq**(`req`, `config`): \[[`AxAPI`](/api/#03-apidocs/interfaceaxapi), `TChatRequest`\]
 
-Defined in: [src/ax/ai/types.ts:251](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl251)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L277
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxInternalChatRequest`](#apidocs/typealiasaxinternalchatrequest)\> |
-| `config` | `Readonly`\<[`AxAIPromptConfig`](#apidocs/typealiasaxaipromptconfig)\> |
+| `req` | `Readonly`\<[`AxInternalChatRequest`](/api/#03-apidocs/typealiasaxinternalchatrequest)\<`TModel`\>\> |
+| `config` | `Readonly`\<[`AxAIPromptConfig`](/api/#03-apidocs/typealiasaxaipromptconfig)\> |
 
 #### Returns
 
-\[[`AxAPI`](#apidocs/typealiasaxapi), `TChatRequest`\]
+\[[`AxAPI`](/api/#03-apidocs/interfaceaxapi), `TChatRequest`\]
 
 ***
 
@@ -41,9 +43,9 @@ Defined in: [src/ax/ai/types.ts:251](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### createChatResp()
 
-> **createChatResp**(`resp`): [`AxChatResponse`](#apidocs/typealiasaxchatresponse)
+> **createChatResp**(`resp`): [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
 
-Defined in: [src/ax/ai/types.ts:256](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl256)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L282
 
 #### Parameters
 
@@ -53,7 +55,7 @@ Defined in: [src/ax/ai/types.ts:256](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 #### Returns
 
-[`AxChatResponse`](#apidocs/typealiasaxchatresponse)
+[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
 
 ***
 
@@ -61,9 +63,9 @@ Defined in: [src/ax/ai/types.ts:256](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### createChatStreamResp()?
 
-> `optional` **createChatStreamResp**(`resp`, `state`): [`AxChatResponse`](#apidocs/typealiasaxchatresponse)
+> `optional` **createChatStreamResp**(`resp`, `state`): [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
 
-Defined in: [src/ax/ai/types.ts:258](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl258)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L284
 
 #### Parameters
 
@@ -74,7 +76,7 @@ Defined in: [src/ax/ai/types.ts:258](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 #### Returns
 
-[`AxChatResponse`](#apidocs/typealiasaxchatresponse)
+[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
 
 ***
 
@@ -82,19 +84,19 @@ Defined in: [src/ax/ai/types.ts:258](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### createEmbedReq()?
 
-> `optional` **createEmbedReq**(`req`): \[[`AxAPI`](#apidocs/typealiasaxapi), `TEmbedRequest`\]
+> `optional` **createEmbedReq**(`req`): \[[`AxAPI`](/api/#03-apidocs/interfaceaxapi), `TEmbedRequest`\]
 
-Defined in: [src/ax/ai/types.ts:263](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl263)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L289
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxInternalEmbedRequest`](#apidocs/typealiasaxinternalembedrequest)\> |
+| `req` | `Readonly`\<[`AxInternalEmbedRequest`](/api/#03-apidocs/typealiasaxinternalembedrequest)\<`TEmbedModel`\>\> |
 
 #### Returns
 
-\[[`AxAPI`](#apidocs/typealiasaxapi), `TEmbedRequest`\]
+\[[`AxAPI`](/api/#03-apidocs/interfaceaxapi), `TEmbedRequest`\]
 
 ***
 
@@ -102,9 +104,9 @@ Defined in: [src/ax/ai/types.ts:263](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### createEmbedResp()?
 
-> `optional` **createEmbedResp**(`resp`): [`AxEmbedResponse`](#apidocs/typealiasaxembedresponse)
+> `optional` **createEmbedResp**(`resp`): [`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)
 
-Defined in: [src/ax/ai/types.ts:265](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl265)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L293
 
 #### Parameters
 
@@ -114,7 +116,7 @@ Defined in: [src/ax/ai/types.ts:265](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 #### Returns
 
-[`AxEmbedResponse`](#apidocs/typealiasaxembedresponse)
+[`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)
 
 ***
 
@@ -122,10 +124,10 @@ Defined in: [src/ax/ai/types.ts:265](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### getModelConfig()
 
-> **getModelConfig**(): [`AxModelConfig`](#apidocs/typealiasaxmodelconfig)
+> **getModelConfig**(): [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
 
-Defined in: [src/ax/ai/types.ts:267](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl267)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L295
 
 #### Returns
 
-[`AxModelConfig`](#apidocs/typealiasaxmodelconfig)
+[`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)

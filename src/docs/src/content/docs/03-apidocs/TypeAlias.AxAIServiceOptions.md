@@ -4,7 +4,7 @@ title: AxAIServiceOptions
 
 > **AxAIServiceOptions**: `object`
 
-Defined in: [src/ax/ai/types.ts:210](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl210)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L227
 
 ## Type declaration
 
@@ -18,13 +18,13 @@ Defined in: [src/ax/ai/types.ts:210](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### fetch?
 
-> `optional` **fetch**: *typeof* [`__type`](#apidocs/interfaceaxapachetikaargs)
+> `optional` **fetch**: *typeof* [`__type`](/api/#03-apidocs/interfaceaxapiconfig)
 
 <a id="rateLimiter"></a>
 
 ### rateLimiter?
 
-> `optional` **rateLimiter**: [`AxRateLimiterFunction`](#apidocs/typealiasaxratelimiterfunction)
+> `optional` **rateLimiter**: [`AxRateLimiterFunction`](/api/#03-apidocs/typealiasaxratelimiterfunction)
 
 <a id="tracer"></a>
 

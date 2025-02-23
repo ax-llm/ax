@@ -2,7 +2,7 @@
 title: AxApacheTikaArgs
 ---
 
-Defined in: [src/ax/docs/tika.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocstikatsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/tika.ts#L3
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/docs/tika.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > `optional` **fetch**: (`input`, `init`?) => `Promise`\<`Response`\>
 
-Defined in: [src/ax/docs/tika.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocstikatsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/tika.ts#L5
 
 #### Parameters
 
@@ -33,4 +33,4 @@ Defined in: [src/ax/docs/tika.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > `optional` **url**: `string` \| `URL`
 
-Defined in: [src/ax/docs/tika.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocstikatsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/tika.ts#L4

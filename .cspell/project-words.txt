@@ -45,6 +45,7 @@ Macbook
 minilm
 Mixtral
 modelinfo
+multiservice
 nanos
 nemo
 Nemo

@@ -4,14 +4,14 @@ title: AxFieldTemplateFn
 
 > **AxFieldTemplateFn**: (`field`, `value`) => `any`[]
 
-Defined in: [src/ax/dsp/prompt.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprompttsl17)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/prompt.ts#L30
 
 ## Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `field` | `Readonly`\<[`AxField`](#apidocs/interfaceaxfield)\> |
-| `value` | `Readonly`\<[`AxFieldValue`](#apidocs/typealiasaxfieldvalue)\> |
+| `field` | `Readonly`\<[`AxField`](/api/#03-apidocs/interfaceaxfield)\> |
+| `value` | `Readonly`\<[`AxFieldValue`](/api/#03-apidocs/typealiasaxfieldvalue)\> |
 
 ## Returns
 

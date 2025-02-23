@@ -2,7 +2,7 @@
 title: AxAICohereArgs
 ---
 
-Defined in: [src/ax/ai/cohere/api.ts:45](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicohereapitsl45)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/api.ts#L46
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/cohere/api.ts:45](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **apiKey**: `string`
 
-Defined in: [src/ax/ai/cohere/api.ts:47](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicohereapitsl47)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/api.ts#L48
 
 ***
 
@@ -20,19 +20,19 @@ Defined in: [src/ax/ai/cohere/api.ts:47](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### config?
 
-> `optional` **config**: `Readonly`\<`Partial`\<[`AxAICohereConfig`](#apidocs/typealiasaxaicohereconfig)\>\>
+> `optional` **config**: `Readonly`\<`Partial`\<[`AxAICohereConfig`](/api/#03-apidocs/typealiasaxaicohereconfig)\>\>
 
-Defined in: [src/ax/ai/cohere/api.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicohereapitsl48)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/api.ts#L49
 
 ***
 
-<a id="modelMap"></a>
+<a id="models"></a>
 
-### modelMap?
+### models?
 
-> `optional` **modelMap**: `Record`\<`string`, `string`\>
+> `optional` **models**: `AxAIInputModelList`\<[`AxAICohereModel`](/api/#03-apidocs/enumerationaxaicoheremodel)\>
 
-Defined in: [src/ax/ai/cohere/api.ts:50](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicohereapitsl50)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/api.ts#L51
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/ai/cohere/api.ts:50](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **name**: `"cohere"`
 
-Defined in: [src/ax/ai/cohere/api.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicohereapitsl46)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/api.ts#L47
 
 ***
 
@@ -50,6 +50,6 @@ Defined in: [src/ax/ai/cohere/api.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### options?
 
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions)\>
+> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
 
-Defined in: [src/ax/ai/cohere/api.ts:49](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicohereapitsl49)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/api.ts#L50

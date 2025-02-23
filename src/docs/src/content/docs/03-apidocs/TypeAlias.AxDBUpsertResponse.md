@@ -4,7 +4,7 @@ title: AxDBUpsertResponse
 
 > **AxDBUpsertResponse**: `object`
 
-Defined in: [src/ax/db/types.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbtypestsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/types.ts#L12
 
 ## Type declaration
 

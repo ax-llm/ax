@@ -4,9 +4,15 @@ title: AxAIAnthropicChatRequest
 
 > **AxAIAnthropicChatRequest**: `object`
 
-Defined in: [src/ax/ai/anthropic/types.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl24)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L32
 
 ## Type declaration
+
+<a id="anthropic_version"></a>
+
+### anthropic\_version?
+
+> `optional` **anthropic\_version**: `string`
 
 <a id="max_tokens"></a>
 
@@ -26,9 +32,9 @@ Defined in: [src/ax/ai/anthropic/types.ts:24](#apidocs/httpsgithubcomax-llmaxblo
 
 <a id="model"></a>
 
-### model
+### model?
 
-> **model**: `string`
+> `optional` **model**: `string`
 
 <a id="stop_sequences"></a>
 
@@ -46,7 +52,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:24](#apidocs/httpsgithubcomax-llmaxblo
 
 ### system?
 
-> `optional` **system**: `string` \| `object` & [`AxAIAnthropicChatRequestCacheParam`](#apidocs/typealiasaxaianthropicchatrequestcacheparam)[]
+> `optional` **system**: `string` \| `object` & [`AxAIAnthropicChatRequestCacheParam`](/api/#03-apidocs/typealiasaxaianthropicchatrequestcacheparam)[]
 
 <a id="temperature"></a>
 
@@ -64,7 +70,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:24](#apidocs/httpsgithubcomax-llmaxblo
 
 ### tools?
 
-> `optional` **tools**: `object` & [`AxAIAnthropicChatRequestCacheParam`](#apidocs/typealiasaxaianthropicchatrequestcacheparam)[]
+> `optional` **tools**: `object` & [`AxAIAnthropicChatRequestCacheParam`](/api/#03-apidocs/typealiasaxaianthropicchatrequestcacheparam)[]
 
 <a id="top_k"></a>
 

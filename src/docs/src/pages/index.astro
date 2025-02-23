@@ -2,6 +2,8 @@
 // src/pages/index.astro
 import { getCollection } from 'astro:content'
 import Navigation from '../components/Navigation.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
 
 function getOrderFromPath(path: string): number[] {
   // Split path into segments
@@ -47,26 +49,12 @@ const sortedDocs = allDocs.sort((a, b) => compareOrderedPaths(a.slug, b.slug))
 
 // Render all markdown content
 const renderedDocs = await Promise.all(
-  sortedDocs.map(async (doc) => {
-    const { Content } = await doc.render()
-    return { ...doc, Content }
-  })
-)
-
-// Group docs by section (using first two digits of order)
-const groupedDocs = sortedDocs.reduce(
-  (acc, doc) => {
-    const match = doc.slug.match(/^(\d{2})-(\w+)/)
-    // Ensure section is always a string by using type assertion
-    const section = (match ? match[2] : 'other') as string
-
-    if (!acc[section]) {
-      acc[section] = []
-    }
-    acc[section].push(doc)
-    return acc
-  },
-  {} as Record<string, typeof sortedDocs>
+  sortedDocs
+    .filter((doc) => !doc.filePath?.includes('apidocs'))
+    .map(async (doc) => {
+      const { Content } = await doc.render()
+      return { ...doc, Content }
+    })
 )
 ---
 
@@ -83,37 +71,16 @@ const groupedDocs = sortedDocs.reduce(
   </head>
 
   <body class="bg-warmGray-100 font-mono min-h-screen">
-    <Navigation groupedDocs={groupedDocs} />
-    <div class="max-w-6xl mx-auto p-8">
-      <!-- Header Section -->
-      <header class="mb-12">
-        <div class="flex justify-between items-center mb-8">
-          <div class="space-y-1">
-            <div class="text-gray-500 text-xs">AX AGENT FRAMEWORK</div>
-            <div class="text-gray-500 text-xs">
-              TYPESCRIPT-FIRST LLM INFRASTRUCTURE
-            </div>
-          </div>
-          <div class="flex space-x-2">
-            <div class="w-3 h-3 rounded-full bg-red-400"></div>
-            <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
-            <div class="w-3 h-3 rounded-full bg-green-400"></div>
-          </div>
-        </div>
-
-        <div class="bg-gray-800 text-blue-200 p-6 rounded-lg shadow-lg">
-          <h1 class="text-2xl font-bold mb-2">Ax Framework</h1>
-          <div class="text-lg">Build LLM-Powered Agents with TypeScript</div>
-        </div>
-      </header>
-
+    <Navigation />
+    <div class="max-w-6xl mx-auto p-2">
+      <Header />
       <!-- Main Content - Rendered Markdown Sections -->
       <main class="mt-12 space-y-24">
         {
           renderedDocs.map(({ Content, slug, data }) => (
             <section
               id={slug}
-              class="bg-warmGray-50 rounded-lg p-8 shadow-lg border border-gray-200"
+              class="bg-warmGray-50 rounded-lg p-4 md:p-8 shadow-lg border border-gray-200"
             >
               <div class="mb-6">
                 <h2 class="text-xl text-gray-700 font-bold flex items-center">
@@ -132,15 +99,7 @@ const groupedDocs = sortedDocs.reduce(
           ))
         }
       </main>
-
-      <!-- Footer -->
-      <footer class="mt-12 pt-6 border-t border-gray-300">
-        <div class="flex justify-between text-gray-500 text-sm">
-          <span>Based on Stanford DSPy</span>
-          <span>Machines as Agents™</span>
-          <span>TypeScript First</span>
-        </div>
-      </footer>
+      <Footer />
     </div>
   </body>
 </html>

@@ -43,7 +43,6 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
-  AxModelInfoWithProvider,
 } from './types.js'
 
 export type AxAIArgs =
@@ -129,19 +128,15 @@ export class AxAI implements AxAIService {
     return this.ai.getId()
   }
 
-  getModelInfo(): Readonly<AxModelInfoWithProvider> {
-    return this.ai.getModelInfo()
-  }
-
-  getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined {
-    return this.ai.getEmbedModelInfo()
-  }
-
   getFeatures(model?: string): { functions: boolean; streaming: boolean } {
     return this.ai.getFeatures(model)
   }
   getModelList(): AxAIModelList | undefined {
     return this.ai.getModelList() as AxAIModelList | undefined
+  }
+
+  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
+    return this.ai.getDefaultModels()
   }
 
   getMetrics(): AxAIServiceMetrics {

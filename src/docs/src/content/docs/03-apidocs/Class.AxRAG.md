@@ -2,46 +2,74 @@
 title: AxRAG
 ---
 
-Defined in: [src/ax/prompts/rag.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxpromptsragtsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/rag.ts#L12
 
 ## Extends
 
-- [`AxChainOfThought`](#apidocs/classaxchainofthought)\<\{ `context`: `string`[]; `question`: `string`; \}, \{ `answer`: `string`; \}\>
+- [`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought)\<\{ `context`: `string`[]; `question`: `string`; \}, \{ `answer`: `string`; \}\>
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxRAG()
 
-> **new AxRAG**(`queryFn`, `options`): [`AxRAG`](#apidocs/classaxrag)
+> **new AxRAG**(`queryFn`, `options`): [`AxRAG`](/api/#03-apidocs/classaxrag)
 
-Defined in: [src/ax/prompts/rag.ts:23](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxpromptsragtsl23)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/rag.ts#L23
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
 | `queryFn` | (`query`) => `Promise`\<`string`\> |
-| `options` | `Readonly`\<[`AxGenOptions`](#apidocs/interfaceaxgenoptions) & `object`\> |
+| `options` | `Readonly`\<[`AxGenOptions`](/api/#03-apidocs/interfaceaxgenoptions) & `object`\> |
 
 #### Returns
 
-[`AxRAG`](#apidocs/classaxrag)
+[`AxRAG`](/api/#03-apidocs/classaxrag)
 
 #### Overrides
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`constructor`](#apidocs/classaxchainofthoughtmdconstructors)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`constructor`](/api/#03-apidocs/classaxchainofthoughtmdconstructors)
 
 ## Methods
+
+<a id="_forward1"></a>
+
+### \_forward1()
+
+> **\_forward1**(`ai`, `values`, `options`): `AsyncGenerator`\<\{ `delta`: `Partial`\<`object` & `object`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L603
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `values` | \{ `context`: `string`[]; `question`: `string`; \} |
+| `values.context` | `string`[] |
+| `values.question` | `string` |
+| `options` | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
+
+#### Returns
+
+`AsyncGenerator`\<\{ `delta`: `Partial`\<`object` & `object`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+#### Inherited from
+
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`_forward1`](/api/#03-apidocs/classaxchainofthoughtmdforward1)
+
+***
 
 <a id="addAssert"></a>
 
 ### addAssert()
 
-> **addAssert**(`fn`, `message`?, `optional`?): `void`
+> **addAssert**(`fn`, `message`?): `void`
 
-Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl115)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L133
 
 #### Parameters
 
@@ -49,7 +77,6 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 | ------ | ------ |
 | `fn` | (`values`) => `undefined` \| `boolean` |
 | `message`? | `string` |
-| `optional`? | `boolean` |
 
 #### Returns
 
@@ -57,7 +84,32 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`addAssert`](#apidocs/classaxchainofthoughtmdaddassert)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`addAssert`](/api/#03-apidocs/classaxchainofthoughtmdaddassert)
+
+***
+
+<a id="addFieldProcessor"></a>
+
+### addFieldProcessor()
+
+> **addFieldProcessor**(`fieldName`, `fn`): `void`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L180
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `fieldName` | `string` |
+| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`addFieldProcessor`](/api/#03-apidocs/classaxchainofthoughtmdaddfieldprocessor)
 
 ***
 
@@ -65,9 +117,9 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### addStreamingAssert()
 
-> **addStreamingAssert**(`fieldName`, `fn`, `message`?, `optional`?): `void`
+> **addStreamingAssert**(`fieldName`, `fn`, `message`?): `void`
 
-Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl123)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L137
 
 #### Parameters
 
@@ -76,7 +128,6 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 | `fieldName` | `string` |
 | `fn` | (`content`, `done`?) => `undefined` \| `boolean` |
 | `message`? | `string` |
-| `optional`? | `boolean` |
 
 #### Returns
 
@@ -84,7 +135,32 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`addStreamingAssert`](#apidocs/classaxchainofthoughtmdaddstreamingassert)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`addStreamingAssert`](/api/#03-apidocs/classaxchainofthoughtmdaddstreamingassert)
+
+***
+
+<a id="addStreamingFieldProcessor"></a>
+
+### addStreamingFieldProcessor()
+
+> **addStreamingFieldProcessor**(`fieldName`, `fn`): `void`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L173
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `fieldName` | `string` |
+| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`addStreamingFieldProcessor`](/api/#03-apidocs/classaxchainofthoughtmdaddstreamingfieldprocessor)
 
 ***
 
@@ -94,15 +170,15 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **forward**(`ai`, `__namedParameters`, `options`?): `Promise`\<\{ `answer`: `string`; `reason`: `string`; \}\>
 
-Defined in: [src/ax/prompts/rag.ts:44](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxpromptsragtsl44)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/rag.ts#L44
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `ai` | `Readonly`\<[`AxAIService`](#apidocs/interfaceaxaiservice)\> |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
 | `__namedParameters` | `Readonly`\<\{ `question`: `string`; \}\> |
-| `options`? | `Readonly`\<[`AxProgramForwardOptions`](#apidocs/typealiasaxprogramforwardoptions)\> |
+| `options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
 
@@ -110,7 +186,7 @@ Defined in: [src/ax/prompts/rag.ts:44](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 #### Overrides
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`forward`](#apidocs/classaxchainofthoughtmdforward)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`forward`](/api/#03-apidocs/classaxchainofthoughtmdforward)
 
 ***
 
@@ -118,17 +194,17 @@ Defined in: [src/ax/prompts/rag.ts:44](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### getSignature()
 
-> **getSignature**(): [`AxSignature`](#apidocs/classaxsignature)
+> **getSignature**(): [`AxSignature`](/api/#03-apidocs/classaxsignature)
 
-Defined in: [src/ax/dsp/program.ts:117](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl117)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L133
 
 #### Returns
 
-[`AxSignature`](#apidocs/classaxsignature)
+[`AxSignature`](/api/#03-apidocs/classaxsignature)
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`getSignature`](#apidocs/classaxchainofthoughtmdgetsignature)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`getSignature`](/api/#03-apidocs/classaxchainofthoughtmdgetsignature)
 
 ***
 
@@ -136,17 +212,17 @@ Defined in: [src/ax/dsp/program.ts:117](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getTraces()
 
-> **getTraces**(): [`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+> **getTraces**(): [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
-Defined in: [src/ax/dsp/program.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl193)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L220
 
 #### Returns
 
-[`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+[`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`getTraces`](#apidocs/classaxchainofthoughtmdgettraces)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`getTraces`](/api/#03-apidocs/classaxchainofthoughtmdgettraces)
 
 ***
 
@@ -154,17 +230,17 @@ Defined in: [src/ax/dsp/program.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getUsage()
 
-> **getUsage**(): [`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+> **getUsage**(): [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
-Defined in: [src/ax/dsp/program.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl207)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L234
 
 #### Returns
 
-[`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`getUsage`](#apidocs/classaxchainofthoughtmdgetusage)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`getUsage`](/api/#03-apidocs/classaxchainofthoughtmdgetusage)
 
 ***
 
@@ -174,13 +250,13 @@ Defined in: [src/ax/dsp/program.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **register**(`prog`): `void`
 
-Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl121)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L137
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `prog` | `Readonly`\<[`AxTunable`](#apidocs/interfaceaxtunable) & [`AxUsable`](#apidocs/interfaceaxusable)\> |
+| `prog` | `Readonly`\<[`AxTunable`](/api/#03-apidocs/interfaceaxtunable) & [`AxUsable`](/api/#03-apidocs/interfaceaxusable)\> |
 
 #### Returns
 
@@ -188,7 +264,7 @@ Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`register`](#apidocs/classaxchainofthoughtmdregister)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`register`](/api/#03-apidocs/classaxchainofthoughtmdregister)
 
 ***
 
@@ -198,7 +274,7 @@ Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **resetUsage**(): `void`
 
-Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl217)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L244
 
 #### Returns
 
@@ -206,7 +282,7 @@ Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`resetUsage`](#apidocs/classaxchainofthoughtmdresetusage)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`resetUsage`](/api/#03-apidocs/classaxchainofthoughtmdresetusage)
 
 ***
 
@@ -216,13 +292,13 @@ Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setDemos**(`demos`): `void`
 
-Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl224)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L251
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `demos` | readonly [`AxProgramDemos`](#apidocs/typealiasaxprogramdemos)[] |
+| `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
 
@@ -230,7 +306,7 @@ Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`setDemos`](#apidocs/classaxchainofthoughtmdsetdemos)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`setDemos`](/api/#03-apidocs/classaxchainofthoughtmdsetdemos)
 
 ***
 
@@ -240,13 +316,13 @@ Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setExamples**(`examples`): `void`
 
-Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl152)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L179
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `examples` | `Readonly`\<[`AxProgramExamples`](#apidocs/typealiasaxprogramexamples)\> |
+| `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
 
 #### Returns
 
@@ -254,7 +330,7 @@ Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`setExamples`](#apidocs/classaxchainofthoughtmdsetexamples)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`setExamples`](/api/#03-apidocs/classaxchainofthoughtmdsetexamples)
 
 ***
 
@@ -264,7 +340,7 @@ Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setId**(`id`): `void`
 
-Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl139)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L166
 
 #### Parameters
 
@@ -278,7 +354,7 @@ Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`setId`](#apidocs/classaxchainofthoughtmdsetid)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`setId`](/api/#03-apidocs/classaxchainofthoughtmdsetid)
 
 ***
 
@@ -288,7 +364,7 @@ Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setParentId**(`parentId`): `void`
 
-Defined in: [src/ax/dsp/program.ts:146](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl146)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L173
 
 #### Parameters
 
@@ -302,4 +378,32 @@ Defined in: [src/ax/dsp/program.ts:146](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxChainOfThought`](#apidocs/classaxchainofthought).[`setParentId`](#apidocs/classaxchainofthoughtmdsetparentid)
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`setParentId`](/api/#03-apidocs/classaxchainofthoughtmdsetparentid)
+
+***
+
+<a id="streamingForward"></a>
+
+### streamingForward()
+
+> **streamingForward**(`ai`, `values`, `options`?): `AsyncGenerator`\<\{ `delta`: `Partial`\<`object` & `object`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L675
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `values` | \{ `context`: `string`[]; `question`: `string`; \} |
+| `values.context` | `string`[] |
+| `values.question`? | `string` |
+| `options`? | `Readonly`\<[`AxProgramStreamingForwardOptions`](/api/#03-apidocs/typealiasaxprogramstreamingforwardoptions)\> |
+
+#### Returns
+
+`AsyncGenerator`\<\{ `delta`: `Partial`\<`object` & `object`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+#### Inherited from
+
+[`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought).[`streamingForward`](/api/#03-apidocs/classaxchainofthoughtmdstreamingforward)

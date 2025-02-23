@@ -2,7 +2,7 @@
 title: AxRouterForwardOptions
 ---
 
-Defined in: [src/ax/dsp/router.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L7
 
 ## Properties
 
@@ -12,4 +12,4 @@ Defined in: [src/ax/dsp/router.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 > `optional` **cutoff**: `number`
 
-Defined in: [src/ax/dsp/router.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L8

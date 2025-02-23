@@ -4,7 +4,7 @@ title: AxFunction
 
 > **AxFunction**: `object`
 
-Defined in: [src/ax/ai/types.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl59)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L72
 
 ## Type declaration
 
@@ -18,7 +18,7 @@ Defined in: [src/ax/ai/types.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### func
 
-> **func**: [`AxFunctionHandler`](#apidocs/typealiasaxfunctionhandler)
+> **func**: [`AxFunctionHandler`](/api/#03-apidocs/typealiasaxfunctionhandler)
 
 <a id="name"></a>
 
@@ -30,4 +30,4 @@ Defined in: [src/ax/ai/types.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### parameters?
 
-> `optional` **parameters**: [`AxFunctionJSONSchema`](#apidocs/typealiasaxfunctionjsonschema)
+> `optional` **parameters**: [`AxFunctionJSONSchema`](/api/#03-apidocs/typealiasaxfunctionjsonschema)

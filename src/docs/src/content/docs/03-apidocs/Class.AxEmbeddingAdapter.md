@@ -2,27 +2,27 @@
 title: AxEmbeddingAdapter
 ---
 
-Defined in: [src/ax/funcs/embed.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsembedtsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/embed.ts#L7
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxEmbeddingAdapter()
 
-> **new AxEmbeddingAdapter**(`__namedParameters`): [`AxEmbeddingAdapter`](#apidocs/classaxembeddingadapter)
+> **new AxEmbeddingAdapter**(`__namedParameters`): [`AxEmbeddingAdapter`](/api/#03-apidocs/classaxembeddingadapter)
 
-Defined in: [src/ax/funcs/embed.ts:19](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsembedtsl19)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/embed.ts#L19
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<\{ `ai`: [`AxAIService`](#apidocs/interfaceaxaiservice); `func`: (`args`, `extra`?) => `Promise`\<`unknown`\>; `info`: `Readonly`\<\{ `argumentDescription`: `string`; `description`: `string`; `name`: `string`; \}\>; \}\> |
+| `__namedParameters` | `Readonly`\<\{ `ai`: [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice); `func`: (`args`, `extra`?) => `Promise`\<`unknown`\>; `info`: `Readonly`\<\{ `argumentDescription`: `string`; `description`: `string`; `name`: `string`; \}\>; \}\> |
 
 #### Returns
 
-[`AxEmbeddingAdapter`](#apidocs/classaxembeddingadapter)
+[`AxEmbeddingAdapter`](/api/#03-apidocs/classaxembeddingadapter)
 
 ## Methods
 
@@ -30,10 +30,10 @@ Defined in: [src/ax/funcs/embed.ts:19](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### toFunction()
 
-> **toFunction**(): [`AxFunction`](#apidocs/typealiasaxfunction)
+> **toFunction**(): [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)
 
-Defined in: [src/ax/funcs/embed.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsembedtsl57)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/embed.ts#L57
 
 #### Returns
 
-[`AxFunction`](#apidocs/typealiasaxfunction)
+[`AxFunction`](/api/#03-apidocs/typealiasaxfunction)

@@ -2,11 +2,11 @@
 title: AxDBPineconeArgs
 ---
 
-Defined in: [src/ax/db/pinecone.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbpineconetsl48)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/pinecone.ts#L48
 
 ## Extends
 
-- [`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs)
+- [`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs)
 
 ## Properties
 
@@ -16,7 +16,7 @@ Defined in: [src/ax/db/pinecone.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **apiKey**: `string`
 
-Defined in: [src/ax/db/pinecone.ts:50](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbpineconetsl50)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/pinecone.ts#L50
 
 ***
 
@@ -26,7 +26,7 @@ Defined in: [src/ax/db/pinecone.ts:50](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > `optional` **fetch**: (`input`, `init`?) => `Promise`\<`Response`\>
 
-Defined in: [src/ax/db/pinecone.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbpineconetsl52)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/pinecone.ts#L52
 
 #### Parameters
 
@@ -41,7 +41,7 @@ Defined in: [src/ax/db/pinecone.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 #### Overrides
 
-[`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs).[`fetch`](#apidocs/interfaceaxdbbaseargsmdfetch)
+[`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs).[`fetch`](/api/#03-apidocs/interfaceaxdbbaseargsmdfetch)
 
 ***
 
@@ -51,7 +51,7 @@ Defined in: [src/ax/db/pinecone.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **host**: `string`
 
-Defined in: [src/ax/db/pinecone.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbpineconetsl51)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/pinecone.ts#L51
 
 ***
 
@@ -61,7 +61,7 @@ Defined in: [src/ax/db/pinecone.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **name**: `"pinecone"`
 
-Defined in: [src/ax/db/pinecone.ts:49](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbpineconetsl49)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/pinecone.ts#L49
 
 ***
 
@@ -71,8 +71,8 @@ Defined in: [src/ax/db/pinecone.ts:49](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > `optional` **tracer**: `Tracer`
 
-Defined in: [src/ax/db/base.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L15
 
 #### Inherited from
 
-[`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs).[`tracer`](#apidocs/interfaceaxdbbaseargsmdtracer)
+[`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs).[`tracer`](/api/#03-apidocs/interfaceaxdbbaseargsmdtracer)

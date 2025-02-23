@@ -26,9 +26,9 @@ Use Ax and get an end-to-end streaming, multi-modal DSPy framework with agents a
 
 <img width="860" alt="shapes at 24-03-31 00 05 55" src="https://github.com/dosco/llm-client/assets/832235/0f0306ea-1812-4a0a-9ed5-76cd908cd26b">
 
-Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made up of a `"task description" inputField:type "field description" -> "outputField:type`. The idea behind prompt signatures is based on work done in the "Demonstrate-Search-Predict" paper.
+Efficient type-safe prompts are auto-generated from a simple signature. A prompt signature is made up of a `"task description" inputField:type "field description" -> "outputField:type`. The idea behind prompt signatures is based on work done in the "Demonstrate-Search-Predict" paper.
 
-You can have multiple input and output fields, and each field can be of the types `string`, `number`, `boolean`, `date`, `datetime`, `class "class1, class2"`, `JSON`, or an array of any of these, e.g., `string[]`. When a type is not defined, it defaults to `string`. The underlying AI is encouraged to generate the correct JSON when the `JSON` type is used.
+You can have multiple input and output fields, and each field can be of the types `string`, `number`, `boolean`, `date`, `datetime`, `class "class1, class2"`, `JSON`, or an array of any of these, e.g., `string[]`. When a type is not defined, it defaults to `string`. The suffix `?` makes the field optional (required by default) and `!` makes the field internal which is good for things like reasoning.
 
 ## Output Field Types
 
@@ -46,6 +46,7 @@ You can have multiple input and output fields, and each field can be of the type
 | `date[]`                  | An array of dates.                | `holidayDates:date[]`      | `["2023-10-01", "2023-10-02"]`                     |
 | `datetime[]`              | An array of date and time values. | `logTimestamps:datetime[]` | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]` |
 | `class[] "class1,class2"` | Multiple classes                  | `categories:class[]`       | `["class1", "class2", "class3"]`                   |
+| `code "language"`         | A code block in a specific language | `code:code "python"`     | `print('Hello, world!')`                          |
 
 
 
@@ -167,7 +168,7 @@ Launch Apache Tika
 docker run -p 9998:9998 apache/tika
 ```
 
-Convert documents to text and embed them for retrieval using the `AxDBManager`, which also supports a reranker and query rewriter. Two default implementations, `AxDefaultResultReranker` and `AxDefaultQueryRewriter`, are available.
+Convert documents to text and embed them for retrieval using the `AxDBManager`, which also supports a reranker and query rewriter. Two default implementations, `AxDefaultResultReranker` and `AxDefaultQueryRewriter`, are available.
 
 ```typescript
 const tika = new AxApacheTika();
@@ -182,7 +183,7 @@ console.log(matches);
 
 ## Multi-modal DSPy
 
-When using models like `GPT-4o` and `Gemini` that support multi-modal prompts, we support using image fields, and this works with the whole DSP pipeline.
+When using models like `GPT-4o` and `Gemini` that support multi-modal prompts, we support using image fields, and this works with the whole DSP pipeline.
 
 ```typescript
 const image = fs
@@ -197,7 +198,7 @@ const res = await gen.forward(ai, {
 });
 ```
 
-When using models like `gpt-4o-audio-preview` that support multi-modal prompts with audio support, we support using audio fields, and this works with the whole DSP pipeline.
+When using models like `gpt-4o-audio-preview` that support multi-modal prompts with audio support, we support using audio fields, and this works with the whole DSP pipeline.
 
 ```typescript
 const audio = fs
@@ -289,49 +290,119 @@ const processor = new AxFieldProcessor(gen, 'next10Numbers', processorFunction, 
 const res = await gen.forward({ startNumber: 1 });
 ```
 
+## AI Routing and Load Balancing
 
-<!-- ## Fast LLM Router
+Ax provides two powerful ways to work with multiple AI services: a load balancer for high availability and a router for model-specific routing.
 
-A special router that uses no LLM calls, only embeddings, to route user requests smartly.
+### Load Balancer
 
-Use the Router to efficiently route user queries to specific routes designed to handle certain questions or tasks. Each route is tailored to a particular domain or service area. Instead of using a slow or expensive LLM to decide how user input should be handled, use our fast "Semantic Router," which uses inexpensive and fast embedding queries.
+The load balancer automatically distributes requests across multiple AI services based on performance and availability. If one service fails, it automatically fails over to the next available service.
 
 ```typescript
-# npm run tsx ./src/examples/routing.ts
+import { AxAI, AxBalancer } from '@ax-llm/ax'
 
-const customerSupport = new AxRoute('customerSupport', [
-  'how can I return a product?',
-  'where is my order?',
-  'can you help me with a refund?',
-  'I need to update my shipping address',
-  'my product arrived damaged, what should I do?'
-]);
+// Setup multiple AI services
+const openai = new AxAI({ 
+  name: 'openai', 
+  apiKey: process.env.OPENAI_APIKEY,
+})
 
-const technicalSupport = new AxRoute('technicalSupport', [
-  'how do I install your software?',
-  'I’m having trouble logging in',
-  'can you help me configure my settings?',
-  'my application keeps crashing',
-  'how do I update to the latest version?'
-]);
+const ollama = new AxAI({ 
+  name: 'ollama', 
+  config: { model: "nous-hermes2" }
+})
 
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY as string });
+const gemini = new AxAI({ 
+  name: 'google-gemini', 
+  apiKey: process.env.GOOGLE_APIKEY 
+})
 
-const router = new AxRouter(ai);
-await router.setRoutes(
-  [customerSupport, technicalSupport],
-  { filename: 'router.json' }
-);
+// Create a load balancer with all services
+const balancer = new AxBalancer([openai, ollama, gemini])
 
-const tag = await router.forward('I need help with my order');
+// Use like a regular AI service - automatically uses the best available service
+const response = await balancer.chat({
+  chatPrompt: [{ role: 'user', content: 'Hello!' }],
+})
 
-if (tag === "customerSupport") {
-    ...
+// Or use the balance with AxGen
+const gen = new AxGen(`question -> answer`)
+const res = await gen.forward(balancer,{ question: 'Hello!' })
+```
+
+### Multi-Service Router 
+
+The router lets you use multiple AI services through a single interface, automatically routing requests to the right service based on the model specified.
+
+```typescript
+import { AxAI, AxMultiServiceRouter, AxAIOpenAIModel } from '@ax-llm/ax'
+
+// Setup OpenAI with model list
+const openai = new AxAI({ 
+  name: 'openai', 
+  apiKey: process.env.OPENAI_APIKEY,
+  models: [
+    {
+      key: 'basic',
+      model: AxAIOpenAIModel.GPT4OMini,
+      description: 'Fast model for simple tasks',
+    },
+    {
+      key: 'expert',
+      model: AxAIOpenAIModel.GPT4O,
+      description: 'Expert model for specialized tasks',
+    }
+  ]
+})
+
+// Setup Gemini with model list
+const gemini = new AxAI({ 
+  name: 'google-gemini', 
+  apiKey: process.env.GOOGLE_APIKEY,
+  models: [
+    {
+      key: 'basic',
+      model: 'gemini-2.0-flash',
+      description: 'Basic Gemini model for simple tasks',
+    },
+    {
+      key: 'expert',
+      model: 'gemini-2.0-pro',
+      description: 'Expert Gemini model for complex tasks',
+    }
+  ]
+})
+
+const ollama = new AxAI({ 
+  name: 'ollama', 
+  config: { model: "nous-hermes2" }
+})
+
+const secretService = {
+    key: 'sensitive-secret',
+    service: ollama,
+    description: 'Ollama model for sensitive secrets tasks'
 }
-if (tag === "technicalSupport") {
-    ...
-}
-``` -->
+
+// Create a router with all services
+const router = new AxMultiServiceRouter([openai, gemini, secretService])
+
+// Route to OpenAI's expert model
+const openaiResponse = await router.chat({
+  chatPrompt: [{ role: 'user', content: 'Hello!' }],
+  model: 'expert'
+})
+
+// Or use the router with AxGen
+const gen = new AxGen(`question -> answer`)
+const res = await gen.forward(router, { question: 'Hello!' })
+```
+
+The load balancer is ideal for high availability while the router is perfect when you need specific models for specific tasks Both can be used with any of Ax's features like streaming, function calling, and chain-of-thought prompting.
+
+**They can also be used together**
+
+You can also use the balancer and the router together either the multiple balancers can be used with the router or the router can be used with the balancer.
 
 ## Vercel AI SDK Integration
 
@@ -397,7 +468,7 @@ const result = await streamUI({
 
 ## OpenTelemetry support
 
-The ability to trace and observe your llm workflow is critical to building production workflows. OpenTelemetry is an industry-standard, and we support the new `gen_ai` attribute namespace.
+The ability to trace and observe your llm workflow is critical to building production workflows. OpenTelemetry is an industry-standard, and we support the new `gen_ai` attribute namespace.
 
 ```typescript
 import { trace } from '@opentelemetry/api';
@@ -531,7 +602,7 @@ console.log(res);
 
 ## Check out all the examples
 
-Use the `tsx` command to run the examples. It makes the node run typescript code. It also supports using an `.env` file to pass the AI API Keys instead of putting them in the command line.
+Use the `tsx` command to run the examples. It makes the node run typescript code. It also supports using an `.env` file to pass the AI API Keys instead of putting them in the command line.
 
 ```shell
 OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
@@ -640,7 +711,7 @@ const cot = new AxGen(ai, `question:string -> answer:string`, { functions });
 ## Enable debug logs
 
 ```ts
-const ai = new AxOpenAI({ apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
+const ai = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
 ai.setOptions({ debug: true });
 ```
 
@@ -681,6 +752,6 @@ conf.model = OpenAIModel.GPT4Turbo;
 
 ## Monorepo tips & tricks
 
-It is essential to remember that we should only run `npm install` from the root directory. This prevents the creation of nested `package-lock.json` files and avoids non-deduplicated `node_modules`.
+It is essential to remember that we should only run `npm install` from the root directory. This prevents the creation of nested `package-lock.json` files and avoids non-deduplicated `node_modules`.
 
-Adding new dependencies in packages should be done with e.g. `npm install lodash --workspace=ax` (or just modify the appropriate `package.json` and run `npm install` from root).
+Adding new dependencies in packages should be done with e.g. `npm install lodash --workspace=ax` (or just modify the appropriate `package.json` and run `npm install` from root).

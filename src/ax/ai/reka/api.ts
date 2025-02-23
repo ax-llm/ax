@@ -5,7 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
-  AxAIModelList,
+  AxAIInputModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -56,7 +56,7 @@ export interface AxAIRekaArgs {
   config?: Readonly<Partial<AxAIRekaConfig>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo?: Readonly<AxModelInfo[]>
-  models?: AxAIModelList<AxAIRekaModel>
+  models?: AxAIInputModelList<AxAIRekaModel>
 }
 
 class AxAIRekaImpl

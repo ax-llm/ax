@@ -4,7 +4,7 @@ title: AxChatResponseFunctionCall
 
 > **AxChatResponseFunctionCall**: `object`
 
-Defined in: [src/ax/dsp/functions.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspfunctionstsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L67
 
 ## Type declaration
 
@@ -16,9 +16,9 @@ Defined in: [src/ax/dsp/functions.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 <a id="id"></a>
 
-### id?
+### id
 
-> `optional` **id**: `string`
+> **id**: `string`
 
 <a id="name"></a>
 

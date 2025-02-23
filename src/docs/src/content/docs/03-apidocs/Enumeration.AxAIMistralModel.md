@@ -2,7 +2,7 @@
 title: AxAIMistralModel
 ---
 
-Defined in: [src/ax/ai/mistral/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L3
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/mistral/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **Codestral**: `"codestral-latest"`
 
-Defined in: [src/ax/ai/mistral/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L9
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/mistral/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **Mistral7B**: `"open-mistral-7b"`
 
-Defined in: [src/ax/ai/mistral/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L4
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/ai/mistral/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **Mistral8x7B**: `"open-mixtral-8x7b"`
 
-Defined in: [src/ax/ai/mistral/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L5
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/ai/mistral/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **MistralLarge**: `"mistral-large-latest"`
 
-Defined in: [src/ax/ai/mistral/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L8
 
 ***
 
@@ -52,7 +52,7 @@ Defined in: [src/ax/ai/mistral/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **MistralNemo**: `"mistral-nemo-latest"`
 
-Defined in: [src/ax/ai/mistral/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L7
 
 ***
 
@@ -62,7 +62,7 @@ Defined in: [src/ax/ai/mistral/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **MistralSmall**: `"mistral-small-latest"`
 
-Defined in: [src/ax/ai/mistral/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl6)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L6
 
 ***
 
@@ -72,7 +72,7 @@ Defined in: [src/ax/ai/mistral/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **OpenCodestralMamba**: `"open-codestral-mamba"`
 
-Defined in: [src/ax/ai/mistral/types.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl10)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L10
 
 ***
 
@@ -82,4 +82,4 @@ Defined in: [src/ax/ai/mistral/types.ts:10](#apidocs/httpsgithubcomax-llmaxblob3
 
 > **OpenMistralNemo**: `"open-mistral-nemo-latest"`
 
-Defined in: [src/ax/ai/mistral/types.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaimistraltypestsl11)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/types.ts#L11

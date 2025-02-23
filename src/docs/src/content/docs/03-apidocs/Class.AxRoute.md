@@ -2,17 +2,17 @@
 title: AxRoute
 ---
 
-Defined in: [src/ax/dsp/router.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl11)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L11
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxRoute()
 
-> **new AxRoute**(`name`, `context`): [`AxRoute`](#apidocs/classaxroute)
+> **new AxRoute**(`name`, `context`): [`AxRoute`](/api/#03-apidocs/classaxroute)
 
-Defined in: [src/ax/dsp/router.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L15
 
 #### Parameters
 
@@ -23,7 +23,7 @@ Defined in: [src/ax/dsp/router.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Returns
 
-[`AxRoute`](#apidocs/classaxroute)
+[`AxRoute`](/api/#03-apidocs/classaxroute)
 
 ## Methods
 
@@ -33,7 +33,7 @@ Defined in: [src/ax/dsp/router.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **getContext**(): readonly `string`[]
 
-Defined in: [src/ax/dsp/router.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl24)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L24
 
 #### Returns
 
@@ -47,7 +47,7 @@ readonly `string`[]
 
 > **getName**(): `string`
 
-Defined in: [src/ax/dsp/router.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl20)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L20
 
 #### Returns
 

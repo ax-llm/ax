@@ -2,7 +2,7 @@
 title: AxAIHuggingFaceArgs
 ---
 
-Defined in: [src/ax/ai/huggingface/api.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaihuggingfaceapitsl36)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/huggingface/api.ts#L37
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/huggingface/api.ts:36](#apidocs/httpsgithubcomax-llmaxblo
 
 > **apiKey**: `string`
 
-Defined in: [src/ax/ai/huggingface/api.ts:38](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaihuggingfaceapitsl38)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/huggingface/api.ts#L39
 
 ***
 
@@ -20,19 +20,19 @@ Defined in: [src/ax/ai/huggingface/api.ts:38](#apidocs/httpsgithubcomax-llmaxblo
 
 ### config?
 
-> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIHuggingFaceConfig`](#apidocs/typealiasaxaihuggingfaceconfig)\>\>
+> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIHuggingFaceConfig`](/api/#03-apidocs/typealiasaxaihuggingfaceconfig)\>\>
 
-Defined in: [src/ax/ai/huggingface/api.ts:39](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaihuggingfaceapitsl39)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/huggingface/api.ts#L40
 
 ***
 
-<a id="modelMap"></a>
+<a id="models"></a>
 
-### modelMap?
+### models?
 
-> `optional` **modelMap**: `Record`\<`string`, [`MetaLlama270BChatHF`](#apidocs/enumerationaxaihuggingfacemodelmdmetallama270bchathf)\>
+> `optional` **models**: `AxAIInputModelList`\<[`MetaLlama270BChatHF`](/api/#03-apidocs/enumerationaxaihuggingfacemodelmdmetallama270bchathf)\>
 
-Defined in: [src/ax/ai/huggingface/api.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaihuggingfaceapitsl41)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/huggingface/api.ts#L42
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/ai/huggingface/api.ts:41](#apidocs/httpsgithubcomax-llmaxblo
 
 > **name**: `"huggingface"`
 
-Defined in: [src/ax/ai/huggingface/api.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaihuggingfaceapitsl37)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/huggingface/api.ts#L38
 
 ***
 
@@ -50,6 +50,6 @@ Defined in: [src/ax/ai/huggingface/api.ts:37](#apidocs/httpsgithubcomax-llmaxblo
 
 ### options?
 
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions)\>
+> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
 
-Defined in: [src/ax/ai/huggingface/api.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaihuggingfaceapitsl40)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/huggingface/api.ts#L41

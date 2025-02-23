@@ -2,11 +2,11 @@
 title: AxUsable
 ---
 
-Defined in: [src/ax/dsp/program.ts:75](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl75)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L91
 
 ## Extended by
 
-- [`AxAgentic`](#apidocs/interfaceaxagentic)
+- [`AxAgentic`](/api/#03-apidocs/interfaceaxagentic)
 
 ## Properties
 
@@ -14,13 +14,13 @@ Defined in: [src/ax/dsp/program.ts:75](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### getUsage()
 
-> **getUsage**: () => [`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+> **getUsage**: () => [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
-Defined in: [src/ax/dsp/program.ts:76](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl76)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L92
 
 #### Returns
 
-[`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: [src/ax/dsp/program.ts:76](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **resetUsage**: () => `void`
 
-Defined in: [src/ax/dsp/program.ts:77](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl77)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L93
 
 #### Returns
 

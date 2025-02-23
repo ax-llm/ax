@@ -2,7 +2,7 @@
 title: AxResponseHandlerArgs
 ---
 
-Defined in: [src/ax/dsp/generate.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl71)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L78
 
 ## Type Parameters
 
@@ -16,9 +16,19 @@ Defined in: [src/ax/dsp/generate.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### ai
 
-> **ai**: `Readonly`\<[`AxAIService`](#apidocs/interfaceaxaiservice)\>
+> **ai**: `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\>
 
-Defined in: [src/ax/dsp/generate.ts:72](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl72)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L79
+
+***
+
+<a id="fastFail"></a>
+
+### fastFail?
+
+> `optional` **fastFail**: `boolean`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L87
 
 ***
 
@@ -26,9 +36,9 @@ Defined in: [src/ax/dsp/generate.ts:72](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### functions?
 
-> `optional` **functions**: readonly [`AxFunction`](#apidocs/typealiasaxfunction)[]
+> `optional` **functions**: readonly [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)[]
 
-Defined in: [src/ax/dsp/generate.ts:79](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl79)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L86
 
 ***
 
@@ -36,9 +46,9 @@ Defined in: [src/ax/dsp/generate.ts:79](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### mem
 
-> **mem**: [`AxAIMemory`](#apidocs/interfaceaxaimemory)
+> **mem**: [`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory)
 
-Defined in: [src/ax/dsp/generate.ts:76](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl76)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L83
 
 ***
 
@@ -48,7 +58,7 @@ Defined in: [src/ax/dsp/generate.ts:76](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **model**: `string`
 
-Defined in: [src/ax/dsp/generate.ts:73](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl73)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L80
 
 ***
 
@@ -58,7 +68,7 @@ Defined in: [src/ax/dsp/generate.ts:73](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **res**: `T`
 
-Defined in: [src/ax/dsp/generate.ts:74](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl74)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L81
 
 ***
 
@@ -68,7 +78,7 @@ Defined in: [src/ax/dsp/generate.ts:74](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **sessionId**: `string`
 
-Defined in: [src/ax/dsp/generate.ts:77](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl77)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L84
 
 ***
 
@@ -78,7 +88,7 @@ Defined in: [src/ax/dsp/generate.ts:77](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **traceId**: `string`
 
-Defined in: [src/ax/dsp/generate.ts:78](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl78)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L85
 
 ***
 
@@ -88,7 +98,7 @@ Defined in: [src/ax/dsp/generate.ts:78](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **usageInfo**: `object`
 
-Defined in: [src/ax/dsp/generate.ts:75](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl75)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L82
 
 <a id=""></a>
 

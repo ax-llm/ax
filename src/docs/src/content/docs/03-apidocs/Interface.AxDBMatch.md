@@ -2,7 +2,7 @@
 title: AxDBMatch
 ---
 
-Defined in: [src/ax/docs/manager.ts:26](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl26)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L26
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/docs/manager.ts:26](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **score**: `number`
 
-Defined in: [src/ax/docs/manager.ts:27](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl27)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L27
 
 ***
 
@@ -22,4 +22,4 @@ Defined in: [src/ax/docs/manager.ts:27](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **text**: `string`
 
-Defined in: [src/ax/docs/manager.ts:28](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl28)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L28

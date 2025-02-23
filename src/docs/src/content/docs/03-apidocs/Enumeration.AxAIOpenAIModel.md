@@ -2,7 +2,7 @@
 title: AxAIOpenAIModel
 ---
 
-Defined in: [src/ax/ai/openai/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L3
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/openai/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b7
 
 > **GPT35TextDavinci002**: `"text-davinci-002"`
 
-Defined in: [src/ax/ai/openai/types.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L14
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/openai/types.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **GPT35Turbo**: `"gpt-3.5-turbo"`
 
-Defined in: [src/ax/ai/openai/types.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl11)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L12
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/ai/openai/types.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **GPT35TurboInstruct**: `"gpt-3.5-turbo-instruct"`
 
-Defined in: [src/ax/ai/openai/types.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L13
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/ai/openai/types.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **GPT3TextAda001**: `"text-ada-001"`
 
-Defined in: [src/ax/ai/openai/types.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L16
 
 ***
 
@@ -52,7 +52,7 @@ Defined in: [src/ax/ai/openai/types.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **GPT3TextBabbage002**: `"text-babbage-002"`
 
-Defined in: [src/ax/ai/openai/types.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L15
 
 ***
 
@@ -62,7 +62,7 @@ Defined in: [src/ax/ai/openai/types.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **GPT4**: `"gpt-4"`
 
-Defined in: [src/ax/ai/openai/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl6)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L7
 
 ***
 
@@ -72,7 +72,7 @@ Defined in: [src/ax/ai/openai/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b7
 
 > **GPT4ChatGPT4O**: `"chatgpt-4o-latest"`
 
-Defined in: [src/ax/ai/openai/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L10
 
 ***
 
@@ -82,7 +82,7 @@ Defined in: [src/ax/ai/openai/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b7
 
 > **GPT4O**: `"gpt-4o"`
 
-Defined in: [src/ax/ai/openai/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L8
 
 ***
 
@@ -92,7 +92,7 @@ Defined in: [src/ax/ai/openai/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b7
 
 > **GPT4OMini**: `"gpt-4o-mini"`
 
-Defined in: [src/ax/ai/openai/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L9
 
 ***
 
@@ -102,7 +102,17 @@ Defined in: [src/ax/ai/openai/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b7
 
 > **GPT4Turbo**: `"gpt-4-turbo"`
 
-Defined in: [src/ax/ai/openai/types.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl10)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L11
+
+***
+
+<a id="O1"></a>
+
+### O1
+
+> **O1**: `"o1"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L4
 
 ***
 
@@ -112,14 +122,14 @@ Defined in: [src/ax/ai/openai/types.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **O1Mini**: `"o1-mini"`
 
-Defined in: [src/ax/ai/openai/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L5
 
 ***
 
-<a id="O1Preview"></a>
+<a id="O3Mini"></a>
 
-### O1Preview
+### O3Mini
 
-> **O1Preview**: `"o1-preview"`
+> **O3Mini**: `"o3-mini"`
 
-Defined in: [src/ax/ai/openai/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L6

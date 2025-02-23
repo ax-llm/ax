@@ -2,37 +2,37 @@
 title: AxDBWeaviate
 ---
 
-Defined in: [src/ax/db/weaviate.ts:39](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbweaviatetsl39)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/weaviate.ts#L39
 
 Weaviate: DB Service
 
 ## Extends
 
-- [`AxDBBase`](#apidocs/classaxdbbase)
+- [`AxDBBase`](/api/#03-apidocs/classaxdbbase)
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxDBWeaviate()
 
-> **new AxDBWeaviate**(`__namedParameters`): [`AxDBWeaviate`](#apidocs/classaxdbweaviate)
+> **new AxDBWeaviate**(`__namedParameters`): [`AxDBWeaviate`](/api/#03-apidocs/classaxdbweaviate)
 
-Defined in: [src/ax/db/weaviate.ts:43](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbweaviatetsl43)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/weaviate.ts#L43
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<`Omit`\<[`AxDBWeaviateArgs`](#apidocs/interfaceaxdbweaviateargs), `"name"`\>\> |
+| `__namedParameters` | `Readonly`\<`Omit`\<[`AxDBWeaviateArgs`](/api/#03-apidocs/interfaceaxdbweaviateargs), `"name"`\>\> |
 
 #### Returns
 
-[`AxDBWeaviate`](#apidocs/classaxdbweaviate)
+[`AxDBWeaviate`](/api/#03-apidocs/classaxdbweaviate)
 
 #### Overrides
 
-[`AxDBBase`](#apidocs/classaxdbbase).[`constructor`](#apidocs/classaxdbbasemdconstructors)
+[`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`constructor`](/api/#03-apidocs/classaxdbbasemdconstructors)
 
 ## Methods
 
@@ -40,21 +40,21 @@ Defined in: [src/ax/db/weaviate.ts:43](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### \_batchUpsert()
 
-> **\_batchUpsert**(`batchReq`, `update`?, `options`?): `Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+> **\_batchUpsert**(`batchReq`, `update`?, `options`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
-Defined in: [src/ax/db/weaviate.ts:93](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbweaviatetsl93)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/weaviate.ts#L93
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `batchReq` | readonly [`AxDBUpsertRequest`](#apidocs/typealiasaxdbupsertrequest)[] |
+| `batchReq` | readonly [`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)[] |
 | `update`? | `boolean` |
-| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](#apidocs/interfaceaxdbbaseopoptions)\> |
+| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
 
 #### Returns
 
-`Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+`Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
 #### Overrides
 
@@ -66,20 +66,20 @@ Defined in: [src/ax/db/weaviate.ts:93](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### \_query()
 
-> **\_query**(`req`, `options`?): `Promise`\<[`AxDBQueryResponse`](#apidocs/typealiasaxdbqueryresponse)\>
+> **\_query**(`req`, `options`?): `Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
 
-Defined in: [src/ax/db/weaviate.ts:138](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbweaviatetsl138)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/weaviate.ts#L138
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxDBQueryRequest`](#apidocs/typealiasaxdbqueryrequest)\> |
-| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](#apidocs/interfaceaxdbbaseopoptions)\> |
+| `req` | `Readonly`\<[`AxDBQueryRequest`](/api/#03-apidocs/typealiasaxdbqueryrequest)\> |
+| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
 
 #### Returns
 
-`Promise`\<[`AxDBQueryResponse`](#apidocs/typealiasaxdbqueryresponse)\>
+`Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
 
 #### Overrides
 
@@ -91,21 +91,21 @@ Defined in: [src/ax/db/weaviate.ts:138](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### \_upsert()
 
-> **\_upsert**(`req`, `update`?, `options`?): `Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+> **\_upsert**(`req`, `update`?, `options`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
-Defined in: [src/ax/db/weaviate.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbweaviatetsl57)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/weaviate.ts#L57
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxDBUpsertRequest`](#apidocs/typealiasaxdbupsertrequest)\> |
+| `req` | `Readonly`\<[`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)\> |
 | `update`? | `boolean` |
-| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](#apidocs/interfaceaxdbbaseopoptions)\> |
+| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
 
 #### Returns
 
-`Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+`Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
 #### Overrides
 
@@ -117,24 +117,24 @@ Defined in: [src/ax/db/weaviate.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### batchUpsert()
 
-> **batchUpsert**(`req`, `update`?): `Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+> **batchUpsert**(`req`, `update`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
-Defined in: [src/ax/db/base.ts:86](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl86)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L88
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | readonly [`AxDBUpsertRequest`](#apidocs/typealiasaxdbupsertrequest)[] |
+| `req` | readonly [`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)[] |
 | `update`? | `boolean` |
 
 #### Returns
 
-`Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+`Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
 #### Inherited from
 
-[`AxDBBase`](#apidocs/classaxdbbase).[`batchUpsert`](#apidocs/classaxdbbasemdbatchupsert)
+[`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`batchUpsert`](/api/#03-apidocs/classaxdbbasemdbatchupsert)
 
 ***
 
@@ -142,23 +142,23 @@ Defined in: [src/ax/db/base.ts:86](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 ### query()
 
-> **query**(`req`): `Promise`\<[`AxDBQueryResponse`](#apidocs/typealiasaxdbqueryresponse)\>
+> **query**(`req`): `Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
 
-Defined in: [src/ax/db/base.ts:124](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl124)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L128
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxDBQueryRequest`](#apidocs/typealiasaxdbqueryrequest)\> |
+| `req` | `Readonly`\<[`AxDBQueryRequest`](/api/#03-apidocs/typealiasaxdbqueryrequest)\> |
 
 #### Returns
 
-`Promise`\<[`AxDBQueryResponse`](#apidocs/typealiasaxdbqueryresponse)\>
+`Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
 
 #### Inherited from
 
-[`AxDBBase`](#apidocs/classaxdbbase).[`query`](#apidocs/classaxdbbasemdquery)
+[`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`query`](/api/#03-apidocs/classaxdbbasemdquery)
 
 ***
 
@@ -166,21 +166,21 @@ Defined in: [src/ax/db/base.ts:124](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### upsert()
 
-> **upsert**(`req`, `update`?): `Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+> **upsert**(`req`, `update`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
-Defined in: [src/ax/db/base.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl54)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L54
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxDBUpsertRequest`](#apidocs/typealiasaxdbupsertrequest)\> |
+| `req` | `Readonly`\<[`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)\> |
 | `update`? | `boolean` |
 
 #### Returns
 
-`Promise`\<[`AxDBUpsertResponse`](#apidocs/typealiasaxdbupsertresponse)\>
+`Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
 
 #### Inherited from
 
-[`AxDBBase`](#apidocs/classaxdbbase).[`upsert`](#apidocs/classaxdbbasemdupsert)
+[`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`upsert`](/api/#03-apidocs/classaxdbbasemdupsert)

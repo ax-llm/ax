@@ -4,7 +4,7 @@ title: AxFunctionJSONSchema
 
 > **AxFunctionJSONSchema**: `object`
 
-Defined in: [src/ax/ai/types.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl46)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L59
 
 ## Type declaration
 
@@ -12,13 +12,13 @@ Defined in: [src/ax/ai/types.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### items?
 
-> `optional` **items**: [`AxFunctionJSONSchema`](#apidocs/typealiasaxfunctionjsonschema)
+> `optional` **items**: [`AxFunctionJSONSchema`](/api/#03-apidocs/typealiasaxfunctionjsonschema)
 
 <a id="properties"></a>
 
 ### properties?
 
-> `optional` **properties**: `Record`\<`string`, [`AxFunctionJSONSchema`](#apidocs/typealiasaxfunctionjsonschema) & `object`\>
+> `optional` **properties**: `Record`\<`string`, [`AxFunctionJSONSchema`](/api/#03-apidocs/typealiasaxfunctionjsonschema) & `object`\>
 
 <a id="required"></a>
 

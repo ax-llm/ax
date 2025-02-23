@@ -135,7 +135,7 @@ export class AxAIProvider implements LanguageModelV1 {
   constructor(ai: AxAIService, config?: Readonly<AxConfig>) {
     this.ai = ai
     this.config = config
-    this.modelId = this.ai.getModelInfo().name
+    this.modelId = this.ai.getName()
   }
 
   get provider(): string {

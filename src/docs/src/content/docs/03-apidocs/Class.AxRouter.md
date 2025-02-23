@@ -2,27 +2,27 @@
 title: AxRouter
 ---
 
-Defined in: [src/ax/dsp/router.ts:29](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl29)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L29
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxRouter()
 
-> **new AxRouter**(`ai`): [`AxRouter`](#apidocs/classaxrouter)
+> **new AxRouter**(`ai`): [`AxRouter`](/api/#03-apidocs/classaxrouter)
 
-Defined in: [src/ax/dsp/router.ts:35](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl35)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L35
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `ai` | [`AxAIService`](#apidocs/interfaceaxaiservice) |
+| `ai` | [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice) |
 
 #### Returns
 
-[`AxRouter`](#apidocs/classaxrouter)
+[`AxRouter`](/api/#03-apidocs/classaxrouter)
 
 ## Methods
 
@@ -32,14 +32,14 @@ Defined in: [src/ax/dsp/router.ts:35](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **forward**(`text`, `options`?): `Promise`\<`string`\>
 
-Defined in: [src/ax/dsp/router.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl59)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L59
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
 | `text` | `string` |
-| `options`? | `Readonly`\<[`AxRouterForwardOptions`](#apidocs/interfaceaxrouterforwardoptions)\> |
+| `options`? | `Readonly`\<[`AxRouterForwardOptions`](/api/#03-apidocs/interfaceaxrouterforwardoptions)\> |
 
 #### Returns
 
@@ -51,13 +51,13 @@ Defined in: [src/ax/dsp/router.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 ### getState()
 
-> **getState**(): `undefined` \| [`AxDBState`](#apidocs/typealiasaxdbstate)
+> **getState**(): `undefined` \| [`AxDBState`](/api/#03-apidocs/typealiasaxdbstate)
 
-Defined in: [src/ax/dsp/router.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl40)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L40
 
 #### Returns
 
-`undefined` \| [`AxDBState`](#apidocs/typealiasaxdbstate)
+`undefined` \| [`AxDBState`](/api/#03-apidocs/typealiasaxdbstate)
 
 ***
 
@@ -67,7 +67,7 @@ Defined in: [src/ax/dsp/router.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **setOptions**(`options`): `void`
 
-Defined in: [src/ax/dsp/router.ts:94](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl94)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L94
 
 #### Parameters
 
@@ -87,13 +87,13 @@ Defined in: [src/ax/dsp/router.ts:94](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **setRoutes**(`routes`): `Promise`\<`void`\>
 
-Defined in: [src/ax/dsp/router.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl48)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L48
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `routes` | readonly [`AxRoute`](#apidocs/classaxroute)[] |
+| `routes` | readonly [`AxRoute`](/api/#03-apidocs/classaxroute)[] |
 
 #### Returns
 
@@ -107,13 +107,13 @@ Defined in: [src/ax/dsp/router.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **setState**(`state`): `void`
 
-Defined in: [src/ax/dsp/router.ts:44](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdsproutertsl44)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/router.ts#L44
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `state` | [`AxDBState`](#apidocs/typealiasaxdbstate) |
+| `state` | [`AxDBState`](/api/#03-apidocs/typealiasaxdbstate) |
 
 #### Returns
 

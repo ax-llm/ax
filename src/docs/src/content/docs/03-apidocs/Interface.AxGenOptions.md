@@ -2,7 +2,7 @@
 title: AxGenOptions
 ---
 
-Defined in: [src/ax/dsp/generate.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl48)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L56
 
 ## Properties
 
@@ -10,19 +10,9 @@ Defined in: [src/ax/dsp/generate.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### asserts?
 
-> `optional` **asserts**: [`AxAssertion`](#apidocs/interfaceaxassertion)[]
+> `optional` **asserts**: [`AxAssertion`](/api/#03-apidocs/interfaceaxassertion)[]
 
-Defined in: [src/ax/dsp/generate.ts:63](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl63)
-
-***
-
-<a id="debug"></a>
-
-### debug?
-
-> `optional` **debug**: `boolean`
-
-Defined in: [src/ax/dsp/generate.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl56)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L69
 
 ***
 
@@ -32,7 +22,17 @@ Defined in: [src/ax/dsp/generate.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **description**: `string`
 
-Defined in: [src/ax/dsp/generate.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl57)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L63
+
+***
+
+<a id="fastFail"></a>
+
+### fastFail?
+
+> `optional` **fastFail**: `boolean`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L71
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/dsp/generate.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **functionCall**: `"auto"` \| \{ `function`: \{ `name`: `string`; \}; `type`: `"function"`; \} \| `"none"` \| `"required"`
 
-Defined in: [src/ax/dsp/generate.ts:60](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl60)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L66
 
 ***
 
@@ -50,19 +50,9 @@ Defined in: [src/ax/dsp/generate.ts:60](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### functions?
 
-> `optional` **functions**: [`AxInputFunctionType`](#apidocs/typealiasaxinputfunctiontype)
+> `optional` **functions**: [`AxInputFunctionType`](/api/#03-apidocs/typealiasaxinputfunctiontype)
 
-Defined in: [src/ax/dsp/generate.ts:59](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl59)
-
-***
-
-<a id="maxCompletions"></a>
-
-### maxCompletions?
-
-> `optional` **maxCompletions**: `number`
-
-Defined in: [src/ax/dsp/generate.ts:49](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl49)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L65
 
 ***
 
@@ -72,7 +62,7 @@ Defined in: [src/ax/dsp/generate.ts:49](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **maxRetries**: `number`
 
-Defined in: [src/ax/dsp/generate.ts:50](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl50)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L57
 
 ***
 
@@ -82,7 +72,7 @@ Defined in: [src/ax/dsp/generate.ts:50](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **maxSteps**: `number`
 
-Defined in: [src/ax/dsp/generate.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl51)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L58
 
 ***
 
@@ -90,9 +80,9 @@ Defined in: [src/ax/dsp/generate.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### mem?
 
-> `optional` **mem**: [`AxAIMemory`](#apidocs/interfaceaxaimemory)
+> `optional` **mem**: [`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory)
 
-Defined in: [src/ax/dsp/generate.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl52)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L59
 
 ***
 
@@ -100,9 +90,9 @@ Defined in: [src/ax/dsp/generate.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### promptTemplate?
 
-> `optional` **promptTemplate**: *typeof* [`AxPromptTemplate`](#apidocs/classaxprompttemplate)
+> `optional` **promptTemplate**: *typeof* [`AxPromptTemplate`](/api/#03-apidocs/classaxprompttemplate)
 
-Defined in: [src/ax/dsp/generate.ts:62](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl62)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L68
 
 ***
 
@@ -110,9 +100,9 @@ Defined in: [src/ax/dsp/generate.ts:62](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### rateLimiter?
 
-> `optional` **rateLimiter**: [`AxRateLimiterFunction`](#apidocs/typealiasaxratelimiterfunction)
+> `optional` **rateLimiter**: [`AxRateLimiterFunction`](/api/#03-apidocs/typealiasaxratelimiterfunction)
 
-Defined in: [src/ax/dsp/generate.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl54)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L61
 
 ***
 
@@ -122,7 +112,7 @@ Defined in: [src/ax/dsp/generate.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **stopFunction**: `string`
 
-Defined in: [src/ax/dsp/generate.ts:61](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl61)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L67
 
 ***
 
@@ -132,7 +122,7 @@ Defined in: [src/ax/dsp/generate.ts:61](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **stream**: `boolean`
 
-Defined in: [src/ax/dsp/generate.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl55)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L62
 
 ***
 
@@ -140,9 +130,9 @@ Defined in: [src/ax/dsp/generate.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### streamingAsserts?
 
-> `optional` **streamingAsserts**: [`AxStreamingAssertion`](#apidocs/interfaceaxstreamingassertion)[]
+> `optional` **streamingAsserts**: [`AxStreamingAssertion`](/api/#03-apidocs/interfaceaxstreamingassertion)[]
 
-Defined in: [src/ax/dsp/generate.ts:64](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl64)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L70
 
 ***
 
@@ -152,4 +142,4 @@ Defined in: [src/ax/dsp/generate.ts:64](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **tracer**: `Tracer`
 
-Defined in: [src/ax/dsp/generate.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl53)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L60

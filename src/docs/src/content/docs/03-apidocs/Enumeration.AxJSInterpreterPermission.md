@@ -2,7 +2,7 @@
 title: AxJSInterpreterPermission
 ---
 
-Defined in: [src/ax/funcs/code.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncscodetsl11)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L11
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/funcs/code.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **CRYPTO**: `"crypto"`
 
-Defined in: [src/ax/funcs/code.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncscodetsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L15
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/funcs/code.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **FS**: `"node:fs"`
 
-Defined in: [src/ax/funcs/code.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncscodetsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L12
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/funcs/code.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **NET**: `"net"`
 
-Defined in: [src/ax/funcs/code.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncscodetsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L13
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/funcs/code.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **OS**: `"os"`
 
-Defined in: [src/ax/funcs/code.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncscodetsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L14
 
 ***
 
@@ -52,4 +52,4 @@ Defined in: [src/ax/funcs/code.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **PROCESS**: `"process"`
 
-Defined in: [src/ax/funcs/code.ts:16](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncscodetsl16)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L16

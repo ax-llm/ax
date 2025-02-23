@@ -2,7 +2,7 @@
 title: AxAICohereModel
 ---
 
-Defined in: [src/ax/ai/cohere/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl6)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L6
 
 Cohere: Models for text generation
 
@@ -14,7 +14,7 @@ Cohere: Models for text generation
 
 > **Command**: `"command"`
 
-Defined in: [src/ax/ai/cohere/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L9
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [src/ax/ai/cohere/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b7
 
 > **CommandLight**: `"command-light"`
 
-Defined in: [src/ax/ai/cohere/types.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl10)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L10
 
 ***
 
@@ -34,7 +34,7 @@ Defined in: [src/ax/ai/cohere/types.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **CommandR**: `"command-r"`
 
-Defined in: [src/ax/ai/cohere/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L8
 
 ***
 
@@ -44,4 +44,4 @@ Defined in: [src/ax/ai/cohere/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b7
 
 > **CommandRPlus**: `"command-r-plus"`
 
-Defined in: [src/ax/ai/cohere/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L7

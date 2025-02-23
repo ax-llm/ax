@@ -4,7 +4,7 @@ title: AxAIGoogleGeminiTool
 
 > **AxAIGoogleGeminiTool**: `object`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:88](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl88)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L94
 
 ## Type declaration
 
@@ -18,10 +18,10 @@ Defined in: [src/ax/ai/google-gemini/types.ts:88](#apidocs/httpsgithubcomax-llma
 
 ### function\_declarations?
 
-> `optional` **function\_declarations**: [`AxAIGoogleGeminiToolFunctionDeclaration`](#apidocs/typealiasaxaigooglegeminitoolfunctiondeclaration)[]
+> `optional` **function\_declarations**: [`AxAIGoogleGeminiToolFunctionDeclaration`](/api/#03-apidocs/typealiasaxaigooglegeminitoolfunctiondeclaration)[]
 
 <a id="google_search_retrieval"></a>
 
 ### google\_search\_retrieval?
 
-> `optional` **google\_search\_retrieval**: [`AxAIGoogleGeminiToolGoogleSearchRetrieval`](#apidocs/typealiasaxaigooglegeminitoolgooglesearchretrieval)
+> `optional` **google\_search\_retrieval**: [`AxAIGoogleGeminiToolGoogleSearchRetrieval`](/api/#03-apidocs/typealiasaxaigooglegeminitoolgooglesearchretrieval)

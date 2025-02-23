@@ -2,7 +2,7 @@
 title: AxAIAnthropicErrorEvent
 ---
 
-Defined in: [src/ax/ai/anthropic/types.ts:209](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl209)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L218
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:209](#apidocs/httpsgithubcomax-llmaxbl
 
 > **error**: `object`
 
-Defined in: [src/ax/ai/anthropic/types.ts:211](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl211)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L220
 
 <a id=""></a>
 
@@ -34,4 +34,4 @@ Defined in: [src/ax/ai/anthropic/types.ts:211](#apidocs/httpsgithubcomax-llmaxbl
 
 > **type**: `"error"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:210](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl210)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L219

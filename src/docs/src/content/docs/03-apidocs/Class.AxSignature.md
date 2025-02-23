@@ -2,27 +2,27 @@
 title: AxSignature
 ---
 
-Defined in: [src/ax/dsp/sig.ts:35](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl35)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L37
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxSignature()
 
-> **new AxSignature**(`signature`?): [`AxSignature`](#apidocs/classaxsignature)
+> **new AxSignature**(`signature`?): [`AxSignature`](/api/#03-apidocs/classaxsignature)
 
-Defined in: [src/ax/dsp/sig.ts:43](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl43)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L45
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `signature`? | `Readonly`\<`string` \| [`AxSignature`](#apidocs/classaxsignature)\> |
+| `signature`? | `Readonly`\<`string` \| [`AxSignature`](/api/#03-apidocs/classaxsignature)\> |
 
 #### Returns
 
-[`AxSignature`](#apidocs/classaxsignature)
+[`AxSignature`](/api/#03-apidocs/classaxsignature)
 
 ## Methods
 
@@ -32,13 +32,13 @@ Defined in: [src/ax/dsp/sig.ts:43](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > **addInputField**(`field`): `void`
 
-Defined in: [src/ax/dsp/sig.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl115)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L118
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `field` | `Readonly`\<[`AxField`](#apidocs/interfaceaxfield)\> |
+| `field` | `Readonly`\<[`AxField`](/api/#03-apidocs/interfaceaxfield)\> |
 
 #### Returns
 
@@ -52,13 +52,13 @@ Defined in: [src/ax/dsp/sig.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **addOutputField**(`field`): `void`
 
-Defined in: [src/ax/dsp/sig.ts:120](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl120)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L123
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `field` | `Readonly`\<[`AxField`](#apidocs/interfaceaxfield)\> |
+| `field` | `Readonly`\<[`AxField`](/api/#03-apidocs/interfaceaxfield)\> |
 
 #### Returns
 
@@ -72,7 +72,7 @@ Defined in: [src/ax/dsp/sig.ts:120](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **getDescription**(): `undefined` \| `string`
 
-Defined in: [src/ax/dsp/sig.ts:137](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl137)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L140
 
 #### Returns
 
@@ -84,13 +84,13 @@ Defined in: [src/ax/dsp/sig.ts:137](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### getInputFields()
 
-> **getInputFields**(): readonly [`AxIField`](#apidocs/typealiasaxifield)[]
+> **getInputFields**(): readonly [`AxIField`](/api/#03-apidocs/typealiasaxifield)[]
 
-Defined in: [src/ax/dsp/sig.ts:135](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl135)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L138
 
 #### Returns
 
-readonly [`AxIField`](#apidocs/typealiasaxifield)[]
+readonly [`AxIField`](/api/#03-apidocs/typealiasaxifield)[]
 
 ***
 
@@ -98,13 +98,13 @@ readonly [`AxIField`](#apidocs/typealiasaxifield)[]
 
 ### getOutputFields()
 
-> **getOutputFields**(): readonly [`AxIField`](#apidocs/typealiasaxifield)[]
+> **getOutputFields**(): readonly [`AxIField`](/api/#03-apidocs/typealiasaxifield)[]
 
-Defined in: [src/ax/dsp/sig.ts:136](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl136)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L139
 
 #### Returns
 
-readonly [`AxIField`](#apidocs/typealiasaxifield)[]
+readonly [`AxIField`](/api/#03-apidocs/typealiasaxifield)[]
 
 ***
 
@@ -114,7 +114,7 @@ readonly [`AxIField`](#apidocs/typealiasaxifield)[]
 
 > **hash**(): `string`
 
-Defined in: [src/ax/dsp/sig.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl207)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L210
 
 #### Returns
 
@@ -128,7 +128,7 @@ Defined in: [src/ax/dsp/sig.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **setDescription**(`desc`): `void`
 
-Defined in: [src/ax/dsp/sig.ts:110](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl110)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L113
 
 #### Parameters
 
@@ -148,13 +148,13 @@ Defined in: [src/ax/dsp/sig.ts:110](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **setInputFields**(`fields`): `void`
 
-Defined in: [src/ax/dsp/sig.ts:125](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl125)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L128
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `fields` | readonly [`AxField`](#apidocs/interfaceaxfield)[] |
+| `fields` | readonly [`AxField`](/api/#03-apidocs/interfaceaxfield)[] |
 
 #### Returns
 
@@ -168,13 +168,13 @@ Defined in: [src/ax/dsp/sig.ts:125](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **setOutputFields**(`fields`): `void`
 
-Defined in: [src/ax/dsp/sig.ts:130](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl130)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L133
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `fields` | readonly [`AxField`](#apidocs/interfaceaxfield)[] |
+| `fields` | readonly [`AxField`](/api/#03-apidocs/interfaceaxfield)[] |
 
 #### Returns
 
@@ -186,13 +186,13 @@ Defined in: [src/ax/dsp/sig.ts:130](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### toJSONSchema()
 
-> **toJSONSchema**(): [`AxFunctionJSONSchema`](#apidocs/typealiasaxfunctionjsonschema)
+> **toJSONSchema**(): [`AxFunctionJSONSchema`](/api/#03-apidocs/typealiasaxfunctionjsonschema)
 
-Defined in: [src/ax/dsp/sig.ts:145](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl145)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L148
 
 #### Returns
 
-[`AxFunctionJSONSchema`](#apidocs/typealiasaxfunctionjsonschema)
+[`AxFunctionJSONSchema`](/api/#03-apidocs/typealiasaxfunctionjsonschema)
 
 ***
 
@@ -202,7 +202,7 @@ Defined in: [src/ax/dsp/sig.ts:145](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **toString**(): `string`
 
-Defined in: [src/ax/dsp/sig.ts:209](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl209)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L212
 
 #### Returns
 

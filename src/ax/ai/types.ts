@@ -6,10 +6,15 @@ import type { AxAPI } from '../util/apicall.js'
 
 import type { AxAIFeatures } from './base.js'
 
-export type AxAIModelList<T = unknown> = {
+export type AxAIInputModelList<TModel> = (AxAIModelList[number] & {
+  model: TModel
+  isInternal?: boolean
+})[]
+
+export type AxAIModelList = {
   key: string
-  model: T
   description: string
+  model: string
 }[]
 
 export type AxModelInfo = {
@@ -240,10 +245,9 @@ export type AxAIServiceActionOptions<
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   getId(): string
   getName(): string
-  getModelInfo(): Readonly<AxModelInfoWithProvider>
-  getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined
   getFeatures(model?: TModel): AxAIFeatures
-  getModelList(): AxAIModelList<TModel> | undefined
+  getModelList(): AxAIModelList | undefined
+  getDefaultModels(): Readonly<{ model: string; embedModel?: string }>
   getMetrics(): AxAIServiceMetrics
 
   chat(

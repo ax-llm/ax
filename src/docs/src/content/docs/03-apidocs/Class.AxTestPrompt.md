@@ -2,34 +2,34 @@
 title: AxTestPrompt
 ---
 
-Defined in: [src/ax/dsp/evaluate.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspevaluatetsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/evaluate.ts#L13
 
 ## Type Parameters
 
 | Type Parameter | Default type |
 | ------ | ------ |
-| `IN` *extends* [`AxGenIn`](#apidocs/typealiasaxgenin) | [`AxGenIn`](#apidocs/typealiasaxgenin) |
-| `OUT` *extends* [`AxGenOut`](#apidocs/typealiasaxgenout) | [`AxGenOut`](#apidocs/typealiasaxgenout) |
+| `IN` *extends* [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) | [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) |
+| `OUT` *extends* [`AxGenOut`](/api/#03-apidocs/typealiasaxgenout) | [`AxGenOut`](/api/#03-apidocs/typealiasaxgenout) |
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxTestPrompt()
 
-> **new AxTestPrompt**\<`IN`, `OUT`\>(`__namedParameters`): [`AxTestPrompt`](#apidocs/classaxtestprompt)\<`IN`, `OUT`\>
+> **new AxTestPrompt**\<`IN`, `OUT`\>(`__namedParameters`): [`AxTestPrompt`](/api/#03-apidocs/classaxtestprompt)\<`IN`, `OUT`\>
 
-Defined in: [src/ax/dsp/evaluate.ts:21](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspevaluatetsl21)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/evaluate.ts#L21
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<[`AxEvaluateArgs`](#apidocs/typealiasaxevaluateargs)\<`IN`, `OUT`\>\> |
+| `__namedParameters` | `Readonly`\<[`AxEvaluateArgs`](/api/#03-apidocs/typealiasaxevaluateargs)\<`IN`, `OUT`\>\> |
 
 #### Returns
 
-[`AxTestPrompt`](#apidocs/classaxtestprompt)\<`IN`, `OUT`\>
+[`AxTestPrompt`](/api/#03-apidocs/classaxtestprompt)\<`IN`, `OUT`\>
 
 ## Methods
 
@@ -39,13 +39,13 @@ Defined in: [src/ax/dsp/evaluate.ts:21](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **run**(`metricFn`): `Promise`\<`void`\>
 
-Defined in: [src/ax/dsp/evaluate.ts:34](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspevaluatetsl34)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/evaluate.ts#L34
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `metricFn` | [`AxMetricFn`](#apidocs/typealiasaxmetricfn) |
+| `metricFn` | [`AxMetricFn`](/api/#03-apidocs/typealiasaxmetricfn) |
 
 #### Returns
 

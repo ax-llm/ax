@@ -31,7 +31,7 @@ const sig = new AxSignature(`
     Step 2 (after receiving result 5050): 
       The numbers add up to 5,050! That's about the same as saving a dollar a day for 14 years."
   
-    primeTask:string -> code:code "Code that will be executed by the user to solve the task", 
+    primeTask:string -> code!:code "Code that will be executed by the user to solve the task", 
     answerMessage?:string "A friendly message explaining the findings, created after receiving the code's execution result"
   `)
 

@@ -2,7 +2,7 @@
 title: AxAIAnthropicMessageDeltaEvent
 ---
 
-Defined in: [src/ax/ai/anthropic/types.ts:187](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl187)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L196
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:187](#apidocs/httpsgithubcomax-llmaxbl
 
 > **delta**: `object`
 
-Defined in: [src/ax/ai/anthropic/types.ts:189](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl189)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L198
 
 <a id=""></a>
 
@@ -34,7 +34,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:189](#apidocs/httpsgithubcomax-llmaxbl
 
 > **type**: `"message_delta"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:188](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl188)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L197
 
 ***
 
@@ -44,7 +44,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:188](#apidocs/httpsgithubcomax-llmaxbl
 
 > **usage**: `object`
 
-Defined in: [src/ax/ai/anthropic/types.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl193)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L202
 
 <a id=""></a>
 

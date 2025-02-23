@@ -2,7 +2,14 @@
 title: AxBaseAIArgs
 ---
 
-Defined in: [src/ax/ai/base.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl36)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L34
+
+## Type Parameters
+
+| Type Parameter |
+| ------ |
+| `TModel` |
+| `TEmbedModel` |
 
 ## Properties
 
@@ -12,17 +19,31 @@ Defined in: [src/ax/ai/base.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > **apiURL**: `string`
 
-Defined in: [src/ax/ai/base.ts:38](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl38)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L36
+
+***
+
+<a id="defaults"></a>
+
+### defaults
+
+> **defaults**: `Readonly`\<\{ `embedModel`: `TEmbedModel`; `model`: `TModel`; \}\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L39
 
 ***
 
 <a id="headers"></a>
 
-### headers
+### headers()
 
-> **headers**: `Record`\<`string`, `string`\>
+> **headers**: () => `Promise`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [src/ax/ai/base.ts:39](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl39)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L37
+
+#### Returns
+
+`Promise`\<`Record`\<`string`, `string`\>\>
 
 ***
 
@@ -30,29 +51,19 @@ Defined in: [src/ax/ai/base.ts:39](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 ### modelInfo
 
-> **modelInfo**: readonly [`AxModelInfo`](#apidocs/typealiasaxmodelinfo)[]
+> **modelInfo**: readonly [`AxModelInfo`](/api/#03-apidocs/typealiasaxmodelinfo)[]
 
-Defined in: [src/ax/ai/base.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl40)
-
-***
-
-<a id="modelMap"></a>
-
-### modelMap?
-
-> `optional` **modelMap**: [`AxAIModelMap`](#apidocs/typealiasaxaimodelmap)
-
-Defined in: [src/ax/ai/base.ts:44](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl44)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L38
 
 ***
 
 <a id="models"></a>
 
-### models
+### models?
 
-> **models**: `Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
+> `optional` **models**: `AxAIInputModelList`\<`TModel`\>
 
-Defined in: [src/ax/ai/base.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl41)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L42
 
 ***
 
@@ -62,7 +73,7 @@ Defined in: [src/ax/ai/base.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > **name**: `string`
 
-Defined in: [src/ax/ai/base.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl37)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L35
 
 ***
 
@@ -70,9 +81,9 @@ Defined in: [src/ax/ai/base.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 ### options?
 
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions)\>
+> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
 
-Defined in: [src/ax/ai/base.ts:42](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl42)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L40
 
 ***
 
@@ -80,6 +91,6 @@ Defined in: [src/ax/ai/base.ts:42](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 ### supportFor
 
-> **supportFor**: [`AxBaseAIFeatures`](#apidocs/interfaceaxbaseaifeatures) \| (`model`) => [`AxBaseAIFeatures`](#apidocs/interfaceaxbaseaifeatures)
+> **supportFor**: [`AxAIFeatures`](/api/#03-apidocs/interfaceaxaifeatures) \| (`model`) => [`AxAIFeatures`](/api/#03-apidocs/interfaceaxaifeatures)
 
-Defined in: [src/ax/ai/base.ts:43](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl43)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L41

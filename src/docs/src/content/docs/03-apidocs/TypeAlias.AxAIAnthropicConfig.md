@@ -2,12 +2,12 @@
 title: AxAIAnthropicConfig
 ---
 
-> **AxAIAnthropicConfig**: [`AxModelConfig`](#apidocs/typealiasaxmodelconfig) & `object`
+> **AxAIAnthropicConfig**: [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig) & `object`
 
-Defined in: [src/ax/ai/anthropic/types.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L23
 
 ## Type declaration
 
 ### model
 
-> **model**: [`AxAIAnthropicModel`](#apidocs/enumerationaxaianthropicmodel)
+> **model**: [`AxAIAnthropicModel`](/api/#03-apidocs/enumerationaxaianthropicmodel) \| [`AxAIAnthropicVertexModel`](/api/#03-apidocs/enumerationaxaianthropicvertexmodel)

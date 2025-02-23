@@ -2,7 +2,7 @@
 title: AxAIAnthropicMessageStartEvent
 ---
 
-Defined in: [src/ax/ai/anthropic/types.ts:131](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl131)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L140
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:131](#apidocs/httpsgithubcomax-llmaxbl
 
 > **message**: `object`
 
-Defined in: [src/ax/ai/anthropic/types.ts:133](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl133)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L142
 
 <a id=""></a>
 
@@ -68,4 +68,4 @@ Defined in: [src/ax/ai/anthropic/types.ts:133](#apidocs/httpsgithubcomax-llmaxbl
 
 > **type**: `"message_start"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:132](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl132)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L141

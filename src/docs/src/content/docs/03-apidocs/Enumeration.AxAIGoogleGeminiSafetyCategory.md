@@ -2,7 +2,7 @@
 title: AxAIGoogleGeminiSafetyCategory
 ---
 
-Defined in: [src/ax/ai/google-gemini/types.ts:16](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl16)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L22
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:16](#apidocs/httpsgithubcomax-llma
 
 > **HarmCategoryDangerousContent**: `"HARM_CATEGORY_DANGEROUS_CONTENT"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl20)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L26
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:20](#apidocs/httpsgithubcomax-llma
 
 > **HarmCategoryHarassment**: `"HARM_CATEGORY_HARASSMENT"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl17)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L23
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:17](#apidocs/httpsgithubcomax-llma
 
 > **HarmCategoryHateSpeech**: `"HARM_CATEGORY_HATE_SPEECH"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:18](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl18)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L24
 
 ***
 
@@ -42,4 +42,4 @@ Defined in: [src/ax/ai/google-gemini/types.ts:18](#apidocs/httpsgithubcomax-llma
 
 > **HarmCategorySexuallyExplicit**: `"HARM_CATEGORY_SEXUALLY_EXPLICIT"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:19](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl19)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L25

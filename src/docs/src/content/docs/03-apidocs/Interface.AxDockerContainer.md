@@ -2,7 +2,7 @@
 title: AxDockerContainer
 ---
 
-Defined in: [src/ax/funcs/docker.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L3
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/funcs/docker.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **Command**: `string`
 
-Defined in: [src/ax/funcs/docker.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L8
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/funcs/docker.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **Created**: `number`
 
-Defined in: [src/ax/funcs/docker.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L9
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/funcs/docker.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **HostConfig**: `object`
 
-Defined in: [src/ax/funcs/docker.ts:33](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl33)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L33
 
 <a id=""></a>
 
@@ -48,7 +48,7 @@ Defined in: [src/ax/funcs/docker.ts:33](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **Id**: `string`
 
-Defined in: [src/ax/funcs/docker.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L4
 
 ***
 
@@ -58,7 +58,7 @@ Defined in: [src/ax/funcs/docker.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **Image**: `string`
 
-Defined in: [src/ax/funcs/docker.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl6)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L6
 
 ***
 
@@ -68,7 +68,7 @@ Defined in: [src/ax/funcs/docker.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **ImageID**: `string`
 
-Defined in: [src/ax/funcs/docker.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L7
 
 ***
 
@@ -78,7 +78,7 @@ Defined in: [src/ax/funcs/docker.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **Labels**: `object`
 
-Defined in: [src/ax/funcs/docker.ts:30](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl30)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L30
 
 #### Index Signature
 
@@ -92,7 +92,7 @@ Defined in: [src/ax/funcs/docker.ts:30](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **Mounts**: `object`[]
 
-Defined in: [src/ax/funcs/docker.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl46)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L46
 
 #### Destination
 
@@ -126,7 +126,7 @@ Defined in: [src/ax/funcs/docker.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **Names**: `string`[]
 
-Defined in: [src/ax/funcs/docker.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L5
 
 ***
 
@@ -136,7 +136,7 @@ Defined in: [src/ax/funcs/docker.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **NetworkSettings**: `object`
 
-Defined in: [src/ax/funcs/docker.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl36)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L36
 
 #### Networks
 
@@ -150,7 +150,7 @@ Defined in: [src/ax/funcs/docker.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **Ports**: `object`[]
 
-Defined in: [src/ax/funcs/docker.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl24)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L24
 
 #### IP
 
@@ -176,7 +176,7 @@ Defined in: [src/ax/funcs/docker.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **SizeRootFs**: `number`
 
-Defined in: [src/ax/funcs/docker.ts:32](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl32)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L32
 
 ***
 
@@ -186,7 +186,7 @@ Defined in: [src/ax/funcs/docker.ts:32](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **SizeRw**: `number`
 
-Defined in: [src/ax/funcs/docker.ts:31](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl31)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L31
 
 ***
 
@@ -196,7 +196,7 @@ Defined in: [src/ax/funcs/docker.ts:31](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **State**: `object`
 
-Defined in: [src/ax/funcs/docker.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl10)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L10
 
 <a id=""></a>
 
@@ -272,4 +272,4 @@ Defined in: [src/ax/funcs/docker.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **Status**: `string`
 
-Defined in: [src/ax/funcs/docker.ts:23](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxfuncsdockertsl23)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L23

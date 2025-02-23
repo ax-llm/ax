@@ -2,6 +2,6 @@
 title: AxMetricFnArgs
 ---
 
-> **AxMetricFnArgs**: `Parameters`\<[`AxMetricFn`](#apidocs/typealiasaxmetricfn)\>\[`0`\]
+> **AxMetricFnArgs**: `Parameters`\<[`AxMetricFn`](/api/#03-apidocs/typealiasaxmetricfn)\>\[`0`\]
 
-Defined in: [src/ax/dsp/optimize.ts:19](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspoptimizetsl19)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/optimize.ts#L19

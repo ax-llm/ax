@@ -21,7 +21,6 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
-  AxModelInfoWithProvider,
 } from './types.js'
 
 /**
@@ -38,7 +37,7 @@ export type AxBalancerOptions = {
 /**
  * Balancer that rotates through services.
  */
-export class AxBalancer implements AxAIService {
+export class AxBalancer implements AxAIService<unknown, unknown> {
   private services: AxAIService[]
   private currentServiceIndex: number = 0
   private currentService: AxAIService
@@ -56,8 +55,10 @@ export class AxBalancer implements AxAIService {
       throw new Error('No AI services provided.')
     }
 
+    validateModels(services)
+
     this.services = [...services].sort(
-      options?.comparator ?? AxBalancer.costComparator
+      options?.comparator ?? AxBalancer.metricComparator
     )
 
     const cs = this.services[this.currentServiceIndex]
@@ -79,20 +80,35 @@ export class AxBalancer implements AxAIService {
   /**
    * Service comparator that sorts services by cost.
    */
-  public static costComparator = (a: AxAIService, b: AxAIService) => {
-    const aInfo = a.getModelInfo()
-    const bInfo = b.getModelInfo()
-    const aTotalCost =
-      (aInfo.promptTokenCostPer1M || Infinity) +
-      (aInfo.completionTokenCostPer1M || Infinity)
-    const bTotalCost =
-      (bInfo.promptTokenCostPer1M || Infinity) +
-      (bInfo.completionTokenCostPer1M || Infinity)
-    return aTotalCost - bTotalCost
+
+  // Requires a rethink
+  /*
+    public static costComparator = (a: AxAIService, b: AxAIService) => {
+      const aInfo = a.getModelInfo()
+      const bInfo = b.getModelInfo()
+      const aTotalCost =
+        (aInfo.promptTokenCostPer1M || Infinity) +
+        (aInfo.completionTokenCostPer1M || Infinity)
+      const bTotalCost =
+        (bInfo.promptTokenCostPer1M || Infinity) +
+        (bInfo.completionTokenCostPer1M || Infinity)
+      return aTotalCost - bTotalCost
+    }
+    */
+
+  public static metricComparator = (a: AxAIService, b: AxAIService) => {
+    const aMetrics = a.getMetrics()
+    const bMetrics = b.getMetrics()
+    // Compare mean chat latency between services
+    return aMetrics.latency.chat.mean - bMetrics.latency.chat.mean
   }
 
   getModelList(): AxAIModelList | undefined {
     return this.currentService.getModelList()
+  }
+
+  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
+    return this.currentService.getDefaultModels()
   }
 
   private getNextService(): boolean {
@@ -119,14 +135,6 @@ export class AxBalancer implements AxAIService {
 
   getId(): string {
     return this.currentService.getId()
-  }
-
-  getModelInfo(): Readonly<AxModelInfoWithProvider> {
-    return this.currentService.getModelInfo()
-  }
-
-  getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined {
-    return this.currentService.getEmbedModelInfo()
   }
 
   getFeatures(model?: string) {
@@ -275,5 +283,56 @@ export class AxBalancer implements AxAIService {
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return this.currentService.getOptions()
+  }
+}
+
+function validateModels(services: readonly AxAIService[]) {
+  // Check if any service has a model list.
+  const serviceWithModel = services.find(
+    (service) => service.getModelList() !== undefined
+  )
+  if (!serviceWithModel) {
+    // No service provides a model list; no validation needed.
+    return
+  }
+
+  // Use the first service with a model list as the reference.
+  const referenceModelList = serviceWithModel.getModelList()
+  if (!referenceModelList) {
+    throw new Error('No model list found in any service.')
+  }
+  const referenceKeys = new Set(referenceModelList.map((model) => model.key))
+
+  // Validate that all services provide a model list with the same keys.
+  for (let i = 0; i < services.length; i++) {
+    const service = services[i]
+    if (!service) {
+      throw new Error(`Service at index ${i} is undefined`)
+    }
+    const modelList = service.getModelList()
+    if (!modelList) {
+      throw new Error(
+        `Service at index ${i} (${service.getName()}) has no model list while another service does.`
+      )
+    }
+
+    const serviceKeys = new Set(modelList.map((model) => model.key))
+
+    // Check for missing keys compared to the reference
+    for (const key of referenceKeys) {
+      if (!serviceKeys.has(key)) {
+        throw new Error(
+          `Service at index ${i} (${service.getName()}) is missing model "${key}"`
+        )
+      }
+    }
+    // Check for extra keys not in the reference
+    for (const key of serviceKeys) {
+      if (!referenceKeys.has(key)) {
+        throw new Error(
+          `Service at index ${i} (${service.getName()}) has extra model "${key}"`
+        )
+      }
+    }
   }
 }

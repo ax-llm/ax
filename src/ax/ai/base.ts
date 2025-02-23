@@ -2,13 +2,13 @@ import type { ReadableStream } from 'stream/web'
 
 import { type Span, SpanKind } from '@opentelemetry/api'
 
-import { getModelInfo } from '../dsp/modelinfo.js'
 import { axSpanAttributes } from '../trace/trace.js'
 import { apiCall } from '../util/apicall.js'
 import { RespTransformStream } from '../util/transform.js'
 
 import { logChatRequest, logResponse } from './debug.js'
 import type {
+  AxAIInputModelList,
   AxAIModelList,
   AxAIPromptConfig,
   AxAIService,
@@ -22,7 +22,6 @@ import type {
   AxEmbedResponse,
   AxModelConfig,
   AxModelInfo,
-  AxModelInfoWithProvider,
   AxTokenUsage,
 } from './types.js'
 
@@ -40,7 +39,7 @@ export interface AxBaseAIArgs<TModel, TEmbedModel> {
   defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>
   options?: Readonly<AxAIServiceOptions>
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
-  models?: AxAIModelList<TModel>
+  models?: AxAIInputModelList<TModel>
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -74,7 +73,10 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter']
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
-  private models?: AxAIModelList<TModel>
+  private models?: (AxAIModelList[number] & {
+    model: TModel
+    isInternal?: boolean
+  })[]
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxTokenUsage
@@ -166,6 +168,10 @@ export class AxBaseAI<
     }
 
     this.setOptions(options)
+
+    if (models) {
+      validateModels(models)
+    }
   }
 
   public setName(name: string): void {
@@ -211,35 +217,21 @@ export class AxBaseAI<
     }
   }
 
-  getModelInfo(): Readonly<AxModelInfoWithProvider> {
-    const mi = getModelInfo<TModel>({
-      model: this.defaults.model,
-      modelInfo: this.modelInfo,
-      models: this.models,
-    })
-    return {
-      ...mi,
-      provider: this.name,
-    }
-  }
-
-  getEmbedModelInfo(): AxModelInfoWithProvider | undefined {
-    if (!this.defaults.embedModel) {
-      return
-    }
-
-    const mi = getModelInfo<TEmbedModel>({
-      model: this.defaults.embedModel,
-      modelInfo: this.modelInfo,
-    })
-    return {
-      ...mi,
-      provider: this.name,
-    }
-  }
-
-  getModelList(): AxAIModelList<TModel> | undefined {
+  getModelList(): AxAIModelList | undefined {
     return this.models
+      ?.filter((model) => !model.isInternal)
+      ?.map((model) => ({
+        key: model.key,
+        description: model.description,
+        model: model.model as string,
+      }))
+  }
+
+  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
+    return {
+      model: this.defaults.model as string,
+      embedModel: this.defaults.embedModel as string | undefined,
+    }
   }
 
   getName(): string {
@@ -646,12 +638,27 @@ export class AxBaseAI<
   }
 }
 
-const setResponseAttr = (res: Readonly<AxChatResponse>, span: Span) => {
+function setResponseAttr(res: Readonly<AxChatResponse>, span: Span) {
   if (res.modelUsage) {
     span.setAttributes({
       [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
         res.modelUsage.completionTokens ?? 0,
       [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens,
     })
+  }
+}
+
+function validateModels<TModel>(
+  models: Readonly<AxAIInputModelList<TModel>>
+): void {
+  // Validate duplicate keys in models.
+  const keys = new Set<string>()
+  for (const model of models) {
+    if (keys.has(model.key)) {
+      throw new Error(
+        `Duplicate model key detected: "${model.key}". Each model key must be unique.`
+      )
+    }
+    keys.add(model.key)
   }
 }

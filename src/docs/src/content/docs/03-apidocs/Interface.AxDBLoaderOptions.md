@@ -2,7 +2,7 @@
 title: AxDBLoaderOptions
 ---
 
-Defined in: [src/ax/docs/manager.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L14
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/docs/manager.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > `optional` **chunker**: (`text`) => `string`[]
 
-Defined in: [src/ax/docs/manager.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L15
 
 #### Parameters
 
@@ -30,9 +30,9 @@ Defined in: [src/ax/docs/manager.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### reranker?
 
-> `optional` **reranker**: [`AxProgram`](#apidocs/classaxprogram)\<[`AxRerankerIn`](#apidocs/typealiasaxrerankerin), [`AxRerankerOut`](#apidocs/typealiasaxrerankerout)\>
+> `optional` **reranker**: [`AxProgram`](/api/#03-apidocs/classaxprogram)\<[`AxRerankerIn`](/api/#03-apidocs/typealiasaxrerankerin), [`AxRerankerOut`](/api/#03-apidocs/typealiasaxrerankerout)\>
 
-Defined in: [src/ax/docs/manager.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl17)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L17
 
 ***
 
@@ -40,6 +40,6 @@ Defined in: [src/ax/docs/manager.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### rewriter?
 
-> `optional` **rewriter**: [`AxProgram`](#apidocs/classaxprogram)\<[`AxRewriteIn`](#apidocs/typealiasaxrewritein), [`AxRewriteOut`](#apidocs/typealiasaxrewriteout)\>
+> `optional` **rewriter**: [`AxProgram`](/api/#03-apidocs/classaxprogram)\<[`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein), [`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>
 
-Defined in: [src/ax/docs/manager.ts:16](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl16)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L16

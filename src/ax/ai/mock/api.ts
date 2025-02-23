@@ -67,20 +67,6 @@ export class AxMockAIService implements AxAIService {
     return this.config.id ?? 'mock-ai-service-id'
   }
 
-  getModelInfo(): Readonly<AxModelInfoWithProvider> {
-    return {
-      name: 'mock-model',
-      provider: 'mock-provider',
-      promptTokenCostPer1M: 100,
-      completionTokenCostPer1M: 100,
-      ...this.config.modelInfo,
-    }
-  }
-
-  getEmbedModelInfo(): Readonly<AxModelInfoWithProvider> | undefined {
-    return this.config.embedModelInfo
-  }
-
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getFeatures(_model?: string): { functions: boolean; streaming: boolean } {
     return {
@@ -91,6 +77,13 @@ export class AxMockAIService implements AxAIService {
 
   getModelList(): AxAIModelList | undefined {
     return this.config.models
+  }
+
+  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
+    return {
+      model: this.config.modelInfo?.name ?? 'mock-model',
+      embedModel: this.config.embedModelInfo?.name,
+    }
   }
 
   getMetrics(): AxAIServiceMetrics {

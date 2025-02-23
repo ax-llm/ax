@@ -2,9 +2,9 @@
 title: AxAIOpenAIConfig
 ---
 
-> **AxAIOpenAIConfig**: `Omit`\<[`AxModelConfig`](#apidocs/typealiasaxmodelconfig), `"topK"`\> & `object`
+> **AxAIOpenAIConfig**\<`TModel`, `TEmbedModel`\>: `Omit`\<[`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig), `"topK"`\> & `object`
 
-Defined in: [src/ax/ai/openai/types.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl24)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L25
 
 ## Type declaration
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/openai/types.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b
 
 ### embedModel?
 
-> `optional` **embedModel**: [`AxAIOpenAIEmbedModel`](#apidocs/enumerationaxaiopenaiembedmodel) \| `string`
+> `optional` **embedModel**: `TEmbedModel`
 
 ### logitBias?
 
@@ -34,7 +34,11 @@ Defined in: [src/ax/ai/openai/types.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b
 
 ### model
 
-> **model**: [`AxAIOpenAIModel`](#apidocs/enumerationaxaiopenaimodel) \| `string`
+> **model**: `TModel`
+
+### reasoningEffort?
+
+> `optional` **reasoningEffort**: `"low"` \| `"medium"` \| `"high"`
 
 ### responseFormat?
 
@@ -44,6 +48,10 @@ Defined in: [src/ax/ai/openai/types.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > `optional` **stop**: `string`[]
 
+### store?
+
+> `optional` **store**: `boolean`
+
 ### suffix?
 
 > `optional` **suffix**: `string` \| `null`
@@ -51,3 +59,10 @@ Defined in: [src/ax/ai/openai/types.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b
 ### user?
 
 > `optional` **user**: `string`
+
+## Type Parameters
+
+| Type Parameter |
+| ------ |
+| `TModel` |
+| `TEmbedModel` |

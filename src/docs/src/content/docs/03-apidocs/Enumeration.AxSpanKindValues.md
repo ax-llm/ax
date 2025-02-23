@@ -2,7 +2,7 @@
 title: AxSpanKindValues
 ---
 
-Defined in: [src/ax/trace/trace.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl53)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L53
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/trace/trace.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **AGENT**: `"agent"`
 
-Defined in: [src/ax/trace/trace.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl56)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L56
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/trace/trace.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **TASK**: `"task"`
 
-Defined in: [src/ax/trace/trace.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl55)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L55
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/trace/trace.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **TOOL**: `"tool"`
 
-Defined in: [src/ax/trace/trace.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl57)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L57
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/trace/trace.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **UNKNOWN**: `"unknown"`
 
-Defined in: [src/ax/trace/trace.ts:58](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl58)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L58
 
 ***
 
@@ -52,4 +52,4 @@ Defined in: [src/ax/trace/trace.ts:58](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **WORKFLOW**: `"workflow"`
 
-Defined in: [src/ax/trace/trace.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl54)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L54

@@ -2,7 +2,7 @@
 title: AxInstanceRegistry
 ---
 
-Defined in: [src/ax/dsp/registry.ts:1](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspregistrytsl1)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L1
 
 ## Type Parameters
 
@@ -12,17 +12,17 @@ Defined in: [src/ax/dsp/registry.ts:1](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxInstanceRegistry()
 
-> **new AxInstanceRegistry**\<`T`\>(): [`AxInstanceRegistry`](#apidocs/classaxinstanceregistry)\<`T`\>
+> **new AxInstanceRegistry**\<`T`\>(): [`AxInstanceRegistry`](/api/#03-apidocs/classaxinstanceregistry)\<`T`\>
 
-Defined in: [src/ax/dsp/registry.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspregistrytsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L4
 
 #### Returns
 
-[`AxInstanceRegistry`](#apidocs/classaxinstanceregistry)\<`T`\>
+[`AxInstanceRegistry`](/api/#03-apidocs/classaxinstanceregistry)\<`T`\>
 
 ## Methods
 
@@ -30,13 +30,13 @@ Defined in: [src/ax/dsp/registry.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### \[iterator\]()
 
-> **\[iterator\]**(): `Generator`\<`T`, `void`\>
+> **\[iterator\]**(): `Generator`\<`T`, `void`, `unknown`\>
 
-Defined in: [src/ax/dsp/registry.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspregistrytsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L12
 
 #### Returns
 
-`Generator`\<`T`, `void`\>
+`Generator`\<`T`, `void`, `unknown`\>
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: [src/ax/dsp/registry.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **register**(`instance`): `void`
 
-Defined in: [src/ax/dsp/registry.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspregistrytsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L8
 
 #### Parameters
 

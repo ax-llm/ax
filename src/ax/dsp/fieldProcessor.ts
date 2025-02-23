@@ -4,6 +4,23 @@ import type { extractionState } from './extract.js'
 import type { AxFieldValue, AxGenOut } from './program.js'
 import type { AxField } from './sig.js'
 
+export type AxFieldProcessorProcess = (
+  value: AxFieldValue,
+  context?: Readonly<{
+    values?: AxGenOut
+    sessionId?: string
+    done?: boolean
+  }>
+) => unknown | Promise<unknown>
+
+export type AxStreamingFieldProcessorProcess = (
+  value: string,
+  context?: Readonly<{
+    values?: AxGenOut
+    sessionId?: string
+    done?: boolean
+  }>
+) => unknown | Promise<unknown>
 export interface AxFieldProcessor {
   field: Readonly<AxField>
 
@@ -13,15 +30,7 @@ export interface AxFieldProcessor {
    * @param value - The current field value.
    * @param context - Additional context (e.g. memory and session id).
    */
-  process: (
-    value: AxFieldValue,
-    context?: Readonly<{
-      values?: AxGenOut
-      sessionId?: string
-      done?: boolean
-    }>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ) => any | Promise<any>
+  process: AxFieldProcessorProcess | AxStreamingFieldProcessorProcess
 }
 
 /**
@@ -40,7 +49,8 @@ export async function processFieldProcessors(
       continue
     }
 
-    const result = await processor.process(values[processor.field.name], {
+    const processFn = processor.process as AxFieldProcessorProcess
+    const result = await processFn(values[processor.field.name], {
       sessionId,
       values,
       done: true,
@@ -74,8 +84,8 @@ export async function processStreamingFieldProcessors(
       value = value.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '')
       value = value.replace(/\s*```\s*$/, '')
     }
-
-    const result = await processor.process(value, {
+    const processFn = processor.process as AxStreamingFieldProcessorProcess
+    const result = await processFn(value, {
       sessionId,
       values,
       done,

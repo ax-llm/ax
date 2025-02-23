@@ -2,7 +2,7 @@
 title: AxAIAnthropicMessageStopEvent
 ---
 
-Defined in: [src/ax/ai/anthropic/types.ts:199](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl199)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L208
 
 ## Properties
 
@@ -12,4 +12,4 @@ Defined in: [src/ax/ai/anthropic/types.ts:199](#apidocs/httpsgithubcomax-llmaxbl
 
 > **type**: `"message_stop"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:200](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl200)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L209

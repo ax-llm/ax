@@ -1,9 +1,9 @@
-import type { AxAIModelList, AxModelInfo } from '../ai/types.js'
+import type { AxAIInputModelList, AxModelInfo } from '../ai/types.js'
 
 interface GetModelInfoParams<TModel = string> {
   model: TModel
   modelInfo: readonly AxModelInfo[]
-  models?: AxAIModelList<TModel>
+  models?: AxAIInputModelList<TModel>
 }
 
 export function getModelInfo<TModel = string>({

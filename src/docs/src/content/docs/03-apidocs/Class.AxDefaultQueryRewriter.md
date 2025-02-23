@@ -2,45 +2,71 @@
 title: AxDefaultQueryRewriter
 ---
 
-Defined in: [src/ax/docs/rewriter.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsrewritertsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/rewriter.ts#L8
 
 ## Extends
 
-- [`AxGen`](#apidocs/classaxgen)\<[`AxRewriteIn`](#apidocs/typealiasaxrewritein), [`AxRewriteOut`](#apidocs/typealiasaxrewriteout)\>
+- [`AxGen`](/api/#03-apidocs/classaxgen)\<[`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein), [`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxDefaultQueryRewriter()
 
-> **new AxDefaultQueryRewriter**(`options`?): [`AxDefaultQueryRewriter`](#apidocs/classaxdefaultqueryrewriter)
+> **new AxDefaultQueryRewriter**(`options`?): [`AxDefaultQueryRewriter`](/api/#03-apidocs/classaxdefaultqueryrewriter)
 
-Defined in: [src/ax/docs/rewriter.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsrewritertsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/rewriter.ts#L9
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `options`? | `Readonly`\<[`AxGenOptions`](#apidocs/interfaceaxgenoptions)\> |
+| `options`? | `Readonly`\<[`AxGenOptions`](/api/#03-apidocs/interfaceaxgenoptions)\> |
 
 #### Returns
 
-[`AxDefaultQueryRewriter`](#apidocs/classaxdefaultqueryrewriter)
+[`AxDefaultQueryRewriter`](/api/#03-apidocs/classaxdefaultqueryrewriter)
 
 #### Overrides
 
-[`AxGen`](#apidocs/classaxgen).[`constructor`](#apidocs/classaxgenmdconstructors)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`constructor`](/api/#03-apidocs/classaxgenmdconstructors)
 
 ## Methods
+
+<a id="_forward1"></a>
+
+### \_forward1()
+
+> **\_forward1**(`ai`, `values`, `options`): `AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L603
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `values` | [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) |
+| `options` | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
+
+#### Returns
+
+`AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+
+#### Inherited from
+
+[`AxGen`](/api/#03-apidocs/classaxgen).[`_forward1`](/api/#03-apidocs/classaxgenmdforward1)
+
+***
 
 <a id="addAssert"></a>
 
 ### addAssert()
 
-> **addAssert**(`fn`, `message`?, `optional`?): `void`
+> **addAssert**(`fn`, `message`?): `void`
 
-Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl115)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L133
 
 #### Parameters
 
@@ -48,7 +74,6 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 | ------ | ------ |
 | `fn` | (`values`) => `undefined` \| `boolean` |
 | `message`? | `string` |
-| `optional`? | `boolean` |
 
 #### Returns
 
@@ -56,7 +81,32 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`addAssert`](#apidocs/classaxgenmdaddassert)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`addAssert`](/api/#03-apidocs/classaxgenmdaddassert)
+
+***
+
+<a id="addFieldProcessor"></a>
+
+### addFieldProcessor()
+
+> **addFieldProcessor**(`fieldName`, `fn`): `void`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L180
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `fieldName` | `string` |
+| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`AxGen`](/api/#03-apidocs/classaxgen).[`addFieldProcessor`](/api/#03-apidocs/classaxgenmdaddfieldprocessor)
 
 ***
 
@@ -64,9 +114,9 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### addStreamingAssert()
 
-> **addStreamingAssert**(`fieldName`, `fn`, `message`?, `optional`?): `void`
+> **addStreamingAssert**(`fieldName`, `fn`, `message`?): `void`
 
-Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl123)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L137
 
 #### Parameters
 
@@ -75,7 +125,6 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 | `fieldName` | `string` |
 | `fn` | (`content`, `done`?) => `undefined` \| `boolean` |
 | `message`? | `string` |
-| `optional`? | `boolean` |
 
 #### Returns
 
@@ -83,7 +132,32 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`addStreamingAssert`](#apidocs/classaxgenmdaddstreamingassert)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`addStreamingAssert`](/api/#03-apidocs/classaxgenmdaddstreamingassert)
+
+***
+
+<a id="addStreamingFieldProcessor"></a>
+
+### addStreamingFieldProcessor()
+
+> **addStreamingFieldProcessor**(`fieldName`, `fn`): `void`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L173
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `fieldName` | `string` |
+| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`AxGen`](/api/#03-apidocs/classaxgen).[`addStreamingFieldProcessor`](/api/#03-apidocs/classaxgenmdaddstreamingfieldprocessor)
 
 ***
 
@@ -91,25 +165,25 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### forward()
 
-> **forward**(`ai`, `values`, `options`?): `Promise`\<[`AxRewriteOut`](#apidocs/typealiasaxrewriteout)\>
+> **forward**(`ai`, `values`, `options`?): `Promise`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>
 
-Defined in: [src/ax/dsp/generate.ts:453](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl453)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L651
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `ai` | `Readonly`\<[`AxAIService`](#apidocs/interfaceaxaiservice)\> |
-| `values` | [`AxRewriteIn`](#apidocs/typealiasaxrewritein) |
-| `options`? | `Readonly`\<[`AxProgramForwardOptions`](#apidocs/typealiasaxprogramforwardoptions)\> |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `values` | [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) |
+| `options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
 
-`Promise`\<[`AxRewriteOut`](#apidocs/typealiasaxrewriteout)\>
+`Promise`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`forward`](#apidocs/classaxgenmdforward)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`forward`](/api/#03-apidocs/classaxgenmdforward)
 
 ***
 
@@ -117,17 +191,17 @@ Defined in: [src/ax/dsp/generate.ts:453](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### getSignature()
 
-> **getSignature**(): [`AxSignature`](#apidocs/classaxsignature)
+> **getSignature**(): [`AxSignature`](/api/#03-apidocs/classaxsignature)
 
-Defined in: [src/ax/dsp/program.ts:117](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl117)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L133
 
 #### Returns
 
-[`AxSignature`](#apidocs/classaxsignature)
+[`AxSignature`](/api/#03-apidocs/classaxsignature)
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`getSignature`](#apidocs/classaxgenmdgetsignature)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`getSignature`](/api/#03-apidocs/classaxgenmdgetsignature)
 
 ***
 
@@ -135,17 +209,17 @@ Defined in: [src/ax/dsp/program.ts:117](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getTraces()
 
-> **getTraces**(): [`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+> **getTraces**(): [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
-Defined in: [src/ax/dsp/program.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl193)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L220
 
 #### Returns
 
-[`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+[`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`getTraces`](#apidocs/classaxgenmdgettraces)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`getTraces`](/api/#03-apidocs/classaxgenmdgettraces)
 
 ***
 
@@ -153,17 +227,17 @@ Defined in: [src/ax/dsp/program.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getUsage()
 
-> **getUsage**(): [`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+> **getUsage**(): [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
-Defined in: [src/ax/dsp/program.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl207)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L234
 
 #### Returns
 
-[`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`getUsage`](#apidocs/classaxgenmdgetusage)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`getUsage`](/api/#03-apidocs/classaxgenmdgetusage)
 
 ***
 
@@ -173,13 +247,13 @@ Defined in: [src/ax/dsp/program.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **register**(`prog`): `void`
 
-Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl121)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L137
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `prog` | `Readonly`\<[`AxTunable`](#apidocs/interfaceaxtunable) & [`AxUsable`](#apidocs/interfaceaxusable)\> |
+| `prog` | `Readonly`\<[`AxTunable`](/api/#03-apidocs/interfaceaxtunable) & [`AxUsable`](/api/#03-apidocs/interfaceaxusable)\> |
 
 #### Returns
 
@@ -187,7 +261,7 @@ Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`register`](#apidocs/classaxgenmdregister)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`register`](/api/#03-apidocs/classaxgenmdregister)
 
 ***
 
@@ -197,7 +271,7 @@ Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **resetUsage**(): `void`
 
-Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl217)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L244
 
 #### Returns
 
@@ -205,7 +279,7 @@ Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`resetUsage`](#apidocs/classaxgenmdresetusage)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`resetUsage`](/api/#03-apidocs/classaxgenmdresetusage)
 
 ***
 
@@ -215,13 +289,13 @@ Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setDemos**(`demos`): `void`
 
-Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl224)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L251
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `demos` | readonly [`AxProgramDemos`](#apidocs/typealiasaxprogramdemos)[] |
+| `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
 
@@ -229,7 +303,7 @@ Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`setDemos`](#apidocs/classaxgenmdsetdemos)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`setDemos`](/api/#03-apidocs/classaxgenmdsetdemos)
 
 ***
 
@@ -239,13 +313,13 @@ Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setExamples**(`examples`): `void`
 
-Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl152)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L179
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `examples` | `Readonly`\<[`AxProgramExamples`](#apidocs/typealiasaxprogramexamples)\> |
+| `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
 
 #### Returns
 
@@ -253,7 +327,7 @@ Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`setExamples`](#apidocs/classaxgenmdsetexamples)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`setExamples`](/api/#03-apidocs/classaxgenmdsetexamples)
 
 ***
 
@@ -263,7 +337,7 @@ Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setId**(`id`): `void`
 
-Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl139)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L166
 
 #### Parameters
 
@@ -277,7 +351,7 @@ Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`setId`](#apidocs/classaxgenmdsetid)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`setId`](/api/#03-apidocs/classaxgenmdsetid)
 
 ***
 
@@ -287,7 +361,7 @@ Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setParentId**(`parentId`): `void`
 
-Defined in: [src/ax/dsp/program.ts:146](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl146)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L173
 
 #### Parameters
 
@@ -301,4 +375,30 @@ Defined in: [src/ax/dsp/program.ts:146](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxGen`](#apidocs/classaxgen).[`setParentId`](#apidocs/classaxgenmdsetparentid)
+[`AxGen`](/api/#03-apidocs/classaxgen).[`setParentId`](/api/#03-apidocs/classaxgenmdsetparentid)
+
+***
+
+<a id="streamingForward"></a>
+
+### streamingForward()
+
+> **streamingForward**(`ai`, `values`, `options`?): `AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L675
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `values` | [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) |
+| `options`? | `Readonly`\<[`AxProgramStreamingForwardOptions`](/api/#03-apidocs/typealiasaxprogramstreamingforwardoptions)\> |
+
+#### Returns
+
+`AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+
+#### Inherited from
+
+[`AxGen`](/api/#03-apidocs/classaxgen).[`streamingForward`](/api/#03-apidocs/classaxgenmdstreamingforward)

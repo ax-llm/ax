@@ -2,7 +2,7 @@
 title: AxStreamingAssertion
 ---
 
-Defined in: [src/ax/dsp/asserts.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl10)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L8
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/dsp/asserts.ts:10](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **fieldName**: `string`
 
-Defined in: [src/ax/dsp/asserts.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl11)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L9
 
 ***
 
@@ -22,17 +22,7 @@ Defined in: [src/ax/dsp/asserts.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > `optional` **message**: `string`
 
-Defined in: [src/ax/dsp/asserts.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl13)
-
-***
-
-<a id="optional"></a>
-
-### optional?
-
-> `optional` **optional**: `boolean`
-
-Defined in: [src/ax/dsp/asserts.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L11
 
 ## Methods
 
@@ -42,7 +32,7 @@ Defined in: [src/ax/dsp/asserts.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **fn**(`content`, `done`?): `undefined` \| `boolean`
 
-Defined in: [src/ax/dsp/asserts.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L10
 
 #### Parameters
 

@@ -4,14 +4,14 @@ title: AxAIGoogleGeminiSafetySettings
 
 > **AxAIGoogleGeminiSafetySettings**: `object`[]
 
-Defined in: [src/ax/ai/google-gemini/types.ts:110](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl110)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L116
 
 ## Type declaration
 
 ### category
 
-> **category**: [`AxAIGoogleGeminiSafetyCategory`](#apidocs/enumerationaxaigooglegeminisafetycategory)
+> **category**: [`AxAIGoogleGeminiSafetyCategory`](/api/#03-apidocs/enumerationaxaigooglegeminisafetycategory)
 
 ### threshold
 
-> **threshold**: [`AxAIGoogleGeminiSafetyThreshold`](#apidocs/enumerationaxaigooglegeminisafetythreshold)
+> **threshold**: [`AxAIGoogleGeminiSafetyThreshold`](/api/#03-apidocs/enumerationaxaigooglegeminisafetythreshold)

@@ -4,7 +4,7 @@ title: AxProgramDemos
 
 > **AxProgramDemos**: `object`
 
-Defined in: [src/ax/dsp/program.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl40)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L40
 
 ## Type declaration
 
@@ -18,4 +18,4 @@ Defined in: [src/ax/dsp/program.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### traces
 
-> **traces**: `Record`\<`string`, [`AxFieldValue`](#apidocs/typealiasaxfieldvalue)\>[]
+> **traces**: `Record`\<`string`, [`AxFieldValue`](/api/#03-apidocs/typealiasaxfieldvalue)\>[]

@@ -12,6 +12,7 @@ import {
 } from '@ax-llm/ax'
 
 const hf = new AxHFDataLoader({
+  // cspell:disable-next-line
   dataset: 'yixuantt/MultiHopRAG',
   split: 'train',
   config: 'MultiHopRAG',

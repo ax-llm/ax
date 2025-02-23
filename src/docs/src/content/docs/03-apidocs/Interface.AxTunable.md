@@ -2,11 +2,11 @@
 title: AxTunable
 ---
 
-Defined in: [src/ax/dsp/program.ts:67](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl67)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L83
 
 ## Extended by
 
-- [`AxAgentic`](#apidocs/interfaceaxagentic)
+- [`AxAgentic`](/api/#03-apidocs/interfaceaxagentic)
 
 ## Properties
 
@@ -14,13 +14,13 @@ Defined in: [src/ax/dsp/program.ts:67](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### getTraces()
 
-> **getTraces**: () => [`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+> **getTraces**: () => [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
-Defined in: [src/ax/dsp/program.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl71)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L87
 
 #### Returns
 
-[`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+[`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
 ***
 
@@ -30,13 +30,13 @@ Defined in: [src/ax/dsp/program.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setDemos**: (`demos`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:72](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl72)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L88
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `demos` | readonly [`AxProgramDemos`](#apidocs/typealiasaxprogramdemos)[] |
+| `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
 
@@ -50,13 +50,13 @@ Defined in: [src/ax/dsp/program.ts:72](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setExamples**: (`examples`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:68](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl68)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L84
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `examples` | `Readonly`\<[`AxProgramExamples`](#apidocs/typealiasaxprogramexamples)\> |
+| `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
 
 #### Returns
 
@@ -70,7 +70,7 @@ Defined in: [src/ax/dsp/program.ts:68](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setId**: (`id`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:69](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl69)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L85
 
 #### Parameters
 
@@ -90,7 +90,7 @@ Defined in: [src/ax/dsp/program.ts:69](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setParentId**: (`parentId`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:70](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl70)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L86
 
 #### Parameters
 

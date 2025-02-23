@@ -2,7 +2,7 @@
 title: AxAIAnthropicModel
 ---
 
-Defined in: [src/ax/ai/anthropic/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L3
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob
 
 > **Claude21**: `"claude-2.1"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl11)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L11
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:11](#apidocs/httpsgithubcomax-llmaxblo
 
 > **Claude35Haiku**: `"claude-3-5-haiku-latest"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L5
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob
 
 > **Claude35Sonnet**: `"claude-3-5-sonnet-latest"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L4
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob
 
 > **Claude3Haiku**: `"claude-3-haiku-20240307"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl9)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L9
 
 ***
 
@@ -52,7 +52,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:9](#apidocs/httpsgithubcomax-llmaxblob
 
 > **Claude3Opus**: `"claude-3-opus-latest"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L7
 
 ***
 
@@ -62,7 +62,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:7](#apidocs/httpsgithubcomax-llmaxblob
 
 > **Claude3Sonnet**: `"claude-3-sonnet-20240229"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L8
 
 ***
 
@@ -72,4 +72,4 @@ Defined in: [src/ax/ai/anthropic/types.ts:8](#apidocs/httpsgithubcomax-llmaxblob
 
 > **ClaudeInstant12**: `"claude-instant-1.2"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L12

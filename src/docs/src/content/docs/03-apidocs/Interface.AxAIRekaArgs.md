@@ -2,7 +2,7 @@
 title: AxAIRekaArgs
 ---
 
-Defined in: [src/ax/ai/reka/api.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl51)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L52
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/reka/api.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **apiKey**: `string`
 
-Defined in: [src/ax/ai/reka/api.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl53)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L54
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/reka/api.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > `optional` **apiURL**: `string`
 
-Defined in: [src/ax/ai/reka/api.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl54)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L55
 
 ***
 
@@ -30,9 +30,9 @@ Defined in: [src/ax/ai/reka/api.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### config?
 
-> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIRekaConfig`](#apidocs/typealiasaxairekaconfig)\>\>
+> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIRekaConfig`](/api/#03-apidocs/typealiasaxairekaconfig)\>\>
 
-Defined in: [src/ax/ai/reka/api.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl55)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L56
 
 ***
 
@@ -40,19 +40,19 @@ Defined in: [src/ax/ai/reka/api.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### modelInfo?
 
-> `optional` **modelInfo**: readonly [`AxModelInfo`](#apidocs/typealiasaxmodelinfo)[]
+> `optional` **modelInfo**: readonly [`AxModelInfo`](/api/#03-apidocs/typealiasaxmodelinfo)[]
 
-Defined in: [src/ax/ai/reka/api.ts:57](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl57)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L58
 
 ***
 
-<a id="modelMap"></a>
+<a id="models"></a>
 
-### modelMap?
+### models?
 
-> `optional` **modelMap**: `Record`\<`string`, `string`\>
+> `optional` **models**: `AxAIInputModelList`\<[`AxAIRekaModel`](/api/#03-apidocs/enumerationaxairekamodel)\>
 
-Defined in: [src/ax/ai/reka/api.ts:58](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl58)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L59
 
 ***
 
@@ -62,7 +62,7 @@ Defined in: [src/ax/ai/reka/api.ts:58](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **name**: `"reka"`
 
-Defined in: [src/ax/ai/reka/api.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl52)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L53
 
 ***
 
@@ -70,6 +70,6 @@ Defined in: [src/ax/ai/reka/api.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### options?
 
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions) & `object`\>
+> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions) & `object`\>
 
-Defined in: [src/ax/ai/reka/api.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekaapitsl56)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/api.ts#L57

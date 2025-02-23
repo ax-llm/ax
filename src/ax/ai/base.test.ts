@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AxBaseAI } from './base.js'
 import type { AxAIFeatures, AxBaseAIArgs } from './base.js'
 import type { AxAIServiceImpl } from './types.js'
-import type {} from './types.js'
 
 describe('AxBaseAI', () => {
   // Mock implementation of the AI service
@@ -78,15 +77,6 @@ describe('AxBaseAI', () => {
     const ai = createTestAI()
     expect(ai.getName()).toBe('test-ai')
     expect(ai.getModelList()).toHaveLength(2)
-  })
-
-  it('should handle model info correctly', () => {
-    const ai = createTestAI()
-    const modelInfo = ai.getModelInfo()
-
-    expect(modelInfo.name).toBe('test-model')
-    expect(modelInfo.provider).toBe('test-ai')
-    expect(modelInfo.promptTokenCostPer1M).toBe(100)
   })
 
   it('should handle features correctly with function', () => {
@@ -436,5 +426,44 @@ describe('AxBaseAI', () => {
     afterEach(() => {
       vi.clearAllMocks()
     })
+  })
+
+  it('should return only non-internal models in getModelList', () => {
+    const ai = new AxBaseAI(mockImpl, {
+      ...baseConfig,
+      models: [
+        { key: 'basic', model: 'model-basic', description: 'Basic model' },
+        {
+          key: 'advanced',
+          model: 'model-advanced',
+          description: 'Advanced model',
+          isInternal: true,
+        },
+        { key: 'expert', model: 'model-expert', description: 'Expert model' },
+      ],
+    })
+    ai.setOptions({ fetch: createMockFetch(defaultMockResponse) })
+    const visibleModels = ai.getModelList()
+    expect(visibleModels).toHaveLength(2)
+    expect(visibleModels?.map((m) => m.key)).toContain('basic')
+    expect(visibleModels?.map((m) => m.key)).toContain('expert')
+    expect(visibleModels?.map((m) => m.key)).not.toContain('advanced')
+  })
+
+  it('should throw an error if duplicate model keys are provided', () => {
+    expect(() => {
+      const ai = new AxBaseAI(mockImpl, {
+        ...baseConfig,
+        models: [
+          { key: 'basic', model: 'model-basic', description: 'Basic model' },
+          {
+            key: 'basic',
+            model: 'another-model-basic',
+            description: 'Duplicate basic model',
+          },
+        ],
+      })
+      ai.setOptions({ fetch: createMockFetch(defaultMockResponse) })
+    }).toThrowError(/Duplicate model key detected: "basic"/)
   })
 })

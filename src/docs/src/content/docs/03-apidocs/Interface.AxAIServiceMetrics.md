@@ -2,7 +2,7 @@
 title: AxAIServiceMetrics
 ---
 
-Defined in: [src/ax/ai/types.ts:161](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl161)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L175
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/types.ts:161](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 > **errors**: `object`
 
-Defined in: [src/ax/ai/types.ts:176](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl176)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L190
 
 #### chat
 
@@ -30,7 +30,7 @@ Defined in: [src/ax/ai/types.ts:176](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 > **latency**: `object`
 
-Defined in: [src/ax/ai/types.ts:162](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl162)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L176
 
 #### chat
 

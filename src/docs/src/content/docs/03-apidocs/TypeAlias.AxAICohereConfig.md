@@ -2,9 +2,9 @@
 title: AxAICohereConfig
 ---
 
-> **AxAICohereConfig**: [`AxModelConfig`](#apidocs/typealiasaxmodelconfig) & `object`
+> **AxAICohereConfig**: [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig) & `object`
 
-Defined in: [src/ax/ai/cohere/types.ts:26](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl26)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L26
 
 Cohere: Model options for text generation
 
@@ -12,8 +12,8 @@ Cohere: Model options for text generation
 
 ### embedModel?
 
-> `optional` **embedModel**: [`AxAICohereEmbedModel`](#apidocs/enumerationaxaicohereembedmodel)
+> `optional` **embedModel**: [`AxAICohereEmbedModel`](/api/#03-apidocs/enumerationaxaicohereembedmodel)
 
 ### model
 
-> **model**: [`AxAICohereModel`](#apidocs/enumerationaxaicoheremodel)
+> **model**: [`AxAICohereModel`](/api/#03-apidocs/enumerationaxaicoheremodel)

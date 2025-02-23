@@ -2,37 +2,37 @@
 title: AxAIGoogleGemini
 ---
 
-Defined in: [src/ax/ai/google-gemini/api.ts:439](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl439)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L494
 
 AxAIGoogleGemini: AI Service
 
 ## Extends
 
-- [`AxBaseAI`](#apidocs/classaxbaseai)\<[`AxAIGoogleGeminiChatRequest`](#apidocs/typealiasaxaigooglegeminichatrequest), [`AxAIGoogleGeminiBatchEmbedRequest`](#apidocs/typealiasaxaigooglegeminibatchembedrequest), [`AxAIGoogleGeminiChatResponse`](#apidocs/typealiasaxaigooglegeminichatresponse), [`AxAIGoogleGeminiChatResponseDelta`](#apidocs/typealiasaxaigooglegeminichatresponsedelta), [`AxAIGoogleGeminiBatchEmbedResponse`](#apidocs/typealiasaxaigooglegeminibatchembedresponse)\>
+- [`AxBaseAI`](/api/#03-apidocs/classaxbaseai)\<[`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel), [`AxAIGoogleGeminiEmbedModel`](/api/#03-apidocs/enumerationaxaigooglegeminiembedmodel), [`AxAIGoogleGeminiChatRequest`](/api/#03-apidocs/typealiasaxaigooglegeminichatrequest), [`AxAIGoogleGeminiBatchEmbedRequest`](/api/#03-apidocs/typealiasaxaigooglegeminibatchembedrequest) \| [`AxAIGoogleVertexBatchEmbedRequest`](/api/#03-apidocs/typealiasaxaigooglevertexbatchembedrequest), [`AxAIGoogleGeminiChatResponse`](/api/#03-apidocs/typealiasaxaigooglegeminichatresponse), [`AxAIGoogleGeminiChatResponseDelta`](/api/#03-apidocs/typealiasaxaigooglegeminichatresponsedelta), [`AxAIGoogleGeminiBatchEmbedResponse`](/api/#03-apidocs/typealiasaxaigooglegeminibatchembedresponse) \| [`AxAIGoogleVertexBatchEmbedResponse`](/api/#03-apidocs/typealiasaxaigooglevertexbatchembedresponse)\>
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxAIGoogleGemini()
 
-> **new AxAIGoogleGemini**(`__namedParameters`): [`AxAIGoogleGemini`](#apidocs/classaxaigooglegemini)
+> **new AxAIGoogleGemini**(`__namedParameters`): [`AxAIGoogleGemini`](/api/#03-apidocs/classaxaigooglegemini)
 
-Defined in: [src/ax/ai/google-gemini/api.ts:446](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl446)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L503
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<`Omit`\<[`AxAIGoogleGeminiArgs`](#apidocs/interfaceaxaigooglegeminiargs), `"name"`\>\> |
+| `__namedParameters` | `Readonly`\<`Omit`\<[`AxAIGoogleGeminiArgs`](/api/#03-apidocs/interfaceaxaigooglegeminiargs), `"name"`\>\> |
 
 #### Returns
 
-[`AxAIGoogleGemini`](#apidocs/classaxaigooglegemini)
+[`AxAIGoogleGemini`](/api/#03-apidocs/classaxaigooglegemini)
 
 #### Overrides
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`constructor`](#apidocs/classaxbaseaimdconstructors)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`constructor`](/api/#03-apidocs/classaxbaseaimdconstructors)
 
 ## Methods
 
@@ -40,24 +40,24 @@ Defined in: [src/ax/ai/google-gemini/api.ts:446](#apidocs/httpsgithubcomax-llmax
 
 ### chat()
 
-> **chat**(`req`, `options`?): `Promise`\<[`AxChatResponse`](#apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](#apidocs/typealiasaxchatresponse)\>\>
+> **chat**(`req`, `options`?): `Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
 
-Defined in: [src/ax/ai/base.ts:278](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl278)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L290
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxChatRequest`](#apidocs/typealiasaxchatrequest)\> |
-| `options`? | `Readonly`\<[`AxAIPromptConfig`](#apidocs/typealiasaxaipromptconfig) & [`AxAIServiceActionOptions`](#apidocs/typealiasaxaiserviceactionoptions)\> |
+| `req` | `Readonly`\<[`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest)\<[`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel)\>\> |
+| `options`? | `Readonly`\<[`AxAIPromptConfig`](/api/#03-apidocs/typealiasaxaipromptconfig) & [`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\<[`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel), [`AxAIGoogleGeminiEmbedModel`](/api/#03-apidocs/enumerationaxaigooglegeminiembedmodel)\>\> |
 
 #### Returns
 
-`Promise`\<[`AxChatResponse`](#apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](#apidocs/typealiasaxchatresponse)\>\>
+`Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`chat`](#apidocs/classaxbaseaimdchat)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`chat`](/api/#03-apidocs/classaxbaseaimdchat)
 
 ***
 
@@ -65,42 +65,42 @@ Defined in: [src/ax/ai/base.ts:278](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### embed()
 
-> **embed**(`req`, `options`?): `Promise`\<[`AxEmbedResponse`](#apidocs/typealiasaxembedresponse)\>
+> **embed**(`req`, `options`?): `Promise`\<[`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)\>
 
-Defined in: [src/ax/ai/base.ts:468](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl468)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L524
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `req` | `Readonly`\<[`AxEmbedRequest`](#apidocs/typealiasaxembedrequest)\> |
-| `options`? | `Readonly`\<[`AxAIServiceActionOptions`](#apidocs/typealiasaxaiserviceactionoptions)\> |
+| `req` | `Readonly`\<[`AxEmbedRequest`](/api/#03-apidocs/typealiasaxembedrequest)\<[`AxAIGoogleGeminiEmbedModel`](/api/#03-apidocs/enumerationaxaigooglegeminiembedmodel)\>\> |
+| `options`? | `Readonly`\<[`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\<[`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel), [`AxAIGoogleGeminiEmbedModel`](/api/#03-apidocs/enumerationaxaigooglegeminiembedmodel)\>\> |
 
 #### Returns
 
-`Promise`\<[`AxEmbedResponse`](#apidocs/typealiasaxembedresponse)\>
+`Promise`\<[`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)\>
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`embed`](#apidocs/classaxbaseaimdembed)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`embed`](/api/#03-apidocs/classaxbaseaimdembed)
 
 ***
 
-<a id="getEmbedModelInfo"></a>
+<a id="getDefaultModels"></a>
 
-### getEmbedModelInfo()
+### getDefaultModels()
 
-> **getEmbedModelInfo**(): `undefined` \| [`AxModelInfoWithProvider`](#apidocs/typealiasaxmodelinfowithprovider)
+> **getDefaultModels**(): `Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
 
-Defined in: [src/ax/ai/base.ts:205](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl205)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L230
 
 #### Returns
 
-`undefined` \| [`AxModelInfoWithProvider`](#apidocs/typealiasaxmodelinfowithprovider)
+`Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`getEmbedModelInfo`](#apidocs/classaxbaseaimdgetembedmodelinfo)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`getDefaultModels`](/api/#03-apidocs/classaxbaseaimdgetdefaultmodels)
 
 ***
 
@@ -108,23 +108,41 @@ Defined in: [src/ax/ai/base.ts:205](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### getFeatures()
 
-> **getFeatures**(`model`?): [`AxBaseAIFeatures`](#apidocs/interfaceaxbaseaifeatures)
+> **getFeatures**(`model`?): [`AxAIFeatures`](/api/#03-apidocs/interfaceaxaifeatures)
 
-Defined in: [src/ax/ai/base.ts:229](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl229)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L241
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `model`? | `string` |
+| `model`? | [`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel) |
 
 #### Returns
 
-[`AxBaseAIFeatures`](#apidocs/interfaceaxbaseaifeatures)
+[`AxAIFeatures`](/api/#03-apidocs/interfaceaxaifeatures)
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`getFeatures`](#apidocs/classaxbaseaimdgetfeatures)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`getFeatures`](/api/#03-apidocs/classaxbaseaimdgetfeatures)
+
+***
+
+<a id="getId"></a>
+
+### getId()
+
+> **getId**(): `string`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L181
+
+#### Returns
+
+`string`
+
+#### Inherited from
+
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`getId`](/api/#03-apidocs/classaxbaseaimdgetid)
 
 ***
 
@@ -132,53 +150,35 @@ Defined in: [src/ax/ai/base.ts:229](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 ### getMetrics()
 
-> **getMetrics**(): [`AxAIServiceMetrics`](#apidocs/interfaceaxaiservicemetrics)
+> **getMetrics**(): [`AxAIServiceMetrics`](/api/#03-apidocs/interfaceaxaiservicemetrics)
 
-Defined in: [src/ax/ai/base.ts:274](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl274)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L286
 
 #### Returns
 
-[`AxAIServiceMetrics`](#apidocs/interfaceaxaiservicemetrics)
+[`AxAIServiceMetrics`](/api/#03-apidocs/interfaceaxaiservicemetrics)
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`getMetrics`](#apidocs/classaxbaseaimdgetmetrics)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`getMetrics`](/api/#03-apidocs/classaxbaseaimdgetmetrics)
 
 ***
 
-<a id="getModelInfo"></a>
+<a id="getModelList"></a>
 
-### getModelInfo()
+### getModelList()
 
-> **getModelInfo**(): `Readonly`\<[`AxModelInfoWithProvider`](#apidocs/typealiasaxmodelinfowithprovider)\>
+> **getModelList**(): `undefined` \| [`AxAIModelList`](/api/#03-apidocs/typealiasaxaimodellist)
 
-Defined in: [src/ax/ai/base.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl193)
-
-#### Returns
-
-`Readonly`\<[`AxModelInfoWithProvider`](#apidocs/typealiasaxmodelinfowithprovider)\>
-
-#### Inherited from
-
-[`AxBaseAI`](#apidocs/classaxbaseai).[`getModelInfo`](#apidocs/classaxbaseaimdgetmodelinfo)
-
-***
-
-<a id="getModelMap"></a>
-
-### getModelMap()
-
-> **getModelMap**(): `undefined` \| [`AxAIModelMap`](#apidocs/typealiasaxaimodelmap)
-
-Defined in: [src/ax/ai/base.ts:221](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl221)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L220
 
 #### Returns
 
-`undefined` \| [`AxAIModelMap`](#apidocs/typealiasaxaimodelmap)
+`undefined` \| [`AxAIModelList`](/api/#03-apidocs/typealiasaxaimodellist)
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`getModelMap`](#apidocs/classaxbaseaimdgetmodelmap)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`getModelList`](/api/#03-apidocs/classaxbaseaimdgetmodellist)
 
 ***
 
@@ -188,7 +188,7 @@ Defined in: [src/ax/ai/base.ts:221](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **getName**(): `string`
 
-Defined in: [src/ax/ai/base.ts:225](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl225)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L237
 
 #### Returns
 
@@ -196,7 +196,25 @@ Defined in: [src/ax/ai/base.ts:225](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`getName`](#apidocs/classaxbaseaimdgetname)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`getName`](/api/#03-apidocs/classaxbaseaimdgetname)
+
+***
+
+<a id="getOptions"></a>
+
+### getOptions()
+
+> **getOptions**(): `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L211
+
+#### Returns
+
+`Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
+
+#### Inherited from
+
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`getOptions`](/api/#03-apidocs/classaxbaseaimdgetoptions)
 
 ***
 
@@ -206,7 +224,7 @@ Defined in: [src/ax/ai/base.ts:225](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **setAPIURL**(`apiURL`): `void`
 
-Defined in: [src/ax/ai/base.ts:167](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl167)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L185
 
 #### Parameters
 
@@ -220,7 +238,7 @@ Defined in: [src/ax/ai/base.ts:167](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`setAPIURL`](#apidocs/classaxbaseaimdsetapiurl)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`setAPIURL`](/api/#03-apidocs/classaxbaseaimdsetapiurl)
 
 ***
 
@@ -230,13 +248,13 @@ Defined in: [src/ax/ai/base.ts:167](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **setHeaders**(`headers`): `void`
 
-Defined in: [src/ax/ai/base.ts:171](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl171)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L189
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `headers` | `Record`\<`string`, `string`\> |
+| `headers` | () => `Promise`\<`Record`\<`string`, `string`\>\> |
 
 #### Returns
 
@@ -244,7 +262,7 @@ Defined in: [src/ax/ai/base.ts:171](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`setHeaders`](#apidocs/classaxbaseaimdsetheaders)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`setHeaders`](/api/#03-apidocs/classaxbaseaimdsetheaders)
 
 ***
 
@@ -254,7 +272,7 @@ Defined in: [src/ax/ai/base.ts:171](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **setName**(`name`): `void`
 
-Defined in: [src/ax/ai/base.ts:163](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl163)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L177
 
 #### Parameters
 
@@ -268,7 +286,7 @@ Defined in: [src/ax/ai/base.ts:163](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`setName`](#apidocs/classaxbaseaimdsetname)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`setName`](/api/#03-apidocs/classaxbaseaimdsetname)
 
 ***
 
@@ -278,13 +296,13 @@ Defined in: [src/ax/ai/base.ts:163](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 > **setOptions**(`options`): `void`
 
-Defined in: [src/ax/ai/base.ts:175](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibasetsl175)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L193
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `options` | `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions)\> |
+| `options` | `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\> |
 
 #### Returns
 
@@ -292,4 +310,4 @@ Defined in: [src/ax/ai/base.ts:175](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d
 
 #### Inherited from
 
-[`AxBaseAI`](#apidocs/classaxbaseai).[`setOptions`](#apidocs/classaxbaseaimdsetoptions)
+[`AxBaseAI`](/api/#03-apidocs/classaxbaseai).[`setOptions`](/api/#03-apidocs/classaxbaseaimdsetoptions)

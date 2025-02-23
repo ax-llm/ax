@@ -142,7 +142,7 @@ export class AxGen<
     this.streamingAsserts.push({ fieldName, fn, message })
   }
 
-  public addFieldProcessor = (
+  private addFieldProcessorInternal = (
     fieldName: string,
     fn: AxFieldProcessor['process'],
     streaming: boolean = false
@@ -168,6 +168,20 @@ export class AxGen<
     } else {
       this.fieldProcessors.push({ field, process: fn })
     }
+  }
+
+  public addStreamingFieldProcessor = (
+    fieldName: string,
+    fn: AxFieldProcessor['process']
+  ) => {
+    this.addFieldProcessorInternal(fieldName, fn, true)
+  }
+
+  public addFieldProcessor = (
+    fieldName: string,
+    fn: AxFieldProcessor['process']
+  ) => {
+    this.addFieldProcessorInternal(fieldName, fn, false)
   }
 
   private async forwardSendRequest({
@@ -230,9 +244,10 @@ export class AxGen<
     const { sessionId, traceId, model, functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
 
+    const modelName = model ?? ai.getDefaultModels().model
     const usageInfo = {
       ai: ai.getName(),
-      model: ai.getModelInfo().name,
+      model: modelName,
     }
 
     const res = await this.forwardSendRequest({
@@ -326,7 +341,9 @@ export class AxGen<
           streamingValidation
         )
 
-        assertStreamingAssertions(this.streamingAsserts, xstate, content)
+        if (this.streamingAsserts.length !== 0) {
+          assertStreamingAssertions(this.streamingAsserts, xstate, content)
+        }
 
         if (this.streamingFieldProcessors.length !== 0) {
           await processStreamingFieldProcessors(

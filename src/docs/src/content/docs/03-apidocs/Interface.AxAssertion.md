@@ -2,7 +2,7 @@
 title: AxAssertion
 ---
 
-Defined in: [src/ax/dsp/asserts.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L3
 
 ## Properties
 
@@ -12,17 +12,7 @@ Defined in: [src/ax/dsp/asserts.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > `optional` **message**: `string`
 
-Defined in: [src/ax/dsp/asserts.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl6)
-
-***
-
-<a id="optional"></a>
-
-### optional?
-
-> `optional` **optional**: `boolean`
-
-Defined in: [src/ax/dsp/asserts.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl7)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L5
 
 ## Methods
 
@@ -32,7 +22,7 @@ Defined in: [src/ax/dsp/asserts.ts:7](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **fn**(`values`): `undefined` \| `boolean`
 
-Defined in: [src/ax/dsp/asserts.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L4
 
 #### Parameters
 

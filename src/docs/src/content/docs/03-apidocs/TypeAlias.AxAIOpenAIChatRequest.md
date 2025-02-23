@@ -2,9 +2,15 @@
 title: AxAIOpenAIChatRequest
 ---
 
-> **AxAIOpenAIChatRequest**: `object`
+> **AxAIOpenAIChatRequest**\<`TModel`\>: `object`
 
-Defined in: [src/ax/ai/openai/types.ts:65](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl65)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L71
+
+## Type Parameters
+
+| Type Parameter |
+| ------ |
+| `TModel` |
 
 ## Type declaration
 
@@ -20,11 +26,11 @@ Defined in: [src/ax/ai/openai/types.ts:65](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > `optional` **logit\_bias**: `Map`\<`string`, `number`\>
 
-<a id="max_tokens"></a>
+<a id="max_completion_tokens"></a>
 
-### max\_tokens
+### max\_completion\_tokens
 
-> **max\_tokens**: `number`
+> **max\_completion\_tokens**: `number`
 
 <a id="messages"></a>
 
@@ -36,7 +42,7 @@ Defined in: [src/ax/ai/openai/types.ts:65](#apidocs/httpsgithubcomax-llmaxblob3b
 
 ### model
 
-> **model**: `string`
+> **model**: `TModel`
 
 <a id="n"></a>
 
@@ -56,6 +62,12 @@ Defined in: [src/ax/ai/openai/types.ts:65](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > `optional` **presence\_penalty**: `number`
 
+<a id="reasoning_effort"></a>
+
+### reasoning\_effort?
+
+> `optional` **reasoning\_effort**: `"low"` \| `"medium"` \| `"high"`
+
 ### response\_format?
 
 > \{ `type`: `string`; \}
@@ -65,6 +77,12 @@ Defined in: [src/ax/ai/openai/types.ts:65](#apidocs/httpsgithubcomax-llmaxblob3b
 ### stop?
 
 > `optional` **stop**: readonly `string`[]
+
+<a id="store"></a>
+
+### store?
+
+> `optional` **store**: `boolean`
 
 <a id="stream"></a>
 

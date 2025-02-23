@@ -5,7 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
-  AxAIModelList,
+  AxAIInputModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -39,7 +39,7 @@ export interface AxAIHuggingFaceArgs {
   apiKey: string
   config?: Readonly<Partial<AxAIHuggingFaceConfig>>
   options?: Readonly<AxAIServiceOptions>
-  models?: AxAIModelList<AxAIHuggingFaceModel>
+  models?: AxAIInputModelList<AxAIHuggingFaceModel>
 }
 
 class AxAIHuggingFaceImpl

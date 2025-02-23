@@ -2,6 +2,6 @@
 title: AxAIModels
 ---
 
-> **AxAIModels**: [`AxAIOpenAIModel`](#apidocs/enumerationaxaiopenaimodel) \| [`AxAIAnthropicModel`](#apidocs/enumerationaxaianthropicmodel) \| [`AxAIGroqModel`](#apidocs/enumerationaxaigroqmodel) \| [`AxAIGoogleGeminiModel`](#apidocs/enumerationaxaigooglegeminimodel) \| [`AxAICohereModel`](#apidocs/enumerationaxaicoheremodel) \| [`AxAIHuggingFaceModel`](#apidocs/enumerationaxaihuggingfacemodel) \| [`AxAIMistralModel`](#apidocs/enumerationaxaimistralmodel) \| [`AxAIDeepSeekModel`](#apidocs/enumerationaxaideepseekmodel) \| `string`
+> **AxAIModels**: [`AxAIOpenAIModel`](/api/#03-apidocs/enumerationaxaiopenaimodel) \| [`AxAIAnthropicModel`](/api/#03-apidocs/enumerationaxaianthropicmodel) \| [`AxAIGroqModel`](/api/#03-apidocs/enumerationaxaigroqmodel) \| [`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel) \| [`AxAICohereModel`](/api/#03-apidocs/enumerationaxaicoheremodel) \| [`AxAIHuggingFaceModel`](/api/#03-apidocs/enumerationaxaihuggingfacemodel) \| [`AxAIMistralModel`](/api/#03-apidocs/enumerationaxaimistralmodel) \| [`AxAIDeepSeekModel`](/api/#03-apidocs/enumerationaxaideepseekmodel)
 
-Defined in: [src/ax/ai/wrap.ts:63](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiwraptsl63)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L62

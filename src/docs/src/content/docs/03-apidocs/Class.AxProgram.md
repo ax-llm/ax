@@ -2,33 +2,33 @@
 title: AxProgram
 ---
 
-Defined in: [src/ax/dsp/program.ts:236](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl236)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L263
 
 ## Type Parameters
 
 | Type Parameter |
 | ------ |
-| `IN` *extends* [`AxGenIn`](#apidocs/typealiasaxgenin) |
-| `OUT` *extends* [`AxGenOut`](#apidocs/typealiasaxgenout) |
+| `IN` *extends* [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) |
+| `OUT` *extends* [`AxGenOut`](/api/#03-apidocs/typealiasaxgenout) |
 
 ## Implements
 
-- [`AxTunable`](#apidocs/interfaceaxtunable)
-- [`AxUsable`](#apidocs/interfaceaxusable)
+- [`AxTunable`](/api/#03-apidocs/interfaceaxtunable)
+- [`AxUsable`](/api/#03-apidocs/interfaceaxusable)
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxProgram()
 
-> **new AxProgram**\<`IN`, `OUT`\>(): [`AxProgram`](#apidocs/classaxprogram)\<`IN`, `OUT`\>
+> **new AxProgram**\<`IN`, `OUT`\>(): [`AxProgram`](/api/#03-apidocs/classaxprogram)\<`IN`, `OUT`\>
 
-Defined in: [src/ax/dsp/program.ts:245](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl245)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L272
 
 #### Returns
 
-[`AxProgram`](#apidocs/classaxprogram)\<`IN`, `OUT`\>
+[`AxProgram`](/api/#03-apidocs/classaxprogram)\<`IN`, `OUT`\>
 
 ## Methods
 
@@ -38,15 +38,15 @@ Defined in: [src/ax/dsp/program.ts:245](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **forward**(`_ai`, `_values`, `_options`?): `Promise`\<`OUT`\>
 
-Defined in: [src/ax/dsp/program.ts:257](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl257)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L284
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `_ai` | `Readonly`\<[`AxAIService`](#apidocs/interfaceaxaiservice)\> |
+| `_ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
 | `_values` | `IN` |
-| `_options`? | `Readonly`\<[`AxProgramForwardOptions`](#apidocs/typealiasaxprogramforwardoptions)\> |
+| `_options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
 
@@ -58,17 +58,17 @@ Defined in: [src/ax/dsp/program.ts:257](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getTraces()
 
-> **getTraces**(): [`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+> **getTraces**(): [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
-Defined in: [src/ax/dsp/program.ts:291](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl291)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L329
 
 #### Returns
 
-[`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+[`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
 #### Implementation of
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`getTraces`](#apidocs/interfaceaxtunablemdgettraces)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`getTraces`](/api/#03-apidocs/interfaceaxtunablemdgettraces)
 
 ***
 
@@ -76,17 +76,17 @@ Defined in: [src/ax/dsp/program.ts:291](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getUsage()
 
-> **getUsage**(): [`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+> **getUsage**(): [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
-Defined in: [src/ax/dsp/program.ts:305](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl305)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L343
 
 #### Returns
 
-[`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
 #### Implementation of
 
-[`AxUsable`](#apidocs/interfaceaxusable).[`getUsage`](#apidocs/interfaceaxusablemdgetusage)
+[`AxUsable`](/api/#03-apidocs/interfaceaxusable).[`getUsage`](/api/#03-apidocs/interfaceaxusablemdgetusage)
 
 ***
 
@@ -96,13 +96,13 @@ Defined in: [src/ax/dsp/program.ts:305](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **register**(`prog`): `void`
 
-Defined in: [src/ax/dsp/program.ts:250](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl250)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L277
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `prog` | `Readonly`\<[`AxTunable`](#apidocs/interfaceaxtunable) & [`AxUsable`](#apidocs/interfaceaxusable)\> |
+| `prog` | `Readonly`\<[`AxTunable`](/api/#03-apidocs/interfaceaxtunable) & [`AxUsable`](/api/#03-apidocs/interfaceaxusable)\> |
 
 #### Returns
 
@@ -116,7 +116,7 @@ Defined in: [src/ax/dsp/program.ts:250](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **resetUsage**(): `void`
 
-Defined in: [src/ax/dsp/program.ts:315](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl315)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L353
 
 #### Returns
 
@@ -124,7 +124,7 @@ Defined in: [src/ax/dsp/program.ts:315](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Implementation of
 
-[`AxUsable`](#apidocs/interfaceaxusable).[`resetUsage`](#apidocs/interfaceaxusablemdresetusage)
+[`AxUsable`](/api/#03-apidocs/interfaceaxusable).[`resetUsage`](/api/#03-apidocs/interfaceaxusablemdresetusage)
 
 ***
 
@@ -134,13 +134,13 @@ Defined in: [src/ax/dsp/program.ts:315](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setDemos**(`demos`): `void`
 
-Defined in: [src/ax/dsp/program.ts:322](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl322)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L360
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `demos` | readonly [`AxProgramDemos`](#apidocs/typealiasaxprogramdemos)[] |
+| `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
 
@@ -148,7 +148,7 @@ Defined in: [src/ax/dsp/program.ts:322](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Implementation of
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setDemos`](#apidocs/interfaceaxtunablemdsetdemos)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setDemos`](/api/#03-apidocs/interfaceaxtunablemdsetdemos)
 
 ***
 
@@ -158,13 +158,13 @@ Defined in: [src/ax/dsp/program.ts:322](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setExamples**(`examples`): `void`
 
-Defined in: [src/ax/dsp/program.ts:281](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl281)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L319
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `examples` | `Readonly`\<[`AxProgramExamples`](#apidocs/typealiasaxprogramexamples)\> |
+| `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
 
 #### Returns
 
@@ -172,7 +172,7 @@ Defined in: [src/ax/dsp/program.ts:281](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Implementation of
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setExamples`](#apidocs/interfaceaxtunablemdsetexamples)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setExamples`](/api/#03-apidocs/interfaceaxtunablemdsetexamples)
 
 ***
 
@@ -182,7 +182,7 @@ Defined in: [src/ax/dsp/program.ts:281](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setId**(`id`): `void`
 
-Defined in: [src/ax/dsp/program.ts:268](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl268)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L306
 
 #### Parameters
 
@@ -196,7 +196,7 @@ Defined in: [src/ax/dsp/program.ts:268](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Implementation of
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setId`](#apidocs/interfaceaxtunablemdsetid)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setId`](/api/#03-apidocs/interfaceaxtunablemdsetid)
 
 ***
 
@@ -206,7 +206,7 @@ Defined in: [src/ax/dsp/program.ts:268](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setParentId**(`parentId`): `void`
 
-Defined in: [src/ax/dsp/program.ts:275](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl275)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L313
 
 #### Parameters
 
@@ -220,4 +220,26 @@ Defined in: [src/ax/dsp/program.ts:275](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Implementation of
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setParentId`](#apidocs/interfaceaxtunablemdsetparentid)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setParentId`](/api/#03-apidocs/interfaceaxtunablemdsetparentid)
+
+***
+
+<a id="streamingForward"></a>
+
+### streamingForward()
+
+> **streamingForward**(`_ai`, `_values`, `_options`?): [`AxGenStreamingOut`](/api/#03-apidocs/typealiasaxgenstreamingout)\<`OUT`\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L295
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `_ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `_values` | `IN` |
+| `_options`? | `Readonly`\<[`AxProgramStreamingForwardOptions`](/api/#03-apidocs/typealiasaxprogramstreamingforwardoptions)\> |
+
+#### Returns
+
+[`AxGenStreamingOut`](/api/#03-apidocs/typealiasaxgenstreamingout)\<`OUT`\>

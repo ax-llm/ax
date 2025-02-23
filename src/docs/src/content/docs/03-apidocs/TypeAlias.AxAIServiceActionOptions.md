@@ -2,9 +2,16 @@
 title: AxAIServiceActionOptions
 ---
 
-> **AxAIServiceActionOptions**: `object`
+> **AxAIServiceActionOptions**\<`TModel`, `TEmbedModel`\>: `object`
 
-Defined in: [src/ax/ai/types.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl217)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L234
+
+## Type Parameters
+
+| Type Parameter | Default type |
+| ------ | ------ |
+| `TModel` | `unknown` |
+| `TEmbedModel` | `unknown` |
 
 ## Type declaration
 
@@ -12,13 +19,19 @@ Defined in: [src/ax/ai/types.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 ### ai?
 
-> `optional` **ai**: `Readonly`\<[`AxAIService`](#apidocs/interfaceaxaiservice)\>
+> `optional` **ai**: `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`TModel`, `TEmbedModel`\>\>
+
+<a id="debug"></a>
+
+### debug?
+
+> `optional` **debug**: `boolean`
 
 <a id="rateLimiter"></a>
 
 ### rateLimiter?
 
-> `optional` **rateLimiter**: [`AxRateLimiterFunction`](#apidocs/typealiasaxratelimiterfunction)
+> `optional` **rateLimiter**: [`AxRateLimiterFunction`](/api/#03-apidocs/typealiasaxratelimiterfunction)
 
 <a id="sessionId"></a>
 

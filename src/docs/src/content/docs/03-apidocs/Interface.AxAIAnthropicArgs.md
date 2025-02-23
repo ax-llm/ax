@@ -2,17 +2,17 @@
 title: AxAIAnthropicArgs
 ---
 
-Defined in: [src/ax/ai/anthropic/api.ts:34](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropicapitsl34)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L37
 
 ## Properties
 
 <a id="apiKey"></a>
 
-### apiKey
+### apiKey?
 
-> **apiKey**: `string`
+> `optional` **apiKey**: `string`
 
-Defined in: [src/ax/ai/anthropic/api.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropicapitsl36)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L39
 
 ***
 
@@ -20,19 +20,19 @@ Defined in: [src/ax/ai/anthropic/api.ts:36](#apidocs/httpsgithubcomax-llmaxblob3
 
 ### config?
 
-> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIAnthropicConfig`](#apidocs/typealiasaxaianthropicconfig)\>\>
+> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIAnthropicConfig`](/api/#03-apidocs/typealiasaxaianthropicconfig)\>\>
 
-Defined in: [src/ax/ai/anthropic/api.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropicapitsl37)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L42
 
 ***
 
-<a id="modelMap"></a>
+<a id="models"></a>
 
-### modelMap?
+### models?
 
-> `optional` **modelMap**: `Record`\<`string`, `string`\>
+> `optional` **models**: `AxAIInputModelList`\<[`AxAIAnthropicModel`](/api/#03-apidocs/enumerationaxaianthropicmodel) \| [`AxAIAnthropicVertexModel`](/api/#03-apidocs/enumerationaxaianthropicvertexmodel)\>
 
-Defined in: [src/ax/ai/anthropic/api.ts:39](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropicapitsl39)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L44
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/ai/anthropic/api.ts:39](#apidocs/httpsgithubcomax-llmaxblob3
 
 > **name**: `"anthropic"`
 
-Defined in: [src/ax/ai/anthropic/api.ts:35](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropicapitsl35)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L38
 
 ***
 
@@ -50,6 +50,26 @@ Defined in: [src/ax/ai/anthropic/api.ts:35](#apidocs/httpsgithubcomax-llmaxblob3
 
 ### options?
 
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions)\>
+> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
 
-Defined in: [src/ax/ai/anthropic/api.ts:38](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropicapitsl38)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L43
+
+***
+
+<a id="projectId"></a>
+
+### projectId?
+
+> `optional` **projectId**: `string`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L40
+
+***
+
+<a id="region"></a>
+
+### region?
+
+> `optional` **region**: `string`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/api.ts#L41

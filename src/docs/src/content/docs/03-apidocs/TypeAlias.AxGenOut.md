@@ -2,6 +2,6 @@
 title: AxGenOut
 ---
 
-> **AxGenOut**: `Record`\<`string`, [`AxFieldValue`](#apidocs/typealiasaxfieldvalue)\>
+> **AxGenOut**: `Record`\<`string`, [`AxFieldValue`](/api/#03-apidocs/typealiasaxfieldvalue)\>
 
-Defined in: [src/ax/dsp/program.ts:32](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl32)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L32

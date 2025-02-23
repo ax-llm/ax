@@ -2,7 +2,7 @@
 title: AxAIGoogleGeminiEmbedModel
 ---
 
-Defined in: [src/ax/ai/google-gemini/types.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L17
 
 ## Enumeration Members
 
@@ -12,4 +12,14 @@ Defined in: [src/ax/ai/google-gemini/types.ts:12](#apidocs/httpsgithubcomax-llma
 
 > **TextEmbedding004**: `"text-embedding-004"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L18
+
+***
+
+<a id="TextEmbedding005"></a>
+
+### TextEmbedding005
+
+> **TextEmbedding005**: `"text-embedding-005"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L19

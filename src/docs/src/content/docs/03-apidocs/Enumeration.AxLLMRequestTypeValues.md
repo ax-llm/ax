@@ -2,7 +2,7 @@
 title: AxLLMRequestTypeValues
 ---
 
-Defined in: [src/ax/trace/trace.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl46)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L46
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/trace/trace.ts:46](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **CHAT**: `"chat"`
 
-Defined in: [src/ax/trace/trace.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl48)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L48
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/trace/trace.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **COMPLETION**: `"completion"`
 
-Defined in: [src/ax/trace/trace.ts:47](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl47)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L47
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/trace/trace.ts:47](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **RERANK**: `"rerank"`
 
-Defined in: [src/ax/trace/trace.ts:49](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl49)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L49
 
 ***
 
@@ -42,4 +42,4 @@ Defined in: [src/ax/trace/trace.ts:49](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **UNKNOWN**: `"unknown"`
 
-Defined in: [src/ax/trace/trace.ts:50](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxtracetracetsl50)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L50

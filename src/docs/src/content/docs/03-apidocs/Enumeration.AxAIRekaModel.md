@@ -2,7 +2,7 @@
 title: AxAIRekaModel
 ---
 
-Defined in: [src/ax/ai/reka/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekatypestsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/types.ts#L3
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/reka/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **RekaCore**: `"reka-core"`
 
-Defined in: [src/ax/ai/reka/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekatypestsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/types.ts#L4
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/reka/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **RekaEdge**: `"reka-edge"`
 
-Defined in: [src/ax/ai/reka/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekatypestsl6)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/types.ts#L6
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [src/ax/ai/reka/types.ts:6](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **RekaFlash**: `"reka-flash"`
 
-Defined in: [src/ax/ai/reka/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxairekatypestsl5)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/types.ts#L5

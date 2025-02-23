@@ -2,9 +2,15 @@
 title: AxAIOpenAIEmbedRequest
 ---
 
-> **AxAIOpenAIEmbedRequest**: `object`
+> **AxAIOpenAIEmbedRequest**\<`TEmbedModel`\>: `object`
 
-Defined in: [src/ax/ai/openai/types.ts:170](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl170)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L178
+
+## Type Parameters
+
+| Type Parameter |
+| ------ |
+| `TEmbedModel` |
 
 ## Type declaration
 
@@ -24,7 +30,7 @@ Defined in: [src/ax/ai/openai/types.ts:170](#apidocs/httpsgithubcomax-llmaxblob3
 
 ### model
 
-> **model**: `string`
+> **model**: `TEmbedModel`
 
 <a id="user"></a>
 

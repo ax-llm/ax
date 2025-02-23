@@ -2,7 +2,7 @@
 title: AxAIGoogleGeminiSafetyThreshold
 ---
 
-Defined in: [src/ax/ai/google-gemini/types.ts:23](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl23)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L29
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:23](#apidocs/httpsgithubcomax-llma
 
 > **BlockDefault**: `"HARM_BLOCK_THRESHOLD_UNSPECIFIED"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:28](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl28)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L34
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:28](#apidocs/httpsgithubcomax-llma
 
 > **BlockLowAndAbove**: `"BLOCK_LOW_AND_ABOVE"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:27](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl27)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L33
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:27](#apidocs/httpsgithubcomax-llma
 
 > **BlockMediumAndAbove**: `"BLOCK_MEDIUM_AND_ABOVE"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:26](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl26)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L32
 
 ***
 
@@ -42,7 +42,7 @@ Defined in: [src/ax/ai/google-gemini/types.ts:26](#apidocs/httpsgithubcomax-llma
 
 > **BlockNone**: `"BLOCK_NONE"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl24)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L30
 
 ***
 
@@ -52,4 +52,4 @@ Defined in: [src/ax/ai/google-gemini/types.ts:24](#apidocs/httpsgithubcomax-llma
 
 > **BlockOnlyHigh**: `"BLOCK_ONLY_HIGH"`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:25](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl25)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L31

@@ -4,7 +4,7 @@ title: AxBalancerOptions
 
 > **AxBalancerOptions**: `object`
 
-Defined in: [src/ax/ai/balance.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaibalancetsl40)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L29
 
 Options for the balancer.
 
@@ -13,3 +13,27 @@ Options for the balancer.
 ### comparator()?
 
 > (`a`, `b`) => `number`
+
+<a id="debug"></a>
+
+### debug?
+
+> `optional` **debug**: `boolean`
+
+<a id="initialBackoffMs"></a>
+
+### initialBackoffMs?
+
+> `optional` **initialBackoffMs**: `number`
+
+<a id="maxBackoffMs"></a>
+
+### maxBackoffMs?
+
+> `optional` **maxBackoffMs**: `number`
+
+<a id="maxRetries"></a>
+
+### maxRetries?
+
+> `optional` **maxRetries**: `number`

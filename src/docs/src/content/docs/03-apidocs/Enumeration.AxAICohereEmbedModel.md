@@ -2,7 +2,7 @@
 title: AxAICohereEmbedModel
 ---
 
-Defined in: [src/ax/ai/cohere/types.ts:16](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl16)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L16
 
 Cohere: Models for use in embeddings
 
@@ -14,7 +14,7 @@ Cohere: Models for use in embeddings
 
 > **EmbedEnglishLightV30**: `"embed-english-light-v3.0"`
 
-Defined in: [src/ax/ai/cohere/types.ts:18](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl18)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L18
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [src/ax/ai/cohere/types.ts:18](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **EmbedEnglishV30**: `"embed-english-v3.0"`
 
-Defined in: [src/ax/ai/cohere/types.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl17)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L17
 
 ***
 
@@ -34,7 +34,7 @@ Defined in: [src/ax/ai/cohere/types.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **EmbedMultiLingualLightV30**: `"embed-multilingual-light-v3.0"`
 
-Defined in: [src/ax/ai/cohere/types.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl20)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L20
 
 ***
 
@@ -44,4 +44,4 @@ Defined in: [src/ax/ai/cohere/types.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **EmbedMultiLingualV30**: `"embed-multilingual-v3.0"`
 
-Defined in: [src/ax/ai/cohere/types.ts:19](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl19)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L19

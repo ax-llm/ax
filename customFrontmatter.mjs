@@ -34,19 +34,23 @@ function replaceAndFormat(input) {
     return input.replace(
       /(\[`?[^`\]]+`?\]\()([^)]+)(\))/g,
       (match, linkText, path, closing) => {
+
+        if (path.startsWith('https://')) {
+            return path;
+        }
+
         // Remove file extension
         let transformedPath = path.replace(/\.md$/, '');
-        
+
         // Remove special characters like dots and convert to lowercase
         transformedPath = transformedPath
           .toLowerCase()
           .replace(/[^a-z0-9-]/g, '');
-  
-        // Add hashtag prefix if it doesn't exist
-        if (!transformedPath.startsWith('#')) {
-          transformedPath = '#apidocs/' + transformedPath;
-        }
-  
+
+        transformedPath = '/api/#03-apidocs/' + transformedPath;
+
+        console.log(transformedPath)
+
         return `${linkText}${transformedPath}${closing}`;
       }
     );

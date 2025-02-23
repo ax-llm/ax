@@ -23,11 +23,12 @@ export class AxAssertionError extends Error {
 
   public getFixingInstructions = () => {
     const extraFields = []
+    const message = this.message.trim()
 
     extraFields.push({
       name: 'error',
-      title: 'Error In Output',
-      description: `You must follow the following instructions, "${this.message}".`,
+      title: 'Follow these instructions',
+      description: message + (message.endsWith('.') ? '' : '.'),
     })
 
     return extraFields

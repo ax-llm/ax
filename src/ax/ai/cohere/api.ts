@@ -5,7 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
-  AxAIModelList,
+  AxAIInputModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -48,7 +48,7 @@ export interface AxAICohereArgs {
   apiKey: string
   config?: Readonly<Partial<AxAICohereConfig>>
   options?: Readonly<AxAIServiceOptions>
-  models?: AxAIModelList<AxAICohereModel>
+  models?: AxAIInputModelList<AxAICohereModel>
 }
 
 class AxAICohereImpl

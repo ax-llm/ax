@@ -162,19 +162,6 @@
 // const mockService: AxAIService = {
 //   getName: () => 'test-service',
 
-//   getModelInfo: () => ({
-//     name: 'gpt-4',
-//     provider: 'openai',
-//     currency: 'USD',
-//     promptTokenCostPer1M: 30,
-//   }),
-
-//   getEmbedModelInfo: () => ({
-//     name: 'text-embedding-ada-002',
-//     provider: 'openai',
-//     promptTokenCostPer1M: 10,
-//   }),
-
 //   getModelConfig: () => ({
 //     maxTokens: 1000,
 //     temperature: 0.7,
@@ -216,9 +203,7 @@
 // // Test return types of service methods
 // expectType<string>(mockService.getName())
 // expectType<Readonly<AxModelInfoWithProvider>>(mockService.getModelInfo())
-// expectType<Readonly<AxModelInfoWithProvider> | undefined>(
-//   mockService.getEmbedModelInfo()
-// )
+
 // expectType<{ functions: boolean; streaming: boolean }>(
 //   mockService.getFeatures()
 // )

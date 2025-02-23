@@ -2,7 +2,7 @@
 title: AxField
 ---
 
-Defined in: [src/ax/dsp/sig.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L12
 
 ## Properties
 
@@ -12,7 +12,17 @@ Defined in: [src/ax/dsp/sig.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > `optional` **description**: `string`
 
-Defined in: [src/ax/dsp/sig.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L15
+
+***
+
+<a id="isInternal"></a>
+
+### isInternal?
+
+> `optional` **isInternal**: `boolean`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L32
 
 ***
 
@@ -22,7 +32,7 @@ Defined in: [src/ax/dsp/sig.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > `optional` **isOptional**: `boolean`
 
-Defined in: [src/ax/dsp/sig.ts:30](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl30)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L31
 
 ***
 
@@ -32,7 +42,7 @@ Defined in: [src/ax/dsp/sig.ts:30](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > **name**: `string`
 
-Defined in: [src/ax/dsp/sig.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L13
 
 ***
 
@@ -42,7 +52,7 @@ Defined in: [src/ax/dsp/sig.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > `optional` **title**: `string`
 
-Defined in: [src/ax/dsp/sig.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L14
 
 ***
 
@@ -52,7 +62,7 @@ Defined in: [src/ax/dsp/sig.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > `optional` **type**: `object`
 
-Defined in: [src/ax/dsp/sig.ts:16](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspsigtsl16)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/sig.ts#L16
 
 <a id=""></a>
 
@@ -70,4 +80,4 @@ Defined in: [src/ax/dsp/sig.ts:16](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 #### name
 
-> **name**: `"string"` \| `"number"` \| `"boolean"` \| `"image"` \| `"audio"` \| `"json"` \| `"datetime"` \| `"date"` \| `"class"`
+> **name**: `"string"` \| `"number"` \| `"boolean"` \| `"image"` \| `"audio"` \| `"json"` \| `"datetime"` \| `"date"` \| `"code"` \| `"class"`

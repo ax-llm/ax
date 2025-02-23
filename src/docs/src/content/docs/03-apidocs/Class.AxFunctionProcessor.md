@@ -2,27 +2,27 @@
 title: AxFunctionProcessor
 ---
 
-Defined in: [src/ax/dsp/functions.ts:24](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspfunctionstsl24)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L73
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxFunctionProcessor()
 
-> **new AxFunctionProcessor**(`funcList`): [`AxFunctionProcessor`](#apidocs/classaxfunctionprocessor)
+> **new AxFunctionProcessor**(`funcList`): [`AxFunctionProcessor`](/api/#03-apidocs/classaxfunctionprocessor)
 
-Defined in: [src/ax/dsp/functions.ts:27](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspfunctionstsl27)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L76
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `funcList` | readonly [`AxFunction`](#apidocs/typealiasaxfunction)[] |
+| `funcList` | readonly [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)[] |
 
 #### Returns
 
-[`AxFunctionProcessor`](#apidocs/classaxfunctionprocessor)
+[`AxFunctionProcessor`](/api/#03-apidocs/classaxfunctionprocessor)
 
 ## Methods
 
@@ -30,17 +30,17 @@ Defined in: [src/ax/dsp/functions.ts:27](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### execute()
 
-> **execute**(`func`, `options`?): `Promise`\<[`AxFunctionExec`](#apidocs/typealiasaxfunctionexec)\>
+> **execute**(`func`, `options`?): `Promise`\<`string`\>
 
-Defined in: [src/ax/dsp/functions.ts:73](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspfunctionstsl73)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L116
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `func` | `Readonly`\<[`AxChatResponseFunctionCall`](#apidocs/typealiasaxchatresponsefunctioncall)\> |
-| `options`? | `Readonly`\<[`AxAIServiceActionOptions`](#apidocs/typealiasaxaiserviceactionoptions)\> |
+| `func` | `Readonly`\<[`AxChatResponseFunctionCall`](/api/#03-apidocs/typealiasaxchatresponsefunctioncall)\> |
+| `options`? | `Readonly`\<[`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\> |
 
 #### Returns
 
-`Promise`\<[`AxFunctionExec`](#apidocs/typealiasaxfunctionexec)\>
+`Promise`\<`string`\>

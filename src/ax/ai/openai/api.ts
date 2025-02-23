@@ -5,7 +5,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js'
 import type {
-  AxAIModelList,
+  AxAIInputModelList,
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -85,7 +85,7 @@ export interface AxAIOpenAIBaseArgs<TModel, TEmbedModel> {
   config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo: Readonly<AxModelInfo[]>
-  models?: AxAIModelList<TModel>
+  models?: AxAIInputModelList<TModel>
 }
 
 class AxAIOpenAIImpl<TModel, TEmbedModel>
@@ -172,7 +172,8 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
         : undefined,
       tools,
       tool_choice: toolsChoice,
-      max_completion_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
+      max_completion_tokens:
+        req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,

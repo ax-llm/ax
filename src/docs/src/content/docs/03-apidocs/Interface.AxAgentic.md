@@ -2,11 +2,14 @@
 title: AxAgentic
 ---
 
-Defined in: [src/ax/prompts/agent.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxpromptsagenttsl17)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L27
+
+Interface for agents that can be used as child agents.
+Provides methods to get the agent's function definition and features.
 
 ## Extends
 
-- [`AxTunable`](#apidocs/interfaceaxtunable).[`AxUsable`](#apidocs/interfaceaxusable)
+- [`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`AxUsable`](/api/#03-apidocs/interfaceaxusable)
 
 ## Properties
 
@@ -14,17 +17,17 @@ Defined in: [src/ax/prompts/agent.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### getTraces()
 
-> **getTraces**: () => [`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+> **getTraces**: () => [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
-Defined in: [src/ax/dsp/program.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl71)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L87
 
 #### Returns
 
-[`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+[`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
 #### Inherited from
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`getTraces`](#apidocs/interfaceaxtunablemdgettraces)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`getTraces`](/api/#03-apidocs/interfaceaxtunablemdgettraces)
 
 ***
 
@@ -32,17 +35,17 @@ Defined in: [src/ax/dsp/program.ts:71](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### getUsage()
 
-> **getUsage**: () => [`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+> **getUsage**: () => [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
-Defined in: [src/ax/dsp/program.ts:76](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl76)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L92
 
 #### Returns
 
-[`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
 #### Inherited from
 
-[`AxUsable`](#apidocs/interfaceaxusable).[`getUsage`](#apidocs/interfaceaxusablemdgetusage)
+[`AxUsable`](/api/#03-apidocs/interfaceaxusable).[`getUsage`](/api/#03-apidocs/interfaceaxusablemdgetusage)
 
 ***
 
@@ -52,7 +55,7 @@ Defined in: [src/ax/dsp/program.ts:76](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **resetUsage**: () => `void`
 
-Defined in: [src/ax/dsp/program.ts:77](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl77)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L93
 
 #### Returns
 
@@ -60,7 +63,7 @@ Defined in: [src/ax/dsp/program.ts:77](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 #### Inherited from
 
-[`AxUsable`](#apidocs/interfaceaxusable).[`resetUsage`](#apidocs/interfaceaxusablemdresetusage)
+[`AxUsable`](/api/#03-apidocs/interfaceaxusable).[`resetUsage`](/api/#03-apidocs/interfaceaxusablemdresetusage)
 
 ***
 
@@ -70,13 +73,13 @@ Defined in: [src/ax/dsp/program.ts:77](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setDemos**: (`demos`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:72](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl72)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L88
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `demos` | readonly [`AxProgramDemos`](#apidocs/typealiasaxprogramdemos)[] |
+| `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
 
@@ -84,7 +87,7 @@ Defined in: [src/ax/dsp/program.ts:72](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 #### Inherited from
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setDemos`](#apidocs/interfaceaxtunablemdsetdemos)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setDemos`](/api/#03-apidocs/interfaceaxtunablemdsetdemos)
 
 ***
 
@@ -94,13 +97,13 @@ Defined in: [src/ax/dsp/program.ts:72](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setExamples**: (`examples`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:68](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl68)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L84
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `examples` | `Readonly`\<[`AxProgramExamples`](#apidocs/typealiasaxprogramexamples)\> |
+| `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
 
 #### Returns
 
@@ -108,7 +111,7 @@ Defined in: [src/ax/dsp/program.ts:68](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 #### Inherited from
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setExamples`](#apidocs/interfaceaxtunablemdsetexamples)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setExamples`](/api/#03-apidocs/interfaceaxtunablemdsetexamples)
 
 ***
 
@@ -118,7 +121,7 @@ Defined in: [src/ax/dsp/program.ts:68](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setId**: (`id`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:69](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl69)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L85
 
 #### Parameters
 
@@ -132,7 +135,7 @@ Defined in: [src/ax/dsp/program.ts:69](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 #### Inherited from
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setId`](#apidocs/interfaceaxtunablemdsetid)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setId`](/api/#03-apidocs/interfaceaxtunablemdsetid)
 
 ***
 
@@ -142,7 +145,7 @@ Defined in: [src/ax/dsp/program.ts:69](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > **setParentId**: (`parentId`) => `void`
 
-Defined in: [src/ax/dsp/program.ts:70](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl70)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L86
 
 #### Parameters
 
@@ -156,18 +159,32 @@ Defined in: [src/ax/dsp/program.ts:70](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 #### Inherited from
 
-[`AxTunable`](#apidocs/interfaceaxtunable).[`setParentId`](#apidocs/interfaceaxtunablemdsetparentid)
+[`AxTunable`](/api/#03-apidocs/interfaceaxtunable).[`setParentId`](/api/#03-apidocs/interfaceaxtunablemdsetparentid)
 
 ## Methods
+
+<a id="getFeatures"></a>
+
+### getFeatures()
+
+> **getFeatures**(): [`AxAgentFeatures`](/api/#03-apidocs/interfaceaxagentfeatures)
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L29
+
+#### Returns
+
+[`AxAgentFeatures`](/api/#03-apidocs/interfaceaxagentfeatures)
+
+***
 
 <a id="getFunction"></a>
 
 ### getFunction()
 
-> **getFunction**(): [`AxFunction`](#apidocs/typealiasaxfunction)
+> **getFunction**(): [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)
 
-Defined in: [src/ax/prompts/agent.ts:18](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxpromptsagenttsl18)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L28
 
 #### Returns
 
-[`AxFunction`](#apidocs/typealiasaxfunction)
+[`AxFunction`](/api/#03-apidocs/typealiasaxfunction)

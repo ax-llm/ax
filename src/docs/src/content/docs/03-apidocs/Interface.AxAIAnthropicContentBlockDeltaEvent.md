@@ -2,7 +2,7 @@
 title: AxAIAnthropicContentBlockDeltaEvent
 ---
 
-Defined in: [src/ax/ai/anthropic/types.ts:166](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl166)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L175
 
 ## Properties
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:166](#apidocs/httpsgithubcomax-llmaxbl
 
 > **delta**: \{ `text`: `string`; `type`: `"text_delta"`; \} \| \{ `partial_json`: `string`; `type`: `"input_json_delta"`; \}
 
-Defined in: [src/ax/ai/anthropic/types.ts:169](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl169)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L178
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/anthropic/types.ts:169](#apidocs/httpsgithubcomax-llmaxbl
 
 > **index**: `number`
 
-Defined in: [src/ax/ai/anthropic/types.ts:167](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl167)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L176
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [src/ax/ai/anthropic/types.ts:167](#apidocs/httpsgithubcomax-llmaxbl
 
 > **type**: `"content_block_delta"`
 
-Defined in: [src/ax/ai/anthropic/types.ts:168](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaianthropictypestsl168)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L177

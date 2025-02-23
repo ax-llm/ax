@@ -2,31 +2,32 @@
 title: AxMemory
 ---
 
-Defined in: [src/ax/mem/memory.ts:8](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl8)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L177
 
 ## Implements
 
-- [`AxAIMemory`](#apidocs/interfaceaxaimemory)
+- [`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory)
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxMemory()
 
-> **new AxMemory**(`limit`): [`AxMemory`](#apidocs/classaxmemory)
+> **new AxMemory**(`limit`, `debug`): [`AxMemory`](/api/#03-apidocs/classaxmemory)
 
-Defined in: [src/ax/mem/memory.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L181
 
 #### Parameters
 
 | Parameter | Type | Default value |
 | ------ | ------ | ------ |
-| `limit` | `number` | `50` |
+| `limit` | `number` | `defaultLimit` |
+| `debug` | `boolean` | `false` |
 
 #### Returns
 
-[`AxMemory`](#apidocs/classaxmemory)
+[`AxMemory`](/api/#03-apidocs/classaxmemory)
 
 ## Methods
 
@@ -36,13 +37,13 @@ Defined in: [src/ax/mem/memory.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **add**(`value`, `sessionId`?): `void`
 
-Defined in: [src/ax/mem/memory.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl20)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L200
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `value` | `Readonly`\<`Readonly`\<\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `result`: `string`; `role`: `"function"`; \}\> \| `Readonly`\<\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: ... \| ... \| ...; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: ... \| ... \| ...; `details`: ... \| ... \| ... \| ...; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: ... \| ... \| ...; `data`: `string`; `format`: ... \| ...; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `result`: `string`; `role`: `"function"`; \}\>[]\> |
+| `value` | \{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \} \| (\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \})[] |
 | `sessionId`? | `string` |
 
 #### Returns
@@ -51,7 +52,7 @@ Defined in: [src/ax/mem/memory.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Implementation of
 
-[`AxAIMemory`](#apidocs/interfaceaxaimemory).[`add`](#apidocs/interfaceaxaimemorymdadd)
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`add`](/api/#03-apidocs/interfaceaxaimemorymdadd)
 
 ***
 
@@ -59,15 +60,15 @@ Defined in: [src/ax/mem/memory.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 ### addResult()
 
-> **addResult**(`__namedParameters`, `sessionId`?): `void`
+> **addResult**(`result`, `sessionId`?): `void`
 
-Defined in: [src/ax/mem/memory.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl41)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L207
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<[`AxChatResponseResult`](#apidocs/typealiasaxchatresponseresult)\> |
+| `result` | `Readonly`\<[`AxChatResponseResult`](/api/#03-apidocs/typealiasaxchatresponseresult)\> |
 | `sessionId`? | `string` |
 
 #### Returns
@@ -76,7 +77,32 @@ Defined in: [src/ax/mem/memory.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Implementation of
 
-[`AxAIMemory`](#apidocs/interfaceaxaimemory).[`addResult`](#apidocs/interfaceaxaimemorymdaddresult)
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`addResult`](/api/#03-apidocs/interfaceaxaimemorymdaddresult)
+
+***
+
+<a id="addTag"></a>
+
+### addTag()
+
+> **addTag**(`name`, `sessionId`?): `void`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L218
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `name` | `string` |
+| `sessionId`? | `string` |
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`addTag`](/api/#03-apidocs/interfaceaxaimemorymdaddtag)
 
 ***
 
@@ -84,9 +110,9 @@ Defined in: [src/ax/mem/memory.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 ### getLast()
 
-> **getLast**(`sessionId`?): `undefined` \| `Readonly`\<\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `result`: `string`; `role`: `"function"`; \}\>
+> **getLast**(`sessionId`?): `undefined` \| \{ `chat`: \{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \}; `tags`: `string`[]; \}
 
-Defined in: [src/ax/mem/memory.ts:79](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl79)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L230
 
 #### Parameters
 
@@ -96,11 +122,11 @@ Defined in: [src/ax/mem/memory.ts:79](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Returns
 
-`undefined` \| `Readonly`\<\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `result`: `string`; `role`: `"function"`; \}\>
+`undefined` \| \{ `chat`: \{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \}; `tags`: `string`[]; \}
 
 #### Implementation of
 
-[`AxAIMemory`](#apidocs/interfaceaxaimemory).[`getLast`](#apidocs/interfaceaxaimemorymdgetlast)
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`getLast`](/api/#03-apidocs/interfaceaxaimemorymdgetlast)
 
 ***
 
@@ -108,9 +134,9 @@ Defined in: [src/ax/mem/memory.ts:79](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 ### history()
 
-> **history**(`sessionId`?): `Readonly`\<\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `result`: `string`; `role`: `"function"`; \}\>[]
+> **history**(`sessionId`?): (\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \})[]
 
-Defined in: [src/ax/mem/memory.ts:75](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl75)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L226
 
 #### Parameters
 
@@ -120,11 +146,11 @@ Defined in: [src/ax/mem/memory.ts:75](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Returns
 
-`Readonly`\<\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `result`: `string`; `role`: `"function"`; \}\>[]
+(\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \})[]
 
 #### Implementation of
 
-[`AxAIMemory`](#apidocs/interfaceaxaimemory).[`history`](#apidocs/interfaceaxaimemorymdhistory)
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`history`](/api/#03-apidocs/interfaceaxaimemorymdhistory)
 
 ***
 
@@ -134,7 +160,7 @@ Defined in: [src/ax/mem/memory.ts:75](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 > **reset**(`sessionId`?): `void`
 
-Defined in: [src/ax/mem/memory.ts:84](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl84)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L234
 
 #### Parameters
 
@@ -148,7 +174,32 @@ Defined in: [src/ax/mem/memory.ts:84](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Implementation of
 
-[`AxAIMemory`](#apidocs/interfaceaxaimemory).[`reset`](#apidocs/interfaceaxaimemorymdreset)
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`reset`](/api/#03-apidocs/interfaceaxaimemorymdreset)
+
+***
+
+<a id="rewindToTag"></a>
+
+### rewindToTag()
+
+> **rewindToTag**(`name`, `sessionId`?): (\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \})[]
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L222
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `name` | `string` |
+| `sessionId`? | `string` |
+
+#### Returns
+
+(\{ `cache`: `boolean`; `content`: `string`; `role`: `"system"`; \} \| \{ `content`: `string` \| (\{ `cache`: `boolean`; `text`: `string`; `type`: `"text"`; \} \| \{ `cache`: `boolean`; `details`: `"high"` \| `"low"` \| `"auto"`; `image`: `string`; `mimeType`: `string`; `type`: `"image"`; \} \| \{ `cache`: `boolean`; `data`: `string`; `format`: `"wav"`; `type`: `"audio"`; \})[]; `name`: `string`; `role`: `"user"`; \} \| \{ `cache`: `boolean`; `content`: `string`; `functionCalls`: `object`[]; `name`: `string`; `role`: `"assistant"`; \} \| \{ `cache`: `boolean`; `functionId`: `string`; `isError`: `boolean`; `result`: `string`; `role`: `"function"`; \})[]
+
+#### Implementation of
+
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`rewindToTag`](/api/#03-apidocs/interfaceaxaimemorymdrewindtotag)
 
 ***
 
@@ -156,15 +207,15 @@ Defined in: [src/ax/mem/memory.ts:84](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 ### updateResult()
 
-> **updateResult**(`__namedParameters`, `sessionId`?): `void`
+> **updateResult**(`result`, `sessionId`?): `void`
 
-Defined in: [src/ax/mem/memory.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxmemmemorytsl51)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/mem/memory.ts#L211
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<[`AxChatResponseResult`](#apidocs/typealiasaxchatresponseresult)\> |
+| `result` | `Readonly`\<[`AxChatResponseResult`](/api/#03-apidocs/typealiasaxchatresponseresult)\> |
 | `sessionId`? | `string` |
 
 #### Returns
@@ -173,4 +224,4 @@ Defined in: [src/ax/mem/memory.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada
 
 #### Implementation of
 
-[`AxAIMemory`](#apidocs/interfaceaxaimemory).[`updateResult`](#apidocs/interfaceaxaimemorymdupdateresult)
+[`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory).[`updateResult`](/api/#03-apidocs/interfaceaxaimemorymdupdateresult)

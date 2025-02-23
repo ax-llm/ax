@@ -2,7 +2,7 @@
 title: AxAIOpenAIEmbedModel
 ---
 
-Defined in: [src/ax/ai/openai/types.ts:18](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl18)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L19
 
 ## Enumeration Members
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/openai/types.ts:18](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **TextEmbedding3Large**: `"text-embedding-3-large"`
 
-Defined in: [src/ax/ai/openai/types.ts:21](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl21)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L22
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [src/ax/ai/openai/types.ts:21](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **TextEmbedding3Small**: `"text-embedding-3-small"`
 
-Defined in: [src/ax/ai/openai/types.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl20)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L21
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: [src/ax/ai/openai/types.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **TextEmbeddingAda002**: `"text-embedding-ada-002"`
 
-Defined in: [src/ax/ai/openai/types.ts:19](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl19)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L20

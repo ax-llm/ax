@@ -2,59 +2,81 @@
 title: AxGen
 ---
 
-Defined in: [src/ax/dsp/generate.ts:84](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl84)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L100
 
 ## Extends
 
-- [`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature)\<`IN`, `OUT`\>
+- [`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature)\<`IN`, `OUT`\>
 
 ## Extended by
 
-- [`AxChainOfThought`](#apidocs/classaxchainofthought)
-- [`AxDefaultQueryRewriter`](#apidocs/classaxdefaultqueryrewriter)
-- [`AxDefaultResultReranker`](#apidocs/classaxdefaultresultreranker)
+- [`AxChainOfThought`](/api/#03-apidocs/classaxchainofthought)
+- [`AxDefaultQueryRewriter`](/api/#03-apidocs/classaxdefaultqueryrewriter)
+- [`AxDefaultResultReranker`](/api/#03-apidocs/classaxdefaultresultreranker)
 
 ## Type Parameters
 
 | Type Parameter | Default type |
 | ------ | ------ |
-| `IN` *extends* [`AxGenIn`](#apidocs/typealiasaxgenin) | [`AxGenIn`](#apidocs/typealiasaxgenin) |
-| `OUT` *extends* [`AxGenerateResult`](#apidocs/typealiasaxgenerateresult)\<[`AxGenOut`](#apidocs/typealiasaxgenout)\> | [`AxGenerateResult`](#apidocs/typealiasaxgenerateresult)\<[`AxGenOut`](#apidocs/typealiasaxgenout)\> |
+| `IN` *extends* [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) | [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) |
+| `OUT` *extends* [`AxGenerateResult`](/api/#03-apidocs/typealiasaxgenerateresult)\<[`AxGenOut`](/api/#03-apidocs/typealiasaxgenout)\> | [`AxGenerateResult`](/api/#03-apidocs/typealiasaxgenerateresult)\<[`AxGenOut`](/api/#03-apidocs/typealiasaxgenout)\> |
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxGen()
 
-> **new AxGen**\<`IN`, `OUT`\>(`signature`, `options`?): [`AxGen`](#apidocs/classaxgen)\<`IN`, `OUT`\>
+> **new AxGen**\<`IN`, `OUT`\>(`signature`, `options`?): [`AxGen`](/api/#03-apidocs/classaxgen)\<`IN`, `OUT`\>
 
-Defined in: [src/ax/dsp/generate.ts:95](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl95)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L113
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `signature` | `Readonly`\<`string` \| [`AxSignature`](#apidocs/classaxsignature)\> |
-| `options`? | `Readonly`\<[`AxGenOptions`](#apidocs/interfaceaxgenoptions)\> |
+| `signature` | `Readonly`\<`string` \| [`AxSignature`](/api/#03-apidocs/classaxsignature)\> |
+| `options`? | `Readonly`\<[`AxGenOptions`](/api/#03-apidocs/interfaceaxgenoptions)\> |
 
 #### Returns
 
-[`AxGen`](#apidocs/classaxgen)\<`IN`, `OUT`\>
+[`AxGen`](/api/#03-apidocs/classaxgen)\<`IN`, `OUT`\>
 
 #### Overrides
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`constructor`](#apidocs/classaxprogramwithsignaturemdconstructors)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`constructor`](/api/#03-apidocs/classaxprogramwithsignaturemdconstructors)
 
 ## Methods
+
+<a id="_forward1"></a>
+
+### \_forward1()
+
+> **\_forward1**(`ai`, `values`, `options`): `AsyncGenerator`\<\{ `delta`: `Partial`\<`OUT`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L603
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `values` | `IN` |
+| `options` | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
+
+#### Returns
+
+`AsyncGenerator`\<\{ `delta`: `Partial`\<`OUT`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+***
 
 <a id="addAssert"></a>
 
 ### addAssert()
 
-> **addAssert**(`fn`, `message`?, `optional`?): `void`
+> **addAssert**(`fn`, `message`?): `void`
 
-Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl115)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L133
 
 #### Parameters
 
@@ -62,7 +84,27 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 | ------ | ------ |
 | `fn` | (`values`) => `undefined` \| `boolean` |
 | `message`? | `string` |
-| `optional`? | `boolean` |
+
+#### Returns
+
+`void`
+
+***
+
+<a id="addFieldProcessor"></a>
+
+### addFieldProcessor()
+
+> **addFieldProcessor**(`fieldName`, `fn`): `void`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L180
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `fieldName` | `string` |
+| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
 
 #### Returns
 
@@ -74,9 +116,9 @@ Defined in: [src/ax/dsp/generate.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### addStreamingAssert()
 
-> **addStreamingAssert**(`fieldName`, `fn`, `message`?, `optional`?): `void`
+> **addStreamingAssert**(`fieldName`, `fn`, `message`?): `void`
 
-Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl123)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L137
 
 #### Parameters
 
@@ -85,7 +127,27 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 | `fieldName` | `string` |
 | `fn` | (`content`, `done`?) => `undefined` \| `boolean` |
 | `message`? | `string` |
-| `optional`? | `boolean` |
+
+#### Returns
+
+`void`
+
+***
+
+<a id="addStreamingFieldProcessor"></a>
+
+### addStreamingFieldProcessor()
+
+> **addStreamingFieldProcessor**(`fieldName`, `fn`): `void`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L173
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `fieldName` | `string` |
+| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
 
 #### Returns
 
@@ -99,15 +161,15 @@ Defined in: [src/ax/dsp/generate.ts:123](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **forward**(`ai`, `values`, `options`?): `Promise`\<`OUT`\>
 
-Defined in: [src/ax/dsp/generate.ts:453](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspgeneratetsl453)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L651
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `ai` | `Readonly`\<[`AxAIService`](#apidocs/interfaceaxaiservice)\> |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
 | `values` | `IN` |
-| `options`? | `Readonly`\<[`AxProgramForwardOptions`](#apidocs/typealiasaxprogramforwardoptions)\> |
+| `options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
 
@@ -115,7 +177,7 @@ Defined in: [src/ax/dsp/generate.ts:453](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 #### Overrides
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`forward`](#apidocs/classaxprogramwithsignaturemdforward)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`forward`](/api/#03-apidocs/classaxprogramwithsignaturemdforward)
 
 ***
 
@@ -123,17 +185,17 @@ Defined in: [src/ax/dsp/generate.ts:453](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 ### getSignature()
 
-> **getSignature**(): [`AxSignature`](#apidocs/classaxsignature)
+> **getSignature**(): [`AxSignature`](/api/#03-apidocs/classaxsignature)
 
-Defined in: [src/ax/dsp/program.ts:117](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl117)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L133
 
 #### Returns
 
-[`AxSignature`](#apidocs/classaxsignature)
+[`AxSignature`](/api/#03-apidocs/classaxsignature)
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`getSignature`](#apidocs/classaxprogramwithsignaturemdgetsignature)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`getSignature`](/api/#03-apidocs/classaxprogramwithsignaturemdgetsignature)
 
 ***
 
@@ -141,17 +203,17 @@ Defined in: [src/ax/dsp/program.ts:117](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getTraces()
 
-> **getTraces**(): [`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+> **getTraces**(): [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
-Defined in: [src/ax/dsp/program.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl193)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L220
 
 #### Returns
 
-[`AxProgramTrace`](#apidocs/typealiasaxprogramtrace)[]
+[`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`getTraces`](#apidocs/classaxprogramwithsignaturemdgettraces)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`getTraces`](/api/#03-apidocs/classaxprogramwithsignaturemdgettraces)
 
 ***
 
@@ -159,17 +221,17 @@ Defined in: [src/ax/dsp/program.ts:193](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### getUsage()
 
-> **getUsage**(): [`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+> **getUsage**(): [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
-Defined in: [src/ax/dsp/program.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl207)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L234
 
 #### Returns
 
-[`AxTokenUsage`](#apidocs/typealiasaxtokenusage) & `object`[]
+[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`getUsage`](#apidocs/classaxprogramwithsignaturemdgetusage)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`getUsage`](/api/#03-apidocs/classaxprogramwithsignaturemdgetusage)
 
 ***
 
@@ -179,13 +241,13 @@ Defined in: [src/ax/dsp/program.ts:207](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **register**(`prog`): `void`
 
-Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl121)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L137
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `prog` | `Readonly`\<[`AxTunable`](#apidocs/interfaceaxtunable) & [`AxUsable`](#apidocs/interfaceaxusable)\> |
+| `prog` | `Readonly`\<[`AxTunable`](/api/#03-apidocs/interfaceaxtunable) & [`AxUsable`](/api/#03-apidocs/interfaceaxusable)\> |
 
 #### Returns
 
@@ -193,7 +255,7 @@ Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`register`](#apidocs/classaxprogramwithsignaturemdregister)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`register`](/api/#03-apidocs/classaxprogramwithsignaturemdregister)
 
 ***
 
@@ -203,7 +265,7 @@ Defined in: [src/ax/dsp/program.ts:121](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **resetUsage**(): `void`
 
-Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl217)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L244
 
 #### Returns
 
@@ -211,7 +273,7 @@ Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`resetUsage`](#apidocs/classaxprogramwithsignaturemdresetusage)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`resetUsage`](/api/#03-apidocs/classaxprogramwithsignaturemdresetusage)
 
 ***
 
@@ -221,13 +283,13 @@ Defined in: [src/ax/dsp/program.ts:217](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setDemos**(`demos`): `void`
 
-Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl224)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L251
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `demos` | readonly [`AxProgramDemos`](#apidocs/typealiasaxprogramdemos)[] |
+| `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
 
@@ -235,7 +297,7 @@ Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`setDemos`](#apidocs/classaxprogramwithsignaturemdsetdemos)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`setDemos`](/api/#03-apidocs/classaxprogramwithsignaturemdsetdemos)
 
 ***
 
@@ -245,13 +307,13 @@ Defined in: [src/ax/dsp/program.ts:224](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setExamples**(`examples`): `void`
 
-Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl152)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L179
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `examples` | `Readonly`\<[`AxProgramExamples`](#apidocs/typealiasaxprogramexamples)\> |
+| `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
 
 #### Returns
 
@@ -259,7 +321,7 @@ Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`setExamples`](#apidocs/classaxprogramwithsignaturemdsetexamples)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`setExamples`](/api/#03-apidocs/classaxprogramwithsignaturemdsetexamples)
 
 ***
 
@@ -269,7 +331,7 @@ Defined in: [src/ax/dsp/program.ts:152](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setId**(`id`): `void`
 
-Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl139)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L166
 
 #### Parameters
 
@@ -283,7 +345,7 @@ Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`setId`](#apidocs/classaxprogramwithsignaturemdsetid)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`setId`](/api/#03-apidocs/classaxprogramwithsignaturemdsetid)
 
 ***
 
@@ -293,7 +355,7 @@ Defined in: [src/ax/dsp/program.ts:139](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **setParentId**(`parentId`): `void`
 
-Defined in: [src/ax/dsp/program.ts:146](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl146)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L173
 
 #### Parameters
 
@@ -307,4 +369,30 @@ Defined in: [src/ax/dsp/program.ts:146](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 #### Inherited from
 
-[`AxProgramWithSignature`](#apidocs/classaxprogramwithsignature).[`setParentId`](#apidocs/classaxprogramwithsignaturemdsetparentid)
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`setParentId`](/api/#03-apidocs/classaxprogramwithsignaturemdsetparentid)
+
+***
+
+<a id="streamingForward"></a>
+
+### streamingForward()
+
+> **streamingForward**(`ai`, `values`, `options`?): `AsyncGenerator`\<\{ `delta`: `Partial`\<`OUT`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L675
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
+| `values` | `IN` |
+| `options`? | `Readonly`\<[`AxProgramStreamingForwardOptions`](/api/#03-apidocs/typealiasaxprogramstreamingforwardoptions)\> |
+
+#### Returns
+
+`AsyncGenerator`\<\{ `delta`: `Partial`\<`OUT`\>; `version`: `number`; \}, `void`, `unknown`\>
+
+#### Overrides
+
+[`AxProgramWithSignature`](/api/#03-apidocs/classaxprogramwithsignature).[`streamingForward`](/api/#03-apidocs/classaxprogramwithsignaturemdstreamingforward)

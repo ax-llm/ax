@@ -2,7 +2,7 @@
 title: AxAIOpenAIResponseDelta
 ---
 
-Defined in: [src/ax/ai/openai/types.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl51)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L57
 
 ## Type Parameters
 
@@ -18,7 +18,7 @@ Defined in: [src/ax/ai/openai/types.ts:51](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **choices**: `object`[]
 
-Defined in: [src/ax/ai/openai/types.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl56)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L62
 
 #### delta
 
@@ -26,7 +26,7 @@ Defined in: [src/ax/ai/openai/types.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b
 
 #### finish\_reason
 
-> **finish\_reason**: `"stop"` \| `"length"` \| `"content_filter"` \| `"tool_calls"`
+> **finish\_reason**: `"length"` \| `"stop"` \| `"content_filter"` \| `"tool_calls"`
 
 #### index
 
@@ -40,7 +40,7 @@ Defined in: [src/ax/ai/openai/types.ts:56](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **created**: `number`
 
-Defined in: [src/ax/ai/openai/types.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl54)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L60
 
 ***
 
@@ -50,7 +50,7 @@ Defined in: [src/ax/ai/openai/types.ts:54](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **id**: `string`
 
-Defined in: [src/ax/ai/openai/types.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl52)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L58
 
 ***
 
@@ -60,7 +60,7 @@ Defined in: [src/ax/ai/openai/types.ts:52](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **model**: `string`
 
-Defined in: [src/ax/ai/openai/types.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl55)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L61
 
 ***
 
@@ -70,7 +70,7 @@ Defined in: [src/ax/ai/openai/types.ts:55](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **object**: `string`
 
-Defined in: [src/ax/ai/openai/types.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl53)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L59
 
 ***
 
@@ -80,7 +80,7 @@ Defined in: [src/ax/ai/openai/types.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b
 
 > **system\_fingerprint**: `string`
 
-Defined in: [src/ax/ai/openai/types.ts:62](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl62)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L68
 
 ***
 
@@ -88,6 +88,6 @@ Defined in: [src/ax/ai/openai/types.ts:62](#apidocs/httpsgithubcomax-llmaxblob3b
 
 ### usage?
 
-> `optional` **usage**: [`AxAIOpenAIUsage`](#apidocs/typealiasaxaiopenaiusage)
+> `optional` **usage**: [`AxAIOpenAIUsage`](/api/#03-apidocs/typealiasaxaiopenaiusage)
 
-Defined in: [src/ax/ai/openai/types.ts:61](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaiopenaitypestsl61)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L67

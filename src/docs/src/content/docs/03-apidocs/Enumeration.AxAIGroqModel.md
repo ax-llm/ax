@@ -2,27 +2,17 @@
 title: AxAIGroqModel
 ---
 
-Defined in: [src/ax/ai/groq/types.ts:1](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigroqtypestsl1)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/groq/types.ts#L1
 
 ## Enumeration Members
 
-<a id="Gemma_7B"></a>
+<a id="Gemma2_9B"></a>
 
-### Gemma\_7B
+### Gemma2\_9B
 
-> **Gemma\_7B**: `"gemma-7b-it"`
+> **Gemma2\_9B**: `"gemma2-9b-it"`
 
-Defined in: [src/ax/ai/groq/types.ts:5](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigroqtypestsl5)
-
-***
-
-<a id="Llama3_70B"></a>
-
-### Llama3\_70B
-
-> **Llama3\_70B**: `"llama3-70b-8192"`
-
-Defined in: [src/ax/ai/groq/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigroqtypestsl3)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/groq/types.ts#L5
 
 ***
 
@@ -32,7 +22,17 @@ Defined in: [src/ax/ai/groq/types.ts:3](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **Llama3\_8B**: `"llama3-8b-8192"`
 
-Defined in: [src/ax/ai/groq/types.ts:2](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigroqtypestsl2)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/groq/types.ts#L2
+
+***
+
+<a id="Llama33_70B"></a>
+
+### Llama33\_70B
+
+> **Llama33\_70B**: `"llama-3.3-70b-versatile"`
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/groq/types.ts#L3
 
 ***
 
@@ -42,4 +42,4 @@ Defined in: [src/ax/ai/groq/types.ts:2](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **Mixtral\_8x7B**: `"mixtral-8x7b-32768"`
 
-Defined in: [src/ax/ai/groq/types.ts:4](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigroqtypestsl4)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/groq/types.ts#L4

@@ -2,11 +2,11 @@
 title: AxDBMemoryArgs
 ---
 
-Defined in: [src/ax/db/memory.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbmemorytsl11)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/memory.ts#L11
 
 ## Extends
 
-- [`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs)
+- [`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs)
 
 ## Properties
 
@@ -16,7 +16,7 @@ Defined in: [src/ax/db/memory.ts:11](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 > `optional` **fetch**: (`input`, `init`?) => `Promise`\<`Response`\>
 
-Defined in: [src/ax/db/base.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L14
 
 #### Parameters
 
@@ -31,7 +31,7 @@ Defined in: [src/ax/db/base.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 #### Inherited from
 
-[`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs).[`fetch`](#apidocs/interfaceaxdbbaseargsmdfetch)
+[`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs).[`fetch`](/api/#03-apidocs/interfaceaxdbbaseargsmdfetch)
 
 ***
 
@@ -41,7 +41,7 @@ Defined in: [src/ax/db/base.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > **name**: `"memory"`
 
-Defined in: [src/ax/db/memory.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbmemorytsl12)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/memory.ts#L12
 
 ***
 
@@ -51,8 +51,8 @@ Defined in: [src/ax/db/memory.ts:12](#apidocs/httpsgithubcomax-llmaxblob3b79ada8
 
 > `optional` **tracer**: `Tracer`
 
-Defined in: [src/ax/db/base.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L15
 
 #### Inherited from
 
-[`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs).[`tracer`](#apidocs/interfaceaxdbbaseargsmdtracer)
+[`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs).[`tracer`](/api/#03-apidocs/interfaceaxdbbaseargsmdtracer)

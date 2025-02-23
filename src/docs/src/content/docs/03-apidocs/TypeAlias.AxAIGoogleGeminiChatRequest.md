@@ -4,7 +4,7 @@ title: AxAIGoogleGeminiChatRequest
 
 > **AxAIGoogleGeminiChatRequest**: `object`
 
-Defined in: [src/ax/ai/google-gemini/types.ts:115](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminitypestsl115)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L121
 
 ## Type declaration
 
@@ -12,34 +12,34 @@ Defined in: [src/ax/ai/google-gemini/types.ts:115](#apidocs/httpsgithubcomax-llm
 
 ### contents
 
-> **contents**: [`AxAIGoogleGeminiContent`](#apidocs/typealiasaxaigooglegeminicontent)[]
+> **contents**: [`AxAIGoogleGeminiContent`](/api/#03-apidocs/typealiasaxaigooglegeminicontent)[]
 
 <a id="generationConfig"></a>
 
 ### generationConfig
 
-> **generationConfig**: [`AxAIGoogleGeminiGenerationConfig`](#apidocs/typealiasaxaigooglegeminigenerationconfig)
+> **generationConfig**: [`AxAIGoogleGeminiGenerationConfig`](/api/#03-apidocs/typealiasaxaigooglegeminigenerationconfig)
 
 <a id="safetySettings"></a>
 
 ### safetySettings?
 
-> `optional` **safetySettings**: [`AxAIGoogleGeminiSafetySettings`](#apidocs/typealiasaxaigooglegeminisafetysettings)
+> `optional` **safetySettings**: [`AxAIGoogleGeminiSafetySettings`](/api/#03-apidocs/typealiasaxaigooglegeminisafetysettings)
 
 <a id="systemInstruction"></a>
 
 ### systemInstruction?
 
-> `optional` **systemInstruction**: [`AxAIGoogleGeminiContent`](#apidocs/typealiasaxaigooglegeminicontent)
+> `optional` **systemInstruction**: [`AxAIGoogleGeminiContent`](/api/#03-apidocs/typealiasaxaigooglegeminicontent)
 
 <a id="toolConfig"></a>
 
 ### toolConfig?
 
-> `optional` **toolConfig**: [`AxAIGoogleGeminiToolConfig`](#apidocs/typealiasaxaigooglegeminitoolconfig)
+> `optional` **toolConfig**: [`AxAIGoogleGeminiToolConfig`](/api/#03-apidocs/typealiasaxaigooglegeminitoolconfig)
 
 <a id="tools"></a>
 
 ### tools?
 
-> `optional` **tools**: [`AxAIGoogleGeminiTool`](#apidocs/typealiasaxaigooglegeminitool)[]
+> `optional` **tools**: [`AxAIGoogleGeminiTool`](/api/#03-apidocs/typealiasaxaigooglegeminitool)[]

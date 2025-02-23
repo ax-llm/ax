@@ -4,14 +4,14 @@ title: AxFunctionHandler
 
 > **AxFunctionHandler**: (`args`?, `extra`?) => `unknown`
 
-Defined in: [src/ax/ai/types.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaitypestsl37)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L48
 
 ## Parameters
 
 | Parameter | Type |
 | ------ | ------ |
 | `args`? | `any` |
-| `extra`? | `Readonly`\<\{ `sessionId`: `string`; `traceId`: `string`; \}\> |
+| `extra`? | `Readonly`\<\{ `ai`: [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice); `debug`: `boolean`; `sessionId`: `string`; `traceId`: `string`; \}\> |
 
 ## Returns
 

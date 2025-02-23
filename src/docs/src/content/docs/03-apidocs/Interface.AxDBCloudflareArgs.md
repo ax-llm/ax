@@ -2,11 +2,11 @@
 title: AxDBCloudflareArgs
 ---
 
-Defined in: [src/ax/db/cloudflare.ts:34](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbcloudflaretsl34)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L34
 
 ## Extends
 
-- [`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs)
+- [`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs)
 
 ## Properties
 
@@ -16,7 +16,7 @@ Defined in: [src/ax/db/cloudflare.ts:34](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **accountId**: `string`
 
-Defined in: [src/ax/db/cloudflare.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbcloudflaretsl37)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L37
 
 ***
 
@@ -26,7 +26,7 @@ Defined in: [src/ax/db/cloudflare.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **apiKey**: `string`
 
-Defined in: [src/ax/db/cloudflare.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbcloudflaretsl36)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L36
 
 ***
 
@@ -36,7 +36,7 @@ Defined in: [src/ax/db/cloudflare.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > `optional` **fetch**: (`input`, `init`?) => `Promise`\<`Response`\>
 
-Defined in: [src/ax/db/cloudflare.ts:38](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbcloudflaretsl38)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L38
 
 #### Parameters
 
@@ -51,7 +51,7 @@ Defined in: [src/ax/db/cloudflare.ts:38](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 #### Overrides
 
-[`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs).[`fetch`](#apidocs/interfaceaxdbbaseargsmdfetch)
+[`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs).[`fetch`](/api/#03-apidocs/interfaceaxdbbaseargsmdfetch)
 
 ***
 
@@ -61,7 +61,7 @@ Defined in: [src/ax/db/cloudflare.ts:38](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > **name**: `"cloudflare"`
 
-Defined in: [src/ax/db/cloudflare.ts:35](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbcloudflaretsl35)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L35
 
 ***
 
@@ -71,8 +71,8 @@ Defined in: [src/ax/db/cloudflare.ts:35](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 > `optional` **tracer**: `Tracer`
 
-Defined in: [src/ax/db/base.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L15
 
 #### Inherited from
 
-[`AxDBBaseArgs`](#apidocs/interfaceaxdbbaseargs).[`tracer`](#apidocs/interfaceaxdbbaseargsmdtracer)
+[`AxDBBaseArgs`](/api/#03-apidocs/interfaceaxdbbaseargs).[`tracer`](/api/#03-apidocs/interfaceaxdbbaseargsmdtracer)

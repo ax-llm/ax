@@ -2,17 +2,17 @@
 title: AxAIGoogleGeminiArgs
 ---
 
-Defined in: [src/ax/ai/google-gemini/api.ts:81](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl81)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L86
 
 ## Properties
 
 <a id="apiKey"></a>
 
-### apiKey
+### apiKey?
 
-> **apiKey**: `string`
+> `optional` **apiKey**: `string`
 
-Defined in: [src/ax/ai/google-gemini/api.ts:83](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl83)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L88
 
 ***
 
@@ -20,19 +20,29 @@ Defined in: [src/ax/ai/google-gemini/api.ts:83](#apidocs/httpsgithubcomax-llmaxb
 
 ### config?
 
-> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIGoogleGeminiConfig`](#apidocs/typealiasaxaigooglegeminiconfig)\>\>
+> `optional` **config**: `Readonly`\<`Partial`\<[`AxAIGoogleGeminiConfig`](/api/#03-apidocs/typealiasaxaigooglegeminiconfig)\>\>
 
-Defined in: [src/ax/ai/google-gemini/api.ts:86](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl86)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L92
 
 ***
 
-<a id="modelMap"></a>
+<a id="endpointId"></a>
 
-### modelMap?
+### endpointId?
 
-> `optional` **modelMap**: `Record`\<`string`, `string`\>
+> `optional` **endpointId**: `string`
 
-Defined in: [src/ax/ai/google-gemini/api.ts:88](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl88)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L91
+
+***
+
+<a id="models"></a>
+
+### models?
+
+> `optional` **models**: `AxAIInputModelList`\<[`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel)\>
+
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L94
 
 ***
 
@@ -42,7 +52,7 @@ Defined in: [src/ax/ai/google-gemini/api.ts:88](#apidocs/httpsgithubcomax-llmaxb
 
 > **name**: `"google-gemini"`
 
-Defined in: [src/ax/ai/google-gemini/api.ts:82](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl82)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L87
 
 ***
 
@@ -50,9 +60,9 @@ Defined in: [src/ax/ai/google-gemini/api.ts:82](#apidocs/httpsgithubcomax-llmaxb
 
 ### options?
 
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](#apidocs/typealiasaxaiserviceoptions) & [`AxAIGoogleGeminiOptionsTools`](#apidocs/interfaceaxaigooglegeminioptionstools)\>
+> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions) & [`AxAIGoogleGeminiOptionsTools`](/api/#03-apidocs/interfaceaxaigooglegeminioptionstools)\>
 
-Defined in: [src/ax/ai/google-gemini/api.ts:87](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl87)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L93
 
 ***
 
@@ -62,7 +72,7 @@ Defined in: [src/ax/ai/google-gemini/api.ts:87](#apidocs/httpsgithubcomax-llmaxb
 
 > `optional` **projectId**: `string`
 
-Defined in: [src/ax/ai/google-gemini/api.ts:84](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl84)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L89
 
 ***
 
@@ -72,4 +82,4 @@ Defined in: [src/ax/ai/google-gemini/api.ts:84](#apidocs/httpsgithubcomax-llmaxb
 
 > `optional` **region**: `string`
 
-Defined in: [src/ax/ai/google-gemini/api.ts:85](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaigoogle-geminiapitsl85)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L90

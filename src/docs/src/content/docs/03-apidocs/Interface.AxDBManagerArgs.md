@@ -2,7 +2,7 @@
 title: AxDBManagerArgs
 ---
 
-Defined in: [src/ax/docs/manager.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl20)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L20
 
 ## Properties
 
@@ -10,9 +10,9 @@ Defined in: [src/ax/docs/manager.ts:20](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### ai
 
-> **ai**: [`AxAIService`](#apidocs/interfaceaxaiservice)
+> **ai**: [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)
 
-Defined in: [src/ax/docs/manager.ts:21](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl21)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L21
 
 ***
 
@@ -20,9 +20,9 @@ Defined in: [src/ax/docs/manager.ts:21](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### config?
 
-> `optional` **config**: [`AxDBLoaderOptions`](#apidocs/interfaceaxdbloaderoptions)
+> `optional` **config**: [`AxDBLoaderOptions`](/api/#03-apidocs/interfaceaxdbloaderoptions)
 
-Defined in: [src/ax/docs/manager.ts:23](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl23)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L23
 
 ***
 
@@ -30,6 +30,6 @@ Defined in: [src/ax/docs/manager.ts:23](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### db
 
-> **db**: [`AxDBService`](#apidocs/interfaceaxdbservice)
+> **db**: [`AxDBService`](/api/#03-apidocs/interfaceaxdbservice)
 
-Defined in: [src/ax/docs/manager.ts:22](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl22)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L22

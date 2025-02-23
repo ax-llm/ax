@@ -2,7 +2,7 @@
 title: AxAssertionError
 ---
 
-Defined in: [src/ax/dsp/asserts.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl17)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L14
 
 ## Extends
 
@@ -10,23 +10,23 @@ Defined in: [src/ax/dsp/asserts.ts:17](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxAssertionError()
 
-> **new AxAssertionError**(`__namedParameters`): [`AxAssertionError`](#apidocs/classaxassertionerror)
+> **new AxAssertionError**(`__namedParameters`): [`AxAssertionError`](/api/#03-apidocs/classaxassertionerror)
 
-Defined in: [src/ax/dsp/asserts.ts:21](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl21)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L15
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<\{ `message`: `string`; `optional`: `boolean`; `values`: `Record`\<`string`, `unknown`\>; \}\> |
+| `__namedParameters` | `Readonly`\<\{ `message`: `string`; \}\> |
 
 #### Returns
 
-[`AxAssertionError`](#apidocs/classaxassertionerror)
+[`AxAssertionError`](/api/#03-apidocs/classaxassertionerror)
 
 #### Overrides
 
@@ -139,47 +139,13 @@ Defined in: node\_modules/@types/node/globals.d.ts:145
 
 ### getFixingInstructions()
 
-> **getFixingInstructions**(`_sig`): `object`[]
+> **getFixingInstructions**(): `object`[]
 
-Defined in: [src/ax/dsp/asserts.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl40)
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `_sig` | `Readonly`\<[`AxSignature`](#apidocs/classaxsignature)\> |
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L24
 
 #### Returns
 
 `object`[]
-
-***
-
-<a id="getOptional"></a>
-
-### getOptional()
-
-> **getOptional**(): `undefined` \| `boolean`
-
-Defined in: [src/ax/dsp/asserts.ts:37](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl37)
-
-#### Returns
-
-`undefined` \| `boolean`
-
-***
-
-<a id="getValue"></a>
-
-### getValue()
-
-> **getValue**(): `Record`\<`string`, `unknown`\>
-
-Defined in: [src/ax/dsp/asserts.ts:36](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspassertstsl36)
-
-#### Returns
-
-`Record`\<`string`, `unknown`\>
 
 ***
 

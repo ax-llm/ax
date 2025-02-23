@@ -2,27 +2,27 @@
 title: AxDBManager
 ---
 
-Defined in: [src/ax/docs/manager.ts:33](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl33)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L33
 
 ## Constructors
 
-<a id="Constructors"></a>
+<a id="constructors"></a>
 
 ### new AxDBManager()
 
-> **new AxDBManager**(`__namedParameters`): [`AxDBManager`](#apidocs/classaxdbmanager)
+> **new AxDBManager**(`__namedParameters`): [`AxDBManager`](/api/#03-apidocs/classaxdbmanager)
 
-Defined in: [src/ax/docs/manager.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl40)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L40
 
 #### Parameters
 
 | Parameter | Type |
 | ------ | ------ |
-| `__namedParameters` | `Readonly`\<[`AxDBManagerArgs`](#apidocs/interfaceaxdbmanagerargs)\> |
+| `__namedParameters` | `Readonly`\<[`AxDBManagerArgs`](/api/#03-apidocs/interfaceaxdbmanagerargs)\> |
 
 #### Returns
 
-[`AxDBManager`](#apidocs/classaxdbmanager)
+[`AxDBManager`](/api/#03-apidocs/classaxdbmanager)
 
 ## Methods
 
@@ -32,7 +32,7 @@ Defined in: [src/ax/docs/manager.ts:40](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 > **insert**(`text`, `options`?): `Promise`\<`void`\>
 
-Defined in: [src/ax/docs/manager.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl53)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L53
 
 #### Parameters
 
@@ -51,9 +51,9 @@ Defined in: [src/ax/docs/manager.ts:53](#apidocs/httpsgithubcomax-llmaxblob3b79a
 
 ### query()
 
-> **query**(`query`, `__namedParameters`): `Promise`\<[`AxDBMatch`](#apidocs/interfaceaxdbmatch)[][]\>
+> **query**(`query`, `__namedParameters`): `Promise`\<[`AxDBMatch`](/api/#03-apidocs/interfaceaxdbmatch)[][]\>
 
-Defined in: [src/ax/docs/manager.ts:109](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdocsmanagertsl109)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L109
 
 #### Parameters
 
@@ -64,4 +64,4 @@ Defined in: [src/ax/docs/manager.ts:109](#apidocs/httpsgithubcomax-llmaxblob3b79
 
 #### Returns
 
-`Promise`\<[`AxDBMatch`](#apidocs/interfaceaxdbmatch)[][]\>
+`Promise`\<[`AxDBMatch`](/api/#03-apidocs/interfaceaxdbmatch)[][]\>

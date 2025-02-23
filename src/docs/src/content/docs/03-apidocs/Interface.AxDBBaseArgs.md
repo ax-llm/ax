@@ -2,14 +2,14 @@
 title: AxDBBaseArgs
 ---
 
-Defined in: [src/ax/db/base.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl13)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L13
 
 ## Extended by
 
-- [`AxDBCloudflareArgs`](#apidocs/interfaceaxdbcloudflareargs)
-- [`AxDBMemoryArgs`](#apidocs/interfaceaxdbmemoryargs)
-- [`AxDBPineconeArgs`](#apidocs/interfaceaxdbpineconeargs)
-- [`AxDBWeaviateArgs`](#apidocs/interfaceaxdbweaviateargs)
+- [`AxDBCloudflareArgs`](/api/#03-apidocs/interfaceaxdbcloudflareargs)
+- [`AxDBMemoryArgs`](/api/#03-apidocs/interfaceaxdbmemoryargs)
+- [`AxDBPineconeArgs`](/api/#03-apidocs/interfaceaxdbpineconeargs)
+- [`AxDBWeaviateArgs`](/api/#03-apidocs/interfaceaxdbweaviateargs)
 
 ## Properties
 
@@ -19,7 +19,7 @@ Defined in: [src/ax/db/base.ts:13](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > `optional` **fetch**: (`input`, `init`?) => `Promise`\<`Response`\>
 
-Defined in: [src/ax/db/base.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl14)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L14
 
 #### Parameters
 
@@ -40,4 +40,4 @@ Defined in: [src/ax/db/base.ts:14](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d7
 
 > `optional` **tracer**: `Tracer`
 
-Defined in: [src/ax/db/base.ts:15](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdbbasetsl15)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L15

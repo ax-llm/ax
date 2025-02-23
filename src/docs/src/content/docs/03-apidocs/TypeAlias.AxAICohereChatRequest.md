@@ -4,7 +4,7 @@ title: AxAICohereChatRequest
 
 > **AxAICohereChatRequest**: `object`
 
-Defined in: [src/ax/ai/cohere/types.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxaicoheretypestsl41)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/cohere/types.ts#L41
 
 ## Type declaration
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/ai/cohere/types.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b
 
 ### chat\_history
 
-> **chat\_history**: (\{ `message`: `string`; `role`: `"CHATBOT"`; `tool_calls`: [`AxAICohereChatResponseToolCalls`](#apidocs/typealiasaxaicoherechatresponsetoolcalls); \} \| \{ `message`: `string`; `role`: `"SYSTEM"`; \} \| \{ `message`: `string`; `role`: `"USER"`; \} \| \{ `message`: `string`; `role`: `"TOOL"`; `tool_results`: [`AxAICohereChatRequestToolResults`](#apidocs/typealiasaxaicoherechatrequesttoolresults); \})[]
+> **chat\_history**: (\{ `message`: `string`; `role`: `"CHATBOT"`; `tool_calls`: [`AxAICohereChatResponseToolCalls`](/api/#03-apidocs/typealiasaxaicoherechatresponsetoolcalls); \} \| \{ `message`: `string`; `role`: `"SYSTEM"`; \} \| \{ `message`: `string`; `role`: `"USER"`; \} \| \{ `message`: `string`; `role`: `"TOOL"`; `tool_results`: [`AxAICohereChatRequestToolResults`](/api/#03-apidocs/typealiasaxaicoherechatrequesttoolresults); \})[]
 
 <a id="end_sequences"></a>
 
@@ -48,7 +48,7 @@ Defined in: [src/ax/ai/cohere/types.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b
 
 ### model
 
-> **model**: [`AxAICohereModel`](#apidocs/enumerationaxaicoheremodel) \| `string`
+> **model**: [`AxAICohereModel`](/api/#03-apidocs/enumerationaxaicoheremodel)
 
 <a id="p"></a>
 
@@ -84,7 +84,7 @@ Defined in: [src/ax/ai/cohere/types.ts:41](#apidocs/httpsgithubcomax-llmaxblob3b
 
 ### tool\_results?
 
-> `optional` **tool\_results**: [`AxAICohereChatRequestToolResults`](#apidocs/typealiasaxaicoherechatrequesttoolresults)
+> `optional` **tool\_results**: [`AxAICohereChatRequestToolResults`](/api/#03-apidocs/typealiasaxaicoherechatrequesttoolresults)
 
 <a id="tools"></a>
 

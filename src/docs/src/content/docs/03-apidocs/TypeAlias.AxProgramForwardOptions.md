@@ -4,7 +4,7 @@ title: AxProgramForwardOptions
 
 > **AxProgramForwardOptions**: `object`
 
-Defined in: [src/ax/dsp/program.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ada8d723949fcd8a76c2b6f48cf69d8394f8srcaxdspprogramtsl48)
+Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L48
 
 ## Type declaration
 
@@ -12,7 +12,7 @@ Defined in: [src/ax/dsp/program.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### ai?
 
-> `optional` **ai**: [`AxAIService`](#apidocs/interfaceaxaiservice)
+> `optional` **ai**: [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)
 
 <a id="debug"></a>
 
@@ -20,23 +20,23 @@ Defined in: [src/ax/dsp/program.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 > `optional` **debug**: `boolean`
 
+<a id="fastFail"></a>
+
+### fastFail?
+
+> `optional` **fastFail**: `boolean`
+
 <a id="functionCall"></a>
 
 ### functionCall?
 
-> `optional` **functionCall**: [`AxChatRequest`](#apidocs/typealiasaxchatrequest)\[`"functionCall"`\]
+> `optional` **functionCall**: [`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest)\[`"functionCall"`\]
 
 <a id="functions"></a>
 
 ### functions?
 
-> `optional` **functions**: [`AxFunction`](#apidocs/typealiasaxfunction)[]
-
-<a id="maxCompletions"></a>
-
-### maxCompletions?
-
-> `optional` **maxCompletions**: `number`
+> `optional` **functions**: [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)[]
 
 <a id="maxRetries"></a>
 
@@ -54,7 +54,7 @@ Defined in: [src/ax/dsp/program.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### mem?
 
-> `optional` **mem**: [`AxAIMemory`](#apidocs/interfaceaxaimemory)
+> `optional` **mem**: [`AxAIMemory`](/api/#03-apidocs/interfaceaxaimemory)
 
 <a id="model"></a>
 
@@ -66,13 +66,13 @@ Defined in: [src/ax/dsp/program.ts:48](#apidocs/httpsgithubcomax-llmaxblob3b79ad
 
 ### modelConfig?
 
-> `optional` **modelConfig**: [`AxModelConfig`](#apidocs/typealiasaxmodelconfig)
+> `optional` **modelConfig**: [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
 
 <a id="rateLimiter"></a>
 
 ### rateLimiter?
 
-> `optional` **rateLimiter**: [`AxRateLimiterFunction`](#apidocs/typealiasaxratelimiterfunction)
+> `optional` **rateLimiter**: [`AxRateLimiterFunction`](/api/#03-apidocs/typealiasaxratelimiterfunction)
 
 <a id="sessionId"></a>
 
