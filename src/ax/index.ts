@@ -255,6 +255,10 @@ import {
   AxSpanKindValues
 } from './trace/trace.js';
 import {
+  AxMockAIService,
+  type AxMockAIServiceConfig
+} from './ai/mock/api.js';
+import {
   AxProgram,
   AxProgramWithSignature,
   type AxFieldValue,
@@ -281,20 +285,21 @@ import {
   type AxRateLimiterTokenUsageOptions
 } from './util/rate-limit.js';
 import {
-  AxRoute,
-  AxRouter,
-  type AxRouterForwardOptions
-} from './dsp/router.js';
-import {
   AxSignature,
   type AxField,
   type AxIField
 } from './dsp/sig.js';
 import {
+  AxSimpleClassifier,
+  AxSimpleClassifierClass,
+  type AxSimpleClassifierForwardOptions
+} from './dsp/router.js';
+import {
   AxTestPrompt,
   type AxEvaluateArgs
 } from './dsp/evaluate.js';
 import {
+  type AxAIInputModelList,
   type AxAIModelList,
   type AxAIPromptConfig,
   type AxAIService,
@@ -326,6 +331,11 @@ import {
   type AxDBUpsertRequest,
   type AxDBUpsertResponse
 } from './db/types.js';
+import {
+  type AxFieldProcessor,
+  type AxFieldProcessorProcess,
+  type AxStreamingFieldProcessorProcess
+} from './dsp/fieldProcessor.js';
 import {AxAIDeepSeekModel} from './ai/deepseek/types.js';
 import {AxAIGroqModel} from './ai/groq/types.js';
 import {AxChainOfThought} from './prompts/cot.js';
@@ -334,10 +344,9 @@ import {AxDefaultResultReranker} from './docs/reranker.js';
 import {AxEmbeddingAdapter} from './funcs/embed.js';
 import {AxInstanceRegistry} from './dsp/registry.js';
 import {AxMemory} from './mem/memory.js';
-import {AxMockAIService} from './ai/mock/api.js';
+import {AxMultiServiceRouter} from './ai/multiservice.js';
 import {AxRAG} from './prompts/rag.js';
 import {type AxAIMemory} from './mem/types.js';
-import {type AxFieldProcessor} from './dsp/fieldProcessor.js';
 
 // Value exports
 export { AxAI };
@@ -405,14 +414,15 @@ export { AxJSInterpreterPermission };
 export { AxLLMRequestTypeValues };
 export { AxMemory };
 export { AxMockAIService };
+export { AxMultiServiceRouter };
 export { AxProgram };
 export { AxProgramWithSignature };
 export { AxPromptTemplate };
 export { AxRAG };
 export { AxRateLimiterTokenUsage };
-export { AxRoute };
-export { AxRouter };
 export { AxSignature };
+export { AxSimpleClassifier };
+export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
 export { AxTestPrompt };
 
@@ -469,6 +479,7 @@ export type { AxAIHuggingFaceArgs };
 export type { AxAIHuggingFaceConfig };
 export type { AxAIHuggingFaceRequest };
 export type { AxAIHuggingFaceResponse };
+export type { AxAIInputModelList };
 export type { AxAIMemory };
 export type { AxAIMistralArgs };
 export type { AxAIModelList };
@@ -542,6 +553,7 @@ export type { AxEvaluateArgs };
 export type { AxExample };
 export type { AxField };
 export type { AxFieldProcessor };
+export type { AxFieldProcessorProcess };
 export type { AxFieldTemplateFn };
 export type { AxFieldValue };
 export type { AxFunction };
@@ -559,6 +571,7 @@ export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
+export type { AxMockAIServiceConfig };
 export type { AxModelConfig };
 export type { AxModelInfo };
 export type { AxModelInfoWithProvider };
@@ -577,9 +590,10 @@ export type { AxRerankerOut };
 export type { AxResponseHandlerArgs };
 export type { AxRewriteIn };
 export type { AxRewriteOut };
-export type { AxRouterForwardOptions };
+export type { AxSimpleClassifierForwardOptions };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
+export type { AxStreamingFieldProcessorProcess };
 export type { AxTokenUsage };
 export type { AxTunable };
 export type { AxUsable };

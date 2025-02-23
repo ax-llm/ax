@@ -4,11 +4,11 @@ import { ColorLog } from '../util/log.js'
 
 const colorLog = new ColorLog()
 
-export interface AxRouterForwardOptions {
+export interface AxSimpleClassifierForwardOptions {
   cutoff?: number
 }
 
-export class AxRoute {
+export class AxSimpleClassifierClass {
   private readonly name: string
   private readonly context: readonly string[]
 
@@ -26,7 +26,7 @@ export class AxRoute {
   }
 }
 
-export class AxRouter {
+export class AxSimpleClassifier {
   private readonly ai: AxAIService
 
   private db: AxDBMemory
@@ -45,12 +45,14 @@ export class AxRouter {
     this.db.setDB(state)
   }
 
-  public setRoutes = async (routes: readonly AxRoute[]): Promise<void> => {
-    for (const ro of routes) {
-      const ret = await this.ai.embed({ texts: ro.getContext() })
+  public setClasses = async (
+    classes: readonly AxSimpleClassifierClass[]
+  ): Promise<void> => {
+    for (const c of classes) {
+      const ret = await this.ai.embed({ texts: c.getContext() })
       await this.db.upsert({
-        id: ro.getName(),
-        table: 'routes',
+        id: c.getName(),
+        table: 'classes',
         values: ret.embeddings[0],
       })
     }
@@ -58,12 +60,12 @@ export class AxRouter {
 
   public async forward(
     text: string,
-    options?: Readonly<AxRouterForwardOptions>
+    options?: Readonly<AxSimpleClassifierForwardOptions>
   ): Promise<string> {
     const { embeddings } = await this.ai.embed({ texts: [text] })
 
     const matches = await this.db.query({
-      table: 'routes',
+      table: 'classes',
       values: embeddings[0],
     })
 
@@ -83,12 +85,12 @@ export class AxRouter {
       )
     }
 
-    const route = m.at(0)
-    if (!route) {
+    const matchedClass = m.at(0)
+    if (!matchedClass) {
       return ''
     }
 
-    return route.id
+    return matchedClass.id
   }
 
   public setOptions(options: Readonly<{ debug?: boolean }>): void {

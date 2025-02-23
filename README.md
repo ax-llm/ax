@@ -632,6 +632,7 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | balancer.ts         | Balance between various llm's based on cost, etc        |
 | docker.ts           | Use the docker sandbox to find files by description     |
 | prime.ts            | Using field processors to process fields in a prompt    |
+| simple-classify.ts  | Use a simple classifier to classify stuff               |
 
 ## Our Goal
 
