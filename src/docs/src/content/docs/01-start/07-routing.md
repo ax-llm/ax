@@ -10,7 +10,7 @@ The router lets you use multiple AI services through a single interface, automat
 ```typescript
 import { AxAI, AxMultiServiceRouter, AxAIOpenAIModel } from '@ax-llm/ax'
 
-// Setup OpenAI with model list
+/// Setup OpenAI with model list
 const openai = new AxAI({ 
   name: 'openai', 
   apiKey: process.env.OPENAI_APIKEY,
@@ -18,12 +18,12 @@ const openai = new AxAI({
     {
       key: 'basic',
       model: AxAIOpenAIModel.GPT4OMini,
-      description: 'Fast model for simple tasks',
+      description: 'Model for very simple tasks such as answering quick short questions',
     },
     {
-      key: 'expert',
+      key: 'medium',
       model: AxAIOpenAIModel.GPT4O,
-      description: 'Expert model for specialized tasks',
+      description: 'Model for semi-complex tasks such as summarizing text, writing code, and more',
     }
   ]
 })
@@ -34,14 +34,14 @@ const gemini = new AxAI({
   apiKey: process.env.GOOGLE_APIKEY,
   models: [
     {
-      key: 'basic',
-      model: 'gemini-2.0-flash',
-      description: 'Basic Gemini model for simple tasks',
+      key: 'deep-thinker',
+      model: 'gemini-2.0-flash-thinking',
+      description: 'Model that can think deeply about a task, best for tasks that require planning',
     },
     {
       key: 'expert',
       model: 'gemini-2.0-pro',
-      description: 'Expert Gemini model for complex tasks',
+      description: 'Model that is the best for very complex tasks such as writing large essays, complex coding, and more',
     }
   ]
 })
@@ -54,7 +54,7 @@ const ollama = new AxAI({
 const secretService = {
     key: 'sensitive-secret',
     service: ollama,
-    description: 'Ollama model for sensitive secrets tasks'
+    description: 'Model for sensitive secrets tasks'
 }
 
 // Create a router with all services
