@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.22](https://github.com/ax-llm/ax/compare/11.0.20...11.0.21) (2025-02-23)
+
+### Features
+
+* new multi service router ([6886416](https://github.com/ax-llm/ax/commit/688641644aeb18d6dea1a307c5d6872df982cd36))
+* rename `max_tokens` to `max_completion_tokens` in `AxAIOpenAI` ([#156](https://github.com/ax-llm/ax/issues/156)) ([76f1e53](https://github.com/ax-llm/ax/commit/76f1e53f33743ee460569bb94d0bd3620db6e328))
+
+### Bug Fixes
+
+* old router is now simple classifier ([0c9f4f4](https://github.com/ax-llm/ax/commit/0c9f4f49537ec729093b8a91aa6b593ddd4f285c))
+## [11.0.21](https://github.com/ax-llm/ax/compare/11.0.20...11.0.21) (2025-02-19)
+
 ## [11.0.21](https://github.com/ax-llm/ax/compare/11.0.20...11.0.21) (2025-02-19)
 
 ### Bug Fixes
