@@ -1,5 +1,11 @@
 # Changelog
 
+## [11.0.23](https://github.com/ax-llm/ax/compare/11.0.22...11.0.23) (2025-02-23)
+
+### Features
+
+* Add support for Claude 3.7 models (#162) ([766bbbf] (https://github.com/ax-llm/ax/commit/766bbbf9ed267a2029b3da6ccb5bb65b496c1fd8))
+
 ## [11.0.22](https://github.com/ax-llm/ax/compare/11.0.20...11.0.21) (2025-02-23)
 
 ### Features
