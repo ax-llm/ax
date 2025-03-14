@@ -347,6 +347,7 @@ import {AxMemory} from './mem/memory.js';
 import {AxMultiServiceRouter} from './ai/multiservice.js';
 import {AxRAG} from './prompts/rag.js';
 import {type AxAIMemory} from './mem/types.js';
+import {axEvalUtil} from './dsp/eval.js';
 
 // Value exports
 export { AxAI };
@@ -597,3 +598,4 @@ export type { AxStreamingFieldProcessorProcess };
 export type { AxTokenUsage };
 export type { AxTunable };
 export type { AxUsable };
+export type { axEvalUtil };
