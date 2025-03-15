@@ -342,7 +342,11 @@ export class AxGen<
         )
 
         if (this.streamingAsserts.length !== 0) {
-          assertStreamingAssertions(this.streamingAsserts, xstate, content)
+          await assertStreamingAssertions(
+            this.streamingAsserts,
+            xstate,
+            content
+          )
         }
 
         if (this.streamingFieldProcessors.length !== 0) {
@@ -362,7 +366,7 @@ export class AxGen<
           continue
         }
 
-        assertAssertions(this.asserts, values)
+        await assertAssertions(this.asserts, values)
       }
 
       if (result.finishReason === 'length') {
@@ -387,8 +391,13 @@ export class AxGen<
     } else {
       streamingExtractFinalValue(this.signature, values, xstate, content)
 
-      assertStreamingAssertions(this.streamingAsserts, xstate, content, true)
-      assertAssertions(this.asserts, values)
+      await assertStreamingAssertions(
+        this.streamingAsserts,
+        xstate,
+        content,
+        true
+      )
+      await assertAssertions(this.asserts, values)
 
       if (this.fieldProcessors.length) {
         await processFieldProcessors(
@@ -457,7 +466,7 @@ export class AxGen<
         }
       } else if (result.content) {
         extractValues(this.signature, values, result.content)
-        assertAssertions(this.asserts, values)
+        await assertAssertions(this.asserts, values)
 
         if (this.fieldProcessors.length) {
           await processFieldProcessors(

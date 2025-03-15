@@ -1,7 +1,9 @@
 import type { extractionState } from './extract.js'
 
 export interface AxAssertion {
-  fn(values: Record<string, unknown>): boolean | undefined
+  fn(
+    values: Record<string, unknown>
+  ): Promise<boolean | undefined> | boolean | undefined
   message?: string
 }
 
@@ -35,14 +37,14 @@ export class AxAssertionError extends Error {
   }
 }
 
-export const assertAssertions = (
+export const assertAssertions = async (
   asserts: readonly AxAssertion[],
   values: Record<string, unknown>
 ) => {
   for (const assert of asserts) {
     const { fn, message } = assert
 
-    const res = fn(values)
+    const res = await fn(values)
     if (res === undefined) {
       continue
     }
@@ -56,7 +58,7 @@ export const assertAssertions = (
   }
 }
 
-export const assertStreamingAssertions = (
+export const assertStreamingAssertions = async (
   asserts: readonly AxStreamingAssertion[],
   xstate: Readonly<extractionState>,
   content: string,
@@ -84,7 +86,7 @@ export const assertStreamingAssertions = (
   for (const assert of fieldAsserts) {
     const { message, fn } = assert
 
-    const res = fn(currValue, final)
+    const res = await fn(currValue, final)
     if (res === undefined) {
       continue
     }

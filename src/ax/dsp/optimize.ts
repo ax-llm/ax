@@ -92,8 +92,8 @@ export class AxBootstrapFewShot<
         total,
         this.traces.length,
         et,
-        30,
-        'Tuning Prompt'
+        'Tuning Prompt',
+        30
       )
 
       if (this.traces.length > maxDemos) {

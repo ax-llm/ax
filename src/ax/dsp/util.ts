@@ -10,8 +10,8 @@ export const updateProgressBar = (
   total: number,
   success: number,
   elapsedTime: number, // in seconds
-  progressBarWidth: number = 20, // Default width of the progress bar
-  msg: string
+  msg: string,
+  progressBarWidth = 20 // Default width of the progress bar
 ): void => {
   const percentage = ((current / total) * 100).toFixed(1)
   const filledBarLength = Math.round((progressBarWidth * current) / total)
