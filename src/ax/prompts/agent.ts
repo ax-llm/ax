@@ -88,7 +88,7 @@ function processChildAgentFunction<IN extends AxGenIn>(
       // add debug logging if enabled
       processedFunction.func = async (childArgs, funcOptions) => {
         const updatedChildArgs = {
-          ...childArgs,
+          ...(childArgs || {}),
           ...pick(parentValues, injectionKeys as (keyof IN)[]),
         }
 
@@ -112,7 +112,11 @@ function processChildAgentFunction<IN extends AxGenIn>(
     options.canConfigureSmartModelRouting
   ) {
     processedFunction.parameters = addModelParameter(
-      processedFunction.parameters,
+      processedFunction.parameters || {
+        type: 'object',
+        properties: {},
+        required: []
+      },
       modelList
     )
   }
@@ -172,7 +176,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
     this.ai = ai
     this.agents = agents
-    this.functions = functions
+    this.functions = this.initFunctions(functions)
     this.disableSmartModelRouting = disableSmartModelRouting
     this.excludeFieldsFromPassthrough = excludeFieldsFromPassthrough ?? []
     this.debug = debug
@@ -250,9 +254,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
     // Create a wrapper function that excludes the 'ai' parameter
     const wrappedFunc: AxFunctionHandler = async (
-      valuesAndModel: IN & { model: string },
+      args?: unknown,
       options?
     ): Promise<string> => {
+      // Type guard to ensure args is the expected type
+      if (!args || typeof args !== 'object') {
+        throw new Error('Invalid arguments: expected object')
+      }
+      
+      const valuesAndModel = args as IN & { model: string }
       const { model, ...values } = valuesAndModel
 
       const ai = this.ai ?? options?.ai
@@ -402,6 +412,32 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     options?: Readonly<AxProgramForwardOptions>
   ): boolean {
     return options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false
+  }
+
+  private initFunctions(
+    functions: AxInputFunctionType | undefined
+  ): AxFunction[] | undefined {
+    if (!functions) return undefined
+    
+    // Handle the two possible types:
+    // 1. Array of AxFunction objects
+    // 2. Array of objects with toFunction method
+    if (Array.isArray(functions)) {
+      // Check if the first item has a toFunction method
+      if (functions.length > 0 && functions[0] && 'toFunction' in functions[0]) {
+        // This is an array of objects with toFunction method
+        return (functions as { toFunction: () => AxFunction | AxFunction[] }[])
+          .flatMap(fn => {
+            const result = fn.toFunction()
+            return Array.isArray(result) ? result : [result]
+          })
+      } else {
+        // This is already an array of AxFunction objects
+        return functions as AxFunction[]
+      }
+    }
+    
+    return []
   }
 }
 

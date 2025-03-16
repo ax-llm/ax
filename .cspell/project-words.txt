@@ -45,6 +45,7 @@ Macbook
 MCPHTTP
 minilm
 Mixtral
+modelcontextprotocol
 modelinfo
 multiservice
 nanos

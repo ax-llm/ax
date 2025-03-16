@@ -68,8 +68,19 @@ export class AxEmbeddingAdapter {
         },
         required: ['text'],
       },
-      func: ({ text }: Readonly<{ text: string }>, options) =>
-        this.embedAdapter(text, options),
+      func: async (args?: unknown, options?) => {
+        // Validate args
+        if (!args || typeof args !== 'object') {
+          throw new Error('Invalid arguments: expected object with text property')
+        }
+        
+        const { text } = args as { text: string }
+        if (typeof text !== 'string') {
+          throw new Error('Text must be a string')
+        }
+        
+        return this.embedAdapter(text, options)
+      },
     }
   }
 }

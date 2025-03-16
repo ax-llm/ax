@@ -387,8 +387,19 @@ export class AxDockerSession {
         required: ['command'],
       },
 
-      func: async ({ command }: Readonly<{ command: string }>) =>
-        await this.executeCommand(command),
+      func: async (args?: unknown, options?) => {
+        // Validate args
+        if (!args || typeof args !== 'object') {
+          throw new Error('Invalid arguments: expected object with command property')
+        }
+        
+        const { command } = args as { command: string }
+        if (typeof command !== 'string') {
+          throw new Error('Command must be a string')
+        }
+        
+        return await this.executeCommand(command)
+      },
     }
   }
 }
