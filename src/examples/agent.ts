@@ -19,7 +19,7 @@ const summarizer = new AxAgent({
 const agent = new AxAgent<{ question: string }>({
   name: 'Scientist',
   description: 'An agent that can answer advanced science questions',
-  signature: `question -> answer`,
+  signature: 'question -> answer',
   agents: [researcher, summarizer],
 })
 
@@ -57,7 +57,7 @@ ai.setOptions({ debug: true })
 // });
 
 // const question = `What is a cat?`
-const question = `Why is gravity not a real force?`
+const question = 'Why is gravity not a real force?'
 
 const res = await agent.forward(ai, { question })
 console.log('>', res)

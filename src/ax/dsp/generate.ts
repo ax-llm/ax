@@ -1,4 +1,4 @@
-import { ReadableStream } from 'stream/web'
+import { ReadableStream } from 'node:stream/web'
 
 import { type Span, SpanKind, type Tracer } from '@opentelemetry/api'
 
@@ -49,7 +49,7 @@ import {
   AxProgramWithSignature,
 } from './program.js'
 import { AxPromptTemplate } from './prompt.js'
-import { AxSignature } from './sig.js'
+import type { AxIField, AxSignature } from './sig.js'
 import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
 
@@ -145,7 +145,7 @@ export class AxGen<
   private addFieldProcessorInternal = (
     fieldName: string,
     fn: AxFieldProcessor['process'],
-    streaming: boolean = false
+    streaming = false
   ) => {
     const field = this.signature
       .getOutputFields()
@@ -552,7 +552,8 @@ export class AxGen<
 
           return
         } catch (e) {
-          let errorFields
+          let errorFields: AxIField[] | undefined
+
           span?.recordException(e as Error)
 
           if (e instanceof ValidationError) {
@@ -633,8 +634,8 @@ export class AxGen<
     const funcNames = functions?.map((f) => f.name).join(',')
 
     const attributes = {
-      ['generate.signature']: this.signature.toString(),
-      ['generate.functions']: funcNames ?? '',
+      'generate.signature': this.signature.toString(),
+      'generate.functions': funcNames ?? '',
     }
 
     const span = tracer.startSpan('Generate', {

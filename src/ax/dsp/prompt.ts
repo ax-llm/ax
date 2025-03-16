@@ -53,9 +53,10 @@ export class AxPromptTemplate {
       `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
     )
 
-    const funcs = functions?.map((f) =>
-      'toFunction' in f ? f.toFunction() : f
-    )
+    // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
+    const funcs = functions
+      ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
+      ?.flat()
 
     const funcList = funcs
       ?.map((fn) => `- \`${fn.name}\`: ${formatDescription(fn.description)}`)

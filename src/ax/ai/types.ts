@@ -1,4 +1,4 @@
-import type { ReadableStream } from 'stream/web'
+import type { ReadableStream } from 'node:stream/web'
 
 import type { Tracer } from '@opentelemetry/api'
 
@@ -46,8 +46,7 @@ export type AxModelConfig = {
 }
 
 export type AxFunctionHandler = (
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  args?: any,
+  args?: unknown,
   extra?: Readonly<{
     sessionId?: string
     traceId?: string

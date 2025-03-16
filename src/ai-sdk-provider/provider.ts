@@ -319,7 +319,7 @@ function convertToAxChatPrompt(
             }
 
             default: {
-              const _exhaustiveCheck: never = part
+              const _exhaustiveCheck = part
               throw new Error(`Unsupported part: ${_exhaustiveCheck}`)
             }
           }
@@ -426,7 +426,7 @@ function createChatRequest({
     }
 
     default: {
-      throw new Error(`Unsupported type`)
+      throw new Error('Unsupported type')
     }
   }
 }

@@ -42,6 +42,7 @@ Logprob
 logprobs
 Logprobs
 Macbook
+MCPHTTP
 minilm
 Mixtral
 modelinfo

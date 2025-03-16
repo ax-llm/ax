@@ -1,4 +1,5 @@
 import type { AxFunction } from '../ai/types.js'
+import { ColorLog } from '../util/log.js'
 
 import type { AxMCPTransport } from './transport.js'
 import type {
@@ -7,6 +8,8 @@ import type {
   MCPInitializeParams,
   MCPToolsListResult,
 } from './types.js'
+
+const colorLog = new ColorLog()
 
 interface AxMCPClientOptions {
   debug?: boolean
@@ -66,25 +69,35 @@ export class AxMCPClient {
     }
 
     const res = await this.sendRequest<MCPToolsListResult>('tools/list')
-    this.functions = res.tools.map((fn) => ({
-      name: fn.name,
-      description: fn.description,
-      inputSchema: fn.inputSchema,
-      func: async (args: Record<string, unknown>) => {
-        const result = await this.sendRequest('tools/call', {
-          name: fn.name,
-          arguments: args,
-        })
-        return result
-      },
-    }))
+    this.functions = res.tools.map(
+      (fn): AxFunction => ({
+        name: fn.name,
+        description: fn.description,
+        parameters: fn.inputSchema,
+        func: async (args) => {
+          const res = await this.sendRequest<{
+            name: string
+            // eslint-disable-next-line functional/functional-parameters
+            arguments: unknown
+          }>('tools/call', { name: fn.name, arguments: args })
+
+          if ('error' in res) {
+            throw new Error((res.error as Error).message)
+          }
+          if ('result' in res) {
+            return res.result
+          }
+          return null
+        },
+      })
+    )
   }
 
   async ping() {
     await this.sendRequest('ping')
   }
 
-  getFunctions(): AxFunction[] {
+  toFunction(): AxFunction[] {
     return this.functions
   }
 
@@ -100,13 +113,21 @@ export class AxMCPClient {
     }
 
     if (this.options.debug) {
-      console.log('➡️ Sending request:', JSON.stringify(request, null, 2))
+      console.log(
+        colorLog.blueBright(
+          `> Sending request:\n${JSON.stringify(request, null, 2)}`
+        )
+      )
     }
 
     const response = await this.transport.send(request)
 
     if (this.options.debug) {
-      console.log('⬅️ Received response:', JSON.stringify(response, null, 2))
+      console.log(
+        colorLog.greenBright(
+          `> Received response:\n${JSON.stringify(response, null, 2)}`
+        )
+      )
     }
 
     if ('error' in response) {
