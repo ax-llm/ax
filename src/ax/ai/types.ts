@@ -1,4 +1,4 @@
-import type { ReadableStream } from 'stream/web'
+import type { ReadableStream } from 'node:stream/web'
 
 import type { Tracer } from '@opentelemetry/api'
 

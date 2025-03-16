@@ -382,6 +382,7 @@ export class AxBaseAI<
         Array.isArray(cleanParams.required) &&
         cleanParams.required.length === 0
       ) {
+        // biome-ignore lint/performance/noDelete: <explanation>
         delete cleanParams.required
       }
 
@@ -390,6 +391,7 @@ export class AxBaseAI<
         cleanParams.properties &&
         Object.keys(cleanParams.properties).length === 0
       ) {
+        // biome-ignore lint/performance/noDelete: <explanation>
         delete cleanParams.properties
       }
 
@@ -399,6 +401,7 @@ export class AxBaseAI<
         Object.keys(cleanParams).length === 0 ||
         (Object.keys(cleanParams).length === 1 && cleanParams.type === 'object')
       ) {
+        // biome-ignore lint/performance/noDelete: <explanation>
         delete cleanFn.parameters
       } else {
         cleanFn.parameters = cleanParams
@@ -418,7 +421,8 @@ export class AxBaseAI<
       throw new Error('generateChatReq not implemented')
     }
 
-    let functions
+    let functions: NonNullable<AxChatRequest['functions']> | undefined
+
     if (chatReq.functions && chatReq.functions.length > 0) {
       functions = chatReq.functions.map((fn) => this.cleanupFunctionSchema(fn))
     }
@@ -452,7 +456,7 @@ export class AxBaseAI<
     }
 
     if (options?.debug ?? this.debug) {
-      logChatRequest(req['chatPrompt'])
+      logChatRequest(req.chatPrompt)
     }
 
     const rt = options?.rateLimiter ?? this.rt

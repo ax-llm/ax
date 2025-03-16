@@ -49,7 +49,7 @@ export class AxTestPrompt<
       }
 
       const et = new Date().getTime() - st
-      updateProgressBar(i, total, successCount, et, 30, 'Testing Prompt')
+      updateProgressBar(i, total, successCount, et, 'Testing Prompt', 30)
     }
 
     console.log(

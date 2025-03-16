@@ -50,7 +50,7 @@ const formatChatMessage = (
 export const logChatRequestMessage = (
   msg: AxChatRequest['chatPrompt'][number]
 ) => {
-  process.stdout.write(formatChatMessage(msg) + '\n')
+  process.stdout.write(`${formatChatMessage(msg)}\n`)
   process.stdout.write(colorLog.blueBright('\nAssistant:\n'))
 }
 

@@ -1,4 +1,4 @@
-import { ReadableStream } from 'stream/web'
+import { ReadableStream } from 'node:stream/web'
 
 import { type Span, SpanKind, type Tracer } from '@opentelemetry/api'
 
@@ -49,7 +49,7 @@ import {
   AxProgramWithSignature,
 } from './program.js'
 import { AxPromptTemplate } from './prompt.js'
-import { AxSignature } from './sig.js'
+import type { AxIField, AxSignature } from './sig.js'
 import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
 
@@ -145,7 +145,7 @@ export class AxGen<
   private addFieldProcessorInternal = (
     fieldName: string,
     fn: AxFieldProcessor['process'],
-    streaming: boolean = false
+    streaming = false
   ) => {
     const field = this.signature
       .getOutputFields()
@@ -200,7 +200,7 @@ export class AxGen<
       model,
       rateLimiter,
       stream,
-      functions,
+      functions: _functions,
       functionCall: _functionCall,
     } = options ?? {}
 
@@ -209,6 +209,11 @@ export class AxGen<
     if (chatPrompt.length === 0) {
       throw new Error('No chat prompt found')
     }
+
+    // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
+    const functions = _functions
+      ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
+      ?.flat()
 
     const functionCall = _functionCall ?? this.options?.functionCall
 
@@ -241,7 +246,7 @@ export class AxGen<
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
   }>) {
-    const { sessionId, traceId, model, functions } = options ?? {}
+    const { sessionId, traceId, model, functions: _functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
 
     const modelName = model ?? ai.getDefaultModels().model
@@ -249,6 +254,11 @@ export class AxGen<
       ai: ai.getName(),
       model: modelName,
     }
+
+    // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
+    const functions = _functions
+      ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
+      ?.flat()
 
     const res = await this.forwardSendRequest({
       ai,
@@ -342,7 +352,11 @@ export class AxGen<
         )
 
         if (this.streamingAsserts.length !== 0) {
-          assertStreamingAssertions(this.streamingAsserts, xstate, content)
+          await assertStreamingAssertions(
+            this.streamingAsserts,
+            xstate,
+            content
+          )
         }
 
         if (this.streamingFieldProcessors.length !== 0) {
@@ -362,7 +376,7 @@ export class AxGen<
           continue
         }
 
-        assertAssertions(this.asserts, values)
+        await assertAssertions(this.asserts, values)
       }
 
       if (result.finishReason === 'length') {
@@ -387,8 +401,13 @@ export class AxGen<
     } else {
       streamingExtractFinalValue(this.signature, values, xstate, content)
 
-      assertStreamingAssertions(this.streamingAsserts, xstate, content, true)
-      assertAssertions(this.asserts, values)
+      await assertStreamingAssertions(
+        this.streamingAsserts,
+        xstate,
+        content,
+        true
+      )
+      await assertAssertions(this.asserts, values)
 
       if (this.fieldProcessors.length) {
         await processFieldProcessors(
@@ -457,7 +476,7 @@ export class AxGen<
         }
       } else if (result.content) {
         extractValues(this.signature, values, result.content)
-        assertAssertions(this.asserts, values)
+        await assertAssertions(this.asserts, values)
 
         if (this.fieldProcessors.length) {
           await processFieldProcessors(
@@ -543,7 +562,8 @@ export class AxGen<
 
           return
         } catch (e) {
-          let errorFields
+          let errorFields: AxIField[] | undefined
+
           span?.recordException(e as Error)
 
           if (e instanceof ValidationError) {
@@ -624,8 +644,8 @@ export class AxGen<
     const funcNames = functions?.map((f) => f.name).join(',')
 
     const attributes = {
-      ['generate.signature']: this.signature.toString(),
-      ['generate.functions']: funcNames ?? '',
+      'generate.signature': this.signature.toString(),
+      'generate.functions': funcNames ?? '',
     }
 
     const span = tracer.startSpan('Generate', {

@@ -1,10 +1,10 @@
-import * as _crypto from 'crypto'
-import * as _http from 'http'
-import * as _https from 'https'
+import * as _crypto from 'node:crypto'
 import * as _fs from 'node:fs'
-import * as _os from 'os'
-import * as _process from 'process'
-import { runInNewContext } from 'vm'
+import * as _http from 'node:http'
+import * as _https from 'node:https'
+import * as _os from 'node:os'
+import * as _process from 'node:process'
+import { runInNewContext } from 'node:vm'
 
 import type { AxFunction } from '../ai/types.js'
 
