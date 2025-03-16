@@ -80,8 +80,19 @@ export class AxJSInterpreter {
         required: ['code'],
       },
 
-      func: ({ code }: Readonly<{ code: string }>) =>
-        this.codeInterpreterJavascript(code),
+      func: async (args?: unknown, options?) => {
+        // Validate args
+        if (!args || typeof args !== 'object') {
+          throw new Error('Invalid arguments: expected object with code property')
+        }
+        
+        const { code } = args as { code: string }
+        if (typeof code !== 'string') {
+          throw new Error('Code must be a string')
+        }
+        
+        return this.codeInterpreterJavascript(code)
+      },
     }
   }
 }
