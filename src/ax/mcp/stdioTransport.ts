@@ -8,6 +8,12 @@ import type {
   JSONRPCResponse,
 } from './types.js'
 
+interface StdioTransportConfig {
+  command: string
+  args?: string[]
+  env?: NodeJS.ProcessEnv
+}
+
 export class AxMCPStdioTransport implements AxMCPTransport {
   private process: ChildProcessWithoutNullStreams
   private rl: readline.Interface
@@ -16,8 +22,10 @@ export class AxMCPStdioTransport implements AxMCPTransport {
     (res: JSONRPCResponse) => void
   >()
 
-  constructor(command: string, args: string[]) {
-    this.process = spawn(command, args)
+  constructor(config: Readonly<StdioTransportConfig>) {
+    this.process = spawn(config.command, config.args ?? [], {
+      env: config.env ? { ...process.env, ...config.env } : process.env,
+    })
     this.rl = readline.createInterface({ input: this.process.stdout })
     this.rl.on('line', (line) => {
       const response: JSONRPCResponse = JSON.parse(line)
