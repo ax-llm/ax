@@ -6,6 +6,7 @@ import type {
   JSONRPCNotification,
   JSONRPCRequest,
   MCPInitializeParams,
+  MCPInitializeResult,
   MCPToolsListResult,
 } from './types.js'
 
@@ -34,7 +35,10 @@ export class AxMCPClient {
       await this.transport.connect?.()
     }
 
-    const res = await this.sendRequest<MCPInitializeParams>('initialize', {
+    const res = await this.sendRequest<
+      MCPInitializeParams,
+      MCPInitializeResult
+    >('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {
         roots: { listChanged: true },
@@ -44,7 +48,7 @@ export class AxMCPClient {
         name: 'AxMCPClient',
         version: '1.0.0',
       },
-    } as MCPInitializeParams)
+    })
 
     if (res.capabilities.tools) {
       this.capabilities.tools = true
@@ -68,26 +72,21 @@ export class AxMCPClient {
       throw new Error('Tools are not supported')
     }
 
-    const res = await this.sendRequest<MCPToolsListResult>('tools/list')
+    const res = await this.sendRequest<undefined, MCPToolsListResult>(
+      'tools/list'
+    )
     this.functions = res.tools.map(
       (fn): AxFunction => ({
         name: fn.name,
         description: fn.description,
         parameters: fn.inputSchema,
         func: async (args) => {
-          const res = await this.sendRequest<{
+          const result = await this.sendRequest<{
             name: string
             // eslint-disable-next-line functional/functional-parameters
             arguments: unknown
           }>('tools/call', { name: fn.name, arguments: args })
-
-          if ('error' in res) {
-            throw new Error((res.error as Error).message)
-          }
-          if ('result' in res) {
-            return res.result
-          }
-          return null
+          return result
         },
       })
     )
@@ -101,10 +100,10 @@ export class AxMCPClient {
     return this.functions
   }
 
-  private async sendRequest<T = unknown>(
+  private async sendRequest<T = unknown, R = unknown>(
     method: string,
     params?: T
-  ): Promise<T> {
+  ): Promise<R> {
     const request: JSONRPCRequest<T> = {
       jsonrpc: '2.0',
       id: ++this.requestId,
@@ -120,22 +119,25 @@ export class AxMCPClient {
       )
     }
 
-    const response = await this.transport.send(request)
+    const res = await this.transport.send(request)
 
     if (this.options.debug) {
       console.log(
         colorLog.greenBright(
-          `> Received response:\n${JSON.stringify(response, null, 2)}`
+          `> Received response:\n${JSON.stringify(res, null, 2)}`
         )
       )
     }
 
-    if ('error' in response) {
-      throw new Error(
-        `RPC Error ${response.error.code}: ${response.error.message}`
-      )
+    if ('error' in res) {
+      throw new Error(`RPC Error ${res.error.code}: ${res.error.message}`)
     }
-    return response.result as T
+
+    if ('result' in res) {
+      return res.result as R
+    }
+
+    throw new Error('Invalid response no result or error')
   }
 
   private async sendNotification(

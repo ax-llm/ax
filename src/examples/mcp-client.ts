@@ -11,7 +11,7 @@ const stdioTransport = new AxMCPStdioTransport({
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-memory'],
 })
-const client = new AxMCPClient(stdioTransport, { debug: true })
+const client = new AxMCPClient(stdioTransport, { debug: false })
 await client.init()
 
 // Create a memory-augmented agent that can remember past conversations
@@ -20,7 +20,8 @@ const memoryAgent = new AxAgent<
   { response: string }
 >({
   name: 'MemoryAssistant',
-  description: 'An assistant that remembers past conversations with users',
+  description:
+    'You are an assistant that remembers past conversations with users. You break down the information to be remembered by entity identifiers and the content to remeber. Use the provided graph database functions to manage memories',
   signature: 'input, userId -> response',
   functions: [client],
 })
@@ -37,6 +38,7 @@ const ai = new AxAI({
     },
   ],
 })
+ai.setOptions({ debug: true })
 
 // Example conversation flow
 async function runConversation() {
@@ -54,23 +56,11 @@ async function runConversation() {
   // Second interaction - the agent should remember information from before
   console.log('\n--- Second interaction (later) ---')
   const secondResponse = await memoryAgent.forward(ai, {
-    input: "What's Alice's favorite color?",
+    input: "What's my favorite color?",
     userId,
   })
-  console.log("User: What's Alice's favorite color?")
+  console.log('User: What is my favorite color?')
   console.log(`Assistant: ${secondResponse.response}`)
-
-  // Third interaction - testing memory persistence
-  console.log('\n--- Third interaction (even later) ---')
-  const thirdResponse = await memoryAgent.forward(ai, {
-    input:
-      'Can you remind me what my name is and summarize what you know about me?',
-    userId,
-  })
-  console.log(
-    'User: Can you remind me what my name is and summarize what you know about me?'
-  )
-  console.log(`Assistant: ${thirdResponse.response}`)
 }
 
 // Run the example
