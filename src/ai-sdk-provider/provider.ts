@@ -318,6 +318,16 @@ function convertToAxChatPrompt(
               break
             }
 
+            case 'reasoning': {
+              // Reasoning parts are ignored in the message conversion
+              break
+            }
+
+            case 'redacted-reasoning': {
+              // Redacted reasoning parts are ignored in the message conversion
+              break
+            }
+
             default: {
               const _exhaustiveCheck: never = part
               throw new Error(`Unsupported part: ${_exhaustiveCheck}`)

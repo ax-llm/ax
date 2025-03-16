@@ -42,8 +42,10 @@ Logprob
 logprobs
 Logprobs
 Macbook
+MCPHTTP
 minilm
 Mixtral
+modelcontextprotocol
 modelinfo
 multiservice
 nanos

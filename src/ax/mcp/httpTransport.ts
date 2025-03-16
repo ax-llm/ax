@@ -33,7 +33,7 @@ export class AxMCPHTTPTransport implements AxMCPTransport {
       })
 
       this.eventSource.onerror = (e) => {
-        reject(new Error('Failed to establish SSE connection'))
+        reject(new Error('Failed to establish SSE connection', { cause: e }))
       }
     })
   }
