@@ -1,5 +1,12 @@
 # Changelog
 
+## [11.0.24](https://github.com/ax-llm/ax/compare/11.0.22...11.0.23) (2025-03-16)
+
+### Bug Fixes
+
+* evalUtils missing from exports in index.ts ([#173](https://github.com/ax-llm/ax/issues/173)) ([b103f41](https://github.com/ax-llm/ax/commit/b103f41aa8726175ca7a87a78d925bcd1bac06b9))
+## [11.0.23](https://github.com/ax-llm/ax/compare/11.0.22...11.0.23) (2025-02-26)
+
 ## [11.0.23](https://github.com/ax-llm/ax/compare/11.0.22...11.0.23) (2025-02-23)
 
 ### Features
