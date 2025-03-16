@@ -200,7 +200,7 @@ export class AxGen<
       model,
       rateLimiter,
       stream,
-      functions,
+      functions: _functions,
       functionCall: _functionCall,
     } = options ?? {}
 
@@ -209,6 +209,11 @@ export class AxGen<
     if (chatPrompt.length === 0) {
       throw new Error('No chat prompt found')
     }
+
+    // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
+    const functions = _functions
+      ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
+      ?.flat()
 
     const functionCall = _functionCall ?? this.options?.functionCall
 
@@ -241,7 +246,7 @@ export class AxGen<
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
   }>) {
-    const { sessionId, traceId, model, functions } = options ?? {}
+    const { sessionId, traceId, model, functions: _functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
 
     const modelName = model ?? ai.getDefaultModels().model
@@ -249,6 +254,11 @@ export class AxGen<
       ai: ai.getName(),
       model: modelName,
     }
+
+    // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
+    const functions = _functions
+      ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
+      ?.flat()
 
     const res = await this.forwardSendRequest({
       ai,

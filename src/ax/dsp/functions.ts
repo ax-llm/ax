@@ -139,11 +139,12 @@ export class AxFunctionProcessor {
   }
 }
 
-export type AxInputFunctionType =
-  | AxFunction[]
+export type AxInputFunctionType = (
+  | AxFunction
   | {
       toFunction: () => AxFunction | AxFunction[]
-    }[]
+    }
+)[]
 
 export const parseFunctions = (
   newFuncs: Readonly<AxInputFunctionType>,

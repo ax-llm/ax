@@ -20,7 +20,7 @@ export class MemoryImpl {
 
   constructor(
     private limit = defaultLimit,
-    private debug: boolean = false
+    private debug = false
   ) {
     if (limit <= 0) {
       throw Error("argument 'limit' must be greater than 0")
@@ -100,7 +100,7 @@ export class MemoryImpl {
     }
 
     if (this.debug) {
-      if (delta) {
+      if (delta && typeof delta === 'string') {
         debugResponseDelta(delta)
       } else if (lastItem) {
         debugResponse({ content, name, functionCalls })
@@ -194,7 +194,7 @@ export class AxMemory implements AxAIMemory {
       this.memories.set(sessionId, new MemoryImpl(this.limit))
     }
 
-    return this.memories.get(sessionId)!
+    return this.memories.get(sessionId) as MemoryImpl
   }
 
   add(

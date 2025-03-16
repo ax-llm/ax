@@ -1,15 +1,15 @@
-import { type Tracer } from '@opentelemetry/api'
+import type { Tracer } from '@opentelemetry/api'
 
 import type {
   AxAIService,
   AxChatRequest,
   AxChatResponse,
-  AxFunction,
   AxModelConfig,
   AxRateLimiterFunction,
 } from '../ai/types.js'
 import type { AxAIMemory } from '../mem/types.js'
 
+import type { AxInputFunctionType } from './functions.js'
 import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
 import { mergeProgramUsage, validateValue } from './util.js'
@@ -57,7 +57,7 @@ export type AxProgramForwardOptions = {
   tracer?: Tracer
   rateLimiter?: AxRateLimiterFunction
   stream?: boolean
-  functions?: AxFunction[]
+  functions?: AxInputFunctionType
   functionCall?: AxChatRequest['functionCall']
   stopFunction?: string
   fastFail?: boolean
@@ -76,6 +76,7 @@ export type AxGenDeltaOut<OUT> = {
 
 export type AxGenStreamingOut<OUT> = AsyncGenerator<
   AxGenDeltaOut<OUT>,
+  // biome-ignore lint/suspicious/noConfusingVoidType: just cause
   void | OUT,
   unknown
 >
@@ -152,6 +153,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     throw new Error('forward() not implemented')
   }
 
+  // biome-ignore lint/correctness/useYield: just a placeholder
   public async *streamingForward(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
@@ -249,6 +251,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setDemos(demos: readonly AxProgramDemos[]) {
+    // biome-ignore lint/complexity/useFlatMap: it can't
     this.demos = demos
       .filter((v) => v.programId === this.key.id)
       .map((v) => v.traces)
@@ -292,6 +295,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     throw new Error('forward() not implemented')
   }
 
+  // biome-ignore lint/correctness/useYield: just a placeholder
   public async *streamingForward(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,

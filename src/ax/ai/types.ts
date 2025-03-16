@@ -46,7 +46,8 @@ export type AxModelConfig = {
 }
 
 export type AxFunctionHandler = (
-  args?: unknown,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args?: any,
   extra?: Readonly<{
     sessionId?: string
     traceId?: string

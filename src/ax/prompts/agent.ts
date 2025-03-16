@@ -137,7 +137,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 {
   private ai?: AxAIService
   private program: AxProgramWithSignature<IN, OUT>
-  private functions?: AxFunction[]
+  private functions?: AxInputFunctionType
   private agents?: AxAgentic[]
   private disableSmartModelRouting?: boolean
   private excludeFieldsFromPassthrough: string[]
@@ -339,7 +339,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     })
 
     // Combine all functions
-    const functions: AxFunction[] = [
+    const functions: AxInputFunctionType = [
       ...(options?.functions ?? this.functions ?? []),
       ...(agentFuncs ?? []),
     ]

@@ -9,7 +9,9 @@ export interface AxAIMemory {
   ): void
   addResult(result: Readonly<AxChatResponseResult>, sessionId?: string): void
   updateResult(
-    result: Readonly<AxChatResponseResult> & { delta?: string },
+    result: Readonly<AxChatResponseResult> & {
+      delta?: string
+    },
     sessionId?: string
   ): void
 

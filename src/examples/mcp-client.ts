@@ -21,7 +21,7 @@ const memoryAgent = new AxAgent<
 >({
   name: 'MemoryAssistant',
   description:
-    'You are an assistant that remembers past conversations with users. You break down the information to be remembered by entity identifiers and the content to remeber. Use the provided graph database functions to manage memories',
+    'You are an assistant that remembers past conversations with users. You break down the information to be remembered by entity identifiers and the content to remeber. Use the provided database functions to manage memories, search for memories, and add memories. Use multiple searches with different entity identifiers to get a holistic view of the user.',
   signature: 'input, userId -> response',
   functions: [client],
 })
@@ -30,13 +30,7 @@ const memoryAgent = new AxAgent<
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-  models: [
-    {
-      key: 'default',
-      model: AxAIOpenAIModel.GPT4O,
-      description: 'Default model for conversations',
-    },
-  ],
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 })
 ai.setOptions({ debug: true })
 
@@ -61,6 +55,15 @@ async function runConversation() {
   })
   console.log('User: What is my favorite color?')
   console.log(`Assistant: ${secondResponse.response}`)
+
+  // Third interaction - the agent should remember information from before
+  console.log('\n--- Third interaction (later) ---')
+  const thirdResponse = await memoryAgent.forward(ai, {
+    input: "What's my favorite color?",
+    userId,
+  })
+  console.log('User: What do you know about me?')
+  console.log(`Assistant: ${thirdResponse.response}`)
 }
 
 // Run the example

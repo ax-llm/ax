@@ -5,6 +5,7 @@ export enum AxAIOpenAIModel {
   O1Mini = 'o1-mini',
   O3Mini = 'o3-mini',
   GPT4 = 'gpt-4',
+  GPT45 = 'gpt-4.5-preview',
   GPT4O = 'gpt-4o',
   GPT4OMini = 'gpt-4o-mini',
   GPT4ChatGPT4O = 'chatgpt-4o-latest',
