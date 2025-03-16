@@ -5,20 +5,21 @@ import type {
   AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js'
+import type { AxInputFunctionType } from '../dsp/functions.js'
 import { AxGen, type AxGenOptions } from '../dsp/generate.js'
-import {
-  type AxGenIn,
-  type AxGenOut,
-  type AxGenStreamingOut,
-  type AxProgramDemos,
-  type AxProgramExamples,
-  type AxProgramForwardOptions,
-  type AxProgramStreamingForwardOptions,
+import type {
+  AxGenIn,
+  AxGenOut,
+  AxGenStreamingOut,
+  AxProgramDemos,
+  AxProgramExamples,
+  AxProgramForwardOptions,
+  AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
-  type AxTunable,
-  type AxUsable,
+  AxTunable,
+  AxUsable,
 } from '../dsp/program.js'
-import { AxSignature } from '../dsp/sig.js'
+import type { AxSignature } from '../dsp/sig.js'
 
 /**
  * Interface for agents that can be used as child agents.
@@ -59,7 +60,7 @@ function processChildAgentFunction<IN extends AxGenIn>(
     canConfigureSmartModelRouting: boolean
   }>
 ): AxFunction {
-  let processedFunction = { ...childFunction }
+  const processedFunction = { ...childFunction }
 
   // Process input field injection
   if (processedFunction.parameters) {
@@ -162,7 +163,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       definition?: string
       signature: AxSignature | string
       agents?: AxAgentic[]
-      functions?: AxFunction[]
+      functions?: AxInputFunctionType
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
@@ -178,7 +179,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
     if (!name || name.length < 5) {
       throw new Error(
-        `Agent name must be at least 10 characters (more descriptive)`
+        'Agent name must be at least 10 characters (more descriptive)'
       )
     }
 

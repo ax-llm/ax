@@ -82,7 +82,7 @@ export class AxFunctionProcessor {
     func: Readonly<AxChatResponseFunctionCall>,
     options?: Readonly<AxAIServiceActionOptions>
   ) => {
-    let args
+    let args: unknown
 
     if (typeof func.args === 'string' && func.args.length > 0) {
       args = JSON.parse(func.args)
@@ -121,10 +121,10 @@ export class AxFunctionProcessor {
       (v) => v.name.localeCompare(func.name) === 0
     )
     if (!fnSpec) {
-      throw new Error(`Function not found: ` + func.name)
+      throw new Error(`Function not found: ${func.name}`)
     }
     if (!fnSpec.func) {
-      throw new Error('No handler for function: ' + func.name)
+      throw new Error(`No handler for function: ${func.name}`)
     }
 
     // execute value function calls
@@ -142,7 +142,7 @@ export class AxFunctionProcessor {
 export type AxInputFunctionType =
   | AxFunction[]
   | {
-      toFunction: () => AxFunction
+      toFunction: () => AxFunction | AxFunction[]
     }[]
 
 export const parseFunctions = (
@@ -153,24 +153,28 @@ export const parseFunctions = (
     return [...(existingFuncs ?? [])]
   }
 
-  const functions = newFuncs.map((f) => {
-    if ('toFunction' in f) {
-      return f.toFunction()
-    }
-    return f
-  })
+  // biome-ignore lint/complexity/useFlatMap: cannot use flatMap here
+  const functions = newFuncs
+    .map((f) => {
+      if ('toFunction' in f) {
+        return f.toFunction()
+      }
+      return f
+    })
+    .flat()
 
   for (const fn of functions.filter((v) => v.parameters)) {
-    validateJSONSchema(fn.parameters!)
+    if (fn.parameters) {
+      validateJSONSchema(fn.parameters)
+    }
   }
 
   return [...(existingFuncs ?? []), ...functions]
 }
 
-type FunctionPromise = Promise<void | Extract<
-  AxChatRequest['chatPrompt'][number],
-  { role: 'function' }
->>
+type FunctionPromise =
+  | undefined
+  | Promise<Extract<AxChatRequest['chatPrompt'][number], { role: 'function' }>>
 
 export const processFunctions = async (
   ai: Readonly<AxAIService>,
@@ -222,7 +226,7 @@ export const processFunctions = async (
         } else {
           throw e
         }
-      })
+      }) as FunctionPromise
 
     return promise
   })
@@ -230,11 +234,11 @@ export const processFunctions = async (
   // Wait for all promises to resolve
   const results = await Promise.all(promises)
 
-  results.forEach((result) => {
+  for (const result of results) {
     if (result) {
       mem.add(result, sessionId)
     }
-  })
+  }
 
   return functionsExecuted
 }

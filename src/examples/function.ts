@@ -2,7 +2,6 @@ import {
   AxAgent,
   AxAI,
   AxAIAnthropicModel,
-  AxAIGoogleGeminiModel,
   type AxFunction,
   AxFunctionError,
   AxSignature,
