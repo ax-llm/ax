@@ -63,7 +63,7 @@ const batchArray = <T>(arr: readonly T[], size: number): T[][] => {
   return chunkedArr
 }
 
-export const axStringUtil = {
+export const AxStringUtil = {
   trimNonAlphaNum,
   splitIntoTwo,
   dedup,

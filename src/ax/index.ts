@@ -9,6 +9,7 @@ import {
 } from './ai/wrap.js';
 import {
   AxAIAnthropic,
+  axAIAnthropicDefaultConfig,
   type AxAIAnthropicArgs
 } from './ai/anthropic/api.js';
 import {
@@ -31,11 +32,17 @@ import {
 } from './ai/anthropic/types.js';
 import {
   AxAIAzureOpenAI,
+  axAIAzureOpenAIBestConfig,
+  axAIAzureOpenAICreativeConfig,
+  axAIAzureOpenAIDefaultConfig,
+  axAIAzureOpenAIFastConfig,
   type AxAIAzureOpenAIArgs,
   type AxAIAzureOpenAIConfig
 } from './ai/azure-openai/api.js';
 import {
   AxAICohere,
+  axAICohereCreativeConfig,
+  axAICohereDefaultConfig,
   type AxAICohereArgs
 } from './ai/cohere/api.js';
 import {
@@ -52,10 +59,14 @@ import {
 } from './ai/cohere/types.js';
 import {
   AxAIDeepSeek,
+  axAIDeepSeekCodeConfig,
+  axAIDeepSeekDefaultConfig,
   type AxAIDeepSeekArgs
 } from './ai/deepseek/api.js';
 import {
   AxAIGoogleGemini,
+  axAIGoogleGeminiDefaultConfig,
+  axAIGoogleGeminiDefaultCreativeConfig,
   type AxAIGoogleGeminiArgs,
   type AxAIGoogleGeminiOptionsTools
 } from './ai/google-gemini/api.js';
@@ -86,6 +97,8 @@ import {
 } from './ai/groq/api.js';
 import {
   AxAIHuggingFace,
+  axAIHuggingFaceCreativeConfig,
+  axAIHuggingFaceDefaultConfig,
   type AxAIHuggingFaceArgs
 } from './ai/huggingface/api.js';
 import {
@@ -96,6 +109,8 @@ import {
 } from './ai/huggingface/types.js';
 import {
   AxAIMistral,
+  axAIMistralBestConfig,
+  axAIMistralDefaultConfig,
   type AxAIMistralArgs
 } from './ai/mistral/api.js';
 import {
@@ -104,12 +119,18 @@ import {
 } from './ai/mistral/types.js';
 import {
   AxAIOllama,
+  axAIOllamaDefaultConfig,
+  axAIOllamaDefaultCreativeConfig,
   type AxAIOllamaAIConfig,
   type AxAIOllamaArgs
 } from './ai/ollama/api.js';
 import {
   AxAIOpenAI,
   AxAIOpenAIBase,
+  axAIOpenAIBestConfig,
+  axAIOpenAICreativeConfig,
+  axAIOpenAIDefaultConfig,
+  axAIOpenAIFastConfig,
   type AxAIOpenAIArgs,
   type AxAIOpenAIBaseArgs
 } from './ai/openai/api.js';
@@ -128,6 +149,10 @@ import {
 } from './ai/openai/types.js';
 import {
   AxAIReka,
+  axAIRekaBestConfig,
+  axAIRekaCreativeConfig,
+  axAIRekaDefaultConfig,
+  axAIRekaFastConfig,
   type AxAIRekaArgs
 } from './ai/reka/api.js';
 import {
@@ -151,6 +176,7 @@ import {
 } from './util/apicall.js';
 import {
   AxAITogether,
+  axAITogetherDefaultConfig,
   type AxAITogetherArgs
 } from './ai/together/api.js';
 import {
@@ -175,6 +201,8 @@ import {
 } from './ai/balance.js';
 import {
   AxBaseAI,
+  axBaseAIDefaultConfig,
+  axBaseAIDefaultCreativeConfig,
   type AxAIFeatures,
   type AxBaseAIArgs
 } from './ai/base.js';
@@ -252,7 +280,9 @@ import {
 } from './funcs/code.js';
 import {
   AxLLMRequestTypeValues,
-  AxSpanKindValues
+  AxSpanKindValues,
+  axSpanAttributes,
+  axSpanEvents
 } from './trace/trace.js';
 import {
   AxMockAIService,
@@ -342,6 +372,7 @@ import {AxChainOfThought} from './prompts/cot.js';
 import {AxDefaultQueryRewriter} from './docs/rewriter.js';
 import {AxDefaultResultReranker} from './docs/reranker.js';
 import {AxEmbeddingAdapter} from './funcs/embed.js';
+import {AxEvalUtil} from './dsp/eval.js';
 import {AxInstanceRegistry} from './dsp/registry.js';
 import {AxMCPClient} from './mcp/client.js';
 import {AxMCPHTTPTransport} from './mcp/httpTransport.js';
@@ -349,6 +380,17 @@ import {AxMCPStdioTransport} from './mcp/stdioTransport.js';
 import {AxMemory} from './mem/memory.js';
 import {AxMultiServiceRouter} from './ai/multiservice.js';
 import {AxRAG} from './prompts/rag.js';
+import {AxStringUtil} from './dsp/strutil.js';
+import {axModelInfoAnthropic} from './ai/anthropic/info.js';
+import {axModelInfoCohere} from './ai/cohere/info.js';
+import {axModelInfoDeepSeek} from './ai/deepseek/info.js';
+import {axModelInfoGoogleGemini} from './ai/google-gemini/info.js';
+import {axModelInfoGroq} from './ai/groq/info.js';
+import {axModelInfoHuggingFace} from './ai/huggingface/info.js';
+import {axModelInfoMistral} from './ai/mistral/info.js';
+import {axModelInfoOpenAI} from './ai/openai/info.js';
+import {axModelInfoReka} from './ai/reka/info.js';
+import {axModelInfoTogether} from './ai/together/info.js';
 import {type AxAIMemory} from './mem/types.js';
 import {type AxMCPTransport} from './mcp/transport.js';
 
@@ -408,6 +450,7 @@ export { AxDefaultQueryRewriter };
 export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
+export { AxEvalUtil };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGen };
@@ -431,7 +474,48 @@ export { AxSignature };
 export { AxSimpleClassifier };
 export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
+export { AxStringUtil };
 export { AxTestPrompt };
+export { axAIAnthropicDefaultConfig };
+export { axAIAzureOpenAIBestConfig };
+export { axAIAzureOpenAICreativeConfig };
+export { axAIAzureOpenAIDefaultConfig };
+export { axAIAzureOpenAIFastConfig };
+export { axAICohereCreativeConfig };
+export { axAICohereDefaultConfig };
+export { axAIDeepSeekCodeConfig };
+export { axAIDeepSeekDefaultConfig };
+export { axAIGoogleGeminiDefaultConfig };
+export { axAIGoogleGeminiDefaultCreativeConfig };
+export { axAIHuggingFaceCreativeConfig };
+export { axAIHuggingFaceDefaultConfig };
+export { axAIMistralBestConfig };
+export { axAIMistralDefaultConfig };
+export { axAIOllamaDefaultConfig };
+export { axAIOllamaDefaultCreativeConfig };
+export { axAIOpenAIBestConfig };
+export { axAIOpenAICreativeConfig };
+export { axAIOpenAIDefaultConfig };
+export { axAIOpenAIFastConfig };
+export { axAIRekaBestConfig };
+export { axAIRekaCreativeConfig };
+export { axAIRekaDefaultConfig };
+export { axAIRekaFastConfig };
+export { axAITogetherDefaultConfig };
+export { axBaseAIDefaultConfig };
+export { axBaseAIDefaultCreativeConfig };
+export { axModelInfoAnthropic };
+export { axModelInfoCohere };
+export { axModelInfoDeepSeek };
+export { axModelInfoGoogleGemini };
+export { axModelInfoGroq };
+export { axModelInfoHuggingFace };
+export { axModelInfoMistral };
+export { axModelInfoOpenAI };
+export { axModelInfoReka };
+export { axModelInfoTogether };
+export { axSpanAttributes };
+export { axSpanEvents };
 
 // Type exports
 export type { AxAIAnthropicArgs };

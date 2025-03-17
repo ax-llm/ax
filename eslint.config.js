@@ -86,6 +86,11 @@ export default [
                     leadingUnderscore: 'allow',
                 },
                 {
+                    selector: ['variable'],
+                    modifiers: ['exported'],
+                    format: ['PascalCase','camelCase'],
+                },
+                {
                     selector: 'class',
                     format: ['PascalCase'],
                 },
@@ -119,7 +124,7 @@ export default [
                     selector: ['variable', 'function'],
                     modifiers: ['exported'],
                     format: ['PascalCase'],
-                    prefix: ['ax']
+                    prefix: ['Ax']
                 },
                 {
                     selector: ['class', 'interface', 'typeAlias', 'enum', 'typeParameter'],

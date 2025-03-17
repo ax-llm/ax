@@ -140,7 +140,7 @@ function novelF1ScoreOptimized(
   return returnRecall ? recall : f1
 }
 
-export const axEvalUtil = {
+export const AxEvalUtil = {
   emScore,
   f1Score,
   novelF1ScoreOptimized,

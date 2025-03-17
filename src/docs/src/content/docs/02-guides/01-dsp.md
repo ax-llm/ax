@@ -112,7 +112,7 @@ const optimize = new AxBootstrapFewShot<
 ```typescript
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
 const metricFn: AxMetricFn = ({ prediction, example }) => {
-  return axEvalUtil.emScore(
+  return AxEvalUtil.emScore(
     prediction.answer as string,
     example.answer as string
   );

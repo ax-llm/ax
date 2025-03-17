@@ -1,5 +1,5 @@
 import { type AxProgramForwardOptions } from '../dsp/program.js'
-import { axStringUtil } from '../dsp/strutil.js'
+import { AxStringUtil } from '../dsp/strutil.js'
 import {
   type AxAIService,
   AxGen,
@@ -58,7 +58,7 @@ export class AxRAG extends AxChainOfThought<
         options
       )
       const val = await this.queryFn(query)
-      context = axStringUtil.dedup([...context, val])
+      context = AxStringUtil.dedup([...context, val])
     }
 
     return super.forward(ai, { context, question }, options)

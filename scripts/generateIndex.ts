@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
-import * as fs from 'fs'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 import * as ts from 'typescript'
 
@@ -32,7 +32,7 @@ function processExportDeclaration(node: ts.ExportDeclaration): ExportInfo[] {
   const exportsMap = new Map<string, ExportInfo>()
 
   if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-    node.exportClause.elements.forEach((element) => {
+    for (const element of node.exportClause.elements) {
       const originalName = element.name.text
       if (hasValidPrefix(originalName)) {
         // Only add if not already present
@@ -45,7 +45,7 @@ function processExportDeclaration(node: ts.ExportDeclaration): ExportInfo[] {
           })
         }
       }
-    })
+    }
   }
 
   return Array.from(exportsMap.values())
@@ -105,6 +105,34 @@ function processDeclaration(
 }
 
 /**
+ * Processes a variable statement node to extract exported variables with valid prefixes
+ */
+function processVariableStatement(node: ts.VariableStatement): ExportInfo[] {
+  const exports: ExportInfo[] = []
+  // Check if the variable statement has an export modifier
+  if (
+    !node.modifiers ||
+    !node.modifiers.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+  ) {
+    return exports
+  }
+
+  for (const declaration of node.declarationList.declarations) {
+    if (ts.isIdentifier(declaration.name)) {
+      const originalName = declaration.name.text
+      if (hasValidPrefix(originalName)) {
+        exports.push({
+          originalName,
+          prefixedName: originalName,
+          kind: 'value',
+        })
+      }
+    }
+  }
+  return exports
+}
+
+/**
  * Processes a TypeScript source file to extract all exports with valid prefixes
  */
 function processFile(
@@ -126,6 +154,8 @@ function processFile(
       exports.push(...processExportDeclaration(node))
     } else if (ts.isExportAssignment(node)) {
       exports.push(...processExportAssignment(node))
+    } else if (ts.isVariableStatement(node)) {
+      exports.push(...processVariableStatement(node))
     } else if (
       ts.isClassDeclaration(node) ||
       ts.isInterfaceDeclaration(node) ||
@@ -169,7 +199,8 @@ function findTsFiles(dir: string): string[] {
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
       return findTsFiles(fullPath)
-    } else if (isTargetTsFile(entry.name)) {
+    }
+    if (isTargetTsFile(entry.name)) {
       return [fullPath]
     }
     return []
@@ -245,8 +276,8 @@ function generateExportStatements(exportMap: Map<string, ExportInfo[]>): {
   const valueExports: string[] = []
   const typeExports: string[] = []
 
-  exportMap.forEach((exports) => {
-    exports.forEach((exp) => {
+  for (const [, exports] of exportMap) {
+    for (const exp of exports) {
       if (exp.kind === 'type') {
         typeExports.push(`export type { ${exp.originalName} };`)
       } else {
@@ -255,8 +286,8 @@ function generateExportStatements(exportMap: Map<string, ExportInfo[]>): {
           : `export { ${exp.originalName} };`
         valueExports.push(exportLine)
       }
-    })
-  })
+    }
+  }
 
   return {
     valueExports: valueExports.sort(),
@@ -276,19 +307,17 @@ function generateIndexContent(exportMap: Map<string, ExportInfo[]>): string {
     .map(([filePath, exports]) => generateImportStatement(filePath, exports))
     .filter(Boolean)
     .sort()
-  content += imports.join('\n') + '\n\n'
+  content = `${content}${imports.join('\n')}\n\n`
 
   // Generate exports
   const { valueExports, typeExports } = generateExportStatements(exportMap)
 
   if (valueExports.length > 0) {
-    content += '// Value exports\n'
-    content += valueExports.join('\n') + '\n\n'
+    content = `${content}// Value exports\n${valueExports.join('\n')}\n\n`
   }
 
   if (typeExports.length > 0) {
-    content += '// Type exports\n'
-    content += typeExports.join('\n') + '\n'
+    content = `${content}// Type exports\n${typeExports.join('\n')}\n`
   }
 
   return content
@@ -303,7 +332,9 @@ function generateIndex(): void {
 
   // Find and process all TypeScript files
   const tsFiles = findTsFiles(currentDir)
-  tsFiles.forEach((file) => processFile(file, currentDir, exportMap))
+  for (const file of tsFiles) {
+    processFile(file, currentDir, exportMap)
+  }
 
   if (exportMap.size === 0) {
     console.log('No ax/Ax exports found')

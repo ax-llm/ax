@@ -1,7 +1,7 @@
 import type { AxAIService } from '../ai/types.js'
 import { AxGen, type AxGenOptions } from '../dsp/generate.js'
 import type { AxProgramForwardOptions } from '../dsp/program.js'
-import { axStringUtil } from '../dsp/strutil.js'
+import { AxStringUtil } from '../dsp/strutil.js'
 
 import type { AxRerankerIn, AxRerankerOut } from './manager.js'
 
@@ -24,7 +24,7 @@ export class AxDefaultResultReranker extends AxGen<
     const { rankedItems } = await super.forward(ai, input, options)
 
     const sortedIndexes: number[] = rankedItems.map((item) => {
-      const { id: index } = axStringUtil.extractIdAndText(item)
+      const { id: index } = AxStringUtil.extractIdAndText(item)
       return index
     })
 
