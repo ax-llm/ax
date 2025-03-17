@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.26](https://github.com/ax-llm/ax/compare/11.0.24...11.0.25) (2025-03-17)
+
+### Bug Fixes
+
+* mcp init issue ([00a732c](https://github.com/ax-llm/ax/commit/00a732c4a765e6cca7e27ade3658c93c83315c6a))
+## [11.0.25](https://github.com/ax-llm/ax/compare/11.0.24...11.0.25) (2025-03-17)
+
+### Bug Fixes
+
+* build issues ([69871d7](https://github.com/ax-llm/ax/commit/69871d745a7d1988907368de7df02a8a72fc98d1))
+
 ## [11.0.25](https://github.com/ax-llm/ax/compare/11.0.23...11.0.24) (2025-03-17)
 
 ### Bug Fixes
