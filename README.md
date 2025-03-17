@@ -669,7 +669,9 @@ OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 | docker.ts           | Use the docker sandbox to find files by description     |
 | prime.ts            | Using field processors to process fields in a prompt    |
 | simple-classify.ts  | Use a simple classifier to classify stuff               |
-| mcp-client.ts       | Example of using an MCP server with Ax |
+| mcp-client-memory.ts       | Example of using an MCP server for memory with Ax |
+| mcp-client-blender.ts       | Example of using an MCP server for Blender with Ax |
+
 
 ## Our Goal
 
