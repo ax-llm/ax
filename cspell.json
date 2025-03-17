@@ -8,9 +8,12 @@
   ],
   "dictionaries": ["project-words"],
   "ignorePaths": [
+    "CHANGELOG.md",
     "node_modules",
-    "./src/docs/src/content/docs/03-apidocs",
     "./src/ax/dsp/stopwords.ts",
-    "./src/examples/*.ts"
+    "./src/examples",
+    "./scripts",
+    "./build",
+    "./dist"
   ]
 }

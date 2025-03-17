@@ -21,6 +21,9 @@ const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
 })
+ai.setOptions({
+  debug: true,
+})
 
 // Execute the task
 const res = await prompt.forward(ai, {

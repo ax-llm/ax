@@ -95,3 +95,4 @@ weaviate
 Weaviate
 xlarge
 xstate
+modelcontextprotocol
