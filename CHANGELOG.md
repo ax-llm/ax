@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.27](https://github.com/ax-llm/ax/compare/11.0.25...11.0.26) (2025-03-17)
+
+### Bug Fixes
+
+* missing exported functions and variables ([e0bc6c9](https://github.com/ax-llm/ax/commit/e0bc6c92ec73371804b6923c3778575efff35d16))
+## [11.0.26](https://github.com/ax-llm/ax/compare/11.0.25...11.0.26) (2025-03-17)
+
+### Bug Fixes
+
+* mcp init issue ([00a732c](https://github.com/ax-llm/ax/commit/00a732c4a765e6cca7e27ade3658c93c83315c6a))
+
 ## [11.0.26](https://github.com/ax-llm/ax/compare/11.0.24...11.0.25) (2025-03-17)
 
 ### Bug Fixes
