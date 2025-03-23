@@ -251,10 +251,10 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   let timeoutId: NodeJS.Timeout
 
   const baseUrl = new URL(process.env['PROXY'] ?? api.url)
-  const apiPath = [baseUrl.pathname, api.name]
+  const apiPath = `${[baseUrl.pathname, api.name]
     .filter(Boolean)
     .join('/')
-    .replace(/\/+/g, '/')
+    .replace(/\/+/g, '/')}${baseUrl.search}`
   const apiUrl = new URL(apiPath, baseUrl)
 
   const requestId = crypto.randomUUID()
