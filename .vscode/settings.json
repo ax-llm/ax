@@ -6,5 +6,6 @@
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "typescript.format.enable": true,
   "typescript.tsserver.watchOptions": {},
-  "js/ts.implicitProjectConfig.target": "ESNext"
+  "js/ts.implicitProjectConfig.target": "ESNext",
+  "biome.enabled": false
 }

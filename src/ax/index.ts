@@ -211,6 +211,7 @@ import {
   type AxExample,
   type AxMetricFn,
   type AxMetricFnArgs,
+  type AxOptimizationStats,
   type AxOptimizerArgs
 } from './dsp/optimize.js';
 import {
@@ -284,6 +285,10 @@ import {
   axSpanAttributes,
   axSpanEvents
 } from './trace/trace.js';
+import {
+  AxMiPRO,
+  type AxMiPROOptions
+} from './dsp/mipro.js';
 import {
   AxMockAIService,
   type AxMockAIServiceConfig
@@ -463,6 +468,7 @@ export { AxMCPClient };
 export { AxMCPHTTPTransport };
 export { AxMCPStdioTransport };
 export { AxMemory };
+export { AxMiPRO };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
 export { AxProgram };
@@ -663,10 +669,12 @@ export type { AxInternalEmbedRequest };
 export type { AxMCPTransport };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
+export type { AxMiPROOptions };
 export type { AxMockAIServiceConfig };
 export type { AxModelConfig };
 export type { AxModelInfo };
 export type { AxModelInfoWithProvider };
+export type { AxOptimizationStats };
 export type { AxOptimizerArgs };
 export type { AxProgramDemos };
 export type { AxProgramExamples };

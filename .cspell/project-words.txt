@@ -7,6 +7,7 @@ APIURL
 asig
 astro
 astrojs
+bootstrapper
 Buena
 chrono
 chunker
@@ -24,6 +25,7 @@ dedup
 deepseek
 distractor
 dosco
+fewshot
 fres
 frontmatter
 fstate
@@ -43,8 +45,11 @@ logprobs
 Logprobs
 Macbook
 MCPHTTP
+minibatch
 minilm
+mipro
 Mixtral
+modelcontextprotocol
 modelinfo
 multiservice
 nanos
@@ -82,12 +87,14 @@ Sukiyabashi
 superintelligence
 textembedding
 tika
+trainset
 tsimp
 tsup
 upsert
 upserted
 usecase
 uuidv
+valset
 vectordb
 vectorize
 Vikram
@@ -95,4 +102,5 @@ weaviate
 Weaviate
 xlarge
 xstate
-modelcontextprotocol
+minibatching
+minibatches

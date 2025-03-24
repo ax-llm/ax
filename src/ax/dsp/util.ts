@@ -1,5 +1,6 @@
 import { ColorLog } from '../util/log.js'
 
+import type { AxExample, AxOptimizationStats } from './optimize.js'
 import type { AxFieldValue, AxGenOut, AxProgramUsage } from './program.js'
 import type { AxField } from './sig.js'
 
@@ -69,7 +70,7 @@ export const validateValue = (
   }
 
   if (field.type?.name === 'image') {
-    let msg
+    let msg: string | undefined
     if (Array.isArray(value)) {
       for (const item of value) {
         if (!validImage(item)) {
@@ -97,7 +98,7 @@ export const validateValue = (
   }
 
   if (field.type?.name === 'audio') {
-    let msg
+    let msg: string | undefined
     if (Array.isArray(value)) {
       for (const item of value) {
         if (!validAudio(item)) {
@@ -146,18 +147,21 @@ export function mergeProgramUsage(
 ): AxProgramUsage[] {
   const usageMap: { [key: string]: AxProgramUsage } = {}
 
-  usages.forEach((usage) => {
+  for (const usage of usages) {
     const key = `${usage.ai}:${usage.model}`
 
     if (!usageMap[key]) {
       usageMap[key] = { ...usage }
-      return
+      continue
     }
 
-    usageMap[key]!.promptTokens += usage.promptTokens
-    usageMap[key]!.completionTokens += usage.completionTokens
-    usageMap[key]!.totalTokens += usage.totalTokens
-  })
+    const currentUsage = usageMap[key]
+    if (currentUsage) {
+      currentUsage.promptTokens += usage.promptTokens
+      currentUsage.completionTokens += usage.completionTokens
+      currentUsage.totalTokens += usage.totalTokens
+    }
+  }
 
   return Object.values(usageMap)
 }
@@ -193,9 +197,9 @@ export const parseMarkdownList = (input: string): string[] => {
     else if (numberedListRegex.test(trimmedLine)) {
       list.push(trimmedLine.replace(numberedListRegex, '').trim())
     }
-    // If it's not a list item and we haven't collected any items yet, skip it
+    // If it's not a list item and we haven't collected any items yet, do nothing
     else if (list.length === 0) {
-      continue
+      // Skip non-list lines at the beginning
     }
     // If we've already started collecting list items, then this non-list line
     //is an error
@@ -279,7 +283,7 @@ const globalPrefixCache = new LRUCache<string, string[]>(500)
  * the content grows at the end and we want to detect partial prefixes as they form.
  * @param content The string to check (potentially streaming)
  * @param prefix The prefix to look for
- * @param startIndex Optional starting index for the search (default: 0)
+ * @param startIndex Optional starting index for the search
  * @returns
  *   - index >= 0: Position of full match
  *   - -1: No match found
@@ -289,7 +293,7 @@ const globalPrefixCache = new LRUCache<string, string[]>(500)
 export function matchesContent(
   content: string,
   prefix: string,
-  startIndex: number = 0,
+  startIndex = 0,
   prefixCache: LRUCache<string, string[]> = globalPrefixCache
 ): number {
   // Check if string starts with a markdown block with optional language
@@ -326,11 +330,119 @@ export function matchesContent(
   // Check for partial matches at the end, starting from shortest to longest
   // Skip the full prefix as it was already checked
   for (let i = 0; i < prefixes.length - 1; i++) {
-    const partialPrefix = prefixes[i]!
-    if (contentEnd.endsWith(partialPrefix)) {
+    const partialPrefix = prefixes[i]
+    if (partialPrefix && contentEnd.endsWith(partialPrefix)) {
       return -2
     }
   }
 
   return -1
+}
+
+export const formatTime = (ms: number): string => {
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`
+
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`
+}
+
+export const calculateETA = (
+  current: number,
+  total: number,
+  elapsedMs: number
+): string => {
+  if (current === 0) return 'calculating...'
+
+  const msPerItem = elapsedMs / current
+  const remainingItems = total - current
+  const etaMs = msPerItem * remainingItems
+
+  return formatTime(etaMs)
+}
+
+interface ProgressConfigInfo {
+  maxRounds: number
+  batchSize: number
+  earlyStoppingPatience: number
+  costMonitoring: boolean
+  verboseMode: boolean
+  debugMode: boolean
+}
+
+export const updateDetailedProgress = <T extends AxGenOut = AxGenOut>(
+  roundIndex: number,
+  current: number,
+  total: number,
+  elapsedTime: number,
+  example: Readonly<AxExample>,
+  stats: Readonly<AxOptimizationStats>,
+  configInfo: Readonly<ProgressConfigInfo>,
+  result?: T,
+  error?: Error
+): void => {
+  // Clear line and create a formatted output
+  process.stdout.write('\r\x1b[K')
+
+  const percentage = ((current / total) * 100).toFixed(1)
+  const formattedTime = formatTime(elapsedTime)
+  const itemsPerSecond =
+    elapsedTime > 0 ? ((current / elapsedTime) * 1000).toFixed(2) : '0.00'
+  const eta = calculateETA(current, total, elapsedTime)
+
+  // Basic progress info (always shown)
+  let output = `Round ${roundIndex + 1}/${configInfo.maxRounds}: ${current}/${total} (${percentage}%) [${formattedTime}, ${itemsPerSecond} it/s, ETA: ${eta}]`
+
+  // Add success stats
+  const successRate =
+    stats.totalCalls > 0 ? (stats.successfulDemos / stats.totalCalls) * 100 : 0
+  output += ` | Success: ${stats.successfulDemos}/${stats.totalCalls} (${successRate.toFixed(1)}%)`
+
+  // Additional info for verbose mode
+  if (configInfo.verboseMode || configInfo.debugMode) {
+    if (configInfo.costMonitoring) {
+      output += `\n  Tokens: ~${stats.estimatedTokenUsage.toLocaleString()} total`
+    }
+
+    output += `\n  Batch: ${Math.floor(current / configInfo.batchSize) + 1}/${Math.ceil(total / configInfo.batchSize)}`
+
+    if (configInfo.earlyStoppingPatience > 0 && stats.earlyStopping) {
+      output += `\n  Best round: ${stats.earlyStopping.bestScoreRound + 1}, Patience: ${configInfo.earlyStoppingPatience}`
+    }
+  }
+
+  // Debug mode gets even more info
+  if (configInfo.debugMode) {
+    // Truncate example keys for display
+    const exampleKeys = Object.keys(example)
+      .map((k) => {
+        const valueStr = JSON.stringify(example[k])
+        const truncated =
+          valueStr.length > 30 ? `${valueStr.substring(0, 30)}...` : valueStr
+        return `${k}: ${truncated}`
+      })
+      .join(', ')
+
+    output += `\n  Example: {${exampleKeys}}`
+
+    if (error) {
+      output += `\n  ERROR: ${error.message}`
+    } else if (result) {
+      // Truncate result for display
+      const resultStr = JSON.stringify(result)
+      const truncatedResult =
+        resultStr.length > 50 ? `${resultStr.substring(0, 50)}...` : resultStr
+      output += `\n  Result: ${truncatedResult}`
+    }
+
+    // Add temperature info
+    output += `\n  Temperature: ${(0.7 + 0.001 * current).toFixed(3)}`
+  }
+
+  console.log(output)
 }

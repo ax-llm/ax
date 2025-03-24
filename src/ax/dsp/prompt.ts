@@ -103,7 +103,7 @@ export class AxPromptTemplate {
   ): AxChatRequest['chatPrompt'] => {
     const renderedExamples = examples
       ? [
-          { type: 'text' as const, text: '## Examples:\n' },
+          { type: 'text' as const, text: '\n\n## Examples\n' },
           ...this.renderExamples(examples),
         ]
       : []
@@ -232,6 +232,14 @@ export class AxPromptTemplate {
       }
 
       const renderedItem = [...renderedInputItem, ...renderedOutputItem]
+
+      if (
+        index > 0 &&
+        renderedItem.length > 0 &&
+        renderedItem[0]?.type === 'text'
+      ) {
+        list.push({ type: 'text' as const, text: '---\n\n' })
+      }
 
       renderedItem.forEach((v) => {
         if ('text' in v) {
@@ -491,10 +499,7 @@ const processValue = (
   if (typeof value === 'string') {
     return value
   }
-  if (Array.isArray(value)) {
-    return value
-  }
-  return JSON.stringify(value)
+  return JSON.stringify(value, null, 2)
 }
 
 // const toVar = (name: string, type?: Readonly<Field['type']>) => {

@@ -10,22 +10,27 @@ const noteText = `The technological singularityâ€”or simply the singularity[1]â€
 // const ai = new AxAI({ name: 'ollama', model: 'nous-hermes2' });
 
 const gen = new AxChainOfThought<{ noteText: string }>(
-  `noteText -> longSummary "provide a long summary in bullet points"`
+  `context?:json[], noteText -> longSummary "provide a long summary in bullet points"`
 )
-// gen.setExamples([
-//   {
-//     noteText:
-//       'Mathematical platonism is a philosophical view that posits the existence of abstract mathematical objects that are independent of human thought and language. According to this view, mathematical entities such as numbers, shapes, and functions exist in a non-physical realm and can be discovered but not invented.',
-//     shortSummary:
-//       'A philosophy that suggests mathematical objects exist independently of human thought in a non-physical realm.',
-//   },
-//   {
-//     noteText:
-//       'Quantum entanglement is a physical phenomenon occurring when pairs or groups of particles are generated, interact, or share spatial proximity in ways such that the quantum state of each particle cannot be described independently of the state of the others, even when the particles are separated by large distances. This leads to correlations between observable physical properties of the particles.',
-//     shortSummary:
-//       'A phenomenon where particles remain interconnected and the state of one affects the state of another, regardless of distance.',
-//   },
-// ])
+gen.setExamples([
+  {
+    context: [
+      {
+        test: 'test',
+      },
+    ],
+    noteText:
+      'Mathematical platonism is a philosophical view that posits the existence of abstract mathematical objects that are independent of human thought and language. According to this view, mathematical entities such as numbers, shapes, and functions exist in a non-physical realm and can be discovered but not invented.',
+    longSummary:
+      'A philosophy that suggests mathematical objects exist independently of human thought in a non-physical realm.',
+  },
+  {
+    noteText:
+      'Quantum entanglement is a physical phenomenon occurring when pairs or groups of particles are generated, interact, or share spatial proximity in ways such that the quantum state of each particle cannot be described independently of the state of the others, even when the particles are separated by large distances. This leads to correlations between observable physical properties of the particles.',
+    longSummary:
+      'A phenomenon where particles remain interconnected and the state of one affects the state of another, regardless of distance.',
+  },
+])
 
 gen.addAssert(({ reason }: Readonly<{ reason: string }>) => {
   if (!reason) return true
@@ -51,15 +56,15 @@ const ai = new AxAI({
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
 })
-// ai.setOptions({ debug: true })
+ai.setOptions({ debug: true })
 
-const generator = gen.streamingForward(ai, { noteText })
+// const generator = gen.streamingForward(ai, { noteText })
 
-console.log('## Streaming')
+// console.log('## Streaming')
 
-for await (const res of generator) {
-  console.log(res)
-}
+// for await (const res of generator) {
+//   console.log(res)
+// }
 
 console.log('\n\n## Not Streaming')
 
