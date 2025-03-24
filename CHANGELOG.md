@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.28](https://github.com/ax-llm/ax/compare/11.0.26...11.0.27) (2025-03-24)
+
+### Features
+
+* mipro v2 ([a7e3ddd](https://github.com/ax-llm/ax/commit/a7e3ddd1b0aa9aaf633f1f3d9cbbaebb871a9f9a))
+## [11.0.27](https://github.com/ax-llm/ax/compare/11.0.26...11.0.27) (2025-03-17)
+
+### Bug Fixes
+
+* missing exported functions and variables ([e0bc6c9](https://github.com/ax-llm/ax/commit/e0bc6c92ec73371804b6923c3778575efff35d16))
+
 ## [11.0.27](https://github.com/ax-llm/ax/compare/11.0.25...11.0.26) (2025-03-17)
 
 ### Bug Fixes
