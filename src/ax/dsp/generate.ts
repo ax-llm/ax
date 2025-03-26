@@ -351,6 +351,10 @@ export class AxGen<
           streamingValidation
         )
 
+        if (skip) {
+          continue
+        }
+
         if (this.streamingAsserts.length !== 0) {
           await assertStreamingAssertions(
             this.streamingAsserts,
@@ -371,10 +375,6 @@ export class AxGen<
         }
 
         yield* streamValues<OUT>(this.signature, content, values, xstate)
-
-        if (skip) {
-          continue
-        }
 
         await assertAssertions(this.asserts, values)
       }
