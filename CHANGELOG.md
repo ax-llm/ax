@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.30](https://github.com/ax-llm/ax/compare/11.0.28...11.0.29) (2025-03-28)
+
+### Bug Fixes
+
+* streaming parser overrun ([b7a6a15](https://github.com/ax-llm/ax/commit/b7a6a1536950b856fc3d5955f11a265fb8990cea))
+## [11.0.29](https://github.com/ax-llm/ax/compare/11.0.28...11.0.29) (2025-03-26)
+
+### Bug Fixes
+
+* Azure OpenAI chat/completion call failed [#180](https://github.com/ax-llm/ax/issues/180) ([#181](https://github.com/ax-llm/ax/issues/181)) ([d3c333a](https://github.com/ax-llm/ax/commit/d3c333a0c26e1212ae572403d1bfacea04c31e12))
+* streaming parser overflow ([9bad370](https://github.com/ax-llm/ax/commit/9bad370ee3938007164014018986eacb7e01452d))
+
 ## [11.0.29](https://github.com/ax-llm/ax/compare/11.0.27...11.0.28) (2025-03-26)
 
 ### Bug Fixes
