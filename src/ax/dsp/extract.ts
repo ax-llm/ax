@@ -16,7 +16,7 @@ export const extractValues = (
 }
 
 export interface extractionState {
-  prevField?: { field: AxField; s: number; e: number }
+  prevFields?: { field: AxField; s: number; e: number }[]
   currField?: AxField
   currFieldIndex?: number
   extractedFields: AxField[]
@@ -64,8 +64,9 @@ export const streamingExtractValues = (
       continue
     }
 
-    const prefix = field.title + ':'
-    let e = matchesContent(content, prefix, xstate.s + 1)
+    const isFirst = xstate.extractedFields.length === 0
+    const prefix = (isFirst ? '' : '\n') + field.title + ':'
+    let e = matchesContent(content, prefix, xstate.s === 0 ? 0 : xstate.s + 1)
 
     switch (e) {
       case -1:
@@ -95,7 +96,11 @@ export const streamingExtractValues = (
       if (parsedValue !== undefined) {
         values[xstate.currField.name] = parsedValue
       }
-      xstate.prevField = { field: xstate.currField, s: xstate.s, e }
+      if (xstate.prevFields) {
+        xstate.prevFields?.push({ field: xstate.currField, s: xstate.s, e })
+      } else {
+        xstate.prevFields = [{ field: xstate.currField, s: xstate.s, e }]
+      }
     }
 
     checkMissingRequiredFields(xstate, values, index)
@@ -136,7 +141,11 @@ export const streamingExtractFinalValue = (
   checkMissingRequiredFields(xstate, values, sigFields.length)
 }
 
-const convertValueToType = (field: Readonly<AxField>, val: string) => {
+const convertValueToType = (
+  field: Readonly<AxField>,
+  val: string,
+  required: boolean = false
+) => {
   switch (field.type?.name) {
     case 'code':
       return extractBlock(val)
@@ -147,6 +156,9 @@ const convertValueToType = (field: Readonly<AxField>, val: string) => {
     case 'number': {
       const v = Number(val)
       if (Number.isNaN(v)) {
+        if (field.isOptional && !required) {
+          return
+        }
         throw new Error('Invalid number')
       }
       return v
@@ -162,18 +174,24 @@ const convertValueToType = (field: Readonly<AxField>, val: string) => {
       } else if (v === 'false') {
         return false
       } else {
+        if (field.isOptional && !required) {
+          return
+        }
         throw new Error('Invalid boolean')
       }
     }
     case 'date':
-      return parseLLMFriendlyDate(field, val)
+      return parseLLMFriendlyDate(field, val, required)
 
     case 'datetime':
-      return parseLLMFriendlyDateTime(field, val)
+      return parseLLMFriendlyDateTime(field, val, required)
 
     case 'class':
       const className = val
       if (field.type.classes && !field.type.classes.includes(className)) {
+        if (field.isOptional) {
+          return
+        }
         throw new Error(
           `Invalid class '${val}', expected one of the following: ${field.type.classes.join(', ')}`
         )
@@ -249,11 +267,11 @@ export function* streamValues<OUT>(
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState
 ) {
-  if (xstate.prevField && !xstate.prevField.field.isInternal) {
-    const { field, s, e } = xstate.prevField
+  for (const prevField of xstate.prevFields ?? []) {
+    const { field, s, e } = prevField
     yield* yieldDelta<OUT>(content, field, s, e, xstate)
-    xstate.prevField = undefined
   }
+  xstate.prevFields = undefined
 
   if (!xstate.currField || xstate.currField.isInternal) {
     return
@@ -354,7 +372,7 @@ function validateAndParseFieldValue(
       for (const [index, item] of value.entries()) {
         if (item !== undefined) {
           const v = typeof item === 'string' ? item.trim() : item
-          value[index] = convertValueToType(field, v)
+          value[index] = convertValueToType(field, v, true)
         }
       }
     } else {

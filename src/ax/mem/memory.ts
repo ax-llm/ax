@@ -20,7 +20,10 @@ export class MemoryImpl {
 
   constructor(
     private limit = defaultLimit,
-    private debug = false
+    private options?: {
+      debug?: boolean
+      debugHideSystemPrompt?: boolean
+    }
   ) {
     if (limit <= 0) {
       throw Error("argument 'limit' must be greater than 0")
@@ -49,8 +52,8 @@ export class MemoryImpl {
   ): void {
     this.addMemory(value)
 
-    if (this.debug) {
-      debugRequest(value)
+    if (this.options?.debug) {
+      debugRequest(value, this.options?.debugHideSystemPrompt)
     }
   }
 
@@ -72,7 +75,7 @@ export class MemoryImpl {
   }: Readonly<AxChatResponseResult>): void {
     this.addResultMessage({ content, name, functionCalls })
 
-    if (this.debug) {
+    if (this.options?.debug) {
       debugResponse({ content, name, functionCalls })
     }
   }
@@ -99,7 +102,7 @@ export class MemoryImpl {
       }
     }
 
-    if (this.debug) {
+    if (this.options?.debug) {
       if (delta && typeof delta === 'string') {
         debugResponseDelta(delta)
       } else if (lastItem) {
@@ -180,9 +183,12 @@ export class AxMemory implements AxAIMemory {
 
   constructor(
     private limit = defaultLimit,
-    private debug = false
+    private options?: {
+      debug?: boolean
+      debugHideSystemPrompt?: boolean
+    }
   ) {
-    this.defaultMemory = new MemoryImpl(limit, debug)
+    this.defaultMemory = new MemoryImpl(limit, options)
   }
 
   private getMemory(sessionId?: string): MemoryImpl {
@@ -191,7 +197,7 @@ export class AxMemory implements AxAIMemory {
     }
 
     if (!this.memories.has(sessionId)) {
-      this.memories.set(sessionId, new MemoryImpl(this.limit))
+      this.memories.set(sessionId, new MemoryImpl(this.limit, this.options))
     }
 
     return this.memories.get(sessionId) as MemoryImpl
@@ -235,18 +241,19 @@ export class AxMemory implements AxAIMemory {
     if (!sessionId) {
       this.defaultMemory.reset()
     } else {
-      this.memories.set(sessionId, new MemoryImpl(this.limit))
+      this.memories.set(sessionId, new MemoryImpl(this.limit, this.options))
     }
   }
 }
 
 function debugRequest(
-  value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt']
+  value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt'],
+  hideSystemPrompt?: boolean
 ) {
   if (Array.isArray(value)) {
-    logChatRequest(value)
+    logChatRequest(value, hideSystemPrompt)
   } else {
-    logChatRequestMessage(value)
+    logChatRequestMessage(value, hideSystemPrompt)
   }
 }
 

@@ -11,12 +11,12 @@ const field: AxField = {
 describe('datetime parsing', () => {
   it('should parse datetime with timezone abbreviation', () => {
     const dt = parseLLMFriendlyDateTime(field, '2022-01-01 12:00 EST')
-    expect(dt.toUTCString()).toBe('Sat, 01 Jan 2022 17:00:00 GMT')
+    expect(dt?.toUTCString()).toBe('Sat, 01 Jan 2022 17:00:00 GMT')
   })
 
   it('should parse datetime with seconds and timezone abbreviation', () => {
     const dt = parseLLMFriendlyDateTime(field, '2022-01-01 12:00:10 EST')
-    expect(dt.toUTCString()).toBe('Sat, 01 Jan 2022 17:00:10 GMT')
+    expect(dt?.toUTCString()).toBe('Sat, 01 Jan 2022 17:00:10 GMT')
   })
 
   it('should parse datetime with full timezone', () => {
@@ -24,7 +24,7 @@ describe('datetime parsing', () => {
       field,
       '2022-01-01 12:00 America/New_York'
     )
-    expect(dt.toUTCString()).toBe('Sat, 01 Jan 2022 17:00:00 GMT')
+    expect(dt?.toUTCString()).toBe('Sat, 01 Jan 2022 17:00:00 GMT')
   })
 
   it('should parse datetime with another full timezone', () => {
@@ -32,13 +32,13 @@ describe('datetime parsing', () => {
       field,
       '2022-01-01 12:00 America/Los_Angeles'
     )
-    expect(dt.toUTCString()).toBe('Sat, 01 Jan 2022 20:00:00 GMT')
+    expect(dt?.toUTCString()).toBe('Sat, 01 Jan 2022 20:00:00 GMT')
   })
 
   it('should parse datetime across DST boundary', () => {
     const summerDt = parseLLMFriendlyDateTime(field, '2022-07-01 12:00 EST')
     const winterDt = parseLLMFriendlyDateTime(field, '2022-01-01 12:00 EST')
-    expect(summerDt.getUTCHours()).toBe(winterDt.getUTCHours())
+    expect(summerDt?.getUTCHours()).toBe(winterDt?.getUTCHours())
   })
 
   it('should throw error for invalid datetime value', () => {
@@ -55,22 +55,22 @@ describe('datetime parsing', () => {
 describe('date parsing', () => {
   it('should parse valid date', () => {
     const dt = parseLLMFriendlyDate(field, '2022-01-01')
-    expect(dt.toUTCString()).toBe('Sat, 01 Jan 2022 00:00:00 GMT')
+    expect(dt?.toUTCString()).toBe('Sat, 01 Jan 2022 00:00:00 GMT')
   })
 
   it('should parse date with leading zeros', () => {
     const dt = parseLLMFriendlyDate(field, '2022-02-05')
-    expect(dt.toUTCString()).toBe('Sat, 05 Feb 2022 00:00:00 GMT')
+    expect(dt?.toUTCString()).toBe('Sat, 05 Feb 2022 00:00:00 GMT')
   })
 
   it('should parse date at year boundary', () => {
     const dt = parseLLMFriendlyDate(field, '2022-12-31')
-    expect(dt.toUTCString()).toBe('Sat, 31 Dec 2022 00:00:00 GMT')
+    expect(dt?.toUTCString()).toBe('Sat, 31 Dec 2022 00:00:00 GMT')
   })
 
   it('should parse date in leap year', () => {
     const dt = parseLLMFriendlyDate(field, '2024-02-29')
-    expect(dt.toUTCString()).toBe('Thu, 29 Feb 2024 00:00:00 GMT')
+    expect(dt?.toUTCString()).toBe('Thu, 29 Feb 2024 00:00:00 GMT')
   })
 
   it('should throw error for invalid date value', () => {

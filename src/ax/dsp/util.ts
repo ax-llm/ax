@@ -308,6 +308,7 @@ export function matchesContent(
 
   // First check if the complete prefix exists anywhere after startIndex
   const exactMatchIndex = content.indexOf(prefix, startIndex)
+
   if (exactMatchIndex !== -1) {
     return exactMatchIndex
   }

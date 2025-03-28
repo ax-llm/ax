@@ -62,6 +62,7 @@ export type AxProgramForwardOptions = {
   stopFunction?: string
   fastFail?: boolean
   debug?: boolean
+  debugHideSystemPrompt?: boolean
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

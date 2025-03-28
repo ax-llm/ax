@@ -6,10 +6,14 @@ const colorLog = new ColorLog()
 
 const formatChatMessage = (
   msg: AxChatRequest['chatPrompt'][number],
-  hideContent?: boolean
+  hideContent?: boolean,
+  hideSystemPrompt?: boolean
 ) => {
   switch (msg.role) {
     case 'system':
+      if (hideSystemPrompt) {
+        return ''
+      }
       return `\n${colorLog.blueBright('System:')}\n${colorLog.whiteBright(msg.content)}`
     case 'function':
       return `\n${colorLog.blueBright('Function Result:')}\n${colorLog.whiteBright(msg.result)}`
@@ -48,16 +52,20 @@ const formatChatMessage = (
 }
 
 export const logChatRequestMessage = (
-  msg: AxChatRequest['chatPrompt'][number]
+  msg: AxChatRequest['chatPrompt'][number],
+  hideSystemPrompt?: boolean
 ) => {
-  process.stdout.write(`${formatChatMessage(msg)}\n`)
+  process.stdout.write(`${formatChatMessage(msg, hideSystemPrompt)}\n`)
   process.stdout.write(colorLog.blueBright('\nAssistant:\n'))
 }
 
 export const logChatRequest = (
-  chatPrompt: Readonly<AxChatRequest['chatPrompt']>
+  chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
+  hideSystemPrompt?: boolean
 ) => {
-  const items = chatPrompt?.map((msg) => formatChatMessage(msg))
+  const items = chatPrompt?.map((msg) =>
+    formatChatMessage(msg, hideSystemPrompt)
+  )
 
   if (items) {
     process.stdout.write(items.join('\n'))

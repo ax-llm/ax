@@ -456,7 +456,7 @@ export class AxBaseAI<
     }
 
     if (options?.debug ?? this.debug) {
-      logChatRequest(req.chatPrompt)
+      logChatRequest(req.chatPrompt, options?.debugHideSystemPrompt)
     }
 
     const rt = options?.rateLimiter ?? this.rt

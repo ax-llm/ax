@@ -517,7 +517,12 @@ export class AxGen<
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10
     const debug = options.debug ?? ai.getOptions().debug
-    const mem = options.mem ?? this.options?.mem ?? new AxMemory(10000, debug)
+    const memOptions = {
+      debug: options.debug,
+      debugHideSystemPrompt: options.debugHideSystemPrompt,
+    }
+    const mem =
+      options.mem ?? this.options?.mem ?? new AxMemory(10000, memOptions)
 
     let err: ValidationError | AxAssertionError | undefined
 

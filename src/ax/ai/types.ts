@@ -240,6 +240,7 @@ export type AxAIServiceActionOptions<
   traceId?: string
   rateLimiter?: AxRateLimiterFunction
   debug?: boolean
+  debugHideSystemPrompt?: boolean
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {

@@ -5,11 +5,15 @@ import { ValidationError } from './validate.js'
 
 export function parseLLMFriendlyDate(
   field: Readonly<AxField>,
-  dateStr: string
+  dateStr: string,
+  required: boolean = false
 ) {
   try {
     return _parseLLMFriendlyDate(dateStr)
   } catch (err) {
+    if (field.isOptional && !required) {
+      return
+    }
     const message = (err as Error).message
     throw new ValidationError({ fields: [field], message, value: dateStr })
   }
@@ -31,11 +35,15 @@ function _parseLLMFriendlyDate(dateStr: string) {
 
 export function parseLLMFriendlyDateTime(
   field: Readonly<AxField>,
-  dateStr: string
+  dateStr: string,
+  required: boolean = false
 ) {
   try {
     return _parseLLMFriendlyDateTime(dateStr)
   } catch (err) {
+    if (field.isOptional && !required) {
+      return
+    }
     const message = (err as Error).message
     throw new ValidationError({ fields: [field], message, value: dateStr })
   }
