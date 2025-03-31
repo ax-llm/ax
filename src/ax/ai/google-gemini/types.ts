@@ -1,6 +1,7 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIGoogleGeminiModel {
+  Gemini25Pro = 'gemini-2.5-pro-exp-03-25',
   Gemini20Pro = 'gemini-2.0-pro-exp-02-05',
   Gemini20Flash = 'gemini-2.0-flash',
   Gemini20FlashLite = 'gemini-2.0-flash-lite-preview-02-05',
@@ -10,12 +11,11 @@ export enum AxAIGoogleGeminiModel {
   Gemini15Flash002 = 'gemini-1.5-flash-002',
   Gemini15Flash8B = 'gemini-1.5-flash-8b',
   Gemini15Pro = 'gemini-1.5-pro',
-  Gemma2 = 'gemma-2-27b-it',
-  AQA = 'aqa',
 }
 
 export enum AxAIGoogleGeminiEmbedModel {
   GeminiEmbedding = 'gemini-embedding-exp-03-07',
+  TextEmbeddingLarge = 'text-embedding-large-exp-03-07',
   TextEmbedding004 = 'text-embedding-004',
   TextEmbedding005 = 'text-embedding-005',
 }
@@ -183,6 +183,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   safetySettings?: AxAIGoogleGeminiSafetySettings
   embedType?: AxAIGoogleGeminiEmbedTypes
   dimensions?: number
+  autoTruncate?: boolean
 }
 
 /**
@@ -212,7 +213,12 @@ export type AxAIGoogleGeminiBatchEmbedResponse = {
 export type AxAIGoogleVertexBatchEmbedRequest = {
   instances: {
     content: string
+    task_type?: AxAIGoogleGeminiEmbedTypes
   }[]
+  parameters: {
+    autoTruncate?: boolean
+    outputDimensionality?: number
+  }
 }
 
 /**

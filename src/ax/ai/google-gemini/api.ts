@@ -112,7 +112,11 @@ class AxAIGoogleGeminiImpl
     private endpointId?: string,
     private apiKey?: string,
     private options?: AxAIGoogleGeminiArgs['options']
-  ) {}
+  ) {
+    if (!this.isVertex && this.config.autoTruncate) {
+      throw new Error('Auto truncate is not supported for GoogleGemini')
+    }
+  }
 
   getModelConfig(): AxModelConfig {
     const { config } = this
@@ -380,7 +384,12 @@ class AxAIGoogleGeminiImpl
       reqValue = {
         instances: req.texts.map((text) => ({
           content: text,
+          ...(this.config.embedType && { taskType: this.config.embedType }),
         })),
+        parameters: {
+          autoTruncate: this.config.autoTruncate,
+          outputDimensionality: this.config.dimensions,
+        },
       }
     } else {
       apiConfig = {
@@ -392,7 +401,7 @@ class AxAIGoogleGeminiImpl
           model: 'models/' + model,
           content: { parts: [{ text }] },
           outputDimensionality: this.config.dimensions,
-          taskType: this.config.embedType,
+          ...(this.config.embedType && { taskType: this.config.embedType }),
         })),
       }
     }
