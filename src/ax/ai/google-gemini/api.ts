@@ -391,6 +391,8 @@ class AxAIGoogleGeminiImpl
         requests: req.texts.map((text) => ({
           model: 'models/' + model,
           content: { parts: [{ text }] },
+          outputDimensionality: this.config.dimensions,
+          taskType: this.config.embedType,
         })),
       }
     }

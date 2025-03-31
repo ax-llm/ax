@@ -102,8 +102,7 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
 {
   constructor(
     private readonly config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>,
-    private streamingUsage: boolean,
-    private dimensions?: number
+    private streamingUsage: boolean
   ) {}
 
   getModelConfig(): AxModelConfig {
@@ -212,7 +211,7 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
     const reqValue = {
       model: model,
       input: req.texts,
-      dimensions: this.dimensions,
+      dimensions: this.config.dimensions,
     }
 
     return [apiConfig, reqValue]
@@ -449,8 +448,7 @@ export class AxAIOpenAIBase<TModel, TEmbedModel> extends AxBaseAI<
 
     const aiImpl = new AxAIOpenAIImpl<TModel, TEmbedModel>(
       config,
-      options?.streamingUsage ?? true,
-      config.dimensions
+      options?.streamingUsage ?? true
     )
 
     super(aiImpl, {

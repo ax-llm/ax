@@ -15,6 +15,7 @@ export enum AxAIGoogleGeminiModel {
 }
 
 export enum AxAIGoogleGeminiEmbedModel {
+  GeminiEmbedding = 'gemini-embedding-exp-03-07',
   TextEmbedding004 = 'text-embedding-004',
   TextEmbedding005 = 'text-embedding-005',
 }
@@ -32,6 +33,17 @@ export enum AxAIGoogleGeminiSafetyThreshold {
   BlockMediumAndAbove = 'BLOCK_MEDIUM_AND_ABOVE',
   BlockLowAndAbove = 'BLOCK_LOW_AND_ABOVE',
   BlockDefault = 'HARM_BLOCK_THRESHOLD_UNSPECIFIED',
+}
+
+export enum AxAIGoogleGeminiEmbedTypes {
+  SemanticSimilarity = 'SEMANTIC_SIMILARITY',
+  Classification = 'CLASSIFICATION',
+  Clustering = 'CLUSTERING',
+  RetrievalDocument = 'RETRIEVAL_DOCUMENT',
+  RetrievalQuery = 'RETRIEVAL_QUERY',
+  QuestionAnswering = 'QUESTION_ANSWERING',
+  FactVerification = 'FACT_VERIFICATION',
+  CodeRetrievalQuery = 'CODE_RETRIEVAL_QUERY',
 }
 
 export type AxAIGoogleGeminiContent =
@@ -169,6 +181,8 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   model: AxAIGoogleGeminiModel
   embedModel?: AxAIGoogleGeminiEmbedModel
   safetySettings?: AxAIGoogleGeminiSafetySettings
+  embedType?: AxAIGoogleGeminiEmbedTypes
+  dimensions?: number
 }
 
 /**
