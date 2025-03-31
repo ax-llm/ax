@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.32](https://github.com/ax-llm/ax/compare/11.0.30...11.0.31) (2025-03-31)
+
+### Bug Fixes
+
+* vertex embeddings api changes ([5e5fdaf](https://github.com/ax-llm/ax/commit/5e5fdaf6e6818df5659c7156194bb4fcb94508a3))
+## [11.0.31](https://github.com/ax-llm/ax/compare/11.0.30...11.0.31) (2025-03-31)
+
+### Features
+
+* new gemini embedding ([278cec0](https://github.com/ax-llm/ax/commit/278cec07dce03dc4ce152d9fcfc66b99e98d70ba))
+
 ## [11.0.31](https://github.com/ax-llm/ax/compare/11.0.29...11.0.30) (2025-03-31)
 
 ### Features
