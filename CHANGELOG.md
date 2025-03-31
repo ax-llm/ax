@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.31](https://github.com/ax-llm/ax/compare/11.0.29...11.0.30) (2025-03-31)
+
+### Features
+
+* new gemini embedding ([278cec0](https://github.com/ax-llm/ax/commit/278cec07dce03dc4ce152d9fcfc66b99e98d70ba))
+## [11.0.30](https://github.com/ax-llm/ax/compare/11.0.29...11.0.30) (2025-03-28)
+
+### Bug Fixes
+
+* streaming parser overrun ([b7a6a15](https://github.com/ax-llm/ax/commit/b7a6a1536950b856fc3d5955f11a265fb8990cea))
+
 ## [11.0.30](https://github.com/ax-llm/ax/compare/11.0.28...11.0.29) (2025-03-28)
 
 ### Bug Fixes
