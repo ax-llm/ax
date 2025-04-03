@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.33](https://github.com/ax-llm/ax/compare/11.0.31...11.0.32) (2025-04-03)
+
+### Features
+
+* improved errors ([f57592e](https://github.com/ax-llm/ax/commit/f57592e5ebb528ed2d5f1b90cd029f0782a88267))
+## [11.0.32](https://github.com/ax-llm/ax/compare/11.0.31...11.0.32) (2025-03-31)
+
+### Bug Fixes
+
+* vertex embeddings api changes ([5e5fdaf](https://github.com/ax-llm/ax/commit/5e5fdaf6e6818df5659c7156194bb4fcb94508a3))
+
 ## [11.0.32](https://github.com/ax-llm/ax/compare/11.0.30...11.0.31) (2025-03-31)
 
 ### Bug Fixes
