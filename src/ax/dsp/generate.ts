@@ -596,7 +596,7 @@ export class AxGen<
         }
       }
 
-      throw new Error(`Unable to fix validation error: ${err?.message}`)
+      throw new Error(`Unable to fix validation error: ${err}`)
     }
 
     throw new Error(`Max steps reached: ${maxSteps}`)

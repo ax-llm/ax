@@ -24,6 +24,22 @@ export class AxFunctionError extends Error {
   }
 
   getFields = () => this.fields
+
+  override toString(): string {
+    return [
+      `${this.name}: Function validation error`,
+      ...this.fields.map((field) => `  - ${field.field}: ${field.message}`),
+    ].join('\n')
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString()
+  }
 }
 
 type FunctionFieldErrors = ConstructorParameters<typeof AxFunctionError>[0]
@@ -61,6 +77,26 @@ export class FunctionError extends Error {
     })
 
     return `Errors In Function Arguments: Fix the following invalid arguments to '${this.func.name}'\n${bulletPoints.join('\n')}`
+  }
+
+  override toString(): string {
+    return [
+      `${this.name}: Function execution error in '${this.func.name}'`,
+      ...this.fields.map((field) => {
+        const description = this.getFieldDescription(field.field)
+        return `  - ${field.field}: ${field.message}${description ? ` (${description})` : ''}`
+      }),
+      this.funcId ? `  Function ID: ${this.funcId}` : '',
+    ].join('\n')
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString()
   }
 }
 

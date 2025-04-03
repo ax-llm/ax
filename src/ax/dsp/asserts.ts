@@ -35,6 +35,19 @@ export class AxAssertionError extends Error {
 
     return extraFields
   }
+
+  override toString(): string {
+    return `${this.name}: ${this.message}`
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString()
+  }
 }
 
 export const assertAssertions = async (
