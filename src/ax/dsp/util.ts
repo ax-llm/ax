@@ -332,6 +332,9 @@ export function matchesContent(
   // Skip the full prefix as it was already checked
   for (let i = 0; i < prefixes.length - 1; i++) {
     const partialPrefix = prefixes[i]
+    if (partialPrefix === '\n' || partialPrefix === ':') {
+      continue
+    }
     if (partialPrefix && contentEnd.endsWith(partialPrefix)) {
       return -2
     }

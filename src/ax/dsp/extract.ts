@@ -66,7 +66,7 @@ export const streamingExtractValues = (
 
     const isFirst = xstate.extractedFields.length === 0
     const prefix = (isFirst ? '' : '\n') + field.title + ':'
-    let e = matchesContent(content, prefix, xstate.s === 0 ? 0 : xstate.s + 1)
+    let e = matchesContent(content, prefix, xstate.s)
 
     switch (e) {
       case -1:
@@ -106,6 +106,7 @@ export const streamingExtractValues = (
     checkMissingRequiredFields(xstate, values, index)
 
     // Lets update the state for the new current field
+
     xstate.s = e + prefixLen
     xstate.currField = field
     xstate.currFieldIndex = index
