@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.34](https://github.com/ax-llm/ax/compare/11.0.32...11.0.33) (2025-04-05)
+
+### Bug Fixes
+
+* malformed response [#191](https://github.com/ax-llm/ax/issues/191) ([8728eed](https://github.com/ax-llm/ax/commit/8728eed42ef16bef94dfc28062c62c283016d328))
+## [11.0.33](https://github.com/ax-llm/ax/compare/11.0.32...11.0.33) (2025-04-03)
+
+### Features
+
+* improved errors ([f57592e](https://github.com/ax-llm/ax/commit/f57592e5ebb528ed2d5f1b90cd029f0782a88267))
+
 ## [11.0.33](https://github.com/ax-llm/ax/compare/11.0.31...11.0.32) (2025-04-03)
 
 ### Features
