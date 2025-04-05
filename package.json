@@ -82,7 +82,7 @@
   "version": "11.0.34",
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.1.13",
-    "@astrojs/tailwind": "^6.0.0",
+    "@astrojs/tailwind": "^6.0.2",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/react": "^19.0.10",
     "ai": "^4.1.61",
