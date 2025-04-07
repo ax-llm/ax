@@ -81,7 +81,7 @@
   "private": "true",
   "version": "11.0.34",
   "dependencies": {
-    "@ai-sdk/provider-utils": "^2.1.13",
+    "@ai-sdk/provider-utils": "^2.2.4",
     "@astrojs/tailwind": "^6.0.0",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/react": "^19.0.10",
