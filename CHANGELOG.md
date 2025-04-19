@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.35](https://github.com/ax-llm/ax/compare/11.0.33...11.0.34) (2025-04-19)
+
+### Features
+
+* gemini 2.5 flash with thinking budget config ([da5bfd1](https://github.com/ax-llm/ax/commit/da5bfd16cd5ef4390873e983e9f303ec463e25b8))
+## [11.0.34](https://github.com/ax-llm/ax/compare/11.0.33...11.0.34) (2025-04-05)
+
+### Bug Fixes
+
+* malformed response [#191](https://github.com/ax-llm/ax/issues/191) ([8728eed](https://github.com/ax-llm/ax/commit/8728eed42ef16bef94dfc28062c62c283016d328))
+
 ## [11.0.34](https://github.com/ax-llm/ax/compare/11.0.32...11.0.33) (2025-04-05)
 
 ### Bug Fixes
