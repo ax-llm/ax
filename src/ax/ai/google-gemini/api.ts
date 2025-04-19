@@ -91,7 +91,7 @@ export interface AxAIGoogleGeminiArgs {
   endpointId?: string
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
-  models?: AxAIInputModelList<AxAIGoogleGeminiModel>
+  models?: AxAIInputModelList<AxAIGoogleGeminiModel, AxAIGoogleGeminiEmbedModel>
 }
 
 class AxAIGoogleGeminiImpl
@@ -333,6 +333,10 @@ class AxAIGoogleGeminiImpl
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
+
+      ...(this.config.thinkingConfig && {
+        thinkingConfig: this.config.thinkingConfig,
+      }),
     }
 
     const safetySettings = this.config.safetySettings

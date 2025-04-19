@@ -7,11 +7,18 @@ import { AxAIGoogleGeminiModel } from './types.js'
  */
 export const axModelInfoGoogleGemini: AxModelInfo[] = [
   {
-    name: AxAIGoogleGeminiModel.Gemini20Pro,
+    name: AxAIGoogleGeminiModel.Gemini25Pro,
     currency: 'usd',
     characterIsToken: false,
-    promptTokenCostPer1M: 0.0,
-    completionTokenCostPer1M: 0.0,
+    promptTokenCostPer1M: 2.5,
+    completionTokenCostPer1M: 15.0,
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini25Flash,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 15.0,
+    completionTokenCostPer1M: 3.5,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini20Flash,

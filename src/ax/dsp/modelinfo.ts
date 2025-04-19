@@ -3,7 +3,7 @@ import type { AxAIInputModelList, AxModelInfo } from '../ai/types.js'
 interface GetModelInfoParams<TModel = string> {
   model: TModel
   modelInfo: readonly AxModelInfo[]
-  models?: AxAIInputModelList<TModel>
+  models?: AxAIInputModelList<TModel, undefined>
 }
 
 export function getModelInfo<TModel = string>({
@@ -12,8 +12,11 @@ export function getModelInfo<TModel = string>({
   models,
 }: Readonly<GetModelInfoParams<TModel>>): Readonly<AxModelInfo> {
   // First check if there's a mapping for this model
-  const mappedModel = (models?.find((v) => v.key === model)?.model ??
-    model) as string
+  const modelEntry = models?.find((v) => v.key === model)
+  const mappedModel =
+    modelEntry && 'model' in modelEntry
+      ? (modelEntry.model as string)
+      : (model as string)
 
   // Try exact match first
   const exactMatch = modelInfo.find((v) => v.name === model)

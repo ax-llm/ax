@@ -21,13 +21,15 @@ type AxAIServiceListItem = {
 }
 
 export class AxMultiServiceRouter implements AxAIService<string, string> {
+  private options?: AxAIServiceOptions
+
   private services: Map<
     string,
     {
-      useDefaultModel?: boolean
       isInternal?: boolean
       description: string
-      model: string
+      model?: string
+      embedModel?: string
       service: AxAIService
     }
   > = new Map()
@@ -57,8 +59,6 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
           service,
           description,
           isInternal,
-          model: item.service.getDefaultModels().model,
-          useDefaultModel: true,
         })
       } else {
         const modelList = item.getModelList() as AxAIModelList | undefined
@@ -69,19 +69,31 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
           )
         }
 
-        for (const { key, description, model } of modelList ?? []) {
-          if (this.services.has(key)) {
-            const otherService = this.services.get(key)?.service
+        for (const v of modelList) {
+          if (this.services.has(v.key)) {
+            const otherService = this.services.get(v.key)?.service
             throw new Error(
-              `Service ${index} \`${item.getName()}\` has duplicate model key: ${key} as service ${otherService?.getName()}`
+              `Service ${index} \`${item.getName()}\` has duplicate model key: ${v.key} as service ${otherService?.getName()}`
             )
+          } else {
+            if ('model' in v && typeof v.model) {
+              this.services.set(v.key, {
+                description: v.description,
+                service: item,
+                model: v.model,
+              })
+            } else if ('embedModel' in v && v.embedModel) {
+              this.services.set(v.key, {
+                description: v.description,
+                service: item,
+                embedModel: v.embedModel,
+              })
+            } else {
+              throw new Error(
+                `Key ${v.key} in model list for service ${index} \`${item.getName()}\` is missing a model or embedModel property.`
+              )
+            }
           }
-
-          this.services.set(key, {
-            description,
-            service: item,
-            model,
-          })
         }
       }
     }
@@ -106,9 +118,13 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
       throw new Error(`No service found for model key: ${modelKey}`)
     }
 
-    const service = item.service
-    const model = item.useDefaultModel ? req.model : modelKey
-    return await service.chat({ model, ...req }, options)
+    if (!item.model) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { model, ...reqWithoutModel } = req
+      return await item.service.chat(reqWithoutModel, options)
+    }
+
+    return await item.service.chat({ model: modelKey, ...req }, options)
   }
 
   /**
@@ -118,20 +134,26 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
     req: Readonly<AxEmbedRequest<string>>,
     options?: Readonly<AxAIServiceActionOptions<string, string>>
   ): Promise<AxEmbedResponse> {
-    const modelKey = req.embedModel
-    if (!modelKey) {
+    const embedModelKey = req.embedModel
+    if (!embedModelKey) {
       throw new Error('Embed model key must be specified for multi-service')
     }
 
-    const item = this.services.get(modelKey)
+    const item = this.services.get(embedModelKey)
     if (!item) {
-      throw new Error(`No service found for embed model key: ${modelKey}`)
+      throw new Error(`No service found for embed model key: ${embedModelKey}`)
     }
 
-    // Remove embedModel from request as service should use its default
-    const service = item.service
-    const embedModel = item.useDefaultModel ? req.embedModel : modelKey
-    return await service.embed({ embedModel, ...req }, options)
+    if (!item.model) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { embedModel, ...reqWithoutEmbedModel } = req
+      return await item.service.embed(reqWithoutEmbedModel, options)
+    }
+
+    return await item.service.embed(
+      { embedModel: embedModelKey, ...req },
+      options
+    )
   }
 
   /**
@@ -159,11 +181,15 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
   getModelList(): AxAIModelList {
     return Array.from(this.services)
       .filter(([, value]) => !value.isInternal)
-      .map(([key, { description, model }]) => ({
-        key,
-        description,
-        model,
-      }))
+      .map(([key, v]) => {
+        if (v.model) {
+          return { key, description: v.description, model: v.model }
+        } else if (v.embedModel) {
+          return { key, description: v.description, embedModel: v.embedModel }
+        } else {
+          throw new Error(`Service ${key} has no model or embedModel`)
+        }
+      })
   }
 
   getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
@@ -210,6 +236,7 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
     for (const service of this.services.values()) {
       service.service.setOptions(options)
     }
+    this.options = options
   }
 
   /**
@@ -217,10 +244,6 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * or falls back to the first service if none has been used.
    */
   getOptions(): Readonly<AxAIServiceOptions> {
-    const service = this.services.values().next().value
-    if (!service) {
-      throw new Error('No service available to get options.')
-    }
-    return service.service.getOptions()
+    return this.options ?? {}
   }
 }

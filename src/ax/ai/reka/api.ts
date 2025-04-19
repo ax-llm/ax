@@ -56,7 +56,7 @@ export interface AxAIRekaArgs {
   config?: Readonly<Partial<AxAIRekaConfig>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo?: Readonly<AxModelInfo[]>
-  models?: AxAIInputModelList<AxAIRekaModel>
+  models?: AxAIInputModelList<AxAIRekaModel, undefined>
 }
 
 class AxAIRekaImpl

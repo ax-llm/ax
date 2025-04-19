@@ -85,7 +85,7 @@ export interface AxAIOpenAIBaseArgs<TModel, TEmbedModel> {
   config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo: Readonly<AxModelInfo[]>
-  models?: AxAIInputModelList<TModel>
+  models?: AxAIInputModelList<TModel, TEmbedModel>
 }
 
 class AxAIOpenAIImpl<TModel, TEmbedModel>

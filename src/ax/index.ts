@@ -72,6 +72,7 @@ import {
 } from './ai/google-gemini/api.js';
 import {
   AxAIGoogleGeminiEmbedModel,
+  AxAIGoogleGeminiEmbedTypes,
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiSafetyCategory,
   AxAIGoogleGeminiSafetyThreshold,
@@ -84,6 +85,7 @@ import {
   type AxAIGoogleGeminiContent,
   type AxAIGoogleGeminiGenerationConfig,
   type AxAIGoogleGeminiSafetySettings,
+  type AxAIGoogleGeminiThinkingConfig,
   type AxAIGoogleGeminiTool,
   type AxAIGoogleGeminiToolConfig,
   type AxAIGoogleGeminiToolFunctionDeclaration,
@@ -328,7 +330,7 @@ import {
   AxSimpleClassifier,
   AxSimpleClassifierClass,
   type AxSimpleClassifierForwardOptions
-} from './dsp/router.js';
+} from './dsp/classifier.js';
 import {
   AxTestPrompt,
   type AxEvaluateArgs
@@ -336,6 +338,7 @@ import {
 import {
   type AxAIInputModelList,
   type AxAIModelList,
+  type AxAIModelListBase,
   type AxAIPromptConfig,
   type AxAIService,
   type AxAIServiceActionOptions,
@@ -412,6 +415,7 @@ export { AxAIDeepSeek };
 export { AxAIDeepSeekModel };
 export { AxAIGoogleGemini };
 export { AxAIGoogleGeminiEmbedModel };
+export { AxAIGoogleGeminiEmbedTypes };
 export { AxAIGoogleGeminiModel };
 export { AxAIGoogleGeminiSafetyCategory };
 export { AxAIGoogleGeminiSafetyThreshold };
@@ -565,6 +569,7 @@ export type { AxAIGoogleGeminiContent };
 export type { AxAIGoogleGeminiGenerationConfig };
 export type { AxAIGoogleGeminiOptionsTools };
 export type { AxAIGoogleGeminiSafetySettings };
+export type { AxAIGoogleGeminiThinkingConfig };
 export type { AxAIGoogleGeminiTool };
 export type { AxAIGoogleGeminiToolConfig };
 export type { AxAIGoogleGeminiToolFunctionDeclaration };
@@ -580,6 +585,7 @@ export type { AxAIInputModelList };
 export type { AxAIMemory };
 export type { AxAIMistralArgs };
 export type { AxAIModelList };
+export type { AxAIModelListBase };
 export type { AxAIModels };
 export type { AxAIOllamaAIConfig };
 export type { AxAIOllamaArgs };

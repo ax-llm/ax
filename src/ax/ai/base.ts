@@ -39,7 +39,7 @@ export interface AxBaseAIArgs<TModel, TEmbedModel> {
   defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>
   options?: Readonly<AxAIServiceOptions>
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
-  models?: AxAIInputModelList<TModel>
+  models?: AxAIInputModelList<TModel, TEmbedModel>
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -73,10 +73,7 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter']
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
-  private models?: (AxAIModelList[number] & {
-    model: TModel
-    isInternal?: boolean
-  })[]
+  private models?: AxAIInputModelList<TModel, TEmbedModel>
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxTokenUsage
@@ -151,11 +148,8 @@ export class AxBaseAI<
     this.models = models
     this.id = crypto.randomUUID()
 
-    const model =
-      this.models?.find((v) => v.key === defaults.model)?.model ??
-      defaults.model
-
-    const embedModel = defaults.embedModel
+    const model = this.getModel(defaults.model) ?? defaults.model
+    const embedModel = this.getEmbedModel(defaults.embedModel)
 
     this.defaults = { model, embedModel }
 
@@ -191,21 +185,10 @@ export class AxBaseAI<
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
-    if (options.debug) {
-      this.debug = options.debug
-    }
-
-    if (options.rateLimiter) {
-      this.rt = options.rateLimiter
-    }
-
-    if (options.fetch) {
-      this.fetch = options.fetch
-    }
-
-    if (options.tracer) {
-      this.tracer = options.tracer
-    }
+    this.debug = options.debug ?? false
+    this.rt = options.rateLimiter
+    this.fetch = options.fetch
+    this.tracer = options.tracer
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -218,13 +201,30 @@ export class AxBaseAI<
   }
 
   getModelList(): AxAIModelList | undefined {
-    return this.models
-      ?.filter((model) => !model.isInternal)
-      ?.map((model) => ({
-        key: model.key,
-        description: model.description,
-        model: model.model as string,
-      }))
+    const models: AxAIModelList = []
+    for (const model of this.models ?? []) {
+      if (model.isInternal) {
+        continue
+      }
+
+      if ('model' in model && model.model) {
+        models.push({
+          key: model.key,
+          description: model.description,
+          model: model.model as string,
+        })
+      }
+
+      if ('embedModel' in model && model.embedModel) {
+        models.push({
+          key: model.key,
+          description: model.description,
+          embedModel: model.embedModel as string,
+        })
+      }
+    }
+
+    return models
   }
 
   getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
@@ -315,9 +315,7 @@ export class AxBaseAI<
       AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const model = req.model
-      ? (this.models?.find((v) => v.key === req.model)?.model ?? req.model)
-      : this.defaults.model
+    const model = this.getModel(req.model) ?? req.model ?? this.defaults.model
 
     const modelConfig = {
       ...this.aiImpl.getModelConfig(),
@@ -421,6 +419,8 @@ export class AxBaseAI<
       throw new Error('generateChatReq not implemented')
     }
 
+    const debug = options?.debug ?? this.debug
+
     let functions: NonNullable<AxChatRequest['functions']> | undefined
 
     if (chatReq.functions && chatReq.functions.length > 0) {
@@ -446,7 +446,7 @@ export class AxBaseAI<
           url: this.apiURL,
           headers: await this.buildHeaders(apiConfig.headers),
           stream: modelConfig.stream,
-          debug: this.debug,
+          debug,
           fetch: this.fetch,
           span,
         },
@@ -455,7 +455,7 @@ export class AxBaseAI<
       return res
     }
 
-    if (options?.debug ?? this.debug) {
+    if (debug) {
       logChatRequest(req.chatPrompt, options?.debugHideSystemPrompt)
     }
 
@@ -481,7 +481,7 @@ export class AxBaseAI<
             setResponseAttr(res, span)
           }
 
-          if (options?.debug ?? this.debug) {
+          if (debug) {
             logResponse(res)
           }
           return res
@@ -489,7 +489,7 @@ export class AxBaseAI<
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
-        if (options?.debug ?? this.debug) {
+        if (debug) {
           process.stdout.write('\n')
         }
       }
@@ -517,7 +517,7 @@ export class AxBaseAI<
       setResponseAttr(res, span)
     }
 
-    if (options?.debug ?? this.debug) {
+    if (debug) {
       logResponse(res)
     }
 
@@ -548,7 +548,10 @@ export class AxBaseAI<
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
     options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
   ): Promise<AxEmbedResponse> {
-    const embedModel = req.embedModel ?? this.defaults.embedModel
+    const embedModel =
+      this.getEmbedModel(req.embedModel) ??
+      req.embedModel ??
+      this.defaults.embedModel
 
     if (!embedModel) {
       throw new Error('No embed model defined')
@@ -589,6 +592,8 @@ export class AxBaseAI<
       throw new Error('generateEmbedResp not implemented')
     }
 
+    const debug = options?.debug ?? this.debug
+
     const req = {
       ...embedReq,
       embedModel,
@@ -602,7 +607,7 @@ export class AxBaseAI<
           name: apiConfig.name,
           url: this.apiURL,
           headers: await this.buildHeaders(apiConfig.headers),
-          debug: this.debug,
+          debug,
           fetch: this.fetch,
           span,
         },
@@ -640,6 +645,26 @@ export class AxBaseAI<
   ): Promise<Record<string, string>> {
     return { ...headers, ...(await this.headers()) }
   }
+
+  private getModelByKey(
+    modelName?: TModel | TEmbedModel
+  ): AxAIInputModelList<TModel, TEmbedModel>[number] | undefined {
+    if (!modelName) {
+      return undefined
+    }
+    const item = this.models?.find((v) => v.key === modelName)
+    return item
+  }
+
+  private getModel(modelName?: TModel): TModel | undefined {
+    const item = this.getModelByKey(modelName)
+    return item && 'model' in item ? item.model : undefined
+  }
+
+  private getEmbedModel(modelName?: TEmbedModel): TEmbedModel | undefined {
+    const item = this.getModelByKey(modelName)
+    return item && 'embedModel' in item ? item.embedModel : undefined
+  }
 }
 
 function setResponseAttr(res: Readonly<AxChatResponse>, span: Span) {
@@ -652,8 +677,8 @@ function setResponseAttr(res: Readonly<AxChatResponse>, span: Span) {
   }
 }
 
-function validateModels<TModel>(
-  models: Readonly<AxAIInputModelList<TModel>>
+function validateModels<TModel, TEmbedModel>(
+  models: Readonly<AxAIInputModelList<TModel, TEmbedModel>>
 ): void {
   // Validate duplicate keys in models.
   const keys = new Set<string>()

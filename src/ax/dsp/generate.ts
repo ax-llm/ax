@@ -517,10 +517,9 @@ export class AxGen<
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10
     const debug = options.debug ?? ai.getOptions().debug
-    const memOptions = {
-      debug: options.debug,
-      debugHideSystemPrompt: options.debugHideSystemPrompt,
-    }
+    const debugHideSystemPrompt = options.debugHideSystemPrompt
+    const memOptions = { debug, debugHideSystemPrompt }
+
     const mem =
       options.mem ?? this.options?.mem ?? new AxMemory(10000, memOptions)
 
@@ -630,7 +629,7 @@ export class AxGen<
     values: IN,
     options: Readonly<AxProgramForwardOptions>
   ) {
-    const tracer = this.options?.tracer ?? options?.tracer
+    const tracer = options?.tracer ?? this.options?.tracer
 
     let functions: AxFunction[] | undefined = this.functions
 
@@ -678,9 +677,7 @@ export class AxGen<
     values: IN,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const generator = this._forward1(ai, values, {
-      ...options,
-    })
+    const generator = this._forward1(ai, values, options ?? {})
 
     let buffer = {} as Partial<OUT>
     let currentVersion = 0

@@ -48,7 +48,7 @@ export interface AxAICohereArgs {
   apiKey: string
   config?: Readonly<Partial<AxAICohereConfig>>
   options?: Readonly<AxAIServiceOptions>
-  models?: AxAIInputModelList<AxAICohereModel>
+  models?: AxAIInputModelList<AxAICohereModel, AxAICohereEmbedModel>
 }
 
 class AxAICohereImpl

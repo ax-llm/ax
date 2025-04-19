@@ -1,8 +1,8 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIGoogleGeminiModel {
-  Gemini25Pro = 'gemini-2.5-pro-exp-03-25',
-  Gemini20Pro = 'gemini-2.0-pro-exp-02-05',
+  Gemini25Pro = 'gemini-2.5-pro-preview-03-25',
+  Gemini25Flash = 'gemini-2.5-flash-preview-04-17',
   Gemini20Flash = 'gemini-2.0-flash',
   Gemini20FlashLite = 'gemini-2.0-flash-lite-preview-02-05',
   Gemini20FlashThinking = 'gemini-2.0-flash-thinking-exp-01-21',
@@ -174,6 +174,10 @@ export type AxAIGoogleGeminiChatResponse = {
 
 export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse
 
+export type AxAIGoogleGeminiThinkingConfig = {
+  thinkingBudget: number
+}
+
 /**
  * AxAIGoogleGeminiConfig: Configuration options for Google Gemini API
  */
@@ -184,6 +188,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   embedType?: AxAIGoogleGeminiEmbedTypes
   dimensions?: number
   autoTruncate?: boolean
+  thinkingConfig?: AxAIGoogleGeminiThinkingConfig
 }
 
 /**

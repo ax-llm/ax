@@ -39,7 +39,7 @@ export interface AxAIHuggingFaceArgs {
   apiKey: string
   config?: Readonly<Partial<AxAIHuggingFaceConfig>>
   options?: Readonly<AxAIServiceOptions>
-  models?: AxAIInputModelList<AxAIHuggingFaceModel>
+  models?: AxAIInputModelList<AxAIHuggingFaceModel, undefined>
 }
 
 class AxAIHuggingFaceImpl

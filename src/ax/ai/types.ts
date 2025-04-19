@@ -6,16 +6,17 @@ import type { AxAPI } from '../util/apicall.js'
 
 import type { AxAIFeatures } from './base.js'
 
-export type AxAIInputModelList<TModel> = (AxAIModelList[number] & {
-  model: TModel
+export type AxAIInputModelList<TModel, TEmbedModel> = (AxAIModelListBase & {
   isInternal?: boolean
-})[]
+} & ({ model: TModel } | { embedModel: TEmbedModel }))[]
 
-export type AxAIModelList = {
+export type AxAIModelListBase = {
   key: string
   description: string
-  model: string
-}[]
+}
+
+export type AxAIModelList = (AxAIModelListBase &
+  ({ model: string } | { embedModel: string }))[]
 
 export type AxModelInfo = {
   name: string
