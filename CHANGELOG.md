@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.36](https://github.com/ax-llm/ax/compare/11.0.34...11.0.35) (2025-04-20)
+
+### Bug Fixes
+
+* various fixes to multiservice router ([16bcd22](https://github.com/ax-llm/ax/commit/16bcd22d2d9a85c77df67d1f462d3382f8a45a6c))
+## [11.0.35](https://github.com/ax-llm/ax/compare/11.0.34...11.0.35) (2025-04-19)
+
+### Features
+
+* gemini 2.5 flash with thinking budget config ([da5bfd1](https://github.com/ax-llm/ax/commit/da5bfd16cd5ef4390873e983e9f303ec463e25b8))
+
 ## [11.0.35](https://github.com/ax-llm/ax/compare/11.0.33...11.0.34) (2025-04-19)
 
 ### Features
