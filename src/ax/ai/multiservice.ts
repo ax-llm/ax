@@ -192,12 +192,6 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
       })
   }
 
-  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
-    throw new Error(
-      'getDefaultModels is not supported for multi-service router.'
-    )
-  }
-
   /**
    * If a model key is provided, delegate to the corresponding service's features.
    * Otherwise, returns a default feature set.

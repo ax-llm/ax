@@ -23,6 +23,11 @@ describe('AxBaseAI', () => {
       temperature: 0,
       stream: true,
     }),
+    getTokenUsage: () => ({
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+    }),
   }
 
   // Base configuration for tests

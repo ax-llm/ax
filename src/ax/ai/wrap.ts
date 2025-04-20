@@ -135,10 +135,6 @@ export class AxAI implements AxAIService {
     return this.ai.getModelList() as AxAIModelList | undefined
   }
 
-  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
-    return this.ai.getDefaultModels()
-  }
-
   getMetrics(): AxAIServiceMetrics {
     return this.ai.getMetrics()
   }

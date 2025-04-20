@@ -157,9 +157,15 @@ export function mergeProgramUsage(
 
     const currentUsage = usageMap[key]
     if (currentUsage) {
-      currentUsage.promptTokens += usage.promptTokens
-      currentUsage.completionTokens += usage.completionTokens
-      currentUsage.totalTokens += usage.totalTokens
+      const tokens = currentUsage.tokens ?? {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      }
+      tokens.promptTokens += usage?.tokens?.promptTokens ?? 0
+      tokens.completionTokens += usage?.tokens?.completionTokens ?? 0
+      tokens.totalTokens += usage?.tokens?.totalTokens ?? 0
+      currentUsage.tokens = tokens
     }
   }
 

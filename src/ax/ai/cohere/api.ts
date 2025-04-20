@@ -15,6 +15,7 @@ import type {
   AxInternalChatRequest,
   AxInternalEmbedRequest,
   AxModelConfig,
+  AxTokenUsage,
 } from '../types.js'
 
 import { axModelInfoCohere } from './info.js'
@@ -63,7 +64,13 @@ class AxAICohereImpl
       AxAICohereEmbedResponse
     >
 {
+  private tokensUsed: AxTokenUsage | undefined
+
   constructor(private config: AxAICohereConfig) {}
+
+  getTokenUsage(): AxTokenUsage | undefined {
+    return this.tokensUsed
+  }
 
   getModelConfig(): AxModelConfig {
     const { config } = this
@@ -197,7 +204,7 @@ class AxAICohereImpl
   }
 
   createChatResp = (resp: Readonly<AxAICohereChatResponse>): AxChatResponse => {
-    const modelUsage = resp.meta.billed_units
+    this.tokensUsed = resp.meta.billed_units
       ? {
           promptTokens: resp.meta.billed_units.input_tokens,
           completionTokens: resp.meta.billed_units.output_tokens,
@@ -249,11 +256,7 @@ class AxAICohereImpl
       },
     ]
 
-    return {
-      results,
-      modelUsage,
-      remoteId: resp.response_id,
-    }
+    return { results, remoteId: resp.response_id }
   }
 
   createChatStreamResp = (
@@ -266,6 +269,12 @@ class AxAICohereImpl
 
     if (resp.event_type === 'stream-start') {
       ss.generation_id = resp.generation_id
+    }
+
+    this.tokensUsed = {
+      promptTokens: 0,
+      completionTokens: resp.meta.billed_units?.output_tokens ?? 0,
+      totalTokens: resp.meta.billed_units?.output_tokens ?? 0,
     }
 
     const { results } = this.createChatResp(resp)

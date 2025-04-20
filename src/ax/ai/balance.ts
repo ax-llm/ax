@@ -107,10 +107,6 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
     return this.currentService.getModelList()
   }
 
-  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
-    return this.currentService.getDefaultModels()
-  }
-
   private getNextService(): boolean {
     const cs = this.services[++this.currentServiceIndex]
     if (cs === undefined) {

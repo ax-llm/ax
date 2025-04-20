@@ -166,8 +166,8 @@ export class AxAIProvider implements LanguageModelV1 {
       })),
       finishReason: mapAxFinishReason(choice.finishReason),
       usage: {
-        promptTokens: res.modelUsage?.promptTokens ?? 0,
-        completionTokens: res.modelUsage?.completionTokens ?? 0,
+        promptTokens: res.modelUsage?.tokens?.promptTokens ?? 0,
+        completionTokens: res.modelUsage?.tokens?.completionTokens ?? 0,
       },
       rawCall: { rawPrompt: '', rawSettings: req.modelConfig ?? {} },
       warnings,
@@ -470,9 +470,11 @@ class AxToSDKTransformer extends TransformStream<
         if (chunk.modelUsage) {
           this.usage = {
             promptTokens:
-              this.usage.promptTokens + chunk.modelUsage.promptTokens,
+              this.usage.promptTokens +
+              (chunk.modelUsage?.tokens?.promptTokens ?? 0),
             completionTokens:
-              this.usage.completionTokens + chunk.modelUsage?.completionTokens,
+              this.usage.completionTokens +
+              (chunk.modelUsage.tokens?.completionTokens ?? 0),
           }
         }
 

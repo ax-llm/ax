@@ -12,6 +12,7 @@ import type {
   AxChatResponse,
   AxInternalChatRequest,
   AxModelConfig,
+  AxTokenUsage,
 } from '../types.js'
 
 import { axModelInfoHuggingFace } from './info.js'
@@ -54,7 +55,13 @@ class AxAIHuggingFaceImpl
       unknown
     >
 {
+  private tokensUsed: AxTokenUsage | undefined
+
   constructor(private config: AxAIHuggingFaceConfig) {}
+
+  getTokenUsage(): AxTokenUsage | undefined {
+    return this.tokensUsed
+  }
 
   getModelConfig(): AxModelConfig {
     const { config } = this

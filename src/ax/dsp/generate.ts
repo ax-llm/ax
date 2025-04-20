@@ -79,7 +79,6 @@ export interface AxResponseHandlerArgs<T> {
   ai: Readonly<AxAIService>
   model?: string
   res: T
-  usageInfo: { ai: string; model: string }
   mem: AxAIMemory
   sessionId?: string
   traceId?: string
@@ -246,14 +245,10 @@ export class AxGen<
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
   }>) {
-    const { sessionId, traceId, model, functions: _functions } = options ?? {}
+    const { sessionId, traceId, functions: _functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
 
-    const modelName = model ?? ai.getDefaultModels().model
-    const usageInfo = {
-      ai: ai.getName(),
-      model: modelName,
-    }
+    const model = options.model
 
     // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
     const functions = _functions
@@ -271,7 +266,6 @@ export class AxGen<
         ai,
         model,
         res,
-        usageInfo,
         mem,
         traceId,
         sessionId,
@@ -283,7 +277,6 @@ export class AxGen<
         ai,
         model,
         res,
-        usageInfo,
         mem,
         traceId,
         sessionId,
@@ -296,7 +289,6 @@ export class AxGen<
     ai,
     model,
     res,
-    usageInfo,
     mem,
     sessionId,
     traceId,
@@ -304,7 +296,7 @@ export class AxGen<
     fastFail,
   }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
     const streamingValidation =
-      fastFail ?? ai.getFeatures().functionCot !== true
+      fastFail ?? ai.getFeatures(model).functionCot !== true
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
     const values = {}
     const xstate: extractionState = {
@@ -322,7 +314,7 @@ export class AxGen<
       }
 
       if (v.modelUsage) {
-        this.usage.push({ ...usageInfo, ...v.modelUsage })
+        this.usage.push(v.modelUsage)
       }
 
       if (result.functionCalls) {
@@ -437,7 +429,6 @@ export class AxGen<
   private async processResponse({
     ai,
     res,
-    usageInfo,
     mem,
     sessionId,
     traceId,
@@ -453,7 +444,7 @@ export class AxGen<
 
     for (const result of results) {
       if (res.modelUsage) {
-        this.usage.push({ ...usageInfo, ...res.modelUsage })
+        this.usage.push(res.modelUsage)
       }
 
       mem.addResult(result, sessionId)

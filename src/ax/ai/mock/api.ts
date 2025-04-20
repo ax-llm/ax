@@ -79,13 +79,6 @@ export class AxMockAIService implements AxAIService {
     return this.config.models
   }
 
-  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
-    return {
-      model: this.config.modelInfo?.name ?? 'mock-model',
-      embedModel: this.config.embedModelInfo?.name,
-    }
-  }
-
   getMetrics(): AxAIServiceMetrics {
     return this.metrics
   }
@@ -120,9 +113,13 @@ export class AxMockAIService implements AxAIService {
           },
         ],
         modelUsage: {
-          promptTokens: 10,
-          completionTokens: 5,
-          totalTokens: 15,
+          ai: this.getName(),
+          model: 'mock-model',
+          tokens: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
         },
       }
     )
@@ -151,9 +148,13 @@ export class AxMockAIService implements AxAIService {
       this.config.embedResponse ?? {
         embeddings: [[0.1, 0.2, 0.3]],
         modelUsage: {
-          promptTokens: 5,
-          completionTokens: 0,
-          totalTokens: 5,
+          ai: this.getName(),
+          model: 'mock-model',
+          tokens: {
+            promptTokens: 5,
+            completionTokens: 0,
+            totalTokens: 5,
+          },
         },
       }
     )

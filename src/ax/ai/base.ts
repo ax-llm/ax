@@ -22,7 +22,7 @@ import type {
   AxEmbedResponse,
   AxModelConfig,
   AxModelInfo,
-  AxTokenUsage,
+  AxModelUsage,
 } from './types.js'
 
 export interface AxAIFeatures {
@@ -76,8 +76,8 @@ export class AxBaseAI<
   private models?: AxAIInputModelList<TModel, TEmbedModel>
 
   private modelInfo: readonly AxModelInfo[]
-  private modelUsage?: AxTokenUsage
-  private embedModelUsage?: AxTokenUsage
+  private modelUsage?: AxModelUsage
+  private embedModelUsage?: AxModelUsage
   private defaults: AxBaseAIArgs<TModel, TEmbedModel>['defaults']
 
   protected apiURL: string
@@ -225,13 +225,6 @@ export class AxBaseAI<
     }
 
     return models
-  }
-
-  getDefaultModels(): Readonly<{ model: string; embedModel?: string }> {
-    return {
-      model: this.defaults.model as string,
-      embedModel: this.defaults.embedModel as string | undefined,
-    }
   }
 
   getName(): string {
@@ -467,15 +460,20 @@ export class AxBaseAI<
         throw new Error('generateChatResp not implemented')
       }
 
-      const respFn = this.aiImpl.createChatStreamResp
+      const respFn = this.aiImpl.createChatStreamResp.bind(this)
       const wrappedRespFn =
         (state: object) => (resp: Readonly<TChatResponseDelta>) => {
           const res = respFn(resp, state)
           res.sessionId = options?.sessionId
 
-          if (res.modelUsage) {
-            this.modelUsage = res.modelUsage
+          if (!res.modelUsage) {
+            res.modelUsage = {
+              ai: this.name,
+              model: model as string,
+              tokens: this.aiImpl.getTokenUsage(),
+            }
           }
+          this.modelUsage = res.modelUsage
 
           if (span?.isRecording()) {
             setResponseAttr(res, span)
@@ -618,20 +616,29 @@ export class AxBaseAI<
     }
 
     const resValue = this.rt
-      ? await this.rt(fn, { embedModelUsage: this.embedModelUsage })
+      ? await this.rt(fn, { modelUsage: this.embedModelUsage })
       : await fn()
     const res = this.aiImpl.createEmbedResp!(resValue as TEmbedResponse)
 
     res.sessionId = options?.sessionId
+
+    if (!res.modelUsage) {
+      res.modelUsage = {
+        ai: this.name,
+        model: embedModel as string,
+        tokens: this.aiImpl.getTokenUsage(),
+      }
+    }
+    this.embedModelUsage = res.modelUsage
 
     if (span?.isRecording()) {
       if (res.modelUsage) {
         this.embedModelUsage = res.modelUsage
         span.setAttributes({
           [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
-            res.modelUsage.completionTokens ?? 0,
+            res.modelUsage.tokens?.completionTokens ?? 0,
           [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
-            res.modelUsage.promptTokens,
+            res.modelUsage.tokens?.promptTokens,
         })
       }
     }
@@ -671,8 +678,9 @@ function setResponseAttr(res: Readonly<AxChatResponse>, span: Span) {
   if (res.modelUsage) {
     span.setAttributes({
       [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
-        res.modelUsage.completionTokens ?? 0,
-      [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]: res.modelUsage.promptTokens,
+        res.modelUsage.tokens?.completionTokens ?? 0,
+      [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
+        res.modelUsage.tokens?.promptTokens,
     })
   }
 }

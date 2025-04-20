@@ -17,9 +17,13 @@ const createMockService = ({
       },
     ],
     modelUsage: {
-      promptTokens: 20,
-      completionTokens: 10,
-      totalTokens: 30,
+      ai: 'test-ai',
+      model: 'test-model',
+      tokens: {
+        promptTokens: 20,
+        completionTokens: 10,
+        totalTokens: 30,
+      },
     },
   }),
 }: {
@@ -60,9 +64,13 @@ describe('AxBalancer', () => {
               },
             ],
             modelUsage: {
-              promptTokens: 20,
-              completionTokens: 10,
-              totalTokens: 30,
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
             },
           }
         },
@@ -80,9 +88,13 @@ describe('AxBalancer', () => {
               },
             ],
             modelUsage: {
-              promptTokens: 20,
-              completionTokens: 10,
-              totalTokens: 30,
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
             },
           }
         },
@@ -114,9 +126,13 @@ describe('AxBalancer', () => {
               },
             ],
             modelUsage: {
-              promptTokens: 20,
-              completionTokens: 10,
-              totalTokens: 30,
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
             },
           }
         },
@@ -154,9 +170,13 @@ describe('AxBalancer', () => {
               },
             ],
             modelUsage: {
-              promptTokens: 20,
-              completionTokens: 10,
-              totalTokens: 30,
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
             },
           }
         },
@@ -173,9 +193,13 @@ describe('AxBalancer', () => {
               },
             ],
             modelUsage: {
-              promptTokens: 20,
-              completionTokens: 10,
-              totalTokens: 30,
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
             },
           }
         },
@@ -217,9 +241,13 @@ describe('AxBalancer', () => {
               },
             ],
             modelUsage: {
-              promptTokens: 20,
-              completionTokens: 10,
-              totalTokens: 30,
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 20,
+                completionTokens: 10,
+                totalTokens: 30,
+              },
             },
           }
         },

@@ -28,9 +28,13 @@ function createStreamingResponse(
                 { content: chunk.content, finishReason: chunk.finishReason },
               ],
               modelUsage: {
-                promptTokens: 0,
-                completionTokens: 0,
-                totalTokens: 0,
+                ai: 'test-ai',
+                model: 'test-model',
+                tokens: {
+                  promptTokens: 0,
+                  completionTokens: 0,
+                  totalTokens: 0,
+                },
               },
             })
             count++
@@ -65,7 +69,15 @@ describe('AxGen forward and streamingForward', () => {
       results: [
         { content: 'Output: Non-stream response', finishReason: 'stop' },
       ],
-      modelUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        },
+      },
     }
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -115,7 +127,15 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
           finishReason: 'stop',
         },
       ],
-      modelUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        },
+      },
     }
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },

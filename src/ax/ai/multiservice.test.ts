@@ -42,8 +42,8 @@ const serviceA: AxAIService<string, string> = {
       description: 'Second service A model',
     },
   ],
-  getDefaultModels: () => ({ model: 'defaultModelA' }),
   getMetrics: () => metrics,
+
   chat: async (
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
@@ -52,7 +52,15 @@ const serviceA: AxAIService<string, string> = {
   embed: async (): Promise<AxEmbedResponse> => {
     return {
       embeddings: [[1, 2, 3]],
-      modelUsage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: {
+          promptTokens: 5,
+          completionTokens: 5,
+          totalTokens: 10,
+        },
+      },
     }
   },
   setOptions: () => {},
@@ -75,7 +83,6 @@ const serviceB: AxAIService<string, string> = {
       description: 'Second service B model',
     },
   ],
-  getDefaultModels: () => ({ model: 'defaultModelB' }),
   getMetrics: () => metrics,
   chat: async (
     req: Readonly<AxChatRequest<string>>
@@ -85,7 +92,15 @@ const serviceB: AxAIService<string, string> = {
   embed: async (): Promise<AxEmbedResponse> => {
     return {
       embeddings: [[4, 5, 6]],
-      modelUsage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: {
+          promptTokens: 10,
+          completionTokens: 10,
+          totalTokens: 20,
+        },
+      },
     }
   },
   setOptions: () => {},
@@ -97,7 +112,6 @@ const serviceC: AxAIService<string, string> = {
   getName: () => 'Service C',
   getFeatures: () => ({ functions: false, streaming: false }),
   getModelList: () => [],
-  getDefaultModels: () => ({ model: 'defaultModelC' }),
   getMetrics: () => metrics,
   chat: async (
     req: Readonly<AxChatRequest<string>>
@@ -107,7 +121,15 @@ const serviceC: AxAIService<string, string> = {
   embed: async (): Promise<AxEmbedResponse> => {
     return {
       embeddings: [[4, 5, 6]],
-      modelUsage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: {
+          promptTokens: 10,
+          completionTokens: 10,
+          totalTokens: 20,
+        },
+      },
     }
   },
   setOptions: () => {},
@@ -161,7 +183,6 @@ describe('AxMultiServiceRouter', () => {
       // getModelList is not used for key–based services.
       getModelList: () => [],
       // Return some default value (this value is stored but not used in the delegation).
-      getDefaultModels: () => ({ model: 'default-key' }),
       chat: dummyKeyServiceChat,
       embed: dummyKeyServiceEmbed,
       setOptions: () => {},
@@ -189,7 +210,6 @@ describe('AxMultiServiceRouter', () => {
       getId: () => 'dummy-non-key-service',
       getName: () => 'Dummy Non-Key Service',
       getFeatures: () => ({ functions: false, streaming: false }),
-      getDefaultModels: () => ({ model: 'nonKeyDefault' }),
       // Return a model list with one entry.
       getModelList: () => [
         { key: 'B', description: 'Non-key model', model: 'modelB' },
@@ -250,7 +270,6 @@ describe('AxMultiServiceRouter', () => {
       getName: () => 'Dummy Key Service',
       getFeatures: () => ({ functions: false, streaming: false }),
       getModelList: () => [],
-      getDefaultModels: () => ({ model: 'default-key' }),
       chat: async () => {
         return { results: [{ content: 'dummy key service' }] }
       },
@@ -275,7 +294,6 @@ describe('AxMultiServiceRouter', () => {
       getId: () => 'dummy-non-key-service',
       getName: () => 'Dummy Non-Key Service',
       getFeatures: () => ({ functions: false, streaming: false }),
-      getDefaultModels: () => ({ model: 'nonKeyDefault' }),
       getModelList: () => [
         { key: 'B', description: 'Non-key model', model: 'modelB' },
       ],
@@ -369,14 +387,21 @@ describe('AxMultiServiceRouter', () => {
           embedModel: 'modelE',
         },
       ],
-      getDefaultModels: () => ({ model: 'unused', embedModel: 'modelE' }),
       getMetrics: () => metrics,
       chat: async () => {
         throw new Error('chat should not be called')
       },
       embed: async (): Promise<AxEmbedResponse> => ({
         embeddings: [[42]],
-        modelUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          },
+        },
       }),
       setOptions: () => {},
       getOptions: () => ({}),
@@ -404,7 +429,6 @@ describe('AxMultiServiceRouter', () => {
           embedModel: 'modelE',
         },
       ],
-      getDefaultModels: () => ({ model: 'unused', embedModel: 'modelE' }),
       getMetrics: () => metrics,
       chat: async () => {
         throw new Error('chat should not be called')

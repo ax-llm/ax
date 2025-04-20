@@ -16,6 +16,7 @@ import type {
   AxInternalEmbedRequest,
   AxModelConfig,
   AxModelInfo,
+  AxTokenUsage,
 } from '../types.js'
 
 import { axModelInfoOpenAI } from './info.js'
@@ -35,7 +36,7 @@ export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT4O,
+    model: AxAIOpenAIModel.GPT41,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig(),
   })
@@ -46,7 +47,7 @@ export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig<
 > =>
   structuredClone({
     ...axAIOpenAIDefaultConfig(),
-    model: AxAIOpenAIModel.GPT4O,
+    model: AxAIOpenAIModel.GPT41,
   })
 
 export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
@@ -54,7 +55,7 @@ export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT4O,
+    model: AxAIOpenAIModel.GPT41,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig(),
   })
@@ -64,7 +65,7 @@ export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > => ({
   ...axAIOpenAIDefaultConfig(),
-  model: AxAIOpenAIModel.GPT4OMini,
+  model: AxAIOpenAIModel.GPT41Mini,
 })
 
 export interface AxAIOpenAIArgs<
@@ -100,10 +101,16 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
       AxAIOpenAIEmbedResponse
     >
 {
+  private tokensUsed: AxTokenUsage | undefined
+
   constructor(
     private readonly config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>,
     private streamingUsage: boolean
   ) {}
+
+  getTokenUsage(): AxTokenUsage | undefined {
+    return this.tokensUsed
+  }
 
   getModelConfig(): AxModelConfig {
     const { config } = this
@@ -224,7 +231,7 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
       throw error
     }
 
-    const modelUsage = usage
+    this.tokensUsed = usage
       ? {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
@@ -252,7 +259,6 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
     })
 
     return {
-      modelUsage,
       results,
       remoteId: id,
     }
@@ -264,7 +270,7 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
   ): AxChatResponse {
     const { id, usage, choices } = resp
 
-    const modelUsage = usage
+    this.tokensUsed = usage
       ? {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
@@ -320,16 +326,13 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
       }
     )
 
-    return {
-      results,
-      modelUsage,
-    }
+    return { results }
   }
 
   createEmbedResp(resp: Readonly<AxAIOpenAIEmbedResponse>): AxEmbedResponse {
     const { data, usage } = resp
 
-    const modelUsage = usage
+    this.tokensUsed = usage
       ? {
           promptTokens: usage.prompt_tokens,
           completionTokens: usage.completion_tokens,
@@ -337,10 +340,7 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
         }
       : undefined
 
-    return {
-      embeddings: data.map((v) => v.embedding),
-      modelUsage,
-    }
+    return { embeddings: data.map((v) => v.embedding) }
   }
 }
 

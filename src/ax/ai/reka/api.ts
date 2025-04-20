@@ -15,6 +15,7 @@ import type {
   AxInternalChatRequest,
   AxModelConfig,
   AxModelInfo,
+  AxTokenUsage,
 } from '../types.js'
 
 import { axModelInfoReka } from './info.js'
@@ -71,7 +72,13 @@ class AxAIRekaImpl
       unknown
     >
 {
+  private tokensUsed: AxTokenUsage | undefined
+
   constructor(private config: AxAIRekaConfig) {}
+
+  getTokenUsage(): AxTokenUsage | undefined {
+    return this.tokensUsed
+  }
 
   getModelConfig(): AxModelConfig {
     const { config } = this
@@ -129,7 +136,7 @@ class AxAIRekaImpl
   createChatResp = (resp: Readonly<AxAIRekaChatResponse>): AxChatResponse => {
     const { id, usage, responses } = resp
 
-    const modelUsage = usage
+    this.tokensUsed = usage
       ? {
           promptTokens: usage.input_tokens,
           completionTokens: usage.output_tokens,
@@ -153,11 +160,7 @@ class AxAIRekaImpl
       }
     })
 
-    return {
-      modelUsage,
-      results,
-      remoteId: id,
-    }
+    return { results, remoteId: id }
   }
 
   createChatStreamResp = (
@@ -165,7 +168,7 @@ class AxAIRekaImpl
   ): AxChatResponse => {
     const { id, usage, responses } = resp
 
-    const modelUsage = usage
+    this.tokensUsed = usage
       ? {
           promptTokens: usage.input_tokens,
           completionTokens: usage.output_tokens,
@@ -189,10 +192,7 @@ class AxAIRekaImpl
       }
     })
 
-    return {
-      results,
-      modelUsage,
-    }
+    return { results }
   }
 }
 

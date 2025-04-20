@@ -94,19 +94,24 @@ export type AxChatResponseResult = {
     | 'error'
 }
 
+export type AxModelUsage = {
+  ai: string
+  model: string
+  tokens?: AxTokenUsage
+}
+
 export type AxChatResponse = {
   sessionId?: string
   remoteId?: string
   results: readonly AxChatResponseResult[]
-  modelUsage?: AxTokenUsage
-  embedModelUsage?: AxTokenUsage
+  modelUsage?: AxModelUsage
 }
 
 export type AxEmbedResponse = {
   remoteId?: string
   sessionId?: string
   embeddings: readonly (readonly number[])[]
-  modelUsage?: AxTokenUsage
+  modelUsage?: AxModelUsage
 }
 
 export type AxModelInfoWithProvider = AxModelInfo & { provider: string }
@@ -218,7 +223,7 @@ export type AxInternalEmbedRequest<TEmbedModel> = Omit<
 
 export type AxRateLimiterFunction = <T = unknown>(
   reqFunc: () => Promise<T | ReadableStream<T>>,
-  info: Readonly<{ modelUsage?: AxTokenUsage; embedModelUsage?: AxTokenUsage }>
+  info: Readonly<{ modelUsage?: AxModelUsage }>
 ) => Promise<T | ReadableStream<T>>
 
 export type AxAIPromptConfig = {
@@ -249,7 +254,6 @@ export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   getName(): string
   getFeatures(model?: TModel): AxAIFeatures
   getModelList(): AxAIModelList | undefined
-  getDefaultModels(): Readonly<{ model: string; embedModel?: string }>
   getMetrics(): AxAIServiceMetrics
 
   chat(
@@ -295,4 +299,6 @@ export interface AxAIServiceImpl<
   createEmbedResp?(resp: Readonly<TEmbedResponse>): AxEmbedResponse
 
   getModelConfig(): AxModelConfig
+
+  getTokenUsage(): AxTokenUsage | undefined
 }

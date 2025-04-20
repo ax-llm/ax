@@ -10,6 +10,7 @@ import type {
   AxChatResponseResult,
   AxInternalChatRequest,
   AxModelConfig,
+  AxTokenUsage,
 } from '../types.js'
 
 import { axModelInfoAnthropic } from './info.js'
@@ -30,7 +31,13 @@ import {
 
 export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
-    model: AxAIAnthropicModel.Claude35Sonnet,
+    model: AxAIAnthropicModel.Claude37Sonnet,
+    ...axBaseAIDefaultConfig(),
+  })
+
+export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
+  structuredClone({
+    model: AxAIAnthropicVertexModel.Claude37Sonnet,
     ...axBaseAIDefaultConfig(),
   })
 
@@ -59,10 +66,16 @@ class AxAIAnthropicImpl
       unknown
     >
 {
+  private tokensUsed: AxTokenUsage | undefined
+
   constructor(
     private config: AxAIAnthropicConfig,
     private isVertex: boolean
   ) {}
+
+  getTokenUsage(): AxTokenUsage | undefined {
+    return this.tokensUsed
+  }
 
   getModelConfig(): AxModelConfig {
     const { config } = this
@@ -200,17 +213,13 @@ class AxAIAnthropicImpl
       }
     })
 
-    const modelUsage = {
+    this.tokensUsed = {
       promptTokens: resp.usage.input_tokens,
       completionTokens: resp.usage.output_tokens,
       totalTokens: resp.usage.input_tokens + resp.usage.output_tokens,
     }
 
-    return {
-      results,
-      modelUsage,
-      remoteId: resp.id,
-    }
+    return { results, remoteId: resp.id }
   }
 
   createChatStreamResp = (
@@ -237,17 +246,15 @@ class AxAIAnthropicImpl
     if (resp.type === 'message_start') {
       const { message } = resp as unknown as AxAIAnthropicMessageStartEvent
       const results = [{ content: '', id: message.id }]
-      const modelUsage = {
+
+      this.tokensUsed = {
         promptTokens: message.usage?.input_tokens ?? 0,
         completionTokens: message.usage?.output_tokens ?? 0,
         totalTokens:
           (message.usage?.input_tokens ?? 0) +
           (message.usage?.output_tokens ?? 0),
       }
-      return {
-        results,
-        modelUsage,
-      }
+      return { results }
     }
 
     if (resp.type === 'content_block_start') {
@@ -313,19 +320,17 @@ class AxAIAnthropicImpl
 
     if (resp.type === 'message_delta') {
       const { delta, usage } = resp as unknown as AxAIAnthropicMessageDeltaEvent
-      return {
-        results: [
-          {
-            content: '',
-            finishReason: mapFinishReason(delta.stop_reason),
-          },
-        ],
-        modelUsage: {
-          promptTokens: 0,
-          completionTokens: usage.output_tokens,
-          totalTokens: usage.output_tokens,
-        },
+
+      this.tokensUsed = {
+        promptTokens: 0,
+        completionTokens: usage.output_tokens,
+        totalTokens: usage.output_tokens,
       }
+
+      const results = [
+        { content: '', finishReason: mapFinishReason(delta.stop_reason) },
+      ]
+      return { results }
     }
 
     return {

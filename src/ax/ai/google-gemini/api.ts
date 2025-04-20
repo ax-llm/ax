@@ -60,7 +60,7 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
 export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
   structuredClone({
     model: AxAIGoogleGeminiModel.Gemini20Flash,
-    embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
+    embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
     safetySettings,
     ...axBaseAIDefaultConfig(),
   })
@@ -69,7 +69,7 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
     structuredClone({
       model: AxAIGoogleGeminiModel.Gemini20Flash,
-      embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding004,
+      embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
       safetySettings,
       ...axBaseAIDefaultCreativeConfig(),
     })
@@ -106,6 +106,8 @@ class AxAIGoogleGeminiImpl
       AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
     >
 {
+  private tokensUsed: AxTokenUsage | undefined
+
   constructor(
     private config: AxAIGoogleGeminiConfig,
     private isVertex: boolean,
@@ -116,6 +118,10 @@ class AxAIGoogleGeminiImpl
     if (!this.isVertex && this.config.autoTruncate) {
       throw new Error('Auto truncate is not supported for GoogleGemini')
     }
+  }
+
+  getTokenUsage(): AxTokenUsage | undefined {
+    return this.tokensUsed
   }
 
   getModelConfig(): AxModelConfig {
@@ -461,18 +467,14 @@ class AxAIGoogleGeminiImpl
       }
     )
 
-    let modelUsage: AxTokenUsage | undefined
     if (resp.usageMetadata) {
-      modelUsage = {
+      this.tokensUsed = {
         totalTokens: resp.usageMetadata.totalTokenCount,
         promptTokens: resp.usageMetadata.promptTokenCount,
         completionTokens: resp.usageMetadata.candidatesTokenCount,
       }
     }
-    return {
-      results,
-      modelUsage,
-    }
+    return { results }
   }
 
   createChatStreamResp = (

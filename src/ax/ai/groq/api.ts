@@ -68,7 +68,7 @@ export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
     })
 
     const rtFunc: AxRateLimiterFunction = async (func, info) => {
-      const totalTokens = info.modelUsage?.totalTokens || 0
+      const totalTokens = info.modelUsage?.tokens?.totalTokens || 0
       await rt.acquire(totalTokens)
       return await func()
     }
