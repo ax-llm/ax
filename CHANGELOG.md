@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.37](https://github.com/ax-llm/ax/compare/11.0.35...11.0.36) (2025-04-20)
+
+### Bug Fixes
+
+* bug with embed model selection ([7ba9f4d](https://github.com/ax-llm/ax/commit/7ba9f4de5b61877131dc747a97c0b0038883afec))
+## [11.0.36](https://github.com/ax-llm/ax/compare/11.0.35...11.0.36) (2025-04-20)
+
+### Bug Fixes
+
+* various fixes to multiservice router ([16bcd22](https://github.com/ax-llm/ax/commit/16bcd22d2d9a85c77df67d1f462d3382f8a45a6c))
+
 ## [11.0.36](https://github.com/ax-llm/ax/compare/11.0.34...11.0.35) (2025-04-20)
 
 ### Bug Fixes
