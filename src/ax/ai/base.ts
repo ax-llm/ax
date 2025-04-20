@@ -149,7 +149,8 @@ export class AxBaseAI<
     this.id = crypto.randomUUID()
 
     const model = this.getModel(defaults.model) ?? defaults.model
-    const embedModel = this.getEmbedModel(defaults.embedModel)
+    const embedModel =
+      this.getEmbedModel(defaults.embedModel) ?? defaults.embedModel
 
     this.defaults = { model, embedModel }
 
@@ -632,15 +633,7 @@ export class AxBaseAI<
     this.embedModelUsage = res.modelUsage
 
     if (span?.isRecording()) {
-      if (res.modelUsage) {
-        this.embedModelUsage = res.modelUsage
-        span.setAttributes({
-          [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
-            res.modelUsage.tokens?.completionTokens ?? 0,
-          [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
-            res.modelUsage.tokens?.promptTokens,
-        })
-      }
+      setResponseAttr(res, span)
     }
 
     span?.end()
@@ -674,7 +667,10 @@ export class AxBaseAI<
   }
 }
 
-function setResponseAttr(res: Readonly<AxChatResponse>, span: Span) {
+function setResponseAttr(
+  res: Readonly<AxChatResponse | AxEmbedResponse>,
+  span: Span
+) {
   if (res.modelUsage) {
     span.setAttributes({
       [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
