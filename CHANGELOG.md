@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.38](https://github.com/ax-llm/ax/compare/11.0.36...11.0.37) (2025-04-30)
+
+### Bug Fixes
+
+* extended error messages ([140e50c](https://github.com/ax-llm/ax/commit/140e50cb063596d1b673034f8af58c36dad94b9b))
+## [11.0.37](https://github.com/ax-llm/ax/compare/11.0.36...11.0.37) (2025-04-20)
+
+### Bug Fixes
+
+* bug with embed model selection ([7ba9f4d](https://github.com/ax-llm/ax/commit/7ba9f4de5b61877131dc747a97c0b0038883afec))
+
 ## [11.0.37](https://github.com/ax-llm/ax/compare/11.0.35...11.0.36) (2025-04-20)
 
 ### Bug Fixes
