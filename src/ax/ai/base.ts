@@ -79,6 +79,9 @@ export class AxBaseAI<
   private modelUsage?: AxModelUsage
   private embedModelUsage?: AxModelUsage
   private defaults: AxBaseAIArgs<TModel, TEmbedModel>['defaults']
+  private lastUsedModelConfig?: AxModelConfig
+  private lastUsedChatModel?: TModel
+  private lastUsedEmbedModel?: TEmbedModel
 
   protected apiURL: string
   protected name: string
@@ -236,6 +239,18 @@ export class AxBaseAI<
     return typeof this.supportFor === 'function'
       ? this.supportFor(model ?? this.defaults.model)
       : this.supportFor
+  }
+
+  getLastUsedChatModel(): TModel | undefined {
+    return this.lastUsedChatModel
+  }
+
+  getLastUsedEmbedModel(): TEmbedModel | undefined {
+    return this.lastUsedEmbedModel
+  }
+
+  getLastUsedModelConfig(): AxModelConfig | undefined {
+    return this.lastUsedModelConfig
   }
 
   // Method to calculate percentiles
@@ -428,6 +443,10 @@ export class AxBaseAI<
       modelConfig,
     }
 
+    // Store the last used model and config
+    this.lastUsedChatModel = model
+    this.lastUsedModelConfig = modelConfig
+
     const fn = async () => {
       const [apiConfig, reqValue] = this.aiImpl.createChatReq(
         req,
@@ -597,6 +616,9 @@ export class AxBaseAI<
       ...embedReq,
       embedModel,
     }
+
+    // Store the last used embed model
+    this.lastUsedEmbedModel = embedModel
 
     const fn = async () => {
       const [apiConfig, reqValue] = this.aiImpl.createEmbedReq!(req)

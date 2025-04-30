@@ -131,8 +131,21 @@ export class AxAI implements AxAIService {
   getFeatures(model?: string): { functions: boolean; streaming: boolean } {
     return this.ai.getFeatures(model)
   }
-  getModelList(): AxAIModelList | undefined {
+
+  getModelList() {
     return this.ai.getModelList() as AxAIModelList | undefined
+  }
+
+  getLastUsedChatModel() {
+    return this.ai.getLastUsedChatModel()
+  }
+
+  getLastUsedEmbedModel() {
+    return this.ai.getLastUsedEmbedModel()
+  }
+
+  getLastUsedModelConfig() {
+    return this.ai.getLastUsedModelConfig()
   }
 
   getMetrics(): AxAIServiceMetrics {

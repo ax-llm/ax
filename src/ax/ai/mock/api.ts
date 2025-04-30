@@ -11,6 +11,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxModelConfig,
   AxModelInfoWithProvider,
 } from '../types.js'
 
@@ -57,6 +58,15 @@ export class AxMockAIService implements AxAIService {
 
   constructor(private readonly config: AxMockAIServiceConfig = {}) {
     this.config.id = this.config.id ?? crypto.randomUUID()
+  }
+  getLastUsedChatModel(): unknown {
+    throw new Error('Method not implemented.')
+  }
+  getLastUsedEmbedModel(): unknown {
+    throw new Error('Method not implemented.')
+  }
+  getLastUsedModelConfig(): AxModelConfig | undefined {
+    throw new Error('Method not implemented.')
   }
 
   getName(): string {

@@ -21,6 +21,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxModelConfig,
 } from './types.js'
 
 /**
@@ -70,6 +71,15 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
     this.initialBackoffMs = options?.initialBackoffMs ?? 1000
     this.maxBackoffMs = options?.maxBackoffMs ?? 32000
     this.maxRetries = options?.maxRetries ?? 3
+  }
+  getLastUsedChatModel(): unknown {
+    return this.currentService.getLastUsedChatModel()
+  }
+  getLastUsedEmbedModel(): unknown {
+    return this.currentService.getLastUsedEmbedModel()
+  }
+  getLastUsedModelConfig(): AxModelConfig | undefined {
+    return this.currentService.getLastUsedModelConfig()
   }
 
   /**

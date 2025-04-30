@@ -256,6 +256,10 @@ export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   getModelList(): AxAIModelList | undefined
   getMetrics(): AxAIServiceMetrics
 
+  getLastUsedChatModel(): TModel | undefined
+  getLastUsedEmbedModel(): TEmbedModel | undefined
+  getLastUsedModelConfig(): AxModelConfig | undefined
+
   chat(
     req: Readonly<AxChatRequest<TModel>>,
     options?: Readonly<

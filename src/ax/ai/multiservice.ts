@@ -11,17 +11,19 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxModelConfig,
 } from './types.js'
 
-type AxAIServiceListItem = {
+type AxAIServiceListItem<TModel = unknown, TEmbedModel = unknown> = {
   key: string
-  service: AxAIService
+  service: AxAIService<TModel, TEmbedModel>
   description: string
   isInternal?: boolean
 }
 
 export class AxMultiServiceRouter implements AxAIService<string, string> {
   private options?: AxAIServiceOptions
+  private lastUsedService?: AxAIService<string, string>
 
   private services: Map<
     string,
@@ -30,7 +32,7 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
       description: string
       model?: string
       embedModel?: string
-      service: AxAIService
+      service: AxAIService<string, string>
     }
   > = new Map()
   /**
@@ -38,7 +40,12 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * It validates that each service provides a unique set of model keys,
    * then builds a lookup (map) for routing the chat/embed requests.
    */
-  constructor(services: (AxAIServiceListItem | AxAIService)[]) {
+  constructor(
+    services: (
+      | AxAIServiceListItem<string, string>
+      | AxAIService<string, string>
+    )[]
+  ) {
     if (services.length === 0) {
       throw new Error('No AI services provided.')
     }
@@ -56,7 +63,7 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
         const { service, description, isInternal } = item
 
         this.services.set(item.key, {
-          service,
+          service: service as AxAIService<string, string>,
           description,
           isInternal,
         })
@@ -79,13 +86,13 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
             if ('model' in v && typeof v.model) {
               this.services.set(v.key, {
                 description: v.description,
-                service: item,
+                service: item as AxAIService<string, string>,
                 model: v.model,
               })
             } else if ('embedModel' in v && v.embedModel) {
               this.services.set(v.key, {
                 description: v.description,
-                service: item,
+                service: item as AxAIService<string, string>,
                 embedModel: v.embedModel,
               })
             } else {
@@ -97,6 +104,15 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
         }
       }
     }
+  }
+  getLastUsedChatModel(): string | undefined {
+    return this.lastUsedService?.getLastUsedChatModel()
+  }
+  getLastUsedEmbedModel(): string | undefined {
+    return this.lastUsedService?.getLastUsedEmbedModel()
+  }
+  getLastUsedModelConfig(): AxModelConfig | undefined {
+    return this.lastUsedService?.getLastUsedModelConfig()
   }
 
   /**
@@ -117,6 +133,8 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
     if (!item) {
       throw new Error(`No service found for model key: ${modelKey}`)
     }
+
+    this.lastUsedService = item.service
 
     if (!item.model) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -143,6 +161,8 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
     if (!item) {
       throw new Error(`No service found for embed model key: ${embedModelKey}`)
     }
+
+    this.lastUsedService = item.service
 
     if (!item.model) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -216,11 +236,22 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * or falls back to the first service if none has been used.
    */
   getMetrics(): AxAIServiceMetrics {
-    const service = this.services.values().next().value
-    if (!service) {
+    let serviceInstance = this.lastUsedService
+    if (!serviceInstance) {
+      const firstServiceEntry = this.services.values().next().value
+      if (firstServiceEntry) {
+        // Check if it's the service directly or the wrapped object
+        serviceInstance =
+          'service' in firstServiceEntry
+            ? firstServiceEntry.service
+            : firstServiceEntry
+      }
+    }
+
+    if (!serviceInstance) {
       throw new Error('No service available to get metrics.')
     }
-    return service.service.getMetrics()
+    return serviceInstance.getMetrics()
   }
 
   /**

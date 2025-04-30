@@ -9,6 +9,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxModelConfig,
 } from './types.js'
 
 //
@@ -24,6 +25,25 @@ const metrics: AxAIServiceMetrics = {
     chat: { count: 1, rate: 0, total: 1 },
     embed: { count: 1, rate: 0, total: 1 },
   },
+}
+
+type AxAIServiceLastUsed = {
+  chatModel?: string
+  embedModel?: string
+  modelConfig?: AxModelConfig
+}
+
+const testModelConfig: AxModelConfig = {
+  maxTokens: 1000,
+  temperature: 0.5,
+  topP: 0.9,
+  topK: 10,
+  presencePenalty: 0.0,
+  frequencyPenalty: 0.0,
+}
+
+const serviceALastUsed: AxAIServiceLastUsed = {
+  modelConfig: testModelConfig,
 }
 
 const serviceA: AxAIService<string, string> = {
@@ -43,13 +63,23 @@ const serviceA: AxAIService<string, string> = {
     },
   ],
   getMetrics: () => metrics,
-
+  getLastUsedChatModel: function (): string | undefined {
+    return serviceALastUsed.chatModel
+  },
+  getLastUsedEmbedModel: function (): string | undefined {
+    return serviceALastUsed.embedModel
+  },
+  getLastUsedModelConfig: function (): AxModelConfig | undefined {
+    return undefined
+  },
   chat: async (
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
+    serviceALastUsed.chatModel = req.model
     return { results: [{ content: `model ${req.model} from Service A` }] }
   },
   embed: async (): Promise<AxEmbedResponse> => {
+    serviceALastUsed.embedModel = 'test-model'
     return {
       embeddings: [[1, 2, 3]],
       modelUsage: {
@@ -65,6 +95,10 @@ const serviceA: AxAIService<string, string> = {
   },
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'A' }) as AxAIServiceOptions,
+}
+
+const serviceBLastUsed: AxAIServiceLastUsed = {
+  modelConfig: testModelConfig,
 }
 
 const serviceB: AxAIService<string, string> = {
@@ -83,13 +117,24 @@ const serviceB: AxAIService<string, string> = {
       description: 'Second service B model',
     },
   ],
+  getLastUsedChatModel: function (): string | undefined {
+    return serviceBLastUsed.chatModel
+  },
+  getLastUsedEmbedModel: function (): string | undefined {
+    return serviceBLastUsed.embedModel
+  },
+  getLastUsedModelConfig: function (): AxModelConfig | undefined {
+    return serviceBLastUsed.modelConfig
+  },
   getMetrics: () => metrics,
   chat: async (
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
+    serviceBLastUsed.chatModel = req.model
     return { results: [{ content: `model ${req.model} from Service B` }] }
   },
   embed: async (): Promise<AxEmbedResponse> => {
+    serviceBLastUsed.embedModel = 'test-model'
     return {
       embeddings: [[4, 5, 6]],
       modelUsage: {
@@ -134,6 +179,15 @@ const serviceC: AxAIService<string, string> = {
   },
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'C' }) as AxAIServiceOptions,
+  getLastUsedChatModel: function (): string | undefined {
+    return undefined
+  },
+  getLastUsedEmbedModel: function (): string | undefined {
+    return undefined
+  },
+  getLastUsedModelConfig: function (): AxModelConfig | undefined {
+    return undefined
+  },
 }
 
 describe('AxMultiServiceRouter', () => {
@@ -188,6 +242,15 @@ describe('AxMultiServiceRouter', () => {
       setOptions: () => {},
       getOptions: () => ({}),
       getMetrics: () => metrics,
+      getLastUsedChatModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedEmbedModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedModelConfig: function (): AxModelConfig | undefined {
+        return undefined
+      },
     }
     const keyBasedItem = {
       key: 'A',
@@ -219,6 +282,22 @@ describe('AxMultiServiceRouter', () => {
       setOptions: () => {},
       getOptions: () => ({}),
       getMetrics: () => metrics,
+      getLastUsedChatModel: function (): string | undefined {
+        return 'modelB'
+      },
+      getLastUsedEmbedModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedModelConfig: function (): AxModelConfig | undefined {
+        return {
+          maxTokens: 1000,
+          temperature: 0.5,
+          topP: 0.9,
+          topK: 10,
+          presencePenalty: 0.0,
+          frequencyPenalty: 0.0,
+        }
+      },
     }
 
     // Create a router that wraps both services.
@@ -277,6 +356,15 @@ describe('AxMultiServiceRouter', () => {
       setOptions: () => {},
       getOptions: () => ({}),
       getMetrics: () => metrics,
+      getLastUsedChatModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedEmbedModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedModelConfig: function (): AxModelConfig | undefined {
+        return undefined
+      },
     }
     const keyBasedItem = {
       key: 'A',
@@ -300,10 +388,26 @@ describe('AxMultiServiceRouter', () => {
       chat: async () => {
         return { results: [{ content: 'dummy non-key service' }] }
       },
+      getLastUsedChatModel: function (): string | undefined {
+        return 'modelB'
+      },
+      getLastUsedEmbedModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedModelConfig: function (): AxModelConfig | undefined {
+        return {
+          maxTokens: 1000,
+          temperature: 0.5,
+          topP: 0.9,
+          topK: 10,
+          presencePenalty: 0.0,
+          frequencyPenalty: 0.0,
+        }
+      },
+      getMetrics: () => metrics,
       embed: dummyNonKeyServiceEmbed,
       setOptions: () => {},
       getOptions: () => ({}),
-      getMetrics: () => metrics,
     }
 
     // Create a router containing both services.
@@ -376,6 +480,9 @@ describe('AxMultiServiceRouter', () => {
   })
 
   it('aggregates the model list including embedModel entries', () => {
+    const embedOnlyServiceLastUsed: AxAIServiceLastUsed = {
+      modelConfig: testModelConfig,
+    }
     const embedOnlyService: AxAIService<string, string> = {
       getId: () => 'embed-only-service',
       getName: () => 'Embed Only Service',
@@ -391,18 +498,30 @@ describe('AxMultiServiceRouter', () => {
       chat: async () => {
         throw new Error('chat should not be called')
       },
-      embed: async (): Promise<AxEmbedResponse> => ({
-        embeddings: [[42]],
-        modelUsage: {
-          ai: 'test-ai',
-          model: 'test-model',
-          tokens: {
-            promptTokens: 0,
-            completionTokens: 0,
-            totalTokens: 0,
+      embed: async (): Promise<AxEmbedResponse> => {
+        embedOnlyServiceLastUsed.embedModel = 'test-model'
+        return {
+          embeddings: [[42]],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-model',
+            tokens: {
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+            },
           },
-        },
-      }),
+        }
+      },
+      getLastUsedChatModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedEmbedModel: function (): string | undefined {
+        return embedOnlyServiceLastUsed.embedModel
+      },
+      getLastUsedModelConfig: function (): AxModelConfig | undefined {
+        return embedOnlyServiceLastUsed.modelConfig
+      },
       setOptions: () => {},
       getOptions: () => ({}),
     }
@@ -415,9 +534,14 @@ describe('AxMultiServiceRouter', () => {
   })
 
   it('delegates embedModel-only service embed calls stripping embedModel', async () => {
+    const embedOnlyServiceLastUsed: AxAIServiceLastUsed = {
+      modelConfig: testModelConfig,
+    }
     const embedFn = vi.fn(async (req: Readonly<AxEmbedRequest>) => {
+      embedOnlyServiceLastUsed.embedModel = req.embedModel
       return { embeddings: [[req.texts?.length ?? 0]] }
     })
+
     const embedOnlyService2 = {
       getId: () => 'embed-only-service',
       getName: () => 'Embed Only Service',
@@ -429,6 +553,15 @@ describe('AxMultiServiceRouter', () => {
           embedModel: 'modelE',
         },
       ],
+      getLastUsedChatModel: function (): string | undefined {
+        return undefined
+      },
+      getLastUsedEmbedModel: function (): string | undefined {
+        return embedOnlyServiceLastUsed.embedModel
+      },
+      getLastUsedModelConfig: function (): AxModelConfig | undefined {
+        return embedOnlyServiceLastUsed.modelConfig
+      },
       getMetrics: () => metrics,
       chat: async () => {
         throw new Error('chat should not be called')

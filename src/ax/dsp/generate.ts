@@ -372,7 +372,9 @@ export class AxGen<
       }
 
       if (result.finishReason === 'length') {
-        throw new Error('Max tokens reached before completion')
+        throw new Error(
+          `Max tokens reached before completion\nContent: ${content}`
+        )
       }
     }
 
@@ -480,7 +482,9 @@ export class AxGen<
       }
 
       if (result.finishReason === 'length') {
-        throw new Error('Max tokens reached before completion')
+        throw new Error(
+          `Max tokens reached before completion\nContent: ${result.content}`
+        )
       }
     }
 
@@ -571,7 +575,7 @@ export class AxGen<
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
-            throw e
+            throw enhanceError(e, ai)
           }
 
           if (errorFields) {
@@ -589,7 +593,7 @@ export class AxGen<
       throw new Error(`Unable to fix validation error: ${err?.toString()}`)
     }
 
-    throw new Error(`Max steps reached: ${maxSteps}`)
+    throw enhanceError(new Error(`Max steps reached: ${maxSteps}`), ai)
   }
 
   private shouldContinueSteps(
@@ -695,4 +699,21 @@ export class AxGen<
       stream: true,
     })
   }
+}
+
+function enhanceError(e: unknown, ai: Readonly<AxAIService>): Error {
+  const originalError = e instanceof Error ? e : new Error(String(e))
+  const model = ai.getLastUsedChatModel()
+  const modelConfig = ai.getLastUsedModelConfig()
+
+  const details = [
+    `model=${model}`,
+    `maxTokens=${modelConfig?.maxTokens ?? 'N/A'}`,
+    `streaming=${modelConfig?.stream ?? false}`,
+  ].join(', ')
+
+  const enhancedError = new Error()
+  enhancedError.stack = `Generate Failed: ${details}\n${originalError.stack}`
+
+  return enhancedError
 }
