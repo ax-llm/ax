@@ -8,7 +8,6 @@ import type { AxChatResponse } from '../ai/types.js'
 import { AxGen } from './generate.js'
 import type { AxSignature } from './sig.js'
 
-
 function createStreamingResponse(
   chunks: AxChatResponse['results']
 ): ReadableStream<AxChatResponse> {
@@ -334,10 +333,10 @@ it('should yield streaming multi-output fields from streamingForward for a signa
 describe('Error handling in AxGen', () => {
   it('should properly wrap errors with cause mechanism', async () => {
     const signature = 'input:string -> output:string'
-    
+
     // Create AI service that will throw a specific error
     const originalError = new Error('Original test error')
-    
+
     // Create a more complete mock with required methods implemented
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -354,9 +353,9 @@ describe('Error handling in AxGen', () => {
       maxTokens: 1000,
       stream: false,
     })
-    
+
     const gen = new AxGen<{ input: string }, { output: string }>(signature)
-    
+
     try {
       // This should fail and throw an enhanced error
       await gen.forward(ai, { input: 'test' })
@@ -364,22 +363,24 @@ describe('Error handling in AxGen', () => {
       expect('This code should not be reached').toBe(false)
     } catch (error) {
       // Import the AxGenerateError class
-      const { AxGenerateError: generateErrorClass } = await import('./generate.js')
-      
+      const { AxGenerateError: generateErrorClass } = await import(
+        './generate.js'
+      )
+
       // Verify error is an AxGenerateError
       expect(error).toBeInstanceOf(generateErrorClass)
-      
+
       // Verify error has the correct short message
       expect((error as Error).message).toBe('Generate failed')
-      
+
       // Verify error has details object with proper properties
-      const generateError = error as typeof generateErrorClass & { 
-        details: { 
-          model: string, 
-          maxTokens: number, 
-          streaming: boolean, 
-          signature: Readonly<AxSignature> 
-        } 
+      const generateError = error as typeof generateErrorClass & {
+        details: {
+          model: string
+          maxTokens: number
+          streaming: boolean
+          signature: Readonly<AxSignature>
+        }
       }
       expect(generateError.details).toBeDefined()
       expect(generateError.details.model).toBe('test-model')
@@ -388,11 +389,11 @@ describe('Error handling in AxGen', () => {
       expect(generateError.details.signature).toBeDefined()
       // Don't compare directly to the string signature
       expect(typeof generateError.details.signature.toString).toBe('function')
-      
+
       // Verify error has cause property with the original error
       const enhancedError = error as Error & { cause?: unknown }
       expect(enhancedError.cause).toEqual(originalError)
-      
+
       // Verify original error message is preserved in the cause
       if (enhancedError.cause instanceof Error) {
         expect(enhancedError.cause.message).toBe('Original test error')

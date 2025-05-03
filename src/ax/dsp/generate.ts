@@ -710,27 +710,35 @@ export class AxGen<
 }
 
 export type AxGenerateErrorDetails = {
-  model?: string;
-  maxTokens?: number;
-  streaming: boolean;
+  model?: string
+  maxTokens?: number
+  streaming: boolean
   signature: {
-    input: Readonly<AxIField[]>;
-    output: Readonly<AxIField[]>;
-    description?: string;
-  }
-};
-
-export class AxGenerateError extends Error {
-  public readonly details: AxGenerateErrorDetails;
-  
-  constructor(message: string, details: Readonly<AxGenerateErrorDetails>, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'AxGenerateError';
-    this.details = details;
+    input: Readonly<AxIField[]>
+    output: Readonly<AxIField[]>
+    description?: string
   }
 }
 
-function enhanceError(e: unknown, ai: Readonly<AxAIService>, signature: Readonly<AxSignature>): Error {
+export class AxGenerateError extends Error {
+  public readonly details: AxGenerateErrorDetails
+
+  constructor(
+    message: string,
+    details: Readonly<AxGenerateErrorDetails>,
+    options?: ErrorOptions
+  ) {
+    super(message, options)
+    this.name = 'AxGenerateError'
+    this.details = details
+  }
+}
+
+function enhanceError(
+  e: unknown,
+  ai: Readonly<AxAIService>,
+  signature: Readonly<AxSignature>
+): Error {
   const originalError = e instanceof Error ? e : new Error(String(e))
   const model = ai.getLastUsedChatModel() as string | undefined
   const modelConfig = ai.getLastUsedModelConfig()
@@ -743,9 +751,11 @@ function enhanceError(e: unknown, ai: Readonly<AxAIService>, signature: Readonly
       input: signature.getInputFields(),
       output: signature.getOutputFields(),
       description: signature.getDescription(),
-    }
+    },
   }
 
   // Return custom error with short message and details as object property
-  return new AxGenerateError('Generate failed', details, { cause: originalError })
+  return new AxGenerateError('Generate failed', details, {
+    cause: originalError,
+  })
 }
