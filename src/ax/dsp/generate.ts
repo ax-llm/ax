@@ -709,25 +709,43 @@ export class AxGen<
   }
 }
 
-function enhanceError(
-  e: unknown,
-  ai: Readonly<AxAIService>,
-  signature: Readonly<AxSignature>
-): Error {
+export type AxGenerateErrorDetails = {
+  model?: string;
+  maxTokens?: number;
+  streaming: boolean;
+  signature: {
+    input: Readonly<AxIField[]>;
+    output: Readonly<AxIField[]>;
+    description?: string;
+  }
+};
+
+export class AxGenerateError extends Error {
+  public readonly details: AxGenerateErrorDetails;
+  
+  constructor(message: string, details: Readonly<AxGenerateErrorDetails>, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'AxGenerateError';
+    this.details = details;
+  }
+}
+
+function enhanceError(e: unknown, ai: Readonly<AxAIService>, signature: Readonly<AxSignature>): Error {
   const originalError = e instanceof Error ? e : new Error(String(e))
-  const model = ai.getLastUsedChatModel()
+  const model = ai.getLastUsedChatModel() as string | undefined
   const modelConfig = ai.getLastUsedModelConfig()
 
-  const details = [
-    `name=${ai.getName()}`,
-    `model=${model}`,
-    `maxTokens=${modelConfig?.maxTokens ?? 'N/A'}`,
-    `streaming=${modelConfig?.stream ?? false}`,
-  ].join(', ')
+  const details = {
+    model: model,
+    maxTokens: modelConfig?.maxTokens,
+    streaming: modelConfig?.stream ?? false,
+    signature: {
+      input: signature.getInputFields(),
+      output: signature.getOutputFields(),
+      description: signature.getDescription(),
+    }
+  }
 
-  // Wrap the original error as the cause and give our own top-level message
-  return new Error(
-    `Generate Failed:${signature.toString()}\nDetails: ${details}`,
-    { cause: originalError }
-  )
+  // Return custom error with short message and details as object property
+  return new AxGenerateError('Generate failed', details, { cause: originalError })
 }
