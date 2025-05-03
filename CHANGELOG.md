@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.41](https://github.com/ax-llm/ax/compare/11.0.39...11.0.40) (2025-05-03)
+
+### Bug Fixes
+
+* build fix ([eb4b08b](https://github.com/ax-llm/ax/commit/eb4b08bc75b5bdaaf12708d2c48f3f0ece862b3f))
+## [11.0.40](https://github.com/ax-llm/ax/compare/11.0.39...11.0.40) (2025-05-03)
+
+### Features
+
+* new AxGenerateError ([eac0996](https://github.com/ax-llm/ax/commit/eac09967cd683e5e05d47ad38b639abfffbe3fae))
+
 ## [11.0.40](https://github.com/ax-llm/ax/compare/11.0.38...11.0.39) (2025-05-03)
 
 ### Features
