@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.39](https://github.com/ax-llm/ax/compare/11.0.37...11.0.38) (2025-05-03)
+
+### Features
+
+* wrapped errors to add more details ([164bf94](https://github.com/ax-llm/ax/commit/164bf949b490429e7372a4bc40e707bd56f94f9c))
+## [11.0.38](https://github.com/ax-llm/ax/compare/11.0.37...11.0.38) (2025-04-30)
+
+### Bug Fixes
+
+* extended error messages ([140e50c](https://github.com/ax-llm/ax/commit/140e50cb063596d1b673034f8af58c36dad94b9b))
+
 ## [11.0.38](https://github.com/ax-llm/ax/compare/11.0.36...11.0.37) (2025-04-30)
 
 ### Bug Fixes
