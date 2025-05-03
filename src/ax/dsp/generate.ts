@@ -575,7 +575,7 @@ export class AxGen<
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
-            throw enhanceError(e, ai)
+            throw enhanceError(e, ai, this.signature)
           }
 
           if (errorFields) {
@@ -590,10 +590,18 @@ export class AxGen<
         }
       }
 
-      throw new Error(`Unable to fix validation error: ${err?.toString()}`)
+      throw enhanceError(
+        new Error(`Unable to fix validation error: ${err?.toString()}`),
+        ai,
+        this.signature
+      )
     }
 
-    throw enhanceError(new Error(`Max steps reached: ${maxSteps}`), ai)
+    throw enhanceError(
+      new Error(`Max steps reached: ${maxSteps}`),
+      ai,
+      this.signature
+    )
   }
 
   private shouldContinueSteps(
@@ -701,19 +709,25 @@ export class AxGen<
   }
 }
 
-function enhanceError(e: unknown, ai: Readonly<AxAIService>): Error {
+function enhanceError(
+  e: unknown,
+  ai: Readonly<AxAIService>,
+  signature: Readonly<AxSignature>
+): Error {
   const originalError = e instanceof Error ? e : new Error(String(e))
   const model = ai.getLastUsedChatModel()
   const modelConfig = ai.getLastUsedModelConfig()
 
   const details = [
+    `name=${ai.getName()}`,
     `model=${model}`,
     `maxTokens=${modelConfig?.maxTokens ?? 'N/A'}`,
     `streaming=${modelConfig?.stream ?? false}`,
   ].join(', ')
 
-  const enhancedError = new Error()
-  enhancedError.stack = `Generate Failed: ${details}\n${originalError.stack}`
-
-  return enhancedError
+  // Wrap the original error as the cause and give our own top-level message
+  return new Error(
+    `Generate Failed:${signature.toString()}\nDetails: ${details}`,
+    { cause: originalError }
+  )
 }

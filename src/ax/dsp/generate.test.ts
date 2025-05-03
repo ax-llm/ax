@@ -328,3 +328,58 @@ it('should yield streaming multi-output fields from streamingForward for a signa
     { output5: ' wildest dreams.' },
   ])
 })
+
+describe('Error handling in AxGen', () => {
+  it('should properly wrap errors with cause mechanism', async () => {
+    const signature = 'input:string -> output:string'
+
+    // Create AI service that will throw a specific error
+    const originalError = new Error('Original test error')
+
+    // Create a more complete mock with required methods implemented
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      shouldError: true,
+      errorMessage: 'Original test error',
+      chatResponse: async () => {
+        throw originalError
+      },
+    })
+
+    // Override the unimplemented methods that enhanceError uses
+    ai.getLastUsedChatModel = () => 'test-model'
+    ai.getLastUsedModelConfig = () => ({
+      maxTokens: 1000,
+      stream: false,
+    })
+
+    const gen = new AxGen<{ input: string }, { output: string }>(signature)
+
+    try {
+      // This should fail and throw an enhanced error
+      await gen.forward(ai, { input: 'test' })
+      // If we reach here, the test should fail
+      expect('This code should not be reached').toBe(false)
+    } catch (error) {
+      // Verify error is an Error object
+      expect(error).toBeInstanceOf(Error)
+
+      // Verify error message contains the signature
+      expect((error as Error).message).toContain(signature)
+
+      // Verify error message contains the AI details
+      expect((error as Error).message).toContain('Details:')
+      expect((error as Error).message).toContain('name=')
+      expect((error as Error).message).toContain('model=')
+
+      // Verify error has cause property with the original error
+      const enhancedError = error as Error & { cause?: unknown }
+      expect(enhancedError.cause).not.toBeUndefined()
+
+      // Verify original error message is preserved in the cause
+      if (enhancedError.cause instanceof Error) {
+        expect(enhancedError.cause.message).toBe('Original test error')
+      }
+    }
+  })
+})
