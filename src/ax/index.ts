@@ -10,6 +10,7 @@ import {
 import {
   AxAIAnthropic,
   axAIAnthropicDefaultConfig,
+  axAIAnthropicVertexDefaultConfig,
   type AxAIAnthropicArgs
 } from './ai/anthropic/api.js';
 import {
@@ -268,7 +269,9 @@ import {
 } from './dsp/functions.js';
 import {
   AxGen,
+  AxGenerateError,
   type AxGenOptions,
+  type AxGenerateErrorDetails,
   type AxGenerateResult,
   type AxResponseHandlerArgs,
   type AxStreamingEvent
@@ -358,6 +361,7 @@ import {
   type AxModelConfig,
   type AxModelInfo,
   type AxModelInfoWithProvider,
+  type AxModelUsage,
   type AxRateLimiterFunction,
   type AxTokenUsage
 } from './ai/types.js';
@@ -463,6 +467,7 @@ export { AxEvalUtil };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGen };
+export { AxGenerateError };
 export { AxHFDataLoader };
 export { AxInstanceRegistry };
 export { AxJSInterpreter };
@@ -487,6 +492,7 @@ export { AxSpanKindValues };
 export { AxStringUtil };
 export { AxTestPrompt };
 export { axAIAnthropicDefaultConfig };
+export { axAIAnthropicVertexDefaultConfig };
 export { axAIAzureOpenAIBestConfig };
 export { axAIAzureOpenAICreativeConfig };
 export { axAIAzureOpenAIDefaultConfig };
@@ -667,6 +673,7 @@ export type { AxGenIn };
 export type { AxGenOptions };
 export type { AxGenOut };
 export type { AxGenStreamingOut };
+export type { AxGenerateErrorDetails };
 export type { AxGenerateResult };
 export type { AxIField };
 export type { AxInputFunctionType };
@@ -680,6 +687,7 @@ export type { AxMockAIServiceConfig };
 export type { AxModelConfig };
 export type { AxModelInfo };
 export type { AxModelInfoWithProvider };
+export type { AxModelUsage };
 export type { AxOptimizationStats };
 export type { AxOptimizerArgs };
 export type { AxProgramDemos };

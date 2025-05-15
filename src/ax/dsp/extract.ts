@@ -301,7 +301,7 @@ export function* streamValues<OUT>(
       const v = value.slice(s)
       if (v && v.length > 0) {
         yield { [key]: v } as Partial<OUT>
-        xstate.streamedIndex[key] = s + 1
+        xstate.streamedIndex[key] = s + v.length    
       }
       continue
     }
