@@ -235,6 +235,7 @@ export type AxAIServiceOptions = {
   rateLimiter?: AxRateLimiterFunction
   fetch?: typeof fetch
   tracer?: Tracer
+  timeout?: number
 }
 
 export type AxAIServiceActionOptions<
@@ -244,6 +245,7 @@ export type AxAIServiceActionOptions<
   ai?: Readonly<AxAIService<TModel, TEmbedModel>>
   sessionId?: string
   traceId?: string
+  timeout?: number
   rateLimiter?: AxRateLimiterFunction
   debug?: boolean
   debugHideSystemPrompt?: boolean

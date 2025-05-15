@@ -22,6 +22,7 @@ const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
+  options: { timeout: 5000 },
   models: [
     {
       key: 'model-a',

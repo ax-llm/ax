@@ -73,6 +73,7 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter']
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
+  private timeout?: AxAIServiceOptions['timeout']
   private models?: AxAIInputModelList<TModel, TEmbedModel>
 
   private modelInfo: readonly AxModelInfo[]
@@ -192,6 +193,7 @@ export class AxBaseAI<
     this.debug = options.debug ?? false
     this.rt = options.rateLimiter
     this.fetch = options.fetch
+    this.timeout = options.timeout
     this.tracer = options.tracer
   }
 
@@ -459,6 +461,7 @@ export class AxBaseAI<
           url: this.apiURL,
           headers: await this.buildHeaders(apiConfig.headers),
           stream: modelConfig.stream,
+          timeout: this.timeout,
           debug,
           fetch: this.fetch,
           span,
@@ -630,6 +633,7 @@ export class AxBaseAI<
           headers: await this.buildHeaders(apiConfig.headers),
           debug,
           fetch: this.fetch,
+          timeout: this.timeout,
           span,
         },
         reqValue
