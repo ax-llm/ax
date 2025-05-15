@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.42](https://github.com/ax-llm/ax/compare/11.0.40...11.0.41) (2025-05-15)
+
+### Bug Fixes
+
+* Array elements repeating in Gen response, while OK in model response (Gemini) [#193](https://github.com/ax-llm/ax/issues/193) ([94d3d2d](https://github.com/ax-llm/ax/commit/94d3d2d815607bc7a3deb14c0929204c3cdb98f8))
+## [11.0.41](https://github.com/ax-llm/ax/compare/11.0.40...11.0.41) (2025-05-03)
+
+### Bug Fixes
+
+* build fix ([eb4b08b](https://github.com/ax-llm/ax/commit/eb4b08bc75b5bdaaf12708d2c48f3f0ece862b3f))
+
 ## [11.0.41](https://github.com/ax-llm/ax/compare/11.0.39...11.0.40) (2025-05-03)
 
 ### Bug Fixes
