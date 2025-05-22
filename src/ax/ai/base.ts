@@ -530,6 +530,17 @@ export class AxBaseAI<
     const res = this.aiImpl.createChatResp(rv as TChatResponse)
     res.sessionId = options?.sessionId
 
+    if (!res.modelUsage) {
+      const tokenUsage = this.aiImpl.getTokenUsage()
+      if (tokenUsage) {
+        res.modelUsage = {
+          ai: this.name,
+          model: model as string,
+          tokens: tokenUsage,
+        }
+      }
+    }
+
     if (res.modelUsage) {
       this.modelUsage = res.modelUsage
     }
