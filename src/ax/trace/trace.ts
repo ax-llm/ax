@@ -13,6 +13,7 @@ export const axSpanAttributes = {
 
   LLM_USAGE_PROMPT_TOKENS: 'gen_ai.usage.prompt_tokens',
   LLM_USAGE_COMPLETION_TOKENS: 'gen_ai.usage.completion_tokens',
+  LLM_USAGE_TOTAL_TOKENS: 'gen_ai.usage.total_tokens',
 
   // Vector DB
   DB_SYSTEM: 'db.system',

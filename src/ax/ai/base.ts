@@ -498,8 +498,8 @@ export class AxBaseAI<
           }
           this.modelUsage = res.modelUsage
 
-          if (span?.isRecording()) {
-            setResponseAttr(res, span)
+          if (span?.isRecording() && res.modelUsage) {
+            setModelUsageAttr(res.modelUsage, span, true)
           }
 
           if (debug) {
@@ -545,8 +545,8 @@ export class AxBaseAI<
       this.modelUsage = res.modelUsage
     }
 
-    if (span?.isRecording()) {
-      setResponseAttr(res, span)
+    if (span?.isRecording() && res.modelUsage) {
+      setModelUsageAttr(res.modelUsage, span, false)
     }
 
     if (debug) {
@@ -669,8 +669,8 @@ export class AxBaseAI<
     }
     this.embedModelUsage = res.modelUsage
 
-    if (span?.isRecording()) {
-      setResponseAttr(res, span)
+    if (span?.isRecording() && res.modelUsage) {
+      setModelUsageAttr(res.modelUsage, span, false)
     }
 
     span?.end()
@@ -704,17 +704,26 @@ export class AxBaseAI<
   }
 }
 
-function setResponseAttr(
-  res: Readonly<AxChatResponse | AxEmbedResponse>,
-  span: Span
+function setModelUsageAttr(
+  modelUsage: Readonly<AxModelUsage>,
+  span: Span,
+  isStreaming: boolean
 ) {
-  if (res.modelUsage) {
-    span.setAttributes({
-      [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
-        res.modelUsage.tokens?.completionTokens ?? 0,
+  if (modelUsage?.tokens) {
+    const attributes = {
       [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
-        res.modelUsage.tokens?.promptTokens,
-    })
+        modelUsage.tokens.promptTokens,
+      [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
+        modelUsage.tokens.completionTokens ?? 0,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
+        modelUsage.tokens.totalTokens ?? 0,
+    }
+
+    if (isStreaming) {
+      span.addEvent('gen_ai.response.chunk', attributes)
+    } else {
+      span.setAttributes(attributes)
+    }
   }
 }
 
