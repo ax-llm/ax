@@ -14,7 +14,7 @@ import type {
   AxEmbedRequest,
   AxChatResponseResult,
 } from './types.js'
-import { axSpanAttributes } from '../trace/trace.js' // Added import
+import { axSpanAttributes, axSpanEvents } from '../trace/trace.js' // Added import
 
 // Mock OpenTelemetry
 const mockSpan = {
@@ -491,6 +491,190 @@ describe('AxBaseAI', () => {
   })
 })
 
+describe('setResponseAttr', () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let mockSpan: {
+    setAttributes: ReturnType<typeof vi.fn>
+    addEvent: ReturnType<typeof vi.fn>
+    setAttribute: ReturnType<typeof vi.fn>
+  }
+
+  beforeEach(() => {
+    mockSpan = {
+      setAttributes: vi.fn(),
+      addEvent: vi.fn(),
+      setAttribute: vi.fn(),
+    }
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should handle Chat Response (Non-Streaming)', () => {
+    const mockChatResponse: AxChatResponse = {
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+      },
+      results: [{ content: 'Hello' }, { content: 'World' }],
+    }
+    setResponseAttr(mockChatResponse, mockSpan as any, false)
+
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
+    const expectedPayload: Record<string, any> = {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
+      results: JSON.stringify(mockChatResponse.results),
+    }
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(
+      "Response",
+      expectedPayload
+    )
+    expect(mockSpan.setAttributes).not.toHaveBeenCalled()
+    expect(mockSpan.setAttribute).not.toHaveBeenCalled()
+  })
+
+  it('should handle Chat Response (Streaming)', () => {
+    const mockChatResponse: AxChatResponse = {
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+      },
+      results: [{ content: 'Hello' }, { content: 'World' }],
+    }
+    setResponseAttr(mockChatResponse, mockSpan as any, true)
+
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
+    const expectedPayload: Record<string, any> = {
+      input_tokens: 10,
+      output_tokens: 20,
+      results: JSON.stringify(mockChatResponse.results),
+    }
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(
+      "Response Chunk",
+      expectedPayload
+    )
+    expect(mockSpan.setAttributes).not.toHaveBeenCalled()
+    expect(mockSpan.setAttribute).not.toHaveBeenCalled()
+  })
+
+  it('should handle Chat Response (Empty Results, Non-Streaming)', () => {
+    const mockChatResponse: AxChatResponse = {
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+      },
+      results: [],
+    }
+    setResponseAttr(mockChatResponse, mockSpan as any, false)
+
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
+    const expectedPayload: Record<string, any> = {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
+    }
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(
+      "Response",
+      expectedPayload
+    )
+    expect(mockSpan.setAttributes).not.toHaveBeenCalled()
+    expect(mockSpan.setAttribute).not.toHaveBeenCalled()
+  })
+
+  it('should handle Chat Response (Empty Results, Streaming)', () => {
+    const mockChatResponse: AxChatResponse = {
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+      },
+      results: [],
+    }
+    setResponseAttr(mockChatResponse, mockSpan as any, true)
+
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
+    const expectedPayload: Record<string, any> = {
+      input_tokens: 10,
+      output_tokens: 20,
+    }
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(
+      "Response Chunk",
+      expectedPayload
+    )
+    expect(mockSpan.setAttributes).not.toHaveBeenCalled()
+    expect(mockSpan.setAttribute).not.toHaveBeenCalled()
+  })
+
+  it('should handle Embed Response (Non-Streaming)', () => {
+    const mockEmbedResponse: AxEmbedResponse = {
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-embed-model',
+        tokens: { promptTokens: 10, completionTokens: 0, totalTokens: 10 },
+      },
+      embeddings: [[0.1, 0.2, 0.3]],
+    }
+    setResponseAttr(mockEmbedResponse, mockSpan as any, false) // isStreaming is false
+
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
+    const expectedPayload: Record<string, any> = {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 0,
+    }
+    // 'results' key should not be in payload for EmbedResponse
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(
+      "Response",
+      expectedPayload
+    )
+    expect(mockSpan.setAttributes).not.toHaveBeenCalled()
+    expect(mockSpan.setAttribute).not.toHaveBeenCalled()
+  })
+
+  it('should handle Response without Model Usage (Non-Streaming)', () => {
+    const mockChatResponse: AxChatResponse = {
+      results: [{ content: 'Hello' }],
+    }
+    setResponseAttr(mockChatResponse, mockSpan as any, false)
+
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
+    const expectedPayload: Record<string, any> = {
+      results: JSON.stringify(mockChatResponse.results),
+    }
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(
+      "Response",
+      expectedPayload
+    )
+    expect(mockSpan.setAttributes).not.toHaveBeenCalled()
+    expect(mockSpan.setAttribute).not.toHaveBeenCalled()
+  })
+
+  it('should handle Response without Model Usage (Streaming)', () => {
+    const mockChatResponse: AxChatResponse = {
+      results: [{ content: 'Hello' }],
+    }
+    setResponseAttr(mockChatResponse, mockSpan as any, true)
+
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
+    const expectedPayload: Record<string, any> = {
+      results: JSON.stringify(mockChatResponse.results),
+    }
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(
+      "Response Chunk",
+      expectedPayload
+    )
+    expect(mockSpan.setAttributes).not.toHaveBeenCalled()
+    expect(mockSpan.setAttribute).not.toHaveBeenCalled()
+  })
+})
+
 describe('AxBaseAI Tracing with Token Usage', () => {
   let aiService: AxBaseAI<
     string,
@@ -589,10 +773,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).toHaveBeenCalled()
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]
     ).toBe(mockTokenUsage.promptTokens)
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(mockTokenUsage.completionTokens)
   })
 
@@ -618,10 +802,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).not.toHaveBeenCalled()
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]
     ).toBe(serviceProvidedUsage.promptTokens)
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(serviceProvidedUsage.completionTokens)
   })
 
@@ -656,10 +840,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     // for each chunk if modelUsage is not on the chunk.
     expect(mockServiceImpl.getTokenUsage).toHaveBeenCalled()
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]
     ).toBe(mockTokenUsage.promptTokens)
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(mockTokenUsage.completionTokens)
   })
 
@@ -715,10 +899,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     // This test highlights that the service-provided usage on a *delta* is what should be used for attributes.
     expect(mockServiceImpl.getTokenUsage).toHaveBeenCalled() // Still called by RespTransformStream
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]
     ).toBe(serviceProvidedUsage.promptTokens)
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(serviceProvidedUsage.completionTokens)
   })
 
@@ -735,10 +919,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).toHaveBeenCalled()
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]
     ).toBe(embedTokenUsage.promptTokens)
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(embedTokenUsage.completionTokens ?? 0)
   })
 
@@ -762,10 +946,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).not.toHaveBeenCalled()
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]
     ).toBe(serviceProvidedUsage.promptTokens)
     expect(
-      mockSpan.attributes[axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(serviceProvidedUsage.completionTokens ?? 0)
   })
 })

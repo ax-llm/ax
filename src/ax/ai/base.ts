@@ -499,7 +499,7 @@ export class AxBaseAI<
           this.modelUsage = res.modelUsage
 
           if (span?.isRecording()) {
-            setResponseAttr(res, span)
+            setResponseAttr(res, span, true)
           }
 
           if (debug) {
@@ -546,7 +546,7 @@ export class AxBaseAI<
     }
 
     if (span?.isRecording()) {
-      setResponseAttr(res, span)
+      setResponseAttr(res, span, false)
     }
 
     if (debug) {
@@ -670,7 +670,7 @@ export class AxBaseAI<
     this.embedModelUsage = res.modelUsage
 
     if (span?.isRecording()) {
-      setResponseAttr(res, span)
+      setResponseAttr(res, span, false)
     }
 
     span?.end()
@@ -706,15 +706,24 @@ export class AxBaseAI<
 
 function setResponseAttr(
   res: Readonly<AxChatResponse | AxEmbedResponse>,
-  span: Span
+  span: Span,
+  isStreaming: boolean
 ) {
-  if (res.modelUsage) {
-    span.setAttributes({
-      [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
-        res.modelUsage.tokens?.completionTokens ?? 0,
-      [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
-        res.modelUsage.tokens?.promptTokens,
-    })
+  const eventPayload: Record<string, any> = {};
+
+  if (res.modelUsage?.tokens) {
+    eventPayload[axSpanAttributes.LLM_USAGE_INPUT_TOKENS] = res.modelUsage.tokens.promptTokens;
+    eventPayload[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS] = res.modelUsage.tokens.completionTokens ?? 0;
+  }
+
+  if ('results' in res && res.results && res.results.length > 0) {
+    eventPayload['results'] = JSON.stringify(res.results);
+  }
+
+  if (isStreaming) {
+    span.addEvent("Response Chunk", eventPayload);
+  } else {
+    span.addEvent("Response", eventPayload);
   }
 }
 
@@ -732,3 +741,6 @@ function validateModels<TModel, TEmbedModel>(
     keys.add(model.key)
   }
 }
+
+// Export for testing
+export { setResponseAttr }

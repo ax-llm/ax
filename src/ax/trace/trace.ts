@@ -11,8 +11,8 @@ export const axSpanAttributes = {
   LLM_REQUEST_LLM_IS_STREAMING: 'gen_ai.request.llm_is_streaming',
   LLM_REQUEST_TOP_P: 'gen_ai.request.top_p',
 
-  LLM_USAGE_PROMPT_TOKENS: 'gen_ai.usage.prompt_tokens',
-  LLM_USAGE_COMPLETION_TOKENS: 'gen_ai.usage.completion_tokens',
+  LLM_USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
+  LLM_USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens',
 
   // Vector DB
   DB_SYSTEM: 'db.system',
