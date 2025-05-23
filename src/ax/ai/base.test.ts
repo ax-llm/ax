@@ -19,11 +19,15 @@ import { axSpanAttributes, axSpanEvents } from '../trace/trace.js' // Added impo
 // Mock OpenTelemetry
 const mockSpan = {
   attributes: {} as Record<string, any>,
+  mockEvents: [] as { name: string; attributes: Record<string, any> }[],
   setAttribute: vi.fn((key, value) => {
     mockSpan.attributes[key] = value
   }),
   setAttributes: vi.fn((attrs) => {
     Object.assign(mockSpan.attributes, attrs)
+  }),
+  addEvent: vi.fn((name, attributes) => {
+    mockSpan.mockEvents.push({ name, attributes })
   }),
   end: vi.fn(),
   isRecording: vi.fn(() => true),
@@ -38,8 +42,10 @@ const mockTracer = {
     ) => {
       // Reset mockSpan for each new span
       mockSpan.attributes = {}
+      mockSpan.mockEvents = []
       mockSpan.setAttribute.mockClear()
       mockSpan.setAttributes.mockClear()
+      mockSpan.addEvent.mockClear()
       mockSpan.end.mockClear()
       mockSpan.isRecording.mockClear()
       mockSpan.isRecording.mockReturnValue(true)
@@ -778,6 +784,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(
       mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(mockTokenUsage.completionTokens)
+    expect(
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]
+    ).toBe(mockTokenUsage.totalTokens)
+    expect(mockSpan.addEvent).not.toHaveBeenCalled()
   })
 
   test('should add token usage to trace for non-streaming chat (service provides it)', async () => {
@@ -807,14 +817,26 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(
       mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(serviceProvidedUsage.completionTokens)
+    expect(
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]
+    ).toBe(serviceProvidedUsage.totalTokens)
+    expect(mockSpan.addEvent).not.toHaveBeenCalled()
   })
 
   test('should add token usage to trace for streaming chat', async () => {
+    const chunk1Usage: AxTokenUsage = { promptTokens: 10, completionTokens: 5, totalTokens: 15 }
+    const chunk2Usage: AxTokenUsage = { promptTokens: 10, completionTokens: 10, totalTokens: 20 }
+
+    // Mock getTokenUsage to return different values for each call
+    mockServiceImpl.getTokenUsage
+      .mockReturnValueOnce(chunk1Usage)
+      .mockReturnValueOnce(chunk2Usage)
+
     // Mock the stream response to simulate chunks
     const mockStream = new ReadableStream({
       start(controller) {
-        controller.enqueue({ content: 'response chunk 1' })
-        controller.enqueue({ content: 'response chunk 2' })
+        controller.enqueue({ content: 'response chunk 1' }) // Raw chunk from HTTP
+        controller.enqueue({ content: 'response chunk 2' }) // Raw chunk from HTTP
         controller.close()
       },
     })
@@ -832,8 +854,9 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     )) as ReadableStream<AxChatResponse>
 
     const reader = stream.getReader()
-    // eslint-disable-next-line no-empty
-    while (!(await reader.read()).done) {}
+    await reader.read() // Process first chunk
+    await reader.read() // Process second chunk
+    await reader.read() // Process stream close
 
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     // In the current AxBaseAI stream implementation, getTokenUsage is called within the RespTransformStream
@@ -845,31 +868,30 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(
       mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(mockTokenUsage.completionTokens)
+
   })
 
   test('should add token usage to trace for streaming chat (service provides it on delta)', async () => {
-    const serviceProvidedUsage: AxTokenUsage = {
-      promptTokens: 12,
-      completionTokens: 23,
-      totalTokens: 35,
-    }
+    const serviceProvidedUsageChunk1: AxTokenUsage = { promptTokens: 12, completionTokens: 5, totalTokens: 17 }
+    const serviceProvidedUsageChunk2: AxTokenUsage = { promptTokens: 12, completionTokens: 15, totalTokens: 27 }
+
     // Mock createChatStreamResp to include modelUsage
-    mockServiceImpl.createChatStreamResp.mockImplementation(
-      (respDelta: unknown) =>
-        ({
-          results: [respDelta as AxChatResponseResult],
-          modelUsage: {
-            ai: 'mockAI',
-            model: 'test-model',
-            tokens: serviceProvidedUsage,
-          },
-        }) as AxChatResponse
-    )
+    mockServiceImpl.createChatStreamResp
+      .mockImplementationOnce((respDelta: unknown) => ({
+        results: [respDelta as AxChatResponseResult],
+        modelUsage: { ai: 'mockAI', model: 'test-model', tokens: serviceProvidedUsageChunk1 },
+      }))
+      .mockImplementationOnce((respDelta: unknown) => ({
+        results: [respDelta as AxChatResponseResult],
+        modelUsage: { ai: 'mockAI', model: 'test-model', tokens: serviceProvidedUsageChunk2 },
+      }))
+
 
     // Mock the stream response
     const mockStream = new ReadableStream({
       start(controller) {
         controller.enqueue({ content: 'response chunk 1' }) // Simulate a raw chunk from HTTP
+        controller.enqueue({ content: 'response chunk 2' }) // Simulate a raw chunk from HTTP
         controller.close()
       },
     })
@@ -887,8 +909,9 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     )) as ReadableStream<AxChatResponse>
 
     const reader = stream.getReader()
-    // eslint-disable-next-line no-empty
-    while (!(await reader.read()).done) {}
+    await reader.read() // Process first chunk
+    await reader.read() // Process second chunk
+    await reader.read() // Process stream close
 
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     // If service provides it on the delta, getTokenUsage might not be called by the transform stream logic
@@ -904,13 +927,14 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(
       mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(serviceProvidedUsage.completionTokens)
+
   })
 
   test('should add token usage to trace for embed requests (fallback to getTokenUsage)', async () => {
     const embedTokenUsage: AxTokenUsage = {
       promptTokens: 15,
-      completionTokens: 0,
-      totalTokens: 15,
+      completionTokens: 0, // Embeddings usually don't have completion tokens
+      totalTokens: 15, // So total often equals prompt
     }
     mockServiceImpl.getTokenUsage.mockReturnValue(embedTokenUsage) // Specific for embed
 
@@ -924,6 +948,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(
       mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(embedTokenUsage.completionTokens ?? 0)
+    expect(
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]
+    ).toBe(embedTokenUsage.totalTokens)
+    expect(mockSpan.addEvent).not.toHaveBeenCalled()
   })
 
   test('should add token usage to trace for embed requests (service provides it)', async () => {
@@ -951,5 +979,9 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     expect(
       mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]
     ).toBe(serviceProvidedUsage.completionTokens ?? 0)
+    expect(
+      mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]
+    ).toBe(serviceProvidedUsage.totalTokens)
+    expect(mockSpan.addEvent).not.toHaveBeenCalled()
   })
 })
