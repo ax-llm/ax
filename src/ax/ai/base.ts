@@ -498,8 +498,8 @@ export class AxBaseAI<
           }
           this.modelUsage = res.modelUsage
 
-          if (span?.isRecording() && res.modelUsage) {
-            setModelUsageAttr(res.modelUsage, span, true)
+          if (span?.isRecording()) {
+            setResponseAttr(res, span, true)
           }
 
           if (debug) {
@@ -545,8 +545,8 @@ export class AxBaseAI<
       this.modelUsage = res.modelUsage
     }
 
-    if (span?.isRecording() && res.modelUsage) {
-      setModelUsageAttr(res.modelUsage, span, false)
+    if (span?.isRecording()) {
+      setResponseAttr(res, span, false)
     }
 
     if (debug) {
@@ -669,8 +669,8 @@ export class AxBaseAI<
     }
     this.embedModelUsage = res.modelUsage
 
-    if (span?.isRecording() && res.modelUsage) {
-      setModelUsageAttr(res.modelUsage, span, false)
+    if (span?.isRecording()) {
+      setResponseAttr(res, span, false)
     }
 
     span?.end()
@@ -704,26 +704,26 @@ export class AxBaseAI<
   }
 }
 
-function setModelUsageAttr(
-  modelUsage: Readonly<AxModelUsage>,
+function setResponseAttr(
+  res: Readonly<AxChatResponse | AxEmbedResponse>,
   span: Span,
   isStreaming: boolean
 ) {
-  if (modelUsage?.tokens) {
-    const attributes = {
-      [axSpanAttributes.LLM_USAGE_PROMPT_TOKENS]:
-        modelUsage.tokens.promptTokens,
-      [axSpanAttributes.LLM_USAGE_COMPLETION_TOKENS]:
-        modelUsage.tokens.completionTokens ?? 0,
-      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
-        modelUsage.tokens.totalTokens ?? 0,
-    }
+  const eventPayload: Record<string, any> = {};
 
-    if (isStreaming) {
-      span.addEvent('gen_ai.response.chunk', attributes)
-    } else {
-      span.setAttributes(attributes)
-    }
+  if (res.modelUsage?.tokens) {
+    eventPayload[axSpanAttributes.LLM_USAGE_INPUT_TOKENS] = res.modelUsage.tokens.promptTokens;
+    eventPayload[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS] = res.modelUsage.tokens.completionTokens ?? 0;
+  }
+
+  if ('results' in res && res.results && res.results.length > 0) {
+    eventPayload['results'] = JSON.stringify(res.results);
+  }
+
+  if (isStreaming) {
+    span.addEvent("Response Chunk", eventPayload);
+  } else {
+    span.addEvent("Response", eventPayload);
   }
 }
 
@@ -741,3 +741,6 @@ function validateModels<TModel, TEmbedModel>(
     keys.add(model.key)
   }
 }
+
+// Export for testing
+export { setResponseAttr }
