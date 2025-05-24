@@ -69,7 +69,8 @@ export interface AxGenOptions {
   asserts?: AxAssertion[]
   streamingAsserts?: AxStreamingAssertion[]
   fastFail?: boolean
-  excludeContentFromTelemetry?: boolean
+  excludeContentFromTrace?: boolean
+  traceName?: string
 }
 
 export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
@@ -111,7 +112,7 @@ export class AxGen<
   private fieldProcessors: AxFieldProcessor[] = []
   private streamingFieldProcessors: AxFieldProcessor[] = []
   private values: AxGenOut = {}
-  private excludeContentFromTelemetry: boolean = false
+  private excludeContentFromTrace: boolean = false
 
   constructor(
     signature: Readonly<AxSignature | string>,
@@ -126,8 +127,7 @@ export class AxGen<
     )
     this.asserts = this.options?.asserts ?? []
     this.streamingAsserts = this.options?.streamingAsserts ?? []
-    this.excludeContentFromTelemetry =
-      options?.excludeContentFromTelemetry ?? false
+    this.excludeContentFromTrace = options?.excludeContentFromTrace ?? false
     this.usage = []
 
     if (options?.functions) {
@@ -407,7 +407,7 @@ export class AxGen<
         sessionId,
         traceId,
         span,
-        this.excludeContentFromTelemetry
+        this.excludeContentFromTrace
       )
       this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
     } else {
@@ -489,7 +489,7 @@ export class AxGen<
             sessionId,
             traceId,
             span,
-            this.excludeContentFromTelemetry
+            this.excludeContentFromTrace
           )
           this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
         }
@@ -699,7 +699,10 @@ export class AxGen<
       'generate.functions': funcNames ?? '',
     }
 
-    const span = tracer.startSpan('AxGen', {
+    const spanName = this.options?.traceName
+      ? `${this.options.traceName} (AxGen)`
+      : 'AxGen'
+    const span = tracer.startSpan(spanName, {
       kind: SpanKind.SERVER,
       attributes,
     })
@@ -707,13 +710,13 @@ export class AxGen<
     try {
       // Add request event with input values and examples
       const requestEventData: { values?: string; examples?: string } = {}
-      if (!this.excludeContentFromTelemetry) {
+      if (!this.excludeContentFromTrace) {
         requestEventData.values = JSON.stringify(values, null, 2)
         if (this.examples) {
           requestEventData.examples = JSON.stringify(this.examples, null, 2)
         }
       }
-      span.addEvent('request', requestEventData)
+      span.addEvent('forward', requestEventData)
 
       yield* this._forward2(
         ai,
@@ -727,10 +730,10 @@ export class AxGen<
 
       // Add response event with the final values
       const responseEventData: { values?: string } = {}
-      if (!this.excludeContentFromTelemetry) {
+      if (!this.excludeContentFromTrace) {
         responseEventData.values = JSON.stringify(this.values, null, 2)
       }
-      span.addEvent('response', responseEventData)
+      span.addEvent('result', responseEventData)
     } finally {
       span.end()
     }

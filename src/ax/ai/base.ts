@@ -74,7 +74,7 @@ export class AxBaseAI<
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
   private timeout?: AxAIServiceOptions['timeout']
-  private excludeContentFromTelemetry?: boolean
+  private excludeContentFromTrace?: boolean
   private models?: AxAIInputModelList<TModel, TEmbedModel>
 
   private modelInfo: readonly AxModelInfo[]
@@ -196,7 +196,7 @@ export class AxBaseAI<
     this.fetch = options.fetch
     this.timeout = options.timeout
     this.tracer = options.tracer
-    this.excludeContentFromTelemetry = options.excludeContentFromTelemetry
+    this.excludeContentFromTrace = options.excludeContentFromTrace
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -206,7 +206,7 @@ export class AxBaseAI<
       fetch: this.fetch,
       tracer: this.tracer,
       timeout: this.timeout,
-      excludeContentFromTelemetry: this.excludeContentFromTelemetry,
+      excludeContentFromTrace: this.excludeContentFromTrace,
     }
   }
 
@@ -349,7 +349,7 @@ export class AxBaseAI<
 
     if (this.tracer) {
       return await this.tracer?.startActiveSpan(
-        'Chat Request',
+        'AI Chat Request',
         {
           kind: SpanKind.SERVER,
           attributes: {
@@ -458,7 +458,7 @@ export class AxBaseAI<
       )
 
       if (span?.isRecording()) {
-        setRequestEvents(chatReq, span, this.excludeContentFromTelemetry)
+        setRequestEvents(chatReq, span, this.excludeContentFromTrace)
       }
 
       const res = await apiCall(
@@ -505,7 +505,7 @@ export class AxBaseAI<
           this.modelUsage = res.modelUsage
 
           if (span?.isRecording() && res.modelUsage?.tokens) {
-            setChatResponseEvents(res, span, this.excludeContentFromTelemetry)
+            setChatResponseEvents(res, span, this.excludeContentFromTrace)
           }
 
           if (debug) {
@@ -552,7 +552,7 @@ export class AxBaseAI<
     }
 
     if (span?.isRecording()) {
-      setChatResponseEvents(res, span, this.excludeContentFromTelemetry)
+      setChatResponseEvents(res, span, this.excludeContentFromTrace)
     }
 
     if (debug) {
@@ -597,7 +597,7 @@ export class AxBaseAI<
 
     if (this.tracer) {
       await this.tracer?.startActiveSpan(
-        'Embed Request',
+        'AI Embed Request',
         {
           kind: SpanKind.SERVER,
           attributes: {
@@ -721,7 +721,7 @@ export class AxBaseAI<
 export function setRequestEvents(
   req: Readonly<AxChatRequest<unknown>>,
   span: Span,
-  excludeContentFromTelemetry?: boolean
+  excludeContentFromTrace?: boolean
 ): void {
   const userMessages: string[] = []
 
@@ -735,7 +735,7 @@ export function setRequestEvents(
         case 'system':
           if (prompt.content) {
             const eventData: { content?: string } = {}
-            if (!excludeContentFromTelemetry) {
+            if (!excludeContentFromTrace) {
               eventData.content = prompt.content
             }
             span.addEvent(axSpanEvents.GEN_AI_SYSTEM_MESSAGE, eventData)
@@ -766,13 +766,13 @@ export function setRequestEvents(
             const eventData: { content?: string; function_calls: string } = {
               function_calls: JSON.stringify(functionCalls, null, 2),
             }
-            if (!excludeContentFromTelemetry && prompt.content) {
+            if (!excludeContentFromTrace && prompt.content) {
               eventData.content = prompt.content
             }
             span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData)
           } else if (prompt.content) {
             const eventData: { content?: string } = {}
-            if (!excludeContentFromTelemetry) {
+            if (!excludeContentFromTrace) {
               eventData.content = prompt.content
             }
             span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData)
@@ -783,7 +783,7 @@ export function setRequestEvents(
           const eventData: { content?: string; id: string } = {
             id: prompt.functionId,
           }
-          if (!excludeContentFromTelemetry) {
+          if (!excludeContentFromTrace) {
             eventData.content = prompt.result
           }
           span.addEvent(axSpanEvents.GEN_AI_TOOL_MESSAGE, eventData)
@@ -794,7 +794,7 @@ export function setRequestEvents(
 
   // Always add user message event, even if empty
   const userEventData: { content?: string } = {}
-  if (!excludeContentFromTelemetry) {
+  if (!excludeContentFromTrace) {
     userEventData.content = userMessages.join('\n')
   }
   span.addEvent(axSpanEvents.GEN_AI_USER_MESSAGE, userEventData)
@@ -803,7 +803,7 @@ export function setRequestEvents(
 export function setChatResponseEvents(
   res: Readonly<AxChatResponse>,
   span: Span,
-  excludeContentFromTelemetry?: boolean
+  excludeContentFromTrace?: boolean
 ) {
   if (res.modelUsage?.tokens) {
     span.setAttributes({
@@ -833,12 +833,12 @@ export function setChatResponseEvents(
     let message: { content?: string; tool_calls?: unknown[] } = {}
 
     if (toolCalls && toolCalls.length > 0) {
-      if (!excludeContentFromTelemetry) {
+      if (!excludeContentFromTrace) {
         message.content = result.content
       }
       message.tool_calls = toolCalls
     } else {
-      if (!excludeContentFromTelemetry) {
+      if (!excludeContentFromTrace) {
         message.content = result.content ?? ''
       }
     }
