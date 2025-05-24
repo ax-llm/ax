@@ -219,7 +219,9 @@ export const processFunctions = async (
   functionCalls: readonly AxChatResponseFunctionCall[],
   mem: Readonly<AxMemory>,
   sessionId?: string,
-  traceId?: string
+  traceId?: string,
+  span?: import('@opentelemetry/api').Span,
+  excludeContentFromTelemetry?: boolean
 ) => {
   const funcProc = new AxFunctionProcessor(functionList)
   const functionsExecuted = new Set<string>()
@@ -235,6 +237,18 @@ export const processFunctions = async (
       .then((functionResult) => {
         functionsExecuted.add(func.name.toLowerCase())
 
+        // Add telemetry event for successful function call
+        if (span) {
+          const eventData: { name: string; args?: string; result?: string } = {
+            name: func.name,
+          }
+          if (!excludeContentFromTelemetry) {
+            eventData.args = func.args
+            eventData.result = functionResult ?? ''
+          }
+          span.addEvent('function.call', eventData)
+        }
+
         return {
           role: 'function' as const,
           result: functionResult ?? '',
@@ -244,6 +258,25 @@ export const processFunctions = async (
       .catch((e) => {
         if (e instanceof FunctionError) {
           const result = e.getFixingInstructions()
+
+          // Add telemetry event for function error
+          if (span) {
+            const errorEventData: {
+              name: string
+              args?: string
+              message: string
+              fixing_instructions?: string
+            } = {
+              name: func.name,
+              message: e.toString(),
+            }
+            if (!excludeContentFromTelemetry) {
+              errorEventData.args = func.args
+              errorEventData.fixing_instructions = result
+            }
+            span.addEvent('function.error', errorEventData)
+          }
+
           mem.add(
             {
               role: 'function' as const,

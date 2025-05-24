@@ -69,6 +69,7 @@ export interface AxGenOptions {
   asserts?: AxAssertion[]
   streamingAsserts?: AxStreamingAssertion[]
   fastFail?: boolean
+  excludeContentFromTelemetry?: boolean
 }
 
 export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
@@ -84,6 +85,7 @@ export interface AxResponseHandlerArgs<T> {
   traceId?: string
   functions?: Readonly<AxFunction[]>
   fastFail?: boolean
+  span?: Span
 }
 
 export interface AxStreamingEvent<T> {
@@ -108,6 +110,8 @@ export class AxGen<
   private functionsExecuted: Set<string> = new Set<string>()
   private fieldProcessors: AxFieldProcessor[] = []
   private streamingFieldProcessors: AxFieldProcessor[] = []
+  private values: AxGenOut = {}
+  private excludeContentFromTelemetry: boolean = false
 
   constructor(
     signature: Readonly<AxSignature | string>,
@@ -122,6 +126,8 @@ export class AxGen<
     )
     this.asserts = this.options?.asserts ?? []
     this.streamingAsserts = this.options?.streamingAsserts ?? []
+    this.excludeContentFromTelemetry =
+      options?.excludeContentFromTelemetry ?? false
     this.usage = []
 
     if (options?.functions) {
@@ -240,10 +246,12 @@ export class AxGen<
     ai,
     mem,
     options,
+    span,
   }: Readonly<{
     ai: Readonly<AxAIService>
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
+    span?: Span
   }>) {
     const { sessionId, traceId, functions: _functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
@@ -271,6 +279,7 @@ export class AxGen<
         sessionId,
         functions,
         fastFail,
+        span,
       })
     } else {
       yield await this.processResponse({
@@ -281,6 +290,7 @@ export class AxGen<
         traceId,
         sessionId,
         functions,
+        span,
       })
     }
   }
@@ -294,11 +304,12 @@ export class AxGen<
     traceId,
     functions,
     fastFail,
+    span,
   }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
     const streamingValidation =
       fastFail ?? ai.getFeatures(model).functionCot !== true
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
-    const values = {}
+    this.values = {}
     const xstate: extractionState = {
       extractedFields: [],
       streamedIndex: {},
@@ -337,7 +348,7 @@ export class AxGen<
 
         const skip = streamingExtractValues(
           this.signature,
-          values,
+          this.values,
           xstate,
           content,
           streamingValidation
@@ -361,14 +372,19 @@ export class AxGen<
             content,
             xstate,
             mem,
-            values,
+            this.values,
             sessionId
           )
         }
 
-        yield* streamValues<OUT>(this.signature, content, values, xstate)
+        yield* streamValues<OUT>(
+          this.signature,
+          content,
+          this.values as Record<string, OUT>,
+          xstate
+        )
 
-        await assertAssertions(this.asserts, values)
+        await assertAssertions(this.asserts, this.values)
       }
 
       if (result.finishReason === 'length') {
@@ -378,7 +394,7 @@ export class AxGen<
       }
     }
 
-    const funcs = parseFunctionCalls(ai, functionCalls, values, model)
+    const funcs = parseFunctionCalls(ai, functionCalls, this.values, model)
     if (funcs) {
       if (!functions) {
         throw new Error('Functions are not defined')
@@ -389,11 +405,13 @@ export class AxGen<
         funcs,
         mem,
         sessionId,
-        traceId
+        traceId,
+        span,
+        this.excludeContentFromTelemetry
       )
       this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
     } else {
-      streamingExtractFinalValue(this.signature, values, xstate, content)
+      streamingExtractFinalValue(this.signature, this.values, xstate, content)
 
       await assertStreamingAssertions(
         this.streamingAsserts,
@@ -401,12 +419,12 @@ export class AxGen<
         content,
         true
       )
-      await assertAssertions(this.asserts, values)
+      await assertAssertions(this.asserts, this.values)
 
       if (this.fieldProcessors.length) {
         await processFieldProcessors(
           this.fieldProcessors,
-          values,
+          this.values,
           mem,
           sessionId
         )
@@ -418,13 +436,18 @@ export class AxGen<
           content,
           xstate,
           mem,
-          values,
+          this.values,
           sessionId,
           true
         )
       }
 
-      yield* streamValues<OUT>(this.signature, content, values, xstate)
+      yield* streamValues<OUT>(
+        this.signature,
+        content,
+        this.values as Record<string, OUT>,
+        xstate
+      )
     }
   }
 
@@ -435,8 +458,9 @@ export class AxGen<
     sessionId,
     traceId,
     functions,
+    span,
   }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
-    const values = {}
+    this.values = {}
 
     let results = res.results ?? []
 
@@ -452,7 +476,7 @@ export class AxGen<
       mem.addResult(result, sessionId)
 
       if (result.functionCalls?.length) {
-        const funcs = parseFunctionCalls(ai, result.functionCalls, values)
+        const funcs = parseFunctionCalls(ai, result.functionCalls, this.values)
         if (funcs) {
           if (!functions) {
             throw new Error('Functions are not defined')
@@ -463,18 +487,20 @@ export class AxGen<
             funcs,
             mem,
             sessionId,
-            traceId
+            traceId,
+            span,
+            this.excludeContentFromTelemetry
           )
           this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
         }
       } else if (result.content) {
-        extractValues(this.signature, values, result.content)
-        await assertAssertions(this.asserts, values)
+        extractValues(this.signature, this.values, result.content)
+        await assertAssertions(this.asserts, this.values)
 
         if (this.fieldProcessors.length) {
           await processFieldProcessors(
             this.fieldProcessors,
-            values,
+            this.values,
             mem,
             sessionId
           )
@@ -489,14 +515,14 @@ export class AxGen<
     }
 
     // Strip out values whose signature fields have isInternal: true
-    const publicValues: AxGenOut = { ...values }
+    const publicValues: AxGenOut = { ...this.values }
     for (const field of this.signature.getOutputFields()) {
       if (field.isInternal) {
         delete publicValues[field.name]
       }
     }
 
-    return { ...values } as unknown as OUT
+    return { ...this.values } as unknown as OUT
   }
 
   private async *_forward2(
@@ -538,7 +564,7 @@ export class AxGen<
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       for (let errCount = 0; errCount < maxRetries; errCount++) {
         try {
-          const generator = this.forwardCore({ options, ai, mem })
+          const generator = this.forwardCore({ options, ai, mem, span })
           for await (const delta of generator) {
             if (delta !== undefined) {
               yield { version: errCount, delta }
@@ -568,10 +594,28 @@ export class AxGen<
           if (e instanceof ValidationError) {
             errorFields = e.getFixingInstructions()
             err = e
+
+            // Add telemetry event for validation error
+            if (span) {
+              span.addEvent('validation.error', {
+                message: e.toString(),
+                fixing_instructions:
+                  errorFields?.map((f) => f.title).join(', ') ?? '',
+              })
+            }
           } else if (e instanceof AxAssertionError) {
             const e1 = e as AxAssertionError
             errorFields = e1.getFixingInstructions()
             err = e
+
+            // Add telemetry event for assertion error
+            if (span) {
+              span.addEvent('assertion.error', {
+                message: e1.toString(),
+                fixing_instructions:
+                  errorFields?.map((f) => f.title).join(', ') ?? '',
+              })
+            }
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
@@ -655,12 +699,22 @@ export class AxGen<
       'generate.functions': funcNames ?? '',
     }
 
-    const span = tracer.startSpan('Generate', {
+    const span = tracer.startSpan('AxGen', {
       kind: SpanKind.SERVER,
       attributes,
     })
 
     try {
+      // Add request event with input values and examples
+      const requestEventData: { values?: string; examples?: string } = {}
+      if (!this.excludeContentFromTelemetry) {
+        requestEventData.values = JSON.stringify(values, null, 2)
+        if (this.examples) {
+          requestEventData.examples = JSON.stringify(this.examples, null, 2)
+        }
+      }
+      span.addEvent('request', requestEventData)
+
       yield* this._forward2(
         ai,
         values,
@@ -670,6 +724,13 @@ export class AxGen<
         },
         span
       )
+
+      // Add response event with the final values
+      const responseEventData: { values?: string } = {}
+      if (!this.excludeContentFromTelemetry) {
+        responseEventData.values = JSON.stringify(this.values, null, 2)
+      }
+      span.addEvent('response', responseEventData)
     } finally {
       span.end()
     }
