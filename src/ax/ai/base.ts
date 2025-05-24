@@ -2,7 +2,7 @@ import type { ReadableStream } from 'stream/web'
 
 import { type Span, SpanKind } from '@opentelemetry/api'
 
-import { axSpanAttributes } from '../trace/trace.js'
+import { axSpanAttributes, axSpanEvents } from '../trace/trace.js'
 import { apiCall } from '../util/apicall.js'
 import { RespTransformStream } from '../util/transform.js'
 
@@ -74,6 +74,7 @@ export class AxBaseAI<
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
   private timeout?: AxAIServiceOptions['timeout']
+  private excludeContentFromTelemetry?: boolean
   private models?: AxAIInputModelList<TModel, TEmbedModel>
 
   private modelInfo: readonly AxModelInfo[]
@@ -195,6 +196,7 @@ export class AxBaseAI<
     this.fetch = options.fetch
     this.timeout = options.timeout
     this.tracer = options.tracer
+    this.excludeContentFromTelemetry = options.excludeContentFromTelemetry
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -203,6 +205,8 @@ export class AxBaseAI<
       rateLimiter: this.rt,
       fetch: this.fetch,
       tracer: this.tracer,
+      timeout: this.timeout,
+      excludeContentFromTelemetry: this.excludeContentFromTelemetry,
     }
   }
 
@@ -350,6 +354,7 @@ export class AxBaseAI<
           kind: SpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
+            [axSpanAttributes.LLM_OPERATION_NAME]: 'chat',
             [axSpanAttributes.LLM_REQUEST_MODEL]: model as string,
             [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: modelConfig.maxTokens,
             [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: modelConfig.temperature,
@@ -362,9 +367,6 @@ export class AxBaseAI<
             [axSpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
               modelConfig.stopSequences?.join(', '),
             [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream,
-            // [AxSpanAttributes.LLM_PROMPTS]: _req.chatPrompt
-            //   ?.map((v) => v.content)
-            //   .join('\n')
           },
         },
         async (span) => {
@@ -455,6 +457,10 @@ export class AxBaseAI<
         options as AxAIPromptConfig
       )
 
+      if (span?.isRecording()) {
+        setRequestEvents(chatReq, span, this.excludeContentFromTelemetry)
+      }
+
       const res = await apiCall(
         {
           name: apiConfig.name,
@@ -498,8 +504,8 @@ export class AxBaseAI<
           }
           this.modelUsage = res.modelUsage
 
-          if (span?.isRecording()) {
-            setResponseAttr(res, span, true)
+          if (span?.isRecording() && res.modelUsage?.tokens) {
+            setChatResponseEvents(res, span, this.excludeContentFromTelemetry)
           }
 
           if (debug) {
@@ -546,7 +552,7 @@ export class AxBaseAI<
     }
 
     if (span?.isRecording()) {
-      setResponseAttr(res, span, false)
+      setChatResponseEvents(res, span, this.excludeContentFromTelemetry)
     }
 
     if (debug) {
@@ -596,6 +602,7 @@ export class AxBaseAI<
           kind: SpanKind.SERVER,
           attributes: {
             [axSpanAttributes.LLM_SYSTEM]: this.name,
+            [axSpanAttributes.LLM_OPERATION_NAME]: 'embeddings',
             [axSpanAttributes.LLM_REQUEST_MODEL]: embedModel as string,
           },
         },
@@ -669,8 +676,15 @@ export class AxBaseAI<
     }
     this.embedModelUsage = res.modelUsage
 
-    if (span?.isRecording()) {
-      setResponseAttr(res, span, false)
+    if (span?.isRecording() && res.modelUsage?.tokens) {
+      span.setAttributes({
+        [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
+          res.modelUsage.tokens.promptTokens,
+        [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+          res.modelUsage.tokens.completionTokens ?? 0,
+        [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
+          res.modelUsage.tokens.totalTokens,
+      })
     }
 
     span?.end()
@@ -704,26 +718,136 @@ export class AxBaseAI<
   }
 }
 
-function setResponseAttr(
-  res: Readonly<AxChatResponse | AxEmbedResponse>,
+export function setRequestEvents(
+  req: Readonly<AxChatRequest<unknown>>,
   span: Span,
-  isStreaming: boolean
+  excludeContentFromTelemetry?: boolean
+): void {
+  const userMessages: string[] = []
+
+  if (
+    req.chatPrompt &&
+    Array.isArray(req.chatPrompt) &&
+    req.chatPrompt.length > 0
+  ) {
+    for (const prompt of req.chatPrompt) {
+      switch (prompt.role) {
+        case 'system':
+          if (prompt.content) {
+            const eventData: { content?: string } = {}
+            if (!excludeContentFromTelemetry) {
+              eventData.content = prompt.content
+            }
+            span.addEvent(axSpanEvents.GEN_AI_SYSTEM_MESSAGE, eventData)
+          }
+          break
+        case 'user':
+          if (typeof prompt.content === 'string') {
+            userMessages.push(prompt.content)
+          } else if (Array.isArray(prompt.content)) {
+            for (const part of prompt.content) {
+              if (part.type === 'text') {
+                userMessages.push(part.text)
+              }
+            }
+          }
+          break
+        case 'assistant':
+          const functionCalls = prompt.functionCalls?.map((call) => {
+            return {
+              id: call.id,
+              type: call.type,
+              function: call.function.name,
+              arguments: call.function.params,
+            }
+          })
+
+          if (functionCalls && functionCalls.length > 0) {
+            const eventData: { content?: string; function_calls: string } = {
+              function_calls: JSON.stringify(functionCalls, null, 2),
+            }
+            if (!excludeContentFromTelemetry && prompt.content) {
+              eventData.content = prompt.content
+            }
+            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData)
+          } else if (prompt.content) {
+            const eventData: { content?: string } = {}
+            if (!excludeContentFromTelemetry) {
+              eventData.content = prompt.content
+            }
+            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData)
+          }
+          break
+
+        case 'function':
+          const eventData: { content?: string; id: string } = {
+            id: prompt.functionId,
+          }
+          if (!excludeContentFromTelemetry) {
+            eventData.content = prompt.result
+          }
+          span.addEvent(axSpanEvents.GEN_AI_TOOL_MESSAGE, eventData)
+          break
+      }
+    }
+  }
+
+  // Always add user message event, even if empty
+  const userEventData: { content?: string } = {}
+  if (!excludeContentFromTelemetry) {
+    userEventData.content = userMessages.join('\n')
+  }
+  span.addEvent(axSpanEvents.GEN_AI_USER_MESSAGE, userEventData)
+}
+
+export function setChatResponseEvents(
+  res: Readonly<AxChatResponse>,
+  span: Span,
+  excludeContentFromTelemetry?: boolean
 ) {
-  const eventPayload: Record<string, any> = {};
-
   if (res.modelUsage?.tokens) {
-    eventPayload[axSpanAttributes.LLM_USAGE_INPUT_TOKENS] = res.modelUsage.tokens.promptTokens;
-    eventPayload[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS] = res.modelUsage.tokens.completionTokens ?? 0;
+    span.setAttributes({
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
+        res.modelUsage.tokens.promptTokens,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+        res.modelUsage.tokens.completionTokens ?? 0,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
+        res.modelUsage.tokens.totalTokens,
+    })
   }
 
-  if ('results' in res && res.results && res.results.length > 0) {
-    eventPayload['results'] = JSON.stringify(res.results);
+  if (!res.results || res.results.length === 0) {
+    return
   }
 
-  if (isStreaming) {
-    span.addEvent("Response Chunk", eventPayload);
-  } else {
-    span.addEvent("Response", eventPayload);
+  for (const [index, result] of res.results.entries()) {
+    const toolCalls = result.functionCalls?.map((call) => {
+      return {
+        id: call.id,
+        type: call.type,
+        function: call.function.name,
+        arguments: call.function.params,
+      }
+    })
+
+    let message: { content?: string; tool_calls?: unknown[] } = {}
+
+    if (toolCalls && toolCalls.length > 0) {
+      if (!excludeContentFromTelemetry) {
+        message.content = result.content
+      }
+      message.tool_calls = toolCalls
+    } else {
+      if (!excludeContentFromTelemetry) {
+        message.content = result.content ?? ''
+      }
+    }
+
+    span.addEvent(axSpanEvents.GEN_AI_CHOICE, {
+      finish_reason: result.finishReason,
+      index,
+      message: JSON.stringify(message, null, 2),
+    })
   }
 }
 
@@ -741,6 +865,3 @@ function validateModels<TModel, TEmbedModel>(
     keys.add(model.key)
   }
 }
-
-// Export for testing
-export { setResponseAttr }

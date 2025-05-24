@@ -236,6 +236,7 @@ export type AxAIServiceOptions = {
   fetch?: typeof fetch
   tracer?: Tracer
   timeout?: number
+  excludeContentFromTelemetry?: boolean
 }
 
 export type AxAIServiceActionOptions<
