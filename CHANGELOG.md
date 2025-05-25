@@ -1,5 +1,20 @@
 # Changelog
 
+## [11.0.44](https://github.com/ax-llm/ax/compare/11.0.42...11.0.43) (2025-05-25)
+
+### Features
+
+* Introduce thought handling and enhance thinking configuration ([8c9c8c4](https://github.com/ax-llm/ax/commit/8c9c8c443d23b70a04e6c7578d29aff7277a9d84))
+## [11.0.43](https://github.com/ax-llm/ax/compare/11.0.42...11.0.43) (2025-05-25)
+
+### Features
+
+* Enhance OpenTelemetry integration and introduce thinking token budget ([a8a08dc](https://github.com/ax-llm/ax/commit/a8a08dc2525dd1dbe02e5dc964aefcebcf24a185))
+
+### Bug Fixes
+
+* Ensure token usage is consistently included in traces ([#207](https://github.com/ax-llm/ax/issues/207)) ([9721640](https://github.com/ax-llm/ax/commit/97216403626ca84c3afc1eb2522cac0261d183e9))
+
 ## [11.0.43](https://github.com/ax-llm/ax/compare/11.0.41...11.0.42) (2025-05-25)
 
 ### Features
