@@ -44,6 +44,13 @@ const classifier = new AxGen<
    confidence:number "Confidence score between 0 and 1"`
 )
 
+classifier.setExamples([
+    {  textToClassify: 'Apple', category: 'business', confidence: 0.95 }, 
+    { textToClassify: 'The latest AI breakthrough enables robots to learn', category: 'technology', confidence: 0.90 },
+    { textToClassify: 'Politics', category: 'politics', confidence: 0.80 },
+    { textToClassify: 'Entertainment', category: 'entertainment', confidence: 0.75 }
+])
+
 // Initialize AI with tracer
 const ai = new AxAI({
   name: 'google-gemini',
@@ -64,7 +71,7 @@ async function main() {
 
   try {
     for (const textToClassify of texts) {
-      const result = await classifier.forward(ai, { textToClassify }, { tracer })
+      const result = await classifier.forward(ai, { textToClassify }, { tracer, traceLabel: "Classifier" })
     
       console.log('Text:', textToClassify)
       console.log('Classification:', result)

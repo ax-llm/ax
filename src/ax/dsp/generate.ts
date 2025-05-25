@@ -70,7 +70,7 @@ export interface AxGenOptions {
   streamingAsserts?: AxStreamingAssertion[]
   fastFail?: boolean
   excludeContentFromTrace?: boolean
-  traceName?: string
+  traceLabel?: string
 }
 
 export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
@@ -698,7 +698,8 @@ export class AxGen<
 
     const attributes = {
       signature: JSON.stringify(this.signature.toJSON(), null, 2),
-      provided_functions: funcNames ?? '',
+      ...(this.examples ? { examples: JSON.stringify(this.examples, null, 2) } : {}),
+      ...(funcNames ? { provided_functions: funcNames } : {}),
       ...(options?.model ? { model: options.model } : {}),
       ...(options?.thinkingTokenBudget
         ? { thinking_token_budget: options.thinkingTokenBudget }
@@ -708,24 +709,18 @@ export class AxGen<
       ...(options?.fastFail ? { fast_fail: options.fastFail } : {}),
     }
 
-    const spanName = this.options?.traceName
-      ? `${this.options.traceName} (AxGen)`
-      : 'AxGen'
+    const traceLabel = options.traceLabel ?? this.options?.traceLabel
+    const spanName = traceLabel ? `${traceLabel} (AxGen)`: 'AxGen'
+
     const span = tracer.startSpan(spanName, {
       kind: SpanKind.SERVER,
       attributes,
     })
 
     try {
-      // Add request event with input values and examples
-      const requestEventData: { values?: string; examples?: string } = {}
       if (!this.excludeContentFromTrace) {
-        requestEventData.values = JSON.stringify(values, null, 2)
-        if (this.examples) {
-          requestEventData.examples = JSON.stringify(this.examples, null, 2)
-        }
+        span.addEvent('inputs', { content: JSON.stringify(values, null, 2) })
       }
-      span.addEvent('forward', requestEventData)
 
       yield* this._forward2(
         ai,
@@ -737,12 +732,9 @@ export class AxGen<
         span
       )
 
-      // Add response event with the final values
-      const responseEventData: { values?: string } = {}
       if (!this.excludeContentFromTrace) {
-        responseEventData.values = JSON.stringify(this.values, null, 2)
+        span.addEvent('outputs', { content: JSON.stringify(this.values, null, 2) })
       }
-      span.addEvent('result', responseEventData)
     } finally {
       span.end()
     }

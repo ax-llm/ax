@@ -64,6 +64,7 @@ export type AxProgramForwardOptions = {
   debug?: boolean
   debugHideSystemPrompt?: boolean
   thinkingTokenBudget?: number
+  traceLabel?: string
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

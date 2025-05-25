@@ -1,5 +1,20 @@
 # Changelog
 
+## [11.0.43](https://github.com/ax-llm/ax/compare/11.0.41...11.0.42) (2025-05-25)
+
+### Features
+
+* Enhance OpenTelemetry integration and introduce thinking token budget ([a8a08dc](https://github.com/ax-llm/ax/commit/a8a08dc2525dd1dbe02e5dc964aefcebcf24a185))
+
+### Bug Fixes
+
+* Ensure token usage is consistently included in traces ([#207](https://github.com/ax-llm/ax/issues/207)) ([9721640](https://github.com/ax-llm/ax/commit/97216403626ca84c3afc1eb2522cac0261d183e9))
+## [11.0.42](https://github.com/ax-llm/ax/compare/11.0.41...11.0.42) (2025-05-15)
+
+### Bug Fixes
+
+* Array elements repeating in Gen response, while OK in model response (Gemini) [#193](https://github.com/ax-llm/ax/issues/193) ([94d3d2d](https://github.com/ax-llm/ax/commit/94d3d2d815607bc7a3deb14c0929204c3cdb98f8))
+
 ## [11.0.42](https://github.com/ax-llm/ax/compare/11.0.40...11.0.41) (2025-05-15)
 
 ### Bug Fixes

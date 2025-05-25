@@ -213,6 +213,7 @@ export class AxSignature {
 
   public toJSON = () => {
     return {
+      id: this.hash(),
       description: this.description,
       inputFields: this.inputFields,
       outputFields: this.outputFields,

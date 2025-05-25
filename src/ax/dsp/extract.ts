@@ -210,7 +210,7 @@ export function* yieldDelta<OUT>(
   s: number,
   e: number,
   // eslint-disable-next-line functional/prefer-immutable-types
-  xstate: extractionState
+  xstate: extractionState,
 ) {
   const { name: fieldName, isInternal } = field
   const { isArray: fieldIsArray, name: fieldTypeName } = field.type ?? {}
