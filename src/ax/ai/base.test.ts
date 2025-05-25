@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js' // Added import
 
-import { AxBaseAI, setChatResponseEvents, setRequestEvents } from './base.js' // Import new functions
+import {
+  AxBaseAI,
+  setChatRequestEvents,
+  setChatResponseEvents,
+} from './base.js' // Import new functions
 import type { AxAIFeatures, AxBaseAIArgs } from './base.js'
 import type {
   AxAIServiceImpl,
@@ -572,15 +576,18 @@ describe('setChatResponseEvents', () => {
     }
     setChatResponseEvents(mockChatResponse, mockSpanInstance as unknown as Span)
 
-    expect(mockSpanInstance.setAttributes).toHaveBeenCalledWith({
-      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
-      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
-      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: 30,
-    })
+    expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
+      axSpanEvents.GEN_AI_USAGE,
+      {
+        [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+        [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
+        [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: 30,
+      }
+    )
 
-    expect(mockSpanInstance.addEvent).toHaveBeenCalledTimes(2)
+    expect(mockSpanInstance.addEvent).toHaveBeenCalledTimes(3)
     expect(mockSpanInstance.addEvent).toHaveBeenNthCalledWith(
-      1,
+      2,
       axSpanEvents.GEN_AI_CHOICE,
       {
         finish_reason: 'stop',
@@ -589,7 +596,7 @@ describe('setChatResponseEvents', () => {
       }
     )
     expect(mockSpanInstance.addEvent).toHaveBeenNthCalledWith(
-      2,
+      3,
       axSpanEvents.GEN_AI_CHOICE,
       {
         finish_reason: 'tool_calls',
@@ -624,12 +631,15 @@ describe('setChatResponseEvents', () => {
     }
     setChatResponseEvents(mockChatResponse, mockSpanInstance as unknown as Span)
 
-    expect(mockSpanInstance.setAttributes).toHaveBeenCalledWith({
-      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
-      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
-      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: 30,
-    })
-    expect(mockSpanInstance.addEvent).not.toHaveBeenCalled()
+    expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
+      axSpanEvents.GEN_AI_USAGE,
+      {
+        [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+        [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
+        [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: 30,
+      }
+    )
+    expect(mockSpanInstance.addEvent).toHaveBeenCalledTimes(1)
   })
 
   it('should handle Response without Model Usage', () => {
@@ -678,16 +688,19 @@ describe('setChatResponseEvents', () => {
       true
     )
 
-    expect(mockSpanInstance.setAttributes).toHaveBeenCalledWith({
-      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
-      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
-      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: 30,
-    })
+    expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
+      axSpanEvents.GEN_AI_USAGE,
+      {
+        [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: 10,
+        [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: 20,
+        [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: 30,
+      }
+    )
 
-    expect(mockSpanInstance.addEvent).toHaveBeenCalledTimes(2)
+    expect(mockSpanInstance.addEvent).toHaveBeenCalledTimes(3)
     // First result should not have content
     expect(mockSpanInstance.addEvent).toHaveBeenNthCalledWith(
-      1,
+      2,
       axSpanEvents.GEN_AI_CHOICE,
       {
         finish_reason: 'stop',
@@ -697,7 +710,7 @@ describe('setChatResponseEvents', () => {
     )
     // Second result should not have content but should have tool_calls
     expect(mockSpanInstance.addEvent).toHaveBeenNthCalledWith(
-      2,
+      3,
       axSpanEvents.GEN_AI_CHOICE,
       {
         finish_reason: 'tool_calls',
@@ -721,7 +734,7 @@ describe('setChatResponseEvents', () => {
   })
 })
 
-describe('setRequestEvents', () => {
+describe('setChatRequestEvents', () => {
   let mockSpanInstance: typeof mockSpan
 
   beforeEach(() => {
@@ -745,7 +758,7 @@ describe('setRequestEvents', () => {
     const req: AxChatRequest<unknown> = {
       chatPrompt: [{ role: 'system', content: 'System prompt' }],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_SYSTEM_MESSAGE,
       { content: 'System prompt' }
@@ -761,7 +774,7 @@ describe('setRequestEvents', () => {
     const req: AxChatRequest<unknown> = {
       chatPrompt: [{ role: 'user', content: 'User message' }],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
       { content: 'User message' }
@@ -780,7 +793,7 @@ describe('setRequestEvents', () => {
         },
       ],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
       { content: 'User message part 1\nUser message part 2' }
@@ -791,7 +804,7 @@ describe('setRequestEvents', () => {
     const req: AxChatRequest<unknown> = {
       chatPrompt: [{ role: 'assistant', content: 'Assistant message' }],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_ASSISTANT_MESSAGE,
       { content: 'Assistant message' }
@@ -814,7 +827,7 @@ describe('setRequestEvents', () => {
         },
       ],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_ASSISTANT_MESSAGE,
       {
@@ -841,7 +854,7 @@ describe('setRequestEvents', () => {
         { role: 'function', functionId: 'fn1', result: 'Function result' },
       ],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_TOOL_MESSAGE,
       { id: 'fn1', content: 'Function result' }
@@ -857,7 +870,7 @@ describe('setRequestEvents', () => {
         { role: 'user', content: 'Question?' },
       ],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
 
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_SYSTEM_MESSAGE,
@@ -878,7 +891,7 @@ describe('setRequestEvents', () => {
     const req: AxChatRequest<unknown> = {
       chatPrompt: [],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     // GEN_AI_USER_MESSAGE should still be called with empty content
     expect(mockSpanInstance.addEvent).toHaveBeenCalledTimes(1)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
@@ -897,7 +910,7 @@ describe('setRequestEvents', () => {
         },
       ],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span)
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
       { content: '' }
@@ -913,7 +926,7 @@ describe('setRequestEvents', () => {
         { role: 'function', functionId: 'fn1', result: 'Function result' },
       ],
     }
-    setRequestEvents(req, mockSpanInstance as unknown as Span, true)
+    setChatRequestEvents(req, mockSpanInstance as unknown as Span, true)
 
     // System message should not have content
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
@@ -968,7 +981,7 @@ describe('AxBaseAI Tracing with Token Usage', () => {
         {
           model: 'test-model',
           chatPrompt: [{ role: 'user', content: 'hello' }],
-        }, // Added chatPrompt for setRequestEvents
+        }, // Added chatPrompt for setChatRequestEvents
       ]),
       createChatResp: vi
         .fn()
@@ -1044,18 +1057,15 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     )
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).toHaveBeenCalled()
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]).toBe(
-      mockTokenUsage.promptTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]).toBe(
-      mockTokenUsage.completionTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]).toBe(
-      mockTokenUsage.totalTokens
-    )
-    // setRequestEvents: user (1 event)
-    // setChatResponseEvents: choice (1 event)
-    expect(mockSpan.addEvent).toHaveBeenCalledTimes(2)
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(axSpanEvents.GEN_AI_USAGE, {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: mockTokenUsage.promptTokens,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+        mockTokenUsage.completionTokens,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: mockTokenUsage.totalTokens,
+    })
+    // setChatRequestEvents: user (1 event)
+    // setChatResponseEvents: usage (1 event), choice (1 event)
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(3)
   })
 
   it('should add token usage to trace for non-streaming chat (service provides it)', async () => {
@@ -1079,18 +1089,17 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     )
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).not.toHaveBeenCalled() // Should use service provided
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]).toBe(
-      serviceProvidedUsage.promptTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]).toBe(
-      serviceProvidedUsage.completionTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]).toBe(
-      serviceProvidedUsage.totalTokens
-    )
-    // setRequestEvents: user (1 event)
-    // setChatResponseEvents: choice (1 event)
-    expect(mockSpan.addEvent).toHaveBeenCalledTimes(2)
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(axSpanEvents.GEN_AI_USAGE, {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
+        serviceProvidedUsage.promptTokens,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+        serviceProvidedUsage.completionTokens,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
+        serviceProvidedUsage.totalTokens,
+    })
+    // setChatRequestEvents: user (1 event)
+    // setChatResponseEvents: usage (1 event), choice (1 event)
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(3)
   })
 
   it('should add token usage to trace for streaming chat', async () => {
@@ -1138,7 +1147,7 @@ describe('AxBaseAI Tracing with Token Usage', () => {
       tracer: mockTracer as unknown as AxAIServiceOptions['tracer'],
     })
 
-    // Ensure createChatReq returns a chatPrompt for setRequestEvents to work
+    // Ensure createChatReq returns a chatPrompt for setChatRequestEvents to work
     mockServiceImpl.createChatReq.mockReturnValue([
       { name: 'chat', headers: {} },
       {
@@ -1162,20 +1171,16 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     // getTokenUsage is called by RespTransformStream if modelUsage is not on the delta
     expect(mockServiceImpl.getTokenUsage).toHaveBeenCalledTimes(2) // Once per chunk
 
-    // The attributes will reflect the *last* token usage reported by getTokenUsage via the transform stream.
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]).toBe(
-      chunk2Usage.promptTokens
-    ) // From last call to getTokenUsage
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]).toBe(
-      chunk2Usage.completionTokens
-    ) // From last call to getTokenUsage
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]).toBe(
-      chunk2Usage.totalTokens
-    ) // From last call to getTokenUsage
+    // The events will reflect the token usage reported by getTokenUsage via the transform stream
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(axSpanEvents.GEN_AI_USAGE, {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: chunk2Usage.promptTokens,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]: chunk2Usage.completionTokens,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: chunk2Usage.totalTokens,
+    })
 
-    // setRequestEvents: user (1 event)
-    // setChatResponseEvents: GEN_AI_CHOICE for chunk1, GEN_AI_CHOICE for chunk2 (2 events)
-    expect(mockSpan.addEvent).toHaveBeenCalledTimes(3)
+    // setChatRequestEvents: user (1 event)
+    // setChatResponseEvents: usage (2 events), choice (2 events)
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(5)
     const choiceEvents = mockSpan.mockEvents.filter(
       (event) => event.name === axSpanEvents.GEN_AI_CHOICE
     )
@@ -1241,7 +1246,7 @@ describe('AxBaseAI Tracing with Token Usage', () => {
       tracer: mockTracer as unknown as AxAIServiceOptions['tracer'],
     })
 
-    // Ensure createChatReq returns a chatPrompt for setRequestEvents to work
+    // Ensure createChatReq returns a chatPrompt for setChatRequestEvents to work
     mockServiceImpl.createChatReq.mockReturnValue([
       { name: 'chat', headers: {} },
       {
@@ -1265,20 +1270,19 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     // If service provides it on the delta, getTokenUsage should NOT be called by RespTransformStream
     expect(mockServiceImpl.getTokenUsage).not.toHaveBeenCalled()
 
-    // The attributes should reflect the *final* token usage from the *last* service-provided delta.
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]).toBe(
-      serviceProvidedUsageChunk2.promptTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]).toBe(
-      serviceProvidedUsageChunk2.completionTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]).toBe(
-      serviceProvidedUsageChunk2.totalTokens
-    )
+    // The events should reflect the token usage from each service-provided delta
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(axSpanEvents.GEN_AI_USAGE, {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
+        serviceProvidedUsageChunk2.promptTokens,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+        serviceProvidedUsageChunk2.completionTokens,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
+        serviceProvidedUsageChunk2.totalTokens,
+    })
 
-    // setRequestEvents: user (1 event)
-    // setChatResponseEvents: GEN_AI_CHOICE for chunk1, GEN_AI_CHOICE for chunk2 (2 events)
-    expect(mockSpan.addEvent).toHaveBeenCalledTimes(3)
+    // setChatRequestEvents: user (1 event)
+    // setChatResponseEvents: usage (2 events), choice (2 events)
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(5)
     const choiceEvents = mockSpan.mockEvents.filter(
       (event) => event.name === axSpanEvents.GEN_AI_CHOICE
     )
@@ -1297,16 +1301,13 @@ describe('AxBaseAI Tracing with Token Usage', () => {
 
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).toHaveBeenCalled()
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]).toBe(
-      embedTokenUsage.promptTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]).toBe(
-      embedTokenUsage.completionTokens ?? 0
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]).toBe(
-      embedTokenUsage.totalTokens
-    )
-    expect(mockSpan.addEvent).not.toHaveBeenCalled()
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(axSpanEvents.GEN_AI_USAGE, {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]: embedTokenUsage.promptTokens,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+        embedTokenUsage.completionTokens ?? 0,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]: embedTokenUsage.totalTokens,
+    })
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
   })
 
   it('should add token usage to trace for embed requests (service provides it)', async () => {
@@ -1328,15 +1329,14 @@ describe('AxBaseAI Tracing with Token Usage', () => {
 
     expect(mockTracer.startActiveSpan).toHaveBeenCalled()
     expect(mockServiceImpl.getTokenUsage).not.toHaveBeenCalled()
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_INPUT_TOKENS]).toBe(
-      serviceProvidedUsage.promptTokens
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]).toBe(
-      serviceProvidedUsage.completionTokens ?? 0
-    )
-    expect(mockSpan.attributes[axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]).toBe(
-      serviceProvidedUsage.totalTokens
-    )
-    expect(mockSpan.addEvent).not.toHaveBeenCalled()
+    expect(mockSpan.addEvent).toHaveBeenCalledWith(axSpanEvents.GEN_AI_USAGE, {
+      [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
+        serviceProvidedUsage.promptTokens,
+      [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+        serviceProvidedUsage.completionTokens ?? 0,
+      [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
+        serviceProvidedUsage.totalTokens,
+    })
+    expect(mockSpan.addEvent).toHaveBeenCalledTimes(1)
   })
 })

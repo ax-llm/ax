@@ -7,6 +7,7 @@ import {
 import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
   AxAIInputModelList,
+  AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatResponse,
@@ -27,6 +28,7 @@ import {
   type AxAIGoogleGeminiChatResponseDelta,
   type AxAIGoogleGeminiConfig,
   AxAIGoogleGeminiEmbedModel,
+  type AxAIGoogleGeminiGenerationConfig,
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiSafetyCategory,
   type AxAIGoogleGeminiSafetySettings,
@@ -58,8 +60,8 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
  * AxAIGoogleGemini: Default Model options for text generation
  */
 export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
-  structuredClone({
-    model: AxAIGoogleGeminiModel.Gemini20Flash,
+  structuredClone<AxAIGoogleGeminiConfig>({
+    model: AxAIGoogleGeminiModel.Gemini25Flash,
     embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
     safetySettings,
     ...axBaseAIDefaultConfig(),
@@ -67,7 +69,7 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
 
 export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
-    structuredClone({
+    structuredClone<AxAIGoogleGeminiConfig>({
       model: AxAIGoogleGeminiModel.Gemini20Flash,
       embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
       safetySettings,
@@ -81,6 +83,7 @@ export interface AxAIGoogleGeminiOptionsTools {
     dynamicThreshold?: number
   }
   googleSearch?: boolean
+  urlContext?: boolean
 }
 
 export interface AxAIGoogleGeminiArgs {
@@ -141,7 +144,8 @@ class AxAIGoogleGeminiImpl
   }
 
   createChatReq = (
-    req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>
+    req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
+    config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIGoogleGeminiChatRequest] => {
     const model = req.model
     const stream = req.modelConfig?.stream ?? this.config.stream
@@ -298,6 +302,10 @@ class AxAIGoogleGeminiImpl
       })
     }
 
+    if (this.options?.urlContext) {
+      tools.push({ url_context: {} })
+    }
+
     if (tools.length === 0) {
       tools = undefined
     }
@@ -328,7 +336,11 @@ class AxAIGoogleGeminiImpl
       toolConfig = { function_calling_config: { mode: 'AUTO' as const } }
     }
 
-    const generationConfig = {
+    if (config.thinkingTokenBudget && this.config.thinkingConfig) {
+      this.config.thinkingConfig.thinkingBudget = config.thinkingTokenBudget
+    }
+
+    const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       topP: req.modelConfig?.topP ?? this.config.topP,
@@ -472,6 +484,7 @@ class AxAIGoogleGeminiImpl
         totalTokens: resp.usageMetadata.totalTokenCount,
         promptTokens: resp.usageMetadata.promptTokenCount,
         completionTokens: resp.usageMetadata.candidatesTokenCount,
+        thoughtsTokens: resp.usageMetadata.thoughtsTokenCount,
       }
     }
     return { results }

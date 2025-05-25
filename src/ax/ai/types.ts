@@ -31,6 +31,7 @@ export type AxTokenUsage = {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  thoughtsTokens?: number
 }
 
 export type AxModelConfig = {
@@ -228,6 +229,7 @@ export type AxRateLimiterFunction = <T = unknown>(
 
 export type AxAIPromptConfig = {
   stream?: boolean
+  thinkingTokenBudget?: number
 }
 
 export type AxAIServiceOptions = {

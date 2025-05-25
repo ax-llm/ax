@@ -15,6 +15,7 @@ export const axSpanAttributes = {
   LLM_USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
   LLM_USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens',
   LLM_USAGE_TOTAL_TOKENS: 'gen_ai.usage.total_tokens',
+  LLM_USAGE_THOUGHTS_TOKENS: 'gen_ai.usage.thoughts_tokens',
 
   // Vector DB
   DB_SYSTEM: 'db.system',

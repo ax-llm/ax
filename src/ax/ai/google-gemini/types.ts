@@ -1,7 +1,7 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIGoogleGeminiModel {
-  Gemini25Pro = 'gemini-2.5-pro-preview-03-25',
+  Gemini25Pro = 'gemini-2.5-pro-preview-05-06',
   Gemini25Flash = 'gemini-2.5-flash-preview-04-17',
   Gemini20Flash = 'gemini-2.0-flash',
   Gemini20FlashLite = 'gemini-2.0-flash-lite-preview-02-05',
@@ -107,6 +107,7 @@ export type AxAIGoogleGeminiTool = {
   function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[]
   code_execution?: object
   google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval
+  url_context?: object
 }
 
 export type AxAIGoogleGeminiToolConfig = {
@@ -120,9 +121,12 @@ export type AxAIGoogleGeminiGenerationConfig = {
   temperature?: number
   topP?: number
   topK?: number
+  frequencyPenalty?: number
   candidateCount?: number
   maxOutputTokens?: number
   stopSequences?: readonly string[]
+  responseMimeType?: string
+  thinkingConfig?: AxAIGoogleGeminiThinkingConfig
 }
 
 export type AxAIGoogleGeminiSafetySettings = {
@@ -169,6 +173,7 @@ export type AxAIGoogleGeminiChatResponse = {
     promptTokenCount: number
     candidatesTokenCount: number
     totalTokenCount: number
+    thoughtsTokenCount: number
   }
 }
 
@@ -176,6 +181,7 @@ export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse
 
 export type AxAIGoogleGeminiThinkingConfig = {
   thinkingBudget: number
+  includeThoughts?: boolean
 }
 
 /**
@@ -189,6 +195,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   dimensions?: number
   autoTruncate?: boolean
   thinkingConfig?: AxAIGoogleGeminiThinkingConfig
+  urlContext?: string
 }
 
 /**

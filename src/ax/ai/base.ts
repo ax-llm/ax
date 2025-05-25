@@ -29,6 +29,7 @@ export interface AxAIFeatures {
   functions: boolean
   streaming: boolean
   functionCot?: boolean
+  thinkingTokenBudget?: boolean
 }
 
 export interface AxBaseAIArgs<TModel, TEmbedModel> {
@@ -347,6 +348,12 @@ export class AxBaseAI<
       modelConfig.stream = false
     }
 
+    const canSetThinkingTokenBudget =
+      this.getFeatures(model).thinkingTokenBudget
+    if (!canSetThinkingTokenBudget && options?.thinkingTokenBudget) {
+      throw new Error('Thinking token budget is not supported for this model')
+    }
+
     if (this.tracer) {
       return await this.tracer?.startActiveSpan(
         'AI Chat Request',
@@ -370,11 +377,7 @@ export class AxBaseAI<
           },
         },
         async (span) => {
-          try {
-            return await this._chat2(model, modelConfig, req, options, span)
-          } finally {
-            span.end()
-          }
+          return await this._chat2(model, modelConfig, req, options, span)
         }
       )
     }
@@ -458,7 +461,7 @@ export class AxBaseAI<
       )
 
       if (span?.isRecording()) {
-        setRequestEvents(chatReq, span, this.excludeContentFromTrace)
+        setChatRequestEvents(chatReq, span, this.excludeContentFromTrace)
       }
 
       const res = await apiCall(
@@ -504,7 +507,7 @@ export class AxBaseAI<
           }
           this.modelUsage = res.modelUsage
 
-          if (span?.isRecording() && res.modelUsage?.tokens) {
+          if (span?.isRecording()) {
             setChatResponseEvents(res, span, this.excludeContentFromTrace)
           }
 
@@ -518,6 +521,9 @@ export class AxBaseAI<
       const doneCb = async (_values: readonly AxChatResponse[]) => {
         if (debug) {
           process.stdout.write('\n')
+        }
+        if (span?.isRecording()) {
+          span.end()
         }
       }
 
@@ -553,13 +559,13 @@ export class AxBaseAI<
 
     if (span?.isRecording()) {
       setChatResponseEvents(res, span, this.excludeContentFromTrace)
+      span.end()
     }
 
     if (debug) {
       logResponse(res)
     }
 
-    span?.end()
     return res
   }
 
@@ -677,7 +683,7 @@ export class AxBaseAI<
     this.embedModelUsage = res.modelUsage
 
     if (span?.isRecording() && res.modelUsage?.tokens) {
-      span.setAttributes({
+      span.addEvent(axSpanEvents.GEN_AI_USAGE, {
         [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
           res.modelUsage.tokens.promptTokens,
         [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
@@ -718,7 +724,7 @@ export class AxBaseAI<
   }
 }
 
-export function setRequestEvents(
+export function setChatRequestEvents(
   req: Readonly<AxChatRequest<unknown>>,
   span: Span,
   excludeContentFromTrace?: boolean
@@ -806,17 +812,24 @@ export function setChatResponseEvents(
   excludeContentFromTrace?: boolean
 ) {
   if (res.modelUsage?.tokens) {
-    span.setAttributes({
+    const thoughTokens = res.modelUsage.tokens.thoughtsTokens
+      ? {
+          [axSpanAttributes.LLM_USAGE_THOUGHTS_TOKENS]:
+            res.modelUsage.tokens.thoughtsTokens,
+        }
+      : {}
+    span.addEvent(axSpanEvents.GEN_AI_USAGE, {
       [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
         res.modelUsage.tokens.promptTokens,
       [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
         res.modelUsage.tokens.completionTokens ?? 0,
       [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
         res.modelUsage.tokens.totalTokens,
+      ...thoughTokens,
     })
   }
 
-  if (!res.results || res.results.length === 0) {
+  if (!res.results) {
     return
   }
 

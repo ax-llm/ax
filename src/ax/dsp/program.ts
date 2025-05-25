@@ -63,6 +63,7 @@ export type AxProgramForwardOptions = {
   fastFail?: boolean
   debug?: boolean
   debugHideSystemPrompt?: boolean
+  thinkingTokenBudget?: number
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

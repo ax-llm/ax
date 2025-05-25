@@ -480,9 +480,6 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             } finally {
               clearTimeout(timeoutId)
               reader.releaseLock()
-              if (api.span?.isRecording()) {
-                api.span.end()
-              }
             }
           }
 
@@ -540,10 +537,6 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     } finally {
       if (timeoutId !== undefined) {
         clearTimeout(timeoutId)
-      }
-
-      if (api.span?.isRecording()) {
-        api.span.end()
       }
     }
   }

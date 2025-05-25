@@ -207,6 +207,7 @@ export class AxGen<
       stream,
       functions: _functions,
       functionCall: _functionCall,
+      thinkingTokenBudget,
     } = options ?? {}
 
     const chatPrompt = mem?.history(sessionId) ?? []
@@ -236,6 +237,7 @@ export class AxGen<
         rateLimiter,
         stream,
         debug: false,
+        thinkingTokenBudget,
       }
     )
 
@@ -695,8 +697,15 @@ export class AxGen<
     const funcNames = functions?.map((f) => f.name).join(',')
 
     const attributes = {
-      'generate.signature': this.signature.toString(),
-      'generate.functions': funcNames ?? '',
+      signature: JSON.stringify(this.signature.toJSON(), null, 2),
+      provided_functions: funcNames ?? '',
+      ...(options?.model ? { model: options.model } : {}),
+      ...(options?.thinkingTokenBudget
+        ? { thinking_token_budget: options.thinkingTokenBudget }
+        : {}),
+      ...(options?.maxSteps ? { max_steps: options.maxSteps } : {}),
+      ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
+      ...(options?.fastFail ? { fast_fail: options.fastFail } : {}),
     }
 
     const spanName = this.options?.traceName

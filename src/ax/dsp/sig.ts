@@ -210,6 +210,14 @@ export class AxSignature {
   public hash = () => this.sigHash
 
   public toString = () => this.sigString
+
+  public toJSON = () => {
+    return {
+      description: this.description,
+      inputFields: this.inputFields,
+      outputFields: this.outputFields,
+    }
+  }
 }
 
 function renderField(field: Readonly<AxField>): string {
