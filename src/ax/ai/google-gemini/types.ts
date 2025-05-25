@@ -52,6 +52,7 @@ export type AxAIGoogleGeminiContent =
       parts: (
         | {
             text: string
+            thought?: string
           }
         | {
             inlineData: {
@@ -126,7 +127,10 @@ export type AxAIGoogleGeminiGenerationConfig = {
   maxOutputTokens?: number
   stopSequences?: readonly string[]
   responseMimeType?: string
-  thinkingConfig?: AxAIGoogleGeminiThinkingConfig
+  thinkingConfig?: {
+    thinkingBudget?: number
+    includeThoughts?: boolean
+  }
 }
 
 export type AxAIGoogleGeminiSafetySettings = {
@@ -180,7 +184,7 @@ export type AxAIGoogleGeminiChatResponse = {
 export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse
 
 export type AxAIGoogleGeminiThinkingConfig = {
-  thinkingBudget: number
+  thinkingTokenBudget?: number
   includeThoughts?: boolean
 }
 
@@ -194,7 +198,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   embedType?: AxAIGoogleGeminiEmbedTypes
   dimensions?: number
   autoTruncate?: boolean
-  thinkingConfig?: AxAIGoogleGeminiThinkingConfig
+  thinking?: AxAIGoogleGeminiThinkingConfig
   urlContext?: string
 }
 

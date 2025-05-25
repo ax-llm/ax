@@ -80,6 +80,7 @@ export type AxFunction = {
 
 export type AxChatResponseResult = {
   content?: string
+  thought?: string
   name?: string
   id?: string
   functionCalls?: {

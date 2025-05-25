@@ -336,8 +336,19 @@ class AxAIGoogleGeminiImpl
       toolConfig = { function_calling_config: { mode: 'AUTO' as const } }
     }
 
-    if (config.thinkingTokenBudget && this.config.thinkingConfig) {
-      this.config.thinkingConfig.thinkingBudget = config.thinkingTokenBudget
+    const thinkingConfig: AxAIGoogleGeminiGenerationConfig['thinkingConfig'] =
+      {}
+
+    if (this.config.thinking?.includeThoughts) {
+      thinkingConfig.includeThoughts = true
+    }
+
+    if (this.config.thinking?.thinkingTokenBudget) {
+      thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget
+    }
+
+    if (config.thinkingTokenBudget) {
+      thinkingConfig.thinkingBudget = config.thinkingTokenBudget
     }
 
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
@@ -352,9 +363,7 @@ class AxAIGoogleGeminiImpl
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
 
-      ...(this.config.thinkingConfig && {
-        thinkingConfig: this.config.thinkingConfig,
-      }),
+      ...(thinkingConfig ? { thinkingConfig } : {}),
     }
 
     const safetySettings = this.config.safetySettings
@@ -459,7 +468,11 @@ class AxAIGoogleGeminiImpl
 
         for (const part of candidate.content.parts) {
           if ('text' in part) {
-            result.content = part.text
+            if ('thought' in part && part.thought) {
+              result.thought = part.text
+            } else {
+              result.content = part.text
+            }
             continue
           }
           if ('functionCall' in part) {

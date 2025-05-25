@@ -1,7 +1,10 @@
 import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax'
 import { trace } from '@opentelemetry/api'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import { BasicTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from '@opentelemetry/sdk-trace-base'
 
 /*
 Start Jaeger on http://localhost:16686 (Web UI)
@@ -26,7 +29,7 @@ const spanProcessor = new BatchSpanProcessor(otlpExporter)
 
 // Set up OpenTelemetry with OTLP
 const provider = new BasicTracerProvider({
-  spanProcessors: [spanProcessor]
+  spanProcessors: [spanProcessor],
 })
 
 // Register the provider globally
@@ -45,25 +48,36 @@ const classifier = new AxGen<
 )
 
 classifier.setExamples([
-    {  textToClassify: 'Apple', category: 'business', confidence: 0.95 }, 
-    { textToClassify: 'The latest AI breakthrough enables robots to learn', category: 'technology', confidence: 0.90 },
-    { textToClassify: 'Politics', category: 'politics', confidence: 0.80 },
-    { textToClassify: 'Entertainment', category: 'entertainment', confidence: 0.75 }
+  { textToClassify: 'Apple', category: 'business', confidence: 0.95 },
+  {
+    textToClassify: 'The latest AI breakthrough enables robots to learn',
+    category: 'technology',
+    confidence: 0.9,
+  },
+  { textToClassify: 'Politics', category: 'politics', confidence: 0.8 },
+  {
+    textToClassify: 'Entertainment',
+    category: 'entertainment',
+    confidence: 0.75,
+  },
 ])
 
 // Initialize AI with tracer
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
-  options: { debug: false }
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    thinking: { includeThoughts: true, thinkingTokenBudget: 50 },
+  },
+  options: { debug: false },
 })
 
 // Example texts to classify
 const texts = [
   "Apple's stock price surged 5% after announcing record iPhone sales",
-  "The latest AI breakthrough enables robots to learn from human demonstrations",
-  "Manchester United wins dramatic match against Liverpool in injury time"
+  'The latest AI breakthrough enables robots to learn from human demonstrations',
+  'Manchester United wins dramatic match against Liverpool in injury time',
 ]
 
 async function main() {
@@ -71,22 +85,25 @@ async function main() {
 
   try {
     for (const textToClassify of texts) {
-      const result = await classifier.forward(ai, { textToClassify }, { tracer, traceLabel: "Classifier" })
-    
-      console.log('Text:', textToClassify)
-      console.log('Classification:', result)
+      const result = await classifier.forward(
+        ai,
+        { textToClassify },
+        { tracer, traceLabel: 'Classifier' }
+      )
+
+      console.log('Result:', result)
       console.log('---\n')
     }
   } finally {
     await provider.forceFlush()
 
     // wait for 3 seconds to ensure all traces are flushed
-    console.log('Waiting for 3 seconds to ensure all traces are flushed...');
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    console.log('Waiting for 3 seconds to ensure all traces are flushed...')
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
-    await provider.shutdown();
-    console.log('OpenTelemetry provider shut down.');
+    await provider.shutdown()
+    console.log('OpenTelemetry provider shut down.')
   }
 }
 
-main().catch(console.error) 
+main().catch(console.error)

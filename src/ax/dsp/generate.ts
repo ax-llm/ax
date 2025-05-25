@@ -42,6 +42,7 @@ import {
   processFunctions,
 } from './functions.js'
 import {
+  type AxGenDeltaOut,
   type AxGenIn,
   type AxGenOut,
   type AxProgramForwardOptions,
@@ -74,7 +75,7 @@ export interface AxGenOptions {
 }
 
 export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
-  functions?: AxChatResponseFunctionCall[]
+  thought?: string
 }
 
 export interface AxResponseHandlerArgs<T> {
@@ -342,6 +343,10 @@ export class AxGen<
           sessionId
         )
       } else if (result.content) {
+        if (result.thought && result.thought.length > 0) {
+          yield { thought: result.thought } as AxGenDeltaOut<OUT>['delta']
+        }
+
         content += result.content
         mem.updateResult(
           { name: result.name, content, delta: result.content },
@@ -387,6 +392,9 @@ export class AxGen<
         )
 
         await assertAssertions(this.asserts, this.values)
+      } else if (result.thought && result.thought.length > 0) {
+        this.values.thought = this.values.thought ?? '' + result.thought
+        yield { thought: result.thought } as AxGenDeltaOut<OUT>['delta']
       }
 
       if (result.finishReason === 'length') {
@@ -496,6 +504,10 @@ export class AxGen<
           this.functionsExecuted = new Set([...this.functionsExecuted, ...fx])
         }
       } else if (result.content) {
+        if (result.thought && result.thought.length > 0) {
+          this.values.thought = result.thought
+        }
+
         extractValues(this.signature, this.values, result.content)
         await assertAssertions(this.asserts, this.values)
 
@@ -517,10 +529,9 @@ export class AxGen<
     }
 
     // Strip out values whose signature fields have isInternal: true
-    const publicValues: AxGenOut = { ...this.values }
     for (const field of this.signature.getOutputFields()) {
       if (field.isInternal) {
-        delete publicValues[field.name]
+        delete this.values[field.name]
       }
     }
 
@@ -698,7 +709,9 @@ export class AxGen<
 
     const attributes = {
       signature: JSON.stringify(this.signature.toJSON(), null, 2),
-      ...(this.examples ? { examples: JSON.stringify(this.examples, null, 2) } : {}),
+      ...(this.examples
+        ? { examples: JSON.stringify(this.examples, null, 2) }
+        : {}),
       ...(funcNames ? { provided_functions: funcNames } : {}),
       ...(options?.model ? { model: options.model } : {}),
       ...(options?.thinkingTokenBudget
@@ -710,7 +723,7 @@ export class AxGen<
     }
 
     const traceLabel = options.traceLabel ?? this.options?.traceLabel
-    const spanName = traceLabel ? `${traceLabel} (AxGen)`: 'AxGen'
+    const spanName = traceLabel ? `${traceLabel} (AxGen)` : 'AxGen'
 
     const span = tracer.startSpan(spanName, {
       kind: SpanKind.SERVER,
@@ -719,7 +732,7 @@ export class AxGen<
 
     try {
       if (!this.excludeContentFromTrace) {
-        span.addEvent('inputs', { content: JSON.stringify(values, null, 2) })
+        span.addEvent('input', { content: JSON.stringify(values, null, 2) })
       }
 
       yield* this._forward2(
@@ -733,7 +746,9 @@ export class AxGen<
       )
 
       if (!this.excludeContentFromTrace) {
-        span.addEvent('outputs', { content: JSON.stringify(this.values, null, 2) })
+        span.addEvent('output', {
+          content: JSON.stringify(this.values, null, 2),
+        })
       }
     } finally {
       span.end()
@@ -747,7 +762,7 @@ export class AxGen<
   ): Promise<OUT> {
     const generator = this._forward1(ai, values, options ?? {})
 
-    let buffer = {} as Partial<OUT>
+    let buffer = {} as AxGenDeltaOut<OUT>['delta']
     let currentVersion = 0
 
     for await (const item of generator) {
