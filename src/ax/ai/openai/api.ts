@@ -72,25 +72,39 @@ export interface AxAIOpenAIArgs<
   TName = 'openai',
   TModel = AxAIOpenAIModel,
   TEmbedModel = AxAIOpenAIEmbedModel,
+  TChatReq extends
+    AxAIOpenAIChatRequest<TModel> = AxAIOpenAIChatRequest<TModel>,
 > extends Omit<
-    AxAIOpenAIBaseArgs<TModel, TEmbedModel>,
+    AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>,
     'config' | 'modelInfo'
   > {
   name: TName
-  config?: Partial<AxAIOpenAIBaseArgs<TModel, TEmbedModel>['config']>
+  config?: Partial<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>['config']>
 }
 
-export interface AxAIOpenAIBaseArgs<TModel, TEmbedModel> {
+type ChatReqUpdater<TModel, TChatReq extends AxAIOpenAIChatRequest<TModel>> = (
+  req: Readonly<TChatReq>
+) => TChatReq
+
+export interface AxAIOpenAIBaseArgs<
+  TModel,
+  TEmbedModel,
+  TChatReq extends AxAIOpenAIChatRequest<TModel>,
+> {
   apiKey: string
   apiURL?: string
   config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
   modelInfo: Readonly<AxModelInfo[]>
   models?: AxAIInputModelList<TModel, TEmbedModel>
+  chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>
 }
 
-class AxAIOpenAIImpl<TModel, TEmbedModel>
-  implements
+class AxAIOpenAIImpl<
+  TModel,
+  TEmbedModel,
+  TChatReq extends AxAIOpenAIChatRequest<TModel>,
+> implements
     AxAIServiceImpl<
       TModel,
       TEmbedModel,
@@ -105,7 +119,8 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
 
   constructor(
     private readonly config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>,
-    private streamingUsage: boolean
+    private streamingUsage: boolean,
+    private readonly chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>
   ) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
@@ -130,8 +145,8 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
 
   createChatReq(
     req: Readonly<AxInternalChatRequest<TModel>>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AxAIPromptConfig>
+
+    config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIOpenAIChatRequest<TModel>] {
     const model = req.model
 
@@ -164,17 +179,13 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
 
     const stream = req.modelConfig?.stream ?? this.config.stream
 
-    const reasoningEffort = isReasoningModel<TModel>(model)
-      ? this.config.reasoningEffort
-      : undefined
-
     const store = this.config.store
 
-    const reqValue: AxAIOpenAIChatRequest<TModel> = {
+    let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
       messages,
       response_format: this.config?.responseFormat
-        ? { type: this.config?.responseFormat }
+        ? { type: this.config.responseFormat }
         : undefined,
       tools,
       tool_choice: toolsChoice,
@@ -191,8 +202,31 @@ class AxAIOpenAIImpl<TModel, TEmbedModel>
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       ...(store ? { store: store } : {}),
+    }
+
+    if (this.config.reasoningEffort) {
+      reqValue.reasoning_effort = this.config.reasoningEffort
+    }
+
+    if (config.thinkingTokenBudget) {
+      switch (config.thinkingTokenBudget) {
+        case 'minimal':
+          reqValue.reasoning_effort = 'low'
+          break
+        case 'low':
+          reqValue.reasoning_effort = 'medium'
+          break
+        case 'medium':
+          reqValue.reasoning_effort = 'high'
+          break
+        case 'high':
+          reqValue.reasoning_effort = 'high'
+      }
+    }
+
+    if (this.chatReqUpdater) {
+      reqValue = this.chatReqUpdater(reqValue as TChatReq)
     }
 
     return [apiConfig, reqValue]
@@ -425,7 +459,12 @@ function createMessages<TModel>(
   })
 }
 
-export class AxAIOpenAIBase<TModel, TEmbedModel> extends AxBaseAI<
+export class AxAIOpenAIBase<
+  TModel,
+  TEmbedModel,
+  TChatReq extends
+    AxAIOpenAIChatRequest<TModel> = AxAIOpenAIChatRequest<TModel>,
+> extends AxBaseAI<
   TModel,
   TEmbedModel,
   AxAIOpenAIChatRequest<TModel>,
@@ -441,14 +480,18 @@ export class AxAIOpenAIBase<TModel, TEmbedModel> extends AxBaseAI<
     apiURL,
     modelInfo,
     models,
-  }: Readonly<Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel>, 'name'>>) {
+    chatReqUpdater,
+  }: Readonly<
+    Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>, 'name'>
+  >) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set')
     }
 
-    const aiImpl = new AxAIOpenAIImpl<TModel, TEmbedModel>(
+    const aiImpl = new AxAIOpenAIImpl<TModel, TEmbedModel, TChatReq>(
       config,
-      options?.streamingUsage ?? true
+      options?.streamingUsage ?? true,
+      chatReqUpdater
     )
 
     super(aiImpl, {
@@ -468,11 +511,6 @@ export class AxAIOpenAIBase<TModel, TEmbedModel> extends AxBaseAI<
     })
   }
 }
-
-const isReasoningModel = <TModel>(model: TModel): boolean =>
-  [AxAIOpenAIModel.O1Mini, AxAIOpenAIModel.O1, AxAIOpenAIModel.O3Mini].includes(
-    model as AxAIOpenAIModel
-  )
 
 export class AxAIOpenAI extends AxAIOpenAIBase<
   AxAIOpenAIModel,

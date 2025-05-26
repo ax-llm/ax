@@ -11,9 +11,10 @@ Ax is easy, fast and lowers your token usage.
 
 ## Why use Ax?
 
-- Support for all top LLMs
-- Prompts auto-generated from simple signatures
+- Standard interface across all top LLMs
+- Prompts compiled from simple signatures
 - Full native end-to-end streaming
+- Support for thinking budget and though tokens
 - Build Agents that can call other agents
 - Built in MCP, Model Context Protocol support
 - Convert docs of any format to text
@@ -25,6 +26,13 @@ Ax is easy, fast and lowers your token usage.
 - OpenTelemetry tracing / observability
 - Production ready Typescript code
 - Lite weight, zero-dependencies
+
+## Production Ready
+
+- No breaking changes (minor versions)
+- Large test coverage
+- Builtin Open Telemetry `gen_ai` support
+- Widely used by startups in prod
 
 ## What's a prompt signature?
 

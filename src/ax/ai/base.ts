@@ -29,7 +29,6 @@ export interface AxAIFeatures {
   functions: boolean
   streaming: boolean
   functionCot?: boolean
-  thinkingTokenBudget?: boolean
 }
 
 export interface AxBaseAIArgs<TModel, TEmbedModel> {
@@ -346,12 +345,6 @@ export class AxBaseAI<
     const canStream = this.getFeatures(model).streaming
     if (!canStream) {
       modelConfig.stream = false
-    }
-
-    const canSetThinkingTokenBudget =
-      this.getFeatures(model).thinkingTokenBudget
-    if (!canSetThinkingTokenBudget && options?.thinkingTokenBudget) {
-      throw new Error('Thinking token budget is not supported for this model')
     }
 
     if (this.tracer) {

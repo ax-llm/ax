@@ -348,7 +348,21 @@ class AxAIGoogleGeminiImpl
     }
 
     if (config.thinkingTokenBudget) {
-      thinkingConfig.thinkingBudget = config.thinkingTokenBudget
+      //The thinkingBudget must be an integer in the range 0 to 24576
+      switch (config.thinkingTokenBudget) {
+        case 'minimal':
+          thinkingConfig.thinkingBudget = 0
+          break
+        case 'low':
+          thinkingConfig.thinkingBudget = 1024
+          break
+        case 'medium':
+          thinkingConfig.thinkingBudget = 4096
+          break
+        case 'high':
+          thinkingConfig.thinkingBudget = 8192
+          break
+      }
     }
 
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
