@@ -1,5 +1,16 @@
 # Changelog
 
+## [11.0.46](https://github.com/ax-llm/ax/compare/11.0.44...11.0.45) (2025-05-27)
+
+### Features
+
+* Add support for thinking models and enhance AI response handling ([e4489f9](https://github.com/ax-llm/ax/commit/e4489f9b0b4638b40cbaef6b293c960612d91a93))
+## [11.0.45](https://github.com/ax-llm/ax/compare/11.0.44...11.0.45) (2025-05-26)
+
+### Features
+
+* Enhance thinking token budget configuration and introduce Grok AI support ([0d73693](https://github.com/ax-llm/ax/commit/0d736936aac8ba5065b2a75989b5db653bc33bc1))
+
 ## [11.0.45](https://github.com/ax-llm/ax/compare/11.0.43...11.0.44) (2025-05-26)
 
 ### Features
