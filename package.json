@@ -60,7 +60,11 @@
     "typedoc-plugin-frontmatter": "^1.2.1",
     "typedoc-plugin-markdown": "^4.4.2",
     "typescript": "^5.8.2",
-    "vitest": "^3.0.8"
+    "vitest": "^3.0.8",
+    "astro": "^5.3.0",
+    "@astrojs/tailwind": "^6.0.0",
+    "@types/react": "^19.0.10",
+    "@total-typescript/tsconfig": "^1.0.4"
   },
   "config": {
     "commitizen": {
@@ -82,11 +86,7 @@
   "version": "11.0.46",
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.1.13",
-    "@astrojs/tailwind": "^6.0.0",
-    "@total-typescript/tsconfig": "^1.0.4",
-    "@types/react": "^19.0.10",
     "ai": "^4.1.61",
-    "astro": "^5.3.0",
     "zod": "^3.24.2"
   }
 }

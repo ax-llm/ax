@@ -2,9 +2,17 @@ import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax'
 import { trace } from '@opentelemetry/api'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import {
+  defaultResource,
+  resourceFromAttributes,
+} from '@opentelemetry/resources'
+import {
   BasicTracerProvider,
   BatchSpanProcessor,
 } from '@opentelemetry/sdk-trace-base'
+import {
+  ATTR_SERVICE_NAME,
+  ATTR_SERVICE_VERSION,
+} from '@opentelemetry/semantic-conventions'
 
 /*
 Start Jaeger on http://localhost:16686 (Web UI)
@@ -27,15 +35,34 @@ const otlpExporter = new OTLPTraceExporter({
 // Configure BatchSpanProcessor
 const spanProcessor = new BatchSpanProcessor(otlpExporter)
 
+const resource = defaultResource().merge(
+  resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: 'ax-examples',
+    [ATTR_SERVICE_VERSION]: '0.0.0',
+  })
+)
+
 // Set up OpenTelemetry with OTLP
 const provider = new BasicTracerProvider({
   spanProcessors: [spanProcessor],
+  resource,
 })
 
 // Register the provider globally
 trace.setGlobalTracerProvider(provider)
 
 const tracer = trace.getTracer('text-classification-example')
+
+// Initialize AI with tracer
+const ai = new AxAI({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    thinking: { includeThoughts: true, thinkingTokenBudget: 50 },
+  },
+  options: { debug: false, tracer },
+})
 
 // Create a text classifier using Ax
 const classifier = new AxGen<
@@ -62,17 +89,6 @@ classifier.setExamples([
   },
 ])
 
-// Initialize AI with tracer
-const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
-  config: {
-    model: AxAIGoogleGeminiModel.Gemini25Flash,
-    thinking: { includeThoughts: true, thinkingTokenBudget: 50 },
-  },
-  options: { debug: false },
-})
-
 // Example texts to classify
 const texts = [
   "Apple's stock price surged 5% after announcing record iPhone sales",
@@ -88,7 +104,7 @@ async function main() {
       const result = await classifier.forward(
         ai,
         { textToClassify },
-        { tracer, traceLabel: 'Classifier' }
+        { traceLabel: 'Classifier' }
       )
 
       console.log('Result:', result)

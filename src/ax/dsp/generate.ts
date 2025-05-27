@@ -689,7 +689,8 @@ export class AxGen<
     values: IN,
     options: Readonly<AxProgramForwardOptions>
   ) {
-    const tracer = options?.tracer ?? this.options?.tracer
+    const tracer =
+      options?.tracer ?? this.options?.tracer ?? ai.getOptions().tracer
 
     let functions: AxFunction[] | undefined = this.functions
 
