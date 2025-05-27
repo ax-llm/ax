@@ -71,8 +71,7 @@ good for things like reasoning.
 
 ## LLMs Supported
 
-`Google Gemini`, `Google Vertex`, `OpenAI`, `Azure OpenAI`, `TogetherAI`,
-`Anthropic`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`, `Reka`,
+`Google Gemini`, `OpenAI`, `Azure OpenAI`, `Anthropic`, `X Grok`, `TogetherAI`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`, `Reka`,
 `Hugging Face`
 
 ## Install
@@ -134,6 +133,31 @@ const agent = new AxAgent({
 });
 
 agent.forward(ai, { questions: "How many atoms are there in the universe" })
+```
+
+## Thinking Models Support
+
+Ax provides native support for models with thinking capabilities, allowing you to control the thinking token budget and access the model's thoughts. This feature helps in understanding the model's reasoning process and optimizing token usage.
+
+```typescript
+const ai = new AxAI({
+    name: "google-gemini",
+    apiKey: process.env.GOOGLE_APIKEY as string,
+    config: {
+        model: AxAIGoogleGeminiModel.Gemini25Flash,
+        thinking: { includeThoughts: true }
+    }
+});
+
+// Or control thinking budget per request
+const gen = new AxChainOfThought(`question -> answer`);
+const res = await gen.forward(ai, 
+    { question: "What is quantum entanglement?" },
+    { thinkingTokenBudget: 'medium' } // 'minimal', 'low', 'medium', or 'high'
+);
+
+// Access thoughts in the response
+console.log(res.thoughts); // Shows the model's reasoning process
 ```
 
 ## Vector DBs Supported

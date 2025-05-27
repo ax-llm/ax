@@ -67,6 +67,15 @@ export class AxAIAzureOpenAI extends AxAIOpenAIBase<
       options,
       models,
       modelInfo: axModelInfoOpenAI,
+      supportFor: (model: AxAIOpenAIModel) => {
+        const modelInf = axModelInfoOpenAI.find((m) => m.name === model)
+        return {
+          functions: true,
+          streaming: true,
+          hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
+          hasShowThoughts: modelInf?.hasShowThoughts ?? false,
+        }
+      },
     })
 
     const host = resourceName.includes('://')

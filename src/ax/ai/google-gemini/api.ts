@@ -619,7 +619,16 @@ export class AxAIGoogleGemini extends AxBaseAI<
         embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel,
       },
       options,
-      supportFor: { functions: true, streaming: true },
+      supportFor: (model: AxAIGoogleGeminiModel) => {
+        const modelInf = axModelInfoGoogleGemini.find((m) => m.name === model)
+        return {
+          functions: true,
+          streaming: true,
+          hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
+          hasShowThoughts: modelInf?.hasShowThoughts ?? false,
+          functionCot: false,
+        }
+      },
       models,
     })
   }

@@ -43,6 +43,18 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   dimensions?: number
   reasoningEffort?: 'low' | 'medium' | 'high'
   store?: boolean
+  webSearchOptions?: {
+    searchContextSize?: 'low' | 'medium' | 'high'
+    userLocation?: {
+      approximate: {
+        type: 'approximate'
+        city?: string
+        country?: string
+        region?: string
+        timezone?: string
+      }
+    } | null
+  }
 }
 
 export type AxAIOpenAILogprob = {
@@ -138,6 +150,18 @@ export type AxAIOpenAIChatRequest<TModel> = {
   logit_bias?: Map<string, number>
   user?: string
   organization?: string
+  web_search_options?: {
+    search_context_size?: 'low' | 'medium' | 'high'
+    user_location?: {
+      approximate: {
+        type: 'approximate'
+        city?: string
+        country?: string
+        region?: string
+        timezone?: string
+      }
+    } | null
+  }
 }
 
 export type AxAIOpenAIChatResponse = {
@@ -150,6 +174,7 @@ export type AxAIOpenAIChatResponse = {
     message: {
       role: string
       content: string
+      reasoning_content?: string
       tool_calls?: {
         id: string
         type: 'function'
@@ -171,6 +196,7 @@ export type AxAIOpenAIChatResponse = {
 
 export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
   content: string
+  reasoning_content?: string
   role?: string
   tool_calls?: (NonNullable<
     AxAIOpenAIChatResponse['choices'][0]['message']['tool_calls']

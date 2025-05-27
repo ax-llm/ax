@@ -25,6 +25,8 @@ export type AxModelInfo = {
   promptTokenCostPer1M?: number
   completionTokenCostPer1M?: number
   aliases?: string[]
+  hasThinkingBudget?: boolean
+  hasShowThoughts?: boolean
 }
 
 export type AxTokenUsage = {
@@ -253,6 +255,7 @@ export type AxAIServiceActionOptions<
   rateLimiter?: AxRateLimiterFunction
   debug?: boolean
   debugHideSystemPrompt?: boolean
+  hideThought?: boolean
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {

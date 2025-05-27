@@ -57,6 +57,15 @@ export class AxAIGrok extends AxAIOpenAIBase<
       apiURL: 'https://api.x.ai/v1',
       modelInfo: axModelInfoGrok,
       models,
+      supportFor: (model: AxAIGrokModel) => {
+        const modelInf = axModelInfoGrok.find((m) => m.name === model)
+        return {
+          functions: true,
+          streaming: true,
+          hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
+          hasShowThoughts: modelInf?.hasShowThoughts ?? false,
+        }
+      },
     })
 
     super.setName('Grok')

@@ -29,6 +29,8 @@ export interface AxAIFeatures {
   functions: boolean
   streaming: boolean
   functionCot?: boolean
+  hasThinkingBudget?: boolean
+  hasShowThoughts?: boolean
 }
 
 export interface AxBaseAIArgs<TModel, TEmbedModel> {
@@ -337,6 +339,16 @@ export class AxBaseAI<
       ...req.modelConfig,
     }
 
+    // Check for thinkingTokenBudget support
+    if (
+      options?.thinkingTokenBudget &&
+      !this.getFeatures(model).hasThinkingBudget
+    ) {
+      throw new Error(
+        `Model ${model as string} does not support thinkingTokenBudget.`
+      )
+    }
+
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
       (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
@@ -491,6 +503,14 @@ export class AxBaseAI<
           const res = respFn(resp, state)
           res.sessionId = options?.sessionId
 
+          if (options?.hideThought) {
+            res.results.forEach((result) => {
+              if (result.thought) {
+                result.thought = undefined
+              }
+            })
+          }
+
           if (!res.modelUsage) {
             res.modelUsage = {
               ai: this.name,
@@ -534,6 +554,14 @@ export class AxBaseAI<
     }
     const res = this.aiImpl.createChatResp(rv as TChatResponse)
     res.sessionId = options?.sessionId
+
+    if (options?.hideThought) {
+      res.results.forEach((result) => {
+        if (result.thought) {
+          result.thought = undefined
+        }
+      })
+    }
 
     if (!res.modelUsage) {
       const tokenUsage = this.aiImpl.getTokenUsage()

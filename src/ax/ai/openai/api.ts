@@ -1,5 +1,6 @@
 import type { AxAPI } from '../../util/apicall.js'
 import {
+  type AxAIFeatures,
   AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
@@ -98,6 +99,7 @@ export interface AxAIOpenAIBaseArgs<
   modelInfo: Readonly<AxModelInfo[]>
   models?: AxAIInputModelList<TModel, TEmbedModel>
   chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>
+  supportFor?: AxAIFeatures | ((model: TModel) => AxAIFeatures)
 }
 
 class AxAIOpenAIImpl<
@@ -209,6 +211,42 @@ class AxAIOpenAIImpl<
       reqValue.reasoning_effort = this.config.reasoningEffort
     }
 
+    if (this.config.webSearchOptions) {
+      reqValue.web_search_options = {
+        ...(this.config.webSearchOptions.searchContextSize && {
+          search_context_size: this.config.webSearchOptions.searchContextSize,
+        }),
+        ...(this.config.webSearchOptions.userLocation && {
+          user_location: {
+            approximate: {
+              type: 'approximate',
+              ...(this.config.webSearchOptions.userLocation.approximate
+                .city && {
+                city: this.config.webSearchOptions.userLocation.approximate
+                  .city,
+              }),
+              ...(this.config.webSearchOptions.userLocation.approximate
+                .country && {
+                country:
+                  this.config.webSearchOptions.userLocation.approximate.country,
+              }),
+              ...(this.config.webSearchOptions.userLocation.approximate
+                .region && {
+                region:
+                  this.config.webSearchOptions.userLocation.approximate.region,
+              }),
+              ...(this.config.webSearchOptions.userLocation.approximate
+                .timezone && {
+                timezone:
+                  this.config.webSearchOptions.userLocation.approximate
+                    .timezone,
+              }),
+            },
+          },
+        }),
+      }
+    }
+
     if (config.thinkingTokenBudget) {
       switch (config.thinkingTokenBudget) {
         case 'minimal':
@@ -287,6 +325,7 @@ class AxAIOpenAIImpl<
       return {
         id: `${choice.index}`,
         content: choice.message.content,
+        thought: choice.message.reasoning_content,
         functionCalls,
         finishReason,
       }
@@ -322,7 +361,12 @@ class AxAIOpenAIImpl<
 
     const results = choices.map(
       ({
-        delta: { content, role, tool_calls: toolCalls },
+        delta: {
+          content,
+          role,
+          tool_calls: toolCalls,
+          reasoning_content: thought,
+        },
         finish_reason: oaiFinishReason,
       }) => {
         const finishReason = mapFinishReason(oaiFinishReason)
@@ -352,7 +396,8 @@ class AxAIOpenAIImpl<
 
         return {
           content,
-          role: role,
+          role,
+          thought,
           functionCalls,
           finishReason,
           id,
@@ -481,6 +526,7 @@ export class AxAIOpenAIBase<
     modelInfo,
     models,
     chatReqUpdater,
+    supportFor,
   }: Readonly<
     Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>, 'name'>
   >) {
@@ -504,9 +550,17 @@ export class AxAIOpenAIBase<
         embedModel: config.embedModel,
       },
       options,
-      supportFor: () => {
-        return { functions: true, streaming: true }
-      },
+      supportFor:
+        supportFor ??
+        ((model: TModel) => {
+          const modelInf = modelInfo.find((m) => m.name === model)
+          return {
+            functions: true,
+            streaming: true,
+            hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
+            hasShowThoughts: modelInf?.hasShowThoughts ?? false,
+          }
+        }),
       models,
     })
   }
@@ -526,6 +580,16 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
       throw new Error('OpenAI API key not set')
     }
 
+    const supportForFn = (model: AxAIOpenAIModel) => {
+      const modelInf = axModelInfoOpenAI.find((m) => m.name === model)
+      return {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
+        hasShowThoughts: modelInf?.hasShowThoughts ?? false,
+      }
+    }
+
     super({
       apiKey,
       config: {
@@ -535,6 +599,7 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
       options,
       modelInfo: axModelInfoOpenAI,
       models,
+      supportFor: supportForFn,
     })
 
     super.setName('OpenAI')

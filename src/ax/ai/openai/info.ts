@@ -11,24 +11,28 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 15,
     completionTokenCostPer1M: 60,
+    hasThinkingBudget: true,
   },
   {
     name: AxAIOpenAIModel.O1Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 14.4,
+    hasThinkingBudget: true,
   },
   {
     name: AxAIOpenAIModel.O3Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 4.4,
+    hasThinkingBudget: true,
   },
   {
     name: AxAIOpenAIModel.O4Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 4.4,
+    hasThinkingBudget: true,
   },
   {
     name: AxAIOpenAIModel.GPT4,

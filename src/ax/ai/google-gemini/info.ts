@@ -12,6 +12,8 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 2.5,
     completionTokenCostPer1M: 15.0,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini25Flash,
@@ -19,6 +21,8 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 3.5,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini20Flash,
