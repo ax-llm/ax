@@ -1,6 +1,6 @@
 import type { ReadableStream } from 'node:stream/web'
 
-import type { Tracer } from '@opentelemetry/api'
+import type { Context, Tracer } from '@opentelemetry/api'
 
 import type { AxAPI } from '../util/apicall.js'
 
@@ -232,7 +232,7 @@ export type AxRateLimiterFunction = <T = unknown>(
 
 export type AxAIPromptConfig = {
   stream?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high'
+  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest'
 }
 
 export type AxAIServiceOptions = {
@@ -256,6 +256,7 @@ export type AxAIServiceActionOptions<
   debug?: boolean
   debugHideSystemPrompt?: boolean
   hideThought?: boolean
+  traceContext?: Context
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {

@@ -260,6 +260,10 @@ class AxAIOpenAIImpl<
           break
         case 'high':
           reqValue.reasoning_effort = 'high'
+          break
+        case 'highest':
+          reqValue.reasoning_effort = 'high'
+          break
       }
     }
 

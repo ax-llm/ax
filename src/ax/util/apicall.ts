@@ -273,14 +273,12 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   }
 
   // Set up telemetry
-  if (api.span?.isRecording()) {
-    api.span.setAttributes({
-      'http.request.method': api.put ? 'PUT' : 'POST',
-      'url.full': apiUrl.href,
-      'request.id': requestId,
-      'request.startTime': metrics.startTime,
-    })
-  }
+  api.span?.setAttributes({
+    'http.request.method': api.put ? 'PUT' : 'POST',
+    'url.full': apiUrl.href,
+    'request.id': requestId,
+    'request.startTime': metrics.startTime,
+  })
 
   let attempt = 0
 
@@ -322,16 +320,14 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         attempt++
         updateRetryMetrics(metrics)
 
-        if (api.span?.isRecording()) {
-          api.span.addEvent('retry', {
-            attempt,
-            delay,
-            status: res.status,
-            'metrics.startTime': metrics.startTime,
-            'metrics.retryCount': metrics.retryCount,
-            'metrics.lastRetryTime': metrics.lastRetryTime,
-          })
-        }
+        api.span?.addEvent('retry', {
+          attempt,
+          delay,
+          status: res.status,
+          'metrics.startTime': metrics.startTime,
+          'metrics.retryCount': metrics.retryCount,
+          'metrics.lastRetryTime': metrics.lastRetryTime,
+        })
 
         await new Promise((resolve) => setTimeout(resolve, delay))
         continue
@@ -364,12 +360,10 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           }
         }
 
-        if (api.span?.isRecording()) {
-          api.span.setAttributes({
-            'response.time': Date.now() - metrics.startTime,
-            'response.retries': metrics.retryCount,
-          })
-        }
+        api.span?.setAttributes({
+          'response.time': Date.now() - metrics.startTime,
+          'response.retries': metrics.retryCount,
+        })
 
         return resJson as TResponse
       }
@@ -395,15 +389,12 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           metrics.streamChunks = chunkCount
           metrics.lastChunkTime = Date.now()
           controller.enqueue(chunk)
-        },
-        flush() {
-          if (api.span?.isRecording()) {
-            api.span.setAttributes({
-              'stream.chunks': chunkCount,
-              'stream.duration': Date.now() - metrics.startTime,
-              'response.retries': metrics.retryCount,
-            })
-          }
+
+          api.span?.addEvent('stream.chunk', {
+            'stream.chunks': chunkCount,
+            'stream.duration': Date.now() - metrics.startTime,
+            'response.retries': metrics.retryCount,
+          })
         },
       })
 
@@ -514,16 +505,14 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         attempt++
         updateRetryMetrics(metrics)
 
-        if (api.span?.isRecording()) {
-          api.span.addEvent('retry', {
-            attempt,
-            delay,
-            error: error.message,
-            'metrics.startTime': metrics.startTime,
-            'metrics.retryCount': metrics.retryCount,
-            'metrics.lastRetryTime': metrics.lastRetryTime,
-          })
-        }
+        api.span?.addEvent('retry', {
+          attempt,
+          delay,
+          error: error.message,
+          'metrics.startTime': metrics.startTime,
+          'metrics.retryCount': metrics.retryCount,
+          'metrics.lastRetryTime': metrics.lastRetryTime,
+        })
 
         await new Promise((resolve) => setTimeout(resolve, delay))
         continue

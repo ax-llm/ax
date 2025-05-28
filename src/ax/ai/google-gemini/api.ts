@@ -351,16 +351,19 @@ class AxAIGoogleGeminiImpl
       //The thinkingBudget must be an integer in the range 0 to 24576
       switch (config.thinkingTokenBudget) {
         case 'minimal':
-          thinkingConfig.thinkingBudget = 0
+          thinkingConfig.thinkingBudget = 200
           break
         case 'low':
-          thinkingConfig.thinkingBudget = 1024
+          thinkingConfig.thinkingBudget = 800
           break
         case 'medium':
-          thinkingConfig.thinkingBudget = 4096
+          thinkingConfig.thinkingBudget = 5000
           break
         case 'high':
-          thinkingConfig.thinkingBudget = 8192
+          thinkingConfig.thinkingBudget = 10000
+          break
+        case 'highest':
+          thinkingConfig.thinkingBudget = 24500
           break
       }
     }

@@ -1,6 +1,6 @@
 import type { ReadableStream } from 'stream/web'
 
-import { type Span, SpanKind } from '@opentelemetry/api'
+import { context, type Span, SpanKind } from '@opentelemetry/api'
 
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js'
 import { apiCall } from '../util/apicall.js'
@@ -360,7 +360,7 @@ export class AxBaseAI<
     }
 
     if (this.tracer) {
-      return await this.tracer?.startActiveSpan(
+      return await this.tracer.startActiveSpan(
         'AI Chat Request',
         {
           kind: SpanKind.SERVER,
@@ -381,6 +381,7 @@ export class AxBaseAI<
             [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream,
           },
         },
+        options?.traceContext ?? context.active(),
         async (span) => {
           return await this._chat2(model, modelConfig, req, options, span)
         }
@@ -633,6 +634,7 @@ export class AxBaseAI<
             [axSpanAttributes.LLM_REQUEST_MODEL]: embedModel as string,
           },
         },
+        options?.traceContext ?? context.active(),
         async (span) => {
           try {
             return await this._embed2(embedModel, req, options, span)

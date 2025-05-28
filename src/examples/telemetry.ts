@@ -92,8 +92,8 @@ classifier.setExamples([
 // Example texts to classify
 const texts = [
   "Apple's stock price surged 5% after announcing record iPhone sales",
-  'The latest AI breakthrough enables robots to learn from human demonstrations',
-  'Manchester United wins dramatic match against Liverpool in injury time',
+  //   'The latest AI breakthrough enables robots to learn from human demonstrations',
+  //   'Manchester United wins dramatic match against Liverpool in injury time',
 ]
 
 async function main() {
