@@ -302,6 +302,10 @@ class AxAIGoogleGeminiImpl
       })
     }
 
+    if (this.options?.googleSearch) {
+      tools.push({ google_search: {} })
+    }
+
     if (this.options?.urlContext) {
       tools.push({ url_context: {} })
     }
