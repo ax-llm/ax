@@ -108,6 +108,7 @@ export type AxAIGoogleGeminiTool = {
   function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[]
   code_execution?: object
   google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval
+  google_search?: object
   url_context?: object
 }
 
