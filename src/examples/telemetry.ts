@@ -58,10 +58,16 @@ const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25Flash,
-    thinking: { includeThoughts: true, thinkingTokenBudget: 50 },
+    model: 'gemini-2.5-flash-preview-04-17' as AxAIGoogleGeminiModel,
+    thinking: { includeThoughts: true },
   },
   options: { debug: false, tracer },
+  modelInfo: [
+    {
+      name: 'gemini-2.5-flash-preview-04-17',
+      hasThinkingBudget: true,
+    },
+  ],
 })
 
 // Create a text classifier using Ax
@@ -92,8 +98,8 @@ classifier.setExamples([
 // Example texts to classify
 const texts = [
   "Apple's stock price surged 5% after announcing record iPhone sales",
-  //   'The latest AI breakthrough enables robots to learn from human demonstrations',
-  //   'Manchester United wins dramatic match against Liverpool in injury time',
+  'The latest AI breakthrough enables robots to learn from human demonstrations',
+  'Manchester United wins dramatic match against Liverpool in injury time',
 ]
 
 async function main() {
@@ -104,7 +110,7 @@ async function main() {
       const result = await classifier.forward(
         ai,
         { textToClassify },
-        { traceLabel: 'Classifier' }
+        { traceLabel: 'Classifier', thinkingTokenBudget: 'low' }
       )
 
       console.log('Result:', result)

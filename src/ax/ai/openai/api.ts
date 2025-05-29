@@ -1,3 +1,5 @@
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+
 import type { AxAPI } from '../../util/apicall.js'
 import {
   type AxAIFeatures,
@@ -77,9 +79,10 @@ export interface AxAIOpenAIArgs<
     AxAIOpenAIChatRequest<TModel> = AxAIOpenAIChatRequest<TModel>,
 > extends Omit<
     AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>,
-    'config' | 'modelInfo'
+    'config' | 'supportFor' | 'modelInfo'
   > {
   name: TName
+  modelInfo?: AxModelInfo[]
   config?: Partial<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>['config']>
 }
 
@@ -99,7 +102,7 @@ export interface AxAIOpenAIBaseArgs<
   modelInfo: Readonly<AxModelInfo[]>
   models?: AxAIInputModelList<TModel, TEmbedModel>
   chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>
-  supportFor?: AxAIFeatures | ((model: TModel) => AxAIFeatures)
+  supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
 }
 
 class AxAIOpenAIImpl<
@@ -554,17 +557,7 @@ export class AxAIOpenAIBase<
         embedModel: config.embedModel,
       },
       options,
-      supportFor:
-        supportFor ??
-        ((model: TModel) => {
-          const modelInf = modelInfo.find((m) => m.name === model)
-          return {
-            functions: true,
-            streaming: true,
-            hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
-            hasShowThoughts: modelInf?.hasShowThoughts ?? false,
-          }
-        }),
+      supportFor,
       models,
     })
   }
@@ -579,18 +572,25 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
     config,
     options,
     models,
-  }: Readonly<Omit<AxAIOpenAIArgs, 'name' | 'modelInfo'>>) {
+    modelInfo,
+  }: Readonly<Omit<AxAIOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set')
     }
 
-    const supportForFn = (model: AxAIOpenAIModel) => {
-      const modelInf = axModelInfoOpenAI.find((m) => m.name === model)
+    modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])]
+
+    const supportFor = (model: AxAIOpenAIModel) => {
+      const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel>({
+        model,
+        modelInfo,
+        models,
+      })
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
-        hasShowThoughts: modelInf?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
+        hasShowThoughts: mi?.hasShowThoughts ?? false,
       }
     }
 
@@ -601,9 +601,9 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
         ...config,
       },
       options,
-      modelInfo: axModelInfoOpenAI,
+      modelInfo,
       models,
-      supportFor: supportForFn,
+      supportFor,
     })
 
     super.setName('OpenAI')

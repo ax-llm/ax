@@ -5,7 +5,6 @@ export enum AxAIGoogleGeminiModel {
   Gemini25Flash = 'gemini-2.5-flash-preview-04-17',
   Gemini20Flash = 'gemini-2.0-flash',
   Gemini20FlashLite = 'gemini-2.0-flash-lite-preview-02-05',
-  Gemini20FlashThinking = 'gemini-2.0-flash-thinking-exp-01-21',
   Gemini1Pro = 'gemini-1.0-pro',
   Gemini15Flash = 'gemini-1.5-flash',
   Gemini15Flash002 = 'gemini-1.5-flash-002',

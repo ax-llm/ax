@@ -34,6 +34,7 @@ export class AxAIDeepSeek extends AxAIOpenAIBase<AxAIDeepSeekModel, undefined> {
     config,
     options,
     models,
+    modelInfo,
   }: Readonly<Omit<AxAIDeepSeekArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('DeepSeek API key not set')
@@ -42,12 +43,21 @@ export class AxAIDeepSeek extends AxAIOpenAIBase<AxAIDeepSeekModel, undefined> {
       ...axAIDeepSeekDefaultConfig(),
       ...config,
     }
+
+    modelInfo = [...axModelInfoDeepSeek, ...(modelInfo ?? [])]
+
     super({
       apiKey,
       config: _config,
       options,
       apiURL: 'https://api.deepseek.com',
-      modelInfo: axModelInfoDeepSeek,
+      modelInfo,
+      supportFor: {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: false,
+        hasShowThoughts: false,
+      },
       models,
     })
 

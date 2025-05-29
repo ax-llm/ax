@@ -1,3 +1,5 @@
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+
 import type { AxAPI } from '../../util/apicall.js'
 import {
   AxBaseAI,
@@ -16,6 +18,7 @@ import type {
   AxInternalChatRequest,
   AxInternalEmbedRequest,
   AxModelConfig,
+  AxModelInfo,
   AxTokenUsage,
 } from '../types.js'
 
@@ -95,6 +98,7 @@ export interface AxAIGoogleGeminiArgs {
   config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
   models?: AxAIInputModelList<AxAIGoogleGeminiModel, AxAIGoogleGeminiEmbedModel>
+  modelInfo?: AxModelInfo[]
 }
 
 class AxAIGoogleGeminiImpl
@@ -572,6 +576,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     config,
     options,
     models,
+    modelInfo,
   }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
     const isVertex = projectId !== undefined && region !== undefined
 
@@ -616,26 +621,37 @@ export class AxAIGoogleGemini extends AxBaseAI<
       options
     )
 
+    modelInfo = [...axModelInfoGoogleGemini, ...(modelInfo ?? [])]
+
+    const supportFor = (model: AxAIGoogleGeminiModel) => {
+      const mi = getModelInfo<
+        AxAIGoogleGeminiModel,
+        AxAIGoogleGeminiEmbedModel
+      >({
+        model,
+        modelInfo,
+        models,
+      })
+      return {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
+        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        functionCot: false,
+      }
+    }
+
     super(aiImpl, {
       name: 'GoogleGeminiAI',
       apiURL,
       headers,
-      modelInfo: axModelInfoGoogleGemini,
+      modelInfo,
       defaults: {
         model: _config.model as AxAIGoogleGeminiModel,
         embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel,
       },
       options,
-      supportFor: (model: AxAIGoogleGeminiModel) => {
-        const modelInf = axModelInfoGoogleGemini.find((m) => m.name === model)
-        return {
-          functions: true,
-          streaming: true,
-          hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
-          hasShowThoughts: modelInf?.hasShowThoughts ?? false,
-          functionCot: false,
-        }
-      },
+      supportFor,
       models,
     })
   }

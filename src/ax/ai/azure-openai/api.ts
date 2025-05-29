@@ -1,3 +1,5 @@
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+
 import {
   type AxAIOpenAIArgs,
   AxAIOpenAIBase,
@@ -47,7 +49,8 @@ export class AxAIAzureOpenAI extends AxAIOpenAIBase<
     config,
     options,
     models,
-  }: Readonly<Omit<AxAIAzureOpenAIArgs, 'name' | 'modelInfo'>>) {
+    modelInfo,
+  }: Readonly<Omit<AxAIAzureOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set')
     }
@@ -57,25 +60,35 @@ export class AxAIAzureOpenAI extends AxAIOpenAIBase<
     if (!deploymentName || deploymentName === '') {
       throw new Error('Azure OpenAPI deployment id not set')
     }
+
     const _config = {
       ...axAIAzureOpenAIDefaultConfig(),
       ...config,
     }
+
+    modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])]
+
+    const supportFor = (model: AxAIOpenAIModel) => {
+      const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel>({
+        model,
+        modelInfo,
+        models,
+      })
+      return {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
+        hasShowThoughts: mi?.hasShowThoughts ?? false,
+      }
+    }
+
     super({
       apiKey,
       config: _config,
       options,
       models,
-      modelInfo: axModelInfoOpenAI,
-      supportFor: (model: AxAIOpenAIModel) => {
-        const modelInf = axModelInfoOpenAI.find((m) => m.name === model)
-        return {
-          functions: true,
-          streaming: true,
-          hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
-          hasShowThoughts: modelInf?.hasShowThoughts ?? false,
-        }
-      },
+      modelInfo,
+      supportFor,
     })
 
     const host = resourceName.includes('://')

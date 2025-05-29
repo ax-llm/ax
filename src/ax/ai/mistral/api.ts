@@ -1,7 +1,7 @@
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
-import type { AxAIServiceOptions } from '../types.js'
+import type { AxAIServiceOptions, AxModelInfo } from '../types.js'
 
 import { axModelInfoMistral } from './info.js'
 import { AxAIMistralEmbedModels, AxAIMistralModel } from './types.js'
@@ -29,6 +29,7 @@ export type AxAIMistralArgs = AxAIOpenAIArgs<
   AxAIMistralEmbedModels
 > & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
+  modelInfo?: AxModelInfo[]
 }
 
 export class AxAIMistral extends AxAIOpenAIBase<
@@ -40,6 +41,7 @@ export class AxAIMistral extends AxAIOpenAIBase<
     config,
     options,
     models,
+    modelInfo,
   }: Readonly<Omit<AxAIMistralArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set')
@@ -48,13 +50,24 @@ export class AxAIMistral extends AxAIOpenAIBase<
       ...axAIMistralDefaultConfig(),
       ...config,
     }
+
+    modelInfo = [...axModelInfoMistral, ...(modelInfo ?? [])]
+
+    const supportFor = {
+      functions: true,
+      streaming: true,
+      hasThinkingBudget: false,
+      hasShowThoughts: false,
+    }
+
     super({
       apiKey,
       config: _config,
       options,
       apiURL: 'https://api.mistral.ai/v1',
-      modelInfo: axModelInfoMistral,
+      modelInfo,
       models,
+      supportFor,
     })
 
     super.setName('Mistral')

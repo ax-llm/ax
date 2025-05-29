@@ -6,13 +6,13 @@ export const axModelInfoDeepSeek: AxModelInfo[] = [
   {
     name: AxAIDeepSeekModel.DeepSeekChat,
     currency: 'USD',
-    promptTokenCostPer1M: 0.14,
-    completionTokenCostPer1M: 0.28,
+    promptTokenCostPer1M: 0.27,
+    completionTokenCostPer1M: 1.1,
   },
   {
-    name: AxAIDeepSeekModel.DeepSeekCoder,
+    name: AxAIDeepSeekModel.DeepSeekReasoner,
     currency: 'USD',
-    promptTokenCostPer1M: 0.14,
-    completionTokenCostPer1M: 0.28,
+    promptTokenCostPer1M: 0.55,
+    completionTokenCostPer1M: 2.19,
   },
 ]

@@ -202,11 +202,13 @@ export class AxGen<
     mem,
     options,
     traceContext,
+    firstStep,
   }: Readonly<{
     ai: Readonly<AxAIService>
     mem: AxAIMemory
     options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
     traceContext?: Context
+    firstStep: boolean
   }>) {
     const {
       sessionId,
@@ -231,7 +233,14 @@ export class AxGen<
       ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
       ?.flat()
 
-    const functionCall = _functionCall ?? this.options?.functionCall
+    let functionCall = _functionCall ?? this.options?.functionCall
+
+    if (
+      !firstStep &&
+      (functionCall === 'required' || typeof functionCall === 'function')
+    ) {
+      functionCall = undefined
+    }
 
     const res = await ai.chat(
       {
@@ -259,12 +268,14 @@ export class AxGen<
     ai,
     mem,
     options,
+    firstStep,
     span,
     traceContext,
   }: Readonly<{
     ai: Readonly<AxAIService>
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
+    firstStep: boolean
     span?: Span
     traceContext?: Context
   }>) {
@@ -283,6 +294,7 @@ export class AxGen<
       mem,
       options,
       traceContext,
+      firstStep,
     })
 
     if (res instanceof ReadableStream) {
@@ -589,12 +601,14 @@ export class AxGen<
     mem.add(prompt, options?.sessionId)
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
+      const firstStep = n === 0
       for (let errCount = 0; errCount < maxRetries; errCount++) {
         try {
           const generator = this.forwardCore({
             options,
             ai,
             mem,
+            firstStep,
             span,
             traceContext,
           })
