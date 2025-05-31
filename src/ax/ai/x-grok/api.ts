@@ -2,7 +2,7 @@ import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
-import type { AxAIOpenAIConfig } from '../openai/types.js'
+import type { AxAIOpenAIConfig, AxAIOpenAIChatRequest } from '../openai/types.js'
 import type { AxAIServiceOptions, AxModelInfo } from '../types.js'
 
 import { axModelInfoGrok } from './info.js'
@@ -26,18 +26,52 @@ export const axAIGrokBestConfig = (): AxAIOpenAIConfig<
     model: AxAIGrokModel.Grok3,
   })
 
+export interface AxAIGrokSearchSource {
+  type: 'web' | 'x' | 'news' | 'rss'
+  country?: string // ISO alpha-2 code for web and news
+  excludedWebsites?: string[] // Max 5 websites for web and news
+  allowedWebsites?: string[] // Max 5 websites for web only
+  safeSearch?: boolean // For web and news, default true
+  xHandles?: string[] // For X source
+  links?: string[] // For RSS source, max 1 link
+}
+
+export interface AxAIGrokOptionsTools {
+  searchParameters?: {
+    mode?: 'auto' | 'on' | 'off'
+    returnCitations?: boolean
+    fromDate?: string // ISO8601 format YYYY-MM-DD
+    toDate?: string // ISO8601 format YYYY-MM-DD
+    maxSearchResults?: number // Default 20
+    sources?: AxAIGrokSearchSource[]
+  }
+}
+
+export type AxAIGrokChatRequest = AxAIOpenAIChatRequest<AxAIGrokModel> & {
+  search_parameters?: {
+    mode?: 'auto' | 'on' | 'off'
+    return_citations?: boolean
+    from_date?: string
+    to_date?: string
+    max_search_results?: number
+    sources?: AxAIGrokSearchSource[]
+  }
+}
+
 export type AxAIGrokArgs = AxAIOpenAIArgs<
   'grok',
   AxAIGrokModel,
-  AxAIGrokEmbedModels
+  AxAIGrokEmbedModels,
+  AxAIGrokChatRequest
 > & {
-  options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
+  options?: Readonly<AxAIServiceOptions & AxAIGrokOptionsTools> & { tokensPerMinute?: number }
   modelInfo?: AxModelInfo[]
 }
 
 export class AxAIGrok extends AxAIOpenAIBase<
   AxAIGrokModel,
-  AxAIGrokEmbedModels
+  AxAIGrokEmbedModels,
+  AxAIGrokChatRequest
 > {
   constructor({
     apiKey,
@@ -71,6 +105,33 @@ export class AxAIGrok extends AxAIOpenAIBase<
       }
     }
 
+    // Chat request updater to add Grok's search parameters
+    const chatReqUpdater = (req: AxAIGrokChatRequest): AxAIGrokChatRequest => {
+      if (options?.searchParameters) {
+        const searchParams = options.searchParameters
+        return {
+          ...req,
+          search_parameters: {
+            mode: searchParams.mode,
+            return_citations: searchParams.returnCitations,
+            from_date: searchParams.fromDate,
+            to_date: searchParams.toDate,
+            max_search_results: searchParams.maxSearchResults,
+            sources: searchParams.sources?.map(source => ({
+              type: source.type,
+              country: source.country,
+              excluded_websites: source.excludedWebsites,
+              allowed_websites: source.allowedWebsites,
+              safe_search: source.safeSearch,
+              x_handles: source.xHandles,
+              links: source.links,
+            })),
+          },
+        }
+      }
+      return req
+    }
+
     super({
       apiKey,
       config: _config,
@@ -79,6 +140,7 @@ export class AxAIGrok extends AxAIOpenAIBase<
       modelInfo,
       models,
       supportFor,
+      chatReqUpdater,
     })
 
     super.setName('Grok')
