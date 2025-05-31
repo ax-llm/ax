@@ -183,6 +183,18 @@ import {
   type AxAITogetherArgs
 } from './ai/together/api.js';
 import {
+  AxAIGrokModel,
+  AxAIGrokEmbedModels,
+} from './ai/x-grok/types.js';
+import {
+  axAIGrokDefaultConfig,
+  axAIGrokBestConfig,
+  AxAIGrok,
+  type AxAIGrokOptionsTools,
+  type AxAIGrokSearchSource,
+  type AxAIGrokArgs
+} from './ai/x-grok/api.js';
+import {
   AxAgent,
   type AxAgentFeatures,
   type AxAgentOptions,
@@ -425,6 +437,9 @@ export { AxAIGoogleGeminiSafetyCategory };
 export { AxAIGoogleGeminiSafetyThreshold };
 export { AxAIGroq };
 export { AxAIGroqModel };
+export { AxAIGrok };
+export { AxAIGrokModel };
+export { AxAIGrokEmbedModels };
 export { AxAIHuggingFace };
 export { AxAIHuggingFaceModel };
 export { AxAIMistral };
@@ -518,6 +533,8 @@ export { axAIRekaCreativeConfig };
 export { axAIRekaDefaultConfig };
 export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
+export { axAIGrokDefaultConfig };
+export { axAIGrokBestConfig };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axModelInfoAnthropic };
@@ -583,6 +600,9 @@ export type { AxAIGoogleGeminiToolGoogleSearchRetrieval };
 export type { AxAIGoogleVertexBatchEmbedRequest };
 export type { AxAIGoogleVertexBatchEmbedResponse };
 export type { AxAIGroqArgs };
+export type { AxAIGrokArgs };
+export type { AxAIGrokOptionsTools };
+export type { AxAIGrokSearchSource };
 export type { AxAIHuggingFaceArgs };
 export type { AxAIHuggingFaceConfig };
 export type { AxAIHuggingFaceRequest };
