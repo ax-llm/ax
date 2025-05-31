@@ -1,16 +1,18 @@
 import type { AxAIInputModelList, AxModelInfo } from '../ai/types.js'
 
-interface GetModelInfoParams<TModel = string> {
+interface GetModelInfoParams<TModel = string, TEmbedModel = undefined> {
   model: TModel
   modelInfo: readonly AxModelInfo[]
-  models?: AxAIInputModelList<TModel, undefined>
+  models?: AxAIInputModelList<TModel, TEmbedModel>
 }
 
-export function getModelInfo<TModel = string>({
+export function getModelInfo<TModel = string, TEmbedModel = undefined>({
   model,
   modelInfo,
   models,
-}: Readonly<GetModelInfoParams<TModel>>): Readonly<AxModelInfo> {
+}: Readonly<
+  GetModelInfoParams<TModel, TEmbedModel>
+>): Readonly<AxModelInfo> | null {
   // First check if there's a mapping for this model
   const modelEntry = models?.find((v) => v.key === model)
   const mappedModel =
@@ -40,10 +42,5 @@ export function getModelInfo<TModel = string>({
   if (normalizedMatch) return normalizedMatch
 
   // Return default if no match found
-  return {
-    name: model as string,
-    currency: 'usd',
-    promptTokenCostPer1M: 0,
-    completionTokenCostPer1M: 0,
-  }
+  return null
 }

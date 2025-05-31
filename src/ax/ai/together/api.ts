@@ -21,6 +21,7 @@ export class AxAITogether extends AxAIOpenAIBase<string, unknown> {
     config,
     options,
     models,
+    modelInfo,
   }: Readonly<Omit<AxAITogetherArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set')
@@ -29,13 +30,24 @@ export class AxAITogether extends AxAIOpenAIBase<string, unknown> {
       ...axAITogetherDefaultConfig(),
       ...config,
     }
+
+    modelInfo = [...axModelInfoTogether, ...(modelInfo ?? [])]
+
+    const supportFor = {
+      functions: true,
+      streaming: true,
+      hasThinkingBudget: false,
+      hasShowThoughts: false,
+    }
+
     super({
       apiKey,
       config: _config,
       options,
       apiURL: 'https://api.together.xyz/v1',
-      modelInfo: axModelInfoTogether,
+      modelInfo,
       models,
+      supportFor,
     })
 
     super.setName('Together')

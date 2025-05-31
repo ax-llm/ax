@@ -1,7 +1,9 @@
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
-import type { AxAIServiceOptions } from '../types.js'
+import type { AxAIServiceOptions, AxModelInfo } from '../types.js'
 
 import { axModelInfoGrok } from './info.js'
 import { AxAIGrokEmbedModels, AxAIGrokModel } from './types.js'
@@ -30,6 +32,7 @@ export type AxAIGrokArgs = AxAIOpenAIArgs<
   AxAIGrokEmbedModels
 > & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
+  modelInfo?: AxModelInfo[]
 }
 
 export class AxAIGrok extends AxAIOpenAIBase<
@@ -41,13 +44,31 @@ export class AxAIGrok extends AxAIOpenAIBase<
     config,
     options,
     models,
+    modelInfo,
   }: Readonly<Omit<AxAIGrokArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Grok API key not set')
     }
+
     const _config = {
       ...axAIGrokDefaultConfig(),
       ...config,
+    }
+
+    modelInfo = [...axModelInfoGrok, ...(modelInfo ?? [])]
+
+    const supportFor = (model: AxAIGrokModel) => {
+      const mi = getModelInfo<AxAIGrokModel, AxAIGrokEmbedModels>({
+        model,
+        modelInfo,
+        models,
+      })
+      return {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
+        hasShowThoughts: mi?.hasShowThoughts ?? false,
+      }
     }
 
     super({
@@ -55,17 +76,9 @@ export class AxAIGrok extends AxAIOpenAIBase<
       config: _config,
       options,
       apiURL: 'https://api.x.ai/v1',
-      modelInfo: axModelInfoGrok,
+      modelInfo,
       models,
-      supportFor: (model: AxAIGrokModel) => {
-        const modelInf = axModelInfoGrok.find((m) => m.name === model)
-        return {
-          functions: true,
-          streaming: true,
-          hasThinkingBudget: modelInf?.hasThinkingBudget ?? false,
-          hasShowThoughts: modelInf?.hasShowThoughts ?? false,
-        }
-      },
+      supportFor,
     })
 
     super.setName('Grok')

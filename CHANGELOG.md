@@ -1,5 +1,28 @@
 # Changelog
 
+## [11.0.49](https://github.com/ax-llm/ax/compare/11.0.47...11.0.48) (2025-05-29)
+
+### Bug Fixes
+
+* **google-gemini:** implement missing googleSearch option ([#221](https://github.com/ax-llm/ax/issues/221)) ([414a89f](https://github.com/ax-llm/ax/commit/414a89fd06f904e8de13986ccbecc0c07a5214aa))
+* relaxed model info check ([3f1fffb](https://github.com/ax-llm/ax/commit/3f1fffb6b28dedcdc56f8d473b9be5b7964eebb2))
+## [11.0.48](https://github.com/ax-llm/ax/compare/11.0.47...11.0.48) (2025-05-28)
+
+### Bug Fixes
+
+* tracing fixes ([2aa7f04](https://github.com/ax-llm/ax/commit/2aa7f0410ea9120aaf3b772704302269e05d4ebd))
+
+## [11.0.48](https://github.com/ax-llm/ax/compare/11.0.46...11.0.47) (2025-05-28)
+
+### Bug Fixes
+
+* tracing fixes ([2aa7f04](https://github.com/ax-llm/ax/commit/2aa7f0410ea9120aaf3b772704302269e05d4ebd))
+## [11.0.47](https://github.com/ax-llm/ax/compare/11.0.46...11.0.47) (2025-05-27)
+
+### Bug Fixes
+
+* axgen now uses the underlying tracer provided by the ai ([36d80c8](https://github.com/ax-llm/ax/commit/36d80c867e33180ca528dcb4477887c25f8a522e))
+
 ## [11.0.47](https://github.com/ax-llm/ax/compare/11.0.45...11.0.46) (2025-05-27)
 
 ### Bug Fixes

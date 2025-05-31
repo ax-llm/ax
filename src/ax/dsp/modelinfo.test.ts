@@ -28,14 +28,16 @@ const modelInfo = [
 describe('getModelInfo', () => {
   it('should return correct model info for exact match', () => {
     const result = getModelInfo({ model: 'claude-3-5-sonnet', modelInfo })
-    expect(result.name).toBe('claude-3-5-sonnet')
-    expect(result.promptTokenCostPer1M).toBe(15000)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('claude-3-5-sonnet')
+    expect(result?.promptTokenCostPer1M).toBe(15000)
   })
 
   it('should handle model mapping', () => {
     const result = getModelInfo({ model: 'claude-3', modelInfo, models })
-    expect(result.name).toBe('claude-3-5-sonnet')
-    expect(result.promptTokenCostPer1M).toBe(15000)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('claude-3-5-sonnet')
+    expect(result?.promptTokenCostPer1M).toBe(15000)
   })
 
   it('should handle vendor prefixes', () => {
@@ -43,8 +45,9 @@ describe('getModelInfo', () => {
       model: 'anthropic.claude-3-5-sonnet',
       modelInfo,
     })
-    expect(result.name).toBe('claude-3-5-sonnet')
-    expect(result.promptTokenCostPer1M).toBe(15000)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('claude-3-5-sonnet')
+    expect(result?.promptTokenCostPer1M).toBe(15000)
   })
 
   describe('model name variations', () => {
@@ -53,7 +56,8 @@ describe('getModelInfo', () => {
         model: 'claude-3-5-sonnet-20241022',
         modelInfo,
       })
-      expect(result.name).toBe('claude-3-5-sonnet')
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('claude-3-5-sonnet')
     })
 
     it('should handle version postfix', () => {
@@ -61,7 +65,8 @@ describe('getModelInfo', () => {
         model: 'claude-3-5-sonnet-v2:0',
         modelInfo,
       })
-      expect(result.name).toBe('claude-3-5-sonnet')
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('claude-3-5-sonnet')
     })
 
     it('should handle alternative date format', () => {
@@ -69,7 +74,8 @@ describe('getModelInfo', () => {
         model: 'claude-3-5-sonnet@20241022',
         modelInfo,
       })
-      expect(result.name).toBe('claude-3-5-sonnet')
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('claude-3-5-sonnet')
     })
 
     it('should handle latest postfix', () => {
@@ -77,12 +83,14 @@ describe('getModelInfo', () => {
         model: 'claude-3-5-sonnet-latest',
         modelInfo,
       })
-      expect(result.name).toBe('claude-3-5-sonnet')
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('claude-3-5-sonnet')
     })
 
     it('should handle numeric id postfix', () => {
       const result = getModelInfo({ model: 'gpt-4o-mini-8388383', modelInfo })
-      expect(result.name).toBe('gpt-4o-mini')
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('gpt-4o-mini')
     })
 
     it('should handle complex version with date', () => {
@@ -90,7 +98,8 @@ describe('getModelInfo', () => {
         model: 'claude-3-5-sonnet-v2@20241022',
         modelInfo,
       })
-      expect(result.name).toBe('claude-3-5-sonnet')
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('claude-3-5-sonnet')
     })
 
     it('should handle vendor prefix with version', () => {
@@ -98,17 +107,13 @@ describe('getModelInfo', () => {
         model: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
         modelInfo,
       })
-      expect(result.name).toBe('claude-3-5-sonnet')
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('claude-3-5-sonnet')
     })
   })
 
   it('should handle unknown model', () => {
     const result = getModelInfo({ model: 'unknown-model', modelInfo })
-    expect(result).toEqual({
-      name: 'unknown-model',
-      promptTokenCostPer1M: 0,
-      completionTokenCostPer1M: 0,
-      currency: 'usd',
-    })
+    expect(result).toBeNull()
   })
 })

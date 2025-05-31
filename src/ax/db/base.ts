@@ -63,7 +63,7 @@ export class AxDBBase implements AxDBService {
       return await this._upsert(req, update)
     }
 
-    return await this.tracer?.startActiveSpan(
+    return await this.tracer.startActiveSpan(
       'DB Upsert Request',
       {
         kind: SpanKind.SERVER,
@@ -103,7 +103,7 @@ export class AxDBBase implements AxDBService {
       return await this._batchUpsert(req, update)
     }
 
-    return await this.tracer?.startActiveSpan(
+    return await this.tracer.startActiveSpan(
       'DB Batch Upsert Request',
       {
         kind: SpanKind.SERVER,
@@ -133,7 +133,7 @@ export class AxDBBase implements AxDBService {
       return await this._query(req)
     }
 
-    return await this.tracer?.startActiveSpan(
+    return await this.tracer.startActiveSpan(
       'DB Query Request',
       {
         kind: SpanKind.SERVER,

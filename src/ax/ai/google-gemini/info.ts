@@ -40,13 +40,6 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     completionTokenCostPer1M: 0.0,
   },
   {
-    name: AxAIGoogleGeminiModel.Gemini20FlashThinking,
-    currency: 'usd',
-    characterIsToken: false,
-    promptTokenCostPer1M: 0.0,
-    completionTokenCostPer1M: 0.0,
-  },
-  {
     name: AxAIGoogleGeminiModel.Gemini15Flash,
     currency: 'usd',
     characterIsToken: false,

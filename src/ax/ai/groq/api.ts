@@ -2,7 +2,11 @@ import { AxRateLimiterTokenUsage } from '../../util/rate-limit.js'
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type { AxAIOpenAIConfig } from '../openai/types.js'
-import type { AxAIServiceOptions, AxRateLimiterFunction } from '../types.js'
+import type {
+  AxAIServiceOptions,
+  AxModelInfo,
+  AxRateLimiterFunction,
+} from '../types.js'
 
 import { axModelInfoGroq } from './info.js'
 import { AxAIGroqModel } from './types.js'
@@ -17,6 +21,7 @@ const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
 
 export type AxAIGroqArgs = AxAIOpenAIArgs<'groq', AxAIGroqModel, undefined> & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
+  modelInfo?: AxModelInfo[]
 }
 
 export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
@@ -25,6 +30,7 @@ export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
     config,
     options,
     models,
+    modelInfo,
   }: Readonly<Omit<AxAIGroqArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Groq API key not set')
@@ -39,13 +45,23 @@ export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
       streamingUsage: false,
     }
 
+    modelInfo = [...axModelInfoGroq, ...(modelInfo ?? [])]
+
+    const supportFor = {
+      functions: true,
+      streaming: true,
+      hasThinkingBudget: false,
+      hasShowThoughts: false,
+    }
+
     super({
       apiKey,
       config: _config,
       options: _options,
-      modelInfo: axModelInfoGroq,
+      modelInfo,
       apiURL: 'https://api.groq.com/openai/v1',
       models,
+      supportFor,
     })
 
     super.setName('Groq')

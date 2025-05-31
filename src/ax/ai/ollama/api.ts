@@ -49,6 +49,12 @@ export class AxAIOllama extends AxAIOpenAIBase<string, string> {
       apiURL: url,
       models,
       modelInfo: [],
+      supportFor: {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: false,
+        hasShowThoughts: false,
+      },
     })
 
     super.setName('Ollama')

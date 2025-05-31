@@ -1,6 +1,13 @@
 import { ReadableStream } from 'node:stream/web'
 
-import { type Span, SpanKind, type Tracer } from '@opentelemetry/api'
+import {
+  context,
+  type Context,
+  type Span,
+  SpanKind,
+  trace,
+  type Tracer,
+} from '@opentelemetry/api'
 
 import type {
   AxAIService,
@@ -194,10 +201,14 @@ export class AxGen<
     ai,
     mem,
     options,
+    traceContext,
+    firstStep,
   }: Readonly<{
     ai: Readonly<AxAIService>
     mem: AxAIMemory
     options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
+    traceContext?: Context
+    firstStep: boolean
   }>) {
     const {
       sessionId,
@@ -222,7 +233,14 @@ export class AxGen<
       ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
       ?.flat()
 
-    const functionCall = _functionCall ?? this.options?.functionCall
+    let functionCall = _functionCall ?? this.options?.functionCall
+
+    if (
+      !firstStep &&
+      (functionCall === 'required' || typeof functionCall === 'function')
+    ) {
+      functionCall = undefined
+    }
 
     const res = await ai.chat(
       {
@@ -239,6 +257,7 @@ export class AxGen<
         stream,
         debug: false,
         thinkingTokenBudget,
+        traceContext,
       }
     )
 
@@ -249,12 +268,16 @@ export class AxGen<
     ai,
     mem,
     options,
+    firstStep,
     span,
+    traceContext,
   }: Readonly<{
     ai: Readonly<AxAIService>
     mem: AxAIMemory
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
+    firstStep: boolean
     span?: Span
+    traceContext?: Context
   }>) {
     const { sessionId, traceId, functions: _functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
@@ -270,6 +293,8 @@ export class AxGen<
       ai,
       mem,
       options,
+      traceContext,
+      firstStep,
     })
 
     if (res instanceof ReadableStream) {
@@ -542,7 +567,8 @@ export class AxGen<
     ai: Readonly<AxAIService>,
     values: IN,
     options: Readonly<AxProgramForwardOptions>,
-    span?: Span
+    span?: Span,
+    traceContext?: Context
   ) {
     const stopFunction = (
       options?.stopFunction ?? this.options?.stopFunction
@@ -575,9 +601,17 @@ export class AxGen<
     mem.add(prompt, options?.sessionId)
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
+      const firstStep = n === 0
       for (let errCount = 0; errCount < maxRetries; errCount++) {
         try {
-          const generator = this.forwardCore({ options, ai, mem, span })
+          const generator = this.forwardCore({
+            options,
+            ai,
+            mem,
+            firstStep,
+            span,
+            traceContext,
+          })
           for await (const delta of generator) {
             if (delta !== undefined) {
               yield { version: errCount, delta }
@@ -731,6 +765,9 @@ export class AxGen<
       attributes,
     })
 
+    const currentContext = context.active()
+    const traceContext = trace.setSpan(currentContext, span)
+
     try {
       if (!this.excludeContentFromTrace) {
         span.addEvent('input', { content: JSON.stringify(values, null, 2) })
@@ -743,7 +780,8 @@ export class AxGen<
           ...options,
           functions,
         },
-        span
+        span,
+        traceContext
       )
 
       if (!this.excludeContentFromTrace) {
