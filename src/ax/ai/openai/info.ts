@@ -1,6 +1,6 @@
 import type { AxModelInfo } from '../types.js'
 
-import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './types.js'
+import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js'
 
 /**
  * OpenAI: Model information

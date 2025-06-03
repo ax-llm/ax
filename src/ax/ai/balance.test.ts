@@ -140,7 +140,12 @@ describe('AxBalancer', () => {
       createMockService({
         name: 'service-1',
         chatResponse: async () => {
-          throw new AxAIServiceNetworkError(new Error('test'), 'test-url')
+          throw new AxAIServiceNetworkError(
+            new Error('test'),
+            'test-url',
+            {},
+            {}
+          )
         },
       }),
     ]
@@ -226,7 +231,12 @@ describe('AxBalancer', () => {
         name: 'service-0',
         latencyMs: 200,
         chatResponse: async () => {
-          throw new AxAIServiceNetworkError(new Error('test'), 'test-url')
+          throw new AxAIServiceNetworkError(
+            new Error('test'),
+            'test-url',
+            {},
+            {}
+          )
         },
       }),
       createMockService({

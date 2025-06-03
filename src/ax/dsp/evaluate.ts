@@ -1,7 +1,8 @@
 import type { AxAIService } from '../ai/types.js'
 
 import type { AxExample, AxMetricFn } from './optimize.js'
-import type { AxGenIn, AxGenOut, AxProgram } from './program.js'
+import type { AxProgram } from './program.js'
+import type { AxGenIn, AxGenOut } from './types.js'
 import { updateProgressBar } from './util.js'
 
 export type AxEvaluateArgs<IN extends AxGenIn, OUT extends AxGenOut> = {

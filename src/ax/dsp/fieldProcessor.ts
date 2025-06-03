@@ -1,8 +1,8 @@
 import type { AxAIMemory } from '../mem/types.js'
 
 import type { extractionState } from './extract.js'
-import type { AxFieldValue, AxGenOut } from './program.js'
 import type { AxField } from './sig.js'
+import type { AxFieldValue, AxGenOut } from './types.js'
 
 export type AxFieldProcessorProcess = (
   value: AxFieldValue,

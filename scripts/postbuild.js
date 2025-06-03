@@ -2,7 +2,7 @@ import path from 'path';
 
 import fs from 'fs-extra';
 
-// eslint-disable-next-line no-undef
+ 
 const packagePath = process.cwd();
 const buildPath = path.join(packagePath, './dist');
 

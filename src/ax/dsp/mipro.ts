@@ -6,7 +6,8 @@ import {
   type AxMetricFn,
   type AxOptimizerArgs,
 } from './optimize.js'
-import type { AxGenIn, AxGenOut, AxProgram, AxProgramDemos } from './program.js'
+import type { AxProgram, AxProgramDemos } from './program.js'
+import type { AxGenIn, AxGenOut } from './types.js'
 import { updateProgressBar } from './util.js'
 
 export interface AxMiPROOptions {

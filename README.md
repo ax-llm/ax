@@ -85,23 +85,23 @@ yarn add @ax-llm/ax
 ## Example: Using chain-of-thought to summarize text
 
 ```typescript
-import { AxAI, AxChainOfThought } from "@ax-llm/ax";
+import { AxAI, AxChainOfThought } from '@ax-llm/ax'
 
 const textToSummarize = `
-The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
+The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`
 
 const ai = new AxAI({
-    name: "openai",
-    apiKey: process.env.OPENAI_APIKEY as string,
-});
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
 
 const gen = new AxChainOfThought(
-    `textToSummarize -> textType:class "note, email, reminder", shortSummary "summarize in 5 to 10 words"`,
-);
+  `textToSummarize -> textType:class "note, email, reminder", shortSummary "summarize in 5 to 10 words"`
+)
 
-const res = await gen.forward(ai, { textToSummarize });
+const res = await gen.forward(ai, { textToSummarize })
 
-console.log(">", res);
+console.log('>', res)
 ```
 
 ## Example: Building an agent
@@ -141,23 +141,24 @@ Ax provides native support for models with thinking capabilities, allowing you t
 
 ```typescript
 const ai = new AxAI({
-    name: "google-gemini",
-    apiKey: process.env.GOOGLE_APIKEY as string,
-    config: {
-        model: AxAIGoogleGeminiModel.Gemini25Flash,
-        thinking: { includeThoughts: true }
-    }
-});
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    thinking: { includeThoughts: true },
+  },
+})
 
 // Or control thinking budget per request
-const gen = new AxChainOfThought(`question -> answer`);
-const res = await gen.forward(ai, 
-    { question: "What is quantum entanglement?" },
-    { thinkingTokenBudget: 'medium' } // 'minimal', 'low', 'medium', or 'high'
-);
+const gen = new AxChainOfThought(`question -> answer`)
+const res = await gen.forward(
+  ai,
+  { question: 'What is quantum entanglement?' },
+  { thinkingTokenBudget: 'medium' } // 'minimal', 'low', 'medium', or 'high'
+)
 
 // Access thoughts in the response
-console.log(res.thoughts); // Shows the model's reasoning process
+console.log(res.thoughts) // Shows the model's reasoning process
 ```
 
 ## Vector DBs Supported
@@ -175,36 +176,36 @@ database.
 
 ```typescript
 // Create embeddings from text using an LLM
-const ret = await this.ai.embed({ texts: "hello world" });
+const ret = await this.ai.embed({ texts: 'hello world' })
 
 // Create an in memory vector db
-const db = new axDB("memory");
+const db = new axDB('memory')
 
 // Insert into vector db
 await this.db.upsert({
-    id: "abc",
-    table: "products",
-    values: ret.embeddings[0],
-});
+  id: 'abc',
+  table: 'products',
+  values: ret.embeddings[0],
+})
 
 // Query for similar entries using embeddings
 const matches = await this.db.query({
-    table: "products",
-    values: embeddings[0],
-});
+  table: 'products',
+  values: embeddings[0],
+})
 ```
 
 Alternatively you can use the `AxDBManager` which handles smart chunking,
 embedding and querying everything for you, it makes things almost too easy.
 
 ```typescript
-const manager = new AxDBManager({ ai, db });
-await manager.insert(text);
+const manager = new AxDBManager({ ai, db })
+await manager.insert(text)
 
 const matches = await manager.query(
-    "John von Neumann on human intelligence and singularity.",
-);
-console.log(matches);
+  'John von Neumann on human intelligence and singularity.'
+)
+console.log(matches)
 ```
 
 ## RAG Documents
@@ -223,14 +224,14 @@ which also supports a reranker and query rewriter. Two default implementations,
 `AxDefaultResultReranker` and `AxDefaultQueryRewriter`, are available.
 
 ```typescript
-const tika = new AxApacheTika();
-const text = await tika.convert("/path/to/document.pdf");
+const tika = new AxApacheTika()
+const text = await tika.convert('/path/to/document.pdf')
 
-const manager = new AxDBManager({ ai, db });
-await manager.insert(text);
+const manager = new AxDBManager({ ai, db })
+await manager.insert(text)
 
-const matches = await manager.query("Find some text");
-console.log(matches);
+const matches = await manager.query('Find some text')
+console.log(matches)
 ```
 
 ## Multi-modal DSPy
@@ -240,15 +241,15 @@ we support using image fields, and this works with the whole DSP pipeline.
 
 ```typescript
 const image = fs
-    .readFileSync("./src/examples/assets/kitten.jpeg")
-    .toString("base64");
+  .readFileSync('./src/examples/assets/kitten.jpeg')
+  .toString('base64')
 
-const gen = new AxChainOfThought(`question, animalImage:image -> answer`);
+const gen = new AxChainOfThought(`question, animalImage:image -> answer`)
 
 const res = await gen.forward(ai, {
-    question: "What family does this animal belong to?",
-    animalImage: { mimeType: "image/jpeg", data: image },
-});
+  question: 'What family does this animal belong to?',
+  animalImage: { mimeType: 'image/jpeg', data: image },
+})
 ```
 
 When using models like `gpt-4o-audio-preview` that support multi-modal prompts
@@ -257,15 +258,15 @@ DSP pipeline.
 
 ```typescript
 const audio = fs
-    .readFileSync("./src/examples/assets/comment.wav")
-    .toString("base64");
+  .readFileSync('./src/examples/assets/comment.wav')
+  .toString('base64')
 
-const gen = new AxGen(`question, commentAudio:audio -> answer`);
+const gen = new AxGen(`question, commentAudio:audio -> answer`)
 
 const res = await gen.forward(ai, {
-    question: "What family does this animal belong to?",
-    commentAudio: { format: "wav", data: audio },
-});
+  question: 'What family does this animal belong to?',
+  commentAudio: { format: 'wav', data: audio },
+})
 ```
 
 ## Streaming
@@ -280,23 +281,27 @@ ensure the output matches your requirements; they also work with streaming.
 ```typescript
 // setup the prompt program
 const gen = new AxChainOfThought(
-    ai,
-    `startNumber:number -> next10Numbers:number[]`,
-);
+  ai,
+  `startNumber:number -> next10Numbers:number[]`
+)
 
 // add a assertion to ensure that the number 5 is not in an output field
 gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
-    return next10Numbers ? !next10Numbers.includes(5) : undefined;
-}, "Numbers 5 is not allowed");
+  return next10Numbers ? !next10Numbers.includes(5) : undefined
+}, 'Numbers 5 is not allowed')
 
 // run the program with streaming enabled
-const res = await gen.forward({ startNumber: 1 }, { stream: true });
+const res = await gen.forward({ startNumber: 1 }, { stream: true })
 
 // or run the program with end-to-end streaming
-const generator = await gen.streamingForward({ startNumber: 1 }, {
+const generator = await gen.streamingForward(
+  { startNumber: 1 },
+  {
     stream: true,
-});
-for await (const res of generator) {}
+  }
+)
+for await (const res of generator) {
+}
 ```
 
 The above example allows you to validate entire output fields as they are
@@ -308,28 +313,28 @@ and save tokens at scale in production.
 ```typescript
 // add a assertion to ensure all lines start with a number and a dot.
 gen.addStreamingAssert(
-    "answerInPoints",
-    (value: string) => {
-        const re = /^\d+\./;
+  'answerInPoints',
+  (value: string) => {
+    const re = /^\d+\./
 
-        // split the value by lines, trim each line,
-        // filter out empty lines and check if all lines match the regex
-        return value
-            .split("\n")
-            .map((x) => x.trim())
-            .filter((x) => x.length > 0)
-            .every((x) => re.test(x));
-    },
-    "Lines must start with a number and a dot. Eg: 1. This is a line.",
-);
+    // split the value by lines, trim each line,
+    // filter out empty lines and check if all lines match the regex
+    return value
+      .split('\n')
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0)
+      .every((x) => re.test(x))
+  },
+  'Lines must start with a number and a dot. Eg: 1. This is a line.'
+)
 
 // run the program with streaming enabled
 const res = await gen.forward(
-    {
-        question: "Provide a list of optimizations to speedup LLM inference.",
-    },
-    { stream: true, debug: true },
-);
+  {
+    question: 'Provide a list of optimizations to speedup LLM inference.',
+  },
+  { stream: true, debug: true }
+)
 ```
 
 ### Field Processors
@@ -339,25 +344,25 @@ to process fields in a prompt before the prompt is sent to the LLM.
 
 ```typescript
 const gen = new AxChainOfThought(
-    ai,
-    `startNumber:number -> next10Numbers:number[]`,
-);
+  ai,
+  `startNumber:number -> next10Numbers:number[]`
+)
 
-const streamValue = false;
+const streamValue = false
 
 const processorFunction = (value) => {
-    return value.map((x) => x + 1);
-};
+  return value.map((x) => x + 1)
+}
 
 // Add a field processor to the program
 const processor = new AxFieldProcessor(
-    gen,
-    "next10Numbers",
-    processorFunction,
-    streamValue,
-);
+  gen,
+  'next10Numbers',
+  processorFunction,
+  streamValue
+)
 
-const res = await gen.forward({ startNumber: 1 });
+const res = await gen.forward({ startNumber: 1 })
 ```
 
 ## AI Routing and Load Balancing
@@ -372,35 +377,35 @@ based on performance and availability. If one service fails, it automatically
 fails over to the next available service.
 
 ```typescript
-import { AxAI, AxBalancer } from "@ax-llm/ax";
+import { AxAI, AxBalancer } from '@ax-llm/ax'
 
 // Setup multiple AI services
 const openai = new AxAI({
-    name: "openai",
-    apiKey: process.env.OPENAI_APIKEY,
-});
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY,
+})
 
 const ollama = new AxAI({
-    name: "ollama",
-    config: { model: "nous-hermes2" },
-});
+  name: 'ollama',
+  config: { model: 'nous-hermes2' },
+})
 
 const gemini = new AxAI({
-    name: "google-gemini",
-    apiKey: process.env.GOOGLE_APIKEY,
-});
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY,
+})
 
 // Create a load balancer with all services
-const balancer = new AxBalancer([openai, ollama, gemini]);
+const balancer = new AxBalancer([openai, ollama, gemini])
 
 // Use like a regular AI service - automatically uses the best available service
 const response = await balancer.chat({
-    chatPrompt: [{ role: "user", content: "Hello!" }],
-});
+  chatPrompt: [{ role: 'user', content: 'Hello!' }],
+})
 
 // Or use the balance with AxGen
-const gen = new AxGen(`question -> answer`);
-const res = await gen.forward(balancer, { question: "Hello!" });
+const gen = new AxGen(`question -> answer`)
+const res = await gen.forward(balancer, { question: 'Hello!' })
 ```
 
 ### Multi-Service Router
@@ -410,71 +415,71 @@ automatically routing requests to the right service based on the model
 specified.
 
 ```typescript
-import { AxAI, AxAIOpenAIModel, AxMultiServiceRouter } from "@ax-llm/ax";
+import { AxAI, AxAIOpenAIModel, AxMultiServiceRouter } from '@ax-llm/ax'
 
 // Setup OpenAI with model list
 const openai = new AxAI({
-    name: "openai",
-    apiKey: process.env.OPENAI_APIKEY,
-    models: [
-        {
-            key: "basic",
-            model: AxAIOpenAIModel.GPT4OMini,
-            description:
-                "Model for very simple tasks such as answering quick short questions",
-        },
-        {
-            key: "medium",
-            model: AxAIOpenAIModel.GPT4O,
-            description:
-                "Model for semi-complex tasks such as summarizing text, writing code, and more",
-        },
-    ],
-});
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY,
+  models: [
+    {
+      key: 'basic',
+      model: AxAIOpenAIModel.GPT4OMini,
+      description:
+        'Model for very simple tasks such as answering quick short questions',
+    },
+    {
+      key: 'medium',
+      model: AxAIOpenAIModel.GPT4O,
+      description:
+        'Model for semi-complex tasks such as summarizing text, writing code, and more',
+    },
+  ],
+})
 
 // Setup Gemini with model list
 const gemini = new AxAI({
-    name: "google-gemini",
-    apiKey: process.env.GOOGLE_APIKEY,
-    models: [
-        {
-            key: "deep-thinker",
-            model: "gemini-2.0-flash-thinking",
-            description:
-                "Model that can think deeply about a task, best for tasks that require planning",
-        },
-        {
-            key: "expert",
-            model: "gemini-2.0-pro",
-            description:
-                "Model that is the best for very complex tasks such as writing large essays, complex coding, and more",
-        },
-    ],
-});
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY,
+  models: [
+    {
+      key: 'deep-thinker',
+      model: 'gemini-2.0-flash-thinking',
+      description:
+        'Model that can think deeply about a task, best for tasks that require planning',
+    },
+    {
+      key: 'expert',
+      model: 'gemini-2.0-pro',
+      description:
+        'Model that is the best for very complex tasks such as writing large essays, complex coding, and more',
+    },
+  ],
+})
 
 const ollama = new AxAI({
-    name: "ollama",
-    config: { model: "nous-hermes2" },
-});
+  name: 'ollama',
+  config: { model: 'nous-hermes2' },
+})
 
 const secretService = {
-    key: "sensitive-secret",
-    service: ollama,
-    description: "Model for sensitive secrets tasks",
-};
+  key: 'sensitive-secret',
+  service: ollama,
+  description: 'Model for sensitive secrets tasks',
+}
 
 // Create a router with all services
-const router = new AxMultiServiceRouter([openai, gemini, secretService]);
+const router = new AxMultiServiceRouter([openai, gemini, secretService])
 
 // Route to OpenAI's expert model
 const openaiResponse = await router.chat({
-    chatPrompt: [{ role: "user", content: "Hello!" }],
-    model: "expert",
-});
+  chatPrompt: [{ role: 'user', content: 'Hello!' }],
+  model: 'expert',
+})
 
 // Or use the router with AxGen
-const gen = new AxGen(`question -> answer`);
-const res = await gen.forward(router, { question: "Hello!" });
+const gen = new AxGen(`question -> answer`)
+const res = await gen.forward(router, { question: 'Hello!' })
 ```
 
 The load balancer is ideal for high availability while the router is perfect
@@ -497,96 +502,91 @@ The `AxMCPClient` allows you to connect to any MCP-compatible server and use its
 capabilities within your Ax agents:
 
 ```typescript
-import { AxMCPClient, AxMCPStdioTransport } from "@ax-llm/ax";
+import { AxMCPClient, AxMCPStdioTransport } from '@ax-llm/ax'
 
 // Initialize an MCP client with a transport
 const transport = new AxMCPStdioTransport({
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-memory"],
-});
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-memory'],
+})
 
 // Create the client with optional debug mode
-const client = new AxMCPClient(transport, { debug: true });
+const client = new AxMCPClient(transport, { debug: true })
 
 // Initialize the connection
-await client.init();
+await client.init()
 
 // Use the client's functions in an agent
 const memoryAgent = new AxAgent({
-    name: "MemoryAssistant",
-    description: "An assistant with persistent memory",
-    signature: "input, userId -> response",
-    functions: [client], // Pass the client as a function provider
-});
+  name: 'MemoryAssistant',
+  description: 'An assistant with persistent memory',
+  signature: 'input, userId -> response',
+  functions: [client], // Pass the client as a function provider
+})
 
 // Or use the client with AxGen
-const memoryGen = new AxGen("input, userId -> response", {
-    functions: [client],
-});
+const memoryGen = new AxGen('input, userId -> response', {
+  functions: [client],
+})
 ```
 
-## Vercel AI SDK Integration
+### Using AxMCPClient with a Remote Server
 
-Install the ax provider package
-
-```shell
-npm i @ax-llm/ax-ai-sdk-provider
-```
-
-Then use it with the AI SDK, you can either use the AI provider or the Agent
-Provider
+Calling a remote MCP server with Ax is straightforward. For example, here's how you can use the DeepWiki MCP server to ask questions about nearly any public GitHub repository. The DeepWiki MCP server is available at `https://mcp.deepwiki.com/mcp`.
 
 ```typescript
+import {
+  AxAgent,
+  AxAI,
+  AxAIOpenAIModel,
+  AxMCPClient,
+  AxMCPStreambleHTTPTransport,
+} from '@ax-llm/ax'
+
+// 1. Initialize the MCP transport to the DeepWiki server
+const transport = new AxMCPStreambleHTTPTransport(
+  'https://mcp.deepwiki.com/mcp'
+)
+
+// 2. Create the MCP client
+const mcpClient = new AxMCPClient(transport, { debug: false })
+await mcpClient.init() // Initialize the connection
+
+// 3. Initialize your AI model (e.g., OpenAI)
+// Ensure your OPENAI_APIKEY environment variable is set
 const ai = new AxAI({
-    name: "openai",
-    apiKey: process.env["OPENAI_APIKEY"] ?? "",
-});
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
 
-// Create a model using the provider
-const model = new AxAIProvider(ai);
+// 4. Create an AxAgent that uses the MCP client
+const deepwikiAgent = new AxAgent<
+  {
+    // Define input types for clarity, matching a potential DeepWiki function
+    questionAboutRepo: string
+    githubRepositoryUrl: string
+  },
+  {
+    answer: string
+  }
+>({
+  name: 'DeepWikiQueryAgent',
+  description: 'Agent to query public GitHub repositories via DeepWiki MCP.',
+  signature: 'questionAboutRepo, githubRepositoryUrl -> answer',
+  functions: [mcpClient], // Provide the MCP client to the agent
+})
 
-export const foodAgent = new AxAgent({
-    name: "food-search",
-    description:
-        "Use this agent to find restaurants based on what the customer wants",
-    signature,
-    functions,
-});
-
-// Get vercel ai sdk state
-const aiState = getMutableAIState();
-
-// Create an agent for a specific task
-const foodAgent = new AxAgentProvider(ai, {
-    agent: foodAgent,
-    updateState: (state) => {
-        aiState.done({ ...aiState.get(), state });
-    },
-    generate: async ({ restaurant, priceRange }) => {
-        return (
-            <BotCard>
-                <h1>{restaurant as string} {priceRange as string}</h1>
-            </BotCard>
-        );
-    },
-});
-
-// Use with streamUI a critical part of building chat UIs in the AI SDK
-const result = await streamUI({
-    model,
-    initial: <SpinnerMessage />,
-    messages: [
-        // ...
-    ],
-    text: ({ content, done, delta }) => {
-        // ...
-    },
-    tools: {
-        // @ts-ignore
-        "find-food": foodAgent,
-    },
-});
+// 5. Formulate a question and call the agent
+const result = await deepwikiAgent.forward(ai, {
+  questionAboutRepo: 'What is the main purpose of this library?',
+  githubRepositoryUrl: 'https://github.com/dosco/ax', // Example: Ax library itself
+})
+console.log('DeepWiki Answer:', result.answer)
 ```
+
+This example shows how to connect to a public MCP server and use it within an Ax agent. The agent's signature (`questionAboutRepo, githubRepositoryUrl -> answer`) is an assumption of how one might interact with the DeepWiki service; you would typically discover the available functions and their signatures from the MCP server itself (e.g., via an `mcp.getFunctions` call if supported, or documentation).
+
+For a more complex example involving authentication and custom headers with a remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts` file in this repository.
 
 ## OpenTelemetry support
 
@@ -596,54 +596,54 @@ new `gen_ai` attribute namespace. Checkout `src/examples/telemetry.ts` for more
 information.
 
 ```typescript
-import { trace } from "@opentelemetry/api";
+import { trace } from '@opentelemetry/api'
 import {
-    BasicTracerProvider,
-    ConsoleSpanExporter,
-    SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+  BasicTracerProvider,
+  ConsoleSpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base'
 
-const provider = new BasicTracerProvider();
-provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
-trace.setGlobalTracerProvider(provider);
+const provider = new BasicTracerProvider()
+provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()))
+trace.setGlobalTracerProvider(provider)
 
-const tracer = trace.getTracer("test");
+const tracer = trace.getTracer('test')
 
 const ai = new AxAI({
-    name: "ollama",
-    config: { model: "nous-hermes2" },
-    options: { tracer },
-});
+  name: 'ollama',
+  config: { model: 'nous-hermes2' },
+  options: { tracer },
+})
 
 const gen = new AxChainOfThought(
-    ai,
-    `text -> shortSummary "summarize in 5 to 10 words"`,
-);
+  ai,
+  `text -> shortSummary "summarize in 5 to 10 words"`
+)
 
-const res = await gen.forward({ text });
+const res = await gen.forward({ text })
 ```
 
 ```json
 {
-    "traceId": "ddc7405e9848c8c884e53b823e120845",
-    "name": "Chat Request",
-    "id": "d376daad21da7a3c",
-    "kind": "SERVER",
-    "timestamp": 1716622997025000,
-    "duration": 14190456.542,
-    "attributes": {
-        "gen_ai.system": "Ollama",
-        "gen_ai.request.model": "nous-hermes2",
-        "gen_ai.request.max_tokens": 500,
-        "gen_ai.request.temperature": 0.1,
-        "gen_ai.request.top_p": 0.9,
-        "gen_ai.request.frequency_penalty": 0.5,
-        "gen_ai.request.llm_is_streaming": false,
-        "http.request.method": "POST",
-        "url.full": "http://localhost:11434/v1/chat/completions",
-        "gen_ai.usage.completion_tokens": 160,
-        "gen_ai.usage.prompt_tokens": 290
-    }
+  "traceId": "ddc7405e9848c8c884e53b823e120845",
+  "name": "Chat Request",
+  "id": "d376daad21da7a3c",
+  "kind": "SERVER",
+  "timestamp": 1716622997025000,
+  "duration": 14190456.542,
+  "attributes": {
+    "gen_ai.system": "Ollama",
+    "gen_ai.request.model": "nous-hermes2",
+    "gen_ai.request.max_tokens": 500,
+    "gen_ai.request.temperature": 0.1,
+    "gen_ai.request.top_p": 0.9,
+    "gen_ai.request.frequency_penalty": 0.5,
+    "gen_ai.request.llm_is_streaming": false,
+    "http.request.method": "POST",
+    "url.full": "http://localhost:11434/v1/chat/completions",
+    "gen_ai.usage.completion_tokens": 160,
+    "gen_ai.usage.prompt_tokens": 290
+  }
 }
 ```
 
@@ -658,41 +658,41 @@ improve its efficiency.
 ```typescript
 // Download the HotPotQA dataset from huggingface
 const hf = new AxHFDataLoader({
-    dataset: "hotpot_qa",
-    split: "train",
-});
+  dataset: 'hotpot_qa',
+  split: 'train',
+})
 
 const examples = await hf.getData<{ question: string; answer: string }>({
-    count: 100,
-    fields: ["question", "answer"],
-});
+  count: 100,
+  fields: ['question', 'answer'],
+})
 
 const ai = new AxAI({
-    name: "openai",
-    apiKey: process.env.OPENAI_APIKEY as string,
-});
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
 
 // Setup the program to tune
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-    ai,
-    `question -> answer "in short 2 or 3 words"`,
-);
+  ai,
+  `question -> answer "in short 2 or 3 words"`
+)
 
 // Setup a Bootstrap Few Shot optimizer to tune the above program
 const optimize = new AxBootstrapFewShot<
-    { question: string },
-    { answer: string }
+  { question: string },
+  { answer: string }
 >({
-    program,
-    examples,
-});
+  program,
+  examples,
+})
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
 const metricFn: AxMetricFn = ({ prediction, example }) =>
-    emScore(prediction.answer as string, example.answer as string);
+  emScore(prediction.answer as string, example.answer as string)
 
 // Run the optimizer and remember to save the result to use later
-const result = await optimize.compile(metricFn);
+const result = await optimize.compile(metricFn)
 ```
 
 <img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">
@@ -701,24 +701,24 @@ And to use the generated demos with the above `ChainOfThought` program
 
 ```typescript
 const ai = new AxAI({
-    name: "openai",
-    apiKey: process.env.OPENAI_APIKEY as string,
-});
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
 
 // Setup the program to use the tuned data
 const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-    ai,
-    `question -> answer "in short 2 or 3 words"`,
-);
+  ai,
+  `question -> answer "in short 2 or 3 words"`
+)
 
 // load tuning data
-program.loadDemos("demos.json");
+program.loadDemos('demos.json')
 
 const res = await program.forward({
-    question: "What castle did David Gregory inherit?",
-});
+  question: 'What castle did David Gregory inherit?',
+})
 
-console.log(res);
+console.log(res)
 ```
 
 ## Tuning the prompts (Advanced, Mipro v2)
@@ -743,40 +743,40 @@ configurations, MiPRO v2 helps maximize model performance without manual tuning.
 ### Basic Usage
 
 ```typescript
-import { AxAI, AxChainOfThought, AxMiPRO } from "@ax-llm/ax";
+import { AxAI, AxChainOfThought, AxMiPRO } from '@ax-llm/ax'
 
 // 1. Setup your AI service
 const ai = new AxAI({
-    name: "google-gemini",
-    apiKey: process.env.GOOGLE_APIKEY,
-});
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY,
+})
 
 // 2. Create your program
-const program = new AxChainOfThought(`input -> output`);
+const program = new AxChainOfThought(`input -> output`)
 
 // 3. Configure the optimizer
 const optimizer = new AxMiPRO({
-    ai,
-    program,
-    examples: trainingData, // Your training examples
-    options: {
-        numTrials: 20, // Number of configurations to try
-        auto: "medium", // Optimization level
-    },
-});
+  ai,
+  program,
+  examples: trainingData, // Your training examples
+  options: {
+    numTrials: 20, // Number of configurations to try
+    auto: 'medium', // Optimization level
+  },
+})
 
 // 4. Define your evaluation metric
 const metricFn = ({ prediction, example }) => {
-    return prediction.output === example.output;
-};
+  return prediction.output === example.output
+}
 
 // 5. Run the optimization
 const optimizedProgram = await optimizer.compile(metricFn, {
-    valset: validationData, // Optional validation set
-});
+  valset: validationData, // Optional validation set
+})
 
 // 6. Use the optimized program
-const result = await optimizedProgram.forward(ai, { input: "test input" });
+const result = await optimizedProgram.forward(ai, { input: 'test input' })
 ```
 
 ### Configuration Options
@@ -803,13 +803,13 @@ You can quickly configure optimization intensity with the `auto` parameter:
 
 ```typescript
 // Light optimization (faster, less thorough)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: "light" });
+const optimizedProgram = await optimizer.compile(metricFn, { auto: 'light' })
 
 // Medium optimization (balanced)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: "medium" });
+const optimizedProgram = await optimizer.compile(metricFn, { auto: 'medium' })
 
 // Heavy optimization (slower, more thorough)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: "heavy" });
+const optimizedProgram = await optimizer.compile(metricFn, { auto: 'heavy' })
 ```
 
 ### Advanced Example: Sentiment Analysis
@@ -817,35 +817,35 @@ const optimizedProgram = await optimizer.compile(metricFn, { auto: "heavy" });
 ```typescript
 // Create sentiment analysis program
 const classifyProgram = new AxChainOfThought<
-    { productReview: string },
-    { label: string }
->(`productReview -> label:string "positive" or "negative"`);
+  { productReview: string },
+  { label: string }
+>(`productReview -> label:string "positive" or "negative"`)
 
 // Configure optimizer with advanced settings
 const optimizer = new AxMiPRO({
-    ai,
-    program: classifyProgram,
-    examples: trainingData,
-    options: {
-        numCandidates: 3,
-        numTrials: 10,
-        maxBootstrappedDemos: 2,
-        maxLabeledDemos: 3,
-        earlyStoppingTrials: 3,
-        programAwareProposer: true,
-        dataAwareProposer: true,
-        verbose: true,
-    },
-});
+  ai,
+  program: classifyProgram,
+  examples: trainingData,
+  options: {
+    numCandidates: 3,
+    numTrials: 10,
+    maxBootstrappedDemos: 2,
+    maxLabeledDemos: 3,
+    earlyStoppingTrials: 3,
+    programAwareProposer: true,
+    dataAwareProposer: true,
+    verbose: true,
+  },
+})
 
 // Run optimization and save the result
 const optimizedProgram = await optimizer.compile(metricFn, {
-    valset: validationData,
-});
+  valset: validationData,
+})
 
 // Save configuration for future use
-const programConfig = JSON.stringify(optimizedProgram, null, 2);
-await fs.promises.writeFile("./optimized-config.json", programConfig);
+const programConfig = JSON.stringify(optimizedProgram, null, 2)
+await fs.promises.writeFile('./optimized-config.json', programConfig)
 ```
 
 ### How It Works
@@ -880,35 +880,37 @@ putting them in the command line.
 OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
 ```
 
-| Example               | Description                                             |
-| --------------------- | ------------------------------------------------------- |
-| customer-support.ts   | Extract valuable details from customer communications   |
-| function.ts           | Simple single function calling example                  |
-| food-search.ts        | Multi-step, multi-function calling example              |
-| marketing.ts          | Generate short effective marketing sms messages         |
-| vectordb.ts           | Chunk, embed and search text                            |
-| fibonacci.ts          | Use the JS code interpreter to compute fibonacci        |
-| summarize.ts          | Generate a short summary of a large block of text       |
-| chain-of-thought.ts   | Use chain-of-thought prompting to answer questions      |
-| rag.ts                | Use multi-hop retrieval to answer questions             |
-| rag-docs.ts           | Convert PDF to text and embed for rag search            |
-| react.ts              | Use function calling and reasoning to answer questions  |
-| agent.ts              | Agent framework, agents can use other agents, tools etc |
-| streaming1.ts         | Output fields validation while streaming                |
-| streaming2.ts         | Per output field validation while streaming             |
-| streaming3.ts         | End-to-end streaming example `streamingForward()`       |
-| smart-hone.ts         | Agent looks for dog in smart home                       |
-| multi-modal.ts        | Use an image input along with other text inputs         |
-| balancer.ts           | Balance between various llm's based on cost, etc        |
-| docker.ts             | Use the docker sandbox to find files by description     |
-| prime.ts              | Using field processors to process fields in a prompt    |
-| simple-classify.ts    | Use a simple classifier to classify stuff               |
-| mcp-client-memory.ts  | Example of using an MCP server for memory with Ax       |
-| mcp-client-blender.ts | Example of using an MCP server for Blender with Ax      |
-| tune-bootstrap.ts     | Use bootstrap optimizer to improve prompt efficiency    |
-| tune-mipro.ts         | Use mipro v2 optimizer to improve prompt efficiency     |
-| tune-usage.ts         | Use the optimized tuned prompts                         |
-| telemetry.ts          | Trace and push traces to a Jaeger service               |
+| Example                 | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| customer-support.ts     | Extract valuable details from customer communications   |
+| function.ts             | Simple single function calling example                  |
+| food-search.ts          | Multi-step, multi-function calling example              |
+| marketing.ts            | Generate short effective marketing sms messages         |
+| vectordb.ts             | Chunk, embed and search text                            |
+| fibonacci.ts            | Use the JS code interpreter to compute fibonacci        |
+| summarize.ts            | Generate a short summary of a large block of text       |
+| chain-of-thought.ts     | Use chain-of-thought prompting to answer questions      |
+| rag.ts                  | Use multi-hop retrieval to answer questions             |
+| rag-docs.ts             | Convert PDF to text and embed for rag search            |
+| react.ts                | Use function calling and reasoning to answer questions  |
+| agent.ts                | Agent framework, agents can use other agents, tools etc |
+| streaming1.ts           | Output fields validation while streaming                |
+| streaming2.ts           | Per output field validation while streaming             |
+| streaming3.ts           | End-to-end streaming example `streamingForward()`       |
+| smart-hone.ts           | Agent looks for dog in smart home                       |
+| multi-modal.ts          | Use an image input along with other text inputs         |
+| balancer.ts             | Balance between various llm's based on cost, etc        |
+| docker.ts               | Use the docker sandbox to find files by description     |
+| prime.ts                | Using field processors to process fields in a prompt    |
+| simple-classify.ts      | Use a simple classifier to classify stuff               |
+| mcp-client-memory.ts    | Example of using an MCP server for memory with Ax       |
+| mcp-client-blender.ts   | Example of using an MCP server for Blender with Ax      |
+| mcp-client-pipedream.ts | Example of integrating with a remote MCP                |
+| tune-bootstrap.ts       | Use bootstrap optimizer to improve prompt efficiency    |
+| tune-mipro.ts           | Use mipro v2 optimizer to improve prompt efficiency     |
+| tune-usage.ts           | Use the optimized tuned prompts                         |
+| telemetry.ts            | Trace and push traces to a Jaeger service               |
+| openai-responses.ts     | Example using the new OpenAI Responses API              |
 
 ## Our Goal
 
@@ -926,21 +928,21 @@ research to add new capabilities like DSPy to the library.
 
 ```ts
 // Pick a LLM
-const ai = new AxOpenAI({ apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
+const ai = new AxOpenAI({ apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs)
 ```
 
 ### 2. Create a prompt signature based on your usecase
 
 ```ts
 // Signature defines the inputs and outputs of your prompt program
-const cot = new ChainOfThought(ai, `question:string -> answer:string`, { mem });
+const cot = new ChainOfThought(ai, `question:string -> answer:string`, { mem })
 ```
 
 ### 3. Execute this new prompt program
 
 ```ts
 // Pass in the input fields defined in the above signature
-const res = await cot.forward({ question: "Are we in a simulation?" });
+const res = await cot.forward({ question: 'Are we in a simulation?' })
 ```
 
 ### 4. Or if you just want to directly use the LLM
@@ -959,45 +961,46 @@ const res = await ai.chat([
 ```ts
 // define one or more functions and a function handler
 const functions = [
-    {
-        name: "getCurrentWeather",
-        description: "get the current weather for a location",
-        parameters: {
-            type: "object",
-            properties: {
-                location: {
-                    type: "string",
-                    description: "location to get weather for",
-                },
-                units: {
-                    type: "string",
-                    enum: ["imperial", "metric"],
-                    default: "imperial",
-                    description: "units to use",
-                },
-            },
-            required: ["location"],
+  {
+    name: 'getCurrentWeather',
+    description: 'get the current weather for a location',
+    parameters: {
+      type: 'object',
+      properties: {
+        location: {
+          type: 'string',
+          description: 'location to get weather for',
         },
-        func: async (args: Readonly<{ location: string; units: string }>) => {
-            return `The weather in ${args.location} is 72 degrees`;
+        units: {
+          type: 'string',
+          enum: ['imperial', 'metric'],
+          default: 'imperial',
+          description: 'units to use',
         },
+      },
+      required: ['location'],
     },
-];
+    func: async (args: Readonly<{ location: string; units: string }>) => {
+      return `The weather in ${args.location} is 72 degrees`
+    },
+  },
+]
 ```
 
 ### 2. Pass the functions to a prompt
 
 ```ts
-const cot = new AxGen(ai, `question:string -> answer:string`, { functions });
+const cot = new AxGen(ai, `question:string -> answer:string`, { functions })
 ```
 
 ## Enable debug logs
 
 ```ts
-const ai = new AxAI(
-    { name: "openai", apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs,
-);
-ai.setOptions({ debug: true });
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY,
+} as AxOpenAIArgs)
+ai.setOptions({ debug: true })
 ```
 
 ## Reach out
@@ -1019,23 +1022,23 @@ You can pass a configuration object as the second parameter when creating a new
 LLM object.
 
 ```ts
-const apiKey = process.env.OPENAI_APIKEY;
-const conf = AxOpenAIBestConfig();
-const ai = new AxOpenAI({ apiKey, conf } as AxOpenAIArgs);
+const apiKey = process.env.OPENAI_APIKEY
+const conf = AxOpenAIBestConfig()
+const ai = new AxOpenAI({ apiKey, conf } as AxOpenAIArgs)
 ```
 
 ## 3. My prompt is too long / can I change the max tokens?
 
 ```ts
-const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
-conf.maxTokens = 2000;
+const conf = axOpenAIDefaultConfig() // or OpenAIBestOptions()
+conf.maxTokens = 2000
 ```
 
 ## 4. How do I change the model? (e.g., I want to use GPT4)
 
 ```ts
-const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
-conf.model = OpenAIModel.GPT4Turbo;
+const conf = axOpenAIDefaultConfig() // or OpenAIBestOptions()
+conf.model = OpenAIModel.GPT4Turbo
 ```
 
 ## Monorepo tips & tricks

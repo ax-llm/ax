@@ -2,7 +2,10 @@ import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
-import type { AxAIOpenAIConfig, AxAIOpenAIChatRequest } from '../openai/types.js'
+import type {
+  AxAIOpenAIChatRequest,
+  AxAIOpenAIConfig,
+} from '../openai/chat_types.js'
 import type { AxAIServiceOptions, AxModelInfo } from '../types.js'
 
 import { axModelInfoGrok } from './info.js'
@@ -64,7 +67,9 @@ export type AxAIGrokArgs = AxAIOpenAIArgs<
   AxAIGrokEmbedModels,
   AxAIGrokChatRequest
 > & {
-  options?: Readonly<AxAIServiceOptions & AxAIGrokOptionsTools> & { tokensPerMinute?: number }
+  options?: Readonly<AxAIServiceOptions & AxAIGrokOptionsTools> & {
+    tokensPerMinute?: number
+  }
   modelInfo?: AxModelInfo[]
 }
 
@@ -117,7 +122,7 @@ export class AxAIGrok extends AxAIOpenAIBase<
             from_date: searchParams.fromDate,
             to_date: searchParams.toDate,
             max_search_results: searchParams.maxSearchResults,
-            sources: searchParams.sources?.map(source => ({
+            sources: searchParams.sources?.map((source) => ({
               type: source.type,
               country: source.country,
               excluded_websites: source.excludedWebsites,

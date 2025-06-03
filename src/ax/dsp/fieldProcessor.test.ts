@@ -6,7 +6,7 @@ import {
   processFieldProcessors,
   processStreamingFieldProcessors,
 } from './fieldProcessor.js'
-import type { AxFieldValue, AxGenOut } from './program.js'
+import type { AxFieldValue, AxGenOut } from './types.js'
 
 describe('Field Processor Functions', () => {
   it('processFieldProcessors should execute the processor and update memory', async () => {

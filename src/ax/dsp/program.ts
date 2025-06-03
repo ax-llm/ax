@@ -12,24 +12,8 @@ import type { AxAIMemory } from '../mem/types.js'
 import type { AxInputFunctionType } from './functions.js'
 import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
+import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
 import { mergeProgramUsage, validateValue } from './util.js'
-
-export type AxFieldValue =
-  | string
-  | string[]
-  | number
-  | boolean
-  | object
-  | null
-  | undefined
-  | { mimeType: string; data: string }
-  | { mimeType: string; data: string }[]
-  | { format?: 'wav'; data: string }
-  | { format?: 'wav'; data: string }[]
-
-export type AxGenIn = { [key: symbol]: AxFieldValue }
-
-export type AxGenOut = Record<string, AxFieldValue>
 
 export type AxProgramTrace = {
   //   examples: Record<string, Value>[];
@@ -72,12 +56,12 @@ export type AxProgramStreamingForwardOptions = Omit<
   'stream'
 >
 
-export type AxGenDeltaOut<OUT> = {
+export type AxGenDeltaOut<OUT extends AxGenOut> = {
   version: number
   delta: Partial<OUT>
 }
 
-export type AxGenStreamingOut<OUT> = AsyncGenerator<
+export type AxGenStreamingOut<OUT extends AxGenOut> = AsyncGenerator<
   AxGenDeltaOut<OUT>,
   // biome-ignore lint/suspicious/noConfusingVoidType: just cause
   void | OUT,

@@ -1,9 +1,6 @@
-import {
-  type AxAIService,
-  type AxDBQueryResponse,
-  type AxDBService,
-  type AxProgram,
-} from '../index.js'
+import { type AxAIService } from '../ai/types.js'
+import { type AxDBQueryResponse, type AxDBService } from '../db/types.js'
+import { type AxProgram } from '../dsp/program.js'
 
 export type AxRewriteIn = { query: string }
 export type AxRewriteOut = { rewrittenQuery: string }

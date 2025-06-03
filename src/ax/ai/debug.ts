@@ -79,6 +79,7 @@ export const logResponseResult = (
   if (r.content) {
     process.stdout.write(colorLog.greenBright(r.content))
   }
+
   if (r.functionCalls) {
     for (const [i, f] of r.functionCalls.entries()) {
       if (f.function.name) {

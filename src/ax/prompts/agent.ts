@@ -8,8 +8,6 @@ import type {
 import type { AxInputFunctionType } from '../dsp/functions.js'
 import { AxGen, type AxGenOptions } from '../dsp/generate.js'
 import type {
-  AxGenIn,
-  AxGenOut,
   AxGenStreamingOut,
   AxProgramDemos,
   AxProgramExamples,
@@ -20,6 +18,7 @@ import type {
   AxUsable,
 } from '../dsp/program.js'
 import type { AxSignature } from '../dsp/sig.js'
+import type { AxGenIn, AxGenOut } from '../dsp/types.js'
 
 /**
  * Interface for agents that can be used as child agents.
