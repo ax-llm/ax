@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.50](https://github.com/ax-llm/ax/compare/11.0.48...11.0.49) (2025-06-03)
+
+### Features
+
+* integrate new transport classes and enhance OpenAI response handling ([5b3ea86](https://github.com/ax-llm/ax/commit/5b3ea860fc4aa640307a441e1d5785f0176b7219))
+## [11.0.49](https://github.com/ax-llm/ax/compare/11.0.48...11.0.49) (2025-05-29)
+
+### Bug Fixes
+
+* **google-gemini:** implement missing googleSearch option ([#221](https://github.com/ax-llm/ax/issues/221)) ([414a89f](https://github.com/ax-llm/ax/commit/414a89fd06f904e8de13986ccbecc0c07a5214aa))
+* relaxed model info check ([3f1fffb](https://github.com/ax-llm/ax/commit/3f1fffb6b28dedcdc56f8d473b9be5b7964eebb2))
+
 ## [11.0.49](https://github.com/ax-llm/ax/compare/11.0.47...11.0.48) (2025-05-29)
 
 ### Bug Fixes
