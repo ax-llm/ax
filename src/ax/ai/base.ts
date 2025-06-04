@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import type { ReadableStream } from 'stream/web'
 
 import { context, type Span, SpanKind } from '@opentelemetry/api'

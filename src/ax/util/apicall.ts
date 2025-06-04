@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import {
   ReadableStream,
   TextDecoderStream as TextDecoderStreamNative,
