@@ -1,0 +1,206 @@
+# Ax LLM Framework - Cursor Rules
+
+## Project Overview
+Ax is a TypeScript framework for building LLM-powered agents with end-to-end streaming, multi-modal DSPy capabilities, and typed signatures. It provides a standard interface across all top LLMs with features like prompt compilation, native streaming, agent orchestration, RAG, vector databases, and automatic prompt tuning.
+
+## Repository Structure
+This is a **multi-repository monorepo** with the following structure:
+- `src/ax/` - Main Ax library (`@ax-llm/ax`)
+- `src/ai-sdk-provider/` - Vercel AI SDK provider (`@ax-llm/ax-ai-sdk-provider`)
+- `src/examples/` - Example implementations (`@ax-llm/ax-examples`)
+- `src/docs/` - Documentation site (`@ax-llm/ax-docs`)
+
+Each sub-repository under `src/` has its own `package.json` and can be developed independently.
+
+## Package Management
+**IMPORTANT**: Use workspace-specific package installation commands:
+
+```bash
+# Install packages in specific workspaces
+npm i <package-name> --workspace=@ax-llm/ax
+npm i <package-name> --workspace=@ax-llm/ax-ai-sdk-provider
+npm i <package-name> --workspace=@ax-llm/ax-examples
+npm i <package-name> --workspace=@ax-llm/ax-docs
+
+# Examples:
+npm i typescript --workspace=@ax-llm/ax
+npm i react --workspace=@ax-llm/ax-docs
+npm i lodash --workspace=@ax-llm/ax-examples
+```
+
+**DO NOT** run `npm install` in individual sub-directories. Always use workspace commands from the root.
+
+## Testing
+- **Test Framework**: Vitest (configured in root)
+- **Run Tests**: `npx vitest` or `npm run test`
+- **Run Tests for Specific Workspace**: `npm run test --workspace=@ax-llm/ax`
+- **Watch Mode**: `npx vitest --watch`
+- **Coverage**: `npx vitest --coverage`
+
+## Development Commands
+```bash
+# Build all workspaces
+npm run build
+
+# Run tests across all workspaces
+npm run test
+
+# Fix formatting and linting
+npm run fix
+
+# Run examples with tsx
+npm run tsx ./src/examples/<example-file>.ts
+
+# Development mode for specific workspace
+npm run dev --workspace=@ax-llm/ax
+```
+
+## Code Standards & Architecture
+
+### TypeScript Configuration
+- Uses `@total-typescript/tsconfig` as base
+- ES Modules (`"type": "module"`)
+- NodeNext module resolution
+- Path mapping: `@ax-llm/*` → `src/*`
+- React JSX support
+
+### Key Architectural Patterns
+
+#### 1. Prompt Signatures
+Ax uses a unique prompt signature system:
+```typescript
+// Format: "task description" inputField:type "field description" -> outputField:type
+const signature = `question -> answer:string "detailed response"`
+const signature = `text -> category:class "urgent, normal, low", summary:string`
+```
+
+**Field Types**:
+- `string`, `number`, `boolean`, `date`, `datetime`
+- `class "option1,option2"` for classifications
+- Arrays: `string[]`, `number[]`, etc.
+- `code "language"` for code blocks
+- Optional fields: `field:type?`
+- Internal fields: `field:type!`
+
+#### 2. Core Components
+- **AxAI**: Main AI interface supporting 15+ LLM providers
+- **AxChainOfThought**: Chain-of-thought reasoning
+- **AxAgent**: Agent framework with inter-agent communication
+- **AxDB**: Vector database abstraction (Memory, Weaviate, Pinecone, Cloudflare)
+- **AxDBManager**: Smart chunking, embedding, and querying
+
+#### 3. Streaming & Multi-modal
+- Native end-to-end streaming
+- Multi-modal support (text, images, audio)
+- Thinking models support with token budget control
+- Real-time validation during streaming
+
+### Code Conventions
+
+#### Import/Export Patterns
+```typescript
+// Prefer named exports
+export { AxAI, AxChainOfThought, AxAgent }
+
+// Use barrel exports in sub-module index.ts files (not the main index.ts which is auto-generated)
+export * from './ai/index.js'
+export * from './prompts/index.js'
+```
+
+#### Async Patterns
+- All LLM operations are async and support streaming
+- Use async generators for streaming responses
+- Implement proper cleanup for streaming connections
+
+## File Organization
+
+### Main Library (`src/ax/`)
+- `ai/` - LLM provider implementations
+- `prompts/` - Prompt signature and DSPy logic
+- `agents/` - Agent framework
+- `db/` - Vector database implementations
+- `trace/` - OpenTelemetry integration
+- `funcs/` - Function calling utilities
+- `mcp/` - Model Context Protocol support
+
+### Provider Package (`src/ai-sdk-provider/`)
+- Integration with Vercel AI SDK
+- Provider utilities and transformations
+
+### Examples (`src/examples/`)
+- Comprehensive examples for all features
+- Each example should be runnable with `npm run tsx`
+- Include proper environment variable setup
+
+## Dependencies & Constraints
+- **Node.js**: >= 20
+- **Runtime**: ES Modules only
+- **Core Dependencies**: Minimal, zero-dependencies philosophy
+- **Peer Dependencies**: Handle LLM SDKs as peer deps where possible
+
+## Testing Guidelines
+- Write tests in `.test.ts` files
+- Use Vitest for unit testing
+- Test streaming scenarios
+- Mock LLM providers for deterministic tests
+- Include type-level tests in `.test-d.ts` files
+
+## Documentation
+- TypeDoc for API documentation
+- Markdown documentation in `src/docs/`
+- Examples serve as living documentation
+- Include prompt signature examples in code comments
+
+## Security & Best Practices
+- Never commit API keys
+- Use environment variables for configuration
+- Validate all inputs, especially in streaming contexts
+- Implement proper rate limiting and error recovery
+- Follow principle of least privilege for LLM permissions
+
+## Performance Considerations
+- Optimize for streaming performance
+- Minimize token usage through smart prompting
+- Cache embeddings and model responses where appropriate
+- Use connection pooling for database operations
+- Profile memory usage in long-running streams
+
+## OpenTelemetry Integration
+- Built-in `gen_ai` semantic conventions support
+- Trace all LLM operations
+- Include custom spans for agent interactions
+- Export traces in production environments
+
+## Environment Setup
+```bash
+# Required environment variables (examples)
+OPENAI_APIKEY=your_key_here
+GOOGLE_APIKEY=your_key_here
+ANTHROPIC_APIKEY=your_key_here
+
+# Optional for specific features
+WEAVIATE_URL=http://localhost:8080
+PINECONE_API_KEY=your_key_here
+```
+
+## Common Patterns
+1. **Creating AI Instance**: Always start with `new AxAI({ name: 'provider', apiKey: '...' })`
+2. **Signature Design**: Keep signatures simple and descriptive
+3. **Agent Composition**: Agents can call other agents for complex workflows
+4. **Streaming Handling**: Always handle both success and error states in streams
+5. **Type Safety**: Leverage TypeScript's type system for prompt validation
+
+## Build & Release
+- Uses `tsup` for building
+- Automated versioning with `standard-version`
+- Multi-workspace publishing with `release-it`
+- GitHub Actions for CI/CD
+- **Auto-generated Files**: `index.ts` in the main library is auto-generated by running `npm run build:index --workspace=@ax-llm/ax`
+
+## Documentation Guidelines
+- When implementing big new features, **ask to update the README.md** with examples and documentation
+- Include the new feature in the feature list and provide clear usage examples
+- Update TypeDoc comments for new APIs
+- Add corresponding examples in `src/examples/` for new functionality
+
+Remember: This is a production-ready library used by startups in production. Maintain high code quality, comprehensive testing, and backward compatibility. 
