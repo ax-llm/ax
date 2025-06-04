@@ -592,20 +592,20 @@ export class AxMiPRO<
     }
 
     // Evaluate the configuration
-    let correctCount = 0
+    let sumOfScores = 0
     for (const example of evalSet) {
       try {
         const prediction = await this.program.forward(this.ai, example as IN)
-        const correct = metricFn({ prediction, example })
-        if (correct) correctCount++
+        const score = metricFn({ prediction, example })
+        sumOfScores += score
       } catch (err) {
         if (this.verbose) {
           console.error('Error evaluating example:', err)
         }
       }
     }
-
-    return correctCount / evalSet.length
+    if (evalSet.length === 0) return 0 // Avoid division by zero
+    return sumOfScores / evalSet.length
   }
 
   /**
@@ -625,20 +625,20 @@ export class AxMiPRO<
       labeledExamples
     )
 
-    let fullCorrectCount = 0
+    let sumOfScores = 0
     for (const example of valset) {
       try {
         const prediction = await this.program.forward(this.ai, example as IN)
-        const correct = metricFn({ prediction, example })
-        if (correct) fullCorrectCount++
+        const score = metricFn({ prediction, example })
+        sumOfScores += score
       } catch (err) {
         if (this.verbose) {
           console.error('Error evaluating example:', err)
         }
       }
     }
-
-    return fullCorrectCount / valset.length
+    if (valset.length === 0) return 0 // Avoid division by zero
+    return sumOfScores / valset.length
   }
 
   /**

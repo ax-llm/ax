@@ -15,7 +15,7 @@ export type AxExample = Record<string, AxFieldValue>
 
 export type AxMetricFn = <T extends AxGenOut = AxGenOut>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
-) => boolean
+) => number
 
 export type AxMetricFnArgs = Parameters<AxMetricFn>[0]
 
@@ -154,7 +154,8 @@ export class AxBootstrapFewShot<
               JSON.stringify(ex).length / 4 + JSON.stringify(res).length / 4
           }
 
-          const success = metricFn({ prediction: res, example: ex })
+          const score = metricFn({ prediction: res, example: ex })
+          const success = score >= 0.5 // Assuming a threshold of 0.5 for success
           if (success) {
             this.traces = [...this.traces, ...this.program.getTraces()]
             this.stats.successfulDemos++

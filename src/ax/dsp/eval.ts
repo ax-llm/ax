@@ -58,10 +58,10 @@ function normalizeText(s: string): string {
  *
  * @param prediction The predicted text.
  * @param groundTruth The actual correct text.
- * @returns A boolean indicating if the prediction exactly matches the ground truth.
+ * @returns A number (1.0 for exact match, 0.0 otherwise).
  */
-function emScore(prediction: string, groundTruth: string): boolean {
-  return normalizeText(prediction) === normalizeText(groundTruth)
+function emScore(prediction: string, groundTruth: string): number {
+  return normalizeText(prediction) === normalizeText(groundTruth) ? 1.0 : 0.0
 }
 
 /**
