@@ -59,6 +59,7 @@ import type { AxIField, AxSignature } from './sig.js'
 import type {
   AxGenIn as AxGenInType,
   AxGenOut as AxGenOutType,
+  AxMessage,
 } from './types.js'
 import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
@@ -111,7 +112,9 @@ export interface AxStreamingEvent<T> {
 }
 
 export class AxGen<
-  IN extends AxGenInType = AxGenInType,
+  IN extends AxGenInType | ReadonlyArray<AxMessage> =
+    | AxGenInType
+    | ReadonlyArray<AxMessage>,
   OUT extends AxGenerateResult<AxGenOutType> = AxGenerateResult<AxGenOutType>,
 > extends AxProgramWithSignature<IN, OUT> {
   private promptTemplate: AxPromptTemplate
@@ -604,10 +607,24 @@ export class AxGen<
       )
     }
 
-    const prompt = this.promptTemplate.render<IN>(values, {
-      examples: this.examples,
-      demos: this.demos,
-    })
+    // New logic:
+    let prompt;
+    if (Array.isArray(values)) {
+      // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
+      // For now, assume render will handle the array directly.
+      // The generic type for render might need to be T (from render<T extends ...>)
+      // and T will be inferred as ReadonlyArray<AxMessage>
+      prompt = this.promptTemplate.render(values, {
+        examples: this.examples,
+        demos: this.demos,
+      });
+    } else {
+      // Ensure `values` here is correctly inferred as AxGenInType
+      prompt = this.promptTemplate.render(values as AxGenInType, { // Cast if necessary
+        examples: this.examples,
+        demos: this.demos,
+      });
+    }
 
     mem.add(prompt, options?.sessionId)
 

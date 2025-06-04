@@ -3,7 +3,7 @@ import type { AxChatRequest } from '../ai/types.js'
 import { formatDateWithTimezone } from './datetime.js'
 import type { AxInputFunctionType } from './functions.js'
 import type { AxField, AxIField, AxSignature } from './sig.js'
-import type { AxFieldValue } from './types.js'
+import type { AxFieldValue, AxGenIn, AxGenOut, AxMessage } from './types.js'
 import { validateValue } from './util.js'
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] }
@@ -90,15 +90,15 @@ export class AxPromptTemplate {
     }
   }
 
-  public render = <T extends Record<string, AxFieldValue>>(
-    values: T,
+  public render = <T extends AxGenIn>(
+    values: T | ReadonlyArray<AxMessage>, // Allow T (AxGenIn) or array of AxMessages
     {
       examples,
       demos,
     }: Readonly<{
       skipSystemPrompt?: boolean
-      examples?: Record<string, AxFieldValue>[]
-      demos?: Record<string, AxFieldValue>[]
+      examples?: Record<string, AxFieldValue>[] // Keep as is, examples are specific structures
+      demos?: Record<string, AxFieldValue>[] // Keep as is
     }>
   ): AxChatRequest['chatPrompt'] => {
     const renderedExamples = examples
@@ -109,8 +109,6 @@ export class AxPromptTemplate {
       : []
 
     const renderedDemos = demos ? this.renderDemos(demos) : []
-
-    const completion = this.renderInputFields(values)
 
     // Check if demos and examples are all text type
     const allTextExamples = renderedExamples.every((v) => v.type === 'text')
@@ -137,22 +135,88 @@ export class AxPromptTemplate {
       content: systemContent,
     }
 
-    const promptList: ChatRequestUserMessage = examplesInSystemPrompt
-      ? completion
-      : [...renderedExamples, ...renderedDemos, ...completion]
+    // Define a more specific type for messages we construct for the chat history part
+    type HistoryChatMessage =
+      | { role: 'user'; content: string }
+      | { role: 'assistant'; content: string }
 
-    const prompt = promptList.filter((v) => v !== undefined)
+    let userMessages: HistoryChatMessage[] = []
 
-    const userContent = prompt.every((v) => v.type === 'text')
-      ? prompt.map((v) => v.text).join('\n')
-      : prompt.reduce(combineConsecutiveStrings('\n'), [])
+    if (Array.isArray(values)) {
+      // values is ReadonlyArray<AxMessage>
+      const history = values as ReadonlyArray<AxMessage> // Type assertion
+      let lastRole: 'user' | 'assistant' | undefined = undefined
 
-    const userPrompt = {
-      role: 'user' as const,
-      content: userContent,
+      for (const message of history) {
+        let messageContent = ''
+        if (message.role === 'user') {
+          // For user messages, render their 'values' (which is AxGenIn)
+          // renderInputFields expects the actual values object.
+          const userMsgParts = this.renderInputFields(
+            message.values as unknown as T, // Cast message.values (AxGenIn) to T (which extends AxGenIn)
+            true // Pass skipMissingFields = true for history messages
+          )
+          messageContent = userMsgParts
+            .map((part) => (part.type === 'text' ? part.text : '')) // Simplify: combine text parts
+            .join('') // Join without adding extra newlines
+            .trim()   // Trim trailing newline from the last part
+        } else if (message.role === 'assistant') {
+          // For assistant messages, format their 'values' (AxGenOut)
+          // AxGenOut is { [key: string]: AxFieldValue }
+          // Simple serialization for now, might need more sophisticated rendering
+          messageContent = Object.entries(message.values)
+            .map(([key, val]) => `${key}: ${String(val)}`) // Ensure val is stringified
+            .join('\n')
+        }
+
+        if (messageContent) {
+          if (lastRole === message.role && userMessages.length > 0) {
+            // Combine with previous message of the same role
+            const lastMessage = userMessages[userMessages.length - 1]
+            if (lastMessage) { // Added null check for robustness
+              // lastMessage.content is now guaranteed to be a string by HistoryChatMessage type
+              lastMessage.content += '\n' + messageContent
+            }
+          } else {
+            if (message.role === 'user') {
+              userMessages.push({ role: 'user', content: messageContent })
+            } else if (message.role === 'assistant') {
+              userMessages.push({ role: 'assistant', content: messageContent })
+            }
+          }
+          lastRole = message.role
+        }
+      }
+    } else {
+      // values is T (AxGenIn) - existing logic path
+      const currentValues: T = values as T // Help TypeScript narrow the type with a cast
+      const completion = this.renderInputFields(currentValues) // currentValues is T (AxGenIn)
+      const promptList: ChatRequestUserMessage = examplesInSystemPrompt
+        ? completion
+        : [...renderedExamples, ...renderedDemos, ...completion]
+
+      const promptFilter = promptList.filter((v) => v !== undefined)
+
+      let userContent: string
+      if (promptFilter.every((v) => v.type === 'text')) {
+        userContent = promptFilter.map((v) => (v as { type: 'text'; text: string }).text).join('\n')
+      } else {
+        // If there are non-text parts, serialize them into a string representation.
+        // This is a simplification; true multi-modal content might need different handling.
+        userContent = promptFilter
+          .map((part) => {
+            if (part.type === 'text') return part.text
+            if (part.type === 'image') return '[IMAGE]' // Placeholder for image
+            if (part.type === 'audio') return '[AUDIO]' // Placeholder for audio
+            return ''
+          })
+          .join('\n')
+          .trim()
+      }
+      userMessages.push({ role: 'user' as const, content: userContent })
     }
 
-    return [systemPrompt, userPrompt]
+    return [systemPrompt, ...userMessages]
   }
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {
@@ -280,12 +344,10 @@ export class AxPromptTemplate {
     return list
   }
 
-  private renderInputFields = <T extends Record<string, AxFieldValue>>(
-    values: T
-  ) => {
+  private renderInputFields = <T extends AxGenIn>(values: T, skipMissingFields?: boolean) => {
     const renderedItems = this.sig
       .getInputFields()
-      .map((field) => this.renderInField(field, values))
+      .map((field) => this.renderInField(field, values, skipMissingFields))
       .filter((v) => v !== undefined)
       .flat()
 

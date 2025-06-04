@@ -12,7 +12,7 @@ import type { AxAIMemory } from '../mem/types.js'
 import type { AxInputFunctionType } from './functions.js'
 import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
-import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
+import type { AxFieldValue, AxGenIn, AxGenOut, AxMessage } from './types.js'
 import { mergeProgramUsage, validateValue } from './util.js'
 
 export type AxProgramTrace = {
@@ -90,9 +90,10 @@ export interface AxProgramWithSignatureOptions {
   description?: string
 }
 
-export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxTunable, AxUsable
-{
+export class AxProgramWithSignature<
+  IN extends AxGenIn | ReadonlyArray<AxMessage>,
+  OUT extends AxGenOut,
+> implements AxTunable, AxUsable {
   protected signature: AxSignature
   protected sigHash: string
 
