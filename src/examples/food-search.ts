@@ -1,4 +1,10 @@
-import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax'
+import {
+  AxAgent,
+  AxAI,
+  AxAIOpenAIResponses,
+  type AxFunction,
+  AxSignature,
+} from '@ax-llm/ax'
 
 const choice = Math.round(Math.random())
 
@@ -146,9 +152,14 @@ const functions: AxFunction[] = [
 //   config: { stream: true },
 // })
 
-const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
+// const ai = new AxAI({
+//   name: 'google-gemini',
+//   apiKey: process.env.GOOGLE_APIKEY as string,
+//   config: { stream: true },
+// })
+
+const ai = new AxAIOpenAIResponses({
+  apiKey: process.env.OPENAI_APIKEY as string,
   config: { stream: true },
 })
 

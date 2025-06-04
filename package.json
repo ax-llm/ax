@@ -24,7 +24,8 @@
     "publish": "npm run publish --workspaces  --if-present -- --provenance --access public",
     "git-cz": "npx git-cz",
     "dependencies:rebuild": "rm -rf package-lock.json && rm -rf node_modules && rm -rf */*/node_modules && npm i --no-audit --no-fund",
-    "tsx": "node --env-file=.env --import=tsx"
+    "tsx": "node --env-file=.env --import=tsx",
+    "fix:format": "prettier --write README.md"
   },
   "engines": {
     "node": ">=20"
@@ -83,7 +84,7 @@
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
-  "version": "11.0.49",
+  "version": "11.0.50",
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.1.13",
     "ai": "^4.1.61",

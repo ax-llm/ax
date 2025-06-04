@@ -1,8 +1,9 @@
 import { ColorLog } from '../util/log.js'
 
 import type { AxExample, AxOptimizationStats } from './optimize.js'
-import type { AxFieldValue, AxGenOut, AxProgramUsage } from './program.js'
+import type { AxProgramUsage } from './program.js'
 import type { AxField } from './sig.js'
+import type { AxFieldValue, AxGenOut } from './types.js'
 
 const colorLog = new ColorLog()
 
@@ -222,7 +223,7 @@ export const parseMarkdownList = (input: string): string[] => {
   return list
 }
 
-export function mergeDeltas<OUT>(
+export function mergeDeltas<OUT extends AxGenOut>(
   base: Partial<AxGenOut>,
   delta: Partial<AxGenOut>
 ) {

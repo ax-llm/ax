@@ -1,13 +1,7 @@
 import type { AxAIService } from '../ai/types.js'
 
-import type {
-  AxFieldValue,
-  AxGenIn,
-  AxGenOut,
-  AxProgram,
-  AxProgramDemos,
-  AxProgramTrace,
-} from './program.js'
+import type { AxProgram, AxProgramDemos, AxProgramTrace } from './program.js'
+import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
 import { updateDetailedProgress, updateProgressBar } from './util.js'
 
 // Define model config interface

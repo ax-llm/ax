@@ -1,9 +1,6 @@
-import {
-  AxGen,
-  type AxGenOptions,
-  type AxRewriteIn,
-  type AxRewriteOut,
-} from '../index.js'
+import { AxGen, type AxGenOptions } from '../dsp/generate.js'
+
+import { type AxRewriteIn, type AxRewriteOut } from './manager.js'
 
 export class AxDefaultQueryRewriter extends AxGen<AxRewriteIn, AxRewriteOut> {
   constructor(options?: Readonly<AxGenOptions>) {

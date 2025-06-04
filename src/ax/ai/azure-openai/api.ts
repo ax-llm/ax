@@ -8,12 +8,12 @@ import {
   axAIOpenAIDefaultConfig,
   axAIOpenAIFastConfig,
 } from '../openai/api.js'
-import { axModelInfoOpenAI } from '../openai/info.js'
 import type {
   AxAIOpenAIConfig,
   AxAIOpenAIEmbedModel,
   AxAIOpenAIModel,
-} from '../openai/types.js'
+} from '../openai/chat_types.js'
+import { axModelInfoOpenAI } from '../openai/info.js'
 
 export const axAIAzureOpenAIDefaultConfig = axAIOpenAIDefaultConfig
 

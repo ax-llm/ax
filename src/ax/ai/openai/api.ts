@@ -22,7 +22,6 @@ import type {
   AxTokenUsage,
 } from '../types.js'
 
-import { axModelInfoOpenAI } from './info.js'
 import {
   type AxAIOpenAIChatRequest,
   type AxAIOpenAIChatResponse,
@@ -32,7 +31,8 @@ import {
   type AxAIOpenAIEmbedRequest,
   type AxAIOpenAIEmbedResponse,
   AxAIOpenAIModel,
-} from './types.js'
+} from './chat_types.js'
+import { axModelInfoOpenAI } from './info.js'
 
 export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIModel,
@@ -208,6 +208,10 @@ class AxAIOpenAIImpl<
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
       ...(store ? { store: store } : {}),
+      ...(this.config.serviceTier
+        ? { service_tier: this.config.serviceTier }
+        : {}),
+      ...(this.config.user ? { user: this.config.user } : {}),
     }
 
     if (this.config.reasoningEffort) {

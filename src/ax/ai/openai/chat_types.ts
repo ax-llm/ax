@@ -43,6 +43,7 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   dimensions?: number
   reasoningEffort?: 'low' | 'medium' | 'high'
   store?: boolean
+  serviceTier?: 'auto' | 'default' | 'flex'
   webSearchOptions?: {
     searchContextSize?: 'low' | 'medium' | 'high'
     userLocation?: {

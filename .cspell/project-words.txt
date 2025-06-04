@@ -104,3 +104,7 @@ xlarge
 xstate
 minibatching
 minibatches
+appendable
+MCPHTTPSSE
+Streamble
+deepwiki

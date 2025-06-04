@@ -2,8 +2,8 @@ import type { AxChatRequest } from '../ai/types.js'
 
 import { formatDateWithTimezone } from './datetime.js'
 import type { AxInputFunctionType } from './functions.js'
-import { type AxFieldValue } from './program.js'
 import type { AxField, AxIField, AxSignature } from './sig.js'
+import type { AxFieldValue } from './types.js'
 import { validateValue } from './util.js'
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] }

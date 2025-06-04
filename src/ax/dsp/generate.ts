@@ -50,14 +50,16 @@ import {
 } from './functions.js'
 import {
   type AxGenDeltaOut,
-  type AxGenIn,
-  type AxGenOut,
   type AxProgramForwardOptions,
   type AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
 } from './program.js'
 import { AxPromptTemplate } from './prompt.js'
 import type { AxIField, AxSignature } from './sig.js'
+import type {
+  AxGenIn as AxGenInType,
+  AxGenOut as AxGenOutType,
+} from './types.js'
 import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
 
@@ -69,6 +71,7 @@ export interface AxGenOptions {
   rateLimiter?: AxRateLimiterFunction
   stream?: boolean
   description?: string
+  thoughtFieldName?: string
 
   functions?: AxInputFunctionType
   functionCall?: AxChatRequest['functionCall']
@@ -81,7 +84,7 @@ export interface AxGenOptions {
   traceLabel?: string
 }
 
-export type AxGenerateResult<OUT extends AxGenOut> = OUT & {
+export type AxGenerateResult<OUT extends AxGenOutType> = OUT & {
   thought?: string
 }
 
@@ -108,8 +111,8 @@ export interface AxStreamingEvent<T> {
 }
 
 export class AxGen<
-  IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>,
+  IN extends AxGenInType = AxGenInType,
+  OUT extends AxGenerateResult<AxGenOutType> = AxGenerateResult<AxGenOutType>,
 > extends AxProgramWithSignature<IN, OUT> {
   private promptTemplate: AxPromptTemplate
   private asserts: AxAssertion[]
@@ -119,8 +122,9 @@ export class AxGen<
   private functionsExecuted: Set<string> = new Set<string>()
   private fieldProcessors: AxFieldProcessor[] = []
   private streamingFieldProcessors: AxFieldProcessor[] = []
-  private values: AxGenOut = {}
+  private values: AxGenOutType = {}
   private excludeContentFromTrace: boolean = false
+  private thoughtFieldName: string
 
   constructor(
     signature: Readonly<AxSignature | string>,
@@ -129,6 +133,7 @@ export class AxGen<
     super(signature, { description: options?.description })
 
     this.options = options
+    this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
       options?.functions
@@ -356,7 +361,7 @@ export class AxGen<
         this.usage.push(v.modelUsage)
       }
 
-      if (result.functionCalls) {
+      if (result.functionCalls && result.functionCalls.length > 0) {
         mergeFunctionCalls(functionCalls, result.functionCalls)
         mem.updateResult(
           {
@@ -367,12 +372,15 @@ export class AxGen<
           },
           sessionId
         )
-      } else if (result.content) {
+      } else if (result.content && result.content.length > 0) {
         if (result.thought && result.thought.length > 0) {
-          yield { thought: result.thought } as AxGenDeltaOut<OUT>['delta']
+          yield {
+            [this.thoughtFieldName]: result.thought,
+          } as AxGenDeltaOut<OUT>['delta']
         }
 
         content += result.content
+
         mem.updateResult(
           { name: result.name, content, delta: result.content },
           sessionId
@@ -418,8 +426,11 @@ export class AxGen<
 
         await assertAssertions(this.asserts, this.values)
       } else if (result.thought && result.thought.length > 0) {
-        this.values.thought = this.values.thought ?? '' + result.thought
-        yield { thought: result.thought } as AxGenDeltaOut<OUT>['delta']
+        this.values[this.thoughtFieldName] =
+          (this.values[this.thoughtFieldName] ?? '') + result.thought
+        yield {
+          [this.thoughtFieldName]: result.thought,
+        } as AxGenDeltaOut<OUT>['delta']
       }
 
       if (result.finishReason === 'length') {
@@ -530,7 +541,7 @@ export class AxGen<
         }
       } else if (result.content) {
         if (result.thought && result.thought.length > 0) {
-          this.values.thought = result.thought
+          this.values[this.thoughtFieldName] = result.thought
         }
 
         extractValues(this.signature, this.values, result.content)

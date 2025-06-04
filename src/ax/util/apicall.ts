@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import {
   ReadableStream,
   TextDecoderStream as TextDecoderStreamNative,
@@ -79,7 +80,8 @@ export class AxAIServiceError extends Error {
   constructor(
     message: string,
     public readonly url: string,
-    public readonly requestBody?: unknown,
+    public readonly requestBody: unknown,
+    public readonly responseBody: unknown,
     context: Record<string, unknown> = {}
   ) {
     super(message)
@@ -96,6 +98,7 @@ export class AxAIServiceError extends Error {
       `${this.name}: ${this.message}`,
       `URL: ${this.url}`,
       `Request Body: ${JSON.stringify(this.requestBody, null, 2)}`,
+      `Response Body: ${JSON.stringify(this.responseBody, null, 2)}`,
       `Context: ${JSON.stringify(this.context, null, 2)}`,
       `Timestamp: ${this.timestamp}`,
       `Error ID: ${this.errorId}`,
@@ -118,12 +121,14 @@ export class AxAIServiceStatusError extends AxAIServiceError {
     public readonly status: number,
     public readonly statusText: string,
     url: string,
-    requestBody?: unknown,
+    requestBody: unknown,
+    responseBody: unknown,
     context?: Record<string, unknown>
   ) {
     super(`HTTP ${status} - ${statusText}`, url, requestBody, {
       httpStatus: status,
       httpStatusText: statusText,
+      responseBody,
       ...context,
     })
     this.name = this.constructor.name
@@ -134,14 +139,21 @@ export class AxAIServiceNetworkError extends AxAIServiceError {
   constructor(
     public readonly originalError: Error,
     url: string,
-    requestBody?: unknown,
+    requestBody: unknown,
+    responseBody: unknown,
     context?: Record<string, unknown>
   ) {
-    super(`Network Error: ${originalError.message}`, url, requestBody, {
-      originalErrorName: originalError.name,
-      originalErrorStack: originalError.stack,
-      ...context,
-    })
+    super(
+      `Network Error: ${originalError.message}`,
+      url,
+      requestBody,
+      responseBody,
+      {
+        originalErrorName: originalError.name,
+        originalErrorStack: originalError.stack,
+        ...context,
+      }
+    )
     this.name = this.constructor.name
     this.stack = originalError.stack
   }
@@ -154,7 +166,7 @@ export class AxAIServiceResponseError extends AxAIServiceError {
     requestBody?: unknown,
     context?: Record<string, unknown>
   ) {
-    super(message, url, requestBody, context)
+    super(message, url, requestBody, undefined, context)
     this.name = this.constructor.name
   }
 }
@@ -166,10 +178,16 @@ export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
     public readonly lastChunk?: unknown,
     context?: Record<string, unknown>
   ) {
-    super('Stream terminated unexpectedly by remote host', url, requestBody, {
-      lastChunk,
-      ...context,
-    })
+    super(
+      'Stream terminated unexpectedly by remote host',
+      url,
+      requestBody,
+      undefined,
+      {
+        lastChunk,
+        ...context,
+      }
+    )
     this.name = this.constructor.name
   }
 }
@@ -181,7 +199,7 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
     requestBody?: unknown,
     context?: Record<string, unknown>
   ) {
-    super(`Request timeout after ${timeoutMs}ms`, url, requestBody, {
+    super(`Request timeout after ${timeoutMs}ms`, url, requestBody, undefined, {
       timeoutMs,
       ...context,
     })
@@ -192,10 +210,11 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
 export class AxAIServiceAuthenticationError extends AxAIServiceError {
   constructor(
     url: string,
-    requestBody?: unknown,
+    requestBody: unknown,
+    responseBody: unknown,
     context?: Record<string, unknown>
   ) {
-    super('Authentication failed', url, requestBody, context)
+    super('Authentication failed', url, requestBody, responseBody, context)
     this.name = this.constructor.name
   }
 }
@@ -308,7 +327,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
       // Handle authentication errors
       if (res.status === 401 || res.status === 403) {
-        throw new AxAIServiceAuthenticationError(apiUrl.href, json, { metrics })
+        throw new AxAIServiceAuthenticationError(apiUrl.href, json, res.body, {
+          metrics,
+        })
       }
 
       // Handle retryable status codes
@@ -339,6 +360,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           res.statusText,
           apiUrl.href,
           json,
+          res.body,
           { metrics }
         )
       }
@@ -462,9 +484,15 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                 )
               } else {
                 controller.error(
-                  new AxAIServiceNetworkError(error, apiUrl.href, json, {
-                    streamMetrics,
-                  })
+                  new AxAIServiceNetworkError(
+                    error,
+                    apiUrl.href,
+                    json,
+                    res.body,
+                    {
+                      streamMetrics,
+                    }
+                  )
                 )
               }
               throw error
