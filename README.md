@@ -1,4 +1,4 @@
-# Ax - Build LLM-Powered Agents (Typescript)
+# Ax - The Best Way To Build With LLMs (DSPy + Typescript)
 
 Use Ax and get an end-to-end streaming, multi-modal DSPy framework with agents
 and typed signatures. Works with all LLMs. Ax is always streaming and handles
