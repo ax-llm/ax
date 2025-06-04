@@ -47,7 +47,7 @@ export type AxProgramForwardOptions = {
   fastFail?: boolean
   debug?: boolean
   debugHideSystemPrompt?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest'
+  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest' | 'disable'
   traceLabel?: string
 }
 
