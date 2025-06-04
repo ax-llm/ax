@@ -137,9 +137,13 @@ export class AxGen<
 
     this.options = options
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
+    const promptTemplateOptions = {
+      functions: options?.functions,
+      thoughtFieldName: this.thoughtFieldName
+    }
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
-      options?.functions
+      promptTemplateOptions
     )
     this.asserts = this.options?.asserts ?? []
     this.streamingAsserts = this.options?.streamingAsserts ?? []
@@ -600,10 +604,14 @@ export class AxGen<
     let err: ValidationError | AxAssertionError | undefined
 
     if (options?.functions && options.functions.length > 0) {
-      const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate
-      this.promptTemplate = new promptTemplate(
+      const PromptTemplateClass = this.options?.promptTemplate ?? AxPromptTemplate
+      const currentPromptTemplateOptions = {
+        functions: options.functions,
+        thoughtFieldName: this.thoughtFieldName
+      }
+      this.promptTemplate = new PromptTemplateClass(
         this.signature,
-        options.functions
+        currentPromptTemplateOptions
       )
     }
 
