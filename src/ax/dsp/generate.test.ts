@@ -7,6 +7,7 @@ import type { AxChatResponse } from '../ai/types.js'
 
 import { AxGen } from './generate.js'
 import type { AxSignature } from './sig.js'
+import type { AxProgramForwardOptions } from './program.js'
 
 function createStreamingResponse(
   chunks: AxChatResponse['results']
@@ -118,6 +119,30 @@ describe('AxGen forward and streamingForward', () => {
     expect(response.output).toContain('chunk 1')
     expect(response.output).toContain('chunk 2')
     expect(response.output).toContain('chunk 3')
+  })
+})
+
+describe('AxProgramForwardOptions types', () => {
+  it('should allow "disable" as a value for thinkingTokenBudget', () => {
+    const options: AxProgramForwardOptions = {
+      ai: new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }), // Mock AI service
+      thinkingTokenBudget: 'disable',
+    }
+    // If this compiles, the type test passes implicitly.
+    // We can add a simple assertion to make the test explicit.
+    expect(options.thinkingTokenBudget).toBe('disable')
+  })
+
+  it('should allow other valid values for thinkingTokenBudget', () => {
+    const options: AxProgramForwardOptions = {
+      ai: new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }), // Mock AI service
+      thinkingTokenBudget: 'minimal',
+    }
+    expect(options.thinkingTokenBudget).toBe('minimal')
   })
 })
 

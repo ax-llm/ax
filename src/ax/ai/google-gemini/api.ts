@@ -355,9 +355,13 @@ class AxAIGoogleGeminiImpl
       thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget
     }
 
+    // Then, override based on prompt-specific config
     if (config.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
       switch (config.thinkingTokenBudget) {
+        case 'disable':
+          thinkingConfig.thinkingBudget = 0; // Explicitly set to 0
+          break;
         case 'minimal':
           thinkingConfig.thinkingBudget = 200
           break
