@@ -26,7 +26,11 @@ function createStreamingResponse(
           try {
             controller.enqueue({
               results: [
-                { content: chunk.content, finishReason: chunk.finishReason },
+                {
+                  content: chunk.content,
+                  thought: chunk.thought,
+                  finishReason: chunk.finishReason,
+                },
               ],
               modelUsage: {
                 ai: 'test-ai',
@@ -114,6 +118,138 @@ describe('AxGen forward and streamingForward', () => {
     expect(response.output).toContain('chunk 1')
     expect(response.output).toContain('chunk 2')
     expect(response.output).toContain('chunk 3')
+  })
+})
+
+describe('AxGen thoughtFieldName', () => {
+  const signature = 'input:string -> output:string'
+
+  it('should return thought with custom field name when thoughtFieldName is provided', async () => {
+    // Mock AI service to return a response with a thought
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            thought: 'This is a custom thought.',
+            content: 'Output: Test output',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        },
+      },
+    })
+
+    const gen = new AxGen<
+      { input: string },
+      { output: string; customThought?: string }
+    >(signature, { thoughtFieldName: 'customThought' })
+    const response = await gen.forward(ai, { input: 'test' })
+    expect(response).toEqual({
+      output: 'Test output',
+      customThought: 'This is a custom thought.',
+    })
+  })
+
+  it('should return thought with default field name "thought" when thoughtFieldName is not provided', async () => {
+    // Mock AI service
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            thought: 'This is a default thought.',
+            content: 'Output: Test output',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        },
+      },
+    })
+
+    const gen = new AxGen<
+      { input: string },
+      { output: string; thought?: string }
+    >(signature)
+    const response = await gen.forward(ai, { input: 'test' })
+    expect(response).toEqual({
+      output: 'Test output',
+      thought: 'This is a default thought.',
+    })
+  })
+
+  it('should stream thought with custom field name when thoughtFieldName is provided', async () => {
+    const chunks: AxChatResponse['results'] = [
+      { thought: 'Thinking...' },
+      { content: 'Output: chunk 1 ' },
+      { thought: 'Still thinking...' },
+      { content: 'chunk 2 ' },
+      { content: 'chunk 3', finishReason: 'stop' },
+    ]
+    const streamingResponse = createStreamingResponse(chunks)
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: true },
+      chatResponse: streamingResponse,
+    })
+
+    const gen = new AxGen<
+      { input: string },
+      { output: string; customThought?: string }
+    >(signature, { thoughtFieldName: 'customThought' })
+
+    const results: Array<Record<string, string>> = []
+    const stream = gen.streamingForward(ai, { input: 'test' })
+
+    for await (const res of stream) {
+      results.push(res.delta)
+    }
+
+    expect(results).toContainEqual({ customThought: 'Thinking...' })
+    expect(results).toContainEqual({ output: 'chunk 1' })
+    expect(results).toContainEqual({ customThought: 'Still thinking...' })
+    expect(results).toContainEqual({ output: ' chunk 2' })
+    expect(results).toContainEqual({ output: ' chunk 3' })
+  })
+
+  it('should stream thought with default field name "thought" when thoughtFieldName is not provided', async () => {
+    const chunks: AxChatResponse['results'] = [
+      { thought: 'Thinking...' },
+      { content: 'Output: chunk 1 ' },
+      { thought: 'Still thinking...' },
+      { content: 'chunk 2 ' },
+      { content: 'chunk 3', finishReason: 'stop' },
+    ]
+    const streamingResponse = createStreamingResponse(chunks)
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: true },
+      chatResponse: streamingResponse,
+    })
+
+    const gen = new AxGen<
+      { input: string },
+      { output: string; thought?: string }
+    >(signature)
+
+    const results: Array<Record<string, string>> = []
+    const stream = gen.streamingForward(ai, { input: 'test' })
+
+    for await (const res of stream) {
+      results.push(res.delta)
+    }
+
+    expect(results).toContainEqual({ thought: 'Thinking...' })
+    expect(results).toContainEqual({ output: 'chunk 1' })
+    expect(results).toContainEqual({ thought: 'Still thinking...' })
+    expect(results).toContainEqual({ output: ' chunk 2' })
+    expect(results).toContainEqual({ output: ' chunk 3' })
   })
 })
 
