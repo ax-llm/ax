@@ -365,6 +365,104 @@ const processor = new AxFieldProcessor(
 const res = await gen.forward({ startNumber: 1 })
 ```
 
+## Model Context Protocol (MCP)
+
+Ax provides seamless integration with the Model Context Protocol (MCP), allowing
+your agents to access external tools, and resources through a standardized
+interface.
+
+### Using AxMCPClient
+
+The `AxMCPClient` allows you to connect to any MCP-compatible server and use its
+capabilities within your Ax agents:
+
+```typescript
+import { AxMCPClient, AxMCPStdioTransport } from '@ax-llm/ax'
+
+// Initialize an MCP client with a transport
+const transport = new AxMCPStdioTransport({
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-memory'],
+})
+
+// Create the client with optional debug mode
+const client = new AxMCPClient(transport, { debug: true })
+
+// Initialize the connection
+await client.init()
+
+// Use the client's functions in an agent
+const memoryAgent = new AxAgent({
+  name: 'MemoryAssistant',
+  description: 'An assistant with persistent memory',
+  signature: 'input, userId -> response',
+  functions: [client], // Pass the client as a function provider
+})
+
+// Or use the client with AxGen
+const memoryGen = new AxGen('input, userId -> response', {
+  functions: [client],
+})
+```
+
+### Using AxMCPClient with a Remote Server
+
+Calling a remote MCP server with Ax is straightforward. For example, here's how you can use the DeepWiki MCP server to ask questions about nearly any public GitHub repository. The DeepWiki MCP server is available at `https://mcp.deepwiki.com/mcp`.
+
+```typescript
+import {
+  AxAgent,
+  AxAI,
+  AxAIOpenAIModel,
+  AxMCPClient,
+  AxMCPStreambleHTTPTransport,
+} from '@ax-llm/ax'
+
+// 1. Initialize the MCP transport to the DeepWiki server
+const transport = new AxMCPStreambleHTTPTransport(
+  'https://mcp.deepwiki.com/mcp'
+)
+
+// 2. Create the MCP client
+const mcpClient = new AxMCPClient(transport, { debug: false })
+await mcpClient.init() // Initialize the connection
+
+// 3. Initialize your AI model (e.g., OpenAI)
+// Ensure your OPENAI_APIKEY environment variable is set
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
+
+// 4. Create an AxAgent that uses the MCP client
+const deepwikiAgent = new AxAgent<
+  {
+    // Define input types for clarity, matching a potential DeepWiki function
+    questionAboutRepo: string
+    githubRepositoryUrl: string
+  },
+  {
+    answer: string
+  }
+>({
+  name: 'DeepWikiQueryAgent',
+  description: 'Agent to query public GitHub repositories via DeepWiki MCP.',
+  signature: 'questionAboutRepo, githubRepositoryUrl -> answer',
+  functions: [mcpClient], // Provide the MCP client to the agent
+})
+
+// 5. Formulate a question and call the agent
+const result = await deepwikiAgent.forward(ai, {
+  questionAboutRepo: 'What is the main purpose of this library?',
+  githubRepositoryUrl: 'https://github.com/dosco/ax', // Example: Ax library itself
+})
+console.log('DeepWiki Answer:', result.answer)
+```
+
+This example shows how to connect to a public MCP server and use it within an Ax agent. The agent's signature (`questionAboutRepo, githubRepositoryUrl -> answer`) is an assumption of how one might interact with the DeepWiki service; you would typically discover the available functions and their signatures from the MCP server itself (e.g., via an `mcp.getFunctions` call if supported, or documentation).
+
+For a more complex example involving authentication and custom headers with a remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts` file in this repository.
+
 ## AI Routing and Load Balancing
 
 Ax provides two powerful ways to work with multiple AI services: a load balancer
@@ -489,104 +587,6 @@ Ax's features like streaming, function calling, and chain-of-thought prompting.
 You can also use the balancer and the router together either the multiple
 balancers can be used with the router or the router can be used with the
 balancer.
-
-## Model Context Protocol (MCP)
-
-Ax provides seamless integration with the Model Context Protocol (MCP), allowing
-your agents to access external tools, and resources through a standardized
-interface.
-
-### Using AxMCPClient
-
-The `AxMCPClient` allows you to connect to any MCP-compatible server and use its
-capabilities within your Ax agents:
-
-```typescript
-import { AxMCPClient, AxMCPStdioTransport } from '@ax-llm/ax'
-
-// Initialize an MCP client with a transport
-const transport = new AxMCPStdioTransport({
-  command: 'npx',
-  args: ['-y', '@modelcontextprotocol/server-memory'],
-})
-
-// Create the client with optional debug mode
-const client = new AxMCPClient(transport, { debug: true })
-
-// Initialize the connection
-await client.init()
-
-// Use the client's functions in an agent
-const memoryAgent = new AxAgent({
-  name: 'MemoryAssistant',
-  description: 'An assistant with persistent memory',
-  signature: 'input, userId -> response',
-  functions: [client], // Pass the client as a function provider
-})
-
-// Or use the client with AxGen
-const memoryGen = new AxGen('input, userId -> response', {
-  functions: [client],
-})
-```
-
-### Using AxMCPClient with a Remote Server
-
-Calling a remote MCP server with Ax is straightforward. For example, here's how you can use the DeepWiki MCP server to ask questions about nearly any public GitHub repository. The DeepWiki MCP server is available at `https://mcp.deepwiki.com/mcp`.
-
-```typescript
-import {
-  AxAgent,
-  AxAI,
-  AxAIOpenAIModel,
-  AxMCPClient,
-  AxMCPStreambleHTTPTransport,
-} from '@ax-llm/ax'
-
-// 1. Initialize the MCP transport to the DeepWiki server
-const transport = new AxMCPStreambleHTTPTransport(
-  'https://mcp.deepwiki.com/mcp'
-)
-
-// 2. Create the MCP client
-const mcpClient = new AxMCPClient(transport, { debug: false })
-await mcpClient.init() // Initialize the connection
-
-// 3. Initialize your AI model (e.g., OpenAI)
-// Ensure your OPENAI_APIKEY environment variable is set
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-})
-
-// 4. Create an AxAgent that uses the MCP client
-const deepwikiAgent = new AxAgent<
-  {
-    // Define input types for clarity, matching a potential DeepWiki function
-    questionAboutRepo: string
-    githubRepositoryUrl: string
-  },
-  {
-    answer: string
-  }
->({
-  name: 'DeepWikiQueryAgent',
-  description: 'Agent to query public GitHub repositories via DeepWiki MCP.',
-  signature: 'questionAboutRepo, githubRepositoryUrl -> answer',
-  functions: [mcpClient], // Provide the MCP client to the agent
-})
-
-// 5. Formulate a question and call the agent
-const result = await deepwikiAgent.forward(ai, {
-  questionAboutRepo: 'What is the main purpose of this library?',
-  githubRepositoryUrl: 'https://github.com/dosco/ax', // Example: Ax library itself
-})
-console.log('DeepWiki Answer:', result.answer)
-```
-
-This example shows how to connect to a public MCP server and use it within an Ax agent. The agent's signature (`questionAboutRepo, githubRepositoryUrl -> answer`) is an assumption of how one might interact with the DeepWiki service; you would typically discover the available functions and their signatures from the MCP server itself (e.g., via an `mcp.getFunctions` call if supported, or documentation).
-
-For a more complex example involving authentication and custom headers with a remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts` file in this repository.
 
 ## OpenTelemetry support
 
