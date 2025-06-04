@@ -693,6 +693,11 @@ const metricFn: AxMetricFn = ({ prediction, example }) =>
 
 // Run the optimizer and remember to save the result to use later
 const result = await optimize.compile(metricFn);
+
+// Save the generated demos to a file
+// import fs from 'fs'; // Ensure fs is imported in your actual script
+fs.writeFileSync('bootstrap-demos.json', JSON.stringify(result.demos, null, 2));
+console.log('Demos saved to bootstrap-demos.json');
 ```
 
 <img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">
@@ -711,8 +716,12 @@ const program = new AxChainOfThought<{ question: string }, { answer: string }>(
     `question -> answer "in short 2 or 3 words"`,
 );
 
-// load tuning data
-program.loadDemos("demos.json");
+// Load tuning data from the saved file
+// import fs from 'fs'; // Ensure fs is imported
+const loadedDemosText = fs.readFileSync('bootstrap-demos.json', 'utf8');
+const loadedDemos = JSON.parse(loadedDemosText);
+program.setDemos(loadedDemos);
+console.log('Demos loaded into program.');
 
 const res = await program.forward({
     question: "What castle did David Gregory inherit?",
@@ -846,6 +855,48 @@ const optimizedProgram = await optimizer.compile(metricFn, {
 // Save configuration for future use
 const programConfig = JSON.stringify(optimizedProgram, null, 2);
 await fs.promises.writeFile("./optimized-config.json", programConfig);
+console.log('> Done. Optimized program config saved to optimized-config.json');
+
+// --- Loading and Using the Optimized Program Configuration ---
+// import fs from 'node:fs'; // Or 'fs' depending on your setup
+// import { AxChainOfThought } from '@ax-llm/ax'; // Assuming AxChainOfThought was used
+
+// Later, in a different session or file:
+/*
+const loadedProgramConfigText = fs.readFileSync('./optimized-config.json', 'utf8');
+const loadedConfig = JSON.parse(loadedProgramConfigText);
+
+// Re-instantiate your program (ensure the signature matches the one optimized)
+// For AxChainOfThought, the signature string itself is key.
+// If MiPRO optimized the instruction within the signature, loadedConfig.signature.toString() might be ideal.
+// Otherwise, use the original signature string you started with.
+const newProgram = new AxChainOfThought(loadedConfig.signature ? loadedConfig.signature.toString() : 'original -> signature');
+
+// Apply loaded demos
+if (loadedConfig.demos && Array.isArray(loadedConfig.demos)) {
+  newProgram.setDemos(loadedConfig.demos);
+  console.log('Demos loaded from optimized config.');
+}
+
+// Apply loaded instruction (if MiPRO modified it and it's stored in signature.instruction)
+// AxProgramWithSignature's setInstruction method updates `this.signature.instruction`.
+// If this field was serialized, it represents the specific instruction string MiPRO found effective.
+if (loadedConfig.signature && loadedConfig.signature.instruction) {
+    newProgram.setInstruction(loadedConfig.signature.instruction);
+    console.log('Instruction applied from loadedConfig.signature.instruction.');
+} else {
+    // If the primary instruction is embedded within the signature string itself
+    // and that whole string was part of loadedConfig.signature,
+    // then re-instantiating with loadedConfig.signature.toString() (as shown above)
+    // might be sufficient.
+    console.log('Custom instruction from optimization not found or already applied via signature string.');
+}
+
+// Now newProgram is ready to be used with the AI service
+// const ai = new AxAI({ ... }); // Your AI setup
+// const result = await newProgram.forward(ai, { input: "some new input" });
+// console.log(result);
+*/
 ```
 
 ### How It Works

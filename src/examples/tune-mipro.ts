@@ -76,7 +76,7 @@ const optimizer = new AxMiPRO<{ productReview: string }, { label: string }>({
 
 // Define a simple accuracy metric for sentiment classification
 const metricFn: AxMetricFn = ({ prediction, example }) => {
-  return prediction.label === example.label
+  return prediction.label === example.label ? 1.0 : 0.0
 }
 
 // Run the MiPRO optimization process
@@ -96,21 +96,95 @@ await fs.promises.writeFile('./mipro-power-demo-config.json', programConfig)
 
 // Evaluate the optimized program on validation set
 console.log('\nEvaluating optimized program on validation set:')
-let correctCount = 0
+let sumOfScores = 0
 for (const example of validationData) {
   const prediction = await optimizedProgram.forward(ai, example)
-  const correct = metricFn({ prediction, example })
-  if (correct) correctCount++
+  // metricFn will now return a score (1.0 or 0.0)
+  const score = metricFn({ prediction, example })
+  sumOfScores += score
   console.log(`Input: "${example.productReview}"`)
   console.log(`Expected: ${example.label}, Predicted: ${prediction.label}`)
-  console.log(`Result: ${correct ? '✓ CORRECT' : '✗ INCORRECT'}\n`)
+  // Determine correctness for logging based on a threshold if desired, or just log score
+  console.log(
+    `Result: ${score === 1.0 ? '✓ CORRECT' : '✗ INCORRECT'} (Score: ${score})\n`
+  )
 }
 
 // Report final performance metrics
-const finalScore = correctCount / validationData.length
+const finalAverageScore =
+  validationData.length > 0 ? sumOfScores / validationData.length : 0
 console.log(
-  `Final accuracy: ${finalScore.toFixed(4)} (${correctCount}/${validationData.length})`
+  `Final Average Score: ${finalAverageScore.toFixed(4)} (${sumOfScores}/${validationData.length})`
 )
 console.log(
   '> Done. Optimized program config saved to mipro-power-demo-config.json'
 )
+
+// --- Loading and Using Optimized Program Configuration ---
+console.log('\n--- Loading and Using Optimized Program Configuration ---')
+
+try {
+  const loadedProgramConfigText = fs.readFileSync(
+    './mipro-power-demo-config.json',
+    'utf8'
+  )
+  const loadedConfig = JSON.parse(loadedProgramConfigText)
+  console.log('Successfully loaded configuration from mipro-power-demo-config.json')
+  // console.log('Keys in loadedConfig:', Object.keys(loadedConfig))
+  // console.log('Loaded config demos:', loadedConfig.demos)
+  // console.log('Loaded config signature:', loadedConfig.signature)
+
+  // Instantiate a new program with the same signature
+  const newProgram = new AxChainOfThought<
+    { productReview: string },
+    { label: string }
+  >(`productReview -> label:string "positive" or "negative"`)
+  console.log('New program instance created.')
+
+  // Apply demos from loaded config
+  if (loadedConfig.demos && Array.isArray(loadedConfig.demos)) {
+    newProgram.setDemos(loadedConfig.demos)
+    console.log(`Loaded ${loadedConfig.demos.length} demo sets into new program.`)
+  } else {
+    console.log('No demos found or demos in unexpected format in loaded config.')
+  }
+
+  // Apply instruction from loaded config
+  // AxChainOfThought's main instruction is part of its signature, set at construction.
+  // MiPRO's optimized instruction is what we'd want to apply.
+  // If `setInstruction` on the original program (during optimization) modified
+  // `this.signature.instruction`, it would be in `loadedConfig.signature.instruction`.
+  if (loadedConfig.signature && loadedConfig.signature.instruction) {
+    // This would typically require reconstructing the signature string if it's complex,
+    // or having a dedicated method to set just the instruction part of a signature.
+    // For AxChainOfThought, the instruction is the first part of the signature string.
+    // If the *entire signature string* was changed and saved, that's different.
+    // The `setInstruction` method in `AxProgramWithSignature` sets `this.signature.instruction`.
+    // Let's assume the `loadedConfig.signature.instruction` is the relevant one.
+    newProgram.setInstruction(loadedConfig.signature.instruction)
+    console.log('Loaded instruction from `loadedConfig.signature.instruction` into new program.')
+  } else if (typeof loadedConfig.instruction === 'string') {
+    // Fallback if instruction is directly on the config object
+    newProgram.setInstruction(loadedConfig.instruction)
+    console.log('Loaded instruction from `loadedConfig.instruction` into new program.')
+  } else {
+    console.log('No specific optimized instruction found in loaded config to apply directly via setInstruction, or format not recognized.')
+  }
+
+  // Test the new program with loaded configuration
+  console.log('\nTesting new program with loaded configuration:')
+  const testExamples = validationData.slice(0, 2) // Test with first two validation examples
+
+  for (const testExample of testExamples) {
+    if (testExample) {
+      const prediction = await newProgram.forward(ai, testExample)
+      console.log(`\nInput: "${testExample.productReview}"`)
+      console.log(`Expected: ${testExample.label}, Predicted: ${prediction.label}`)
+      // You can use metricFn here too if you want to score it
+      const score = metricFn({ prediction, example: testExample })
+      console.log(`Result: ${score === 1.0 ? '✓ CORRECT' : '✗ INCORRECT'} (Score: ${score})`)
+    }
+  }
+} catch (error) {
+  console.error('Error loading or using the optimized program configuration:', error)
+}
