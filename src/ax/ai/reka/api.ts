@@ -119,7 +119,7 @@ class AxAIRekaImpl
     const reqValue: AxAIRekaChatRequest = {
       model,
       messages,
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
+      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_k: req.modelConfig?.n ?? this.config.n,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,

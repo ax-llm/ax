@@ -32,7 +32,6 @@ export const axAIOpenAIResponsesDefaultConfig = (): AxAIOpenAIResponsesConfig<
   model: AxAIOpenAIModel.GPT4O,
   embedModel: AxAIOpenAIEmbedModel.TextEmbeddingAda002,
   temperature: 0.7,
-  maxTokens: 2048,
   topP: 1,
   stream: true,
   //   reasoningEffort: 'medium',
