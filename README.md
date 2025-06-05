@@ -751,7 +751,7 @@ console.log('Demos saved to bootstrap-demos.json');
 MiPRO v2 is an advanced prompt optimization framework that uses Bayesian
 optimization to automatically find the best instructions, demonstrations, and
 examples for your LLM programs. By systematically exploring different prompt
-configurations, MiPRO v2 helps maximize model performance without manual tuning.
+configurations, MiPRO v2 helps maximize model performance without manual tuning. 
 
 ### Key Features
 
@@ -764,6 +764,14 @@ configurations, MiPRO v2 helps maximize model performance without manual tuning.
   compute
 - **Program and data-aware**: Considers program structure and dataset
   characteristics
+
+### How It Works
+
+1. Generates various instruction candidates
+2. Bootstraps few-shot examples from your data
+3. Selects labeled examples directly from your dataset
+4. Uses Bayesian optimization to find the optimal combination
+5. Applies the best configuration to your program
 
 ### Basic Usage
 
@@ -873,19 +881,6 @@ const programConfig = JSON.stringify(optimizedProgram, null, 2);
 await fs.promises.writeFile("./optimized-config.json", programConfig);
 console.log('> Done. Optimized program config saved to optimized-config.json');
 ```
-
-### How It Works
-
-MiPRO v2 works through these steps:
-
-1. Generates various instruction candidates
-2. Bootstraps few-shot examples from your data
-3. Selects labeled examples directly from your dataset
-4. Uses Bayesian optimization to find the optimal combination
-5. Applies the best configuration to your program
-
-By exploring the space of possible prompt configurations and systematically
-measuring performance, MiPRO v2 delivers optimized prompts that maximize your model's effectiveness.
 
 ## Using the Tuned Prompts
 
