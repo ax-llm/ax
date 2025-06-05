@@ -1,9 +1,8 @@
-# Ax - The Best Way To Build With LLMs (DSPy + Typescript)
+# Ax - DSPy for Typescript
 
-Use Ax and get an end-to-end streaming, multi-modal DSPy framework with agents
-and typed signatures. Works with all LLMs. Ax is always streaming and handles
-parsing, validating, error-correcting and function calling all while streaming.
-Ax is easy, fast and lowers your token usage.
+Working with LLMs is complex they don't always do what you want. DSPy makes it easier to build amazing things with LLMs. Just define your inputs and outputs (signature) and an efficient prompt is auto-generated and used. Connect together various signatures to build complex systems and workflows using LLMs
+
+And to help you really use this in production we have everything else you need like observability, streaming, support for other modalities (images,audio, etc), error-correction, multi-step function calling, MCP, RAG, etc
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
