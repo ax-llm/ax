@@ -168,7 +168,7 @@ export class AxPromptTemplate {
           messageContent = userMsgParts
             .map((part) => (part.type === 'text' ? part.text : '')) // Simplify: combine text parts
             .join('') // Join without adding extra newlines
-            .trim()   // Trim trailing newline from the last part
+            .trim() // Trim trailing newline from the last part
         } else if (message.role === 'assistant') {
           // For assistant messages, format their 'values' (AxGenOut)
           const assistantValues = message.values as AxGenOut
@@ -178,7 +178,11 @@ export class AxPromptTemplate {
           for (const field of outputFields) {
             const value = assistantValues[field.name]
 
-            if (value !== undefined && value !== null && (typeof value === 'string' ? value !== '' : true)) {
+            if (
+              value !== undefined &&
+              value !== null &&
+              (typeof value === 'string' ? value !== '' : true)
+            ) {
               const renderedValue = processValue(field, value)
               assistantContentParts.push(`${field.name}: ${renderedValue}`) // Use field.name instead of field.title
             } else {
@@ -224,7 +228,9 @@ export class AxPromptTemplate {
 
       let userContent: string
       if (promptFilter.every((v) => v.type === 'text')) {
-        userContent = promptFilter.map((v) => (v as { type: 'text'; text: string }).text).join('\n')
+        userContent = promptFilter
+          .map((v) => (v as { type: 'text'; text: string }).text)
+          .join('\n')
       } else {
         userContent = promptFilter
           .map((part) => {
@@ -421,7 +427,7 @@ export class AxPromptTemplate {
         if (!('data' in value)) {
           throw new Error('Image field must have data')
         }
-        return value as { mimeType: string; data: string };
+        return value as { mimeType: string; data: string }
       }
 
       let result: ChatRequestUserMessage = [
@@ -433,17 +439,18 @@ export class AxPromptTemplate {
           throw new Error('Image field value must be an array.')
         }
         result = result.concat(
-          (value as unknown[]).map((v) => { // Cast to unknown[] before map
-            const validated = validateImage(v as AxFieldValue);
+          (value as unknown[]).map((v) => {
+            // Cast to unknown[] before map
+            const validated = validateImage(v as AxFieldValue)
             return {
               type: 'image',
               mimeType: validated.mimeType,
               image: validated.data,
-            };
+            }
           })
         )
       } else {
-        const validated = validateImage(value);
+        const validated = validateImage(value)
         result.push({
           type: 'image',
           mimeType: validated.mimeType,
@@ -467,7 +474,7 @@ export class AxPromptTemplate {
         if (!('data' in value)) {
           throw new Error('Audio field must have data')
         }
-        return value as { format?: 'wav'; data: string };
+        return value as { format?: 'wav'; data: string }
       }
 
       let result: ChatRequestUserMessage = [
@@ -479,17 +486,18 @@ export class AxPromptTemplate {
           throw new Error('Audio field value must be an array.')
         }
         result = result.concat(
-          (value as unknown[]).map((v) => { // Cast to unknown[] before map
-            const validated = validateAudio(v as AxFieldValue);
+          (value as unknown[]).map((v) => {
+            // Cast to unknown[] before map
+            const validated = validateAudio(v as AxFieldValue)
             return {
               type: 'audio',
               format: validated.format ?? 'wav',
               data: validated.data,
-            };
+            }
           })
         )
       } else {
-        const validated = validateAudio(value);
+        const validated = validateAudio(value)
         result.push({
           type: 'audio',
           format: validated.format ?? 'wav',
@@ -603,10 +611,7 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
 }
 
 function combineConsecutiveStrings(separator: string) {
-  return (
-    acc: ChatRequestUserMessage,
-    current: ChatRequestUserMessage[0]
-  ) => {
+  return (acc: ChatRequestUserMessage, current: ChatRequestUserMessage[0]) => {
     if (current.type === 'text') {
       const previous = acc.length > 0 ? acc[acc.length - 1] : null
       if (previous && previous.type === 'text') {
@@ -633,7 +638,7 @@ const isEmptyValue = (
     !value ||
     ((Array.isArray(value) || typeof value === 'string') && value.length === 0)
   ) {
-    if (field.isOptional) {
+    if (field.isOptional || field.isInternal) {
       return true
     }
     throw new Error(`Value for input field '${field.name}' is required.`)

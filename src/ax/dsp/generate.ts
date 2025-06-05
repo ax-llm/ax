@@ -139,7 +139,7 @@ export class AxGen<
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
     const promptTemplateOptions = {
       functions: options?.functions,
-      thoughtFieldName: this.thoughtFieldName
+      thoughtFieldName: this.thoughtFieldName,
     }
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
@@ -604,19 +604,20 @@ export class AxGen<
     let err: ValidationError | AxAssertionError | undefined
 
     if (options?.functions && options.functions.length > 0) {
-      const PromptTemplateClass = this.options?.promptTemplate ?? AxPromptTemplate
+      const promptTemplateClass =
+        this.options?.promptTemplate ?? AxPromptTemplate
       const currentPromptTemplateOptions = {
         functions: options.functions,
-        thoughtFieldName: this.thoughtFieldName
+        thoughtFieldName: this.thoughtFieldName,
       }
-      this.promptTemplate = new PromptTemplateClass(
+      this.promptTemplate = new promptTemplateClass(
         this.signature,
         currentPromptTemplateOptions
       )
     }
 
     // New logic:
-    let prompt;
+    let prompt
     if (Array.isArray(values)) {
       // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
       // For now, assume render will handle the array directly.
@@ -625,13 +626,14 @@ export class AxGen<
       prompt = this.promptTemplate.render(values, {
         examples: this.examples,
         demos: this.demos,
-      });
+      })
     } else {
       // Ensure `values` here is correctly inferred as AxGenInType
-      prompt = this.promptTemplate.render(values as AxGenInType, { // Cast if necessary
+      prompt = this.promptTemplate.render(values as AxGenInType, {
+        // Cast if necessary
         examples: this.examples,
         demos: this.demos,
-      });
+      })
     }
 
     mem.add(prompt, options?.sessionId)

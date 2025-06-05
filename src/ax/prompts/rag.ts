@@ -45,7 +45,7 @@ export class AxRAG extends AxChainOfThought<
     ai: Readonly<AxAIService>,
     { question }: Readonly<{ question: string }>,
     options?: Readonly<AxProgramForwardOptions>
-  ): Promise<{ answer: string; reason: string }> {
+  ): Promise<{ answer: string }> {
     let context: string[] = []
 
     for (let i = 0; i < this.maxHops; i++) {

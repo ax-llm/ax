@@ -232,7 +232,13 @@ export type AxRateLimiterFunction = <T = unknown>(
 
 export type AxAIPromptConfig = {
   stream?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest'
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none'
 }
 
 export type AxAIServiceOptions = {

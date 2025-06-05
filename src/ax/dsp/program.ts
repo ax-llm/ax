@@ -47,7 +47,13 @@ export type AxProgramForwardOptions = {
   fastFail?: boolean
   debug?: boolean
   debugHideSystemPrompt?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest' | 'disable'
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none'
   traceLabel?: string
 }
 
@@ -91,9 +97,11 @@ export interface AxProgramWithSignatureOptions {
 }
 
 export class AxProgramWithSignature<
-  IN extends AxGenIn | ReadonlyArray<AxMessage>,
-  OUT extends AxGenOut,
-> implements AxTunable, AxUsable {
+    IN extends AxGenIn | ReadonlyArray<AxMessage>,
+    OUT extends AxGenOut,
+  >
+  implements AxTunable, AxUsable
+{
   protected signature: AxSignature
   protected sigHash: string
 
