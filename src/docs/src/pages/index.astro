@@ -1,61 +1,18 @@
 ---
 // src/pages/index.astro
-import { getCollection } from 'astro:content'
+import fs from 'fs'
+import path from 'path'
+import { marked } from 'marked'
 import Navigation from '../components/Navigation.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 
-function getOrderFromPath(path: string): number[] {
-  // Split path into segments
-  const segments = path.split('/')
+// Read README.md from the root of the project
+const readmePath = path.join(process.cwd(), '..', '..', 'README.md')
+const readmeContent = fs.readFileSync(readmePath, 'utf-8')
 
-  // Map each segment to its order number
-  return segments.map((segment) => {
-    // Extract number from start of segment (e.g., "01-introduction" => 1)
-    const match = segment.match(/^(\d+)-/)
-    // If there's no match or no capture group, return a high number
-    if (!match || !match[1]) {
-      return Number.MAX_SAFE_INTEGER
-    }
-    return parseInt(match[1], 10)
-  })
-}
-
-function compareOrderedPaths(a: string, b: string): number {
-  const aOrders = getOrderFromPath(a)
-  const bOrders = getOrderFromPath(b)
-
-  // Compare each segment's order number
-  const minLength = Math.min(aOrders.length, bOrders.length)
-
-  for (let i = 0; i < minLength; i++) {
-    const aOrder = aOrders[i] ?? Number.MAX_SAFE_INTEGER
-    const bOrder = bOrders[i] ?? Number.MAX_SAFE_INTEGER
-
-    if (aOrder !== bOrder) {
-      return aOrder - bOrder
-    }
-  }
-
-  // If all segments match, shorter paths come first
-  return aOrders.length - bOrders.length
-}
-
-// Get all markdown files from content/docs
-const allDocs = await getCollection('docs')
-
-// Sort by the number prefix in filename
-const sortedDocs = allDocs.sort((a, b) => compareOrderedPaths(a.slug, b.slug))
-
-// Render all markdown content
-const renderedDocs = await Promise.all(
-  sortedDocs
-    .filter((doc) => !doc.filePath?.includes('apidocs'))
-    .map(async (doc) => {
-      const { Content } = await doc.render()
-      return { ...doc, Content }
-    })
-)
+// Parse markdown to HTML
+const htmlContent = marked(readmeContent)
 ---
 
 <!doctype html>
@@ -64,41 +21,325 @@ const renderedDocs = await Promise.all(
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ax Documentation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family:
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        background: #ffffff;
+        color: #1a1a1a;
+        line-height: 1.6;
+        font-size: 16px;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      @media (max-width: 768px) {
+        .container {
+          padding: 0 16px;
+        }
+      }
+
+      /* Hide the first H1 from markdown content */
+      .prose h1:first-of-type,
+      main.prose > h1:first-child,
+      main.prose h1:first-of-type {
+        display: none !important;
+      }
+
+      /* Typography inspired by Humming design */
+      .prose h1 {
+        font-size: 48px;
+        font-weight: 700;
+        line-height: 1.1;
+        color: #000000;
+        margin: 80px 0 24px 0;
+        letter-spacing: -0.02em;
+      }
+
+      .prose h2 {
+        font-size: 32px;
+        font-weight: 600;
+        line-height: 1.2;
+        color: #000000;
+        margin: 64px 0 16px 0;
+        letter-spacing: -0.01em;
+      }
+
+      .prose h3 {
+        font-size: 24px;
+        font-weight: 600;
+        line-height: 1.3;
+        color: #000000;
+        margin: 48px 0 12px 0;
+      }
+
+      .prose h4,
+      .prose h5,
+      .prose h6 {
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 1.4;
+        color: #000000;
+        margin: 32px 0 8px 0;
+      }
+
+      .prose p {
+        font-size: 16px;
+        line-height: 1.7;
+        color: #4a4a4a;
+        margin: 16px 0;
+        max-width: 720px;
+      }
+
+      .prose ul,
+      .prose ol {
+        margin: 24px 0;
+        padding-left: 24px;
+        max-width: 720px;
+      }
+
+      .prose li {
+        margin: 8px 0;
+        color: #4a4a4a;
+        line-height: 1.6;
+      }
+
+      .prose li > ul,
+      .prose li > ol {
+        margin: 8px 0;
+      }
+
+      /* Links */
+      .prose a {
+        color: #0066cc;
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: all 0.2s ease;
+      }
+
+      .prose a:hover {
+        border-bottom-color: #0066cc;
+      }
+
+      /* Code styles */
+      .prose code {
+        font-family:
+          'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
+          'Courier New', monospace;
+        background: #f8f9fa;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 14px;
+        color: #e83e8c;
+        border: 1px solid #e9ecef;
+      }
+
+      .prose pre {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        padding: 24px;
+        margin: 32px 0;
+        overflow-x: auto;
+        font-family:
+          'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
+          'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .prose pre code {
+        background: none;
+        border: none;
+        padding: 0;
+        color: #24292f;
+        font-size: inherit;
+      }
+
+      /* Tables */
+      .prose table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 32px 0;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .prose th {
+        background: #f8f9fa;
+        padding: 16px;
+        text-align: left;
+        font-weight: 600;
+        color: #1a1a1a;
+        border-bottom: 1px solid #e9ecef;
+        font-size: 14px;
+      }
+
+      .prose td {
+        padding: 16px;
+        border-bottom: 1px solid #f1f3f4;
+        color: #4a4a4a;
+        font-size: 14px;
+        vertical-align: top;
+      }
+
+      .prose tr:last-child td {
+        border-bottom: none;
+      }
+
+      /* Images */
+      .prose img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 8px;
+        margin: 32px 0;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+
+      /* Badges */
+      .prose img[src*='shields.io'],
+      .prose img[src*='badge'],
+      .prose img[src*='dcbadge'] {
+        display: inline;
+        margin: 0 4px;
+        vertical-align: middle;
+        box-shadow: none;
+        border-radius: 4px;
+      }
+
+      /* Blockquotes */
+      .prose blockquote {
+        border-left: 4px solid #e9ecef;
+        margin: 32px 0;
+        padding: 16px 24px;
+        background: #f8f9fa;
+        border-radius: 0 8px 8px 0;
+        font-style: italic;
+        color: #6c757d;
+      }
+
+      /* Horizontal rules */
+      .prose hr {
+        border: none;
+        border-top: 1px solid #e9ecef;
+        margin: 64px 0;
+      }
+
+      /* Mobile responsive */
+      @media (max-width: 768px) {
+        .prose h1 {
+          font-size: 36px;
+          margin: 48px 0 16px 0;
+        }
+
+        .prose h2 {
+          font-size: 28px;
+          margin: 40px 0 12px 0;
+        }
+
+        .prose h3 {
+          font-size: 22px;
+          margin: 32px 0 8px 0;
+        }
+
+        .prose p,
+        .prose ul,
+        .prose ol {
+          font-size: 15px;
+        }
+
+        .prose pre {
+          padding: 16px;
+          margin: 24px 0;
+          border-radius: 6px;
+        }
+
+        .prose table {
+          font-size: 13px;
+        }
+
+        .prose th,
+        .prose td {
+          padding: 12px 8px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .prose table,
+        .prose thead,
+        .prose tbody,
+        .prose th,
+        .prose td,
+        .prose tr {
+          display: block;
+        }
+
+        .prose thead tr {
+          position: absolute;
+          top: -9999px;
+          left: -9999px;
+        }
+
+        .prose tr {
+          border: 1px solid #e9ecef;
+          margin-bottom: 16px;
+          padding: 16px;
+          border-radius: 8px;
+          background: #f8f9fa;
+        }
+
+        .prose td {
+          border: none;
+          position: relative;
+          padding-left: 40%;
+          padding-top: 8px;
+          padding-bottom: 8px;
+        }
+
+        .prose td:before {
+          content: attr(data-label) ': ';
+          position: absolute;
+          left: 6px;
+          width: 35%;
+          font-weight: 600;
+          color: #1a1a1a;
+        }
+      }
+    </style>
   </head>
 
-  <body class="bg-warmGray-100 font-mono min-h-screen">
+  <body>
     <Navigation />
-    <div class="max-w-6xl mx-auto p-2">
+    <div class="container">
       <Header />
-      <!-- Main Content - Rendered Markdown Sections -->
-      <main class="mt-12 space-y-24">
-        {
-          renderedDocs.map(({ Content, slug, data }) => (
-            <section
-              id={slug}
-              class="bg-warmGray-50 rounded-lg p-4 md:p-8 shadow-lg border border-gray-200"
-            >
-              <div class="mb-6">
-                <h2 class="text-xl text-gray-700 font-bold flex items-center">
-                  <span class="text-blue-400 mr-2">></span>
-                  {data.title}
-                </h2>
-                {data.description && (
-                  <p class="text-gray-600 mt-2">{data.description}</p>
-                )}
-              </div>
 
-              <div class="prose !max-w-none prose-inline-code:p-1 prose-inline-code:bg-indigo-50 prose-inline-code:before:content-none prose-inline-code:after:content-none prose-gray prose-pre:bg-gray-800 prose-pre:text-gray-100">
-                <Content />
-              </div>
-            </section>
-          ))
-        }
+      <!-- Main Content from README.md -->
+      <main class="prose">
+        <Fragment set:html={htmlContent} />
       </main>
+
       <Footer />
     </div>
   </body>
