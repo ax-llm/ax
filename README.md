@@ -269,6 +269,50 @@ const res = await gen.forward(ai, {
 })
 ```
 
+## Conversational Memory Weaving
+
+Inspired by DSPy's demonstration weaving, Ax provides `AxMessage` for seamless conversation history management. This allows you to build chatbots and conversational agents that maintain context across multiple turns while leveraging the full power of prompt signatures.
+
+```typescript
+import { AxAI, AxGen } from '@ax-llm/ax'
+
+// Define conversation message types
+type UserMessage = { role: 'user'; values: { message: string } }
+type AssistantMessage = { role: 'assistant'; values: { reply: string } }
+type ChatMessage = UserMessage | AssistantMessage
+
+// Create a chatbot that accepts either a single message or conversation history
+const chatBot = new AxGen<
+  { message: string } | ReadonlyArray<ChatMessage>,
+  { reply: string }
+>(
+  `message:string "A casual message from the user" -> reply:string "A friendly, casual response"`
+)
+
+// Start a conversation
+const chat: ChatMessage[] = [
+  {
+    role: 'user',
+    values: { message: 'Hi! How are you doing today?' },
+  },
+]
+
+// Get response and maintain conversation history
+let response = await chatBot.forward(ai, chat)
+chat.push({ role: 'assistant', values: response })
+
+// Continue the conversation with full context
+chat.push({
+  role: 'user',
+  values: { message: "What's your favorite thing about helping people?" },
+})
+
+response = await chatBot.forward(ai, chat)
+console.log(response.reply) // Response considers full conversation context
+```
+
+The conversation history is automatically woven into the prompt, allowing the model to maintain context and provide coherent responses. This works seamlessly with all Ax features including streaming, function calling, and chain-of-thought reasoning.
+
 ## Streaming
 
 ### Assertions
