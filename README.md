@@ -268,19 +268,15 @@ const res = await gen.forward(ai, {
 })
 ```
 
-## Conversational Memory Weaving
+## DSPy Chat API
 
-Inspired by DSPy's demonstration weaving, Ax provides `AxMessage` for seamless conversation history management. This allows you to build chatbots and conversational agents that maintain context across multiple turns while leveraging the full power of prompt signatures.
+Inspired by DSPy's demonstration weaving, Ax provides `AxMessage` for seamless conversation history management. This allows you to build chatbots and conversational agents that maintain context across multiple turns while leveraging the full power of prompt signatures. See the example for more details.
+
+```shell
+GOOGLE_APIKEY=api-key npm run tsx ./src/examples/chat.ts
+```
 
 ```typescript
-import { AxAI, AxGen } from '@ax-llm/ax'
-
-// Define conversation message types
-type UserMessage = { role: 'user'; values: { message: string } }
-type AssistantMessage = { role: 'assistant'; values: { reply: string } }
-type ChatMessage = UserMessage | AssistantMessage
-
-// Create a chatbot that accepts either a single message or conversation history
 const chatBot = new AxGen<
   { message: string } | ReadonlyArray<ChatMessage>,
   { reply: string }
@@ -288,26 +284,20 @@ const chatBot = new AxGen<
   `message:string "A casual message from the user" -> reply:string "A friendly, casual response"`
 )
 
-// Start a conversation
-const chat: ChatMessage[] = [
+await chatBot.forward(ai, [
   {
     role: 'user',
     values: { message: 'Hi! How are you doing today?' },
   },
-]
-
-// Get response and maintain conversation history
-let response = await chatBot.forward(ai, chat)
-chat.push({ role: 'assistant', values: response })
-
-// Continue the conversation with full context
-chat.push({
-  role: 'user',
-  values: { message: "What's your favorite thing about helping people?" },
-})
-
-response = await chatBot.forward(ai, chat)
-console.log(response.reply) // Response considers full conversation context
+  {
+    role: 'assistant',
+    values: { reply: 'I am doing great! How about you?' },
+  },
+  {
+    role: 'user',
+    values: { message: 'Thats great!' },
+  },
+])
 ```
 
 The conversation history is automatically woven into the prompt, allowing the model to maintain context and provide coherent responses. This works seamlessly with all Ax features including streaming, function calling, and chain-of-thought reasoning.
@@ -972,7 +962,7 @@ code. It also supports using an `.env` file to pass the AI API Keys instead of
 putting them in the command line.
 
 ```shell
-OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
+OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 ```
 
 | Example                 | Description                                             |
