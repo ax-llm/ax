@@ -1,5 +1,18 @@
 # Changelog
 
+## [11.0.52](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
+## [11.0.51](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
+
+### Features
+
+* Add conversational memory weaving example to README ([b0ca31d](https://github.com/ax-llm/ax/commit/b0ca31dcbee044ed2d705890e7ce95959e3a284e))
+* Add Model Context Protocol (MCP) integration to README ([484f2e8](https://github.com/ax-llm/ax/commit/484f2e8a127ed417a697a49e11a614c96e480914))
+* Add Pull Request CI workflow ([38be189](https://github.com/ax-llm/ax/commit/38be189c492cfb1329154f6e604ae1dddd9a01c1))
+* Allow custom field name for thought in AxGen ([#227](https://github.com/ax-llm/ax/issues/227)) ([924bf1b](https://github.com/ax-llm/ax/commit/924bf1b7e17d51443d2ceac62a9e3ecfabc7cf9b))
+* Allow disabling thought token budget with override ([#229](https://github.com/ax-llm/ax/issues/229)) ([89e00e4](https://github.com/ax-llm/ax/commit/89e00e45356f9c0ac784f9398b580030a0b1fb9b))
+* Enable chat history and multi-turn inputs for AxGen and AxPromp… ([#230](https://github.com/ax-llm/ax/issues/230)) ([2bdd6ec](https://github.com/ax-llm/ax/commit/2bdd6ec1db03aee4fe0a425b4008b7b520065de3))
+* Update thinkingTokenBudget options and clean up tests ([1b0351a](https://github.com/ax-llm/ax/commit/1b0351a34d632d10d73cebf3dd241839906c5049))
+
 ## [11.0.51](https://github.com/ax-llm/ax/compare/11.0.49...11.0.50) (2025-06-05)
 
 ### Features
