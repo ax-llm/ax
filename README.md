@@ -744,33 +744,6 @@ console.log('Demos saved to bootstrap-demos.json');
 ```
 
 <img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">
-
-And to use the generated demos with the above `ChainOfThought` program
-
-```typescript
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-})
-
-// Setup the program to use the tuned data
-const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-  ai,
-  `question -> answer "in short 2 or 3 words"`
-)
-
-// Load tuning data from the saved file
-// import fs from 'fs'; // Ensure fs is imported
-const loadedDemosText = fs.readFileSync('bootstrap-demos.json', 'utf8');
-const loadedDemos = JSON.parse(loadedDemosText);
-program.setDemos(loadedDemos);
-console.log('Demos loaded into program.');
-
-const res = await program.forward({
-  question: 'What castle did David Gregory inherit?',
-})
-
-console.log(res)
 ```
 
 ## Tuning the prompts (Advanced, Mipro v2)
@@ -899,47 +872,6 @@ const optimizedProgram = await optimizer.compile(metricFn, {
 const programConfig = JSON.stringify(optimizedProgram, null, 2);
 await fs.promises.writeFile("./optimized-config.json", programConfig);
 console.log('> Done. Optimized program config saved to optimized-config.json');
-
-// --- Loading and Using the Optimized Program Configuration ---
-// import fs from 'node:fs'; // Or 'fs' depending on your setup
-// import { AxChainOfThought } from '@ax-llm/ax'; // Assuming AxChainOfThought was used
-
-// Later, in a different session or file:
-/*
-const loadedProgramConfigText = fs.readFileSync('./optimized-config.json', 'utf8');
-const loadedConfig = JSON.parse(loadedProgramConfigText);
-
-// Re-instantiate your program (ensure the signature matches the one optimized)
-// For AxChainOfThought, the signature string itself is key.
-// If MiPRO optimized the instruction within the signature, loadedConfig.signature.toString() might be ideal.
-// Otherwise, use the original signature string you started with.
-const newProgram = new AxChainOfThought(loadedConfig.signature ? loadedConfig.signature.toString() : 'original -> signature');
-
-// Apply loaded demos
-if (loadedConfig.demos && Array.isArray(loadedConfig.demos)) {
-  newProgram.setDemos(loadedConfig.demos);
-  console.log('Demos loaded from optimized config.');
-}
-
-// Apply loaded instruction (if MiPRO modified it and it's stored in signature.instruction)
-// AxProgramWithSignature's setInstruction method updates `this.signature.instruction`.
-// If this field was serialized, it represents the specific instruction string MiPRO found effective.
-if (loadedConfig.signature && loadedConfig.signature.instruction) {
-    newProgram.setInstruction(loadedConfig.signature.instruction);
-    console.log('Instruction applied from loadedConfig.signature.instruction.');
-} else {
-    // If the primary instruction is embedded within the signature string itself
-    // and that whole string was part of loadedConfig.signature,
-    // then re-instantiating with loadedConfig.signature.toString() (as shown above)
-    // might be sufficient.
-    console.log('Custom instruction from optimization not found or already applied via signature string.');
-}
-
-// Now newProgram is ready to be used with the AI service
-// const ai = new AxAI({ ... }); // Your AI setup
-// const result = await newProgram.forward(ai, { input: "some new input" });
-// console.log(result);
-*/
 ```
 
 ### How It Works
@@ -953,8 +885,82 @@ MiPRO v2 works through these steps:
 5. Applies the best configuration to your program
 
 By exploring the space of possible prompt configurations and systematically
-measuring performance, MiPRO v2 delivers optimized prompts that maximize your
-model's effectiveness.
+measuring performance, MiPRO v2 delivers optimized prompts that maximize your model's effectiveness.
+
+## Using the Tuned Prompts
+
+Both the basic Bootstrap Few Shot optimizer and the advanced MiPRO v2 optimizer generate **demos** (demonstrations) that significantly improve your program's performance. These demos are examples that show the LLM how to properly handle similar tasks.
+
+### What are Demos?
+
+Demos are input-output examples that get automatically included in your prompts to guide the LLM. They act as few-shot learning examples, showing the model the expected behavior for your specific task.
+
+### Loading and Using Demos
+
+Whether you used Bootstrap Few Shot or MiPRO v2, the process of using the generated demos is the same:
+
+```typescript
+import fs from 'fs'
+import { AxAI, AxGen, AxChainOfThought } from '@ax-llm/ax'
+
+// 1. Setup your AI service
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY,
+})
+
+// 2. Create your program (same signature as used during tuning)
+const program = new AxChainOfThought(`question -> answer "in short 2 or 3 words"`)
+
+// 3. Load the demos from the saved file
+const demos = JSON.parse(fs.readFileSync('bootstrap-demos.json', 'utf8'))
+
+// 4. Apply the demos to your program
+program.setDemos(demos)
+
+// 5. Use your enhanced program
+const result = await program.forward(ai, {
+  question: 'What castle did David Gregory inherit?'
+})
+
+console.log(result) // Now performs better with the learned examples
+```
+
+### Simple Example: Text Classification
+
+Here's a complete example showing how demos improve a classification task:
+
+```typescript
+// Create a classification program
+const classifier = new AxGen(`text -> category:class "positive, negative, neutral"`)
+
+// Load demos generated from either Bootstrap or MiPRO tuning
+const savedDemos = JSON.parse(fs.readFileSync('classification-demos.json', 'utf8'))
+classifier.setDemos(savedDemos)
+
+// Now the classifier has learned from examples and performs better
+const result = await classifier.forward(ai, {
+  text: "This product exceeded my expectations!"
+})
+
+console.log(result.category) // More accurate classification
+```
+
+### Key Benefits of Using Demos
+
+- **Improved Accuracy**: Programs perform significantly better with relevant examples
+- **Consistent Output**: Demos help maintain consistent response formats
+- **Reduced Hallucination**: Examples guide the model toward expected behaviors
+- **Cost Effective**: Better results without needing larger/more expensive models
+
+### Best Practices
+
+1. **Save Your Demos**: Always save generated demos to files for reuse
+2. **Match Signatures**: Use the exact same signature when loading demos
+3. **Version Control**: Keep demo files in version control for reproducibility
+4. **Regular Updates**: Re-tune periodically with new data to improve demos
+
+Both Bootstrap Few Shot and MiPRO v2 generate demos in the same format, so you can use this same loading pattern regardless of which optimizer you used for tuning.
 
 ## Built-in Functions
 
