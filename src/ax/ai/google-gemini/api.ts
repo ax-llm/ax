@@ -392,7 +392,7 @@ class AxAIGoogleGeminiImpl
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
 
-      ...(thinkingConfig ? { thinkingConfig } : {}),
+      ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     }
 
     const safetySettings = this.config.safetySettings
