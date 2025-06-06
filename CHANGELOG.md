@@ -1,5 +1,13 @@
 # Changelog
 
+## [11.0.53](https://github.com/ax-llm/ax/compare/11.0.51...11.0.52) (2025-06-06)
+
+### Features
+
+* Implement abortable AI requests with AxAbortableAI utility ([b8f5201](https://github.com/ax-llm/ax/commit/b8f5201c5d75d19549e79805a378936118ebf8f2))
+* Introduce optional output fields in examples and enhance prompt template validation ([71ac8f1](https://github.com/ax-llm/ax/commit/71ac8f1d1b30bfa9950503f52e91f7851096f6a8))
+## [11.0.52](https://github.com/ax-llm/ax/compare/11.0.51...11.0.52) (2025-06-05)
+
 ## [11.0.52](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
 ## [11.0.51](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
 
