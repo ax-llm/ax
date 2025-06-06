@@ -276,6 +276,7 @@ export class AxGen<
         debug: false,
         thinkingTokenBudget,
         traceContext,
+        abortSignal: options?.abortSignal,
       }
     )
 

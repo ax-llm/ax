@@ -57,6 +57,7 @@ export interface AxAPIConfig
   span?: Span
   timeout?: number
   retry?: Partial<RetryConfig>
+  abortSignal?: AbortSignal
 }
 
 // Default Configurations
@@ -199,10 +200,31 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
     requestBody?: unknown,
     context?: Record<string, unknown>
   ) {
-    super(`Request timeout after ${timeoutMs}ms`, url, requestBody, undefined, {
-      timeoutMs,
-      ...context,
-    })
+    super(
+      `Request timed out after ${timeoutMs}ms`,
+      url,
+      requestBody,
+      undefined,
+      { timeoutMs, ...context }
+    )
+    this.name = this.constructor.name
+  }
+}
+
+export class AxAIServiceAbortedError extends AxAIServiceError {
+  constructor(
+    url: string,
+    reason?: string,
+    requestBody?: unknown,
+    context?: Record<string, unknown>
+  ) {
+    super(
+      `Request aborted${reason ? `: ${reason}` : ''}`,
+      url,
+      requestBody,
+      undefined,
+      { abortReason: reason, ...context }
+    )
     this.name = this.constructor.name
   }
 }
@@ -302,10 +324,41 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   let attempt = 0
 
   while (true) {
-    const controller = new AbortController()
+    // Combine user abort signal with timeout signal
+    const combinedAbortController = new AbortController()
+
+    // Handle user abort signal
+    if (api.abortSignal) {
+      if (api.abortSignal.aborted) {
+        throw new AxAIServiceAbortedError(
+          apiUrl.href,
+          api.abortSignal.reason,
+          json,
+          { metrics }
+        )
+      }
+
+      const userAbortHandler = () => {
+        combinedAbortController.abort(
+          api.abortSignal!.reason || 'User aborted request'
+        )
+      }
+      api.abortSignal.addEventListener('abort', userAbortHandler, {
+        once: true,
+      })
+
+      // Clean up listener if we complete before abort
+      const originalAbort = combinedAbortController.abort.bind(
+        combinedAbortController
+      )
+      combinedAbortController.abort = (reason?: string) => {
+        api.abortSignal!.removeEventListener('abort', userAbortHandler)
+        originalAbort(reason)
+      }
+    }
 
     timeoutId = setTimeout(() => {
-      controller.abort('Request timeout')
+      combinedAbortController.abort('Request timeout')
     }, timeoutMs)
 
     try {
@@ -320,7 +373,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           ...api.headers,
         },
         body: JSON.stringify(json),
-        signal: controller.signal,
+        signal: combinedAbortController.signal,
       })
 
       clearTimeout(timeoutId)
@@ -511,9 +564,19 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs, json, {
-          metrics,
-        })
+        // Check if this was a user abort or timeout
+        if (api.abortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            apiUrl.href,
+            api.abortSignal.reason,
+            json,
+            { metrics }
+          )
+        } else {
+          throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs, json, {
+            metrics,
+          })
+        }
       }
 
       if (api.span?.isRecording()) {

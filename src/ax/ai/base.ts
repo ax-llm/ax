@@ -77,6 +77,7 @@ export class AxBaseAI<
   private timeout?: AxAIServiceOptions['timeout']
   private excludeContentFromTrace?: boolean
   private models?: AxAIInputModelList<TModel, TEmbedModel>
+  private abortSignal?: AbortSignal
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxModelUsage
@@ -198,6 +199,7 @@ export class AxBaseAI<
     this.timeout = options.timeout
     this.tracer = options.tracer
     this.excludeContentFromTrace = options.excludeContentFromTrace
+    this.abortSignal = options.abortSignal
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -208,6 +210,7 @@ export class AxBaseAI<
       tracer: this.tracer,
       timeout: this.timeout,
       excludeContentFromTrace: this.excludeContentFromTrace,
+      abortSignal: this.abortSignal,
     }
   }
 
@@ -481,6 +484,7 @@ export class AxBaseAI<
           debug,
           fetch: this.fetch,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )
@@ -683,6 +687,7 @@ export class AxBaseAI<
           fetch: this.fetch,
           timeout: this.timeout,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )

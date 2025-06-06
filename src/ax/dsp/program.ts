@@ -55,6 +55,7 @@ export type AxProgramForwardOptions = {
     | 'highest'
     | 'none'
   traceLabel?: string
+  abortSignal?: AbortSignal
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

@@ -188,6 +188,7 @@ import {
   type AxAIRekaUsage
 } from './ai/reka/types.js';
 import {
+  AxAIServiceAbortedError,
   AxAIServiceAuthenticationError,
   AxAIServiceError,
   AxAIServiceNetworkError,
@@ -336,6 +337,7 @@ import {
   type AxProgramTrace,
   type AxProgramUsage,
   type AxProgramWithSignatureOptions,
+  type AxSetExamplesOptions,
   type AxTunable,
   type AxUsable
 } from './dsp/program.js';
@@ -490,6 +492,7 @@ import {
 import {AxAIDeepSeekModel} from './ai/deepseek/types.js';
 import {AxAIGroqModel} from './ai/groq/types.js';
 import {AxAIOpenAIResponsesImpl} from './ai/openai/responses_api.js';
+import {AxAbortableAI} from './ai/abortable.js';
 import {AxChainOfThought} from './prompts/cot.js';
 import {AxDefaultQueryRewriter} from './docs/rewriter.js';
 import {AxDefaultResultReranker} from './docs/reranker.js';
@@ -553,6 +556,7 @@ export { AxAIOpenAIResponsesBase };
 export { AxAIOpenAIResponsesImpl };
 export { AxAIReka };
 export { AxAIRekaModel };
+export { AxAIServiceAbortedError };
 export { AxAIServiceAuthenticationError };
 export { AxAIServiceError };
 export { AxAIServiceNetworkError };
@@ -561,6 +565,7 @@ export { AxAIServiceStatusError };
 export { AxAIServiceStreamTerminatedError };
 export { AxAIServiceTimeoutError };
 export { AxAITogether };
+export { AxAbortableAI };
 export { AxAgent };
 export { AxApacheTika };
 export { AxAssertionError };
@@ -912,6 +917,7 @@ export type { AxRerankerOut };
 export type { AxResponseHandlerArgs };
 export type { AxRewriteIn };
 export type { AxRewriteOut };
+export type { AxSetExamplesOptions };
 export type { AxSimpleClassifierForwardOptions };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
