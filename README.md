@@ -822,6 +822,7 @@ MiPRO v2 provides extensive configuration options:
 | `programAwareProposer`    | Use program structure for better proposals    | true    |
 | `dataAwareProposer`       | Consider dataset characteristics              | true    |
 | `verbose`                 | Show detailed optimization progress           | false   |
+| abort-patterns.ts | Example on how to abort requests |
 
 ### Optimization Levels
 

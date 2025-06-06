@@ -4,7 +4,7 @@ The Ax framework supports aborting ongoing LLM requests using the standard Web A
 
 ## Basic Usage
 
-### Using AbortSignal Directly
+### Using AbortSignal
 
 ```typescript
 import { AxAI } from '@ax-llm/ax'
@@ -43,102 +43,81 @@ try {
 }
 ```
 
-### Using AxAbortableAI Utility
+## Common Patterns
+
+### Timeout-Based Abortion
 
 ```typescript
-import { AxAI } from '@ax-llm/ax'
-import { AxAbortableAI } from '@ax-llm/ax/ai/abortable.js'
-
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!
 })
 
-const abortableAI = new AxAbortableAI(ai)
+const abortController = new AbortController()
 
-// Start a request
-const requestPromise = abortableAI.chat({
+// Create a timeout that automatically aborts
+const timeoutMs = 10000
+const timeoutId = setTimeout(() => {
+  console.log(`Aborting after ${timeoutMs}ms timeout...`)
+  abortController.abort(`Request timeout after ${timeoutMs}ms`)
+}, timeoutMs)
+
+const requestPromise = ai.chat({
   chatPrompt: [
-    { role: 'user', content: 'Explain quantum computing.' }
+    { role: 'user', content: 'Explain quantum computing in detail.' }
   ]
+}, {
+  abortSignal: abortController.signal
 })
 
-// Abort after 3 seconds
+try {
+  const response = await requestPromise
+  clearTimeout(timeoutId) // Clear timeout if request completes
+  console.log('Response:', response)
+} catch (error) {
+  clearTimeout(timeoutId) // Clean up timeout
+  if (error instanceof AxAIServiceAbortedError) {
+    console.log('Request was aborted:', error.message)
+  }
+}
+```
+
+### Multiple Requests with Shared AbortController
+
+```typescript
+const abortController = new AbortController()
+
+// Start multiple requests that share the same abort controller
+const requests = [
+  ai.chat({
+    chatPrompt: [{ role: 'user', content: 'What is machine learning?' }]
+  }, { abortSignal: abortController.signal }),
+  
+  ai.chat({
+    chatPrompt: [{ role: 'user', content: 'What is deep learning?' }]
+  }, { abortSignal: abortController.signal }),
+  
+  ai.embed({
+    texts: ['Machine learning', 'Deep learning']
+  }, { abortSignal: abortController.signal })
+]
+
+// Abort all requests after 5 seconds
 setTimeout(() => {
-  abortableAI.abort('Taking too long')
-}, 3000)
+  console.log('Aborting all requests...')
+  abortController.abort('Batch abort after timeout')
+}, 5000)
 
-try {
-  const response = await requestPromise
-} catch (error) {
-  console.log('Request aborted')
-}
-```
+// Handle all requests
+const results = await Promise.allSettled(requests)
 
-## Advanced Features
-
-### Auto-Abort with Timeout
-
-```typescript
-import { createAbortableAI } from '@ax-llm/ax/ai/abortable.js'
-
-const abortableAI = createAbortableAI(ai)
-
-const requestPromise = abortableAI.chat({
-  chatPrompt: [{ role: 'user', content: 'Write an essay.' }]
+results.forEach((result, index) => {
+  if (result.status === 'fulfilled') {
+    console.log(`✅ Request ${index + 1} completed`)
+  } else {
+    console.log(`❌ Request ${index + 1} failed:`, result.reason.message)
+  }
 })
-
-// Auto-abort after 10 seconds
-const timeoutId = abortableAI.abortAfter(10000, 'Auto-timeout')
-
-try {
-  const response = await requestPromise
-  clearTimeout(timeoutId) // Clear if completed successfully
-} catch (error) {
-  console.log('Request was auto-aborted')
-}
-```
-
-### Abort Event Listeners
-
-```typescript
-const abortableAI = new AxAbortableAI(ai)
-
-// Listen for abort events
-abortableAI.onAbort((reason) => {
-  console.log('Request aborted:', reason)
-  // Clean up resources, update UI, etc.
-})
-
-const requestPromise = abortableAI.chat({
-  chatPrompt: [{ role: 'user', content: 'Hello' }]
-})
-
-// Abort with custom reason
-abortableAI.abort('User cancelled')
-```
-
-### Resetting for Multiple Requests
-
-```typescript
-const abortableAI = new AxAbortableAI(ai)
-
-// First request
-try {
-  await abortableAI.chat({ chatPrompt: [{ role: 'user', content: 'Hello' }] })
-} catch (error) {
-  // Handle first request
-}
-
-// Reset for second request
-abortableAI.reset()
-
-// Second request with fresh abort controller
-try {
-  await abortableAI.chat({ chatPrompt: [{ role: 'user', content: 'Goodbye' }] })
-} catch (error) {
-  // Handle second request
-}
 ```
 
 ### Streaming Requests
@@ -146,19 +125,22 @@ try {
 Abort works with both regular and streaming requests:
 
 ```typescript
-const abortableAI = new AxAbortableAI(ai)
+const abortController = new AbortController()
 
 try {
-  const stream = await abortableAI.chat(
+  const stream = await ai.chat(
     {
       chatPrompt: [{ role: 'user', content: 'Stream a story.' }]
     },
-    { stream: true }
+    { 
+      stream: true,
+      abortSignal: abortController.signal
+    }
   )
 
   // Abort after 5 seconds
-  setTimeout(() => {
-    abortableAI.abort('Streaming timeout')
+  const timeoutId = setTimeout(() => {
+    abortController.abort('Streaming timeout')
   }, 5000)
 
   if (stream instanceof ReadableStream) {
@@ -171,15 +153,40 @@ try {
         
         console.log('Chunk:', value.results[0]?.content)
       }
+      clearTimeout(timeoutId) // Clear timeout if stream completes
     } catch (streamError) {
       console.log('Stream was aborted')
     } finally {
+      clearTimeout(timeoutId) // Always clean up timeout
       reader.releaseLock()
     }
   }
 } catch (error) {
   console.log('Request failed to start')
 }
+```
+
+### Custom Abort Event Handlers
+
+```typescript
+const abortController = new AbortController()
+
+// Listen for abort events
+abortController.signal.addEventListener('abort', () => {
+  console.log('Request aborted:', abortController.signal.reason)
+  // Clean up resources, update UI, etc.
+})
+
+const requestPromise = ai.chat({
+  chatPrompt: [{ role: 'user', content: 'Hello' }]
+}, {
+  abortSignal: abortController.signal
+})
+
+// Abort with custom reason
+setTimeout(() => {
+  abortController.abort('User cancelled')
+}, 3000)
 ```
 
 ## Error Handling
@@ -190,8 +197,10 @@ When a request is aborted, an `AxAIServiceAbortedError` is thrown:
 import { AxAIServiceAbortedError } from '@ax-llm/ax'
 
 try {
-  const response = await abortableAI.chat({
+  const response = await ai.chat({
     chatPrompt: [{ role: 'user', content: 'Hello' }]
+  }, {
+    abortSignal: abortController.signal
   })
 } catch (error) {
   if (error instanceof AxAIServiceAbortedError) {
@@ -273,29 +282,14 @@ const embedResponse = await ai.embed(
 ## Best Practices
 
 1. **Always handle abort errors**: Check for `AxAIServiceAbortedError` in your error handling
-2. **Clean up resources**: Use abort listeners to clean up any associated resources
-3. **Reset when reusing**: Call `reset()` on `AxAbortableAI` when making multiple requests
-4. **Clear timeouts**: Clear auto-abort timeouts if requests complete successfully
+2. **Clean up resources**: Use abort event listeners to clean up any associated resources
+3. **Clear timeouts**: Always clear auto-abort timeouts to prevent memory leaks
+4. **Use Promise.allSettled**: When handling multiple abortable requests
 5. **Graceful degradation**: Provide fallbacks when requests are aborted
+6. **Reuse AbortController**: For related requests that should be aborted together
+7. **Create new AbortController**: For each independent operation
 
-## API Reference
-
-### AxAbortableAI
-
-- `constructor(ai: AxAIService)` - Wrap an AI service with abort functionality
-- `abort(reason?: string)` - Abort the current request
-- `reset()` - Reset the abort controller for new requests
-- `abortAfter(ms: number, reason?: string)` - Auto-abort after timeout
-- `onAbort(callback: (reason?: string) => void)` - Listen for abort events
-- `signal: AbortSignal` - Access the current abort signal
-- `aborted: boolean` - Check if currently aborted
-
-### Utility Functions
-
-- `createAbortableAI(ai)` - Factory function to create an AxAbortableAI
-- `raceWithAbort(promise, signal)` - Race a promise against an abort signal
-
-### Error Types
+## Error Types
 
 - `AxAIServiceAbortedError` - Thrown when a request is aborted
 - Contains `url`, `requestBody`, `context.abortReason`, and other debugging info
@@ -357,5 +351,45 @@ const result = await classifier.forward(
     cutoff: 0.8,
     abortSignal: abortController.signal 
   }
+)
+```
+
+## Utility Patterns
+
+### Racing a Promise Against Abort
+
+```typescript
+async function raceWithAbort<T>(
+  requestPromise: Promise<T>,
+  abortSignal: AbortSignal
+): Promise<T> {
+  if (abortSignal.aborted) {
+    throw new Error(`Request aborted: ${abortSignal.reason || 'Unknown reason'}`)
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const abortHandler = () => {
+      reject(new Error(`Request aborted: ${abortSignal.reason || 'Unknown reason'}`))
+    }
+
+    abortSignal.addEventListener('abort', abortHandler, { once: true })
+
+    requestPromise
+      .then((result) => {
+        abortSignal.removeEventListener('abort', abortHandler)
+        resolve(result)
+      })
+      .catch((error) => {
+        abortSignal.removeEventListener('abort', abortHandler)
+        reject(error)
+      })
+  })
+}
+
+// Usage
+const abortController = new AbortController()
+const result = await raceWithAbort(
+  ai.chat({ chatPrompt: [{ role: 'user', content: 'Hello' }] }),
+  abortController.signal
 )
 ``` 
