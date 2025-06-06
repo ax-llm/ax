@@ -124,7 +124,7 @@ const researcher = new AxAgent({
 const summarizer = new AxAgent({
   name: 'summarizer',
   description: 'Summarizer agent',
-  signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
+  signature: `text "text to summarize" -> shortSummary "summarize in 5 to 10 words"`
 });
 
 const agent = new AxAgent({
