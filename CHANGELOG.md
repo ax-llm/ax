@@ -1,5 +1,21 @@
 # Changelog
 
+## [11.0.54](https://github.com/ax-llm/ax/compare/11.0.52...11.0.53) (2025-06-06)
+
+### Features
+
+* Enhance abortable request functionality and documentation ([0b0495e](https://github.com/ax-llm/ax/commit/0b0495eaaf6f8fd265bd47d81424cb3f75ee15d2))
+
+### Bug Fixes
+
+* support for Gemini Flash <= 2.0 ([#233](https://github.com/ax-llm/ax/issues/233)) ([6424329](https://github.com/ax-llm/ax/commit/64243297a3bbc24aee512a1e1445a8f28fec7b58))
+## [11.0.53](https://github.com/ax-llm/ax/compare/11.0.52...11.0.53) (2025-06-06)
+
+### Features
+
+* Implement abortable AI requests with AxAbortableAI utility ([b8f5201](https://github.com/ax-llm/ax/commit/b8f5201c5d75d19549e79805a378936118ebf8f2))
+* Introduce optional output fields in examples and enhance prompt template validation ([71ac8f1](https://github.com/ax-llm/ax/commit/71ac8f1d1b30bfa9950503f52e91f7851096f6a8))
+
 ## [11.0.53](https://github.com/ax-llm/ax/compare/11.0.51...11.0.52) (2025-06-06)
 
 ### Features
