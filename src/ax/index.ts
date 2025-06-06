@@ -341,7 +341,8 @@ import {
 } from './dsp/program.js';
 import {
   AxPromptTemplate,
-  type AxFieldTemplateFn
+  type AxFieldTemplateFn,
+  type AxPromptTemplateOptions
 } from './dsp/prompt.js';
 import {
   AxRateLimiterTokenUsage,
@@ -483,7 +484,8 @@ import {
 import {
   type AxFieldValue,
   type AxGenIn,
-  type AxGenOut
+  type AxGenOut,
+  type AxMessage
 } from './dsp/types.js';
 import {AxAIDeepSeekModel} from './ai/deepseek/types.js';
 import {AxAIGroqModel} from './ai/groq/types.js';
@@ -884,6 +886,7 @@ export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
 export type { AxMCPStreamableHTTPTransportOptions };
 export type { AxMCPTransport };
+export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
 export type { AxMiPROOptions };
@@ -901,6 +904,7 @@ export type { AxProgramStreamingForwardOptions };
 export type { AxProgramTrace };
 export type { AxProgramUsage };
 export type { AxProgramWithSignatureOptions };
+export type { AxPromptTemplateOptions };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRerankerIn };

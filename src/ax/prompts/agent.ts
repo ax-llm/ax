@@ -14,6 +14,7 @@ import type {
   AxProgramForwardOptions,
   AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
+  AxSetExamplesOptions,
   AxTunable,
   AxUsable,
 } from '../dsp/program.js'
@@ -216,8 +217,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
-    this.program.setExamples(examples)
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
+    this.program.setExamples(examples, options)
   }
 
   public setId(id: string) {

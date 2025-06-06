@@ -4,9 +4,12 @@ Working with LLMs is complex they don't always do what you want. DSPy makes it e
 
 And to help you really use this in production we have everything else you need like observability, streaming, support for other modalities (images,audio, etc), error-correction, multi-step function calling, MCP, RAG, etc
 
+
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
+
+<!-- header -->
 
 ## Why use Ax?
 
@@ -996,6 +999,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | tune-usage.ts           | Use the optimized tuned prompts                         |
 | telemetry.ts            | Trace and push traces to a Jaeger service               |
 | openai-responses.ts     | Example using the new OpenAI Responses API              |
+| use-examples.ts | Example of using 'examples' to direct the llm |
 
 ## Our Goal
 

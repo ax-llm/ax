@@ -1,9 +1,9 @@
 ---
 const sections = [
-  {
-    name: 'guides',
-    slug: '/#guides',
-  },
+  //   {
+  //     name: 'guides',
+  //     slug: '/guides',
+  //   },
   {
     name: 'apidocs',
     slug: '/api',
@@ -12,14 +12,14 @@ const sections = [
 ---
 
 <nav
-  style="background: #ffffff; border-bottom: 1px solid #f1f3f4; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); background: rgba(255, 255, 255, 0.95);"
+  style="background: #ffffff; border-bottom: 1px solid #f1f3f4; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); background: rgba(255, 255, 255, 0.95); overflow-x: hidden;"
 >
-  <div style="max-width: 1200px; margin: 0 auto; padding: 0 24px;">
+  <div style="max-width: 1200px; margin: 0 auto; padding: 0 24px; width: 100%;">
     <div
-      style="display: flex; align-items: center; justify-content: space-between; height: 72px;"
+      style="display: flex; align-items: center; justify-content: space-between; height: 72px; min-width: 0;"
     >
-      <!-- Left Section: Logo -->
-      <div style="display: flex; align-items: center; gap: 32px;">
+      <!-- Left Section: Logo & Badges -->
+      <div style="display: flex; align-items: center; gap: 16px;">
         <div
           style="display: flex; align-items: center; gap: 8px; cursor: pointer;"
           id="logo-area"
@@ -31,28 +31,62 @@ const sections = [
           </div>
         </div>
 
-        <!-- Navigation Links - Desktop -->
+        <!-- Badges next to logo - Desktop -->
         <div
-          style="display: flex; align-items: center; gap: 32px;"
-          class="desktop-nav"
+          style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;"
+          class="desktop-badges"
         >
-          {
-            sections.map((section) => (
-              <a
-                href={section.slug}
-                style="font-size: 15px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 8px 0; transition: color 0.2s ease;"
-                onmouseover="this.style.color='#000000';"
-                onmouseout="this.style.color='#4a4a4a';"
-              >
-                {section.name}
-              </a>
-            ))
-          }
+          <a
+            href="https://www.npmjs.com/package/@ax-llm/ax"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="display: flex; align-items: center; flex-shrink: 0;"
+          >
+            <img
+              src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green"
+              alt="NPM Package"
+              style="height: 28px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+            />
+          </a>
+          <a
+            href="https://discord.gg/DSHg3dU7dW"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="display: flex; align-items: center; flex-shrink: 0;"
+          >
+            <img
+              src="https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge"
+              alt="Discord Chat"
+              style="height: 28px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+            />
+          </a>
+          <a
+            href="https://twitter.com/dosco"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="display: flex; align-items: center; flex-shrink: 0;"
+          >
+            <img
+              src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red"
+              alt="Twitter"
+              style="height: 28px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+            />
+          </a>
         </div>
       </div>
 
-      <!-- Right Section: GitHub -->
-      <div style="display: flex; align-items: center; gap: 16px;">
+      <!-- Right Section: API Docs & GitHub Buttons -->
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <a
+          href="/api"
+          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
+          onmouseover="this.style.background='#e9ecef';"
+          onmouseout="this.style.background='#f8f9fa';"
+          class="desktop-api-docs"
+        >
+          <span>API Docs</span>
+        </a>
+
         <a
           href="https://github.com/ax-llm/ax"
           target="_blank"
@@ -96,16 +130,13 @@ const sections = [
       style="display: none; flex-direction: column; gap: 0; padding: 16px 0; border-top: 1px solid #f1f3f4; background: #ffffff;"
       class="mobile-menu"
     >
-      {
-        sections.map((section) => (
-          <a
-            href={section.slug}
-            style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
-          >
-            {section.name}
-          </a>
-        ))
-      }
+      <a
+        href="/api"
+        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
+      >
+        API Docs
+      </a>
+
       <a
         href="https://github.com/ax-llm/ax"
         target="_blank"
@@ -119,9 +150,35 @@ const sections = [
 </nav>
 
 <style>
+  /* Ensure proper mobile viewport handling */
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  /* Navigation container styles */
+  nav {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  nav > div {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Prevent badge overflow */
+  .desktop-badges img {
+    max-width: none;
+    height: 28px;
+  }
+
   @media (max-width: 768px) {
-    .desktop-nav,
-    .desktop-github {
+    .desktop-github,
+    .desktop-badges,
+    .desktop-api-docs {
       display: none !important;
     }
 
@@ -131,6 +188,25 @@ const sections = [
 
     nav div:first-child {
       padding: 0 16px !important;
+    }
+
+    /* Ensure mobile menu doesn't overflow */
+    .mobile-menu {
+      width: 100%;
+      box-sizing: border-box;
+      overflow-x: hidden;
+    }
+
+    .mobile-menu img {
+      max-width: calc(100vw - 64px);
+      height: auto;
+      max-height: 32px;
+    }
+  }
+
+  @media (max-width: 1024px) {
+    .desktop-badges {
+      display: none !important;
     }
   }
 

@@ -21,10 +21,55 @@
     <p
       style="font-size: 20px; line-height: 1.6; color: #4a4a4a; margin: 0; max-width: 600px;"
     >
-      DSPy for TypeScript. Create intelligent agents with type-safe prompts,
-      streaming validation, and seamless LLM integration across all major
-      providers.
+      <b>DSPy for TypeScript.</b> Working with LLMs is complex they don't always
+      do what you want. DSPy makes it easier to build amazing things with LLMs. Just
+      define your inputs and outputs (signature) and an efficient prompt is auto-generated
+      and used. Connect together various signatures to build complex systems and
+      workflows using LLMs
     </p>
+
+    <!-- Mobile Badges Section -->
+    <div
+      class="mobile-badges-section"
+      style="display: none; margin: 32px 0 0 0; gap: 16px; flex-direction: column; max-width: 600px;"
+    >
+      <a
+        href="https://www.npmjs.com/package/@ax-llm/ax"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="display: flex; align-items: center;"
+      >
+        <img
+          src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green"
+          alt="NPM Package"
+          style="height: 32px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+        />
+      </a>
+      <a
+        href="https://discord.gg/DSHg3dU7dW"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="display: flex; align-items: center;"
+      >
+        <img
+          src="https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge"
+          alt="Discord Chat"
+          style="height: 32px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+        />
+      </a>
+      <a
+        href="https://twitter.com/dosco"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="display: flex; align-items: center;"
+      >
+        <img
+          src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red"
+          alt="Twitter"
+          style="height: 32px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+        />
+      </a>
+    </div>
   </div>
 </header>
 
@@ -41,6 +86,11 @@
 
     header p {
       font-size: 18px !important;
+    }
+
+    /* Show mobile badges only on mobile */
+    .mobile-badges-section {
+      display: flex !important;
     }
   }
 

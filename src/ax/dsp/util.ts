@@ -39,6 +39,8 @@ export const validateValue = (
     val: Readonly<AxFieldValue>
   ): boolean => {
     switch (expectedType) {
+      case 'class':
+        return typeof val === 'string'
       case 'code':
         return typeof val === 'string'
       case 'string':
@@ -85,7 +87,7 @@ export const validateValue = (
 
     if (msg) {
       throw new Error(
-        `Validation failed: Expected '${field.name}' to be a ${msg} instead got '${value}'`
+        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
       )
     }
     return
@@ -113,7 +115,7 @@ export const validateValue = (
 
     if (msg) {
       throw new Error(
-        `Validation failed: Expected '${field.name}' to be a ${msg} instead got '${value}'`
+        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
       )
     }
     return
@@ -137,8 +139,9 @@ export const validateValue = (
   }
 
   if (!isValid) {
+    const gotType = Array.isArray(value) ? 'array' : typeof value
     throw new Error(
-      `Validation failed: Expected '${field.name}' to be a ${field.type?.isArray ? 'an array of ' : ''}${ft.name} instead got '${typeof value}' (${value})`
+      `Validation failed: Expected '${field.name}' to be a ${field.type?.isArray ? 'an array of ' : ''}${ft.name} instead got '${gotType}' (${JSON.stringify(value)})`
     )
   }
 }

@@ -9,7 +9,14 @@ import Footer from '../components/Footer.astro'
 
 // Read README.md from the root of the project
 const readmePath = path.join(process.cwd(), '..', '..', 'README.md')
-const readmeContent = fs.readFileSync(readmePath, 'utf-8')
+const readmeRawContent = fs.readFileSync(readmePath, 'utf-8')
+
+// Strip content above <!-- header --> comment
+const headerIndex = readmeRawContent.indexOf('<!-- header -->')
+const readmeContent =
+  headerIndex !== -1
+    ? readmeRawContent.substring(headerIndex)
+    : readmeRawContent
 
 // Parse markdown to HTML
 const htmlContent = marked(readmeContent)

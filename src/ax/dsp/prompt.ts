@@ -12,6 +12,8 @@ type Writeable<T> = { -readonly [P in keyof T]: T[P] }
 export interface AxPromptTemplateOptions {
   functions?: Readonly<AxInputFunctionType>
   thoughtFieldName?: string
+  strictExamples?: boolean
+  optionalOutputFields?: string[]
 }
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>
 
@@ -44,6 +46,8 @@ export class AxPromptTemplate {
   private task: { type: 'text'; text: string }
   private readonly thoughtFieldName: string
   private readonly functions?: Readonly<AxInputFunctionType>
+  private readonly strictExamples: boolean
+  private readonly optionalOutputFields: string[]
 
   constructor(
     sig: Readonly<AxSignature>,
@@ -54,6 +58,8 @@ export class AxPromptTemplate {
     this.fieldTemplates = fieldTemplates
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
     this.functions = options?.functions
+    this.strictExamples = options?.strictExamples ?? false
+    this.optionalOutputFields = options?.optionalOutputFields ?? []
 
     const task = []
 
@@ -299,24 +305,44 @@ export class AxPromptTemplate {
 
   private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const list: ChatRequestUserMessage = []
+    const inputExampleContext = {
+      isExample: true,
+      strictExamples: this.strictExamples,
+      optionalOutputFields: this.optionalOutputFields,
+      isInputField: true,
+    }
+    const outputExampleContext = {
+      isExample: true,
+      strictExamples: this.strictExamples,
+      optionalOutputFields: this.optionalOutputFields,
+      isInputField: false,
+    }
 
     for (const [index, item] of data.entries()) {
       const renderedInputItem = this.sig
         .getInputFields()
-        .map((field) => this.renderInField(field, item)) // Corrected: 2 args
+        .map((field) => this.renderInField(field, item, inputExampleContext))
         .filter((v) => v !== undefined)
         .flat()
 
-      const renderedOutputItem = this.sig
-        .getOutputFields()
-        .map((field) => this.renderInField(field, item)) // Corrected: 2 args
+      const outputFields = this.sig.getOutputFields()
+      const renderedOutputItem = outputFields
+        .map((field) => this.renderInField(field, item, outputExampleContext))
         .filter((v) => v !== undefined)
         .flat()
 
       if (renderedOutputItem.length === 0) {
-        throw new Error(
-          `Output fields are required in examples: index: ${index}, data: ${JSON.stringify(item)}`
+        // Check if all missing output fields are marked as optional
+        const missingFields = outputFields.filter((field) => !item[field.name])
+        const allMissingFieldsAreOptional = missingFields.every((field) =>
+          this.optionalOutputFields.includes(field.name)
         )
+
+        if (!allMissingFieldsAreOptional) {
+          throw new Error(
+            `Output fields are required in examples: index: ${index}, data: ${JSON.stringify(item)}`
+          )
+        }
       }
 
       const renderedItem = [...renderedInputItem, ...renderedOutputItem]
@@ -345,14 +371,35 @@ export class AxPromptTemplate {
 
   private renderDemos = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const list: ChatRequestUserMessage = []
-
-    const fields = [...this.sig.getInputFields(), ...this.sig.getOutputFields()]
+    const inputFields = this.sig.getInputFields()
+    const outputFields = this.sig.getOutputFields()
 
     for (const item of data) {
-      const renderedItem = fields
-        .map((field) => this.renderInField(field, item)) // Corrected: 2 args
+      const inputRenderedItems = inputFields
+        .map((field) =>
+          this.renderInField(field, item, {
+            isExample: true,
+            strictExamples: this.strictExamples,
+            optionalOutputFields: this.optionalOutputFields,
+            isInputField: true,
+          })
+        )
         .filter((v) => v !== undefined)
         .flat()
+
+      const outputRenderedItems = outputFields
+        .map((field) =>
+          this.renderInField(field, item, {
+            isExample: true,
+            strictExamples: this.strictExamples,
+            optionalOutputFields: this.optionalOutputFields,
+            isInputField: false,
+          })
+        )
+        .filter((v) => v !== undefined)
+        .flat()
+
+      const renderedItem = [...inputRenderedItems, ...outputRenderedItems]
 
       renderedItem.slice(0, -1).forEach((v) => {
         if ('text' in v) {
@@ -371,7 +418,7 @@ export class AxPromptTemplate {
   private renderInputFields = <T extends AxGenIn>(values: T) => {
     const renderedItems = this.sig
       .getInputFields()
-      .map((field) => this.renderInField(field, values))
+      .map((field) => this.renderInField(field, values, undefined))
       .filter((v) => v !== undefined)
       .flat()
 
@@ -386,11 +433,17 @@ export class AxPromptTemplate {
 
   private renderInField = (
     field: Readonly<AxField>,
-    values: Readonly<Record<string, AxFieldValue>>
+    values: Readonly<Record<string, AxFieldValue>>,
+    context?: {
+      isExample?: boolean
+      strictExamples?: boolean
+      optionalOutputFields?: string[]
+      isInputField?: boolean
+    }
   ) => {
     const value = values[field.name]
 
-    if (isEmptyValue(field, value)) {
+    if (isEmptyValue(field, value, context)) {
       return
     }
 
@@ -628,7 +681,13 @@ function combineConsecutiveStrings(separator: string) {
 
 const isEmptyValue = (
   field: Readonly<AxField>,
-  value?: Readonly<AxFieldValue>
+  value?: Readonly<AxFieldValue>,
+  context?: {
+    isExample?: boolean
+    strictExamples?: boolean
+    optionalOutputFields?: string[]
+    isInputField?: boolean
+  }
 ) => {
   if (typeof value === 'boolean') {
     return false
@@ -638,10 +697,48 @@ const isEmptyValue = (
     !value ||
     ((Array.isArray(value) || typeof value === 'string') && value.length === 0)
   ) {
-    if (field.isOptional || field.isInternal) {
+    // Handle examples case
+    if (context?.isExample) {
+      const isInputField = context?.isInputField ?? true
+
+      if (isInputField) {
+        // For input fields in examples:
+        // - If strictExamples is false: allow missing/empty values for any input field
+        // - If strictExamples is true: only allow missing/empty values for optional input fields
+        if (!context?.strictExamples) {
+          return true // Allow any input field to be missing when strictExamples is false
+        } else {
+          // strictExamples is true: only optional input fields can be missing
+          if (field.isOptional || field.isInternal) {
+            return true
+          }
+          throw new Error(`Value for input field '${field.name}' is required.`)
+        }
+      } else {
+        // For output fields in examples:
+        // Required output fields are always required unless listed in optionalOutputFields
+        if (
+          field.isOptional ||
+          field.isInternal ||
+          context?.optionalOutputFields?.includes(field.name)
+        ) {
+          return true
+        }
+        throw new Error(`Value for output field '${field.name}' is required.`)
+      }
+    }
+
+    // Handle non-examples case (regular field validation)
+    if (
+      field.isOptional ||
+      field.isInternal ||
+      context?.optionalOutputFields?.includes(field.name)
+    ) {
       return true
     }
-    throw new Error(`Value for input field '${field.name}' is required.`)
+
+    const fieldType = context?.isInputField !== false ? 'input' : 'output'
+    throw new Error(`Value for ${fieldType} field '${field.name}' is required.`)
   }
   return false
 }

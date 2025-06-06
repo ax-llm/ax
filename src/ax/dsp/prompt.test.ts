@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { AxPromptTemplate, type AxPromptTemplateOptions } from './prompt.js'
 import { AxSignature } from './sig.js'
-import type { AxGenIn, AxMessage } from './types.js'
+import type { AxMessage } from './types.js'
 
 // Helper to create a basic signature
 const createSignature = (desc: string) => {
@@ -30,37 +30,135 @@ describe('AxPromptTemplate.render', () => {
 
   describe('Single AxGenIn input (existing behavior)', () => {
     it('should render a basic prompt with single AxGenIn', () => {
-      const pt = new AxPromptTemplate(defaultSig)
-      const values: AxGenIn = { input: 'hello world' }
-      const result = pt.render(values, {})
+      const signature = new AxSignature(
+        'input:string -> output:string "the result"'
+      )
+      const template = new AxPromptTemplate(signature)
 
-      expect(result.length).toBe(2)
+      const result = template.render({ input: 'test' }, {})
+
+      expect(result).toHaveLength(2)
       expect(result[0]?.role).toBe('system')
+      expect(result[1]?.role).toBe('user')
       const userMessage = result[1] as TestExpectedMessage | undefined
-      expect(userMessage?.role).toBe('user')
-      expect(userMessage?.content).toContain('Input: hello world') // .toContain because formatting rules/desc might be part of system prompt
+      expect(userMessage?.content).toContain('Input: test')
     })
 
     it('should render with examples', () => {
-      const pt = new AxPromptTemplate(defaultSig)
-      const values: AxGenIn = { input: 'test' }
-      const examples = [{ input: 'ex_in', output: 'ex_out' }]
-      const result = pt.render(values, { examples })
+      const signature = new AxSignature(
+        'input:string -> output:string "the result"'
+      )
+      const template = new AxPromptTemplate(signature)
 
+      const examples = [{ input: 'hello', output: 'world' }]
+      const result = template.render({ input: 'test' }, { examples })
+
+      expect(result).toHaveLength(2)
       expect(result[0]?.role).toBe('system')
       const systemMessage = result[0] as
         | { role: 'system'; content: string }
         | undefined
-      const systemContent = systemMessage?.content ?? ''
-      const userMessage = result[1] as TestExpectedMessage | undefined
-      const userContent = userMessage?.content ?? ''
+      expect(systemMessage?.content).toContain('Input: hello')
+      expect(systemMessage?.content).toContain('Output: world')
+    })
+  })
 
-      // Examples can be in system or user prompt depending on complexity
-      const exampleStr = 'Input: ex_in\nOutput: ex_out'
-      expect(
-        systemContent.includes(exampleStr) || userContent.includes(exampleStr)
-      ).toBe(true)
-      expect(userContent.includes('Input: test')).toBe(true)
+  describe('strictExamples flag', () => {
+    it('should allow missing boolean field when strictExamples is false (default)', () => {
+      const signature = new AxSignature(
+        'input:string, isUserMessage:boolean -> output:string'
+      )
+      const template = new AxPromptTemplate(signature) // uses default strictExamples: false
+
+      const examples = [{ input: 'hello', output: 'world' }] // missing isUserMessage
+
+      expect(() => {
+        template.render({ input: 'test', isUserMessage: true }, { examples })
+      }).not.toThrow()
+    })
+
+    it('should throw error for missing boolean field when strictExamples is true', () => {
+      const signature = new AxSignature(
+        'input:string, isUserMessage:boolean -> output:string'
+      )
+      const template = new AxPromptTemplate(signature, { strictExamples: true })
+
+      const examples = [{ input: 'hello', output: 'world' }] // missing isUserMessage
+
+      expect(() => {
+        template.render({ input: 'test', isUserMessage: true }, { examples })
+      }).toThrow("Value for input field 'isUserMessage' is required")
+    })
+
+    it('should allow missing boolean field when strictExamples is false', () => {
+      const signature = new AxSignature(
+        'input:string, isUserMessage:boolean -> output:string'
+      )
+      const template = new AxPromptTemplate(signature, {
+        strictExamples: false,
+      })
+
+      const examples = [{ input: 'hello', output: 'world' }] // missing isUserMessage
+
+      expect(() => {
+        template.render({ input: 'test', isUserMessage: true }, { examples })
+      }).not.toThrow()
+    })
+
+    it('should handle false boolean values correctly when strictExamples is false', () => {
+      const signature = new AxSignature(
+        'input:string, isUserMessage:boolean -> output:string'
+      )
+      const template = new AxPromptTemplate(signature, {
+        strictExamples: false,
+      })
+
+      const examples = [
+        { input: 'hello', isUserMessage: false, output: 'world' },
+      ]
+
+      const result = template.render(
+        { input: 'test', isUserMessage: true },
+        { examples }
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0]?.role).toBe('system')
+      const systemMessage = result[0] as
+        | { role: 'system'; content: string }
+        | undefined
+      expect(systemMessage?.content).toContain('Is User Message: false')
+    })
+
+    it('should always require output fields regardless of strictExamples setting', () => {
+      const signature = new AxSignature(
+        'input:string -> output:string, category:string'
+      )
+      const template = new AxPromptTemplate(signature, {
+        strictExamples: false,
+      })
+
+      const examples = [{ input: 'hello', output: 'world' }] // missing category output field
+
+      expect(() => {
+        template.render({ input: 'test' }, { examples })
+      }).toThrow("Value for output field 'category' is required")
+    })
+
+    it('should allow missing output fields listed in optionalOutputFields', () => {
+      const signature = new AxSignature(
+        'input:string -> output:string, category:string'
+      )
+      const template = new AxPromptTemplate(signature, {
+        strictExamples: false,
+        optionalOutputFields: ['category'],
+      })
+
+      const examples = [{ input: 'hello', output: 'world' }] // missing category output field
+
+      expect(() => {
+        template.render({ input: 'test' }, { examples })
+      }).not.toThrow()
     })
   })
 

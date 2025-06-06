@@ -74,8 +74,15 @@ export type AxGenStreamingOut<OUT extends AxGenOut> = AsyncGenerator<
   unknown
 >
 
+export type AxSetExamplesOptions = {
+  optionalOutputFields?: string[]
+}
+
 export interface AxTunable {
-  setExamples: (examples: Readonly<AxProgramExamples>) => void
+  setExamples: (
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) => void
   setId: (id: string) => void
   setParentId: (parentId: string) => void
   getTraces: () => AxProgramTrace[]
@@ -106,6 +113,7 @@ export class AxProgramWithSignature<
   protected sigHash: string
 
   protected examples?: Record<string, AxFieldValue>[]
+  protected examplesOptions?: AxSetExamplesOptions
   protected demos?: Record<string, AxFieldValue>[]
   protected trace?: Record<string, AxFieldValue>
   protected usage: AxProgramUsage[] = []
@@ -174,19 +182,25 @@ export class AxProgramWithSignature<
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
-    this._setExamples(examples)
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
+    this._setExamples(examples, options)
 
     if (!('programId' in examples)) {
       return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples)
+      child.setExamples(examples, options)
     }
   }
 
-  private _setExamples(examples: Readonly<AxProgramExamples>) {
+  private _setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
     let traces: Record<string, AxFieldValue>[] = []
 
     if ('programId' in examples && examples.programId === this.key.id) {
@@ -198,6 +212,7 @@ export class AxProgramWithSignature<
     }
 
     if (traces) {
+      this.examplesOptions = options
       const sig = this.signature
       const fields = [...sig.getInputFields(), ...sig.getOutputFields()]
 
@@ -316,13 +331,16 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
     if (!('programId' in examples)) {
       return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples)
+      child.setExamples(examples, options)
     }
   }
 
