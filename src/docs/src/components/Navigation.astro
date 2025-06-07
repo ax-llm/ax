@@ -19,7 +19,7 @@ const sections = [
       style="display: flex; align-items: center; justify-content: space-between; height: 72px; min-width: 0;"
     >
       <!-- Left Section: Logo & Badges -->
-      <div style="display: flex; align-items: center; gap: 16px;">
+      <div style="display: flex; align-items: left; gap: 16px;">
         <div
           style="display: flex; align-items: center; gap: 8px; cursor: pointer;"
           id="logo-area"
@@ -78,6 +78,17 @@ const sections = [
       <!-- Right Section: API Docs & GitHub Buttons -->
       <div style="display: flex; align-items: center; gap: 12px;">
         <a
+          href="https://deepwiki.com/ax-llm/ax"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
+          onmouseover="this.style.background='#e9ecef';"
+          onmouseout="this.style.background='#f8f9fa';"
+          class="desktop-api-docs"
+        >
+          <span>DeepWiki</span>
+        </a>
+        <a
           href="/api"
           style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
           onmouseover="this.style.background='#e9ecef';"
@@ -130,6 +141,14 @@ const sections = [
       style="display: none; flex-direction: column; gap: 0; padding: 16px 0; border-top: 1px solid #f1f3f4; background: #ffffff;"
       class="mobile-menu"
     >
+      <a
+        href="https://deepwiki.com/ax-llm/ax"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
+      >
+        DeepWiki
+      </a>
       <a
         href="/api"
         style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
