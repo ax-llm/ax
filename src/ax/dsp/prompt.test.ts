@@ -63,12 +63,12 @@ describe('AxPromptTemplate.render', () => {
     })
   })
 
-  describe('strictExamples flag', () => {
-    it('should allow missing boolean field when strictExamples is false (default)', () => {
+  describe('examples with missing fields', () => {
+    it('should allow missing input fields in examples', () => {
       const signature = new AxSignature(
         'input:string, isUserMessage:boolean -> output:string'
       )
-      const template = new AxPromptTemplate(signature) // uses default strictExamples: false
+      const template = new AxPromptTemplate(signature)
 
       const examples = [{ input: 'hello', output: 'world' }] // missing isUserMessage
 
@@ -77,41 +77,11 @@ describe('AxPromptTemplate.render', () => {
       }).not.toThrow()
     })
 
-    it('should throw error for missing boolean field when strictExamples is true', () => {
+    it('should handle false boolean values correctly in examples', () => {
       const signature = new AxSignature(
         'input:string, isUserMessage:boolean -> output:string'
       )
-      const template = new AxPromptTemplate(signature, { strictExamples: true })
-
-      const examples = [{ input: 'hello', output: 'world' }] // missing isUserMessage
-
-      expect(() => {
-        template.render({ input: 'test', isUserMessage: true }, { examples })
-      }).toThrow("Value for input field 'isUserMessage' is required")
-    })
-
-    it('should allow missing boolean field when strictExamples is false', () => {
-      const signature = new AxSignature(
-        'input:string, isUserMessage:boolean -> output:string'
-      )
-      const template = new AxPromptTemplate(signature, {
-        strictExamples: false,
-      })
-
-      const examples = [{ input: 'hello', output: 'world' }] // missing isUserMessage
-
-      expect(() => {
-        template.render({ input: 'test', isUserMessage: true }, { examples })
-      }).not.toThrow()
-    })
-
-    it('should handle false boolean values correctly when strictExamples is false', () => {
-      const signature = new AxSignature(
-        'input:string, isUserMessage:boolean -> output:string'
-      )
-      const template = new AxPromptTemplate(signature, {
-        strictExamples: false,
-      })
+      const template = new AxPromptTemplate(signature)
 
       const examples = [
         { input: 'hello', isUserMessage: false, output: 'world' },
@@ -130,29 +100,11 @@ describe('AxPromptTemplate.render', () => {
       expect(systemMessage?.content).toContain('Is User Message: false')
     })
 
-    it('should always require output fields regardless of strictExamples setting', () => {
+    it('should allow missing output fields in examples', () => {
       const signature = new AxSignature(
         'input:string -> output:string, category:string'
       )
-      const template = new AxPromptTemplate(signature, {
-        strictExamples: false,
-      })
-
-      const examples = [{ input: 'hello', output: 'world' }] // missing category output field
-
-      expect(() => {
-        template.render({ input: 'test' }, { examples })
-      }).toThrow("Value for output field 'category' is required")
-    })
-
-    it('should allow missing output fields listed in optionalOutputFields', () => {
-      const signature = new AxSignature(
-        'input:string -> output:string, category:string'
-      )
-      const template = new AxPromptTemplate(signature, {
-        strictExamples: false,
-        optionalOutputFields: ['category'],
-      })
+      const template = new AxPromptTemplate(signature)
 
       const examples = [{ input: 'hello', output: 'world' }] // missing category output field
 

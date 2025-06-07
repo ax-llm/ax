@@ -11,40 +11,33 @@ const classifier = new AxGen<
    reasoning?:string "Optional reasoning for the classification"`
 )
 
-// Demonstrate the new optionalOutputFields feature:
-// Some examples can have missing 'confidence' and 'reasoning' fields
-classifier.setExamples(
-  [
-    {
-      contentToClassify:
-        'Apple announces new iPhone with revolutionary AI features',
-      category: 'tech',
-      confidence: 0.95,
-      reasoning: 'Clear technology product announcement',
-    },
-    {
-      contentToClassify: 'Lakers win championship in dramatic overtime victory',
-      category: 'sports',
-      // Missing confidence and reasoning - this is now allowed!
-    },
-    {
-      contentToClassify: 'Breaking: Major policy changes announced in Congress',
-      category: 'news',
-      confidence: 0.92,
-      // Missing reasoning - this is now allowed!
-    },
-    {
-      contentToClassify: 'New blockbuster movie breaks box office records',
-      category: 'entertainment',
-      confidence: 0.96,
-      reasoning: 'Entertainment industry news about movie performance',
-    },
-  ],
+// Examples can have missing fields - all fields are now optional in examples
+classifier.setExamples([
   {
-    // This is the key new feature: specify which output fields can be missing in examples
-    optionalOutputFields: ['confidence', 'reasoning'],
-  }
-)
+    contentToClassify:
+      'Apple announces new iPhone with revolutionary AI features',
+    category: 'tech',
+    confidence: 0.95,
+    reasoning: 'Clear technology product announcement',
+  },
+  {
+    contentToClassify: 'Lakers win championship in dramatic overtime victory',
+    category: 'sports',
+    // Missing confidence and reasoning - this is now allowed!
+  },
+  {
+    contentToClassify: 'Breaking: Major policy changes announced in Congress',
+    category: 'news',
+    confidence: 0.92,
+    // Missing reasoning - this is now allowed!
+  },
+  {
+    contentToClassify: 'New blockbuster movie breaks box office records',
+    category: 'entertainment',
+    confidence: 0.96,
+    reasoning: 'Entertainment industry news about movie performance',
+  },
+])
 
 // Initialize AI
 const ai = new AxAI({

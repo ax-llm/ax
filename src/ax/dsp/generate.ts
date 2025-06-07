@@ -75,8 +75,6 @@ export interface AxGenOptions {
   stream?: boolean
   description?: string
   thoughtFieldName?: string
-  strictExamples?: boolean
-  optionalOutputFields?: string[]
 
   functions?: AxInputFunctionType
   functionCall?: AxChatRequest['functionCall']
@@ -144,8 +142,6 @@ export class AxGen<
     const promptTemplateOptions = {
       functions: options?.functions,
       thoughtFieldName: this.thoughtFieldName,
-      strictExamples: options?.strictExamples,
-      optionalOutputFields: options?.optionalOutputFields,
     }
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
@@ -616,8 +612,6 @@ export class AxGen<
       const currentPromptTemplateOptions = {
         functions: options.functions,
         thoughtFieldName: this.thoughtFieldName,
-        strictExamples: this.options?.strictExamples,
-        optionalOutputFields: this.options?.optionalOutputFields,
       }
       this.promptTemplate = new promptTemplateClass(
         this.signature,
@@ -879,22 +873,7 @@ export class AxGen<
     options?: Readonly<AxSetExamplesOptions>
   ) {
     super.setExamples(examples, options)
-
-    // Update the prompt template with the new optionalOutputFields from examples options
-    if (options?.optionalOutputFields) {
-      const promptTemplateClass =
-        this.options?.promptTemplate ?? AxPromptTemplate
-      const currentPromptTemplateOptions = {
-        functions: this.functions,
-        thoughtFieldName: this.thoughtFieldName,
-        strictExamples: this.options?.strictExamples,
-        optionalOutputFields: options.optionalOutputFields,
-      }
-      this.promptTemplate = new promptTemplateClass(
-        this.signature,
-        currentPromptTemplateOptions
-      )
-    }
+    // No need to update prompt template - all fields can be missing in examples
   }
 }
 

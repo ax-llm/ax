@@ -75,8 +75,9 @@ export type AxGenStreamingOut<OUT extends AxGenOut> = AsyncGenerator<
   unknown
 >
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type AxSetExamplesOptions = {
-  optionalOutputFields?: string[]
+  // No options needed - all fields can be missing in examples
 }
 
 export interface AxTunable {
@@ -221,7 +222,9 @@ export class AxProgramWithSignature<
         const res: Record<string, AxFieldValue> = {}
         for (const f of fields) {
           const value = e[f.name]
-          if (value) {
+          if (value !== undefined) {
+            // Only validate the type of fields that are actually set
+            // Allow any field to be missing regardless of whether it's required
             validateValue(f, value)
             res[f.name] = value
           }
