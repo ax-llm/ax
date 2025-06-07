@@ -1,5 +1,21 @@
 # Changelog
 
+## [11.0.55](https://github.com/ax-llm/ax/compare/11.0.53...11.0.54) (2025-06-07)
+
+### Features
+
+* Add DeepWiki links to navigation component ([48c0194](https://github.com/ax-llm/ax/commit/48c01944ec54fc2e2e5f62cc738d4ab34cdace83))
+* Allow all fields to be optional in examples and simplify prompt template validation ([18cd73b](https://github.com/ax-llm/ax/commit/18cd73b478622516c6bdaac49d8141ae0e1f530e))
+## [11.0.54](https://github.com/ax-llm/ax/compare/11.0.53...11.0.54) (2025-06-06)
+
+### Features
+
+* Enhance abortable request functionality and documentation ([0b0495e](https://github.com/ax-llm/ax/commit/0b0495eaaf6f8fd265bd47d81424cb3f75ee15d2))
+
+### Bug Fixes
+
+* support for Gemini Flash <= 2.0 ([#233](https://github.com/ax-llm/ax/issues/233)) ([6424329](https://github.com/ax-llm/ax/commit/64243297a3bbc24aee512a1e1445a8f28fec7b58))
+
 ## [11.0.54](https://github.com/ax-llm/ax/compare/11.0.52...11.0.53) (2025-06-06)
 
 ### Features
