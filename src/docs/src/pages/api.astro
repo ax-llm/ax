@@ -70,17 +70,17 @@ const renderedDocs = await Promise.all(
     />
   </head>
 
-  <body class="bg-warmGray-100 font-mono min-h-screen">
+  <body class="bg-warmGray-100 min-h-screen">
     <Navigation />
     <div class="max-w-6xl mx-auto p-2">
       <Header />
       <!-- Main Content - Rendered Markdown Sections -->
-      <main class="mt-12 space-y-24">
+      <main class="space-y-24">
         {
           renderedDocs.map(({ Content, slug, data }) => (
             <section
               id={slug}
-              class="bg-warmGray-50 rounded-lg p-4 md:p-8 shadow-lg border border-gray-200"
+              class="bg-warmGray-50 rounded-lg p-4 md:p-8 shadow-md border border-gray-200"
             >
               <div class="mb-6">
                 <h2 class="text-xl text-gray-700 font-bold flex items-center">
