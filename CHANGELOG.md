@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.56](https://github.com/ax-llm/ax/compare/11.0.54...11.0.55) (2025-06-08)
+
+### Features
+
+* Enhance JSON schema validation with flexible handling of union types ([967610d](https://github.com/ax-llm/ax/commit/967610df7cee8e9de11fd9a27835f35398d43c66))
+## [11.0.55](https://github.com/ax-llm/ax/compare/11.0.54...11.0.55) (2025-06-07)
+
+### Features
+
+* Add DeepWiki links to navigation component ([48c0194](https://github.com/ax-llm/ax/commit/48c01944ec54fc2e2e5f62cc738d4ab34cdace83))
+* Allow all fields to be optional in examples and simplify prompt template validation ([18cd73b](https://github.com/ax-llm/ax/commit/18cd73b478622516c6bdaac49d8141ae0e1f530e))
+
 ## [11.0.55](https://github.com/ax-llm/ax/compare/11.0.53...11.0.54) (2025-06-07)
 
 ### Features
