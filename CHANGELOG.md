@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.57](https://github.com/ax-llm/ax/compare/11.0.55...11.0.56) (2025-06-09)
+
+### Features
+
+* Add initPackage script for creating new packages in the Ax monorepo ([08746e8](https://github.com/ax-llm/ax/commit/08746e86f33b1b8eee3f978fe5031e8e3c8206fe))
+* Add maxTokens field to AxModelInfo and update Anthropic model configurations ([f2645e6](https://github.com/ax-llm/ax/commit/f2645e684091b03d9740fa5c58641c3ef0047153))
+## [11.0.56](https://github.com/ax-llm/ax/compare/11.0.55...11.0.56) (2025-06-08)
+
+### Features
+
+* Enhance JSON schema validation with flexible handling of union types ([967610d](https://github.com/ax-llm/ax/commit/967610df7cee8e9de11fd9a27835f35398d43c66))
+
 ## [11.0.56](https://github.com/ax-llm/ax/compare/11.0.54...11.0.55) (2025-06-08)
 
 ### Features
