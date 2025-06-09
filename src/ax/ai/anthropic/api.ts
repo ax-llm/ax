@@ -80,7 +80,7 @@ class AxAIAnthropicImpl
   getModelConfig(): AxModelConfig {
     const { config } = this
     return {
-      maxTokens: config.maxTokens,
+      maxTokens: config.maxTokens ?? 4096,
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
@@ -160,16 +160,24 @@ class AxAIAnthropicImpl
       })
     )
 
+    const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens
+    const stopSequences =
+      req.modelConfig?.stopSequences ?? this.config.stopSequences
+    const temperature = req.modelConfig?.temperature ?? this.config.temperature
+    const topP = req.modelConfig?.topP ?? this.config.topP
+    const topK = req.modelConfig?.topK ?? this.config.topK
+
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
         ? { anthropic_version: 'vertex-2023-10-16' }
         : { model }),
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      stop_sequences:
-        req.modelConfig?.stopSequences ?? this.config.stopSequences,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP,
-      top_k: req.modelConfig?.topK ?? this.config.topK,
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
+      ...(stopSequences && stopSequences.length > 0
+        ? { stop_sequences: stopSequences }
+        : {}),
+      ...(temperature ? { temperature } : {}),
+      ...(topP ? { top_p: topP } : {}),
+      ...(topK ? { top_k: topK } : {}),
       ...toolsChoice,
       ...(tools && tools.length > 0 ? { tools } : {}),
       ...(stream ? { stream: true } : {}),

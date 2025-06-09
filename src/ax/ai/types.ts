@@ -27,6 +27,7 @@ export type AxModelInfo = {
   aliases?: string[]
   hasThinkingBudget?: boolean
   hasShowThoughts?: boolean
+  maxTokens?: number
 }
 
 export type AxTokenUsage = {

@@ -1,6 +1,8 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIAnthropicModel {
+  Claude4Opus = 'claude-opus-4-20250514',
+  Claude4Sonnet = 'claude-sonnet-4-20250514',
   Claude37Sonnet = 'claude-3-7-sonnet-latest',
 
   Claude35Sonnet = 'claude-3-5-sonnet-latest',
