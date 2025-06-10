@@ -530,14 +530,6 @@ export class AxBaseAI<
           const res = respFn(resp, state)
           res.sessionId = options?.sessionId
 
-          if (options?.hideThought) {
-            res.results.forEach((result) => {
-              if (result.thought) {
-                result.thought = undefined
-              }
-            })
-          }
-
           if (!res.modelUsage) {
             res.modelUsage = {
               ai: this.name,
@@ -582,14 +574,6 @@ export class AxBaseAI<
     }
     const res = this.aiImpl.createChatResp(rv as TChatResponse)
     res.sessionId = options?.sessionId
-
-    if (options?.hideThought) {
-      res.results.forEach((result) => {
-        if (result.thought) {
-          result.thought = undefined
-        }
-      })
-    }
 
     if (!res.modelUsage) {
       const tokenUsage = this.aiImpl.getTokenUsage()
@@ -888,6 +872,16 @@ export function setChatResponseEvents(
   }
 
   for (const [index, result] of res.results.entries()) {
+    // Skip empty results that have no meaningful content to avoid empty GEN_AI_CHOICE events
+    if (
+      !result.content &&
+      !result.thought &&
+      !result.functionCalls?.length &&
+      !result.finishReason
+    ) {
+      continue
+    }
+
     const toolCalls = result.functionCalls?.map((call) => {
       return {
         id: call.id,

@@ -60,22 +60,12 @@ const renderedDocs = await Promise.all(
 
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ax Documentation</title>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap"
-      rel="stylesheet"
-    />
-  </head>
-
-  <body class="bg-warmGray-100 min-h-screen">
+  <body class="min-h-screen">
     <Navigation />
-    <div class="max-w-6xl mx-auto p-2">
+    <div class="max-w-6xl mx-auto">
       <Header />
       <!-- Main Content - Rendered Markdown Sections -->
-      <main class="space-y-24">
+      <main>
         {
           renderedDocs.map(({ Content, slug, data }) => (
             <section

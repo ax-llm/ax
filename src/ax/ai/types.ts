@@ -293,7 +293,6 @@ export type AxAIServiceActionOptions<
   rateLimiter?: AxRateLimiterFunction
   debug?: boolean
   debugHideSystemPrompt?: boolean
-  hideThought?: boolean
   traceContext?: Context
   abortSignal?: AbortSignal
   logger?: AxLoggerFunction
