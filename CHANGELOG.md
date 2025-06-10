@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.57...11.0.58) (2025-06-10)
+
+### Features
+
+* Add showThoughts feature to enhance model reasoning visibility ([fabc76d](https://github.com/ax-llm/ax/commit/fabc76d5ef5b3d745b78f75615d6f43946d130af))
+## [11.0.58](https://github.com/ax-llm/ax/compare/11.0.57...11.0.58) (2025-06-10)
+
+### Features
+
+* Enhance logging capabilities with structured tags ([2bb76d3](https://github.com/ax-llm/ax/commit/2bb76d3926d08d32c1a12fc651ee3434d3876bc9))
+* Introduce custom logger functionality for AI services ([a5eaed1](https://github.com/ax-llm/ax/commit/a5eaed118a1c880cdaef32a81763a7f4d6aa4fce))
+
 ## [11.0.58](https://github.com/ax-llm/ax/compare/11.0.56...11.0.57) (2025-06-10)
 
 ### Features
