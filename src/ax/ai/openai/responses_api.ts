@@ -240,8 +240,7 @@ export class AxAIOpenAIResponsesImpl<
 
   createChatReq(
     req: Readonly<AxInternalChatRequest<TModel>>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AxAIPromptConfig> // Not used but required by interface
+    config: Readonly<AxAIPromptConfig>
   ): [Readonly<AxAPI>, Readonly<AxAIOpenAIResponsesRequest<TModel>>] {
     const model = req.model
     const apiConfig: Readonly<AxAPI> = { name: '/responses' }
@@ -273,6 +272,18 @@ export class AxAIOpenAIResponsesImpl<
         })
       )
 
+    // Set include field based on showThoughts option
+    const includeFields: (
+      | 'file_search_call.results'
+      | 'message.input_image.image_url'
+      | 'computer_call_output.output.image_url'
+      | 'reasoning.encrypted_content'
+      | 'code_interpreter_call.outputs'
+    )[] = []
+    if (config.showThoughts) {
+      includeFields.push('reasoning.encrypted_content')
+    }
+
     let mutableReq: Mutable<AxAIOpenAIResponsesRequest<TModel>> = {
       model,
       input: '', // Will be set below
@@ -294,7 +305,7 @@ export class AxAIOpenAIResponsesImpl<
       stream: req.modelConfig?.stream ?? this.config.stream ?? false, // Sourced from modelConfig or global config
       // Optional fields from AxAIOpenAIResponsesRequest that need to be in Mutable for initialization
       background: undefined,
-      include: undefined,
+      include: includeFields.length > 0 ? includeFields : undefined,
       metadata: undefined,
       parallel_tool_calls: this.config.parallelToolCalls,
       previous_response_id: undefined,
@@ -402,11 +413,16 @@ export class AxAIOpenAIResponsesImpl<
 
         case 'reasoning':
           currentResult.id = item.id
-          currentResult.thought = item.summary
-            .map((s: string | object) =>
-              typeof s === 'object' ? JSON.stringify(s) : s
-            )
-            .join('\n')
+          // Use encrypted_content if available (when showThoughts is enabled), otherwise use summary
+          if (item.encrypted_content) {
+            currentResult.thought = item.encrypted_content
+          } else {
+            currentResult.thought = item.summary
+              .map((s: string | object) =>
+                typeof s === 'object' ? JSON.stringify(s) : s
+              )
+              .join('\n')
+          }
           break
 
         case 'file_search_call':
@@ -744,7 +760,10 @@ export class AxAIOpenAIResponsesImpl<
               const reasoningItem =
                 event.item as AxAIOpenAIResponsesReasoningItem
               baseResult.id = event.item.id
-              if (reasoningItem.summary) {
+              // Use encrypted_content if available (when showThoughts is enabled), otherwise use summary
+              if (reasoningItem.encrypted_content) {
+                baseResult.thought = reasoningItem.encrypted_content
+              } else if (reasoningItem.summary) {
                 baseResult.thought = reasoningItem.summary
                   .map((s: string | object) =>
                     typeof s === 'object' ? JSON.stringify(s) : s

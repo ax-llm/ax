@@ -144,6 +144,16 @@ describe('AxProgramForwardOptions types', () => {
     }
     expect(options.thinkingTokenBudget).toBe('minimal')
   })
+
+  it('should allow showThoughts option', () => {
+    const options: AxProgramForwardOptions = {
+      ai: new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }), // Mock AI service
+      showThoughts: true,
+    }
+    expect(options.showThoughts).toBe(true)
+  })
 })
 
 describe('AxGen thoughtFieldName', () => {

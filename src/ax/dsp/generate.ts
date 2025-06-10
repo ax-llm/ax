@@ -238,6 +238,7 @@ export class AxGen<
       functions: _functions,
       functionCall: _functionCall,
       thinkingTokenBudget,
+      showThoughts,
     } = options ?? {}
 
     const chatPrompt = mem?.history(sessionId) ?? []
@@ -275,6 +276,7 @@ export class AxGen<
         stream,
         debug: false,
         thinkingTokenBudget,
+        showThoughts,
         traceContext,
         abortSignal: options?.abortSignal,
       }
@@ -803,6 +805,7 @@ export class AxGen<
       ...(options?.thinkingTokenBudget
         ? { thinking_token_budget: options.thinkingTokenBudget }
         : {}),
+      ...(options?.showThoughts ? { show_thoughts: options.showThoughts } : {}),
       ...(options?.maxSteps ? { max_steps: options.maxSteps } : {}),
       ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
       ...(options?.fastFail ? { fast_fail: options.fastFail } : {}),

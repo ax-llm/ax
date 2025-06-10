@@ -202,5 +202,6 @@ PINECONE_API_KEY=your_key_here
 - Include the new feature in the feature list and provide clear usage examples
 - Update TypeDoc comments for new APIs
 - Add corresponding examples in `src/examples/` for new functionality
+- **When creating new examples, always add them to the examples table in README.md** with a clear description
 
 Remember: This is a production-ready library used by startups in production. Maintain high code quality, comprehensive testing, and backward compatibility. 

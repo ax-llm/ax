@@ -380,6 +380,10 @@ class AxAIGoogleGeminiImpl
       }
     }
 
+    if (config.showThoughts !== undefined) {
+      thinkingConfig.includeThoughts = config.showThoughts
+    }
+
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,

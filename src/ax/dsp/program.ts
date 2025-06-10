@@ -55,6 +55,7 @@ export type AxProgramForwardOptions = {
     | 'high'
     | 'highest'
     | 'none'
+  showThoughts?: boolean
   traceLabel?: string
   abortSignal?: AbortSignal
   logger?: AxLoggerFunction

@@ -269,6 +269,7 @@ export type AxAIPromptConfig = {
     | 'high'
     | 'highest'
     | 'none'
+  showThoughts?: boolean
 }
 
 export type AxAIServiceOptions = {

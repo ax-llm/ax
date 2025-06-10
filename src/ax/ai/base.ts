@@ -368,6 +368,11 @@ export class AxBaseAI<
       )
     }
 
+    // Check for showThoughts support
+    if (options?.showThoughts && !this.getFeatures(model).hasShowThoughts) {
+      throw new Error(`Model ${model as string} does not support showThoughts.`)
+    }
+
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
       (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
@@ -871,7 +876,12 @@ export function setChatResponseEvents(
     return
   }
 
-  for (const [index, result] of res.results.entries()) {
+  for (let index = 0; index < res.results.length; index++) {
+    const result = res.results[index]
+    if (!result) {
+      continue
+    }
+
     // Skip empty results that have no meaningful content to avoid empty GEN_AI_CHOICE events
     if (
       !result.content &&
