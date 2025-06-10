@@ -93,9 +93,13 @@ function processChildAgentFunction<IN extends AxGenIn>(
         }
 
         if (options.debug && injectionKeys.length > 0) {
-          process.stdout.write(
-            `\nFunction Params: ${JSON.stringify(updatedChildArgs, null, 2)}`
-          )
+          const ai = funcOptions?.ai
+          if (ai) {
+            const logger = ai.getLogger()
+            logger(
+              `\nFunction Params: ${JSON.stringify(updatedChildArgs, null, 2)}`
+            )
+          }
         }
 
         return await originalFunc(updatedChildArgs, funcOptions)
@@ -265,7 +269,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       const debug = this.getDebug(ai, options)
 
       if (debug) {
-        process.stdout.write(`\n--- Agent Engaged: ${this.name} ---\n`)
+        const logger = ai.getLogger()
+        logger(`\n--- Agent Engaged: ${this.name} ---\n`)
       }
 
       const ret = await boundFunc(ai, values as unknown as IN, {
@@ -274,7 +279,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       })
 
       if (debug) {
-        process.stdout.write(`\n--- Agent Done: ${this.name} ---\n`)
+        const logger = ai.getLogger()
+        logger(`\n--- Agent Done: ${this.name} ---\n`)
       }
 
       const sig = this.program.getSignature()

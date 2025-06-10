@@ -21,6 +21,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
   AxModelInfo,
   AxModelUsage,
@@ -59,6 +60,11 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
     frequencyPenalty: 0.2,
   })
 
+// Default logger function that uses process.stdout.write
+const defaultLogger: AxLoggerFunction = (message: string) => {
+  process.stdout.write(message)
+}
+
 export class AxBaseAI<
   TModel,
   TEmbedModel,
@@ -78,6 +84,7 @@ export class AxBaseAI<
   private excludeContentFromTrace?: boolean
   private models?: AxAIInputModelList<TModel, TEmbedModel>
   private abortSignal?: AbortSignal
+  private logger: AxLoggerFunction = defaultLogger
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxModelUsage
@@ -200,6 +207,7 @@ export class AxBaseAI<
     this.tracer = options.tracer
     this.excludeContentFromTrace = options.excludeContentFromTrace
     this.abortSignal = options.abortSignal
+    this.logger = options.logger ?? defaultLogger
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -211,7 +219,12 @@ export class AxBaseAI<
       timeout: this.timeout,
       excludeContentFromTrace: this.excludeContentFromTrace,
       abortSignal: this.abortSignal,
+      logger: this.logger,
     }
+  }
+
+  getLogger(): AxLoggerFunction {
+    return this.logger
   }
 
   getModelList(): AxAIModelList | undefined {
@@ -492,7 +505,11 @@ export class AxBaseAI<
     }
 
     if (debug) {
-      logChatRequest(req.chatPrompt, options?.debugHideSystemPrompt)
+      logChatRequest(
+        req.chatPrompt,
+        options?.debugHideSystemPrompt,
+        options?.logger ?? this.logger
+      )
     }
 
     const rt = options?.rateLimiter ?? this.rt
@@ -531,7 +548,7 @@ export class AxBaseAI<
           }
 
           if (debug) {
-            logResponse(res)
+            logResponse(res, options?.logger ?? this.logger)
           }
           return res
         }
@@ -539,7 +556,8 @@ export class AxBaseAI<
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
         if (debug) {
-          process.stdout.write('\n')
+          const logger = options?.logger ?? this.logger
+          logger('\n')
         }
         if (span?.isRecording()) {
           span.end()
@@ -590,7 +608,7 @@ export class AxBaseAI<
     }
 
     if (debug) {
-      logResponse(res)
+      logResponse(res, options?.logger ?? this.logger)
     }
 
     return res

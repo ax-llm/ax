@@ -50,6 +50,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
 } from './types.js'
 
 export type AxAIArgs =
@@ -183,5 +184,9 @@ export class AxAI implements AxAIService {
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return this.ai.getOptions()
+  }
+
+  getLogger(): AxLoggerFunction {
+    return this.ai.getLogger()
   }
 }

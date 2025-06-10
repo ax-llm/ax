@@ -15,6 +15,7 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
+  AxLoggerFunction,
   AxRateLimiterFunction,
 } from '../ai/types.js'
 import { mergeFunctionCalls } from '../ai/util.js'
@@ -85,6 +86,7 @@ export interface AxGenOptions {
   fastFail?: boolean
   excludeContentFromTrace?: boolean
   traceLabel?: string
+  logger?: AxLoggerFunction
 }
 
 export type AxGenerateResult<OUT extends AxGenOutType> = OUT & {
@@ -130,6 +132,7 @@ export class AxGen<
   private values: AxGenOutType = {}
   private excludeContentFromTrace: boolean = false
   private thoughtFieldName: string
+  private logger?: AxLoggerFunction
 
   constructor(
     signature: Readonly<AxSignature | string>,
@@ -138,6 +141,7 @@ export class AxGen<
     super(signature, { description: options?.description })
 
     this.options = options
+    this.logger = options?.logger
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
     const promptTemplateOptions = {
       functions: options?.functions,
@@ -670,7 +674,8 @@ export class AxGen<
           }
 
           if (debug) {
-            process.stdout.write('\n')
+            const logger = options.logger ?? this.logger ?? ai.getLogger()
+            logger('\n')
           }
 
           return

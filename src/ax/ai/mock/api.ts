@@ -12,6 +12,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
   AxModelInfoWithProvider,
 } from '../types.js'
@@ -177,6 +178,15 @@ export class AxMockAIService implements AxAIService {
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return this.config.options ?? {}
+  }
+
+  getLogger(): AxLoggerFunction {
+    return (
+      this.config.options?.logger ??
+      ((message: string) => {
+        process.stdout.write(message)
+      })
+    )
   }
 
   private updateMetrics(type: 'chat' | 'embed'): void {

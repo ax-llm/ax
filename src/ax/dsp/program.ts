@@ -4,6 +4,7 @@ import type {
   AxAIService,
   AxChatRequest,
   AxChatResponse,
+  AxLoggerFunction,
   AxModelConfig,
   AxRateLimiterFunction,
 } from '../ai/types.js'
@@ -56,6 +57,7 @@ export type AxProgramForwardOptions = {
     | 'none'
   traceLabel?: string
   abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

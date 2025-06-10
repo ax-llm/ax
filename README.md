@@ -1093,6 +1093,41 @@ const ai = new AxAI({
 ai.setOptions({ debug: true })
 ```
 
+## Custom Logger
+
+You can provide a custom logger function to control how debug information and other messages are output. This is useful for integrating with logging frameworks or customizing the output format.
+
+```ts
+// Custom logger that prefixes messages with timestamp
+const customLogger = (message: string) => {
+  const timestamp = new Date().toISOString()
+  process.stdout.write(`[${timestamp}] ${message}`)
+}
+
+// Set logger on AI service
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY,
+  options: {
+    debug: true,
+    logger: customLogger
+  }
+})
+
+// Or set logger on generation programs
+const gen = new AxGen(
+  'question -> answer:string',
+  { logger: customLogger }
+)
+
+// Logger can also be passed through options
+const result = await gen.forward(ai, { question: 'Hello' }, {
+  logger: customLogger
+})
+```
+
+The logger function receives a string message and is responsible for outputting it. If no logger is provided, messages are written to `process.stdout.write` by default.
+
 ## Reach out
 
 We're happy to help reach out if you have questions or join the Discord

@@ -231,6 +231,8 @@ export type AxRateLimiterFunction = <T = unknown>(
   info: Readonly<{ modelUsage?: AxModelUsage }>
 ) => Promise<T | ReadableStream<T>>
 
+export type AxLoggerFunction = (message: string) => void
+
 export type AxAIPromptConfig = {
   stream?: boolean
   thinkingTokenBudget?:
@@ -250,6 +252,7 @@ export type AxAIServiceOptions = {
   timeout?: number
   excludeContentFromTrace?: boolean
   abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
 }
 
 export type AxAIServiceActionOptions<
@@ -266,6 +269,7 @@ export type AxAIServiceActionOptions<
   hideThought?: boolean
   traceContext?: Context
   abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
@@ -274,6 +278,7 @@ export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   getFeatures(model?: TModel): AxAIFeatures
   getModelList(): AxAIModelList | undefined
   getMetrics(): AxAIServiceMetrics
+  getLogger(): AxLoggerFunction
 
   getLastUsedChatModel(): TModel | undefined
   getLastUsedEmbedModel(): TEmbedModel | undefined

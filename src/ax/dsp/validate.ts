@@ -72,6 +72,7 @@ export function handleValidationError(
       .map((field) => `- ${field.title}: ${field.description}`)
       .join('\n')
 
-    process.stdout.write(colorLog.red(`\n❌ Error Correction:\n${errors}\n`))
+    const logger = ai.getLogger()
+    logger(colorLog.red(`\n❌ Error Correction:\n${errors}\n`))
   }
 }

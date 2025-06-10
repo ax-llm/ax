@@ -1,8 +1,17 @@
 import { ColorLog } from '../util/log.js'
 
-import type { AxChatRequest, AxChatResponse } from './types.js'
+import type {
+  AxChatRequest,
+  AxChatResponse,
+  AxLoggerFunction,
+} from './types.js'
 
 const colorLog = new ColorLog()
+
+// Default logger function
+const defaultLogger: AxLoggerFunction = (message: string) => {
+  process.stdout.write(message)
+}
 
 const formatChatMessage = (
   msg: AxChatRequest['chatPrompt'][number],
@@ -53,63 +62,70 @@ const formatChatMessage = (
 
 export const logChatRequestMessage = (
   msg: AxChatRequest['chatPrompt'][number],
-  hideSystemPrompt?: boolean
+  hideSystemPrompt?: boolean,
+  logger: AxLoggerFunction = defaultLogger
 ) => {
-  process.stdout.write(`${formatChatMessage(msg, hideSystemPrompt)}\n`)
-  process.stdout.write(colorLog.blueBright('\nAssistant:\n'))
+  logger(`${formatChatMessage(msg, hideSystemPrompt)}\n`)
+  logger(colorLog.blueBright('\nAssistant:\n'))
 }
 
 export const logChatRequest = (
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
-  hideSystemPrompt?: boolean
+  hideSystemPrompt?: boolean,
+  logger: AxLoggerFunction = defaultLogger
 ) => {
   const items = chatPrompt?.map((msg) =>
     formatChatMessage(msg, hideSystemPrompt)
   )
 
   if (items) {
-    process.stdout.write(items.join('\n'))
-    process.stdout.write(colorLog.blueBright('\nAssistant:\n'))
+    logger(items.join('\n'))
+    logger(colorLog.blueBright('\nAssistant:\n'))
   }
 }
 
 export const logResponseResult = (
-  r: Readonly<AxChatResponse['results'][number]>
+  r: Readonly<AxChatResponse['results'][number]>,
+  logger: AxLoggerFunction = defaultLogger
 ) => {
   if (r.content) {
-    process.stdout.write(colorLog.greenBright(r.content))
+    logger(colorLog.greenBright(r.content))
   }
 
   if (r.functionCalls) {
     for (const [i, f] of r.functionCalls.entries()) {
       if (f.function.name) {
         if (i > 0) {
-          process.stdout.write('\n')
+          logger('\n')
         }
-        process.stdout.write(
-          `Function ${i + 1} -> ${colorLog.greenBright(f.function.name)}`
-        )
+        logger(`Function ${i + 1} -> ${colorLog.greenBright(f.function.name)}`)
       }
       if (f.function.params) {
         const params =
           typeof f.function.params === 'string'
             ? f.function.params
             : JSON.stringify(f.function.params, null, 2)
-        process.stdout.write(`${colorLog.greenBright(params)}`)
+        logger(`${colorLog.greenBright(params)}`)
       }
     }
   }
 }
 
-export const logResponse = (resp: Readonly<AxChatResponse>) => {
+export const logResponse = (
+  resp: Readonly<AxChatResponse>,
+  logger: AxLoggerFunction = defaultLogger
+) => {
   if (!resp.results) {
     return
   }
   for (const r of resp.results) {
-    logResponseResult(r)
+    logResponseResult(r, logger)
   }
 }
 
-export const logResponseDelta = (delta: string) => {
-  process.stdout.write(colorLog.greenBright(delta))
+export const logResponseDelta = (
+  delta: string,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  logger(colorLog.greenBright(delta))
 }

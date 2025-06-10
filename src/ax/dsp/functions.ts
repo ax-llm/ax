@@ -289,9 +289,8 @@ export const processFunctions = async (
           mem.addTag('error')
 
           if (ai.getOptions().debug) {
-            process.stdout.write(
-              colorLog.red(`\n❌ Function Error Correction:\n${result}\n`)
-            )
+            const logger = ai.getLogger()
+            logger(colorLog.red(`\n❌ Function Error Correction:\n${result}\n`))
           }
         } else {
           throw e
