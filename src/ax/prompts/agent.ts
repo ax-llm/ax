@@ -97,7 +97,8 @@ function processChildAgentFunction<IN extends AxGenIn>(
           if (ai) {
             const logger = ai.getLogger()
             logger(
-              `\nFunction Params: ${JSON.stringify(updatedChildArgs, null, 2)}`
+              `Function Params: ${JSON.stringify(updatedChildArgs, null, 2)}`,
+              { tags: ['functionArg'] }
             )
           }
         }
@@ -270,7 +271,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
       if (debug) {
         const logger = ai.getLogger()
-        logger(`\n--- Agent Engaged: ${this.name} ---\n`)
+        logger(`🤖 Agent ${this.name} starting...`, {
+          tags: ['assistantStart'],
+        })
       }
 
       const ret = await boundFunc(ai, values as unknown as IN, {
@@ -280,7 +283,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
       if (debug) {
         const logger = ai.getLogger()
-        logger(`\n--- Agent Done: ${this.name} ---\n`)
+        logger(`🤖 Agent ${this.name} completed.`, { tags: ['assistantEnd'] })
       }
 
       const sig = this.program.getSignature()

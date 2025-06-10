@@ -105,7 +105,7 @@ export class MemoryImpl {
     if (this.options?.debug) {
       if (delta && typeof delta === 'string') {
         debugResponseDelta(delta)
-      } else if (lastItem) {
+      } else if (!delta && (content || functionCalls)) {
         debugResponse({ content, name, functionCalls })
       }
     }

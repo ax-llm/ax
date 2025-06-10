@@ -971,36 +971,37 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 
 | Example                 | Description                                             |
 | ----------------------- | ------------------------------------------------------- |
-| customer-support.ts     | Extract valuable details from customer communications   |
-| function.ts             | Simple single function calling example                  |
-| food-search.ts          | Multi-step, multi-function calling example              |
-| marketing.ts            | Generate short effective marketing sms messages         |
-| vectordb.ts             | Chunk, embed and search text                            |
-| fibonacci.ts            | Use the JS code interpreter to compute fibonacci        |
-| summarize.ts            | Generate a short summary of a large block of text       |
-| chain-of-thought.ts     | Use chain-of-thought prompting to answer questions      |
-| rag.ts                  | Use multi-hop retrieval to answer questions             |
-| rag-docs.ts             | Convert PDF to text and embed for rag search            |
-| react.ts                | Use function calling and reasoning to answer questions  |
-| agent.ts                | Agent framework, agents can use other agents, tools etc |
-| streaming1.ts           | Output fields validation while streaming                |
-| streaming2.ts           | Per output field validation while streaming             |
-| streaming3.ts           | End-to-end streaming example `streamingForward()`       |
-| smart-hone.ts           | Agent looks for dog in smart home                       |
-| multi-modal.ts          | Use an image input along with other text inputs         |
-| balancer.ts             | Balance between various llm's based on cost, etc        |
-| docker.ts               | Use the docker sandbox to find files by description     |
-| prime.ts                | Using field processors to process fields in a prompt    |
-| simple-classify.ts      | Use a simple classifier to classify stuff               |
-| mcp-client-memory.ts    | Example of using an MCP server for memory with Ax       |
-| mcp-client-blender.ts   | Example of using an MCP server for Blender with Ax      |
-| mcp-client-pipedream.ts | Example of integrating with a remote MCP                |
-| tune-bootstrap.ts       | Use bootstrap optimizer to improve prompt efficiency    |
-| tune-mipro.ts           | Use mipro v2 optimizer to improve prompt efficiency     |
-| tune-usage.ts           | Use the optimized tuned prompts                         |
-| telemetry.ts            | Trace and push traces to a Jaeger service               |
-| openai-responses.ts     | Example using the new OpenAI Responses API              |
-| use-examples.ts | Example of using 'examples' to direct the llm |
+| [customer-support.ts](https://github.com/ax-llm/ax/blob/main/src/examples/customer-support.ts)     | Extract valuable details from customer communications   |
+| [debug-logging.ts](https://github.com/ax-llm/ax/blob/main/src/examples/debug-logging.ts)        | Debug and custom logging examples with different loggers |
+| [function.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function.ts)             | Simple single function calling example                  |
+| [food-search.ts](https://github.com/ax-llm/ax/blob/main/src/examples/food-search.ts)          | Multi-step, multi-function calling example              |
+| [marketing.ts](https://github.com/ax-llm/ax/blob/main/src/examples/marketing.ts)            | Generate short effective marketing sms messages         |
+| [vectordb.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vectordb.ts)             | Chunk, embed and search text                            |
+| [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)            | Use the JS code interpreter to compute fibonacci        |
+| [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)            | Generate a short summary of a large block of text       |
+| [chain-of-thought.ts](https://github.com/ax-llm/ax/blob/main/src/examples/chain-of-thought.ts)     | Use chain-of-thought prompting to answer questions      |
+| [rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag.ts)                  | Use multi-hop retrieval to answer questions             |
+| [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)             | Convert PDF to text and embed for rag search            |
+| [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                | Use function calling and reasoning to answer questions  |
+| [agent.ts](https://github.com/ax-llm/ax/blob/main/src/examples/agent.ts)                | Agent framework, agents can use other agents, tools etc |
+| [streaming1.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming1.ts)           | Output fields validation while streaming                |
+| [streaming2.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming2.ts)           | Per output field validation while streaming             |
+| [streaming3.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming3.ts)           | End-to-end streaming example `streamingForward()`       |
+| [smart-hone.ts](https://github.com/ax-llm/ax/blob/main/src/examples/smart-hone.ts)           | Agent looks for dog in smart home                       |
+| [multi-modal.ts](https://github.com/ax-llm/ax/blob/main/src/examples/multi-modal.ts)          | Use an image input along with other text inputs         |
+| [balancer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/balancer.ts)             | Balance between various llm's based on cost, etc        |
+| [docker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/docker.ts)               | Use the docker sandbox to find files by description     |
+| [prime.ts](https://github.com/ax-llm/ax/blob/main/src/examples/prime.ts)                | Using field processors to process fields in a prompt    |
+| [simple-classify.ts](https://github.com/ax-llm/ax/blob/main/src/examples/simple-classify.ts)      | Use a simple classifier to classify stuff               |
+| [mcp-client-memory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-memory.ts)    | Example of using an MCP server for memory with Ax       |
+| [mcp-client-blender.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-blender.ts)   | Example of using an MCP server for Blender with Ax      |
+| [mcp-client-pipedream.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-pipedream.ts) | Example of integrating with a remote MCP                |
+| [tune-bootstrap.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-bootstrap.ts)       | Use bootstrap optimizer to improve prompt efficiency    |
+| [tune-mipro.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-mipro.ts)           | Use mipro v2 optimizer to improve prompt efficiency     |
+| [tune-usage.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-usage.ts)           | Use the optimized tuned prompts                         |
+| [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)            | Trace and push traces to a Jaeger service               |
+| [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)     | Example using the new OpenAI Responses API              |
+| [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts) | Example of using 'examples' to direct the llm |
 
 ## Our Goal
 

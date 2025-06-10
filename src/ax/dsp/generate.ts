@@ -509,6 +509,11 @@ export class AxGen<
         xstate
       )
     }
+
+    if (ai.getOptions().debug) {
+      const logger = ai.getLogger()
+      logger('', { tags: ['responseEnd'] })
+    }
   }
 
   private async processResponse({
@@ -675,7 +680,7 @@ export class AxGen<
 
           if (debug) {
             const logger = options.logger ?? this.logger ?? ai.getLogger()
-            logger('\n')
+            logger('', { tags: ['responseEnd'] })
           }
 
           return

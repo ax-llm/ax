@@ -9,8 +9,12 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
 } from './types.js'
+
+// Mock logger function for tests
+const mockLogger: AxLoggerFunction = (message: string) => console.log(message)
 
 //
 // Create two dummy AI services.
@@ -63,6 +67,7 @@ const serviceA: AxAIService<string, string> = {
     },
   ],
   getMetrics: () => metrics,
+  getLogger: () => (message: string) => console.log(message),
   getLastUsedChatModel: function (): string | undefined {
     return serviceALastUsed.chatModel
   },
@@ -117,6 +122,7 @@ const serviceB: AxAIService<string, string> = {
       description: 'Second service B model',
     },
   ],
+  getLogger: () => (message: string) => console.log(message),
   getLastUsedChatModel: function (): string | undefined {
     return serviceBLastUsed.chatModel
   },
@@ -158,6 +164,7 @@ const serviceC: AxAIService<string, string> = {
   getFeatures: () => ({ functions: false, streaming: false }),
   getModelList: () => [],
   getMetrics: () => metrics,
+  getLogger: () => (message: string) => console.log(message),
   chat: async (
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
@@ -234,13 +241,12 @@ describe('AxMultiServiceRouter', () => {
       getId: () => 'dummy-key-service',
       getName: () => 'Dummy Key Service',
       getFeatures: () => ({ functions: false, streaming: false }),
-      // getModelList is not used for key–based services.
       getModelList: () => [],
-      // Return some default value (this value is stored but not used in the delegation).
       chat: dummyKeyServiceChat,
       embed: dummyKeyServiceEmbed,
       setOptions: () => {},
       getOptions: () => ({}),
+      getLogger: () => mockLogger,
       getMetrics: () => metrics,
       getLastUsedChatModel: function (): string | undefined {
         return undefined
@@ -272,8 +278,7 @@ describe('AxMultiServiceRouter', () => {
     const dummyNonKeyService = {
       getId: () => 'dummy-non-key-service',
       getName: () => 'Dummy Non-Key Service',
-      getFeatures: () => ({ functions: false, streaming: false }),
-      // Return a model list with one entry.
+      getFeatures: () => ({ functions: true, streaming: true }),
       getModelList: () => [
         { key: 'B', description: 'Non-key model', model: 'modelB' },
       ],
@@ -281,6 +286,7 @@ describe('AxMultiServiceRouter', () => {
       embed: dummyNonKeyServiceEmbed,
       setOptions: () => {},
       getOptions: () => ({}),
+      getLogger: () => mockLogger,
       getMetrics: () => metrics,
       getLastUsedChatModel: function (): string | undefined {
         return 'modelB'
@@ -355,6 +361,7 @@ describe('AxMultiServiceRouter', () => {
       embed: dummyKeyServiceEmbed,
       setOptions: () => {},
       getOptions: () => ({}),
+      getLogger: () => mockLogger,
       getMetrics: () => metrics,
       getLastUsedChatModel: function (): string | undefined {
         return undefined
@@ -381,7 +388,7 @@ describe('AxMultiServiceRouter', () => {
     const dummyNonKeyService = {
       getId: () => 'dummy-non-key-service',
       getName: () => 'Dummy Non-Key Service',
-      getFeatures: () => ({ functions: false, streaming: false }),
+      getFeatures: () => ({ functions: true, streaming: true }),
       getModelList: () => [
         { key: 'B', description: 'Non-key model', model: 'modelB' },
       ],
@@ -408,6 +415,7 @@ describe('AxMultiServiceRouter', () => {
       embed: dummyNonKeyServiceEmbed,
       setOptions: () => {},
       getOptions: () => ({}),
+      getLogger: () => mockLogger,
     }
 
     // Create a router containing both services.
@@ -524,6 +532,7 @@ describe('AxMultiServiceRouter', () => {
       },
       setOptions: () => {},
       getOptions: () => ({}),
+      getLogger: () => mockLogger,
     }
     const router2 = new AxMultiServiceRouter([embedOnlyService])
     const list = router2.getModelList()
@@ -569,6 +578,7 @@ describe('AxMultiServiceRouter', () => {
       embed: embedFn,
       setOptions: () => {},
       getOptions: () => ({}),
+      getLogger: () => mockLogger,
     }
     const router3 = new AxMultiServiceRouter([embedOnlyService2])
     const resp = await router3.embed({

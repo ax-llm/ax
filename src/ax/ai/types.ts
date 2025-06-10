@@ -231,7 +231,34 @@ export type AxRateLimiterFunction = <T = unknown>(
   info: Readonly<{ modelUsage?: AxModelUsage }>
 ) => Promise<T | ReadableStream<T>>
 
-export type AxLoggerFunction = (message: string) => void
+export type AxLoggerTag =
+  | 'error'
+  | 'warning'
+  | 'success'
+  | 'functionName'
+  | 'functionArg'
+  | 'functionEnd'
+  | 'responseStart'
+  | 'responseContent'
+  | 'responseEnd'
+  | 'requestStart'
+  | 'requestContent'
+  | 'requestEnd'
+  | 'systemStart'
+  | 'systemContent'
+  | 'systemEnd'
+  | 'userStart'
+  | 'userContent'
+  | 'userEnd'
+  | 'assistantStart'
+  | 'assistantContent'
+  | 'assistantEnd'
+  | 'discovery'
+
+export type AxLoggerFunction = (
+  message: string,
+  options?: { tags?: AxLoggerTag[] }
+) => void
 
 export type AxAIPromptConfig = {
   stream?: boolean

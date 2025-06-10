@@ -385,6 +385,7 @@ import {
   type AxInternalChatRequest,
   type AxInternalEmbedRequest,
   type AxLoggerFunction,
+  type AxLoggerTag,
   type AxModelConfig,
   type AxModelInfo,
   type AxModelInfoWithProvider,
@@ -889,6 +890,7 @@ export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
 export type { AxLoggerFunction };
+export type { AxLoggerTag };
 export type { AxMCPStreamableHTTPTransportOptions };
 export type { AxMCPTransport };
 export type { AxMessage };

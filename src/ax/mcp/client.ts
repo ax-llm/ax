@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 
-import type { AxFunction } from '../ai/types.js'
-import { ColorLog } from '../util/log.js'
+import type { AxFunction, AxLoggerFunction } from '../ai/types.js'
 
 import type { AxMCPTransport } from './transport.js'
 import type {
@@ -11,8 +10,6 @@ import type {
   MCPInitializeResult,
   MCPToolsListResult,
 } from './types.js'
-
-const colorLog = new ColorLog()
 
 /**
  * Configuration for overriding function properties
@@ -35,6 +32,8 @@ interface FunctionOverride {
 interface AxMCPClientOptions {
   /** Enable debug logging */
   debug?: boolean
+  /** Logger function for debug output */
+  logger?: AxLoggerFunction
   /**
    * List of function overrides
    * Use this to provide alternative names and descriptions for functions
@@ -65,11 +64,14 @@ export class AxMCPClient {
     resources?: boolean
     prompts?: boolean
   } = {}
+  private logger: AxLoggerFunction
 
   constructor(
     private readonly transport: AxMCPTransport,
     private readonly options: Readonly<AxMCPClientOptions> = {}
-  ) {}
+  ) {
+    this.logger = options.logger ?? ((message: string) => console.log(message))
+  }
 
   async init(): Promise<void> {
     if ('connect' in this.transport) {
@@ -156,11 +158,13 @@ export class AxMCPClient {
     })
 
     if (this.options.debug) {
-      console.log(
-        colorLog.yellow(`> Discovered ${this.functions.length} functions:`)
-      )
+      this.logger(`> Discovered ${this.functions.length} functions:`, {
+        tags: ['discovery'],
+      })
       for (const fn of this.functions) {
-        console.log(colorLog.yellow(`  - ${fn.name}: ${fn.description}`))
+        this.logger(`  - ${fn.name}: ${fn.description}`, {
+          tags: ['discovery'],
+        })
       }
     }
   }
@@ -217,10 +221,9 @@ export class AxMCPClient {
     }
 
     if (this.options.debug) {
-      console.log(
-        colorLog.blueBright(
-          `> Sending request ${requestId}:\n${JSON.stringify(request, null, 2)}`
-        )
+      this.logger(
+        `> Sending request ${requestId}:\n${JSON.stringify(request, null, 2)}`,
+        { tags: ['requestStart'] }
       )
     }
 
@@ -231,10 +234,9 @@ export class AxMCPClient {
         .then((res: unknown) => {
           this.activeRequests.delete(requestId)
           if (this.options.debug) {
-            console.log(
-              colorLog.greenBright(
-                `> Received response for request ${requestId}:\n${JSON.stringify(res, null, 2)}`
-              )
+            this.logger(
+              `> Received response for request ${requestId}:\n${JSON.stringify(res, null, 2)}`,
+              { tags: ['responseContent'] }
             )
           }
           if (res !== null && typeof res === 'object' && 'error' in res) {
@@ -275,9 +277,9 @@ export class AxMCPClient {
     }
 
     if (this.options.debug) {
-      console.log(
-        '➡️ Sending notification:',
-        JSON.stringify(notification, null, 2)
+      this.logger(
+        `➡️ Sending notification: ${JSON.stringify(notification, null, 2)}`,
+        { tags: ['requestStart'] }
       )
     }
 

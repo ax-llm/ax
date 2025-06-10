@@ -61,7 +61,11 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   })
 
 // Default logger function that uses process.stdout.write
-const defaultLogger: AxLoggerFunction = (message: string) => {
+const defaultLogger: AxLoggerFunction = (
+  message: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: { tags?: string[] }
+) => {
   process.stdout.write(message)
 }
 
@@ -557,7 +561,7 @@ export class AxBaseAI<
       const doneCb = async (_values: readonly AxChatResponse[]) => {
         if (debug) {
           const logger = options?.logger ?? this.logger
-          logger('\n')
+          logger('', { tags: ['responseEnd'] })
         }
         if (span?.isRecording()) {
           span.end()
@@ -609,6 +613,10 @@ export class AxBaseAI<
 
     if (debug) {
       logResponse(res, options?.logger ?? this.logger)
+    }
+
+    if (debug) {
+      this.logger('', { tags: ['responseEnd'] })
     }
 
     return res
