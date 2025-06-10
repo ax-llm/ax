@@ -1,5 +1,18 @@
 # Changelog
 
+## [11.0.58](https://github.com/ax-llm/ax/compare/11.0.56...11.0.57) (2025-06-10)
+
+### Features
+
+* Enhance logging capabilities with structured tags ([2bb76d3](https://github.com/ax-llm/ax/commit/2bb76d3926d08d32c1a12fc651ee3434d3876bc9))
+* Introduce custom logger functionality for AI services ([a5eaed1](https://github.com/ax-llm/ax/commit/a5eaed118a1c880cdaef32a81763a7f4d6aa4fce))
+## [11.0.57](https://github.com/ax-llm/ax/compare/11.0.56...11.0.57) (2025-06-09)
+
+### Features
+
+* Add initPackage script for creating new packages in the Ax monorepo ([08746e8](https://github.com/ax-llm/ax/commit/08746e86f33b1b8eee3f978fe5031e8e3c8206fe))
+* Add maxTokens field to AxModelInfo and update Anthropic model configurations ([f2645e6](https://github.com/ax-llm/ax/commit/f2645e684091b03d9740fa5c58641c3ef0047153))
+
 ## [11.0.57](https://github.com/ax-llm/ax/compare/11.0.55...11.0.56) (2025-06-09)
 
 ### Features
