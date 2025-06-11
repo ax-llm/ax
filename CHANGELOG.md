@@ -1,5 +1,12 @@
 # Changelog
 
+## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-11)
+## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-10)
+
+### Features
+
+* Add showThoughts feature to enhance model reasoning visibility ([fabc76d](https://github.com/ax-llm/ax/commit/fabc76d5ef5b3d745b78f75615d6f43946d130af))
+
 ## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.57...11.0.58) (2025-06-10)
 
 ### Features
