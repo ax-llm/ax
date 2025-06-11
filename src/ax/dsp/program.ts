@@ -10,7 +10,9 @@ import type {
 } from '../ai/types.js'
 import type { AxAIMemory } from '../mem/types.js'
 
+import type { AxAssertion, AxStreamingAssertion } from './asserts.js'
 import type { AxInputFunctionType } from './functions.js'
+import { AxPromptTemplate } from './prompt.js'
 import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
 import type { AxFieldValue, AxGenIn, AxGenOut, AxMessage } from './types.js'
@@ -31,23 +33,36 @@ export type AxProgramDemos = {
 export type AxProgramExamples = AxProgramDemos | AxProgramDemos['traces']
 
 export type AxProgramForwardOptions = {
+  // Execution control
   maxRetries?: number
   maxSteps?: number
   mem?: AxAIMemory
+
+  // AI service and model configuration
   ai?: AxAIService
   modelConfig?: AxModelConfig
   model?: string
+
+  // Session and tracing
   sessionId?: string
   traceId?: string | undefined
   tracer?: Tracer
   rateLimiter?: AxRateLimiterFunction
+
+  // Streaming and output
   stream?: boolean
+
+  // Functions and calls
   functions?: AxInputFunctionType
   functionCall?: AxChatRequest['functionCall']
   stopFunction?: string
+
+  // Behavior control
   fastFail?: boolean
   debug?: boolean
   debugHideSystemPrompt?: boolean
+
+  // Thinking model controls
   thinkingTokenBudget?:
     | 'minimal'
     | 'low'
@@ -56,9 +71,19 @@ export type AxProgramForwardOptions = {
     | 'highest'
     | 'none'
   showThoughts?: boolean
+
+  // Tracing and logging
   traceLabel?: string
   abortSignal?: AbortSignal
   logger?: AxLoggerFunction
+
+  // AxGen-specific options (previously in AxGenOptions)
+  description?: string
+  thoughtFieldName?: string
+  promptTemplate?: typeof AxPromptTemplate
+  asserts?: AxAssertion[]
+  streamingAsserts?: AxStreamingAssertion[]
+  excludeContentFromTrace?: boolean
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

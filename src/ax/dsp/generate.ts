@@ -6,17 +6,14 @@ import {
   type Span,
   SpanKind,
   trace,
-  type Tracer,
 } from '@opentelemetry/api'
 
 import type {
   AxAIService,
-  AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
   AxLoggerFunction,
-  AxRateLimiterFunction,
 } from '../ai/types.js'
 import { mergeFunctionCalls } from '../ai/util.js'
 import { AxMemory } from '../mem/memory.js'
@@ -44,7 +41,6 @@ import {
 } from './fieldProcessor.js'
 import {
   type AxChatResponseFunctionCall,
-  type AxInputFunctionType,
   parseFunctionCalls,
   parseFunctions,
   processFunctions,
@@ -66,28 +62,6 @@ import type {
 } from './types.js'
 import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
-
-export interface AxGenOptions {
-  maxRetries?: number
-  maxSteps?: number
-  mem?: AxAIMemory
-  tracer?: Tracer
-  rateLimiter?: AxRateLimiterFunction
-  stream?: boolean
-  description?: string
-  thoughtFieldName?: string
-
-  functions?: AxInputFunctionType
-  functionCall?: AxChatRequest['functionCall']
-  stopFunction?: string
-  promptTemplate?: typeof AxPromptTemplate
-  asserts?: AxAssertion[]
-  streamingAsserts?: AxStreamingAssertion[]
-  fastFail?: boolean
-  excludeContentFromTrace?: boolean
-  traceLabel?: string
-  logger?: AxLoggerFunction
-}
 
 export type AxGenerateResult<OUT extends AxGenOutType> = OUT & {
   thought?: string
@@ -124,7 +98,7 @@ export class AxGen<
   private promptTemplate: AxPromptTemplate
   private asserts: AxAssertion[]
   private streamingAsserts: AxStreamingAssertion[]
-  private options?: Omit<AxGenOptions, 'functions'>
+  private options?: Omit<AxProgramForwardOptions, 'functions'>
   private functions?: AxFunction[]
   private functionsExecuted: Set<string> = new Set<string>()
   private fieldProcessors: AxFieldProcessor[] = []
@@ -136,7 +110,7 @@ export class AxGen<
 
   constructor(
     signature: Readonly<AxSignature | string>,
-    options?: Readonly<AxGenOptions>
+    options?: Readonly<AxProgramForwardOptions>
   ) {
     super(signature, { description: options?.description })
 

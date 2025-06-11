@@ -6,7 +6,7 @@ import type {
   AxFunctionJSONSchema,
 } from '../ai/types.js'
 import type { AxInputFunctionType } from '../dsp/functions.js'
-import { AxGen, type AxGenOptions } from '../dsp/generate.js'
+import { AxGen } from '../dsp/generate.js'
 import type {
   AxGenStreamingOut,
   AxProgramDemos,
@@ -30,7 +30,7 @@ export interface AxAgentic extends AxTunable, AxUsable {
   getFeatures(): AxAgentFeatures
 }
 
-export type AxAgentOptions = Omit<AxGenOptions, 'functions'> & {
+export type AxAgentOptions = Omit<AxProgramForwardOptions, 'functions'> & {
   disableSmartModelRouting?: boolean
   /** List of field names that should not be automatically passed from parent to child agents */
   excludeFieldsFromPassthrough?: string[]

@@ -1,11 +1,6 @@
 import { type AxProgramForwardOptions } from '../dsp/program.js'
 import { AxStringUtil } from '../dsp/strutil.js'
-import {
-  type AxAIService,
-  AxGen,
-  type AxGenOptions,
-  AxSignature,
-} from '../index.js'
+import { type AxAIService, AxGen, AxSignature } from '../index.js'
 
 import { AxChainOfThought } from './cot.js'
 
@@ -22,7 +17,7 @@ export class AxRAG extends AxChainOfThought<
 
   constructor(
     queryFn: (query: string) => Promise<string>,
-    options: Readonly<AxGenOptions & { maxHops?: number }>
+    options: Readonly<AxProgramForwardOptions & { maxHops?: number }>
   ) {
     const sig =
       '"Answer questions with short factoid answers." context:string[] "may contain relevant facts", question -> answer'
@@ -46,21 +41,18 @@ export class AxRAG extends AxChainOfThought<
     { question }: Readonly<{ question: string }>,
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<{ answer: string }> {
+    let hop = 0
     let context: string[] = []
 
-    for (let i = 0; i < this.maxHops; i++) {
-      const { query } = await this.genQuery.forward(
-        ai,
-        {
-          context,
-          question,
-        },
-        options
-      )
-      const val = await this.queryFn(query)
-      context = AxStringUtil.dedup([...context, val])
+    while (hop < this.maxHops) {
+      const query = await this.genQuery.forward(ai, { context, question })
+      const queryResult = await this.queryFn(query.query)
+      context = AxStringUtil.dedup([...context, queryResult])
+
+      hop++
     }
 
-    return super.forward(ai, { context, question }, options)
+    const res = await super.forward(ai, { context, question }, options)
+    return res
   }
 }
