@@ -15,7 +15,7 @@ const ai = new AxAI({
 
 // Define conversation types
 type UserMessage = { role: 'user'; values: { message: string } }
-type AssistantMessage = { role: 'assistant'; values: { reply: string } }
+type AssistantMessage = { role: 'assistant'; values: { message: string } }
 type ChatMessage = UserMessage | AssistantMessage
 
 // Create a simple chat assistant
@@ -43,7 +43,7 @@ let response = await chatBot.forward(ai, chat)
 console.log(`🤖 Bot: ${response.reply}\n`)
 
 // Add response to chat history
-chat.push({ role: 'assistant', values: response })
+chat.push({ role: 'assistant', values: { message: response.reply } })
 
 // Continue the conversation
 chat.push({
@@ -61,7 +61,7 @@ response = await chatBot.forward(ai, chat)
 console.log(`🤖 Bot: ${response.reply}\n`)
 
 // Add response and continue
-chat.push({ role: 'assistant', values: response })
+chat.push({ role: 'assistant', values: { message: response.reply } })
 
 chat.push({
   role: 'user',

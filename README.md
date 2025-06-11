@@ -294,7 +294,7 @@ await chatBot.forward(ai, [
   },
   {
     role: 'assistant',
-    values: { reply: 'I am doing great! How about you?' },
+    values: { message: 'I am doing great! How about you?' },
   },
   {
     role: 'user',

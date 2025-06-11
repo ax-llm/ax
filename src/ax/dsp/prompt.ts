@@ -3,7 +3,7 @@ import type { AxChatRequest } from '../ai/types.js'
 import { formatDateWithTimezone } from './datetime.js'
 import type { AxInputFunctionType } from './functions.js'
 import type { AxField, AxIField, AxSignature } from './sig.js'
-import type { AxFieldValue, AxGenIn, AxGenOut, AxMessage } from './types.js'
+import type { AxFieldValue, AxGenIn, AxMessage } from './types.js'
 import { validateValue } from './util.js'
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] }
@@ -170,33 +170,14 @@ export class AxPromptTemplate {
             .join('') // Join without adding extra newlines
             .trim() // Trim trailing newline from the last part
         } else if (message.role === 'assistant') {
-          // For assistant messages, format their 'values' (AxGenOut)
-          const assistantValues = message.values as AxGenOut
-          let assistantContentParts: string[] = []
-          const outputFields = this.sig.getOutputFields()
-
-          for (const field of outputFields) {
-            const value = assistantValues[field.name]
-
-            if (
-              value !== undefined &&
-              value !== null &&
-              (typeof value === 'string' ? value !== '' : true)
-            ) {
-              const renderedValue = processValue(field, value)
-              assistantContentParts.push(`${field.name}: ${renderedValue}`) // Use field.name instead of field.title
-            } else {
-              // Field is missing or effectively empty
-              const isThoughtField = field.name === this.thoughtFieldName
-              if (!field.isOptional && !field.isInternal && !isThoughtField) {
-                throw new Error(
-                  `Value for output field '${field.name}' ('${field.title}') is required in assistant message history but was not found or was empty.`
-                )
-              }
-              // If optional, internal, or thought, it's okay for it to be missing/empty. Skip.
-            }
-          }
-          messageContent = assistantContentParts.join('\n')
+          // For assistant messages, render their 'values' (AxGenIn) as input fields
+          const assistantMsgParts = this.renderInputFields(
+            message.values as unknown as T // Cast message.values (AxGenIn) to T (which extends AxGenIn)
+          )
+          messageContent = assistantMsgParts
+            .map((part) => (part.type === 'text' ? part.text : '')) // Simplify: combine text parts
+            .join('') // Join without adding extra newlines
+            .trim() // Trim trailing newline from the last part
         }
 
         if (messageContent) {
