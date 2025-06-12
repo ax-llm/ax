@@ -281,7 +281,7 @@ export class AxAIOpenAIResponsesImpl<
       | 'code_interpreter_call.outputs'
     )[] = []
     const shouldShowThoughts =
-      config.thinkingTokenBudget === 'none' ? false : config.showThoughts
+      config?.thinkingTokenBudget === 'none' ? false : config?.showThoughts
     if (shouldShowThoughts) {
       includeFields.push('reasoning.encrypted_content')
     }
@@ -368,7 +368,7 @@ export class AxAIOpenAIResponsesImpl<
     }
 
     // Handle thinkingTokenBudget config parameter
-    if (config.thinkingTokenBudget) {
+    if (config?.thinkingTokenBudget) {
       switch (config.thinkingTokenBudget) {
         case 'none':
           // When thinkingTokenBudget is 'none', remove reasoning entirely

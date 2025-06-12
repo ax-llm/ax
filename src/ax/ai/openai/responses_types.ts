@@ -4,6 +4,29 @@ import type {
   AxModelConfig,
 } from '../types.js'
 
+// Extended model enum for the responses API that includes models only available on responses API
+export enum AxAIOpenAIResponsesModel {
+  // All chat API models
+  O1 = 'o1',
+  O1Mini = 'o1-mini',
+  GPT4 = 'gpt-4',
+  GPT41 = 'gpt-4.1',
+  GPT41Mini = 'gpt-4.1-mini',
+  GPT4O = 'gpt-4o',
+  GPT4OMini = 'gpt-4o-mini',
+  GPT4ChatGPT4O = 'chatgpt-4o-latest',
+  GPT4Turbo = 'gpt-4-turbo',
+  GPT35Turbo = 'gpt-3.5-turbo',
+  GPT35TurboInstruct = 'gpt-3.5-turbo-instruct',
+  GPT35TextDavinci002 = 'text-davinci-002',
+  GPT3TextBabbage002 = 'text-babbage-002',
+  GPT3TextAda001 = 'text-ada-001',
+  // Responses API only models
+  O3 = 'o3',
+  O3Mini = 'o3-mini',
+  O4Mini = 'o4-mini',
+}
+
 // Define content part types directly based on AxChatRequest structure
 export interface TextContentPart {
   type: 'text'
@@ -135,7 +158,7 @@ export type AxAIOpenAIResponsesToolChoice =
 // | { type: 'code_interpreter' }
 
 // Main Request for /v1/responses
-export interface AxAIOpenAIResponsesRequest<TModel = string> {
+export interface AxAIOpenAIResponsesRequest<TModel = AxAIOpenAIResponsesModel> {
   readonly input: string | ReadonlyArray<AxAIOpenAIResponsesInputItem>
   readonly model: TModel
   readonly background?: boolean | null

@@ -1,6 +1,7 @@
 import type { AxModelInfo } from '../types.js'
 
 import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js'
+import { AxAIOpenAIResponsesModel } from './responses_types.js'
 
 /**
  * OpenAI: Model information
@@ -18,20 +19,6 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 14.4,
-    hasThinkingBudget: true,
-  },
-  {
-    name: AxAIOpenAIModel.O3Mini,
-    currency: 'usd',
-    promptTokenCostPer1M: 1.1,
-    completionTokenCostPer1M: 4.4,
-    hasThinkingBudget: true,
-  },
-  {
-    name: AxAIOpenAIModel.O4Mini,
-    currency: 'usd',
-    promptTokenCostPer1M: 1.1,
-    completionTokenCostPer1M: 4.4,
     hasThinkingBudget: true,
   },
   {
@@ -82,6 +69,32 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
   },
+  // Responses API only models
+  {
+    name: AxAIOpenAIResponsesModel.O3,
+    currency: 'usd',
+    promptTokenCostPer1M: 15,
+    completionTokenCostPer1M: 60,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.O3Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.1,
+    completionTokenCostPer1M: 4.4,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.O4Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.1,
+    completionTokenCostPer1M: 4.4,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
+  },
+  // Embedding models
   {
     name: AxAIOpenAIEmbedModel.TextEmbeddingAda002,
     currency: 'usd',

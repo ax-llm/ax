@@ -1,8 +1,9 @@
 {
   "name": "@ax-llm/ax-examples",
+  "version": "11.0.61",
   "private": true,
   "type": "module",
-  "description": "Examples for the best library to work with LLMs - Ax",
+  "description": "Examples for the Ax LLM Framework",
   "repository": {
     "type": "git",
     "url": "https://github.com/ax-llm/ax.git"
@@ -10,10 +11,16 @@
   "license": "Apache-2.0",
   "keywords": [],
   "scripts": {
+    "test": "run-s test:*",
+    "test:lint": "eslint .",
+    "test:format": "prettier --check \"**/*.{ts,json,md}\"",
+    "fix": "run-s fix:*",
+    "fix:lint": "eslint --fix",
+    "fix:format": "prettier --write \"**/*.{ts,json,md}\"",
     "tsx": "node --env-file=.env --import=tsx"
   },
   "dependencies": {
-    "@ax-llm/ax": "11.0.61",
+    "@ax-llm/ax": "^11.0.61",
     "@opentelemetry/exporter-trace-otlp-http": "^0.201.1",
     "@opentelemetry/resources": "^2.0.1",
     "@opentelemetry/sdk-trace-base": "^2.0.1",
