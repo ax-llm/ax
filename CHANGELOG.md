@@ -1,5 +1,8 @@
 # Changelog
 
+## [11.0.61](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-12)
+## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-11)
+
 ## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-11)
 ## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-10)
 
