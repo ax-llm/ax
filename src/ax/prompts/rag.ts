@@ -1,5 +1,6 @@
 import { type AxProgramForwardOptions } from '../dsp/program.js'
 import { AxStringUtil } from '../dsp/strutil.js'
+import type { AxMessage } from '../dsp/types.js'
 import { type AxAIService, AxGen, AxSignature } from '../index.js'
 
 import { AxChainOfThought } from './cot.js'
@@ -38,9 +39,25 @@ export class AxRAG extends AxChainOfThought<
 
   public override async forward(
     ai: Readonly<AxAIService>,
-    { question }: Readonly<{ question: string }>,
+    values:
+      | { context: string[]; question: string }
+      | AxMessage<{ context: string[]; question: string }>[],
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<{ answer: string }> {
+    // Extract question from values - handle both cases
+    let question: string
+    if (Array.isArray(values)) {
+      // If values is an array of messages, find the most recent user message
+      const lastUserMessage = values.filter((msg) => msg.role === 'user').pop()
+      if (!lastUserMessage) {
+        throw new Error('No user message found in values array')
+      }
+      question = lastUserMessage.values.question
+    } else {
+      // If values is a single object
+      question = values.question
+    }
+
     let hop = 0
     let context: string[] = []
 

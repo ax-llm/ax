@@ -101,7 +101,7 @@ export class AxPromptTemplate {
   }
 
   public render = <T extends AxGenIn>(
-    values: T | ReadonlyArray<AxMessage>, // Allow T (AxGenIn) or array of AxMessages
+    values: T | ReadonlyArray<AxMessage<T>>, // Allow T (AxGenIn) or array of AxMessages
     {
       examples,
       demos,
@@ -153,8 +153,8 @@ export class AxPromptTemplate {
     let userMessages: HistoryChatMessage[] = []
 
     if (Array.isArray(values)) {
-      // values is ReadonlyArray<AxMessage>
-      const history = values as ReadonlyArray<AxMessage> // Type assertion
+      // values is ReadonlyArray<AxMessage<T>>
+      const history = values as ReadonlyArray<AxMessage<T>> // Type assertion
       let lastRole: 'user' | 'assistant' | undefined = undefined
 
       for (const message of history) {

@@ -90,9 +90,7 @@ export interface AxStreamingEvent<T> {
 }
 
 export class AxGen<
-  IN extends AxGenInType | ReadonlyArray<AxMessage> =
-    | AxGenInType
-    | ReadonlyArray<AxMessage>,
+  IN extends AxGenInType,
   OUT extends AxGenerateResult<AxGenOutType> = AxGenerateResult<AxGenOutType>,
 > extends AxProgramWithSignature<IN, OUT> {
   private promptTemplate: AxPromptTemplate
@@ -571,7 +569,7 @@ export class AxGen<
 
   private async *_forward2(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions>,
     span?: Span,
     traceContext?: Context
@@ -747,7 +745,7 @@ export class AxGen<
 
   public async *_forward1(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions>
   ) {
     const tracer =
@@ -824,7 +822,7 @@ export class AxGen<
 
   public override async forward(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     const generator = this._forward1(ai, values, options ?? {})
@@ -846,7 +844,7 @@ export class AxGen<
 
   override async *streamingForward(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptions>
   ) {
     yield* this._forward1(ai, values, {

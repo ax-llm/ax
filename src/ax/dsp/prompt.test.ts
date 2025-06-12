@@ -112,7 +112,7 @@ describe('AxPromptTemplate.render', () => {
   describe('ReadonlyArray<AxMessage> input (new behavior)', () => {
     it('should render with a single user message in history', () => {
       const pt = new AxPromptTemplate(defaultSig)
-      const history: ReadonlyArray<AxMessage> = [
+      const history: ReadonlyArray<AxMessage<{ input: string }>> = [
         { role: 'user', values: { input: 'first message' } },
       ]
       const result = pt.render(history, {})
@@ -126,7 +126,9 @@ describe('AxPromptTemplate.render', () => {
 
     it('should combine consecutive user messages', () => {
       const pt = new AxPromptTemplate(multiFieldSig)
-      const history: ReadonlyArray<AxMessage> = [
+      const history: ReadonlyArray<
+        AxMessage<{ question: string; context: string }>
+      > = [
         { role: 'user', values: { question: 'q1', context: 'c1' } },
         { role: 'user', values: { question: 'q2', context: 'c2' } },
       ]
@@ -142,7 +144,9 @@ describe('AxPromptTemplate.render', () => {
 
     it('should handle alternating user and assistant messages', () => {
       const pt = new AxPromptTemplate(multiFieldSig)
-      const history: ReadonlyArray<AxMessage> = [
+      const history: ReadonlyArray<
+        AxMessage<{ question: string; context: string }>
+      > = [
         { role: 'user', values: { question: 'q1', context: 'c1' } },
         {
           role: 'assistant',
@@ -170,7 +174,9 @@ describe('AxPromptTemplate.render', () => {
     // This test confirms user messages need all required fields
     it('should throw if required field missing in user message history', () => {
       const pt = new AxPromptTemplate(multiFieldSig)
-      const history: ReadonlyArray<AxMessage> = [
+      const history: ReadonlyArray<
+        AxMessage<{ question: string; context?: string }>
+      > = [
         { role: 'user', values: { question: 'q1' } }, // context is missing
       ]
       expect(() => pt.render(history, {})).toThrowError(
@@ -180,7 +186,7 @@ describe('AxPromptTemplate.render', () => {
 
     it('should handle empty history array', () => {
       const pt = new AxPromptTemplate(defaultSig)
-      const history: ReadonlyArray<AxMessage> = []
+      const history: ReadonlyArray<AxMessage<{ input: string }>> = []
       const result = pt.render(history, {})
 
       expect(result.length).toBe(1) // Only system prompt for empty array
@@ -195,7 +201,7 @@ describe('AxPromptTemplate.render', () => {
     describe('Assistant Messages in History', () => {
       it('should render assistant message with input fields', () => {
         const pt = new AxPromptTemplate(assistantTestSig)
-        const history: ReadonlyArray<AxMessage> = [
+        const history: ReadonlyArray<AxMessage<{ input: string }>> = [
           {
             role: 'assistant',
             values: {
@@ -212,7 +218,7 @@ describe('AxPromptTemplate.render', () => {
 
       it('should throw error if required input field is missing in assistant message', () => {
         const pt = new AxPromptTemplate(assistantTestSig)
-        const history: ReadonlyArray<AxMessage> = [
+        const history: ReadonlyArray<AxMessage<{ input?: string }>> = [
           {
             role: 'assistant',
             values: {}, // 'input' is missing
@@ -225,7 +231,9 @@ describe('AxPromptTemplate.render', () => {
 
       it('should render assistant message with multiple input fields', () => {
         const pt = new AxPromptTemplate(multiFieldSig)
-        const history: ReadonlyArray<AxMessage> = [
+        const history: ReadonlyArray<
+          AxMessage<{ question: string; context: string }>
+        > = [
           {
             role: 'assistant',
             values: {
@@ -245,7 +253,9 @@ describe('AxPromptTemplate.render', () => {
 
       it('should throw error if required input field is missing in multi-field assistant message', () => {
         const pt = new AxPromptTemplate(multiFieldSig)
-        const history: ReadonlyArray<AxMessage> = [
+        const history: ReadonlyArray<
+          AxMessage<{ question: string; context?: string }>
+        > = [
           {
             role: 'assistant',
             values: {

@@ -15,6 +15,6 @@ export type AxGenIn = { [key: string]: AxFieldValue }
 
 export type AxGenOut = Record<string, AxFieldValue>
 
-export type AxMessage =
-  | { role: 'user'; values: AxGenIn }
-  | { role: 'assistant'; values: AxGenIn }
+export type AxMessage<IN extends AxGenIn> =
+  | { role: 'user'; values: IN }
+  | { role: 'assistant'; values: IN }

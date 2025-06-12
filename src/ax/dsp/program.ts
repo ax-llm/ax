@@ -133,10 +133,7 @@ export interface AxProgramWithSignatureOptions {
   description?: string
 }
 
-export class AxProgramWithSignature<
-    IN extends AxGenIn | ReadonlyArray<AxMessage>,
-    OUT extends AxGenOut,
-  >
+export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxTunable, AxUsable
 {
   protected signature: AxSignature
@@ -180,7 +177,7 @@ export class AxProgramWithSignature<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
@@ -192,7 +189,7 @@ export class AxProgramWithSignature<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
@@ -331,7 +328,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
@@ -343,7 +340,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
