@@ -613,7 +613,7 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'json':
         return 'JSON object'
       case 'class':
-        return `classification class (allowed classes: ${type.classes?.join(', ')})`
+        return `list of classes (match case): ${type.classes?.join(', ')})`
       case 'code':
         return 'code'
       default:

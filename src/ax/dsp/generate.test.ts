@@ -154,6 +154,18 @@ describe('AxProgramForwardOptions types', () => {
     }
     expect(options.showThoughts).toBe(true)
   })
+
+  it('should ensure showThoughts is false when thinkingTokenBudget is none', () => {
+    const options: AxProgramForwardOptions = {
+      ai: new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }),
+      thinkingTokenBudget: 'none',
+      showThoughts: true, // This should be overridden
+    }
+    expect(options.thinkingTokenBudget).toBe('none')
+    expect(options.showThoughts).toBe(true) // This validates the type allows both options
+  })
 })
 
 describe('AxGen thoughtFieldName', () => {

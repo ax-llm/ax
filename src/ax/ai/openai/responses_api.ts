@@ -272,7 +272,7 @@ export class AxAIOpenAIResponsesImpl<
         })
       )
 
-    // Set include field based on showThoughts option
+    // Set include field based on showThoughts option, but override if thinkingTokenBudget is 'none'
     const includeFields: (
       | 'file_search_call.results'
       | 'message.input_image.image_url'
@@ -280,7 +280,9 @@ export class AxAIOpenAIResponsesImpl<
       | 'reasoning.encrypted_content'
       | 'code_interpreter_call.outputs'
     )[] = []
-    if (config.showThoughts) {
+    const shouldShowThoughts =
+      config.thinkingTokenBudget === 'none' ? false : config.showThoughts
+    if (shouldShowThoughts) {
       includeFields.push('reasoning.encrypted_content')
     }
 
@@ -364,10 +366,37 @@ export class AxAIOpenAIResponsesImpl<
         effort: this.config.reasoningEffort,
       }
     }
-    // promptConfig.thinkingTokenBudget is from PromptConfig, not AxInternalChatRequest or AxAIOpenAIConfig
-    // This mapping was likely for a different API structure. /v1/responses takes effort directly.
-    // For now, only using reasoningEffort from main config.
-    // if (promptConfig.thinkingTokenBudget) { ... }
+
+    // Handle thinkingTokenBudget config parameter
+    if (config.thinkingTokenBudget) {
+      switch (config.thinkingTokenBudget) {
+        case 'none':
+          // When thinkingTokenBudget is 'none', remove reasoning entirely
+          currentReasoning = {}
+          break
+        case 'minimal':
+          currentReasoning = {
+            ...currentReasoning,
+            effort: 'low',
+          }
+          break
+        case 'low':
+          currentReasoning = {
+            ...currentReasoning,
+            effort: 'medium',
+          }
+          break
+        case 'medium':
+        case 'high':
+        case 'highest':
+          currentReasoning = {
+            ...currentReasoning,
+            effort: 'high',
+          }
+          break
+      }
+    }
+
     if (Object.keys(currentReasoning).length > 0 && currentReasoning.effort) {
       mutableReq.reasoning = currentReasoning
     } else {

@@ -361,6 +361,7 @@ class AxAIGoogleGeminiImpl
       switch (config.thinkingTokenBudget) {
         case 'none':
           thinkingConfig.thinkingBudget = 0 // Explicitly set to 0
+          thinkingConfig.includeThoughts = false // When thinkingTokenBudget is 'none', disable showThoughts
           break
         case 'minimal':
           thinkingConfig.thinkingBudget = 200
@@ -381,7 +382,10 @@ class AxAIGoogleGeminiImpl
     }
 
     if (config.showThoughts !== undefined) {
-      thinkingConfig.includeThoughts = config.showThoughts
+      // Only override includeThoughts if thinkingTokenBudget is not 'none'
+      if (config.thinkingTokenBudget !== 'none') {
+        thinkingConfig.includeThoughts = config.showThoughts
+      }
     }
 
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {

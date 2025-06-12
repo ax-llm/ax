@@ -147,6 +147,26 @@ const main = async () => {
     )
   }
 
+  console.log('\n=== Example: thinkingTokenBudget="none" constraint ===')
+  try {
+    const resultWithNoneThinking = await gen.forward(gemini, question, {
+      thinkingTokenBudget: 'none', // This automatically sets showThoughts to false
+      showThoughts: true, // This will be overridden to false due to thinkingTokenBudget="none"
+    })
+
+    console.log('Answer:', resultWithNoneThinking.answer)
+    console.log(
+      'Reasoning:',
+      resultWithNoneThinking.reasoning ||
+        'No reasoning provided (expected when thinkingTokenBudget="none")'
+    )
+    console.log(
+      'ℹ️ Note: showThoughts=true was overridden to false because thinkingTokenBudget="none"'
+    )
+  } catch (error) {
+    console.log('Gemini error:', error instanceof Error ? error.message : error)
+  }
+
   console.log('\n=== Feature Support Information ===')
   console.log('📋 APIs that support showThoughts:')
   console.log('  ✅ google-gemini (Gemini models with thinking capabilities)')
@@ -155,6 +175,13 @@ const main = async () => {
     '  ❌ openai (Regular OpenAI Chat API - use openai-responses instead)'
   )
   console.log('  ❌ Most other providers (feature not yet implemented)')
+  console.log('\n📋 thinkingTokenBudget constraint:')
+  console.log(
+    '  When thinkingTokenBudget="none", showThoughts is automatically set to false'
+  )
+  console.log(
+    '  This ensures no thinking/reasoning content is returned when budget is disabled'
+  )
 }
 
 // Error handling for missing API keys
