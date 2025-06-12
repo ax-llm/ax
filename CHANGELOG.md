@@ -1,5 +1,12 @@
 # Changelog
 
+## [11.0.62](https://github.com/ax-llm/ax/compare/11.0.60...11.0.61) (2025-06-12)
+
+### Features
+
+* Introduce AxAIOpenAIResponsesModel and enhance responses API integration ([0ab61f8](https://github.com/ax-llm/ax/commit/0ab61f8020afb3e402c5e178ce9a82da00e797ac))
+## [11.0.61](https://github.com/ax-llm/ax/compare/11.0.60...11.0.61) (2025-06-12)
+
 ## [11.0.61](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-12)
 ## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-11)
 
