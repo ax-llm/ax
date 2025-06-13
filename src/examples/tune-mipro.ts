@@ -129,7 +129,9 @@ try {
     'utf8'
   )
   const loadedConfig = JSON.parse(loadedProgramConfigText)
-  console.log('Successfully loaded configuration from mipro-power-demo-config.json')
+  console.log(
+    'Successfully loaded configuration from mipro-power-demo-config.json'
+  )
   // console.log('Keys in loadedConfig:', Object.keys(loadedConfig))
   // console.log('Loaded config demos:', loadedConfig.demos)
   // console.log('Loaded config signature:', loadedConfig.signature)
@@ -144,9 +146,13 @@ try {
   // Apply demos from loaded config
   if (loadedConfig.demos && Array.isArray(loadedConfig.demos)) {
     newProgram.setDemos(loadedConfig.demos)
-    console.log(`Loaded ${loadedConfig.demos.length} demo sets into new program.`)
+    console.log(
+      `Loaded ${loadedConfig.demos.length} demo sets into new program.`
+    )
   } else {
-    console.log('No demos found or demos in unexpected format in loaded config.')
+    console.log(
+      'No demos found or demos in unexpected format in loaded config.'
+    )
   }
 
   // Apply instruction from loaded config
@@ -162,13 +168,19 @@ try {
     // The `setInstruction` method in `AxProgramWithSignature` sets `this.signature.instruction`.
     // Let's assume the `loadedConfig.signature.instruction` is the relevant one.
     newProgram.setInstruction(loadedConfig.signature.instruction)
-    console.log('Loaded instruction from `loadedConfig.signature.instruction` into new program.')
+    console.log(
+      'Loaded instruction from `loadedConfig.signature.instruction` into new program.'
+    )
   } else if (typeof loadedConfig.instruction === 'string') {
     // Fallback if instruction is directly on the config object
     newProgram.setInstruction(loadedConfig.instruction)
-    console.log('Loaded instruction from `loadedConfig.instruction` into new program.')
+    console.log(
+      'Loaded instruction from `loadedConfig.instruction` into new program.'
+    )
   } else {
-    console.log('No specific optimized instruction found in loaded config to apply directly via setInstruction, or format not recognized.')
+    console.log(
+      'No specific optimized instruction found in loaded config to apply directly via setInstruction, or format not recognized.'
+    )
   }
 
   // Test the new program with loaded configuration
@@ -179,12 +191,19 @@ try {
     if (testExample) {
       const prediction = await newProgram.forward(ai, testExample)
       console.log(`\nInput: "${testExample.productReview}"`)
-      console.log(`Expected: ${testExample.label}, Predicted: ${prediction.label}`)
+      console.log(
+        `Expected: ${testExample.label}, Predicted: ${prediction.label}`
+      )
       // You can use metricFn here too if you want to score it
       const score = metricFn({ prediction, example: testExample })
-      console.log(`Result: ${score === 1.0 ? '✓ CORRECT' : '✗ INCORRECT'} (Score: ${score})`)
+      console.log(
+        `Result: ${score === 1.0 ? '✓ CORRECT' : '✗ INCORRECT'} (Score: ${score})`
+      )
     }
   }
 } catch (error) {
-  console.error('Error loading or using the optimized program configuration:', error)
+  console.error(
+    'Error loading or using the optimized program configuration:',
+    error
+  )
 }

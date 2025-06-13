@@ -1,6 +1,5 @@
 import {
   AxAgent,
-  AxAI,
   AxAIOpenAIResponses,
   type AxFunction,
   AxSignature,

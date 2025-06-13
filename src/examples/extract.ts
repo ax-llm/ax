@@ -1,4 +1,4 @@
-import { AxAI, AxAIGoogleGeminiModel, AxAIOpenAIModel, AxGen } from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax'
 
 const chatMessage = `Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!`
 

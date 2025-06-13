@@ -67,9 +67,7 @@ console.log('\nStep 2: Compile to get demos')
 const metricFn: AxMetricFn = ({ prediction, example }) => {
   // Ensure prediction and example have 'answer' property and they are strings
   const predAnswer =
-    prediction && typeof prediction.answer === 'string'
-      ? prediction.answer
-      : ''
+    prediction && typeof prediction.answer === 'string' ? prediction.answer : ''
   const exAnswer =
     example && typeof example.answer === 'string' ? example.answer : ''
   return AxEvalUtil.emScore(predAnswer, exAnswer)
@@ -86,15 +84,16 @@ async function runOptimization() {
     console.log('Estimated Token Usage:', stats.estimatedTokenUsage)
     console.log('Early Stopped:', stats.earlyStopped)
     if (stats.earlyStopping) {
-      console.log('  Patience Exhausted:', stats.earlyStopping.patienceExhausted)
+      console.log(
+        '  Patience Exhausted:',
+        stats.earlyStopping.patienceExhausted
+      )
       console.log('  Best Score Round:', stats.earlyStopping.bestScoreRound)
     }
 
     console.log(`\nGenerated ${generatedDemos.length} Demos:`)
     generatedDemos.forEach((demoSet, index) => {
-      console.log(
-        `Demo Set ${index + 1} (Program ID: ${demoSet.programId}):`
-      )
+      console.log(`Demo Set ${index + 1} (Program ID: ${demoSet.programId}):`)
       demoSet.traces.forEach((trace, traceIndex) => {
         console.log(
           `  Trace ${traceIndex + 1}: Input: ${JSON.stringify(trace.input)}, Output: ${JSON.stringify(trace.output)}`
@@ -139,10 +138,7 @@ async function runOptimization() {
       console.log(
         `\nTesting new program with initial example question: "${anotherTestQuestion}"`
       )
-      console.log(
-        'Expected (similar to):',
-        initialExamples[2]?.answer
-      )
+      console.log('Expected (similar to):', initialExamples[2]?.answer)
       console.log('Test result:', anotherTestResult)
     }
   } catch (error) {

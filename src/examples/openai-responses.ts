@@ -1,9 +1,4 @@
-import {
-  AxAI,
-  axAIOpenAIResponsesDefaultConfig,
-  AxGen,
-  AxSignature,
-} from '@ax-llm/ax'
+import { AxAI, AxGen, AxSignature } from '@ax-llm/ax'
 
 // Create a simple text generator with a signature
 const textGenSignature = new AxSignature(`prompt:string -> response:string`)

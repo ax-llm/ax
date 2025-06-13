@@ -1,13 +1,16 @@
 import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax'
 
-const gen = new AxGen<{
-  customerEmail: string},
+const gen = new AxGen<
   {
-  productName: string
-  issueDescription: string
-  issueSummary: string
-  paymentMethod: string
-}>(
+    customerEmail: string
+  },
+  {
+    productName: string
+    issueDescription: string
+    issueSummary: string
+    paymentMethod: string
+  }
+>(
   `customerEmail:string  -> productName:string "The name of the product",
 issueDescription:string "A description of the issue",
 issueSummary:string "A summary of the issue",

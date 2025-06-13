@@ -1,10 +1,4 @@
-import {
-  AxAI,
-  AxAIGoogleGeminiModel,
-  //   AxAIGoogleGeminiModel,
-  //   AxAIOpenAI,
-  AxChainOfThought,
-} from '@ax-llm/ax'
+import { AxAI, AxChainOfThought } from '@ax-llm/ax'
 
 const cot = new AxChainOfThought(
   `
