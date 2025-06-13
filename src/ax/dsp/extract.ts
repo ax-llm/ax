@@ -189,12 +189,12 @@ const convertValueToType = (
 
     case 'class':
       const className = val
-      if (field.type.classes && !field.type.classes.includes(className)) {
+      if (field.type.options && !field.type.options.includes(className)) {
         if (field.isOptional) {
           return
         }
         throw new Error(
-          `Invalid class '${val}', expected one of the following: ${field.type.classes.join(', ')}`
+          `Invalid class '${val}', expected one of the following: ${field.type.options.join(', ')}`
         )
       }
       return className as string

@@ -26,7 +26,7 @@ export interface AxField {
       | 'class'
       | 'code'
     isArray: boolean
-    classes?: string[]
+    options?: string[]
   }
   isOptional?: boolean
   isInternal?: boolean

@@ -11,6 +11,10 @@ const classifier = new AxGen<
    reasoning?:string "Optional reasoning for the classification"`
 )
 
+console.log(
+  JSON.stringify(classifier.getSignature().getOutputFields(), null, 2)
+)
+
 // Examples can have missing fields - all fields are now optional in examples
 classifier.setExamples([
   {
@@ -43,6 +47,7 @@ classifier.setExamples([
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
+  options: { debug: true },
 })
 
 // Test the classification

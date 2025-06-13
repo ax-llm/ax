@@ -21,7 +21,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -70,7 +70,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -101,7 +101,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -145,7 +145,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -154,7 +154,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -172,7 +172,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -186,7 +186,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -216,7 +216,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -247,7 +247,7 @@ describe('SignatureParser', () => {
         name: string
         type:
           | { name: string; isArray: boolean }
-          | { name: 'class'; isArray: boolean; classes: string[] }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -265,7 +265,7 @@ describe('SignatureParser', () => {
 
       const output0 = sig.outputs[0] as {
         name: string
-        type: { name: 'class'; isArray: boolean; classes: string[] }
+        type: { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -274,18 +274,18 @@ describe('SignatureParser', () => {
       expect(output0.type).toEqual({
         name: 'class',
         isArray: false,
-        classes: ['UserProfile'],
+        options: ['UserProfile'],
       })
     })
 
-    it('parses class types with multiple classes', () => {
+    it('parses class types with multiple options', () => {
       const sig = parseSignature(
         'input:string -> type:class "Error, Success, Pending"'
       )
 
       const output0 = sig.outputs[0] as {
         name: string
-        type: { name: 'class'; isArray: boolean; classes: string[] }
+        type: { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -294,18 +294,18 @@ describe('SignatureParser', () => {
       expect(output0.type).toEqual({
         name: 'class',
         isArray: false,
-        classes: ['Error', 'Success', 'Pending'],
+        options: ['Error', 'Success', 'Pending'],
       })
     })
 
-    it('handles array of classes', () => {
+    it('handles array of options', () => {
       const sig = parseSignature(
         'input:string -> types:class[] "Error, Success"'
       )
 
       const output0 = sig.outputs[0] as {
         name: string
-        type: { name: 'class'; isArray: boolean; classes: string[] }
+        type: { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
@@ -314,7 +314,7 @@ describe('SignatureParser', () => {
       expect(output0.type).toEqual({
         name: 'class',
         isArray: true,
-        classes: ['Error', 'Success'],
+        options: ['Error', 'Success'],
       })
     })
   })
@@ -374,7 +374,7 @@ describe('SignatureParser', () => {
             type: {
               name: 'class',
               isArray: false,
-              classes: ['success', 'error', 'pending'],
+              options: ['success', 'error', 'pending'],
             },
             isOptional: false,
             isInternal: false,

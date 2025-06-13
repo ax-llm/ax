@@ -564,9 +564,22 @@ const renderOutputFields = (fields: readonly AxField[]) => {
       ? `Only include this ${type} field if its value is available`
       : `This ${type} field must be included`
 
-    const description = field.description
-      ? ` ${formatDescription(field.description)}`
-      : ''
+    let description = ''
+
+    if (field.description && field.description.length > 0) {
+      const value =
+        field.type?.name === 'class'
+          ? field.description
+          : formatDescription(field.description)
+      description = ` ${value}`
+    }
+
+    if (field.type?.options && field.type.options.length > 0) {
+      if (description.length > 0) {
+        description += `. `
+      }
+      description += `Allowed values: ${field.type.options.join(', ')}`
+    }
 
     return `${name}: (${requiredMsg})${description}`.trim()
   })
@@ -613,7 +626,7 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'json':
         return 'JSON object'
       case 'class':
-        return `list of classes (match case): ${type.classes?.join(', ')})`
+        return 'classification class'
       case 'code':
         return 'code'
       default:

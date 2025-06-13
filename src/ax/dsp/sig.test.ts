@@ -50,7 +50,7 @@ describe('signature parsing', () => {
       type: {
         name: 'class',
         isArray: false,
-        classes: ['reminder', 'follow-up'],
+        options: ['reminder', 'follow-up'],
       },
     })
   })

@@ -32,7 +32,7 @@ export type OutputParsedField = {
   desc?: string
   type?:
     | { name: TypeNotClass; isArray: boolean }
-    | { name: 'class'; isArray: boolean; classes: string[] }
+    | { name: 'class'; isArray: boolean; options: string[] }
   isOptional?: boolean
   isInternal?: boolean
 }
@@ -245,7 +245,7 @@ class SignatureParser {
 
     let type:
       | { name: TypeNotClass; isArray: boolean }
-      | { name: 'class'; isArray: boolean; classes: string[] }
+      | { name: 'class'; isArray: boolean; options: string[] }
       | undefined
     this.skipWhitespace()
     if (this.match(':')) {
@@ -259,18 +259,18 @@ class SignatureParser {
             `Output field "${name}": Expected class names in quotes after "class" type. Example: class "MyClass1, MyClass2"`
           )
         }
-        const classes = classNamesString
+        const options = classNamesString
           .split(/[,\s]+/)
           .map((s) => s.trim())
           .filter((s) => s.length > 0)
 
-        if (classes.length === 0) {
+        if (options.length === 0) {
           throw new Error(
             `Output field "${name}": Empty class list provided. At least one class name is required`
           )
         }
 
-        type = { name: 'class', isArray, classes }
+        type = { name: 'class', isArray, options }
       } else {
         try {
           const typeName = this.parseTypeNotClass()
