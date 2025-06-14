@@ -3,7 +3,7 @@
   "plugin": [
     "typedoc-plugin-markdown",
     "typedoc-plugin-frontmatter",
-    "./customFrontmatter.mjs"
+    "./scripts/customFrontmatter.mjs"
   ],
   "pretty": true,
   "cleanOutputDir": true,
