@@ -6,8 +6,9 @@ And to help you really use this in production we have everything else you need l
 
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
-[![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
+[![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
+
 
 <!-- header -->
 
@@ -1173,6 +1174,8 @@ conf.model = OpenAIModel.GPT4Turbo
 It is essential to remember that we should only run `npm install` from the root
 directory. This prevents the creation of nested `package-lock.json` files and
 avoids non-deduplicated `node_modules`.
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg?style=for-the-badge)](https://deepwiki.com/ax-llm/ax)
 
 Adding new dependencies in packages should be done with e.g.
 `npm install lodash --workspace=ax` (or just modify the appropriate
