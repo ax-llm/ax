@@ -49,28 +49,67 @@ The idea behind prompt signatures is based on work done in the
 
 You can have multiple input and output fields, and each field can be of the
 types `string`, `number`, `boolean`, `date`, `datetime`,
-`class "class1, class2"`, `JSON`, or an array of any of these, e.g., `string[]`.
-When a type is not defined, it defaults to `string`. The suffix `?` makes the
-field optional (required by default) and `!` makes the field internal which is
-good for things like reasoning.
+`class "class1, class2"`, `code`, `json`, `image`, `audio`, or an array of any of these, e.g., `string[]`.
+When a type is not defined, it defaults to `string`. 
+
+### Field Modifiers
+
+- **Optional fields**: Add `?` after the field name to make it optional (e.g., `fieldName?:string`)
+- **Internal fields**: Add `!` after the field name to make it internal - useful for reasoning steps that shouldn't be in the final output (e.g., `reasoning!:string`)
+- **Combined**: You can combine modifiers (e.g., `optionalReasoning?!:string`)
+
+### Tagged Template Literals (New!)
+
+For a more ergonomic and type-safe way to create signatures, you can use tagged template literals:
+
+```typescript
+import { ax, f } from '@ax-llm/ax'
+
+// Basic usage
+const sig1 = ax`question:string -> answer:string`
+
+// With field types and descriptions
+const sig2 = ax`
+  input:${f.string('User input')} -> 
+  category:${f.class(['tech', 'business', 'sports'], 'Content category')},
+  confidence:${f.number('Confidence score 0-1')}
+`
+
+// With modifiers
+const sig3 = ax`
+  text:string -> 
+  summary:${f.optional(f.string('Brief summary'))},
+  reasoning:${f.internal(f.string('Internal reasoning'))}
+`
+```
 
 ## Output Field Types
 
-| Type                      | Description                         | Usage                      | Example Output                                     |
-| ------------------------- | ----------------------------------- | -------------------------- | -------------------------------------------------- |
-| `string`                  | A sequence of characters.           | `fullName:string`          | `"example"`                                        |
-| `number`                  | A numerical value.                  | `price:number`             | `42`                                               |
-| `boolean`                 | A true or false value.              | `isEvent:boolean`          | `true`, `false`                                    |
-| `date`                    | A date value.                       | `startDate:date`           | `"2023-10-01"`                                     |
-| `datetime`                | A date and time value.              | `createdAt:datetime`       | `"2023-10-01T12:00:00Z"`                           |
-| `class "class1,class2"`   | A classification of items.          | `category:class`           | `["class1", "class2", "class3"]`                   |
-| `string[]`                | An array of strings.                | `tags:string[]`            | `["example1", "example2"]`                         |
-| `number[]`                | An array of numbers.                | `scores:number[]`          | `[1, 2, 3]`                                        |
-| `boolean[]`               | An array of boolean values.         | `permissions:boolean[]`    | `[true, false, true]`                              |
-| `date[]`                  | An array of dates.                  | `holidayDates:date[]`      | `["2023-10-01", "2023-10-02"]`                     |
-| `datetime[]`              | An array of date and time values.   | `logTimestamps:datetime[]` | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]` |
-| `class[] "class1,class2"` | Multiple classes                    | `categories:class[]`       | `["class1", "class2", "class3"]`                   |
-| `code "language"`         | A code block in a specific language | `code:code "python"`       | `print('Hello, world!')`                           |
+| Type                        | Description                           | Usage Example                           | Example Output                                     |
+| --------------------------- | ------------------------------------- | --------------------------------------- | -------------------------------------------------- |
+| `string`                    | A sequence of characters              | `fullName:string`                       | `"John Doe"`                                       |
+| `number`                    | A numerical value                     | `price:number`                          | `42`                                               |
+| `boolean`                   | A true or false value                 | `isValid:boolean`                       | `true`, `false`                                    |
+| `date`                      | A date value                          | `startDate:date`                        | `"2023-10-01"`                                     |
+| `datetime`                  | A date and time value                 | `createdAt:datetime`                    | `"2023-10-01T12:00:00Z"`                           |
+| `json`                      | A JSON object                         | `metadata:json`                         | `{"key": "value"}`                                 |
+| `image`                     | An image (input only)                 | `photo:image`                           | Base64 encoded image data                          |
+| `audio`                     | An audio file (input only)           | `recording:audio`                       | Base64 encoded audio data                          |
+| `class "option1,option2"`   | Classification with predefined options| `category:class "urgent,normal,low"`    | `"urgent"`                                         |
+| `code`                      | A code block                          | `solution:code "Python solution"`       | `print('Hello, world!')`                           |
+| `string[]`                  | An array of strings                   | `tags:string[]`                         | `["example1", "example2"]`                         |
+| `number[]`                  | An array of numbers                   | `scores:number[]`                       | `[1, 2, 3]`                                        |
+| `boolean[]`                 | An array of boolean values            | `permissions:boolean[]`                 | `[true, false, true]`                              |
+| `date[]`                    | An array of dates                     | `holidayDates:date[]`                   | `["2023-10-01", "2023-10-02"]`                     |
+| `datetime[]`                | An array of date and time values      | `logTimestamps:datetime[]`              | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]` |
+| `class[] "option1,option2"` | Array of classifications              | `categories:class[] "tech,business"`    | `["tech", "business"]`                             |
+
+### Important Notes on Field Types
+
+- **Class fields**: Use `class "option1,option2,option3"` to specify the available options. The LLM will choose from these predefined options.
+- **Code fields**: Use `code "description"` for code blocks. Unlike class fields, code fields don't take language parameters in the signature - just a description of what code is expected.
+- **Arrays**: Add `[]` after any type to make it an array (e.g., `string[]`, `class[] "a,b,c"`)
+- **Descriptions**: Add quoted descriptions after field types to provide context to the LLM
 
 ## LLMs Supported
 
@@ -105,6 +144,37 @@ const gen = new AxChainOfThought(
 const res = await gen.forward(ai, { textToSummarize })
 
 console.log('>', res)
+```
+
+## Example: Using tagged template literals for type-safe signatures
+
+```typescript
+import { AxAI, AxChainOfThought, ax, f } from '@ax-llm/ax'
+
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
+
+// Create a signature using tagged template literals
+const gen = new AxChainOfThought(
+  ax`
+    userInput:${f.string('User message or question')} -> 
+    category:${f.class(['question', 'request', 'complaint'], 'Message type')},
+    priority:${f.class(['high', 'medium', 'low'], 'Urgency level')},
+    response:${f.string('Appropriate response')},
+    reasoning:${f.internal(f.string('Internal reasoning for classification'))}
+  `
+)
+
+const res = await gen.forward(ai, { 
+  userInput: "My order hasn't arrived and I need it urgently!" 
+})
+
+console.log('Category:', res.category)
+console.log('Priority:', res.priority) 
+console.log('Response:', res.response)
+// Note: reasoning is internal and won't appear in final output
 ```
 
 ## Example: Building an agent
@@ -981,6 +1051,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)            | Use the JS code interpreter to compute fibonacci        |
 | [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)            | Generate a short summary of a large block of text       |
 | [chain-of-thought.ts](https://github.com/ax-llm/ax/blob/main/src/examples/chain-of-thought.ts)     | Use chain-of-thought prompting to answer questions      |
+| [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts) | Type-safe signatures using tagged template literals     |
 | [rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag.ts)                  | Use multi-hop retrieval to answer questions             |
 | [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)             | Convert PDF to text and embed for rag search            |
 | [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                | Use function calling and reasoning to answer questions  |
@@ -1003,6 +1074,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)            | Trace and push traces to a Jaeger service               |
 | [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)     | Example using the new OpenAI Responses API              |
 | [show-thoughts.ts](https://github.com/ax-llm/ax/blob/main/src/examples/show-thoughts.ts)       | Control and display model reasoning thoughts             |
+| [reasoning-o3-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/reasoning-o3-example.ts) | Advanced reasoning with OpenAI o3/o4 models             |
 | [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts) | Example of using 'examples' to direct the llm |
 
 ## Our Goal

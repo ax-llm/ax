@@ -448,6 +448,13 @@ import {
   type AxEvaluateArgs
 } from './dsp/evaluate.js';
 import {
+  ax,
+  axField,
+  type AxFieldDescriptor,
+  type AxFieldType,
+  type AxSignatureTemplateValue
+} from './dsp/template.js';
+import {
   type AxAIInputModelList,
   type AxAIModelList,
   type AxAIModelListBase,
@@ -618,6 +625,7 @@ export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
 export { AxStringUtil };
 export { AxTestPrompt };
+export { ax };
 export { axAIAnthropicDefaultConfig };
 export { axAIAnthropicVertexDefaultConfig };
 export { axAIAzureOpenAIBestConfig };
@@ -652,6 +660,7 @@ export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
+export { axField };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };
 export { axModelInfoDeepSeek };
@@ -876,9 +885,11 @@ export type { AxEmbedResponse };
 export type { AxEvaluateArgs };
 export type { AxExample };
 export type { AxField };
+export type { AxFieldDescriptor };
 export type { AxFieldProcessor };
 export type { AxFieldProcessorProcess };
 export type { AxFieldTemplateFn };
+export type { AxFieldType };
 export type { AxFieldValue };
 export type { AxFunction };
 export type { AxFunctionHandler };
@@ -924,6 +935,7 @@ export type { AxResponseHandlerArgs };
 export type { AxRewriteIn };
 export type { AxRewriteOut };
 export type { AxSetExamplesOptions };
+export type { AxSignatureTemplateValue };
 export type { AxSimpleClassifierForwardOptions };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
