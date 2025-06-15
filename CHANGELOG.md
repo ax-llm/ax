@@ -1,5 +1,12 @@
 # Changelog
 
+## [11.0.65](https://github.com/ax-llm/ax/compare/11.0.63...11.0.64) (2025-06-15)
+
+### Features
+
+* Introduce tagged template literals for type-safe signatures ([f52267c](https://github.com/ax-llm/ax/commit/f52267c965c6d050f14d86b1ce5c2e5fe9a4498a))
+## [11.0.64](https://github.com/ax-llm/ax/compare/11.0.63...11.0.64) (2025-06-13)
+
 ## [11.0.64](https://github.com/ax-llm/ax/compare/11.0.62...11.0.63) (2025-06-13)
 ## [11.0.63](https://github.com/ax-llm/ax/compare/11.0.62...11.0.63) (2025-06-13)
 
