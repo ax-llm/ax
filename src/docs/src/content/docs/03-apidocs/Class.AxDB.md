@@ -2,7 +2,7 @@
 title: AxDB
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/wrap.ts#L19
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/wrap.ts#L19
 
 ## Implements
 
@@ -14,14 +14,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxDB()
 
-> **new AxDB**(`args`): [`AxDB`](/api/#03-apidocs/classaxdb)
+```ts
+new AxDB(args: Readonly<AxDBArgs>): AxDB
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/wrap.ts#L21
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/wrap.ts#L21
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `args` | `Readonly`\<[`AxDBArgs`](/api/#03-apidocs/typealiasaxdbargs)\> |
 
 #### Returns
@@ -34,14 +36,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### batchUpsert()
 
-> **batchUpsert**(`batchReq`, `update`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
+```ts
+batchUpsert(batchReq: readonly AxDBUpsertRequest[], update?: boolean): Promise<AxDBUpsertResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/wrap.ts#L46
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/wrap.ts#L46
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `batchReq` | readonly [`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)[] |
 | `update`? | `boolean` |
 
@@ -59,14 +63,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### query()
 
-> **query**(`req`): `Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
+```ts
+query(req: Readonly<AxDBQueryRequest>): Promise<AxDBQueryResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/wrap.ts#L53
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/wrap.ts#L53
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxDBQueryRequest`](/api/#03-apidocs/typealiasaxdbqueryrequest)\> |
 
 #### Returns
@@ -83,14 +89,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### upsert()
 
-> **upsert**(`req`, `update`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
+```ts
+upsert(req: Readonly<AxDBUpsertRequest>, update?: boolean): Promise<AxDBUpsertResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/wrap.ts#L39
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/wrap.ts#L39
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)\> |
 | `update`? | `boolean` |
 

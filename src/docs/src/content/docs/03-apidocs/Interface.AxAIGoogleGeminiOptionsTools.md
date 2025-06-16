@@ -2,46 +2,15 @@
 title: AxAIGoogleGeminiOptionsTools
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L77
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/google-gemini/api.ts#L82
 
 ## Properties
 
-<a id="codeExecution"></a>
-
-### codeExecution?
-
-> `optional` **codeExecution**: `boolean`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L78
-
-***
-
-<a id="googleSearch"></a>
-
-### googleSearch?
-
-> `optional` **googleSearch**: `boolean`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L83
-
-***
-
-<a id="googleSearchRetrieval"></a>
-
-### googleSearchRetrieval?
-
-> `optional` **googleSearchRetrieval**: `object`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/api.ts#L79
-
-<a id=""></a>
-
-#### dynamicThreshold?
-
-> `optional` **dynamicThreshold**: `number`
-
-<a id=""></a>
-
-#### mode?
-
-> `optional` **mode**: `"MODE_DYNAMIC"`
+| Property | Type |
+| :------ | :------ |
+| <a id="codeExecution"></a> `codeExecution?` | `boolean` |
+| <a id="googleSearch"></a> `googleSearch?` | `boolean` |
+| <a id="googleSearchRetrieval"></a> `googleSearchRetrieval?` | `object` |
+| `googleSearchRetrieval.dynamicThreshold?` | `number` |
+| `googleSearchRetrieval.mode?` | `"MODE_DYNAMIC"` |
+| <a id="urlContext"></a> `urlContext?` | `boolean` |

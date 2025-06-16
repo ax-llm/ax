@@ -2,34 +2,12 @@
 title: AxAIAnthropicContentBlockDeltaEvent
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L175
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/anthropic/types.ts#L180
 
 ## Properties
 
-<a id="delta"></a>
-
-### delta
-
-> **delta**: \{ `text`: `string`; `type`: `"text_delta"`; \} \| \{ `partial_json`: `string`; `type`: `"input_json_delta"`; \}
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L178
-
-***
-
-<a id="index"></a>
-
-### index
-
-> **index**: `number`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L176
-
-***
-
-<a id="type"></a>
-
-### type
-
-> **type**: `"content_block_delta"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L177
+| Property | Type |
+| :------ | :------ |
+| <a id="delta"></a> `delta` | \| \{ `text`: `string`; `type`: `"text_delta"`; \} \| \{ `partial_json`: `string`; `type`: `"input_json_delta"`; \} |
+| <a id="index"></a> `index` | `number` |
+| <a id="type"></a> `type` | `"content_block_delta"` |

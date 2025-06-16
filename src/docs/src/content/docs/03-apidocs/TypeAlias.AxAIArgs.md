@@ -2,6 +2,21 @@
 title: AxAIArgs
 ---
 
-> **AxAIArgs**: [`AxAIOpenAIArgs`](/api/#03-apidocs/interfaceaxaiopenaiargs) \| [`AxAIAzureOpenAIArgs`](/api/#03-apidocs/typealiasaxaiazureopenaiargs) \| [`AxAITogetherArgs`](/api/#03-apidocs/typealiasaxaitogetherargs) \| [`AxAIAnthropicArgs`](/api/#03-apidocs/interfaceaxaianthropicargs) \| [`AxAIGroqArgs`](/api/#03-apidocs/typealiasaxaigroqargs) \| [`AxAIGoogleGeminiArgs`](/api/#03-apidocs/interfaceaxaigooglegeminiargs) \| [`AxAICohereArgs`](/api/#03-apidocs/interfaceaxaicohereargs) \| [`AxAIHuggingFaceArgs`](/api/#03-apidocs/interfaceaxaihuggingfaceargs) \| [`AxAIMistralArgs`](/api/#03-apidocs/typealiasaxaimistralargs) \| [`AxAIDeepSeekArgs`](/api/#03-apidocs/typealiasaxaideepseekargs) \| [`AxAIOllamaArgs`](/api/#03-apidocs/typealiasaxaiollamaargs) \| [`AxAIRekaArgs`](/api/#03-apidocs/interfaceaxairekaargs)
+```ts
+type AxAIArgs = 
+  | AxAIOpenAIArgs
+  | AxAIOpenAIResponsesArgs
+  | AxAIAzureOpenAIArgs
+  | AxAITogetherArgs
+  | AxAIAnthropicArgs
+  | AxAIGroqArgs
+  | AxAIGoogleGeminiArgs
+  | AxAICohereArgs
+  | AxAIHuggingFaceArgs
+  | AxAIMistralArgs
+  | AxAIDeepSeekArgs
+  | AxAIOllamaArgs
+  | AxAIRekaArgs;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L48
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L56

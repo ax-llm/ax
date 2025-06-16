@@ -2,26 +2,16 @@
 title: AxAIOpenAIEmbedResponse
 ---
 
-> **AxAIOpenAIEmbedResponse**: `object`
+```ts
+type AxAIOpenAIEmbedResponse = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L185
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/openai/chat_types.ts#L213
 
 ## Type declaration
 
-<a id="data"></a>
-
-### data
-
-> **data**: `object`[]
-
-<a id="model"></a>
-
-### model
-
-> **model**: `string`
-
-<a id="usage"></a>
-
-### usage
-
-> **usage**: [`AxAIOpenAIUsage`](/api/#03-apidocs/typealiasaxaiopenaiusage)
+| Name | Type |
+| :------ | :------ |
+| <a id="data"></a> `data` | `object`[] |
+| <a id="model"></a> `model` | `string` |
+| <a id="usage"></a> `usage` | [`AxAIOpenAIUsage`](/api/#03-apidocs/typealiasaxaiopenaiusage) |

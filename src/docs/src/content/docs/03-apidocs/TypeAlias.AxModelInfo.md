@@ -2,44 +2,22 @@
 title: AxModelInfo
 ---
 
-> **AxModelInfo**: `object`
+```ts
+type AxModelInfo = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L20
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L21
 
 ## Type declaration
 
-<a id="aliases"></a>
-
-### aliases?
-
-> `optional` **aliases**: `string`[]
-
-<a id="characterIsToken"></a>
-
-### characterIsToken?
-
-> `optional` **characterIsToken**: `boolean`
-
-<a id="completionTokenCostPer1M"></a>
-
-### completionTokenCostPer1M?
-
-> `optional` **completionTokenCostPer1M**: `number`
-
-<a id="currency"></a>
-
-### currency?
-
-> `optional` **currency**: `string`
-
-<a id="name"></a>
-
-### name
-
-> **name**: `string`
-
-<a id="promptTokenCostPer1M"></a>
-
-### promptTokenCostPer1M?
-
-> `optional` **promptTokenCostPer1M**: `number`
+| Name | Type |
+| :------ | :------ |
+| <a id="aliases"></a> `aliases`? | `string`[] |
+| <a id="characterIsToken"></a> `characterIsToken`? | `boolean` |
+| <a id="completionTokenCostPer1M"></a> `completionTokenCostPer1M`? | `number` |
+| <a id="currency"></a> `currency`? | `string` |
+| <a id="hasShowThoughts"></a> `hasShowThoughts`? | `boolean` |
+| <a id="hasThinkingBudget"></a> `hasThinkingBudget`? | `boolean` |
+| <a id="maxTokens"></a> `maxTokens`? | `number` |
+| <a id="name"></a> `name` | `string` |
+| <a id="promptTokenCostPer1M"></a> `promptTokenCostPer1M`? | `number` |

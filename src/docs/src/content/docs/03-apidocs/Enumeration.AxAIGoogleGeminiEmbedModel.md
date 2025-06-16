@@ -2,24 +2,13 @@
 title: AxAIGoogleGeminiEmbedModel
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L17
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/google-gemini/types.ts#L15
 
 ## Enumeration Members
 
-<a id="TextEmbedding004"></a>
-
-### TextEmbedding004
-
-> **TextEmbedding004**: `"text-embedding-004"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L18
-
-***
-
-<a id="TextEmbedding005"></a>
-
-### TextEmbedding005
-
-> **TextEmbedding005**: `"text-embedding-005"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L19
+| Enumeration Member | Value |
+| :------ | :------ |
+| <a id="GeminiEmbedding"></a> `GeminiEmbedding` | `"gemini-embedding-exp-03-07"` |
+| <a id="TextEmbedding004"></a> `TextEmbedding004` | `"text-embedding-004"` |
+| <a id="TextEmbedding005"></a> `TextEmbedding005` | `"text-embedding-005"` |
+| <a id="TextEmbeddingLarge"></a> `TextEmbeddingLarge` | `"text-embedding-large-exp-03-07"` |

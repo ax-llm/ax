@@ -2,7 +2,7 @@
 title: AxDBBaseArgs
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L13
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/base.ts#L13
 
 ## Extended by
 
@@ -13,31 +13,7 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ## Properties
 
-<a id="fetch"></a>
-
-### fetch()?
-
-> `optional` **fetch**: (`input`, `init`?) => `Promise`\<`Response`\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L14
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `input` | `string` \| `URL` \| `Request` |
-| `init`? | `RequestInit` |
-
-#### Returns
-
-`Promise`\<`Response`\>
-
-***
-
-<a id="tracer"></a>
-
-### tracer?
-
-> `optional` **tracer**: `Tracer`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L15
+| Property | Type |
+| :------ | :------ |
+| <a id="fetch"></a> `fetch?` | (`input`: `string` \| `URL` \| `Request`, `init`?: `RequestInit`) => `Promise`\<`Response`\> |
+| <a id="tracer"></a> `tracer?` | `Tracer` |

@@ -2,12 +2,12 @@
 title: AxProgram
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L263
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L306
 
 ## Type Parameters
 
 | Type Parameter |
-| ------ |
+| :------ |
 | `IN` *extends* [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) |
 | `OUT` *extends* [`AxGenOut`](/api/#03-apidocs/typealiasaxgenout) |
 
@@ -22,9 +22,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxProgram()
 
-> **new AxProgram**\<`IN`, `OUT`\>(): [`AxProgram`](/api/#03-apidocs/classaxprogram)\<`IN`, `OUT`\>
+```ts
+new AxProgram<IN, OUT>(): AxProgram<IN, OUT>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L272
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L315
 
 #### Returns
 
@@ -36,16 +38,21 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### forward()
 
-> **forward**(`_ai`, `_values`, `_options`?): `Promise`\<`OUT`\>
+```ts
+forward(
+   _ai: Readonly<AxAIService<unknown, unknown>>, 
+   _values: IN | AxMessage<IN>[], 
+_options?: Readonly<AxProgramForwardOptions>): Promise<OUT>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L284
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L327
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `_ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
-| `_values` | `IN` |
+| `_values` | `IN` \| [`AxMessage`](/api/#03-apidocs/typealiasaxmessage)\<`IN`\>[] |
 | `_options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
@@ -58,9 +65,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getTraces()
 
-> **getTraces**(): [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
+```ts
+getTraces(): AxProgramTrace[]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L329
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L376
 
 #### Returns
 
@@ -76,13 +85,15 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getUsage()
 
-> **getUsage**(): [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
+```ts
+getUsage(): AxModelUsage & object[]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L343
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L390
 
 #### Returns
 
-[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
+[`AxModelUsage`](/api/#03-apidocs/typealiasaxmodelusage) & `object`[]
 
 #### Implementation of
 
@@ -94,14 +105,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### register()
 
-> **register**(`prog`): `void`
+```ts
+register(prog: Readonly<AxTunable & AxUsable>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L277
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L320
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `prog` | `Readonly`\<[`AxTunable`](/api/#03-apidocs/interfaceaxtunable) & [`AxUsable`](/api/#03-apidocs/interfaceaxusable)\> |
 
 #### Returns
@@ -114,9 +127,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### resetUsage()
 
-> **resetUsage**(): `void`
+```ts
+resetUsage(): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L353
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L400
 
 #### Returns
 
@@ -132,14 +147,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setDemos()
 
-> **setDemos**(`demos`): `void`
+```ts
+setDemos(demos: readonly AxProgramDemos[]): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L360
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L407
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
@@ -156,15 +173,18 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setExamples()
 
-> **setExamples**(`examples`): `void`
+```ts
+setExamples(examples: Readonly<AxProgramExamples>, options?: Readonly<AxSetExamplesOptions>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L319
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L363
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
+| `options`? | `Readonly`\<[`AxSetExamplesOptions`](/api/#03-apidocs/typealiasaxsetexamplesoptions)\> |
 
 #### Returns
 
@@ -180,14 +200,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setId()
 
-> **setId**(`id`): `void`
+```ts
+setId(id: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L306
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L350
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `id` | `string` |
 
 #### Returns
@@ -204,14 +226,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setParentId()
 
-> **setParentId**(`parentId`): `void`
+```ts
+setParentId(parentId: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L313
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L357
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `parentId` | `string` |
 
 #### Returns
@@ -228,16 +252,21 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### streamingForward()
 
-> **streamingForward**(`_ai`, `_values`, `_options`?): [`AxGenStreamingOut`](/api/#03-apidocs/typealiasaxgenstreamingout)\<`OUT`\>
+```ts
+streamingForward(
+   _ai: Readonly<AxAIService<unknown, unknown>>, 
+   _values: IN | AxMessage<IN>[], 
+_options?: Readonly<AxProgramStreamingForwardOptions>): AxGenStreamingOut<OUT>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L295
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L339
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `_ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
-| `_values` | `IN` |
+| `_values` | `IN` \| [`AxMessage`](/api/#03-apidocs/typealiasaxmessage)\<`IN`\>[] |
 | `_options`? | `Readonly`\<[`AxProgramStreamingForwardOptions`](/api/#03-apidocs/typealiasaxprogramstreamingforwardoptions)\> |
 
 #### Returns

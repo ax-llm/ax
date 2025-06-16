@@ -2,6 +2,16 @@
 title: AxAIAnthropicChatResponseDelta
 ---
 
-> **AxAIAnthropicChatResponseDelta**: [`AxAIAnthropicMessageStartEvent`](/api/#03-apidocs/interfaceaxaianthropicmessagestartevent) \| [`AxAIAnthropicContentBlockStartEvent`](/api/#03-apidocs/interfaceaxaianthropiccontentblockstartevent) \| [`AxAIAnthropicContentBlockDeltaEvent`](/api/#03-apidocs/interfaceaxaianthropiccontentblockdeltaevent) \| [`AxAIAnthropicContentBlockStopEvent`](/api/#03-apidocs/interfaceaxaianthropiccontentblockstopevent) \| [`AxAIAnthropicMessageDeltaEvent`](/api/#03-apidocs/interfaceaxaianthropicmessagedeltaevent) \| [`AxAIAnthropicMessageStopEvent`](/api/#03-apidocs/interfaceaxaianthropicmessagestopevent) \| [`AxAIAnthropicPingEvent`](/api/#03-apidocs/interfaceaxaianthropicpingevent) \| [`AxAIAnthropicErrorEvent`](/api/#03-apidocs/interfaceaxaianthropicerrorevent)
+```ts
+type AxAIAnthropicChatResponseDelta = 
+  | AxAIAnthropicMessageStartEvent
+  | AxAIAnthropicContentBlockStartEvent
+  | AxAIAnthropicContentBlockDeltaEvent
+  | AxAIAnthropicContentBlockStopEvent
+  | AxAIAnthropicMessageDeltaEvent
+  | AxAIAnthropicMessageStopEvent
+  | AxAIAnthropicPingEvent
+  | AxAIAnthropicErrorEvent;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L227
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/anthropic/types.ts#L232

@@ -2,7 +2,7 @@
 title: AxDBCloudflare
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L44
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/cloudflare.ts#L44
 
 Cloudflare: DB Service
 
@@ -16,14 +16,16 @@ Cloudflare: DB Service
 
 ### new AxDBCloudflare()
 
-> **new AxDBCloudflare**(`__namedParameters`): [`AxDBCloudflare`](/api/#03-apidocs/classaxdbcloudflare)
+```ts
+new AxDBCloudflare(__namedParameters: Readonly<Omit<AxDBCloudflareArgs, "name">>): AxDBCloudflare
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L48
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/cloudflare.ts#L48
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `__namedParameters` | `Readonly`\<`Omit`\<[`AxDBCloudflareArgs`](/api/#03-apidocs/interfaceaxdbcloudflareargs), `"name"`\>\> |
 
 #### Returns
@@ -36,54 +38,10 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ## Properties
 
-<a id="_batchUpsert"></a>
-
-### \_batchUpsert()?
-
-> `optional` **\_batchUpsert**: (`batchReq`, `update`?, `options`?) => `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L33
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `batchReq` | readonly [`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)[] |
-| `update`? | `boolean` |
-| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
-
-#### Returns
-
-`Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
-
-#### Inherited from
-
-[`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`_batchUpsert`](/api/#03-apidocs/classaxdbbasemdbatchupsert)
-
-***
-
-<a id="_query"></a>
-
-### \_query()?
-
-> `optional` **\_query**: (`req`, `options`?) => `Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L39
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `req` | `Readonly`\<[`AxDBQueryRequest`](/api/#03-apidocs/typealiasaxdbqueryrequest)\> |
-| `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
-
-#### Returns
-
-`Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
-
-#### Inherited from
-
-[`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`_query`](/api/#03-apidocs/classaxdbbasemdquery)
+| Property | Type | Inherited from |
+| :------ | :------ | :------ |
+| <a id="_batchUpsert"></a> `_batchUpsert?` | (`batchReq`: readonly [`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)[], `update`?: `boolean`, `options`?: `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\>) => `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\> | [`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`_batchUpsert`](/api/#03-apidocs/classaxdbbasemdbatchupsert) |
+| <a id="_query"></a> `_query?` | (`req`: `Readonly`\<[`AxDBQueryRequest`](/api/#03-apidocs/typealiasaxdbqueryrequest)\>, `options`?: `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\>) => `Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\> | [`AxDBBase`](/api/#03-apidocs/classaxdbbase).[`_query`](/api/#03-apidocs/classaxdbbasemdquery) |
 
 ## Methods
 
@@ -91,14 +49,19 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### \_upsert()
 
-> **\_upsert**(`req`, `_update`?, `options`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
+```ts
+_upsert(
+   req: Readonly<AxDBUpsertRequest>, 
+   _update?: boolean, 
+options?: Readonly<AxDBBaseOpOptions>): Promise<AxDBUpsertResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L62
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/cloudflare.ts#L62
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)\> |
 | `_update`? | `boolean` |
 | `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
@@ -109,7 +72,9 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 #### Overrides
 
-`AxDBBase._upsert`
+```ts
+AxDBBase._upsert
+```
 
 ***
 
@@ -117,14 +82,19 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### batchUpsert()
 
-> **batchUpsert**(`batchReq`, `update`?, `options`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
+```ts
+batchUpsert(
+   batchReq: readonly AxDBUpsertRequest[], 
+   update?: boolean, 
+options?: Readonly<AxDBBaseOpOptions>): Promise<AxDBUpsertResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L98
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/cloudflare.ts#L98
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `batchReq` | readonly [`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)[] |
 | `update`? | `boolean` |
 | `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
@@ -143,14 +113,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### query()
 
-> **query**(`req`, `options`?): `Promise`\<[`AxDBQueryResponse`](/api/#03-apidocs/typealiasaxdbqueryresponse)\>
+```ts
+query(req: Readonly<AxDBQueryRequest>, options?: Readonly<AxDBBaseOpOptions>): Promise<AxDBQueryResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/cloudflare.ts#L147
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/cloudflare.ts#L147
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxDBQueryRequest`](/api/#03-apidocs/typealiasaxdbqueryrequest)\> |
 | `options`? | `Readonly`\<[`AxDBBaseOpOptions`](/api/#03-apidocs/interfaceaxdbbaseopoptions)\> |
 
@@ -168,14 +140,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### upsert()
 
-> **upsert**(`req`, `update`?): `Promise`\<[`AxDBUpsertResponse`](/api/#03-apidocs/typealiasaxdbupsertresponse)\>
+```ts
+upsert(req: Readonly<AxDBUpsertRequest>, update?: boolean): Promise<AxDBUpsertResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L54
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/base.ts#L54
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxDBUpsertRequest`](/api/#03-apidocs/typealiasaxdbupsertrequest)\> |
 | `update`? | `boolean` |
 

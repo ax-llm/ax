@@ -2,7 +2,7 @@
 title: AxDefaultQueryRewriter
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/rewriter.ts#L8
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/docs/rewriter.ts#L6
 
 ## Extends
 
@@ -14,15 +14,17 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxDefaultQueryRewriter()
 
-> **new AxDefaultQueryRewriter**(`options`?): [`AxDefaultQueryRewriter`](/api/#03-apidocs/classaxdefaultqueryrewriter)
+```ts
+new AxDefaultQueryRewriter(options?: Readonly<AxProgramForwardOptions>): AxDefaultQueryRewriter
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/rewriter.ts#L9
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/docs/rewriter.ts#L7
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
-| `options`? | `Readonly`\<[`AxGenOptions`](/api/#03-apidocs/interfaceaxgenoptions)\> |
+| :------ | :------ |
+| `options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
 
@@ -38,21 +40,34 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### \_forward1()
 
-> **\_forward1**(`ai`, `values`, `options`): `AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+```ts
+_forward1(
+   ai: Readonly<AxAIService<unknown, unknown>>, 
+   values: 
+  | AxRewriteIn
+  | AxMessage<AxRewriteIn>[], 
+   options: Readonly<AxProgramForwardOptions>): AsyncGenerator<{
+  delta: Partial<AxRewriteOut>;
+  version: number;
+}, void, unknown>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L603
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L746
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
-| `values` | [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) |
+| `values` | \| [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) \| [`AxMessage`](/api/#03-apidocs/typealiasaxmessage)\<[`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein)\>[] |
 | `options` | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
 
-`AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+`AsyncGenerator`\<\{
+  `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>;
+  `version`: `number`;
+ \}, `void`, `unknown`\>
 
 #### Inherited from
 
@@ -64,15 +79,17 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### addAssert()
 
-> **addAssert**(`fn`, `message`?): `void`
+```ts
+addAssert(fn: (values: Record<string, unknown>) => undefined | boolean | Promise<undefined | boolean>, message?: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L133
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L136
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
-| `fn` | (`values`) => `undefined` \| `boolean` |
+| :------ | :------ |
+| `fn` | (`values`: `Record`\<`string`, `unknown`\>) => `undefined` \| `boolean` \| `Promise`\<`undefined` \| `boolean`\> |
 | `message`? | `string` |
 
 #### Returns
@@ -89,16 +106,20 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### addFieldProcessor()
 
-> **addFieldProcessor**(`fieldName`, `fn`): `void`
+```ts
+addFieldProcessor(fieldName: string, fn: 
+  | AxFieldProcessorProcess
+  | AxStreamingFieldProcessorProcess): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L180
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L183
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `fieldName` | `string` |
-| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
+| `fn` | \| [`AxFieldProcessorProcess`](/api/#03-apidocs/typealiasaxfieldprocessorprocess) \| [`AxStreamingFieldProcessorProcess`](/api/#03-apidocs/typealiasaxstreamingfieldprocessorprocess) |
 
 #### Returns
 
@@ -114,16 +135,21 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### addStreamingAssert()
 
-> **addStreamingAssert**(`fieldName`, `fn`, `message`?): `void`
+```ts
+addStreamingAssert(
+   fieldName: string, 
+   fn: (content: string, done?: boolean) => undefined | boolean, 
+   message?: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L137
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L140
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `fieldName` | `string` |
-| `fn` | (`content`, `done`?) => `undefined` \| `boolean` |
+| `fn` | (`content`: `string`, `done`?: `boolean`) => `undefined` \| `boolean` |
 | `message`? | `string` |
 
 #### Returns
@@ -140,16 +166,20 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### addStreamingFieldProcessor()
 
-> **addStreamingFieldProcessor**(`fieldName`, `fn`): `void`
+```ts
+addStreamingFieldProcessor(fieldName: string, fn: 
+  | AxFieldProcessorProcess
+  | AxStreamingFieldProcessorProcess): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L173
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L176
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `fieldName` | `string` |
-| `fn` | `AxFieldProcessorProcess` \| `AxStreamingFieldProcessorProcess` |
+| `fn` | \| [`AxFieldProcessorProcess`](/api/#03-apidocs/typealiasaxfieldprocessorprocess) \| [`AxStreamingFieldProcessorProcess`](/api/#03-apidocs/typealiasaxstreamingfieldprocessorprocess) |
 
 #### Returns
 
@@ -165,16 +195,23 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### forward()
 
-> **forward**(`ai`, `values`, `options`?): `Promise`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>
+```ts
+forward(
+   ai: Readonly<AxAIService<unknown, unknown>>, 
+   values: 
+  | AxRewriteIn
+  | AxMessage<AxRewriteIn>[], 
+options?: Readonly<AxProgramForwardOptions>): Promise<AxRewriteOut>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L651
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L823
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
-| `values` | [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) |
+| `values` | \| [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) \| [`AxMessage`](/api/#03-apidocs/typealiasaxmessage)\<[`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein)\>[] |
 | `options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
@@ -191,9 +228,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getSignature()
 
-> **getSignature**(): [`AxSignature`](/api/#03-apidocs/classaxsignature)
+```ts
+getSignature(): AxSignature
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L133
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L165
 
 #### Returns
 
@@ -209,9 +248,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getTraces()
 
-> **getTraces**(): [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
+```ts
+getTraces(): AxProgramTrace[]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L220
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L262
 
 #### Returns
 
@@ -227,13 +268,15 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getUsage()
 
-> **getUsage**(): [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
+```ts
+getUsage(): AxModelUsage & object[]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L234
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L276
 
 #### Returns
 
-[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
+[`AxModelUsage`](/api/#03-apidocs/typealiasaxmodelusage) & `object`[]
 
 #### Inherited from
 
@@ -245,14 +288,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### register()
 
-> **register**(`prog`): `void`
+```ts
+register(prog: Readonly<AxTunable & AxUsable>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L137
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L169
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `prog` | `Readonly`\<[`AxTunable`](/api/#03-apidocs/interfaceaxtunable) & [`AxUsable`](/api/#03-apidocs/interfaceaxusable)\> |
 
 #### Returns
@@ -269,9 +314,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### resetUsage()
 
-> **resetUsage**(): `void`
+```ts
+resetUsage(): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L244
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L286
 
 #### Returns
 
@@ -287,14 +334,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setDemos()
 
-> **setDemos**(`demos`): `void`
+```ts
+setDemos(demos: readonly AxProgramDemos[]): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L251
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L293
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
@@ -311,15 +360,18 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setExamples()
 
-> **setExamples**(`examples`): `void`
+```ts
+setExamples(examples: Readonly<AxProgramExamples>, options?: Readonly<AxSetExamplesOptions>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L179
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L856
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
+| `options`? | `Readonly`\<[`AxSetExamplesOptions`](/api/#03-apidocs/typealiasaxsetexamplesoptions)\> |
 
 #### Returns
 
@@ -335,14 +387,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setId()
 
-> **setId**(`id`): `void`
+```ts
+setId(id: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L166
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L199
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `id` | `string` |
 
 #### Returns
@@ -359,14 +413,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setParentId()
 
-> **setParentId**(`parentId`): `void`
+```ts
+setParentId(parentId: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L173
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L206
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `parentId` | `string` |
 
 #### Returns
@@ -383,21 +439,34 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### streamingForward()
 
-> **streamingForward**(`ai`, `values`, `options`?): `AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+```ts
+streamingForward(
+   ai: Readonly<AxAIService<unknown, unknown>>, 
+   values: 
+  | AxRewriteIn
+  | AxMessage<AxRewriteIn>[], 
+   options?: Readonly<AxProgramStreamingForwardOptions>): AsyncGenerator<{
+  delta: Partial<AxRewriteOut>;
+  version: number;
+}, void, unknown>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/generate.ts#L675
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/generate.ts#L845
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `ai` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
-| `values` | [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) |
+| `values` | \| [`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein) \| [`AxMessage`](/api/#03-apidocs/typealiasaxmessage)\<[`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein)\>[] |
 | `options`? | `Readonly`\<[`AxProgramStreamingForwardOptions`](/api/#03-apidocs/typealiasaxprogramstreamingforwardoptions)\> |
 
 #### Returns
 
-`AsyncGenerator`\<\{ `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>; `version`: `number`; \}, `void`, `unknown`\>
+`AsyncGenerator`\<\{
+  `delta`: `Partial`\<[`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>;
+  `version`: `number`;
+ \}, `void`, `unknown`\>
 
 #### Inherited from
 

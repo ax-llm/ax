@@ -2,67 +2,35 @@
 title: AxAIOpenAIConfig
 ---
 
-> **AxAIOpenAIConfig**\<`TModel`, `TEmbedModel`\>: `Omit`\<[`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig), `"topK"`\> & `object`
+```ts
+type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<AxModelConfig, "topK"> & object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L25
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/openai/chat_types.ts#L26
 
 ## Type declaration
 
-### bestOf?
-
-> `optional` **bestOf**: `number`
-
-### dimensions?
-
-> `optional` **dimensions**: `number`
-
-### echo?
-
-> `optional` **echo**: `boolean`
-
-### embedModel?
-
-> `optional` **embedModel**: `TEmbedModel`
-
-### logitBias?
-
-> `optional` **logitBias**: `Map`\<`string`, `number`\>
-
-### logprobs?
-
-> `optional` **logprobs**: `number`
-
-### model
-
-> **model**: `TModel`
-
-### reasoningEffort?
-
-> `optional` **reasoningEffort**: `"low"` \| `"medium"` \| `"high"`
-
-### responseFormat?
-
-> `optional` **responseFormat**: `"json_object"`
-
-### stop?
-
-> `optional` **stop**: `string`[]
-
-### store?
-
-> `optional` **store**: `boolean`
-
-### suffix?
-
-> `optional` **suffix**: `string` \| `null`
-
-### user?
-
-> `optional` **user**: `string`
+| Name | Type |
+| :------ | :------ |
+| `bestOf`? | `number` |
+| `dimensions`? | `number` |
+| `echo`? | `boolean` |
+| `embedModel`? | `TEmbedModel` |
+| `logitBias`? | `Map`\<`string`, `number`\> |
+| `logprobs`? | `number` |
+| `model` | `TModel` |
+| `reasoningEffort`? | `"low"` \| `"medium"` \| `"high"` |
+| `responseFormat`? | `"json_object"` |
+| `serviceTier`? | `"auto"` \| `"default"` \| `"flex"` |
+| `stop`? | `string`[] |
+| `store`? | `boolean` |
+| `suffix`? | `string` \| `null` |
+| `user`? | `string` |
+| `webSearchOptions`? | \{ `searchContextSize`: `"low"` \| `"medium"` \| `"high"`; `userLocation`: \| \{ `approximate`: \{ `city`: `string`; `country`: `string`; `region`: `string`; `timezone`: `string`; `type`: `"approximate"`; \}; \} \| `null`; \} |
 
 ## Type Parameters
 
 | Type Parameter |
-| ------ |
+| :------ |
 | `TModel` |
 | `TEmbedModel` |

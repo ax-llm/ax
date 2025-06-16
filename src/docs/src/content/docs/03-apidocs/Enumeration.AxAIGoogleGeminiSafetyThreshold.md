@@ -2,54 +2,14 @@
 title: AxAIGoogleGeminiSafetyThreshold
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L29
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/google-gemini/types.ts#L29
 
 ## Enumeration Members
 
-<a id="BlockDefault"></a>
-
-### BlockDefault
-
-> **BlockDefault**: `"HARM_BLOCK_THRESHOLD_UNSPECIFIED"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L34
-
-***
-
-<a id="BlockLowAndAbove"></a>
-
-### BlockLowAndAbove
-
-> **BlockLowAndAbove**: `"BLOCK_LOW_AND_ABOVE"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L33
-
-***
-
-<a id="BlockMediumAndAbove"></a>
-
-### BlockMediumAndAbove
-
-> **BlockMediumAndAbove**: `"BLOCK_MEDIUM_AND_ABOVE"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L32
-
-***
-
-<a id="BlockNone"></a>
-
-### BlockNone
-
-> **BlockNone**: `"BLOCK_NONE"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L30
-
-***
-
-<a id="BlockOnlyHigh"></a>
-
-### BlockOnlyHigh
-
-> **BlockOnlyHigh**: `"BLOCK_ONLY_HIGH"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L31
+| Enumeration Member | Value |
+| :------ | :------ |
+| <a id="BlockDefault"></a> `BlockDefault` | `"HARM_BLOCK_THRESHOLD_UNSPECIFIED"` |
+| <a id="BlockLowAndAbove"></a> `BlockLowAndAbove` | `"BLOCK_LOW_AND_ABOVE"` |
+| <a id="BlockMediumAndAbove"></a> `BlockMediumAndAbove` | `"BLOCK_MEDIUM_AND_ABOVE"` |
+| <a id="BlockNone"></a> `BlockNone` | `"BLOCK_NONE"` |
+| <a id="BlockOnlyHigh"></a> `BlockOnlyHigh` | `"BLOCK_ONLY_HIGH"` |

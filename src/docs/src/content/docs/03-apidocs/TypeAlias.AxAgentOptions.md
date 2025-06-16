@@ -2,22 +2,16 @@
 title: AxAgentOptions
 ---
 
-> **AxAgentOptions**: `Omit`\<[`AxGenOptions`](/api/#03-apidocs/interfaceaxgenoptions), `"functions"`\> & `object`
+```ts
+type AxAgentOptions = Omit<AxProgramForwardOptions, "functions"> & object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L32
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L33
 
 ## Type declaration
 
-### debug?
-
-> `optional` **debug**: `boolean`
-
-### disableSmartModelRouting?
-
-> `optional` **disableSmartModelRouting**: `boolean`
-
-### excludeFieldsFromPassthrough?
-
-> `optional` **excludeFieldsFromPassthrough**: `string`[]
-
-List of field names that should not be automatically passed from parent to child agents
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `debug`? | `boolean` | - |
+| `disableSmartModelRouting`? | `boolean` | - |
+| `excludeFieldsFromPassthrough`? | `string`[] | List of field names that should not be automatically passed from parent to child agents |

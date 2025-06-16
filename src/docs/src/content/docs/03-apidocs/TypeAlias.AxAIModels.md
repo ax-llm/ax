@@ -2,6 +2,16 @@
 title: AxAIModels
 ---
 
-> **AxAIModels**: [`AxAIOpenAIModel`](/api/#03-apidocs/enumerationaxaiopenaimodel) \| [`AxAIAnthropicModel`](/api/#03-apidocs/enumerationaxaianthropicmodel) \| [`AxAIGroqModel`](/api/#03-apidocs/enumerationaxaigroqmodel) \| [`AxAIGoogleGeminiModel`](/api/#03-apidocs/enumerationaxaigooglegeminimodel) \| [`AxAICohereModel`](/api/#03-apidocs/enumerationaxaicoheremodel) \| [`AxAIHuggingFaceModel`](/api/#03-apidocs/enumerationaxaihuggingfacemodel) \| [`AxAIMistralModel`](/api/#03-apidocs/enumerationaxaimistralmodel) \| [`AxAIDeepSeekModel`](/api/#03-apidocs/enumerationaxaideepseekmodel)
+```ts
+type AxAIModels = 
+  | AxAIOpenAIModel
+  | AxAIAnthropicModel
+  | AxAIGroqModel
+  | AxAIGoogleGeminiModel
+  | AxAICohereModel
+  | AxAIHuggingFaceModel
+  | AxAIMistralModel
+  | AxAIDeepSeekModel;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L62
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L71

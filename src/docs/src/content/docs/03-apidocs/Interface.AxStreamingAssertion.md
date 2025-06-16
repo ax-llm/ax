@@ -2,27 +2,14 @@
 title: AxStreamingAssertion
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L8
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/asserts.ts#L10
 
 ## Properties
 
-<a id="fieldName"></a>
-
-### fieldName
-
-> **fieldName**: `string`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L9
-
-***
-
-<a id="message"></a>
-
-### message?
-
-> `optional` **message**: `string`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L11
+| Property | Type |
+| :------ | :------ |
+| <a id="fieldName"></a> `fieldName` | `string` |
+| <a id="message"></a> `message?` | `string` |
 
 ## Methods
 
@@ -30,14 +17,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### fn()
 
-> **fn**(`content`, `done`?): `undefined` \| `boolean`
+```ts
+fn(content: string, done?: boolean): undefined | boolean
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/asserts.ts#L10
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/asserts.ts#L12
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `content` | `string` |
 | `done`? | `boolean` |
 

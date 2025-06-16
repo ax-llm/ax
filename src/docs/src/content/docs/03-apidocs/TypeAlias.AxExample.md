@@ -2,6 +2,8 @@
 title: AxExample
 ---
 
-> **AxExample**: `Record`\<`string`, [`AxFieldValue`](/api/#03-apidocs/typealiasaxfieldvalue)\>
+```ts
+type AxExample = Record<string, AxFieldValue>;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/optimize.ts#L13
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/optimize.ts#L14

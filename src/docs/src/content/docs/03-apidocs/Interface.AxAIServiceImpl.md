@@ -2,12 +2,12 @@
 title: AxAIServiceImpl
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L268
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L329
 
 ## Type Parameters
 
 | Type Parameter |
-| ------ |
+| :------ |
 | `TModel` |
 | `TEmbedModel` |
 | `TChatRequest` |
@@ -22,14 +22,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### createChatReq()
 
-> **createChatReq**(`req`, `config`): \[[`AxAPI`](/api/#03-apidocs/interfaceaxapi), `TChatRequest`\]
+```ts
+createChatReq(req: Readonly<AxInternalChatRequest<TModel>>, config: Readonly<AxAIPromptConfig>): [AxAPI, TChatRequest]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L277
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L338
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxInternalChatRequest`](/api/#03-apidocs/typealiasaxinternalchatrequest)\<`TModel`\>\> |
 | `config` | `Readonly`\<[`AxAIPromptConfig`](/api/#03-apidocs/typealiasaxaipromptconfig)\> |
 
@@ -43,14 +45,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### createChatResp()
 
-> **createChatResp**(`resp`): [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
+```ts
+createChatResp(resp: Readonly<TChatResponse>): AxChatResponse
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L282
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L343
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `resp` | `Readonly`\<`TChatResponse`\> |
 
 #### Returns
@@ -63,14 +67,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### createChatStreamResp()?
 
-> `optional` **createChatStreamResp**(`resp`, `state`): [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
+```ts
+optional createChatStreamResp(resp: Readonly<TChatResponseDelta>, state: object): AxChatResponse
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L284
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L345
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `resp` | `Readonly`\<`TChatResponseDelta`\> |
 | `state` | `object` |
 
@@ -84,14 +90,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### createEmbedReq()?
 
-> `optional` **createEmbedReq**(`req`): \[[`AxAPI`](/api/#03-apidocs/interfaceaxapi), `TEmbedRequest`\]
+```ts
+optional createEmbedReq(req: Readonly<AxInternalEmbedRequest<TEmbedModel>>): [AxAPI, TEmbedRequest]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L289
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L350
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxInternalEmbedRequest`](/api/#03-apidocs/typealiasaxinternalembedrequest)\<`TEmbedModel`\>\> |
 
 #### Returns
@@ -104,14 +112,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### createEmbedResp()?
 
-> `optional` **createEmbedResp**(`resp`): [`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)
+```ts
+optional createEmbedResp(resp: Readonly<TEmbedResponse>): AxEmbedResponse
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L293
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L354
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `resp` | `Readonly`\<`TEmbedResponse`\> |
 
 #### Returns
@@ -124,10 +134,28 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getModelConfig()
 
-> **getModelConfig**(): [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
+```ts
+getModelConfig(): AxModelConfig
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L295
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L356
 
 #### Returns
 
 [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
+
+***
+
+<a id="getTokenUsage"></a>
+
+### getTokenUsage()
+
+```ts
+getTokenUsage(): undefined | AxTokenUsage
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L358
+
+#### Returns
+
+`undefined` \| [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage)

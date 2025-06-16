@@ -2,84 +2,26 @@
 title: AxAIRekaChatRequest
 ---
 
-> **AxAIRekaChatRequest**: `object`
+```ts
+type AxAIRekaChatRequest = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/reka/types.ts#L20
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/reka/types.ts#L20
 
 ## Type declaration
 
-<a id="frequency_penalty"></a>
-
-### frequency\_penalty?
-
-> `optional` **frequency\_penalty**: `number`
-
-<a id="max_tokens"></a>
-
-### max\_tokens
-
-> **max\_tokens**: `number`
-
-<a id="messages"></a>
-
-### messages
-
-> **messages**: (\{ `content`: `string` \| `object`[]; `role`: `"user"`; \} \| \{ `content`: `string` \| `object`[]; `role`: `"assistant"`; \})[]
-
-<a id="model"></a>
-
-### model
-
-> **model**: `string`
-
-<a id="presence_penalty"></a>
-
-### presence\_penalty?
-
-> `optional` **presence\_penalty**: `number`
-
-### response\_format?
-
-> \{ `type`: `string`; \}
-
-<a id="stop"></a>
-
-### stop?
-
-> `optional` **stop**: readonly `string`[]
-
-<a id="stream"></a>
-
-### stream?
-
-> `optional` **stream**: `boolean`
-
-<a id="temperature"></a>
-
-### temperature?
-
-> `optional` **temperature**: `number`
-
-<a id="top_k"></a>
-
-### top\_k?
-
-> `optional` **top\_k**: `number`
-
-<a id="top_p"></a>
-
-### top\_p?
-
-> `optional` **top\_p**: `number`
-
-<a id="usage"></a>
-
-### usage?
-
-> `optional` **usage**: [`AxAIRekaUsage`](/api/#03-apidocs/typealiasaxairekausage)
-
-<a id="use_search_engine"></a>
-
-### use\_search\_engine?
-
-> `optional` **use\_search\_engine**: `boolean`
+| Name | Type |
+| :------ | :------ |
+| <a id="frequency_penalty"></a> `frequency_penalty`? | `number` |
+| <a id="max_tokens"></a> `max_tokens`? | `number` |
+| <a id="messages"></a> `messages` | ( \| \{ `content`: `string` \| `object`[]; `role`: `"user"`; \} \| \{ `content`: `string` \| `object`[]; `role`: `"assistant"`; \})[] |
+| <a id="model"></a> `model` | `string` |
+| <a id="presence_penalty"></a> `presence_penalty`? | `number` |
+| <a id="response_format"></a> `response_format`? | \{ `type`: `string`; \} |
+| <a id="stop"></a> `stop`? | readonly `string`[] |
+| <a id="stream"></a> `stream`? | `boolean` |
+| <a id="temperature"></a> `temperature`? | `number` |
+| <a id="top_k"></a> `top_k`? | `number` |
+| <a id="top_p"></a> `top_p`? | `number` |
+| <a id="usage"></a> `usage`? | [`AxAIRekaUsage`](/api/#03-apidocs/typealiasaxairekausage) |
+| <a id="use_search_engine"></a> `use_search_engine`? | `boolean` |

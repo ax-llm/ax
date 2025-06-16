@@ -2,7 +2,7 @@
 title: AxRateLimiterTokenUsage
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/util/rate-limit.ts#L9
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/util/rate-limit.ts#L9
 
 ## Constructors
 
@@ -10,14 +10,19 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxRateLimiterTokenUsage()
 
-> **new AxRateLimiterTokenUsage**(`maxTokens`, `refillRate`, `options`?): [`AxRateLimiterTokenUsage`](/api/#03-apidocs/classaxratelimitertokenusage)
+```ts
+new AxRateLimiterTokenUsage(
+   maxTokens: number, 
+   refillRate: number, 
+   options?: Readonly<AxRateLimiterTokenUsageOptions>): AxRateLimiterTokenUsage
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/util/rate-limit.ts#L16
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/util/rate-limit.ts#L16
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `maxTokens` | `number` |
 | `refillRate` | `number` |
 | `options`? | `Readonly`\<[`AxRateLimiterTokenUsageOptions`](/api/#03-apidocs/interfaceaxratelimitertokenusageoptions)\> |
@@ -32,14 +37,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### acquire()
 
-> **acquire**(`tokens`): `Promise`\<`void`\>
+```ts
+acquire(tokens: number): Promise<void>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/util/rate-limit.ts#L56
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/util/rate-limit.ts#L56
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `tokens` | `number` |
 
 #### Returns

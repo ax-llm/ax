@@ -1,9 +1,10 @@
 ---
-// src/pages/index.astro
+// src/pages/api.astro
 import { getCollection } from 'astro:content'
 import Navigation from '../components/Navigation.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
+import '../styles/shared.css'
 
 function getOrderFromPath(path: string): number[] {
   // Split path into segments
@@ -60,35 +61,40 @@ const renderedDocs = await Promise.all(
 
 <!doctype html>
 <html lang="en">
-  <body class="min-h-screen">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Documentation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
     <Navigation />
-    <div class="max-w-6xl mx-auto">
+    <div class="container">
       <Header />
+
       <!-- Main Content - Rendered Markdown Sections -->
-      <main>
+      <main class="prose">
         {
           renderedDocs.map(({ Content, slug, data }) => (
-            <section
-              id={slug}
-              class="bg-warmGray-50 rounded-lg p-4 md:p-8 shadow-md border border-gray-200"
-            >
-              <div class="mb-6">
-                <h2 class="text-xl text-gray-700 font-bold flex items-center">
-                  <span class="text-blue-400 mr-2">></span>
-                  {data.title}
-                </h2>
-                {data.description && (
-                  <p class="text-gray-600 mt-2">{data.description}</p>
-                )}
-              </div>
-
-              <div class="prose !max-w-none prose-inline-code:p-1 prose-inline-code:bg-indigo-50 prose-inline-code:before:content-none prose-inline-code:after:content-none prose-gray prose-pre:bg-gray-800 prose-pre:text-gray-100">
+            <section id={slug} class="api-section">
+              <h2>{data.title}</h2>
+              {data.description && (
+                <p class="description">{data.description}</p>
+              )}
+              <div class="prose">
                 <Content />
               </div>
             </section>
           ))
         }
       </main>
+
       <Footer />
     </div>
   </body>

@@ -2,54 +2,14 @@
 title: AxJSInterpreterPermission
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L11
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/code.ts#L11
 
 ## Enumeration Members
 
-<a id="CRYPTO"></a>
-
-### CRYPTO
-
-> **CRYPTO**: `"crypto"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L15
-
-***
-
-<a id="FS"></a>
-
-### FS
-
-> **FS**: `"node:fs"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L12
-
-***
-
-<a id="NET"></a>
-
-### NET
-
-> **NET**: `"net"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L13
-
-***
-
-<a id="OS"></a>
-
-### OS
-
-> **OS**: `"os"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L14
-
-***
-
-<a id="PROCESS"></a>
-
-### PROCESS
-
-> **PROCESS**: `"process"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L16
+| Enumeration Member | Value |
+| :------ | :------ |
+| <a id="CRYPTO"></a> `CRYPTO` | `"crypto"` |
+| <a id="FS"></a> `FS` | `"node:fs"` |
+| <a id="NET"></a> `NET` | `"net"` |
+| <a id="OS"></a> `OS` | `"os"` |
+| <a id="PROCESS"></a> `PROCESS` | `"process"` |

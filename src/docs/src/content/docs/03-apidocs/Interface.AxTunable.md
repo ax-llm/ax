@@ -2,7 +2,7 @@
 title: AxTunable
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L83
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L111
 
 ## Extended by
 
@@ -10,94 +10,10 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ## Properties
 
-<a id="getTraces"></a>
-
-### getTraces()
-
-> **getTraces**: () => [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L87
-
-#### Returns
-
-[`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
-
-***
-
-<a id="setDemos"></a>
-
-### setDemos()
-
-> **setDemos**: (`demos`) => `void`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L88
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
-
-#### Returns
-
-`void`
-
-***
-
-<a id="setExamples"></a>
-
-### setExamples()
-
-> **setExamples**: (`examples`) => `void`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L84
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
-
-#### Returns
-
-`void`
-
-***
-
-<a id="setId"></a>
-
-### setId()
-
-> **setId**: (`id`) => `void`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L85
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `id` | `string` |
-
-#### Returns
-
-`void`
-
-***
-
-<a id="setParentId"></a>
-
-### setParentId()
-
-> **setParentId**: (`parentId`) => `void`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L86
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `parentId` | `string` |
-
-#### Returns
-
-`void`
+| Property | Type |
+| :------ | :------ |
+| <a id="getTraces"></a> `getTraces` | () => [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[] |
+| <a id="setDemos"></a> `setDemos` | (`demos`: readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[]) => `void` |
+| <a id="setExamples"></a> `setExamples` | (`examples`: `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\>, `options`?: `Readonly`\<[`AxSetExamplesOptions`](/api/#03-apidocs/typealiasaxsetexamplesoptions)\>) => `void` |
+| <a id="setId"></a> `setId` | (`id`: `string`) => `void` |
+| <a id="setParentId"></a> `setParentId` | (`parentId`: `string`) => `void` |

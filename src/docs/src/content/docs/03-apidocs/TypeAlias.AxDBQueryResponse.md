@@ -2,14 +2,14 @@
 title: AxDBQueryResponse
 ---
 
-> **AxDBQueryResponse**: `object`
+```ts
+type AxDBQueryResponse = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/types.ts#L27
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/types.ts#L27
 
 ## Type declaration
 
-<a id="matches"></a>
-
-### matches
-
-> **matches**: `object`[]
+| Name | Type |
+| :------ | :------ |
+| <a id="matches"></a> `matches` | `object`[] |

@@ -2,7 +2,7 @@
 title: AxJSInterpreter
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L29
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/code.ts#L29
 
 ## Constructors
 
@@ -10,15 +10,21 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxJSInterpreter()
 
-> **new AxJSInterpreter**(`__namedParameters`): [`AxJSInterpreter`](/api/#03-apidocs/classaxjsinterpreter)
+```ts
+new AxJSInterpreter(__namedParameters: 
+  | undefined
+  | Readonly<{
+  permissions: readonly AxJSInterpreterPermission[];
+ }>): AxJSInterpreter
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L32
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/code.ts#L32
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
-| `__namedParameters` | `undefined` \| `Readonly`\<\{ `permissions`: readonly [`AxJSInterpreterPermission`](/api/#03-apidocs/enumerationaxjsinterpreterpermission)[]; \}\> |
+| :------ | :------ |
+| `__namedParameters` | \| `undefined` \| `Readonly`\<\{ `permissions`: readonly [`AxJSInterpreterPermission`](/api/#03-apidocs/enumerationaxjsinterpreterpermission)[]; \}\> |
 
 #### Returns
 
@@ -30,9 +36,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### toFunction()
 
-> **toFunction**(): [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)
+```ts
+toFunction(): AxFunction
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/code.ts#L67
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/code.ts#L67
 
 #### Returns
 
