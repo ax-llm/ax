@@ -356,7 +356,7 @@ class AxAIGoogleGeminiImpl
     }
 
     // Then, override based on prompt-specific config
-    if (config.thinkingTokenBudget) {
+    if (config?.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
       switch (config.thinkingTokenBudget) {
         case 'none':
@@ -381,9 +381,9 @@ class AxAIGoogleGeminiImpl
       }
     }
 
-    if (config.showThoughts !== undefined) {
+    if (config?.showThoughts !== undefined) {
       // Only override includeThoughts if thinkingTokenBudget is not 'none'
-      if (config.thinkingTokenBudget !== 'none') {
+      if (config?.thinkingTokenBudget !== 'none') {
         thinkingConfig.includeThoughts = config.showThoughts
       }
     }
