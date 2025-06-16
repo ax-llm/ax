@@ -255,7 +255,7 @@ class AxAIOpenAIImpl<
     }
 
     // Then, override based on prompt-specific config
-    if (config.thinkingTokenBudget) {
+    if (config?.thinkingTokenBudget) {
       switch (config.thinkingTokenBudget) {
         case 'none':
           reqValue.reasoning_effort = undefined // Explicitly set to undefined
