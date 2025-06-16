@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.66](https://github.com/ax-llm/ax/compare/11.0.64...11.0.65) (2025-06-16)
+
+### Bug Fixes
+
+* add null checks for config parameter in AI implementations ([#240](https://github.com/ax-llm/ax/issues/240)) ([28664e3](https://github.com/ax-llm/ax/commit/28664e358ae87fdd9922d27966de0b962a1e6e01))
+* add null checks for config parameter in AI implementations ([#241](https://github.com/ax-llm/ax/issues/241)) ([da148d8](https://github.com/ax-llm/ax/commit/da148d89779218aece1b33ea27177574af413f52))
+## [11.0.65](https://github.com/ax-llm/ax/compare/11.0.64...11.0.65) (2025-06-15)
+
+### Features
+
+* Introduce tagged template literals for type-safe signatures ([f52267c](https://github.com/ax-llm/ax/commit/f52267c965c6d050f14d86b1ce5c2e5fe9a4498a))
+
 ## [11.0.65](https://github.com/ax-llm/ax/compare/11.0.63...11.0.64) (2025-06-15)
 
 ### Features
