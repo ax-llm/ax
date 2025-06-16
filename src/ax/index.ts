@@ -484,6 +484,26 @@ import {
   type AxTokenUsage
 } from './ai/types.js';
 import {
+  type AxArenaConfig,
+  type AxArenaConsolidatorInput,
+  type AxArenaConsolidatorOutput,
+  type AxArenaEvent,
+  type AxArenaExecutionPlan,
+  type AxArenaManagerControls,
+  type AxArenaMessage,
+  type AxArenaMessageAttachment,
+  type AxArenaPlanningInput,
+  type AxArenaPlanningOutput,
+  type AxArenaResponse,
+  type AxArenaRoutingInput,
+  type AxArenaRoutingOutput,
+  type AxArenaSendMessageOptions,
+  type AxArenaTask,
+  type AxArenaTaskManagerInput,
+  type AxArenaTaskManagerOutput,
+  type AxArenaThread
+} from './arena/types.js';
+import {
   type AxDBQueryRequest,
   type AxDBQueryResponse,
   type AxDBQueryService,
@@ -505,6 +525,7 @@ import {
 import {AxAIDeepSeekModel} from './ai/deepseek/types.js';
 import {AxAIGroqModel} from './ai/groq/types.js';
 import {AxAIOpenAIResponsesImpl} from './ai/openai/responses_api.js';
+import {AxArena} from './arena/arena.js';
 import {AxChainOfThought} from './prompts/cot.js';
 import {AxDefaultResultReranker} from './docs/reranker.js';
 import {AxEmbeddingAdapter} from './funcs/embed.js';
@@ -579,6 +600,7 @@ export { AxAIServiceTimeoutError };
 export { AxAITogether };
 export { AxAgent };
 export { AxApacheTika };
+export { AxArena };
 export { AxAssertionError };
 export { AxBalancer };
 export { AxBaseAI };
@@ -850,6 +872,24 @@ export type { AxAgentOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };
+export type { AxArenaConfig };
+export type { AxArenaConsolidatorInput };
+export type { AxArenaConsolidatorOutput };
+export type { AxArenaEvent };
+export type { AxArenaExecutionPlan };
+export type { AxArenaManagerControls };
+export type { AxArenaMessage };
+export type { AxArenaMessageAttachment };
+export type { AxArenaPlanningInput };
+export type { AxArenaPlanningOutput };
+export type { AxArenaResponse };
+export type { AxArenaRoutingInput };
+export type { AxArenaRoutingOutput };
+export type { AxArenaSendMessageOptions };
+export type { AxArenaTask };
+export type { AxArenaTaskManagerInput };
+export type { AxArenaTaskManagerOutput };
+export type { AxArenaThread };
 export type { AxAssertion };
 export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
