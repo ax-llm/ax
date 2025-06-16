@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "google-auth-library": "^9.15.1",
+    "google-auth-library": "^10.1.0",
     "moment-timezone": "^0.5.47"
   },
   "ava": {
