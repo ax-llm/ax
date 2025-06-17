@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
+import { AxGen } from './generate.js'
 import { AxSignature } from './sig.js'
-import { ax, axField } from './template.js'
+import { ax, f, s } from './template.js'
 
 describe('AxSignature Tagged Templates', () => {
   it('should create basic signature from template', () => {
-    const sig = ax`question:string -> answer:string`
+    const sig = s`question:string -> answer:string`
 
     expect(sig.getInputFields()).toHaveLength(1)
     expect(sig.getOutputFields()).toHaveLength(1)
@@ -16,20 +17,20 @@ describe('AxSignature Tagged Templates', () => {
   it('should handle simple string interpolation', () => {
     const inputType = 'string'
     const outputType = 'number'
-    const sig = ax`input:${inputType} -> output:${outputType}`
+    const sig = s`input:${inputType} -> output:${outputType}`
 
     expect(sig.getInputFields()[0]?.type?.name).toBe('string')
     expect(sig.getOutputFields()[0]?.type?.name).toBe('number')
   })
 
   it('should handle field type interpolation', () => {
-    const inputType = axField.string('User question')
-    const outputType = axField.class(
+    const inputType = f.string('User question')
+    const outputType = f.class(
       ['positive', 'negative'],
       'Sentiment classification'
     )
 
-    const sig = ax`question:${inputType} -> sentiment:${outputType}`
+    const sig = s`question:${inputType} -> sentiment:${outputType}`
 
     const inputField = sig.getInputFields()[0]
     const outputField = sig.getOutputFields()[0]
@@ -46,17 +47,17 @@ describe('AxSignature Tagged Templates', () => {
 
   it('should handle description interpolation', () => {
     const description = 'Analyze customer feedback'
-    const sig = ax`"${description}" feedback:string -> sentiment:string`
+    const sig = s`"${description}" feedback:string -> sentiment:string`
 
     expect(sig.getDescription()).toBe(description)
   })
 
   it('should handle complex multi-field signatures', () => {
-    const sig = ax`
-      inputText:${axField.string('Input text')} -> 
-      category:${axField.class(['tech', 'business', 'sports'])},
-      confidence:${axField.number('Confidence score 0-1')},
-      tags:${axField.array(axField.string())}
+    const sig = s`
+      inputText:${f.string('Input text')} -> 
+      category:${f.class(['tech', 'business', 'sports'])},
+      confidence:${f.number('Confidence score 0-1')},
+      tags:${f.array(f.string())}
     `
 
     expect(sig.getInputFields()).toHaveLength(1)
@@ -80,10 +81,10 @@ describe('AxSignature Tagged Templates', () => {
   })
 
   it('should handle optional and internal fields', () => {
-    const sig = ax`
+    const sig = s`
       input:string -> 
-      output:${axField.optional(axField.string())},
-      reasoning:${axField.internal(axField.string('Internal reasoning'))}
+      output:${f.optional(f.string())},
+      reasoning:${f.internal(f.string('Internal reasoning'))}
     `
 
     const outputField = sig.getOutputFields()[0]
@@ -95,9 +96,9 @@ describe('AxSignature Tagged Templates', () => {
   })
 
   it('should handle code fields', () => {
-    const sig = ax`
+    const sig = s`
       problem:string -> 
-      solution:${axField.code('python', 'Python code solution')}
+      solution:${f.code('python', 'Python code solution')}
     `
 
     const solutionField = sig.getOutputFields()[0]
@@ -107,10 +108,10 @@ describe('AxSignature Tagged Templates', () => {
   })
 
   it('should handle date and datetime fields', () => {
-    const sig = ax`
+    const sig = s`
       event:string -> 
-      startDate:${axField.date('Event start date')},
-      createdAt:${axField.datetime('Creation timestamp')}
+      startDate:${f.date('Event start date')},
+      createdAt:${f.datetime('Creation timestamp')}
     `
 
     const startDateField = sig.getOutputFields()[0]
@@ -124,10 +125,10 @@ describe('AxSignature Tagged Templates', () => {
   })
 
   it('should handle json and boolean fields', () => {
-    const sig = ax`
-      data:${axField.json('Input JSON data')} -> 
-      isValid:${axField.boolean('Validation result')},
-      metadata:${axField.json()}
+    const sig = s`
+      data:${f.json('Input JSON data')} -> 
+      isValid:${f.boolean('Validation result')},
+      metadata:${f.json()}
     `
 
     const inputField = sig.getInputFields()[0]
@@ -144,12 +145,12 @@ describe('AxSignature Tagged Templates', () => {
   })
 
   it('should handle array fields of different types', () => {
-    const sig = ax`
+    const sig = s`
       input:string -> 
-      tags:${axField.array(axField.string())},
-      scores:${axField.array(axField.number())},
-      flags:${axField.array(axField.boolean())},
-      categories:${axField.array(axField.class(['a', 'b', 'c']))}
+      tags:${f.array(f.string())},
+      scores:${f.array(f.number())},
+      flags:${f.array(f.boolean())},
+      categories:${f.array(f.class(['a', 'b', 'c']))}
     `
 
     const fields = sig.getOutputFields()
@@ -169,11 +170,11 @@ describe('AxSignature Tagged Templates', () => {
   })
 
   it('should handle combined modifiers', () => {
-    const sig = ax`
+    const sig = s`
       input:string -> 
-      optionalArray:${axField.optional(axField.array(axField.string()))},
-      internalClass:${axField.internal(axField.class(['x', 'y']))},
-      complexField:${axField.optional(axField.internal(axField.array(axField.number('Scores'))))}
+      optionalArray:${f.optional(f.array(f.string()))},
+      internalClass:${f.internal(f.class(['x', 'y']))},
+      complexField:${f.optional(f.internal(f.array(f.number('Scores'))))}
     `
 
     const fields = sig.getOutputFields()
@@ -197,7 +198,7 @@ describe('AxSignature Tagged Templates', () => {
     const stringSig = new AxSignature(
       'question:string -> answer:string, confidence:number'
     )
-    const templateSig = ax`question:string -> answer:string, confidence:number`
+    const templateSig = s`question:string -> answer:string, confidence:number`
 
     expect(templateSig.getInputFields()).toHaveLength(
       stringSig.getInputFields().length
@@ -220,8 +221,8 @@ describe('AxSignature Tagged Templates', () => {
 
 describe('Field Builders', () => {
   it('should create string fields', () => {
-    const field1 = axField.string()
-    const field2 = axField.string('Description')
+    const field1 = f.string()
+    const field2 = f.string('Description')
 
     expect(field1.type).toBe('string')
     expect(field1.description).toBeUndefined()
@@ -231,7 +232,7 @@ describe('Field Builders', () => {
   })
 
   it('should create class fields', () => {
-    const classField = axField.class(['option1', 'option2'], 'Classification')
+    const classField = f.class(['option1', 'option2'], 'Classification')
 
     expect(classField.type).toBe('class')
     expect(classField.options).toEqual(['option1', 'option2'])
@@ -239,7 +240,7 @@ describe('Field Builders', () => {
   })
 
   it('should create code fields', () => {
-    const codeField = axField.code('javascript', 'JS code')
+    const codeField = f.code('javascript', 'JS code')
 
     expect(codeField.type).toBe('code')
     expect(codeField.options).toEqual(['javascript'])
@@ -247,7 +248,7 @@ describe('Field Builders', () => {
   })
 
   it('should create array fields', () => {
-    const arrayField = axField.array(axField.string('Item'))
+    const arrayField = f.array(f.string('Item'))
 
     expect(arrayField.type).toBe('string')
     expect(arrayField.isArray).toBe(true)
@@ -255,7 +256,7 @@ describe('Field Builders', () => {
   })
 
   it('should create optional fields', () => {
-    const optionalField = axField.optional(axField.number('Score'))
+    const optionalField = f.optional(f.number('Score'))
 
     expect(optionalField.type).toBe('number')
     expect(optionalField.isOptional).toBe(true)
@@ -263,7 +264,7 @@ describe('Field Builders', () => {
   })
 
   it('should create internal fields', () => {
-    const internalField = axField.internal(axField.string('Reasoning'))
+    const internalField = f.internal(f.string('Reasoning'))
 
     expect(internalField.type).toBe('string')
     expect(internalField.isInternal).toBe(true)
@@ -271,14 +272,112 @@ describe('Field Builders', () => {
   })
 
   it('should chain modifiers', () => {
-    const complexField = axField.optional(
-      axField.internal(axField.array(axField.class(['a', 'b'])))
-    )
+    const complexField = f.optional(f.internal(f.array(f.class(['a', 'b']))))
 
     expect(complexField.type).toBe('class')
     expect(complexField.isArray).toBe(true)
     expect(complexField.isOptional).toBe(true)
     expect(complexField.isInternal).toBe(true)
     expect(complexField.options).toEqual(['a', 'b'])
+  })
+})
+
+describe('AxGen Tagged Templates', () => {
+  it('should create AxGen instance from template', () => {
+    const gen = ax`question:string -> answer:string`
+
+    expect(gen).toBeInstanceOf(AxGen)
+    expect(gen.getSignature().getInputFields()).toHaveLength(1)
+    expect(gen.getSignature().getOutputFields()).toHaveLength(1)
+    expect(gen.getSignature().getInputFields()[0]?.name).toBe('question')
+    expect(gen.getSignature().getOutputFields()[0]?.name).toBe('answer')
+  })
+
+  it('should handle field type interpolation with AxGen', () => {
+    const inputType = f.string('User question')
+    const outputType = f.class(
+      ['positive', 'negative'],
+      'Sentiment classification'
+    )
+
+    const gen = ax`question:${inputType} -> sentiment:${outputType}`
+
+    const inputField = gen.getSignature().getInputFields()[0]
+    const outputField = gen.getSignature().getOutputFields()[0]
+
+    expect(inputField?.name).toBe('question')
+    expect(inputField?.type?.name).toBe('string')
+    expect(inputField?.description).toBe('User question')
+
+    expect(outputField?.name).toBe('sentiment')
+    expect(outputField?.type?.name).toBe('class')
+    expect(outputField?.type?.options).toEqual(['positive', 'negative'])
+    expect(outputField?.description).toBe('Sentiment classification')
+  })
+
+  it('should handle complex multi-field signatures with AxGen', () => {
+    const gen = ax`
+      inputText:${f.string('Input text')} -> 
+      category:${f.class(['tech', 'business', 'sports'])},
+      confidence:${f.number('Confidence score 0-1')},
+      tags:${f.array(f.string())}
+    `
+
+    expect(gen.getSignature().getInputFields()).toHaveLength(1)
+    expect(gen.getSignature().getOutputFields()).toHaveLength(3)
+
+    const categoryField = gen.getSignature().getOutputFields()[0]
+    const confidenceField = gen.getSignature().getOutputFields()[1]
+    const tagsField = gen.getSignature().getOutputFields()[2]
+
+    expect(categoryField?.name).toBe('category')
+    expect(categoryField?.type?.name).toBe('class')
+    expect(categoryField?.type?.options).toEqual(['tech', 'business', 'sports'])
+
+    expect(confidenceField?.name).toBe('confidence')
+    expect(confidenceField?.type?.name).toBe('number')
+    expect(confidenceField?.description).toBe('Confidence score 0-1')
+
+    expect(tagsField?.name).toBe('tags')
+    expect(tagsField?.type?.name).toBe('string')
+    expect(tagsField?.type?.isArray).toBe(true)
+  })
+
+  it('should handle optional and internal fields with AxGen', () => {
+    const gen = ax`
+      input:string -> 
+      output:${f.optional(f.string())},
+      reasoning:${f.internal(f.string('Internal reasoning'))}
+    `
+
+    const outputField = gen.getSignature().getOutputFields()[0]
+    const reasoningField = gen.getSignature().getOutputFields()[1]
+
+    expect(outputField?.isOptional).toBe(true)
+    expect(reasoningField?.isInternal).toBe(true)
+    expect(reasoningField?.description).toBe('Internal reasoning')
+  })
+
+  it('should be equivalent to AxGen constructor with string signature', () => {
+    const stringSig = 'question:string -> answer:string, confidence:number'
+    const genFromString = new AxGen(stringSig)
+    const genFromTemplate = ax`question:string -> answer:string, confidence:number`
+
+    expect(genFromTemplate.getSignature().getInputFields()).toHaveLength(
+      genFromString.getSignature().getInputFields().length
+    )
+    expect(genFromTemplate.getSignature().getOutputFields()).toHaveLength(
+      genFromString.getSignature().getOutputFields().length
+    )
+
+    expect(genFromTemplate.getSignature().getInputFields()[0]?.name).toBe(
+      genFromString.getSignature().getInputFields()[0]?.name
+    )
+    expect(genFromTemplate.getSignature().getOutputFields()[0]?.name).toBe(
+      genFromString.getSignature().getOutputFields()[0]?.name
+    )
+    expect(genFromTemplate.getSignature().getOutputFields()[1]?.name).toBe(
+      genFromString.getSignature().getOutputFields()[1]?.name
+    )
   })
 })

@@ -63,25 +63,50 @@ When a type is not defined, it defaults to `string`.
 For a more ergonomic and type-safe way to create signatures, you can use tagged template literals:
 
 ```typescript
-import { ax, f } from '@ax-llm/ax'
+import { s, f } from '@ax-llm/ax'
 
 // Basic usage
-const sig1 = ax`question:string -> answer:string`
+const sig1 = s`question:string -> answer:string`
 
 // With field types and descriptions
-const sig2 = ax`
+const sig2 = s`
   input:${f.string('User input')} -> 
   category:${f.class(['tech', 'business', 'sports'], 'Content category')},
   confidence:${f.number('Confidence score 0-1')}
 `
 
 // With modifiers
-const sig3 = ax`
+const sig3 = s`
   text:string -> 
   summary:${f.optional(f.string('Brief summary'))},
   reasoning:${f.internal(f.string('Internal reasoning'))}
 `
 ```
+
+### Ax Tagged Template Literals
+
+For an even more streamlined experience, you can use the `ax` tagged template literal to create `AxGen` instances directly:
+
+```typescript
+import { ax, f } from '@ax-llm/ax'
+
+// Basic AxGen creation
+const gen = ax`question:string -> answer:string`
+
+// With field types and descriptions
+const sentimentGen = ax`
+  text:${f.string('Text to analyze')} -> 
+  sentiment:${f.class(['positive', 'negative', 'neutral'], 'Sentiment classification')},
+  confidence:${f.number('Confidence score 0-1')}
+`
+
+// Direct usage with AI
+const result = await sentimentGen.forward(ai, {
+  text: 'I love this product!'
+})
+```
+
+The `ax` template literal creates ready-to-use `AxGen` instances. If you need just the signature, use `s` instead.
 
 ## Output Field Types
 
@@ -149,7 +174,7 @@ console.log('>', res)
 ## Example: Using tagged template literals for type-safe signatures
 
 ```typescript
-import { AxAI, AxChainOfThought, ax, f } from '@ax-llm/ax'
+import { AxAI, AxChainOfThought, s, f } from '@ax-llm/ax'
 
 const ai = new AxAI({
   name: 'openai',
@@ -158,7 +183,7 @@ const ai = new AxAI({
 
 // Create a signature using tagged template literals
 const gen = new AxChainOfThought(
-  ax`
+  s`
     userInput:${f.string('User message or question')} -> 
     category:${f.class(['question', 'request', 'complaint'], 'Message type')},
     priority:${f.class(['high', 'medium', 'low'], 'Urgency level')},
@@ -1052,6 +1077,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)            | Generate a short summary of a large block of text       |
 | [chain-of-thought.ts](https://github.com/ax-llm/ax/blob/main/src/examples/chain-of-thought.ts)     | Use chain-of-thought prompting to answer questions      |
 | [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts) | Type-safe signatures using tagged template literals     |
+| [ax-template.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-template.ts) | Create AxGen instances using tagged template literals   |
 | [rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag.ts)                  | Use multi-hop retrieval to answer questions             |
 | [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)             | Convert PDF to text and embed for rag search            |
 | [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                | Use function calling and reasoning to answer questions  |

@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // Added to allow the standard tagged template rest parameters usage.
 
+import { AxGen, type AxGenerateResult } from './generate.js'
+import type { AxProgramForwardOptions } from './program.js'
 import { AxSignature } from './sig.js'
+import type { AxGenIn, AxGenOut } from './types.js'
 
 // Type for template interpolation values
 export type AxSignatureTemplateValue =
@@ -37,8 +40,8 @@ export interface AxFieldDescriptor {
   readonly isInternal?: boolean
 }
 
-// Main tagged template function
-export function ax(
+// Main tagged template function for creating signatures
+export function s(
   strings: TemplateStringsArray,
   // eslint-disable-next-line functional/functional-parameters
   ...values: readonly AxSignatureTemplateValue[]
@@ -86,6 +89,60 @@ export function ax(
   }
 
   return new AxSignature(result)
+}
+
+// Tagged template function that returns AxGen instances
+export function ax<
+  IN extends AxGenIn = AxGenIn,
+  OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>,
+>(
+  strings: TemplateStringsArray,
+  // eslint-disable-next-line functional/functional-parameters
+  ...values: readonly AxSignatureTemplateValue[]
+): AxGen<IN, OUT> {
+  let result = ''
+
+  for (let i = 0; i < strings.length; i++) {
+    // Add the literal part first
+    result += strings[i] ?? ''
+
+    // Then process the value (if any)
+    if (i < values.length) {
+      const val = values[i]
+
+      // When the value is a field type with optional/internal flags we need to add
+      // the markers (?) / (!) on the FIELD NAME (the part just written in result).
+      if (isAxFieldType(val)) {
+        // Detect the last field name before the ':' we just wrote in the literal.
+        // Look for pattern like "fieldName:" at the end of result
+        const fieldNameMatch = result.match(/(\w+)\s*:\s*$/)
+        if (fieldNameMatch && (val.isOptional || val.isInternal)) {
+          const fieldName = fieldNameMatch[1]
+          let modifiedFieldName = fieldName
+
+          // Add markers in the correct order: fieldName?! (optional first, then internal)
+          if (val.isOptional) modifiedFieldName += '?'
+          if (val.isInternal) modifiedFieldName += '!'
+
+          // Replace the field name in the result
+          result = result.replace(/(\w+)(\s*:\s*)$/, `${modifiedFieldName}$2`)
+        }
+
+        // Now append the converted type string (without optional/internal markers)
+
+        const { isOptional: _o, isInternal: _i, ...typeNoFlags } = val
+        result += convertFieldTypeToString(typeNoFlags)
+      } else if (isAxFieldDescriptor(val)) {
+        result += convertFieldDescriptorToString(val)
+      } else if (typeof val === 'string' || val instanceof AxSignature) {
+        result += convertValueToSignatureString(val)
+      } else {
+        throw new Error('Unsupported template interpolation value')
+      }
+    }
+  }
+
+  return new AxGen<IN, OUT>(result)
 }
 
 function convertValueToSignatureString(
@@ -186,7 +243,7 @@ function isAxFieldDescriptor(value: unknown): value is AxFieldDescriptor {
 }
 
 // Helper functions for type-safe field creation
-export const axField = {
+export const f = {
   string: (desc?: string): AxFieldType => ({
     type: 'string',
     description: desc,
