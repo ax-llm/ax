@@ -20,7 +20,7 @@
     "tsx": "node --env-file=.env --import=tsx"
   },
   "dependencies": {
-    "@ax-llm/ax": "11.0.66",
+    "@ax-llm/ax": "11.0.67",
     "@opentelemetry/exporter-trace-otlp-http": "^0.201.1",
     "@opentelemetry/resources": "^2.0.1",
     "@opentelemetry/sdk-trace-base": "^2.0.1",

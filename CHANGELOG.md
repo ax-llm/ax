@@ -1,5 +1,17 @@
 # Changelog
 
+## [11.0.67](https://github.com/ax-llm/ax/compare/11.0.65...11.0.66) (2025-06-17)
+
+### Features
+
+* enhance tagged template literals for AxGen and AxSignature ([9003b9f](https://github.com/ax-llm/ax/commit/9003b9f8866d27a50b27a4f42d7ed9287de9a33f))
+## [11.0.66](https://github.com/ax-llm/ax/compare/11.0.65...11.0.66) (2025-06-16)
+
+### Bug Fixes
+
+* add null checks for config parameter in AI implementations ([#240](https://github.com/ax-llm/ax/issues/240)) ([28664e3](https://github.com/ax-llm/ax/commit/28664e358ae87fdd9922d27966de0b962a1e6e01))
+* add null checks for config parameter in AI implementations ([#241](https://github.com/ax-llm/ax/issues/241)) ([da148d8](https://github.com/ax-llm/ax/commit/da148d89779218aece1b33ea27177574af413f52))
+
 ## [11.0.66](https://github.com/ax-llm/ax/compare/11.0.64...11.0.65) (2025-06-16)
 
 ### Bug Fixes
