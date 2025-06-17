@@ -122,6 +122,7 @@ import {
   axAIMistralBestConfig,
   axAIMistralDefaultConfig,
   type AxAIMistralArgs,
+  type AxAIMistralChatRequest,
 } from './ai/mistral/api.js'
 import { AxAIMistralEmbedModels, AxAIMistralModel } from './ai/mistral/types.js'
 import {
@@ -699,6 +700,7 @@ export type { AxAIHuggingFaceResponse }
 export type { AxAIInputModelList }
 export type { AxAIMemory }
 export type { AxAIMistralArgs }
+export type { AxAIMistralChatRequest }
 export type { AxAIModelList }
 export type { AxAIModelListBase }
 export type { AxAIModels }

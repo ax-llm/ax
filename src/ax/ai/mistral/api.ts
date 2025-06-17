@@ -1,6 +1,9 @@
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
-import type { AxAIOpenAIConfig } from '../openai/chat_types.js'
+import type {
+  AxAIOpenAIChatRequest,
+  AxAIOpenAIConfig,
+} from '../openai/chat_types.js'
 import type { AxAIServiceOptions, AxModelInfo } from '../types.js'
 
 import { axModelInfoMistral } from './info.js'
@@ -15,6 +18,7 @@ export const axAIMistralDefaultConfig = (): AxAIMistralConfig =>
   structuredClone({
     model: AxAIMistralModel.MistralSmall,
     ...axBaseAIDefaultConfig(),
+    topP: 1,
   })
 
 export const axAIMistralBestConfig = (): AxAIMistralConfig =>
@@ -22,6 +26,13 @@ export const axAIMistralBestConfig = (): AxAIMistralConfig =>
     ...axAIMistralDefaultConfig(),
     model: AxAIMistralModel.MistralLarge,
   })
+
+export type AxAIMistralChatRequest = Omit<
+  AxAIOpenAIChatRequest<AxAIMistralModel>,
+  'max_completion_tokens'
+> & {
+  max_tokens?: number
+}
 
 export type AxAIMistralArgs = AxAIOpenAIArgs<
   'mistral',
@@ -60,6 +71,20 @@ export class AxAIMistral extends AxAIOpenAIBase<
       hasShowThoughts: false,
     }
 
+    // Chat request updater to add Grok's search parameters
+    const chatReqUpdater = (
+      req: AxAIMistralChatRequest
+    ): AxAIMistralChatRequest => {
+      // eslint-disable-next-line @typescript-eslint/naming-convention, @typescript-eslint/no-unused-vars
+      const { max_completion_tokens, stream_options, ...result } =
+        req as AxAIMistralChatRequest & { max_completion_tokens?: number, stream_options?: unknown }
+
+      return {
+        ...result,
+        max_tokens: max_completion_tokens,
+      }
+    }
+
     super({
       apiKey,
       config: _config,
@@ -68,6 +93,7 @@ export class AxAIMistral extends AxAIOpenAIBase<
       modelInfo,
       models,
       supportFor,
+      chatReqUpdater,
     })
 
     super.setName('Mistral')
