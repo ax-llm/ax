@@ -1,5 +1,16 @@
 # Changelog
 
+## [12.0.0](https://github.com/ax-llm/ax/compare/11.0.66...11.0.67) (2025-06-18)
+
+### Features
+
+* update AxSignature and related components for improved usability ([53d8e72](https://github.com/ax-llm/ax/commit/53d8e7215677684d3a02a4837482da35a22f7aa6))
+## [11.0.67](https://github.com/ax-llm/ax/compare/11.0.66...11.0.67) (2025-06-17)
+
+### Features
+
+* enhance tagged template literals for AxGen and AxSignature ([9003b9f](https://github.com/ax-llm/ax/commit/9003b9f8866d27a50b27a4f42d7ed9287de9a33f))
+
 ## [11.0.67](https://github.com/ax-llm/ax/compare/11.0.65...11.0.66) (2025-06-17)
 
 ### Features
