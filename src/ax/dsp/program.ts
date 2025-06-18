@@ -153,13 +153,17 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     options?: Readonly<AxProgramWithSignatureOptions>
   ) {
     this.signature = new AxSignature(signature)
-    this.sigHash = this.signature?.hash()
-    this.children = new AxInstanceRegistry()
-    this.key = { id: this.constructor.name }
 
     if (options?.description) {
       this.signature.setDescription(options.description)
     }
+
+    // Validate full signature consistency for use in generation
+    this.signature.validate()
+
+    this.sigHash = this.signature?.hash()
+    this.children = new AxInstanceRegistry()
+    this.key = { id: this.constructor.name }
   }
 
   public getSignature() {

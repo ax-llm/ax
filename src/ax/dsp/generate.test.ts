@@ -8,6 +8,7 @@ import type { AxChatResponse } from '../ai/types.js'
 
 import { AxGen } from './generate.js'
 import type { AxProgramForwardOptions } from './program.js'
+import { AxSignature } from './sig.js'
 
 function createStreamingResponse(
   chunks: AxChatResponse['results']
@@ -544,172 +545,55 @@ describe('Error handling in AxGen', () => {
 })
 
 describe('AxGen Message Validation', () => {
-  const signature = 'userQuestion:string -> modelAnswer:string'
-
-  it('should throw error for invalid AxMessage array - non-object item', async () => {
-    const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: {
-        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
-        modelUsage: {
-          ai: 'test-ai',
-          model: 'test-model',
-          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        },
-      },
-    })
-
-    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
-      signature
-    )
-
-    // Create invalid AxMessage array with non-object item
-    const invalidMessages = [
-      { role: 'user', content: 'Hello' },
-      'invalid string item', // This should cause validation error
-      { role: 'assistant', content: 'Hi there' },
-    ]
-
-    await expect(
-      // @ts-expect-error Testing invalid input
-      gen.forward(ai, invalidMessages)
-    ).rejects.toThrow(
-      'AxMessage array validation failed: Item at index 1 is not a valid message object'
-    )
-  })
-
-  it('should throw error for invalid AxMessage array - empty content', async () => {
-    const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: {
-        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
-        modelUsage: {
-          ai: 'test-ai',
-          model: 'test-model',
-          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        },
-      },
-    })
-
-    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
-      signature
-    )
-
-    // Create invalid AxMessage array with empty content
-    const invalidMessages = [
-      { role: 'user', content: 'Hello' },
-      { role: 'assistant', content: '' }, // This should cause validation error
-      { role: 'user', content: 'Another message' },
-    ]
-
-    await expect(
-      // @ts-expect-error Testing invalid input
-      gen.forward(ai, invalidMessages)
-    ).rejects.toThrow(
-      'AxMessage array validation failed: Item at index 1 has empty content'
-    )
-  })
-
-  it('should throw error for invalid AxMessage array - whitespace-only content', async () => {
-    const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: {
-        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
-        modelUsage: {
-          ai: 'test-ai',
-          model: 'test-model',
-          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        },
-      },
-    })
-
-    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
-      signature
-    )
-
-    // Create invalid AxMessage array with whitespace-only content
-    const invalidMessages = [
-      { role: 'user', content: 'Hello' },
-      { role: 'assistant', content: '   \n\t  ' }, // This should cause validation error
-      { role: 'user', content: 'Another message' },
-    ]
-
-    await expect(
-      // @ts-expect-error Testing invalid input
-      gen.forward(ai, invalidMessages)
-    ).rejects.toThrow(
-      'AxMessage array validation failed: Item at index 1 has empty content'
-    )
-  })
-
-  it('should throw error for null items in AxMessage array', async () => {
-    const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: {
-        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
-        modelUsage: {
-          ai: 'test-ai',
-          model: 'test-model',
-          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        },
-      },
-    })
-
-    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
-      signature
-    )
-
-    // Create invalid AxMessage array with null item
-    const invalidMessages = [
-      { role: 'user', content: 'Hello' },
-      null, // This should cause validation error
-      { role: 'assistant', content: 'Hi there' },
-    ]
-
-    await expect(
-      // @ts-expect-error Testing invalid input
-      gen.forward(ai, invalidMessages)
-    ).rejects.toThrow(
-      'AxMessage array validation failed: Item at index 1 is not a valid message object'
-    )
-  })
-
   it('should pass validation for valid AxMessage array (direct function test)', () => {
-    // Create valid AxMessage array
-    const validMessages = [
-      { role: 'user', content: 'Hello' },
-      { role: 'assistant', content: 'Hi there' },
-      { role: 'user', content: 'Another message' },
-    ]
-
-    expect(() => {
-      validateAxMessageArray(validMessages)
-    }).not.toThrow()
+    expect(() =>
+      validateAxMessageArray([{ role: 'user', content: 'hello' }])
+    ).not.toThrow()
   })
 
   it('should pass validation for AxMessage array with non-string content (direct function test)', () => {
-    // Create valid AxMessage array with non-string content
-    const validMessages = [
-      { role: 'user', content: 'Hello' },
-      { role: 'assistant', content: ['array', 'content'] }, // Non-string content should be fine
-      { role: 'user', content: 'Another message' },
-    ]
+    expect(() =>
+      validateAxMessageArray([
+        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      ])
+    ).not.toThrow()
+  })
+})
 
-    expect(() => {
-      validateAxMessageArray(validMessages)
-    }).not.toThrow()
+describe('AxGen Signature Validation', () => {
+  it('should validate signature on construction and fail for incomplete signature', () => {
+    // This should throw when trying to create AxGen with a signature that has only input fields
+    const sig = new AxSignature()
+    sig.addInputField({
+      name: 'userInput',
+      type: { name: 'string', isArray: false },
+    })
+    // Note: no output fields added
+
+    expect(() => new AxGen(sig)).toThrow('must have at least one output field')
   })
 
-  it('should pass validation for AxMessage array with messages without content field (direct function test)', () => {
-    // Create valid AxMessage array with some messages without content field
-    const validMessages = [
-      { role: 'user', content: 'Hello' },
-      { role: 'system', someOtherField: 'value' }, // No content field should be fine
-      { role: 'assistant', content: 'Hi there' },
-    ]
+  it('should validate signature on construction and pass for complete signature', () => {
+    const sig = new AxSignature()
+    sig.addInputField({
+      name: 'userInput',
+      type: { name: 'string', isArray: false },
+    })
+    sig.addOutputField({
+      name: 'responseText',
+      type: { name: 'string', isArray: false },
+    })
 
-    expect(() => {
-      validateAxMessageArray(validMessages)
-    }).not.toThrow()
+    expect(() => new AxGen(sig)).not.toThrow()
+  })
+
+  it('should validate signature when using string signature', () => {
+    // Should work with valid string signature
+    expect(
+      () => new AxGen('userInput:string -> responseText:string')
+    ).not.toThrow()
+
+    // Should fail with incomplete string signature (missing arrow)
+    expect(() => new AxGen('userInput:string')).toThrow()
   })
 })

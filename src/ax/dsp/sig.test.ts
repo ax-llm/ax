@@ -117,10 +117,10 @@ describe('signature parsing', () => {
     ).toThrow('Image type is not supported in output fields')
   })
 
-  it('throws error for single class option', () => {
+  it('allows single class option', () => {
     expect(() =>
       parseSignature('userInput:string -> categoryType:class "only-one"')
-    ).toThrow('needs at least 2 options')
+    ).not.toThrow()
   })
 
   it('throws error for empty class options', () => {
@@ -129,12 +129,74 @@ describe('signature parsing', () => {
     ).toThrow('Missing class options after "class" type')
   })
 
-  it('throws error for invalid class option names', () => {
+  it('allows any class option names including numbers', () => {
     expect(() =>
       parseSignature(
-        'userInput:string -> categoryType:class "valid, 123invalid"'
+        'userInput:string -> categoryType:class "valid, 123invalid, option-with-dash"'
       )
-    ).toThrow('Invalid class option "123invalid"')
+    ).not.toThrow()
+  })
+
+  it('supports both comma and pipe separators for class options', () => {
+    // Test comma separator
+    const sig1 = parseSignature(
+      'userInput:string -> categoryType:class "positive, negative, neutral"'
+    )
+    expect(sig1.outputs[0]?.type?.options).toEqual([
+      'positive',
+      'negative',
+      'neutral',
+    ])
+
+    // Test pipe separator
+    const sig2 = parseSignature(
+      'userInput:string -> categoryType:class "positive | negative | neutral"'
+    )
+    expect(sig2.outputs[0]?.type?.options).toEqual([
+      'positive',
+      'negative',
+      'neutral',
+    ])
+
+    // Test mixed separators
+    const sig3 = parseSignature(
+      'userInput:string -> categoryType:class "positive, negative | neutral"'
+    )
+    expect(sig3.outputs[0]?.type?.options).toEqual([
+      'positive',
+      'negative',
+      'neutral',
+    ])
+  })
+
+  it('supports class options with mixed separators and spacing', () => {
+    expect(() =>
+      parseSignature(
+        'userInput:string -> categoryType:class "valid, option,with,comma"'
+      )
+    ).not.toThrow()
+
+    expect(() =>
+      parseSignature(
+        'userInput:string -> categoryType:class "valid | option|with|pipe"'
+      )
+    ).not.toThrow()
+
+    const sig1 = parseSignature(
+      'userInput:string -> categoryType:class "valid, option,with,comma"'
+    )
+    const output1 = sig1.outputs[0]?.type
+    if (output1?.name === 'class') {
+      expect(output1.options).toEqual(['valid', 'option', 'with', 'comma'])
+    }
+
+    const sig2 = parseSignature(
+      'userInput:string -> categoryType:class "valid | option|with|pipe"'
+    )
+    const output2 = sig2.outputs[0]?.type
+    if (output2?.name === 'class') {
+      expect(output2.options).toEqual(['valid', 'option', 'with', 'pipe'])
+    }
   })
 
   it('throws error for field names that are too short', () => {
@@ -503,5 +565,123 @@ Thought Process: I am thinking.`
     extractValues(sig2, result, content)
 
     expect(result).toEqual({ modelAnswer: 'The answer is 42.' })
+  })
+
+  it('should create signature with mixed input fields and output field', () => {
+    // Create a new empty AxSignature
+    const sig = new AxSignature()
+
+    // Add first input field (required)
+    sig.addInputField({
+      name: 'userQuestion',
+      type: { name: 'string', isArray: false },
+      description: 'User question input',
+    })
+
+    // Add second input field (optional)
+    sig.addInputField({
+      name: 'contextInfo',
+      type: { name: 'string', isArray: false },
+      description: 'Optional context information',
+      isOptional: true,
+    })
+
+    // Add output field with descriptive name (not "response" which is too generic)
+    sig.addOutputField({
+      name: 'answerText',
+      type: { name: 'string', isArray: false },
+      description: 'Generated answer text',
+    })
+
+    // Verify the signature was created correctly
+    expect(sig.getInputFields()).toHaveLength(2)
+    expect(sig.getOutputFields()).toHaveLength(1)
+
+    // Check input fields
+    const inputFields = sig.getInputFields()
+    expect(inputFields[0]?.name).toBe('userQuestion')
+    expect(inputFields[0]?.isOptional).toBeUndefined()
+    expect(inputFields[1]?.name).toBe('contextInfo')
+    expect(inputFields[1]?.isOptional).toBe(true)
+
+    // Check output field
+    const outputFields = sig.getOutputFields()
+    expect(outputFields[0]?.name).toBe('answerText')
+
+    // Verify signature string representation includes descriptions
+    expect(sig.toString()).toBe(
+      'userQuestion:string "User question input", contextInfo?:string "Optional context information" -> answerText:string "Generated answer text"'
+    )
+
+    // Verify we can generate a hash
+    expect(sig.hash()).toBeTruthy()
+  })
+
+  it('should fail when using generic field name "response"', () => {
+    const sig = new AxSignature()
+
+    // This should throw an error because "response" is too generic
+    expect(() =>
+      sig.addOutputField({
+        name: 'response',
+        type: { name: 'string', isArray: false },
+      })
+    ).toThrow('too generic')
+  })
+
+  it('should validate full signature consistency when explicitly called', () => {
+    const sig = new AxSignature()
+
+    // Add only input field - should work without throwing
+    sig.addInputField({
+      name: 'userQuestion',
+      type: { name: 'string', isArray: false },
+    })
+
+    // Full validation should fail because there's no output field
+    expect(() => sig.validate()).toThrow('must have at least one output field')
+
+    // Add output field
+    sig.addOutputField({
+      name: 'answerText',
+      type: { name: 'string', isArray: false },
+    })
+
+    // Now full validation should pass
+    expect(() => sig.validate()).not.toThrow()
+  })
+
+  it('should cache validation results and avoid redundant validation', () => {
+    const sig = new AxSignature()
+    sig.addInputField({
+      name: 'userInput',
+      type: { name: 'string', isArray: false },
+    })
+    sig.addOutputField({
+      name: 'responseText',
+      type: { name: 'string', isArray: false },
+    })
+
+    // First validation should pass and cache the result
+    const result1 = sig.validate()
+    expect(result1).toBe(true)
+
+    // Second validation should return cached result (true) without re-validating
+    const result2 = sig.validate()
+    expect(result2).toBe(true)
+
+    // Modify signature - this should invalidate cache
+    sig.addInputField({
+      name: 'contextInfo',
+      type: { name: 'string', isArray: false },
+    })
+
+    // Validation should run again and pass
+    const result3 = sig.validate()
+    expect(result3).toBe(true)
+
+    // Another call should use cached result
+    const result4 = sig.validate()
+    expect(result4).toBe(true)
   })
 })

@@ -352,6 +352,110 @@ describe('SignatureParser', () => {
         parseSignature('userQuestion:string -> categoryType:class ""')
       ).toThrow(/Missing class options/)
     })
+
+    it('parses class types with pipe separator', () => {
+      const sig = parseSignature(
+        'userQuestion:string -> categoryType:class "option1 | option2 | option3"'
+      )
+
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; options: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
+
+      expect(output0.type?.name).toBe('class')
+      if (output0.type?.name === 'class') {
+        const classType = output0.type as {
+          name: 'class'
+          isArray: boolean
+          options: string[]
+        }
+        expect(classType.options).toEqual(['option1', 'option2', 'option3'])
+      }
+    })
+
+    it('parses class types with mixed separators', () => {
+      const sig = parseSignature(
+        'userQuestion:string -> categoryType:class "option1, option2 | option3"'
+      )
+
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; options: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
+
+      expect(output0.type?.name).toBe('class')
+      if (output0.type?.name === 'class') {
+        const classType = output0.type as {
+          name: 'class'
+          isArray: boolean
+          options: string[]
+        }
+        expect(classType.options).toEqual(['option1', 'option2', 'option3'])
+      }
+    })
+
+    it('parses class options with mixed separators and spacing', () => {
+      const sig = parseSignature(
+        'userQuestion:string -> categoryType:class "valid, option,with,comma"'
+      )
+
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; options: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
+
+      expect(output0.type?.name).toBe('class')
+      if (output0.type?.name === 'class') {
+        const classType = output0.type as {
+          name: 'class'
+          isArray: boolean
+          options: string[]
+        }
+        expect(classType.options).toEqual(['valid', 'option', 'with', 'comma'])
+      }
+    })
+
+    it('parses class options with pipe separators and mixed spacing', () => {
+      const sig = parseSignature(
+        'userQuestion:string -> categoryType:class "valid | option|with|pipe"'
+      )
+
+      const output0 = sig.outputs[0] as {
+        name: string
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; options: string[] }
+        isOptional: boolean
+        isInternal: boolean
+        desc?: string
+      }
+
+      expect(output0.type?.name).toBe('class')
+      if (output0.type?.name === 'class') {
+        const classType = output0.type as {
+          name: 'class'
+          isArray: boolean
+          options: string[]
+        }
+        expect(classType.options).toEqual(['valid', 'option', 'with', 'pipe'])
+      }
+    })
   })
 
   describe('duplicate fields', () => {

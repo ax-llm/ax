@@ -54,6 +54,9 @@ export class AxSignature {
   private sigHash: string
   private sigString: string
 
+  // Validation caching - stores hash when validation last passed
+  private validatedAtHash?: string
+
   constructor(signature?: Readonly<AxSignature | string>) {
     if (!signature) {
       this.inputFields = []
@@ -101,6 +104,10 @@ export class AxSignature {
       ) as AxIField[]
       this.sigHash = signature.hash()
       this.sigString = signature.toString()
+      // Copy validation state if the source signature was validated
+      if (signature.validatedAtHash === this.sigHash) {
+        this.validatedAtHash = this.sigHash
+      }
     } else {
       throw new AxSignatureValidationError(
         'Invalid signature argument type',
@@ -158,6 +165,7 @@ export class AxSignature {
       )
     }
     this.description = desc
+    this.invalidateValidationCache()
     this.updateHash()
   }
 
@@ -165,8 +173,32 @@ export class AxSignature {
     try {
       const parsedField = this.parseField(field)
       validateField(parsedField, 'input')
+
+      // Check for duplicate input field names
+      for (const existingField of this.inputFields) {
+        if (existingField.name === parsedField.name) {
+          throw new AxSignatureValidationError(
+            `Duplicate input field name: "${parsedField.name}"`,
+            parsedField.name,
+            'Each field name must be unique within the signature'
+          )
+        }
+      }
+
+      // Check if field name conflicts with existing output fields
+      for (const outputField of this.outputFields) {
+        if (outputField.name === parsedField.name) {
+          throw new AxSignatureValidationError(
+            `Field name "${parsedField.name}" appears in both inputs and outputs`,
+            parsedField.name,
+            'Use different names for input and output fields to avoid confusion'
+          )
+        }
+      }
+
       this.inputFields.push(parsedField)
-      this.updateHash()
+      this.invalidateValidationCache()
+      this.updateHashLight()
     } catch (error) {
       if (error instanceof AxSignatureValidationError) {
         throw error
@@ -182,8 +214,32 @@ export class AxSignature {
     try {
       const parsedField = this.parseField(field)
       validateField(parsedField, 'output')
+
+      // Check for duplicate output field names
+      for (const existingField of this.outputFields) {
+        if (existingField.name === parsedField.name) {
+          throw new AxSignatureValidationError(
+            `Duplicate output field name: "${parsedField.name}"`,
+            parsedField.name,
+            'Each field name must be unique within the signature'
+          )
+        }
+      }
+
+      // Check if field name conflicts with existing input fields
+      for (const inputField of this.inputFields) {
+        if (inputField.name === parsedField.name) {
+          throw new AxSignatureValidationError(
+            `Field name "${parsedField.name}" appears in both inputs and outputs`,
+            parsedField.name,
+            'Use different names for input and output fields to avoid confusion'
+          )
+        }
+      }
+
       this.outputFields.push(parsedField)
-      this.updateHash()
+      this.invalidateValidationCache()
+      this.updateHashLight()
     } catch (error) {
       if (error instanceof AxSignatureValidationError) {
         throw error
@@ -211,6 +267,7 @@ export class AxSignature {
         return parsed
       })
       this.inputFields = parsedFields
+      this.invalidateValidationCache()
       this.updateHash()
     } catch (error) {
       if (error instanceof AxSignatureValidationError) {
@@ -238,6 +295,7 @@ export class AxSignature {
         return parsed
       })
       this.outputFields = parsedFields
+      this.invalidateValidationCache()
       this.updateHash()
     } catch (error) {
       if (error instanceof AxSignatureValidationError) {
@@ -252,6 +310,10 @@ export class AxSignature {
   public getInputFields = (): Readonly<AxIField[]> => this.inputFields
   public getOutputFields = (): Readonly<AxIField[]> => this.outputFields
   public getDescription = () => this.description
+
+  private invalidateValidationCache = (): void => {
+    this.validatedAtHash = undefined
+  }
 
   private toTitle = (name: string) => {
     let result = name.replace(/_/g, ' ')
@@ -293,6 +355,39 @@ export class AxSignature {
     }
 
     return schema as AxFunctionJSONSchema
+  }
+
+  private updateHashLight = (): [string, string] => {
+    try {
+      // Light validation - only validate individual fields, not full signature consistency
+      this.getInputFields().forEach((field) => {
+        validateField(field, 'input')
+      })
+      this.getOutputFields().forEach((field) => {
+        validateField(field, 'output')
+      })
+
+      this.sigHash = createHash('sha256')
+        .update(this.description ?? '')
+        .update(JSON.stringify(this.inputFields))
+        .update(JSON.stringify(this.outputFields))
+        .digest('hex')
+
+      this.sigString = renderSignature(
+        this.description,
+        this.inputFields,
+        this.outputFields
+      )
+
+      return [this.sigHash, this.sigString]
+    } catch (error) {
+      if (error instanceof AxSignatureValidationError) {
+        throw error
+      }
+      throw new AxSignatureValidationError(
+        `Signature validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    }
   }
 
   private updateHash = (): [string, string] => {
@@ -381,6 +476,27 @@ export class AxSignature {
     }
   }
 
+  public validate = (): boolean => {
+    // Check if already validated at current hash
+    if (this.validatedAtHash === this.sigHash) {
+      return true
+    }
+
+    try {
+      // Perform full validation
+      this.updateHash()
+
+      // Cache validation success
+      this.validatedAtHash = this.sigHash
+
+      return true
+    } catch (error) {
+      // Clear validation cache on failure
+      this.validatedAtHash = undefined
+      throw error
+    }
+  }
+
   public hash = () => this.sigHash
 
   public toString = () => this.sigString
@@ -409,7 +525,7 @@ function renderField(field: Readonly<AxField>): string {
       result += '[]'
     }
     if (field.type.name === 'class' && field.type.options) {
-      result += ` "${field.type.options.join(', ')}"`
+      result += ` "${field.type.options.join(' | ')}"`
     }
   }
   if (field.description && field.type?.name !== 'class') {
@@ -575,14 +691,6 @@ function validateFieldType(
       )
     }
 
-    if (type.options.length === 1) {
-      throw new AxSignatureValidationError(
-        'Class type needs at least 2 options',
-        field.name,
-        'Add more class options or use "string" type instead'
-      )
-    }
-
     for (const option of type.options) {
       if (!option || option.trim().length === 0) {
         throw new AxSignatureValidationError(
@@ -593,11 +701,11 @@ function validateFieldType(
       }
 
       const trimmedOption = option.trim()
-      if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(trimmedOption)) {
+      if (trimmedOption.includes(',') || trimmedOption.includes('|')) {
         throw new AxSignatureValidationError(
           `Invalid class option "${trimmedOption}"`,
           field.name,
-          'Class options must start with a letter and contain only letters, numbers, underscores, or hyphens'
+          'Class options cannot contain commas (,) or pipes (|) as they are used to separate options'
         )
       }
     }

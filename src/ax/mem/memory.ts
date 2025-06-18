@@ -62,10 +62,16 @@ export class MemoryImpl {
     name,
     functionCalls,
   }: Readonly<AxChatResponseResult>): void {
-    if (!content && (!functionCalls || functionCalls.length === 0)) {
+    const isContentEmpty = typeof content === 'string' && content.trim() === ''
+
+    if (isContentEmpty && (!functionCalls || functionCalls.length === 0)) {
       return
     }
-    this.addMemory({ content, name, role: 'assistant', functionCalls })
+    if (isContentEmpty) {
+      this.addMemory({ name, role: 'assistant', functionCalls })
+    } else {
+      this.addMemory({ content, name, role: 'assistant', functionCalls })
+    }
   }
 
   addResult({
@@ -91,7 +97,11 @@ export class MemoryImpl {
     if (!lastItem || lastItem.chat.role !== 'assistant') {
       this.addResultMessage({ content, name, functionCalls })
     } else {
-      if ('content' in lastItem.chat && content) {
+      if (
+        'content' in lastItem.chat &&
+        typeof content === 'string' &&
+        content.trim() !== ''
+      ) {
         lastItem.chat.content = content
       }
       if ('name' in lastItem.chat && name) {

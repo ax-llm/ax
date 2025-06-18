@@ -428,7 +428,7 @@ class SignatureParser {
           )
         }
         const options = classNamesString
-          .split(/[,\s]+/)
+          .split(/[,|]/)
           .map((s) => s.trim())
           .filter((s) => s.length > 0)
 
@@ -439,27 +439,6 @@ class SignatureParser {
             this.getErrorContext(),
             'Provide at least one class option. Example: "positive, negative"'
           )
-        }
-
-        if (options.length === 1) {
-          throw new SignatureValidationError(
-            `Output field "${name}": Class type needs at least 2 options`,
-            this.position,
-            this.getErrorContext(),
-            'Add more class options or use "string" type instead. Example: "positive, negative, neutral"'
-          )
-        }
-
-        // Validate class option names
-        for (const option of options) {
-          if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(option)) {
-            throw new SignatureValidationError(
-              `Output field "${name}": Invalid class option "${option}"`,
-              this.position,
-              this.getErrorContext(),
-              'Class options must start with a letter and contain only letters, numbers, underscores, or hyphens'
-            )
-          }
         }
 
         type = { name: 'class', isArray, options }
