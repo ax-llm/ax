@@ -16,13 +16,13 @@ await client.init()
 
 // Create a memory-augmented agent that can remember past conversations
 const memoryAgent = new AxAgent<
-  { input: string; userId: string },
-  { response: string }
+  { userMessage: string; userId: string },
+  { assistantResponse: string }
 >({
   name: 'MemoryAssistant',
   description:
     'You are an assistant that remembers past conversations with users. You break down the information to be remembered by entity identifiers and the content to remeber. Use the provided database functions to manage memories, search for memories, and add memories. Use multiple searches with different entity identifiers to get a holistic view of the user.',
-  signature: 'input, userId -> response',
+  signature: 'userMessage, userId -> assistantResponse',
   functions: [client],
 })
 
@@ -41,29 +41,29 @@ async function runConversation() {
   // First interaction - the agent will store this in memory
   console.log('\n--- First interaction ---')
   const firstResponse = await memoryAgent.forward(ai, {
-    input: 'My name is Alice and my favorite color is blue.',
+    userMessage: 'My name is Alice and my favorite color is blue.',
     userId,
   })
   console.log('User: My name is Alice and my favorite color is blue.')
-  console.log(`Assistant: ${firstResponse.response}`)
+  console.log(`Assistant: ${firstResponse.assistantResponse}`)
 
   // Second interaction - the agent should remember information from before
   console.log('\n--- Second interaction (later) ---')
   const secondResponse = await memoryAgent.forward(ai, {
-    input: "What's my favorite color?",
+    userMessage: "What's my favorite color?",
     userId,
   })
   console.log('User: What is my favorite color?')
-  console.log(`Assistant: ${secondResponse.response}`)
+  console.log(`Assistant: ${secondResponse.assistantResponse}`)
 
   // Third interaction - the agent should remember information from before
   console.log('\n--- Third interaction (later) ---')
   const thirdResponse = await memoryAgent.forward(ai, {
-    input: "What's my favorite color?",
+    userMessage: 'What do you know about me?',
     userId,
   })
   console.log('User: What do you know about me?')
-  console.log(`Assistant: ${thirdResponse.response}`)
+  console.log(`Assistant: ${thirdResponse.assistantResponse}`)
 }
 
 // Run the example

@@ -9,15 +9,15 @@ const createSignature = (desc: string) => {
   return new AxSignature(desc)
 }
 
-const defaultSig = createSignature('input:string -> output:string')
+const defaultSig = createSignature('userQuery:string -> aiResponse:string')
 
 const multiFieldSig = createSignature(
-  'question:string, context:string -> answer:string'
+  'userQuestion:string, contextInfo:string -> assistantAnswer:string'
 )
 
 // Signature for testing assistant message rendering logic
 const assistantTestSig = createSignature(
-  'input:string -> thought:string "Thought process", output:string "Main output", optional_output?:string "Optional output", internal_output!:string "Internal output"'
+  'userMessage:string -> thoughtProcess:string "Thought process", mainResponse:string "Main output", optionalResponse?:string "Optional output", internalThoughts!:string "Internal output"'
 )
 
 describe('AxPromptTemplate.render', () => {
@@ -26,64 +26,67 @@ describe('AxPromptTemplate.render', () => {
   describe('Single AxGenIn input (existing behavior)', () => {
     it('should render a basic prompt with single AxGenIn', () => {
       const signature = new AxSignature(
-        'input:string -> output:string "the result"'
+        'userQuery:string -> aiResponse:string "the result"'
       )
       const template = new AxPromptTemplate(signature)
 
-      const result = template.render({ input: 'test' }, {})
+      const result = template.render({ userQuery: 'test' }, {})
 
       expect(result).toHaveLength(2)
       expect(result[0]?.role).toBe('system')
       expect(result[1]?.role).toBe('user')
       const userMessage = result[1] as TestExpectedMessage | undefined
-      expect(userMessage?.content).toContain('Input: test')
+      expect(userMessage?.content).toContain('User Query: test')
     })
 
     it('should render with examples', () => {
       const signature = new AxSignature(
-        'input:string -> output:string "the result"'
+        'userQuery:string -> aiResponse:string "the result"'
       )
       const template = new AxPromptTemplate(signature)
 
-      const examples = [{ input: 'hello', output: 'world' }]
-      const result = template.render({ input: 'test' }, { examples })
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }]
+      const result = template.render({ userQuery: 'test' }, { examples })
 
       expect(result).toHaveLength(2)
       expect(result[0]?.role).toBe('system')
       const systemMessage = result[0] as
         | { role: 'system'; content: string }
         | undefined
-      expect(systemMessage?.content).toContain('Input: hello')
-      expect(systemMessage?.content).toContain('Output: world')
+      expect(systemMessage?.content).toContain('User Query: hello')
+      expect(systemMessage?.content).toContain('Ai Response: world')
     })
   })
 
   describe('examples with missing fields', () => {
     it('should allow missing input fields in examples', () => {
       const signature = new AxSignature(
-        'input:string, isUserMessage:boolean -> output:string'
+        'userQuery:string, isUserMessage:boolean -> aiResponse:string'
       )
       const template = new AxPromptTemplate(signature)
 
-      const examples = [{ input: 'hello', output: 'world' }] // missing isUserMessage
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }] // missing isUserMessage
 
       expect(() => {
-        template.render({ input: 'test', isUserMessage: true }, { examples })
+        template.render(
+          { userQuery: 'test', isUserMessage: true },
+          { examples }
+        )
       }).not.toThrow()
     })
 
     it('should handle false boolean values correctly in examples', () => {
       const signature = new AxSignature(
-        'input:string, isUserMessage:boolean -> output:string'
+        'userQuery:string, isUserMessage:boolean -> aiResponse:string'
       )
       const template = new AxPromptTemplate(signature)
 
       const examples = [
-        { input: 'hello', isUserMessage: false, output: 'world' },
+        { userQuery: 'hello', isUserMessage: false, aiResponse: 'world' },
       ]
 
       const result = template.render(
-        { input: 'test', isUserMessage: true },
+        { userQuery: 'test', isUserMessage: true },
         { examples }
       )
 
@@ -97,14 +100,14 @@ describe('AxPromptTemplate.render', () => {
 
     it('should allow missing output fields in examples', () => {
       const signature = new AxSignature(
-        'input:string -> output:string, category:string'
+        'userQuery:string -> aiResponse:string, categoryType:string'
       )
       const template = new AxPromptTemplate(signature)
 
-      const examples = [{ input: 'hello', output: 'world' }] // missing category output field
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }] // missing category output field
 
       expect(() => {
-        template.render({ input: 'test' }, { examples })
+        template.render({ userQuery: 'test' }, { examples })
       }).not.toThrow()
     })
   })
@@ -112,8 +115,8 @@ describe('AxPromptTemplate.render', () => {
   describe('ReadonlyArray<AxMessage> input (new behavior)', () => {
     it('should render with a single user message in history', () => {
       const pt = new AxPromptTemplate(defaultSig)
-      const history: ReadonlyArray<AxMessage<{ input: string }>> = [
-        { role: 'user', values: { input: 'first message' } },
+      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = [
+        { role: 'user', values: { userQuery: 'first message' } },
       ]
       const result = pt.render(history, {})
 
@@ -121,16 +124,16 @@ describe('AxPromptTemplate.render', () => {
       expect(result[0]?.role).toBe('system')
       const userMessage = result[1] as TestExpectedMessage | undefined
       expect(userMessage?.role).toBe('user')
-      expect(userMessage?.content).toBe('Input: first message')
+      expect(userMessage?.content).toBe('User Query: first message')
     })
 
     it('should combine consecutive user messages', () => {
       const pt = new AxPromptTemplate(multiFieldSig)
       const history: ReadonlyArray<
-        AxMessage<{ question: string; context: string }>
+        AxMessage<{ userQuestion: string; contextInfo: string }>
       > = [
-        { role: 'user', values: { question: 'q1', context: 'c1' } },
-        { role: 'user', values: { question: 'q2', context: 'c2' } },
+        { role: 'user', values: { userQuestion: 'q1', contextInfo: 'c1' } },
+        { role: 'user', values: { userQuestion: 'q2', contextInfo: 'c2' } },
       ]
       const result = pt.render(history, {})
 
@@ -138,21 +141,21 @@ describe('AxPromptTemplate.render', () => {
       const userMessage = result[1] as TestExpectedMessage | undefined
       expect(userMessage?.role).toBe('user')
       expect(userMessage?.content).toBe(
-        'Question: q1\nContext: c1\nQuestion: q2\nContext: c2'
+        'User Question: q1\nContext Info: c1\nUser Question: q2\nContext Info: c2'
       )
     })
 
     it('should handle alternating user and assistant messages', () => {
       const pt = new AxPromptTemplate(multiFieldSig)
       const history: ReadonlyArray<
-        AxMessage<{ question: string; context: string }>
+        AxMessage<{ userQuestion: string; contextInfo: string }>
       > = [
-        { role: 'user', values: { question: 'q1', context: 'c1' } },
+        { role: 'user', values: { userQuestion: 'q1', contextInfo: 'c1' } },
         {
           role: 'assistant',
-          values: { question: 'q1-followup', context: 'c1-response' },
+          values: { userQuestion: 'q1-followup', contextInfo: 'c1-response' },
         },
-        { role: 'user', values: { question: 'q2', context: 'c2' } },
+        { role: 'user', values: { userQuestion: 'q2', contextInfo: 'c2' } },
       ]
       const result = pt.render(history, {})
 
@@ -160,33 +163,33 @@ describe('AxPromptTemplate.render', () => {
       expect(result[0]?.role).toBe('system')
       const userMessage1 = result[1] as TestExpectedMessage | undefined
       expect(userMessage1?.role).toBe('user')
-      expect(userMessage1?.content).toBe('Question: q1\nContext: c1')
+      expect(userMessage1?.content).toBe('User Question: q1\nContext Info: c1')
       const assistantMessage = result[2] as TestExpectedMessage | undefined
       expect(assistantMessage?.role).toBe('assistant')
       expect(assistantMessage?.content).toBe(
-        'Question: q1-followup\nContext: c1-response'
+        'User Question: q1-followup\nContext Info: c1-response'
       )
       const userMessage2 = result[3] as TestExpectedMessage | undefined
       expect(userMessage2?.role).toBe('user')
-      expect(userMessage2?.content).toBe('Question: q2\nContext: c2')
+      expect(userMessage2?.content).toBe('User Question: q2\nContext Info: c2')
     })
 
     // This test confirms user messages need all required fields
     it('should throw if required field missing in user message history', () => {
       const pt = new AxPromptTemplate(multiFieldSig)
       const history: ReadonlyArray<
-        AxMessage<{ question: string; context?: string }>
+        AxMessage<{ userQuestion: string; contextInfo?: string }>
       > = [
-        { role: 'user', values: { question: 'q1' } }, // context is missing
+        { role: 'user', values: { userQuestion: 'q1' } }, // contextInfo is missing
       ]
       expect(() => pt.render(history, {})).toThrowError(
-        "Value for input field 'context' is required."
+        "Value for input field 'contextInfo' is required."
       )
     })
 
     it('should handle empty history array', () => {
       const pt = new AxPromptTemplate(defaultSig)
-      const history: ReadonlyArray<AxMessage<{ input: string }>> = []
+      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = []
       const result = pt.render(history, {})
 
       expect(result.length).toBe(1) // Only system prompt for empty array
@@ -201,44 +204,11 @@ describe('AxPromptTemplate.render', () => {
     describe('Assistant Messages in History', () => {
       it('should render assistant message with input fields', () => {
         const pt = new AxPromptTemplate(assistantTestSig)
-        const history: ReadonlyArray<AxMessage<{ input: string }>> = [
+        const history: ReadonlyArray<AxMessage<{ userMessage: string }>> = [
           {
             role: 'assistant',
             values: {
-              input: 'assistant input value',
-            },
-          },
-        ]
-        const result = pt.render(history, {})
-        expect(result.length).toBe(2)
-        const assistantMsg = result[1] as TestExpectedMessage | undefined
-        expect(assistantMsg?.role).toBe('assistant')
-        expect(assistantMsg?.content).toBe('Input: assistant input value')
-      })
-
-      it('should throw error if required input field is missing in assistant message', () => {
-        const pt = new AxPromptTemplate(assistantTestSig)
-        const history: ReadonlyArray<AxMessage<{ input?: string }>> = [
-          {
-            role: 'assistant',
-            values: {}, // 'input' is missing
-          },
-        ]
-        expect(() => pt.render(history, {})).toThrowError(
-          "Value for input field 'input' is required."
-        )
-      })
-
-      it('should render assistant message with multiple input fields', () => {
-        const pt = new AxPromptTemplate(multiFieldSig)
-        const history: ReadonlyArray<
-          AxMessage<{ question: string; context: string }>
-        > = [
-          {
-            role: 'assistant',
-            values: {
-              question: 'What is the answer?',
-              context: 'This is the context',
+              userMessage: 'assistant input value',
             },
           },
         ]
@@ -247,25 +217,60 @@ describe('AxPromptTemplate.render', () => {
         const assistantMsg = result[1] as TestExpectedMessage | undefined
         expect(assistantMsg?.role).toBe('assistant')
         expect(assistantMsg?.content).toBe(
-          'Question: What is the answer?\nContext: This is the context'
+          'User Message: assistant input value'
+        )
+      })
+
+      it('should throw error if required input field is missing in assistant message', () => {
+        const pt = new AxPromptTemplate(assistantTestSig)
+        const history: ReadonlyArray<AxMessage<{ userMessage?: string }>> = [
+          {
+            role: 'assistant',
+            values: {}, // 'userMessage' is missing
+          },
+        ]
+        expect(() => pt.render(history, {})).toThrowError(
+          "Value for input field 'userMessage' is required."
+        )
+      })
+
+      it('should render assistant message with multiple input fields', () => {
+        const pt = new AxPromptTemplate(multiFieldSig)
+        const history: ReadonlyArray<
+          AxMessage<{ userQuestion: string; contextInfo: string }>
+        > = [
+          {
+            role: 'assistant',
+            values: {
+              userQuestion: 'What is the answer?',
+              contextInfo: 'This is the context',
+            },
+          },
+        ]
+        const result = pt.render(history, {})
+        expect(result.length).toBe(2)
+        const assistantMsg = result[1] as TestExpectedMessage | undefined
+        expect(assistantMsg?.role).toBe('assistant')
+        expect(assistantMsg?.content).toBe(
+          'User Question: What is the answer?\nContext Info: This is the context'
         )
       })
 
       it('should throw error if required input field is missing in multi-field assistant message', () => {
         const pt = new AxPromptTemplate(multiFieldSig)
         const history: ReadonlyArray<
-          AxMessage<{ question: string; context?: string }>
+          AxMessage<{ userQuestion: string; contextInfo?: string }>
         > = [
           {
             role: 'assistant',
             values: {
-              question: 'What is the answer?',
-              // context is missing
+              userQuestion: 'What is the answer?',
+              // contextInfo is missing
             },
           },
         ]
         expect(() => pt.render(history, {})).toThrowError(
-          "Value for input field 'context' is required."
+          "Value for input field 'contextInfo' is required."
         )
       })
     })

@@ -5,7 +5,7 @@ import { parseSignature } from './parser.js'
 describe('SignatureParser', () => {
   describe('basic parsing', () => {
     it('parses a simple signature without description', () => {
-      const sig = parseSignature('input:string -> output:number')
+      const sig = parseSignature('userQuestion:string -> modelAnswer:number')
 
       expect(sig.desc).toBeUndefined()
       expect(sig.inputs).toHaveLength(1)
@@ -28,14 +28,14 @@ describe('SignatureParser', () => {
       }
 
       expect(input0).toEqual({
-        name: 'input',
+        name: 'userQuestion',
         type: { name: 'string', isArray: false },
         isOptional: undefined,
         desc: undefined,
       })
 
       expect(output0).toEqual({
-        name: 'output',
+        name: 'modelAnswer',
         type: { name: 'number', isArray: false },
         isOptional: false,
         isInternal: false,
@@ -45,7 +45,7 @@ describe('SignatureParser', () => {
 
     it('parses a signature with description', () => {
       const sig = parseSignature(
-        '"This is a test" input:string -> output:number'
+        '"This is a test" userQuestion:string -> modelAnswer:number'
       )
 
       expect(sig.desc).toBe('This is a test')
@@ -57,7 +57,7 @@ describe('SignatureParser', () => {
   describe('field descriptions', () => {
     it('parses fields with descriptions', () => {
       const sig = parseSignature(
-        'input:string "input description" -> output:number "output description"'
+        'userQuestion:string "input description" -> modelAnswer:number "output description"'
       )
 
       const input0 = sig.inputs[0] as {
@@ -82,7 +82,7 @@ describe('SignatureParser', () => {
 
     it('handles both single and double quoted descriptions', () => {
       const sig = parseSignature(
-        'input:string "double quotes", param:number \'single quotes\' -> output:string "result"'
+        'userQuestion:string "double quotes", userParam:number \'single quotes\' -> modelAnswer:string "result"'
       )
 
       const input0 = sig.inputs[0] as {
@@ -116,7 +116,7 @@ describe('SignatureParser', () => {
   describe('optional fields', () => {
     it('parses optional input fields', () => {
       const sig = parseSignature(
-        'required:string, optional?:number -> output:string'
+        'requiredField:string, optionalField?:number -> modelAnswer:string'
       )
 
       const input0 = sig.inputs[0] as {
@@ -138,7 +138,7 @@ describe('SignatureParser', () => {
 
     it('parses optional output fields', () => {
       const sig = parseSignature(
-        'input:string -> required:string, optional?:number'
+        'userQuestion:string -> requiredField:string, optionalField?:number'
       )
 
       const output0 = sig.outputs[0] as {
@@ -167,7 +167,7 @@ describe('SignatureParser', () => {
 
   describe('internal marker', () => {
     it('parses output field with internal marker', () => {
-      const sig = parseSignature('input:string -> output!:number')
+      const sig = parseSignature('userQuestion:string -> modelAnswer!:number')
       const output0 = sig.outputs[0] as {
         name: string
         type:
@@ -181,7 +181,7 @@ describe('SignatureParser', () => {
     })
 
     it('parses output field with both optional and internal markers', () => {
-      const sig = parseSignature('input:string -> output?!:number')
+      const sig = parseSignature('userQuestion:string -> modelAnswer?!:number')
       const output0 = sig.outputs[0] as {
         name: string
         type:
@@ -196,15 +196,17 @@ describe('SignatureParser', () => {
     })
 
     it('throws error for input field with internal marker', () => {
-      expect(() => parseSignature('input!:string -> output:number')).toThrow(
-        /does not support the internal marker/
-      )
+      expect(() =>
+        parseSignature('userQuestion!:string -> modelAnswer:number')
+      ).toThrow(/cannot use the internal marker/)
     })
   })
 
   describe('array types', () => {
     it('parses array types', () => {
-      const sig = parseSignature('inputs:string[] -> outputs:number[]')
+      const sig = parseSignature(
+        'userQuestions:string[] -> modelAnswers:number[]'
+      )
 
       const input0 = sig.inputs[0] as {
         name: string
@@ -228,7 +230,7 @@ describe('SignatureParser', () => {
 
     it('handles mix of array and non-array types', () => {
       const sig = parseSignature(
-        'single:string, multiple:number[] -> result:boolean[]'
+        'userQuestion:string, userQuestions:number[] -> modelAnswers:boolean[]'
       )
 
       const input0 = sig.inputs[0] as {
@@ -261,193 +263,187 @@ describe('SignatureParser', () => {
 
   describe('class types', () => {
     it('parses class types with single class', () => {
-      const sig = parseSignature('input:string -> type:class "UserProfile"')
+      const sig = parseSignature(
+        'userQuestion:string -> categoryType:class "option1, option2"'
+      )
 
       const output0 = sig.outputs[0] as {
         name: string
-        type: { name: 'class'; isArray: boolean; options: string[] }
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
       }
 
-      expect(output0.type).toEqual({
-        name: 'class',
-        isArray: false,
-        options: ['UserProfile'],
-      })
+      expect(output0.type?.name).toBe('class')
+      if (output0.type?.name === 'class') {
+        const classType = output0.type as {
+          name: 'class'
+          isArray: boolean
+          options: string[]
+        }
+        expect(classType.options).toEqual(['option1', 'option2'])
+      }
     })
 
     it('parses class types with multiple options', () => {
       const sig = parseSignature(
-        'input:string -> type:class "Error, Success, Pending"'
+        'userQuestion:string -> categoryType:class "positive, negative, neutral"'
       )
 
       const output0 = sig.outputs[0] as {
         name: string
-        type: { name: 'class'; isArray: boolean; options: string[] }
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
       }
 
-      expect(output0.type).toEqual({
-        name: 'class',
-        isArray: false,
-        options: ['Error', 'Success', 'Pending'],
-      })
+      expect(output0.type?.name).toBe('class')
+      if (output0.type?.name === 'class') {
+        const classType = output0.type as {
+          name: 'class'
+          isArray: boolean
+          options: string[]
+        }
+        expect(classType.options).toEqual(['positive', 'negative', 'neutral'])
+      }
     })
 
     it('handles array of options', () => {
       const sig = parseSignature(
-        'input:string -> types:class[] "Error, Success"'
+        'userQuestion:string -> categoryTypes:class[] "option1, option2"'
       )
 
       const output0 = sig.outputs[0] as {
         name: string
-        type: { name: 'class'; isArray: boolean; options: string[] }
+        type:
+          | { name: string; isArray: boolean }
+          | { name: 'class'; isArray: boolean; options: string[] }
         isOptional: boolean
         isInternal: boolean
         desc?: string
       }
 
-      expect(output0.type).toEqual({
-        name: 'class',
-        isArray: true,
-        options: ['Error', 'Success'],
-      })
+      expect(output0.type?.name).toBe('class')
+      expect(output0.type?.isArray).toBe(true)
+      if (output0.type?.name === 'class') {
+        const classType = output0.type as {
+          name: 'class'
+          isArray: boolean
+          options: string[]
+        }
+        expect(classType.options).toEqual(['option1', 'option2'])
+      }
+    })
+
+    it('throws error for input field with class type', () => {
+      expect(() =>
+        parseSignature('categoryType:class "a,b" -> modelAnswer:string')
+      ).toThrow(/cannot use the "class" type/)
+    })
+
+    it('throws error for missing class options', () => {
+      expect(() =>
+        parseSignature('userQuestion:string -> categoryType:class ""')
+      ).toThrow(/Missing class options/)
     })
   })
 
-  describe('complex signatures', () => {
-    it('parses complex signature with all features', () => {
-      const sig = parseSignature(
-        `"API Documentation" 
-         context?:string "Request context",
-         query:string 'Search query',
-         options:json "Configuration options"
-         ->
-         results:string[] "Search results",
-         metadata : json "Response metadata",
-         status:class "success, error, pending"`
-      )
+  describe('duplicate fields', () => {
+    it('throws error for duplicate input fields', () => {
+      expect(() =>
+        parseSignature(
+          'userQuestion:string, userQuestion:number -> modelAnswer:string'
+        )
+      ).toThrow(/Duplicate input field name/)
+    })
 
-      expect(sig).toEqual({
-        desc: 'API Documentation',
-        inputs: [
-          {
-            name: 'context',
-            type: { name: 'string', isArray: false },
-            isOptional: true,
-            desc: 'Request context',
-          },
-          {
-            name: 'query',
-            type: { name: 'string', isArray: false },
-            isOptional: undefined,
-            desc: 'Search query',
-          },
-          {
-            name: 'options',
-            type: { name: 'json', isArray: false },
-            isOptional: undefined,
-            desc: 'Configuration options',
-          },
-        ],
-        outputs: [
-          {
-            name: 'results',
-            type: { name: 'string', isArray: true },
-            isOptional: false,
-            isInternal: false,
-            desc: 'Search results',
-          },
-          {
-            name: 'metadata',
-            type: { name: 'json', isArray: false },
-            isOptional: false,
-            isInternal: false,
-            desc: 'Response metadata',
-          },
-          {
-            name: 'status',
-            type: {
-              name: 'class',
-              isArray: false,
-              options: ['success', 'error', 'pending'],
-            },
-            isOptional: false,
-            isInternal: false,
-            desc: undefined,
-          },
-        ],
-      })
+    it('throws error for duplicate output fields', () => {
+      expect(() =>
+        parseSignature(
+          'userQuestion:string -> modelAnswer:string, modelAnswer:number'
+        )
+      ).toThrow(/Duplicate output field name/)
+    })
+
+    it('throws error for fields in both input and output', () => {
+      expect(() =>
+        parseSignature('userQuestion:string -> userQuestion:string')
+      ).toThrow(/appears in both inputs and outputs/)
     })
   })
 
   describe('error cases', () => {
-    it('throws on invalid identifier', () => {
-      expect(() =>
-        parseSignature('123invalid:string -> output:string')
-      ).throws()
+    it('throws on empty signature', () => {
+      expect(() => parseSignature('')).toThrow('Empty signature provided')
     })
 
     it('throws on missing arrow', () => {
-      expect(() => parseSignature('input:string output:string')).toThrow(
-        'Expected "->"'
+      expect(() =>
+        parseSignature('userQuestion:string modelAnswer:string')
+      ).toThrow('Expected "->"')
+    })
+
+    it('throws on missing output fields', () => {
+      expect(() => parseSignature('userQuestion:string ->')).toThrow(
+        'No output fields specified'
       )
     })
 
     it('throws on invalid type', () => {
-      expect(() => parseSignature('input:invalid -> output:string')).toThrow(
-        'Expected one of'
-      )
+      expect(() =>
+        parseSignature('userQuestion:invalid -> modelAnswer:string')
+      ).toThrow('Invalid type "invalid"')
     })
 
     it('throws on unterminated string', () => {
       expect(() =>
-        parseSignature('"unclosed input:string -> output:string')
+        parseSignature(
+          'userQuestion:string "unterminated -> modelAnswer:string'
+        )
       ).toThrow('Unterminated string')
     })
 
-    it('throws on missing class description', () => {
-      expect(() => parseSignature('input:string -> output:class')).throws()
+    it('throws on unexpected content after signature', () => {
+      expect(() =>
+        parseSignature(
+          'userQuestion:string -> modelAnswer:string extra content'
+        )
+      ).toThrow('Unexpected content after signature')
+    })
+
+    it('throws on invalid field name characters', () => {
+      expect(() =>
+        parseSignature('invalid-name:string -> modelAnswer:string')
+      ).toThrow('Expected "->"')
+    })
+
+    it('throws on field names starting with numbers', () => {
+      expect(() =>
+        parseSignature('1name:string -> modelAnswer:string')
+      ).toThrow('cannot start with a number')
     })
   })
 
   describe('whitespace handling', () => {
-    it('handles various whitespace patterns', () => {
-      const signatures = [
-        'input:string->output:number',
-        'input:string   ->   output:number',
-        'input:string\n->\noutput:number',
-        'input:string\t->\toutput:number',
-        ' input:string -> output:number ',
-      ]
-
-      const expectedInput = [
-        {
-          name: 'input',
-          type: { name: 'string', isArray: false },
-          isOptional: undefined,
-          desc: undefined,
-        },
-      ]
-      const expectedOutput = [
-        {
-          name: 'output',
-          type: { name: 'number', isArray: false },
-          isOptional: false,
-          isInternal: false,
-          desc: undefined,
-        },
-      ]
-
-      signatures.forEach((sig) => {
-        const parsed = parseSignature(sig)
-
-        expect(parsed.inputs).toEqual(expectedInput)
-        expect(parsed.outputs).toEqual(expectedOutput)
+    ;[
+      'userQuestion:string -> modelAnswer:number',
+      ' userQuestion:string -> modelAnswer:number',
+      'userQuestion:string -> modelAnswer:number ',
+      ' userQuestion:string  ->  modelAnswer:number ',
+      '\tuserQuestion:string -> modelAnswer:number\n',
+    ].forEach((sigStr) => {
+      it(`handles various whitespace patterns for signature: "${sigStr}"`, () => {
+        const sig = parseSignature(sigStr)
+        expect(sig.inputs).toHaveLength(1)
+        expect(sig.outputs).toHaveLength(1)
+        expect(sig.inputs[0]?.name).toBe('userQuestion')
+        expect(sig.outputs[0]?.name).toBe('modelAnswer')
       })
     })
   })

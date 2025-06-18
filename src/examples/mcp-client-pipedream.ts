@@ -81,10 +81,13 @@ Using streamable HTTP transport for real-time communication with Pipedream MCP s
   await client.init()
 
   // Create a Notion-augmented agent that can interact with Notion docs
-  const notionAgent = new AxAgent<{ input: string }, { response: string }>({
+  const notionAgent = new AxAgent<
+    { userRequest: string },
+    { assistantResponse: string }
+  >({
     name: 'NotionAssistant',
     description: `You are an assistant that can interact with ${appLabel} documents and data. You can read, search, and analyze Notion content to help users with their requests. Use the provided Notion functions to access and work with the user's documents.`,
-    signature: 'input -> response',
+    signature: 'userRequest -> assistantResponse',
     functions: [client],
   })
 
@@ -106,14 +109,14 @@ async function runNotionExample() {
 
   console.log('\n--- Requesting Notion document summary and email draft ---')
   const response = await notionAgent.forward(ai, {
-    input:
+    userRequest:
       'Summarize my most recently created Notion doc for me and help draft an email to our customers',
   })
 
   console.log(
     'User: Summarize my most recently created Notion doc for me and help draft an email to our customers'
   )
-  console.log(`Assistant: ${response.response}`)
+  console.log(`Assistant: ${response.assistantResponse}`)
 }
 
 // Run the example

@@ -78,7 +78,7 @@ describe('AxAgent', () => {
       ai: mockAI,
       name: 'test smart routing agent',
       description: 'Tests the smart model routing functionality of agents',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
     const func = agent.getFunction()
@@ -92,7 +92,7 @@ describe('AxAgent', () => {
         ai: mockAI,
         name: 'test smart routing disabled',
         description: 'Tests disabling smart model routing',
-        signature: 'input: string -> output: string',
+        signature: 'userQuery: string -> agentResponse: string',
       },
       { disableSmartModelRouting: true }
     )
@@ -106,7 +106,7 @@ describe('AxAgent', () => {
       ai: mockAI,
       name: 'test description updates',
       description: 'Initial description that is long enough',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
     const newDescription =
@@ -122,7 +122,7 @@ describe('AxAgent', () => {
       ai: mockAI,
       name: 'test description validation',
       description: 'Initial description that is long enough',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
     expect(() => agent.setDescription('Too short')).toThrow()
@@ -133,7 +133,7 @@ describe('AxAgent', () => {
       ai: mockAI,
       name: 'test features',
       description: 'Tests the feature reporting of agents',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
     const features = agent.getFeatures()
@@ -147,7 +147,7 @@ describe('AxAgent', () => {
         ai: mockAI,
         name: 'test excluded fields',
         description: 'Tests field exclusion configuration',
-        signature: 'input: string -> output: string',
+        signature: 'userQuery: string -> agentResponse: string',
       },
       {
         excludeFieldsFromPassthrough: ['someField'],
@@ -163,7 +163,7 @@ describe('AxAgent', () => {
       ai: mockAI,
       name: 'test setDefinition',
       description: 'Initial description that is long enough',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
     const validDefinition = 'A'.repeat(100) // valid definition (100 characters)
@@ -185,7 +185,7 @@ describe('AxAgent', () => {
       ai: mockAI,
       name: 'test setDefinition short',
       description: 'Initial description that is long enough',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
     expect(() => agent.setDefinition('Too short')).toThrow()
@@ -198,7 +198,7 @@ describe('AxAgent', () => {
       name: 'test constructor with definition',
       description: 'Initial description that is long enough',
       definition: validDefinition,
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
     // The underlying signature description should use the provided definition.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -219,7 +219,7 @@ describe('AxAgent', () => {
           name: 'test short definition',
           description: 'Initial description that is long enough',
           definition: 'Short definition',
-          signature: 'input: string -> output: string',
+          signature: 'userQuery: string -> agentResponse: string',
         })
     ).toThrow()
   })
@@ -231,7 +231,7 @@ describe('AxAgent', () => {
       chatResponse: {
         results: [
           {
-            content: 'Output: Mocked response for message array',
+            content: 'Agent Response: Mocked response for message array',
             finishReason: 'stop',
           },
         ],
@@ -247,24 +247,24 @@ describe('AxAgent', () => {
       ai: testMockAI,
       name: 'test message array forward',
       description: 'Tests handling of AxMessage array input in forward method',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
-    const messages: AxMessage<{ input: string }>[] = [
-      { role: 'user', values: { input: 'Hello from message array' } },
-      { role: 'assistant', values: { input: 'Previous response' } },
-      { role: 'user', values: { input: 'Latest user message' } },
+    const messages: AxMessage<{ userQuery: string }>[] = [
+      { role: 'user', values: { userQuery: 'Hello from message array' } },
+      { role: 'assistant', values: { userQuery: 'Previous response' } },
+      { role: 'user', values: { userQuery: 'Latest user message' } },
     ]
 
     const result = await agent.forward(testMockAI, messages)
     expect(result).toBeDefined()
-    expect(result.output).toBe('Mocked response for message array')
+    expect(result.agentResponse).toBe('Mocked response for message array')
   })
 
   it('should handle AxMessage array input in streamingForward method', async () => {
     // Create streaming response chunks
     const chunks: AxChatResponse['results'] = [
-      { content: 'Output: Streaming ' },
+      { content: 'Agent Response: Streaming ' },
       { content: 'response ' },
       { content: 'chunk', finishReason: 'stop' },
     ]
@@ -280,11 +280,11 @@ describe('AxAgent', () => {
       name: 'test message array streaming',
       description:
         'Tests handling of AxMessage array input in streamingForward method',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
-    const messages: AxMessage<{ input: string }>[] = [
-      { role: 'user', values: { input: 'Streaming test message' } },
+    const messages: AxMessage<{ userQuery: string }>[] = [
+      { role: 'user', values: { userQuery: 'Streaming test message' } },
     ]
 
     const generator = agent.streamingForward(testMockAI, messages)
@@ -304,10 +304,10 @@ describe('AxAgent', () => {
       ai: mockAI,
       name: 'test empty message array',
       description: 'Tests handling of empty AxMessage array input',
-      signature: 'input: string -> output: string',
+      signature: 'userQuery: string -> agentResponse: string',
     })
 
-    const messages: AxMessage<{ input: string }>[] = []
+    const messages: AxMessage<{ userQuery: string }>[] = []
 
     // This should not throw an error, but may result in an empty or default response
     // depending on how the underlying prompt template handles empty message arrays
@@ -327,7 +327,7 @@ describe('AxAgent', () => {
       chatResponse: {
         results: [
           {
-            content: 'Output: Parent response with child interaction',
+            content: 'Agent Response: Parent response with child interaction',
             finishReason: 'stop',
           },
         ],
@@ -344,7 +344,7 @@ describe('AxAgent', () => {
       ai: testMockAI,
       name: 'child agent for injection test',
       description: 'Child agent that receives injected values from parent',
-      signature: 'context: string -> response: string',
+      signature: 'contextInfo: string -> childResponse: string',
     })
 
     // Create parent agent with the child agent
@@ -352,22 +352,26 @@ describe('AxAgent', () => {
       ai: testMockAI,
       name: 'parent agent with child',
       description: 'Parent agent that passes values to child agent',
-      signature: 'input: string, context: string -> output: string',
+      signature:
+        'userQuery: string, contextInfo: string -> agentResponse: string',
       agents: [childAgent],
     })
 
-    const messages: AxMessage<{ input: string; context: string }>[] = [
+    const messages: AxMessage<{ userQuery: string; contextInfo: string }>[] = [
       {
         role: 'user',
-        values: { input: 'First message', context: 'Old context' },
+        values: { userQuery: 'First message', contextInfo: 'Old context' },
       },
       {
         role: 'assistant',
-        values: { input: 'Assistant response', context: 'Assistant context' },
+        values: {
+          userQuery: 'Assistant response',
+          contextInfo: 'Assistant context',
+        },
       },
       {
         role: 'user',
-        values: { input: 'Latest message', context: 'Latest context' },
+        values: { userQuery: 'Latest message', contextInfo: 'Latest context' },
       },
     ]
 

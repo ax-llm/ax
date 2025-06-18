@@ -99,7 +99,7 @@ console.log()
 console.log('=== Ax Tagged Template Literals Demo Complete ===')
 console.log('')
 console.log('Usage examples:')
-console.log('- const gen = ax`userInput:string -> responseText:string`')
+console.log('- const gen = ax`userQuery:string -> responseText:string`')
 console.log(
   '- const gen = ax`inputText:${f.string("Input")} -> categoryType:${f.class(["A", "B"])}`'
 )

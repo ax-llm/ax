@@ -13,6 +13,13 @@ export const extractValues = (
   const xstate = { extractedFields: [], streamedIndex: {}, s: -1 }
   streamingExtractValues(sig, values, xstate, content)
   streamingExtractFinalValue(sig, values, xstate, content)
+
+  // Filter out internal fields
+  for (const field of sig.getOutputFields()) {
+    if (field.isInternal) {
+      delete values[field.name]
+    }
+  }
 }
 
 export interface extractionState {

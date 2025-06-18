@@ -1,11 +1,14 @@
 import { AxAI, AxGen, AxSignature } from '@ax-llm/ax'
 
 // Create a simple text generator with a signature
-const textGenSignature = new AxSignature(`prompt:string -> response:string`)
-
-const textGenerator = new AxGen<{ prompt: string }, { response: string }>(
-  textGenSignature
+const textGenSignature = new AxSignature(
+  `userPrompt:string -> generatedText:string`
 )
+
+const textGenerator = new AxGen<
+  { userPrompt: string },
+  { generatedText: string }
+>(textGenSignature)
 
 // Initialize the AxAIOpenAIResponses client
 // Note: In production, use environment variables for API keys
@@ -26,7 +29,7 @@ async function main() {
 
   const textResult = await textGenerator.forward(
     ai,
-    { prompt },
+    { userPrompt: prompt },
     { debug: false }
   )
   console.log(`Response: ${JSON.stringify(textResult, null, 2)}`)
@@ -40,7 +43,7 @@ async function main() {
 
   // Use streaming with direct access to the responses API
   const generator = textGenerator.streamingForward(ai, {
-    prompt: streamingPrompt,
+    userPrompt: streamingPrompt,
   })
 
   console.log('Streaming response:')

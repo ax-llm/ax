@@ -136,6 +136,8 @@ The `ax` template literal creates ready-to-use `AxGen` instances. If you need ju
 - **Arrays**: Add `[]` after any type to make it an array (e.g., `string[]`, `class[] "a,b,c"`)
 - **Descriptions**: Add quoted descriptions after field types to provide context to the LLM
 
+By default, Ax enforces strict naming rules for signature fields. To allow generic names like `text`, `input`, etc., set `axGlobals.signatureStrict = false`. Use with caution as it may reduce signature clarity.
+
 ## LLMs Supported
 
 `Google Gemini`, `OpenAI`, `Azure OpenAI`, `Anthropic`, `X Grok`, `TogetherAI`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`, `Reka`,
