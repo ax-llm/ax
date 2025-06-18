@@ -2,6 +2,7 @@ import { ReadableStream } from 'stream/web'
 
 import { describe, expect, it } from 'vitest'
 
+import { validateAxMessageArray } from '../ai/base.js'
 import { AxMockAIService } from '../ai/mock/api.js'
 import type { AxChatResponse } from '../ai/types.js'
 
@@ -539,5 +540,176 @@ describe('Error handling in AxGen', () => {
       expect(error.message).toContain('Generate failed')
       expect(error.cause).toBe(originalError)
     }
+  })
+})
+
+describe('AxGen Message Validation', () => {
+  const signature = 'userQuestion:string -> modelAnswer:string'
+
+  it('should throw error for invalid AxMessage array - non-object item', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        },
+      },
+    })
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature
+    )
+
+    // Create invalid AxMessage array with non-object item
+    const invalidMessages = [
+      { role: 'user', content: 'Hello' },
+      'invalid string item', // This should cause validation error
+      { role: 'assistant', content: 'Hi there' },
+    ]
+
+    await expect(
+      // @ts-expect-error Testing invalid input
+      gen.forward(ai, invalidMessages)
+    ).rejects.toThrow(
+      'AxMessage array validation failed: Item at index 1 is not a valid message object'
+    )
+  })
+
+  it('should throw error for invalid AxMessage array - empty content', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        },
+      },
+    })
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature
+    )
+
+    // Create invalid AxMessage array with empty content
+    const invalidMessages = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: '' }, // This should cause validation error
+      { role: 'user', content: 'Another message' },
+    ]
+
+    await expect(
+      // @ts-expect-error Testing invalid input
+      gen.forward(ai, invalidMessages)
+    ).rejects.toThrow(
+      'AxMessage array validation failed: Item at index 1 has empty content'
+    )
+  })
+
+  it('should throw error for invalid AxMessage array - whitespace-only content', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        },
+      },
+    })
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature
+    )
+
+    // Create invalid AxMessage array with whitespace-only content
+    const invalidMessages = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: '   \n\t  ' }, // This should cause validation error
+      { role: 'user', content: 'Another message' },
+    ]
+
+    await expect(
+      // @ts-expect-error Testing invalid input
+      gen.forward(ai, invalidMessages)
+    ).rejects.toThrow(
+      'AxMessage array validation failed: Item at index 1 has empty content'
+    )
+  })
+
+  it('should throw error for null items in AxMessage array', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [{ content: 'Model Answer: response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        },
+      },
+    })
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature
+    )
+
+    // Create invalid AxMessage array with null item
+    const invalidMessages = [
+      { role: 'user', content: 'Hello' },
+      null, // This should cause validation error
+      { role: 'assistant', content: 'Hi there' },
+    ]
+
+    await expect(
+      // @ts-expect-error Testing invalid input
+      gen.forward(ai, invalidMessages)
+    ).rejects.toThrow(
+      'AxMessage array validation failed: Item at index 1 is not a valid message object'
+    )
+  })
+
+  it('should pass validation for valid AxMessage array (direct function test)', () => {
+    // Create valid AxMessage array
+    const validMessages = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi there' },
+      { role: 'user', content: 'Another message' },
+    ]
+
+    expect(() => {
+      validateAxMessageArray(validMessages)
+    }).not.toThrow()
+  })
+
+  it('should pass validation for AxMessage array with non-string content (direct function test)', () => {
+    // Create valid AxMessage array with non-string content
+    const validMessages = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: ['array', 'content'] }, // Non-string content should be fine
+      { role: 'user', content: 'Another message' },
+    ]
+
+    expect(() => {
+      validateAxMessageArray(validMessages)
+    }).not.toThrow()
+  })
+
+  it('should pass validation for AxMessage array with messages without content field (direct function test)', () => {
+    // Create valid AxMessage array with some messages without content field
+    const validMessages = [
+      { role: 'user', content: 'Hello' },
+      { role: 'system', someOtherField: 'value' }, // No content field should be fine
+      { role: 'assistant', content: 'Hi there' },
+    ]
+
+    expect(() => {
+      validateAxMessageArray(validMessages)
+    }).not.toThrow()
   })
 })

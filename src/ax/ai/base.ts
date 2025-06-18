@@ -475,6 +475,9 @@ export class AxBaseAI<
       functions = chatReq.functions.map((fn) => this.cleanupFunctionSchema(fn))
     }
 
+    // Validate chat prompt for empty content
+    validateChatPrompt(chatReq.chatPrompt)
+
     const req = {
       ...chatReq,
       model,
@@ -919,6 +922,46 @@ export function setChatResponseEvents(
       index,
       message: JSON.stringify(message, null, 2),
     })
+  }
+}
+
+export function validateAxMessageArray<T>(values: T[]): void {
+  // Validate AxMessage array items
+  for (let i = 0; i < values.length; i++) {
+    const message = values[i]
+    if (!message || typeof message !== 'object') {
+      throw new Error(
+        `AxMessage array validation failed: Item at index ${i} is not a valid message object`
+      )
+    }
+    if (
+      'content' in message &&
+      typeof message.content === 'string' &&
+      message.content.trim() === ''
+    ) {
+      throw new Error(
+        `AxMessage array validation failed: Item at index ${i} has empty content`
+      )
+    }
+  }
+}
+
+function validateChatPrompt(
+  chatPrompt: Readonly<AxChatRequest['chatPrompt']>
+): void {
+  // Validate chat prompt for empty content
+  for (let i = 0; i < chatPrompt.length; i++) {
+    const message = chatPrompt[i]
+    if (
+      message &&
+      'content' in message &&
+      typeof message.content === 'string' &&
+      message.content.trim() === ''
+    ) {
+      throw new Error(
+        `Chat prompt validation failed: Message at index ${i} has empty content`
+      )
+    }
   }
 }
 

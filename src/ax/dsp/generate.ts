@@ -8,6 +8,7 @@ import {
   trace,
 } from '@opentelemetry/api'
 
+import { validateAxMessageArray } from '../ai/base.js'
 import type {
   AxAIService,
   AxChatResponse,
@@ -605,6 +606,9 @@ export class AxGen<
     // New logic:
     let prompt
     if (Array.isArray(values)) {
+      // Validate AxMessage array items
+      validateAxMessageArray(values)
+
       // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
       // For now, assume render will handle the array directly.
       // The generic type for render might need to be T (from render<T extends ...>)

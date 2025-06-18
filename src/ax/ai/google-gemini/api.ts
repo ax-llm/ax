@@ -30,6 +30,8 @@ import {
   type AxAIGoogleGeminiChatResponse,
   type AxAIGoogleGeminiChatResponseDelta,
   type AxAIGoogleGeminiConfig,
+  type AxAIGoogleGeminiContent,
+  type AxAIGoogleGeminiContentPart,
   AxAIGoogleGeminiEmbedModel,
   type AxAIGoogleGeminiGenerationConfig,
   AxAIGoogleGeminiModel,
@@ -190,15 +192,14 @@ class AxAIGoogleGeminiImpl
           }
         : undefined
 
-    const contents: AxAIGoogleGeminiChatRequest['contents'] = req.chatPrompt
+    const contents: AxAIGoogleGeminiContent[] = req.chatPrompt
       .filter((p) => p.role !== 'system')
       .map((msg, i) => {
         switch (msg.role) {
           case 'user': {
-            const parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'user' }
-            >['parts'] = Array.isArray(msg.content)
+            const parts: AxAIGoogleGeminiContentPart[] = Array.isArray(
+              msg.content
+            )
               ? msg.content.map((c, i) => {
                   switch (c.type) {
                     case 'text':
@@ -221,10 +222,7 @@ class AxAIGoogleGeminiImpl
           }
 
           case 'assistant': {
-            let parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'model' }
-            >['parts'] = []
+            let parts: AxAIGoogleGeminiContentPart[] = []
 
             if (msg.functionCalls) {
               parts = msg.functionCalls.map((f) => {
@@ -265,10 +263,7 @@ class AxAIGoogleGeminiImpl
             if (!('functionId' in msg)) {
               throw new Error(`Chat prompt functionId is empty (index: ${i})`)
             }
-            const parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'function' }
-            >['parts'] = [
+            const parts: AxAIGoogleGeminiContentPart[] = [
               {
                 functionResponse: {
                   name: msg.functionId,
@@ -278,13 +273,15 @@ class AxAIGoogleGeminiImpl
             ]
 
             return {
-              role: 'function' as const,
+              role: 'model' as const,
               parts,
             }
           }
 
           default:
-            throw new Error('Invalid role')
+            throw new Error(
+              `Invalid role: ${JSON.stringify(msg)} (index: ${i})`
+            )
         }
       })
 

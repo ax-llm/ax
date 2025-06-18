@@ -45,50 +45,44 @@ export enum AxAIGoogleGeminiEmbedTypes {
   CodeRetrievalQuery = 'CODE_RETRIEVAL_QUERY',
 }
 
-export type AxAIGoogleGeminiContent =
+export type AxAIGoogleGeminiContent = {
+  role: 'user' | 'model'
+  parts: AxAIGoogleGeminiContentPart[]
+}
+
+// Part type with common fields intersected with a union of data fields
+export type AxAIGoogleGeminiContentPart = {
+  thought?: boolean
+  metadata?: { videoMetadata: object }
+} & (
+  | { text: string }
   | {
-      role: 'user'
-      parts: (
-        | {
-            text: string
-            thought?: string
-          }
-        | {
-            inlineData: {
-              mimeType: string
-              data: string
-            }
-          }
-        | {
-            fileData: {
-              mimeType: string
-              fileUri: string
-            }
-          }
-      )[]
+      inlineData: {
+        mimeType: string
+        data: string
+      }
     }
   | {
-      role: 'model'
-      parts:
-        | {
-            text: string
-          }[]
-        | {
-            functionCall: {
-              name: string
-              args: object
-            }
-          }[]
+      functionCall: {
+        name: string
+        args: object
+      }
     }
   | {
-      role: 'function'
-      parts: {
-        functionResponse: {
-          name: string
-          response: object
-        }
-      }[]
+      functionResponse: {
+        name: string
+        response: object
+      }
     }
+  | {
+      fileData: {
+        mimeType: string
+        fileUri: string
+      }
+    }
+  | { executableCode: object }
+  | { codeExecutionResult: object }
+)
 
 export type AxAIGoogleGeminiToolFunctionDeclaration = {
   name: string

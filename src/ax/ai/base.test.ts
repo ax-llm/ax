@@ -543,6 +543,38 @@ describe('AxBaseAI', () => {
       })
     }).toThrowError(/Duplicate model key detected: "basic"/)
   })
+
+  it('should throw error for empty content in chat prompt', async () => {
+    const ai = createTestAI()
+
+    const chatReq = {
+      chatPrompt: [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: '' }, // Empty content should trigger validation
+        { role: 'user', content: 'Another message' },
+      ] as AxChatRequest['chatPrompt'],
+    }
+
+    await expect(ai.chat(chatReq)).rejects.toThrow(
+      'Chat prompt validation failed: Message at index 1 has empty content'
+    )
+  })
+
+  it('should throw error for whitespace-only content in chat prompt', async () => {
+    const ai = createTestAI()
+
+    const chatReq = {
+      chatPrompt: [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: '   \n\t  ' }, // Whitespace-only content should trigger validation
+        { role: 'user', content: 'Another message' },
+      ] as AxChatRequest['chatPrompt'],
+    }
+
+    await expect(ai.chat(chatReq)).rejects.toThrow(
+      'Chat prompt validation failed: Message at index 1 has empty content'
+    )
+  })
 })
 
 describe('setChatResponseEvents', () => {
