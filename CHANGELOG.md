@@ -1,5 +1,16 @@
 # Changelog
 
+## [12.0.1](https://github.com/ax-llm/ax/compare/11.0.67...12.0.0) (2025-06-18)
+
+### Features
+
+* add validation for chat prompt and AxMessage array ([ab3f3d9](https://github.com/ax-llm/ax/commit/ab3f3d9beb500af3b20262e7c70caba0a8018844))
+## [12.0.0](https://github.com/ax-llm/ax/compare/11.0.67...12.0.0) (2025-06-18)
+
+### Features
+
+* update AxSignature and related components for improved usability ([53d8e72](https://github.com/ax-llm/ax/commit/53d8e7215677684d3a02a4837482da35a22f7aa6))
+
 ## [12.0.0](https://github.com/ax-llm/ax/compare/11.0.66...11.0.67) (2025-06-18)
 
 ### Features
