@@ -1104,6 +1104,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [show-thoughts.ts](https://github.com/ax-llm/ax/blob/main/src/examples/show-thoughts.ts)       | Control and display model reasoning thoughts             |
 | [reasoning-o3-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/reasoning-o3-example.ts) | Advanced reasoning with OpenAI o3/o4 models             |
 | [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts) | Example of using 'examples' to direct the llm |
+| [thinking-token-budget.ts](https://github.com/ax-llm/ax/blob/main/src/examples/thinking-token-budget.ts) | Configurable thinking token budget levels for Google Gemini and reasoning control |
 
 ## Our Goal
 

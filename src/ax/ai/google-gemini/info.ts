@@ -25,6 +25,15 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     hasShowThoughts: true,
   },
   {
+    name: AxAIGoogleGeminiModel.Gemini25FlashLite,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.1,
+    completionTokenCostPer1M: 0.4,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
+  },
+  {
     name: AxAIGoogleGeminiModel.Gemini20Flash,
     currency: 'usd',
     characterIsToken: false,

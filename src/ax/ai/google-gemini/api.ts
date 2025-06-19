@@ -69,6 +69,13 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
     model: AxAIGoogleGeminiModel.Gemini25Flash,
     embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
     safetySettings,
+    thinkingTokenBudgetLevels: {
+      minimal: 200,
+      low: 800,
+      medium: 5000,
+      high: 10000,
+      highest: 24500,
+    },
     ...axBaseAIDefaultConfig(),
   })
 
@@ -78,6 +85,13 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
       model: AxAIGoogleGeminiModel.Gemini20Flash,
       embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
       safetySettings,
+      thinkingTokenBudgetLevels: {
+        minimal: 200,
+        low: 800,
+        medium: 5000,
+        high: 10000,
+        highest: 24500,
+      },
       ...axBaseAIDefaultCreativeConfig(),
     })
 
@@ -355,25 +369,27 @@ class AxAIGoogleGeminiImpl
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
+      const levels = this.config.thinkingTokenBudgetLevels
+
       switch (config.thinkingTokenBudget) {
         case 'none':
           thinkingConfig.thinkingBudget = 0 // Explicitly set to 0
           thinkingConfig.includeThoughts = false // When thinkingTokenBudget is 'none', disable showThoughts
           break
         case 'minimal':
-          thinkingConfig.thinkingBudget = 200
+          thinkingConfig.thinkingBudget = levels?.minimal ?? 200
           break
         case 'low':
-          thinkingConfig.thinkingBudget = 800
+          thinkingConfig.thinkingBudget = levels?.low ?? 800
           break
         case 'medium':
-          thinkingConfig.thinkingBudget = 5000
+          thinkingConfig.thinkingBudget = levels?.medium ?? 5000
           break
         case 'high':
-          thinkingConfig.thinkingBudget = 10000
+          thinkingConfig.thinkingBudget = levels?.high ?? 10000
           break
         case 'highest':
-          thinkingConfig.thinkingBudget = 24500
+          thinkingConfig.thinkingBudget = levels?.highest ?? 24500
           break
       }
     }
