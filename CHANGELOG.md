@@ -1,5 +1,16 @@
 # Changelog
 
+## [12.0.3](https://github.com/ax-llm/ax/compare/12.0.1...12.0.2) (2025-06-19)
+
+### Features
+
+* add configurable thinking token budget levels for Google Gemini ([fc30ce4](https://github.com/ax-llm/ax/commit/fc30ce48174385e612afd4019e83976a77d51434))
+## [12.0.2](https://github.com/ax-llm/ax/compare/12.0.1...12.0.2) (2025-06-18)
+
+### Features
+
+* enhance AxGen and AxSignature validation and parsing ([433b232](https://github.com/ax-llm/ax/commit/433b232ce843460ac8b41e3d73aaad63c5cb6f3d))
+
 ## [12.0.2](https://github.com/ax-llm/ax/compare/12.0.0...12.0.1) (2025-06-18)
 
 ### Features
