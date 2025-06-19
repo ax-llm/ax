@@ -1,6 +1,6 @@
 import { ColorLog } from '../util/log.js'
 
-import type { AxExample, AxOptimizationStats } from './optimize.js'
+import type { AxExample, AxOptimizationStats } from './optimizer.js'
 import type { AxProgramUsage } from './program.js'
 import type { AxField } from './sig.js'
 import type { AxFieldValue, AxGenOut } from './types.js'

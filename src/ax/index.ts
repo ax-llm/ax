@@ -300,14 +300,16 @@ import {
   type AxAIFeatures,
   type AxBaseAIArgs,
 } from './ai/base.js'
-import {
-  AxBootstrapFewShot,
-  type AxExample,
-  type AxMetricFn,
-  type AxMetricFnArgs,
-  type AxOptimizationStats,
-  type AxOptimizerArgs,
-} from './dsp/optimize.js'
+import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js'
+import type {
+  AxExample,
+  AxMetricFn,
+  AxMetricFnArgs,
+  AxOptimizationStats,
+  AxOptimizer,
+  AxOptimizerArgs,
+  AxOptimizerResult,
+} from './dsp/optimizer.js'
 import { AxDB, type AxDBArgs } from './db/wrap.js'
 import {
   AxDBBase,
@@ -374,7 +376,7 @@ import {
   AxMCPStreambleHTTPTransport,
   type AxMCPStreamableHTTPTransportOptions,
 } from './mcp/httpTransport.js'
-import { AxMiPRO, type AxMiPROOptions } from './dsp/mipro.js'
+import { AxMiPRO, type AxMiPROOptions } from './dsp/optimizers/miproV2.js'
 import { AxMockAIService, type AxMockAIServiceConfig } from './ai/mock/api.js'
 import {
   AxProgram,
@@ -883,7 +885,9 @@ export type { AxModelInfo }
 export type { AxModelInfoWithProvider }
 export type { AxModelUsage }
 export type { AxOptimizationStats }
+export type { AxOptimizer }
 export type { AxOptimizerArgs }
+export type { AxOptimizerResult }
 export type { AxProgramDemos }
 export type { AxProgramExamples }
 export type { AxProgramForwardOptions }

@@ -1,8 +1,15 @@
-import type { AxAIService } from '../ai/types.js'
-
-import type { AxProgram, AxProgramDemos, AxProgramTrace } from './program.js'
-import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
-import { updateDetailedProgress, updateProgressBar } from './util.js'
+import type { AxAIService } from '../../ai/types.js'
+import type {
+  AxExample,
+  AxMetricFn,
+  AxOptimizationStats,
+  AxOptimizer,
+  AxOptimizerArgs,
+  AxOptimizerResult,
+} from '../optimizer.js'
+import type { AxProgram, AxProgramDemos, AxProgramTrace } from '../program.js'
+import type { AxFieldValue, AxGenIn, AxGenOut } from '../types.js'
+import { updateDetailedProgress, updateProgressBar } from '../util.js'
 
 // Define model config interface
 interface ModelConfig {
@@ -11,47 +18,11 @@ interface ModelConfig {
   [key: string]: number | string | boolean | undefined
 }
 
-export type AxExample = Record<string, AxFieldValue>
-
-export type AxMetricFn = <T extends AxGenOut = AxGenOut>(
-  arg0: Readonly<{ prediction: T; example: AxExample }>
-) => number
-
-export type AxMetricFnArgs = Parameters<AxMetricFn>[0]
-
-export type AxOptimizerArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
-  ai: AxAIService
-  program: Readonly<AxProgram<IN, OUT>>
-  examples: Readonly<AxExample[]>
-  options?: {
-    maxRounds?: number
-    maxExamples?: number
-    maxDemos?: number
-    batchSize?: number
-    earlyStoppingPatience?: number
-    teacherAI?: AxAIService
-    costMonitoring?: boolean
-    maxTokensPerGeneration?: number
-    verboseMode?: boolean
-    debugMode?: boolean
-  }
-}
-
-export interface AxOptimizationStats {
-  totalCalls: number
-  successfulDemos: number
-  estimatedTokenUsage: number
-  earlyStopped: boolean
-  earlyStopping?: {
-    bestScoreRound: number
-    patienceExhausted: boolean
-  }
-}
-
 export class AxBootstrapFewShot<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
-> {
+> implements AxOptimizer<IN, OUT>
+{
   private ai: AxAIService
   private teacherAI?: AxAIService
   private program: Readonly<AxProgram<IN, OUT>>
@@ -82,18 +53,35 @@ export class AxBootstrapFewShot<
     if (examples.length === 0) {
       throw new Error('No examples found')
     }
-    this.maxRounds = options?.maxRounds ?? 3
-    this.maxDemos = options?.maxDemos ?? 4
-    this.maxExamples = options?.maxExamples ?? 16
-    this.batchSize = options?.batchSize ?? 1
-    this.earlyStoppingPatience = options?.earlyStoppingPatience ?? 0
-    this.costMonitoring = options?.costMonitoring ?? false
-    this.maxTokensPerGeneration = options?.maxTokensPerGeneration ?? 0
-    this.verboseMode = options?.verboseMode ?? true
-    this.debugMode = options?.debugMode ?? false
+
+    // Type-safe option access by casting to the specific options interface
+    const bootstrapOptions = options as
+      | {
+          maxRounds?: number
+          maxExamples?: number
+          maxDemos?: number
+          batchSize?: number
+          earlyStoppingPatience?: number
+          teacherAI?: AxAIService
+          costMonitoring?: boolean
+          maxTokensPerGeneration?: number
+          verboseMode?: boolean
+          debugMode?: boolean
+        }
+      | undefined
+
+    this.maxRounds = bootstrapOptions?.maxRounds ?? 3
+    this.maxDemos = bootstrapOptions?.maxDemos ?? 4
+    this.maxExamples = bootstrapOptions?.maxExamples ?? 16
+    this.batchSize = bootstrapOptions?.batchSize ?? 1
+    this.earlyStoppingPatience = bootstrapOptions?.earlyStoppingPatience ?? 0
+    this.costMonitoring = bootstrapOptions?.costMonitoring ?? false
+    this.maxTokensPerGeneration = bootstrapOptions?.maxTokensPerGeneration ?? 0
+    this.verboseMode = bootstrapOptions?.verboseMode ?? true
+    this.debugMode = bootstrapOptions?.debugMode ?? false
 
     this.ai = ai
-    this.teacherAI = options?.teacherAI
+    this.teacherAI = bootstrapOptions?.teacherAI
     this.program = program
     this.examples = examples
   }
@@ -101,7 +89,7 @@ export class AxBootstrapFewShot<
   private async compileRound(
     roundIndex: number,
     metricFn: AxMetricFn,
-    options?: Readonly<AxOptimizerArgs<IN, OUT>['options']>
+    options?: { maxRounds?: number; maxDemos?: number } | undefined
   ) {
     const st = new Date().getTime()
     const maxDemos = options?.maxDemos ?? this.maxDemos
@@ -243,9 +231,15 @@ export class AxBootstrapFewShot<
 
   public async compile(
     metricFn: AxMetricFn,
-    options?: Readonly<AxOptimizerArgs<IN, OUT>['options']>
-  ): Promise<{ demos: AxProgramDemos[]; stats: AxOptimizationStats }> {
-    const maxRounds = options?.maxRounds ?? this.maxRounds
+    options?: Record<string, unknown>
+  ): Promise<AxOptimizerResult<IN, OUT>> {
+    const compileOptions = options as
+      | {
+          maxRounds?: number
+          maxDemos?: number
+        }
+      | undefined
+    const maxRounds = compileOptions?.maxRounds ?? this.maxRounds
     this.traces = []
     this.stats = {
       totalCalls: 0,
@@ -255,7 +249,7 @@ export class AxBootstrapFewShot<
     }
 
     for (let i = 0; i < maxRounds; i++) {
-      await this.compileRound(i, metricFn, options)
+      await this.compileRound(i, metricFn, compileOptions)
 
       // Break early if early stopping was triggered
       if (this.stats.earlyStopped) {

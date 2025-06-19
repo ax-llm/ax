@@ -1,6 +1,6 @@
 import type { AxAIService } from '../ai/types.js'
 
-import type { AxExample, AxMetricFn } from './optimize.js'
+import type { AxExample, AxMetricFn } from './optimizer.js'
 import type { AxProgram } from './program.js'
 import type { AxGenIn, AxGenOut } from './types.js'
 import { updateProgressBar } from './util.js'

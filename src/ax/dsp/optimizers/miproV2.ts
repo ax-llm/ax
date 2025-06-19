@@ -1,14 +1,17 @@
-import type { AxAIService } from '../ai/types.js'
+import type { AxAIService } from '../../ai/types.js'
+import type {
+  AxExample,
+  AxMetricFn,
+  AxOptimizationStats,
+  AxOptimizer,
+  AxOptimizerArgs,
+  AxOptimizerResult,
+} from '../optimizer.js'
+import type { AxProgram, AxProgramDemos } from '../program.js'
+import type { AxGenIn, AxGenOut } from '../types.js'
+import { updateProgressBar } from '../util.js'
 
-import {
-  AxBootstrapFewShot,
-  type AxExample,
-  type AxMetricFn,
-  type AxOptimizerArgs,
-} from './optimize.js'
-import type { AxProgram, AxProgramDemos } from './program.js'
-import type { AxGenIn, AxGenOut } from './types.js'
-import { updateProgressBar } from './util.js'
+import { AxBootstrapFewShot } from './bootstrapFewshot.js'
 
 export interface AxMiPROOptions {
   numCandidates?: number
@@ -44,7 +47,8 @@ interface ConfigPoint {
 export class AxMiPRO<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
-> {
+> implements AxOptimizer<IN, OUT>
+{
   private ai: AxAIService
   private program: Readonly<AxProgram<IN, OUT>>
   private examples: readonly AxExample[]
@@ -311,7 +315,7 @@ export class AxMiPRO<
       maxDemos: this.maxBootstrappedDemos,
     })
 
-    return result.demos
+    return result.demos || []
   }
 
   /**
@@ -790,25 +794,30 @@ export class AxMiPRO<
    * The main compile method to run MIPROv2 optimization
    * @param metricFn Evaluation metric function
    * @param options Optional configuration options
-   * @returns The optimized program
+   * @returns The optimization result
    */
   public async compile(
     metricFn: AxMetricFn,
-    options?: Readonly<{
-      valset?: readonly AxExample[]
-      teacher?: Readonly<AxProgram<IN, OUT>>
-      auto?: 'light' | 'medium' | 'heavy'
-    }>
-  ): Promise<Readonly<AxProgram<IN, OUT>>> {
+    options?: Record<string, unknown>
+  ): Promise<AxOptimizerResult<IN, OUT>> {
+    // Type-safe option access by casting to the specific options interface
+    const miproOptions = options as
+      | {
+          valset?: readonly AxExample[]
+          teacher?: Readonly<AxProgram<IN, OUT>>
+          auto?: 'light' | 'medium' | 'heavy'
+        }
+      | undefined
+
     // Configure auto settings if provided
-    if (options?.auto) {
-      this.configureAuto(options.auto)
+    if (miproOptions?.auto) {
+      this.configureAuto(miproOptions.auto)
     }
 
     // Split data into train and validation sets if valset not provided
     const trainset = this.examples
     const valset =
-      options?.valset ||
+      miproOptions?.valset ||
       this.examples.slice(0, Math.floor(this.examples.length * 0.8))
 
     if (this.verbose) {
@@ -819,7 +828,7 @@ export class AxMiPRO<
     }
 
     // If teacher is provided, use it to help bootstrap examples
-    if (options?.teacher) {
+    if (miproOptions?.teacher) {
       if (this.verbose) {
         console.log('Using provided teacher to assist with bootstrapping')
       }
@@ -894,6 +903,17 @@ export class AxMiPRO<
       labeledExamples
     )
 
-    return this.program
+    return {
+      program: this.program,
+      demos: bootstrappedDemos,
+    }
+  }
+
+  /**
+   * Get optimization statistics from the internal bootstrapper
+   * @returns Optimization statistics or undefined if not available
+   */
+  public getStats(): AxOptimizationStats | undefined {
+    return this.bootstrapper.getStats()
   }
 }
