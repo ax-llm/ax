@@ -1,5 +1,12 @@
 # Changelog
 
+## [12.0.5](https://github.com/ax-llm/ax/compare/12.0.3...12.0.4) (2025-06-19)
+## [12.0.4](https://github.com/ax-llm/ax/compare/12.0.3...12.0.4) (2025-06-19)
+
+### Bug Fixes
+
+* **mistral:** remove unsupported params and fix image compatibility ([#247](https://github.com/ax-llm/ax/issues/247)) ([2f3d4d6](https://github.com/ax-llm/ax/commit/2f3d4d6208c1067df0e26824ef5bc582ace9dde1))
+
 ## [12.0.4](https://github.com/ax-llm/ax/compare/12.0.2...12.0.3) (2025-06-19)
 
 ### Bug Fixes
