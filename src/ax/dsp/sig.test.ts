@@ -316,18 +316,24 @@ describe('AxSignature class validation', () => {
 
   it('validates minimum signature requirements', () => {
     const sig = new AxSignature()
-    expect(() =>
-      sig.setOutputFields([
-        { name: 'responseText', type: { name: 'string', isArray: false } },
-      ])
-    ).toThrow('must have at least one input field')
+
+    // Setting fields individually should not trigger full validation
+    sig.setOutputFields([
+      { name: 'responseText', type: { name: 'string', isArray: false } },
+    ])
+
+    // But explicit validation should fail because there's no input field
+    expect(() => sig.validate()).toThrow('must have at least one input field')
 
     sig.setInputFields([
       { name: 'userInput', type: { name: 'string', isArray: false } },
     ])
-    expect(() => sig.setOutputFields([])).toThrow(
-      'must have at least one output field'
-    )
+
+    // Setting empty output fields should work during construction
+    sig.setOutputFields([])
+
+    // But explicit validation should fail because there's no output field
+    expect(() => sig.validate()).toThrow('must have at least one output field')
   })
 
   it('provides helpful suggestions in error messages', () => {

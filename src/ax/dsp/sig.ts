@@ -268,7 +268,7 @@ export class AxSignature {
       })
       this.inputFields = parsedFields
       this.invalidateValidationCache()
-      this.updateHash()
+      this.updateHashLight()
     } catch (error) {
       if (error instanceof AxSignatureValidationError) {
         throw error
@@ -296,7 +296,7 @@ export class AxSignature {
       })
       this.outputFields = parsedFields
       this.invalidateValidationCache()
-      this.updateHash()
+      this.updateHashLight()
     } catch (error) {
       if (error instanceof AxSignatureValidationError) {
         throw error
