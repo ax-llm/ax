@@ -82,7 +82,7 @@
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
-  "version": "12.0.3",
+  "version": "12.0.4",
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.1.13",
     "ai": "^4.1.61",

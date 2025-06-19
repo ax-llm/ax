@@ -1,5 +1,16 @@
 # Changelog
 
+## [12.0.4](https://github.com/ax-llm/ax/compare/12.0.2...12.0.3) (2025-06-19)
+
+### Bug Fixes
+
+* **mistral:** remove unsupported params and fix image compatibility ([#247](https://github.com/ax-llm/ax/issues/247)) ([2f3d4d6](https://github.com/ax-llm/ax/commit/2f3d4d6208c1067df0e26824ef5bc582ace9dde1))
+## [12.0.3](https://github.com/ax-llm/ax/compare/12.0.2...12.0.3) (2025-06-19)
+
+### Features
+
+* add configurable thinking token budget levels for Google Gemini ([fc30ce4](https://github.com/ax-llm/ax/commit/fc30ce48174385e612afd4019e83976a77d51434))
+
 ## [12.0.3](https://github.com/ax-llm/ax/compare/12.0.1...12.0.2) (2025-06-19)
 
 ### Features
