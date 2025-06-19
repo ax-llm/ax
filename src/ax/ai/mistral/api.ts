@@ -140,7 +140,8 @@ export class AxAIMistral extends AxAIOpenAIBase<
   private updateMessages(
     messages: AxAIOpenAIChatRequest<AxAIMistralModel>['messages']
   ) {
-    const messagesUpdated = []
+    const messagesUpdated: AxAIOpenAIChatRequest<AxAIMistralModel>['messages'] =
+      []
 
     if (!Array.isArray(messages)) {
       return messages
@@ -152,9 +153,12 @@ export class AxAIMistral extends AxAIOpenAIBase<
           if (
             typeof item === 'object' &&
             item !== null &&
-            item.type === 'image_url'
+            'image_url' in item
           ) {
-            return { type: 'image_url', image_url: item.image_url?.url }
+            return {
+              type: 'image_url' as const,
+              image_url: { url: item.image_url?.url },
+            }
           }
           return item
         })

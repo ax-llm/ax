@@ -340,6 +340,15 @@ export class AxGen<
 
     let content = ''
 
+    mem.addResult(
+      {
+        content: '',
+        name: 'initial',
+        functionCalls: [],
+      },
+      sessionId
+    )
+
     for await (const v of res) {
       const result = v.results[0]
       if (!result) {
@@ -369,7 +378,6 @@ export class AxGen<
         }
 
         content += result.content
-
         mem.updateResult(
           { name: result.name, content, delta: result.content },
           sessionId

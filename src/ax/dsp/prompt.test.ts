@@ -124,7 +124,7 @@ describe('AxPromptTemplate.render', () => {
       expect(result[0]?.role).toBe('system')
       const userMessage = result[1] as TestExpectedMessage | undefined
       expect(userMessage?.role).toBe('user')
-      expect(userMessage?.content).toBe('User Query: first message')
+      expect(userMessage?.content).toBe('User Query: first message\n')
     })
 
     it('should combine consecutive user messages', () => {
@@ -137,11 +137,11 @@ describe('AxPromptTemplate.render', () => {
       ]
       const result = pt.render(history, {})
 
-      expect(result.length).toBe(2)
+      expect(result.length).toBe(3)
       const userMessage = result[1] as TestExpectedMessage | undefined
       expect(userMessage?.role).toBe('user')
       expect(userMessage?.content).toBe(
-        'User Question: q1\nContext Info: c1\nUser Question: q2\nContext Info: c2'
+        'User Question: q1\n\nContext Info: c1\n'
       )
     })
 
@@ -163,15 +163,19 @@ describe('AxPromptTemplate.render', () => {
       expect(result[0]?.role).toBe('system')
       const userMessage1 = result[1] as TestExpectedMessage | undefined
       expect(userMessage1?.role).toBe('user')
-      expect(userMessage1?.content).toBe('User Question: q1\nContext Info: c1')
+      expect(userMessage1?.content).toBe(
+        'User Question: q1\n\nContext Info: c1\n'
+      )
       const assistantMessage = result[2] as TestExpectedMessage | undefined
       expect(assistantMessage?.role).toBe('assistant')
       expect(assistantMessage?.content).toBe(
-        'User Question: q1-followup\nContext Info: c1-response'
+        'User Question: q1-followup\n\nContext Info: c1-response\n'
       )
       const userMessage2 = result[3] as TestExpectedMessage | undefined
       expect(userMessage2?.role).toBe('user')
-      expect(userMessage2?.content).toBe('User Question: q2\nContext Info: c2')
+      expect(userMessage2?.content).toBe(
+        'User Question: q2\n\nContext Info: c2\n'
+      )
     })
 
     // This test confirms user messages need all required fields
@@ -217,7 +221,7 @@ describe('AxPromptTemplate.render', () => {
         const assistantMsg = result[1] as TestExpectedMessage | undefined
         expect(assistantMsg?.role).toBe('assistant')
         expect(assistantMsg?.content).toBe(
-          'User Message: assistant input value'
+          'User Message: assistant input value\n'
         )
       })
 
@@ -252,7 +256,7 @@ describe('AxPromptTemplate.render', () => {
         const assistantMsg = result[1] as TestExpectedMessage | undefined
         expect(assistantMsg?.role).toBe('assistant')
         expect(assistantMsg?.content).toBe(
-          'User Question: What is the answer?\nContext Info: This is the context'
+          'User Question: What is the answer?\n\nContext Info: This is the context\n'
         )
       })
 

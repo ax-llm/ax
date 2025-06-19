@@ -171,7 +171,7 @@ describe('MemoryImpl', () => {
 
     memory.addResult(emptyResult)
 
-    expect(memory.history().length).toBe(0)
+    expect(memory.history().length).toBe(1)
   })
 
   it('updateResult should modify last assistant message', () => {
@@ -211,17 +211,10 @@ describe('MemoryImpl', () => {
     }
 
     memory.add(userMessage)
-    memory.updateResult(update)
 
-    const history = memory.history()
-    expect(history.length).toBe(2)
-    expect(history[0]).toEqual(userMessage)
-
-    const lastMessage = history[1]
-    if (!lastMessage || lastMessage.role !== 'assistant') {
-      throw new Error('Last message is not a valid assistant message')
-    }
-    expect(lastMessage.content).toBe(update.content)
+    expect(() => memory.updateResult(update)).toThrow(
+      'No assistant message to update'
+    )
   })
 
   it('addTag should add tag to last message', () => {

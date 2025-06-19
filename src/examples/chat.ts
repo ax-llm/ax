@@ -58,7 +58,6 @@ const ai = new AxAI({
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
     model: AxAIGoogleGeminiModel.Gemini25Flash,
-    stream: false,
   },
   options: {
     debug: true,
@@ -102,7 +101,10 @@ console.log(
   "👤 User: That's great! What's the weather like in Tokyo right now?\n"
 )
 
-response = await chatBot.forward(ai, chat, { functions })
+response = await chatBot.forward(ai, chat, {
+  functions,
+  functionCall: 'required',
+})
 console.log(`🤖 Bot: ${response.reply}\n`)
 
 // Add response and continue
@@ -120,5 +122,8 @@ console.log(
   '👤 User: How about the weather in New York? And can you tell me a fun fact?\n'
 )
 
-response = await chatBot.forward(ai, chat, { functions })
+response = await chatBot.forward(ai, chat, {
+  functions,
+  functionCall: 'required',
+})
 console.log(`🤖 Bot: ${response.reply}\n`)

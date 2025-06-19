@@ -817,9 +817,6 @@ export class AxAIOpenAIResponsesImpl<
         break
 
       case 'response.output_text.done':
-        // Text finalized - return the complete text
-        baseResult.id = event.item_id
-        baseResult.content = event.text
         break
 
       case 'response.function_call_arguments.delta':

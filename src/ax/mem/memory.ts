@@ -64,9 +64,6 @@ export class MemoryImpl {
   }: Readonly<AxChatResponseResult>): void {
     const isContentEmpty = typeof content === 'string' && content.trim() === ''
 
-    if (isContentEmpty && (!functionCalls || functionCalls.length === 0)) {
-      return
-    }
     if (isContentEmpty) {
       this.addMemory({ name, role: 'assistant', functionCalls })
     } else {
@@ -95,21 +92,19 @@ export class MemoryImpl {
     const lastItem = this.data.at(-1)
 
     if (!lastItem || lastItem.chat.role !== 'assistant') {
-      this.addResultMessage({ content, name, functionCalls })
-    } else {
-      if (
-        'content' in lastItem.chat &&
-        typeof content === 'string' &&
-        content.trim() !== ''
-      ) {
-        lastItem.chat.content = content
-      }
-      if ('name' in lastItem.chat && name) {
-        lastItem.chat.name = name
-      }
-      if ('functionCalls' in lastItem.chat && functionCalls) {
-        lastItem.chat.functionCalls = functionCalls
-      }
+      throw new Error('No assistant message to update')
+    }
+
+    if (typeof content === 'string' && content.trim() !== '') {
+      lastItem.chat.content = content
+    }
+
+    if (name && name.trim() !== '') {
+      lastItem.chat.name = name
+    }
+
+    if (functionCalls && functionCalls.length > 0) {
+      lastItem.chat.functionCalls = functionCalls
     }
 
     if (this.options?.debug) {

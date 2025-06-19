@@ -100,6 +100,24 @@ export class AxPromptTemplate {
     }
   }
 
+  private renderSingleValueUserContent = <T extends AxGenIn>(
+    values: T,
+    renderedExamples: ChatRequestUserMessage,
+    renderedDemos: ChatRequestUserMessage,
+    examplesInSystemPrompt: boolean
+  ): string | ChatRequestUserMessage => {
+    const completion = this.renderInputFields(values)
+    const promptList: ChatRequestUserMessage = examplesInSystemPrompt
+      ? completion
+      : [...renderedExamples, ...renderedDemos, ...completion]
+
+    const prompt = promptList.filter((v) => v !== undefined)
+
+    return prompt.every((v) => v.type === 'text')
+      ? prompt.map((v) => v.text).join('\n')
+      : prompt.reduce(combineConsecutiveStrings('\n'), [])
+  }
+
   public render = <T extends AxGenIn>(
     values: T | ReadonlyArray<AxMessage<T>>, // Allow T (AxGenIn) or array of AxMessages
     {
@@ -145,88 +163,62 @@ export class AxPromptTemplate {
       content: systemContent,
     }
 
-    // Define a more specific type for messages we construct for the chat history part
-    type HistoryChatMessage =
-      | { role: 'user'; content: string }
-      | { role: 'assistant'; content: string }
-
-    let userMessages: HistoryChatMessage[] = []
-
     if (Array.isArray(values)) {
-      // values is ReadonlyArray<AxMessage<T>>
-      const history = values as ReadonlyArray<AxMessage<T>> // Type assertion
-      let lastRole: 'user' | 'assistant' | undefined = undefined
+      let userMessages: Extract<
+        AxChatRequest['chatPrompt'][number],
+        { role: 'user' } | { role: 'assistant' }
+      >[] = []
 
-      for (const message of history) {
-        let messageContent = ''
+      const history = values as ReadonlyArray<AxMessage<T>>
+
+      for (const [index, message] of history.entries()) {
+        let content: string | ChatRequestUserMessage
+
+        if (index === 0) {
+          content = this.renderSingleValueUserContent(
+            message.values,
+            renderedExamples,
+            renderedDemos,
+            examplesInSystemPrompt
+          )
+        } else {
+          content = this.renderSingleValueUserContent(
+            message.values,
+            [],
+            [],
+            false
+          )
+        }
+
         if (message.role === 'user') {
-          // For user messages, render their 'values' (which is AxGenIn)
-          // renderInputFields expects the actual values object.
-          const userMsgParts = this.renderInputFields(
-            message.values as unknown as T // Cast message.values (AxGenIn) to T (which extends AxGenIn)
-          )
-          messageContent = userMsgParts
-            .map((part) => (part.type === 'text' ? part.text : '')) // Simplify: combine text parts
-            .join('') // Join without adding extra newlines
-            .trim() // Trim trailing newline from the last part
-        } else if (message.role === 'assistant') {
-          // For assistant messages, render their 'values' (AxGenIn) as input fields
-          const assistantMsgParts = this.renderInputFields(
-            message.values as unknown as T // Cast message.values (AxGenIn) to T (which extends AxGenIn)
-          )
-          messageContent = assistantMsgParts
-            .map((part) => (part.type === 'text' ? part.text : '')) // Simplify: combine text parts
-            .join('') // Join without adding extra newlines
-            .trim() // Trim trailing newline from the last part
+          userMessages.push({ role: 'user', content })
+          continue
         }
 
-        if (messageContent) {
-          if (lastRole === message.role && userMessages.length > 0) {
-            // Combine with previous message of the same role
-            const lastMessage = userMessages[userMessages.length - 1]
-            if (lastMessage) {
-              lastMessage.content += '\n' + messageContent
-            }
-          } else {
-            if (message.role === 'user') {
-              userMessages.push({ role: 'user', content: messageContent })
-            } else if (message.role === 'assistant') {
-              userMessages.push({ role: 'assistant', content: messageContent })
-            }
-          }
-          lastRole = message.role
+        if (message.role !== 'assistant') {
+          throw new Error('Invalid message role')
         }
-      }
-    } else {
-      // values is T (AxGenIn) - existing logic path
-      const currentValues: T = values as T
-      const completion = this.renderInputFields(currentValues)
-      const promptList: ChatRequestUserMessage = examplesInSystemPrompt
-        ? completion
-        : [...renderedExamples, ...renderedDemos, ...completion]
 
-      const promptFilter = promptList.filter((v) => v !== undefined)
+        if (typeof content !== 'string') {
+          throw new Error(
+            'Assistant message cannot contain non-text content like images, files,etc'
+          )
+        }
 
-      let userContent: string
-      if (promptFilter.every((v) => v.type === 'text')) {
-        userContent = promptFilter
-          .map((v) => (v as { type: 'text'; text: string }).text)
-          .join('\n')
-      } else {
-        userContent = promptFilter
-          .map((part) => {
-            if (part.type === 'text') return part.text
-            if (part.type === 'image') return '[IMAGE]'
-            if (part.type === 'audio') return '[AUDIO]'
-            return ''
-          })
-          .join('\n')
-          .trim()
+        userMessages.push({ role: 'assistant', content })
       }
-      userMessages.push({ role: 'user' as const, content: userContent })
+      return [systemPrompt, ...userMessages]
     }
 
-    return [systemPrompt, ...userMessages]
+    // values is T (AxGenIn) - existing logic path
+    const userContent = this.renderSingleValueUserContent(
+      values as T,
+      renderedExamples,
+      renderedDemos,
+      examplesInSystemPrompt
+    )
+
+    return [systemPrompt, { role: 'user' as const, content: userContent }]
   }
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {
@@ -321,9 +313,6 @@ export class AxPromptTemplate {
         if ('text' in v) {
           v.text = v.text + '\n'
         }
-        if ('image' in v) {
-          v.image = v.image
-        }
         list.push(v)
       })
     }
@@ -365,9 +354,6 @@ export class AxPromptTemplate {
       renderedItem.slice(0, -1).forEach((v) => {
         if ('text' in v) {
           v.text = v.text + '\n'
-        }
-        if ('image' in v) {
-          v.image = v.image
         }
         list.push(v)
       })

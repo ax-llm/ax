@@ -94,7 +94,7 @@ export type AxAIOpenAIChatRequest<TModel> = {
           | string
           | (
               | {
-                  type: 'text'
+                  type: string
                   text: string
                 }
               | {
@@ -105,12 +105,24 @@ export type AxAIOpenAIChatRequest<TModel> = {
                   type: 'input_audio'
                   input_audio: { data: string; format?: 'wav' }
                 }
+              | {
+                  type: 'file'
+                  file: {
+                    file_data: string
+                    filename: string
+                  }
+                }
             )[]
         name?: string
       }
     | {
         role: 'assistant'
-        content: string
+        content:
+          | string
+          | {
+              type: string
+              text: string
+            }
         name?: string
         tool_calls?: {
           type: 'function'

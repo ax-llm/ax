@@ -287,7 +287,7 @@ class AxAIGoogleGeminiImpl
             ]
 
             return {
-              role: 'model' as const,
+              role: 'user' as const,
               parts,
             }
           }
@@ -525,6 +525,7 @@ class AxAIGoogleGeminiImpl
             }
             continue
           }
+
           if ('functionCall' in part) {
             result.functionCalls = [
               {

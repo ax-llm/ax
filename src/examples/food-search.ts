@@ -1,9 +1,4 @@
-import {
-  AxAgent,
-  AxAIOpenAIResponses,
-  type AxFunction,
-  AxSignature,
-} from '@ax-llm/ax'
+import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax'
 
 const choice = Math.round(Math.random())
 
@@ -157,7 +152,8 @@ const functions: AxFunction[] = [
 //   config: { stream: true },
 // })
 
-const ai = new AxAIOpenAIResponses({
+const ai = new AxAI({
+  name: 'openai-responses',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { stream: true },
 })
