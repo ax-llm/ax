@@ -378,27 +378,31 @@ GOOGLE_APIKEY=api-key npm run tsx ./src/examples/chat.ts
 ```
 
 ```typescript
-const chatBot = new AxGen<
-  { message: string } | ReadonlyArray<ChatMessage>,
-  { reply: string }
->(
-  `message:string "A casual message from the user" -> reply:string "A friendly, casual response"`
-)
+// Create a chat assistant using modern template literals
+const chatBot = ax`
+  message:${f.string('A casual message from the user')} -> 
+  reply:${f.string('A friendly, casual response')}
+`
 
-await chatBot.forward(ai, [
-  {
-    role: 'user',
-    values: { message: 'Hi! How are you doing today?' },
-  },
-  {
-    role: 'assistant',
-    values: { message: 'I am doing great! How about you?' },
-  },
-  {
-    role: 'user',
-    values: { message: 'Thats great!' },
-  },
-])
+// Start a conversation with message history
+const chat: AxMessage<{ message: string }>[] = [
+  { role: 'user', values: { message: 'Hi! How are you doing today?' } },
+]
+
+// Get first response
+let response = await chatBot.forward(ai, chat)
+console.log(response.reply)
+
+// Add response to chat history
+chat.push({ role: 'assistant', values: { message: response.reply as string } })
+
+// Continue conversation with context
+chat.push({
+  role: 'user', values: { message: "That's great! Can you tell me a fun fact?" },
+})
+
+response = await chatBot.forward(ai, chat)
+console.log(response.reply)
 ```
 
 The conversation history is automatically woven into the prompt, allowing the model to maintain context and provide coherent responses. This works seamlessly with all Ax features including streaming, function calling, and chain-of-thought reasoning.
@@ -813,12 +817,14 @@ const program = new AxChainOfThought<{ question: string }, { answer: string }>(
 )
 
 // Setup a Bootstrap Few Shot optimizer to tune the above program
-const optimize = new AxBootstrapFewShot<
-  { question: string },
-  { answer: string }
->({
-  program,
+const optimize = new AxBootstrapFewShot({
+  studentAI: ai,
   examples,
+  options: {
+    maxRounds: 3,
+    maxDemos: 4,
+    verboseMode: true,
+  },
 })
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
@@ -826,7 +832,7 @@ const metricFn: AxMetricFn = ({ prediction, example }) =>
   emScore(prediction.answer as string, example.answer as string)
 
 // Run the optimizer and remember to save the result to use later
-const result = await optimize.compile(metricFn);
+const result = await optimize.compile(program, metricFn);
 
 // Save the generated demos to a file
 // import fs from 'fs'; // Ensure fs is imported in your actual script
@@ -880,12 +886,11 @@ const program = new AxChainOfThought(`input -> output`)
 
 // 3. Configure the optimizer
 const optimizer = new AxMiPRO({
-  ai,
-  program,
+  studentAI: ai,
   examples: trainingData, // Your training examples
   options: {
     numTrials: 20, // Number of configurations to try
-    auto: 'medium', // Optimization level
+    verbose: true,
   },
 })
 
@@ -895,8 +900,9 @@ const metricFn = ({ prediction, example }) => {
 }
 
 // 5. Run the optimization
-const optimizedProgram = await optimizer.compile(metricFn, {
+const result = await optimizer.compile(program, metricFn, {
   valset: validationData, // Optional validation set
+  auto: 'medium', // Optimization level
 })
 
 // 6. Use the optimized program
@@ -928,13 +934,13 @@ You can quickly configure optimization intensity with the `auto` parameter:
 
 ```typescript
 // Light optimization (faster, less thorough)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: 'light' })
+const result = await optimizer.compile(program, metricFn, { auto: 'light' })
 
 // Medium optimization (balanced)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: 'medium' })
+const result = await optimizer.compile(program, metricFn, { auto: 'medium' })
 
 // Heavy optimization (slower, more thorough)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: 'heavy' })
+const result = await optimizer.compile(program, metricFn, { auto: 'heavy' })
 ```
 
 ### Advanced Example: Sentiment Analysis
@@ -948,8 +954,7 @@ const classifyProgram = new AxChainOfThought<
 
 // Configure optimizer with advanced settings
 const optimizer = new AxMiPRO({
-  ai,
-  program: classifyProgram,
+  studentAI: ai,
   examples: trainingData,
   options: {
     numCandidates: 3,
@@ -964,7 +969,7 @@ const optimizer = new AxMiPRO({
 })
 
 // Run optimization and save the result
-const optimizedProgram = await optimizer.compile(metricFn, {
+const result = await optimizer.compile(classifyProgram, metricFn, {
   valset: validationData,
 })
 
@@ -1098,6 +1103,8 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [mcp-client-pipedream.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-pipedream.ts) | Example of integrating with a remote MCP                |
 | [tune-bootstrap.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-bootstrap.ts)       | Use bootstrap optimizer to improve prompt efficiency    |
 | [tune-mipro.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-mipro.ts)           | Use mipro v2 optimizer to improve prompt efficiency     |
+| [mipro-optimized-gen-demo.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-optimized-gen-demo.ts) | Complex reasoning optimization with teacher model & save |
+| [mipro-load-optimized.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-load-optimized.ts) | Load and use saved optimization with cheaper models |
 | [tune-usage.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-usage.ts)           | Use the optimized tuned prompts                         |
 | [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)            | Trace and push traces to a Jaeger service               |
 | [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)     | Example using the new OpenAI Responses API              |
