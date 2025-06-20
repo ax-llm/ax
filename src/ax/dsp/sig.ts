@@ -26,7 +26,7 @@ export interface AxField {
       | 'datetime'
       | 'class'
       | 'code'
-    isArray: boolean
+    isArray?: boolean
     options?: string[]
   }
   isOptional?: boolean
@@ -46,6 +46,12 @@ class AxSignatureValidationError extends Error {
   }
 }
 
+export interface AxSignatureConfig {
+  description?: string
+  inputs: readonly AxField[]
+  outputs: readonly AxField[]
+}
+
 export class AxSignature {
   private description?: string
   private inputFields: AxIField[]
@@ -57,7 +63,7 @@ export class AxSignature {
   // Validation caching - stores hash when validation last passed
   private validatedAtHash?: string
 
-  constructor(signature?: Readonly<AxSignature | string>) {
+  constructor(signature?: Readonly<AxSignature | string | AxSignatureConfig>) {
     if (!signature) {
       this.inputFields = []
       this.outputFields = []
@@ -108,11 +114,47 @@ export class AxSignature {
       if (signature.validatedAtHash === this.sigHash) {
         this.validatedAtHash = this.sigHash
       }
+    } else if (typeof signature === 'object' && signature !== null) {
+      // Handle AxSignatureConfig object
+      if (!('inputs' in signature) || !('outputs' in signature)) {
+        throw new AxSignatureValidationError(
+          'Invalid signature object: missing inputs or outputs',
+          undefined,
+          'Signature object must have "inputs" and "outputs" arrays. Example: { inputs: [...], outputs: [...] }'
+        )
+      }
+
+      if (
+        !Array.isArray(signature.inputs) ||
+        !Array.isArray(signature.outputs)
+      ) {
+        throw new AxSignatureValidationError(
+          'Invalid signature object: inputs and outputs must be arrays',
+          undefined,
+          'Both "inputs" and "outputs" must be arrays of AxField objects'
+        )
+      }
+
+      try {
+        this.description = signature.description
+        this.inputFields = signature.inputs.map((v) => this.parseField(v))
+        this.outputFields = signature.outputs.map((v) => this.parseField(v))
+        ;[this.sigHash, this.sigString] = this.updateHash()
+      } catch (error) {
+        if (error instanceof AxSignatureValidationError) {
+          throw error
+        }
+        throw new AxSignatureValidationError(
+          `Failed to create signature from object: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          undefined,
+          'Check that all fields in inputs and outputs arrays are valid AxField objects'
+        )
+      }
     } else {
       throw new AxSignatureValidationError(
         'Invalid signature argument type',
         undefined,
-        'Signature must be a string or another AxSignature instance'
+        'Signature must be a string, another AxSignature instance, or an object with inputs and outputs arrays'
       )
     }
   }
@@ -166,7 +208,7 @@ export class AxSignature {
     }
     this.description = desc
     this.invalidateValidationCache()
-    this.updateHash()
+    this.updateHashLight()
   }
 
   public addInputField = (field: Readonly<AxField>) => {

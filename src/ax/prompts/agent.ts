@@ -184,7 +184,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       name: string
       description: string
       definition?: string
-      signature: AxSignature | string
+      signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
       agents?: AxAgentic[]
       functions?: AxInputFunctionType
     }>,

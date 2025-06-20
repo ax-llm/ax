@@ -1,12 +1,15 @@
-import { AxAI, AxGen, AxJSInterpreter, AxSignature } from '@ax-llm/ax'
+import { AxAI, AxGen, AxJSInterpreter } from '@ax-llm/ax'
 
-const sig = new AxSignature(
-  `numberSeriesTask:string  -> fibonacciSeries:number[]`
+const gen = new AxGen<{ numberSeriesTask: string }>(
+  {
+    inputs: [{ name: 'numberSeriesTask', type: { name: 'string' } }],
+    outputs: [{ name: 'fibonacciSeries', type: { name: 'number' } }],
+  },
+  {
+    functions: [new AxJSInterpreter()],
+    debug: true,
+  }
 )
-
-const gen = new AxGen<{ numberSeriesTask: string }>(sig, {
-  functions: [new AxJSInterpreter()],
-})
 
 const ai = new AxAI({
   name: 'openai',

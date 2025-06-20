@@ -149,7 +149,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>
 
   constructor(
-    signature: Readonly<AxSignature | string>,
+    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
     options?: Readonly<AxProgramWithSignatureOptions>
   ) {
     this.signature = new AxSignature(signature)

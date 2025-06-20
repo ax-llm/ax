@@ -124,7 +124,17 @@ export type AxAIOpenAIChatRequest<TModel> = {
               text: string
             }
         name?: string
-        tool_calls?: {
+      }
+    | {
+        role: 'assistant'
+        content?:
+          | string
+          | {
+              type: string
+              text: string
+            }
+        name?: string
+        tool_calls: {
           type: 'function'
           function: {
             name: string

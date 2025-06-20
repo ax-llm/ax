@@ -14,7 +14,6 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
-  AxLoggerFunction,
 } from '../ai/types.js'
 import { mergeFunctionCalls } from '../ai/util.js'
 import { AxMemory } from '../mem/memory.js'
@@ -105,16 +104,14 @@ export class AxGen<
   private values: AxGenOutType = {}
   private excludeContentFromTrace: boolean = false
   private thoughtFieldName: string
-  private logger?: AxLoggerFunction
 
   constructor(
-    signature: Readonly<AxSignature | string>,
+    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
     options?: Readonly<AxProgramForwardOptions>
   ) {
     super(signature, { description: options?.description })
 
     this.options = options
-    this.logger = options?.logger
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
     const promptTemplateOptions = {
       functions: options?.functions,
@@ -247,7 +244,7 @@ export class AxGen<
         traceId,
         rateLimiter,
         stream,
-        debug: false,
+        debug: false, // we do our own debug logging
         thinkingTokenBudget,
         showThoughts,
         traceContext,
@@ -275,7 +272,6 @@ export class AxGen<
   }>) {
     const { sessionId, traceId, functions: _functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
-
     const model = options.model
 
     // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
@@ -303,6 +299,8 @@ export class AxGen<
         fastFail,
         span,
       })
+
+      this.getLogger(ai, options)?.('', { tags: ['responseEnd'] })
     } else {
       yield await this.processResponse({
         ai,
@@ -343,7 +341,6 @@ export class AxGen<
     mem.addResult(
       {
         content: '',
-        name: 'initial',
         functionCalls: [],
       },
       sessionId
@@ -492,11 +489,6 @@ export class AxGen<
         xstate
       )
     }
-
-    if (ai.getOptions().debug) {
-      const logger = ai.getLogger()
-      logger('', { tags: ['responseEnd'] })
-    }
   }
 
   private async processResponse({
@@ -589,9 +581,11 @@ export class AxGen<
 
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10
-    const debug = options.debug ?? ai.getOptions().debug
     const debugHideSystemPrompt = options.debugHideSystemPrompt
-    const memOptions = { debug, debugHideSystemPrompt }
+    const memOptions = {
+      debug: this.isDebug(ai, options),
+      debugHideSystemPrompt,
+    }
 
     const mem =
       options.mem ?? this.options?.mem ?? new AxMemory(10000, memOptions)
@@ -664,11 +658,7 @@ export class AxGen<
             continue multiStepLoop
           }
 
-          if (debug) {
-            const logger = options.logger ?? this.logger ?? ai.getLogger()
-            logger('', { tags: ['responseEnd'] })
-          }
-
+          this.getLogger(ai, options)?.('', { tags: ['responseEnd'] })
           return
         } catch (e) {
           let errorFields: AxIField[] | undefined
@@ -871,6 +861,22 @@ export class AxGen<
   ) {
     super.setExamples(examples, options)
     // No need to update prompt template - all fields can be missing in examples
+  }
+
+  private isDebug(
+    ai: Readonly<AxAIService>,
+    options?: Readonly<AxProgramForwardOptions>
+  ) {
+    return (
+      options?.debug ?? this.options?.debug ?? ai.getOptions().debug ?? false
+    )
+  }
+
+  private getLogger(
+    ai: Readonly<AxAIService>,
+    options?: Readonly<AxProgramForwardOptions>
+  ) {
+    return options?.logger ?? this.options?.logger ?? ai.getLogger()
   }
 }
 
