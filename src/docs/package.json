@@ -12,7 +12,7 @@
     "@astrojs/check": "^0.9.4",
     "@astrojs/tailwind": "^6.0.2",
     "@tailwindcss/typography": "^0.5.16",
-    "astro": "^5.8.2",
+    "astro": "^5.9.3",
     "marked": "^15.0.12"
   },
   "private": "true"
