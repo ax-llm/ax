@@ -42,6 +42,6 @@
   "homepage": "https://github.com/@ax-llm/ax#readme",
   "author": "Vikram <https://twitter.com/dosco>",
   "devDependencies": {
-    "@types/react": "^19.0.5"
+    "@types/react": "^19.1.8"
   }
 }
