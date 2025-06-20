@@ -33,7 +33,7 @@
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.0.7 ",
     "@ax-llm/ax": "12.0.7",
-    "ai": "^4.0.33",
+    "ai": "^4.3.16",
     "zod": "^3.23.8"
   },
   "bugs": {

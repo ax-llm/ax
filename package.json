@@ -85,7 +85,7 @@
   "version": "12.0.7",
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.1.13",
-    "ai": "^4.1.61",
+    "ai": "^4.3.16",
     "zod": "^3.25.51"
   }
 }
