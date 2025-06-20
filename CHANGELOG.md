@@ -1,5 +1,8 @@
 # Changelog
 
+## [12.0.7](https://github.com/ax-llm/ax/compare/12.0.5...12.0.6) (2025-06-20)
+## [12.0.6](https://github.com/ax-llm/ax/compare/12.0.5...12.0.6) (2025-06-19)
+
 ## [12.0.6](https://github.com/ax-llm/ax/compare/12.0.4...12.0.5) (2025-06-19)
 ## [12.0.5](https://github.com/ax-llm/ax/compare/12.0.4...12.0.5) (2025-06-19)
 
