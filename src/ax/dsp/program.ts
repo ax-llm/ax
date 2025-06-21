@@ -17,20 +17,19 @@ import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
 import type { AxFieldValue, AxGenIn, AxGenOut, AxMessage } from './types.js'
 import { mergeProgramUsage, validateValue } from './util.js'
-
-export type AxProgramTrace = {
-  //   examples: Record<string, Value>[];
-  trace: Record<string, AxFieldValue>
+export type AxProgramTrace<IN extends AxGenIn, OUT extends AxGenOut> = {
+  trace: OUT & IN
   programId: string
 }
 
-export type AxProgramDemos = {
-  //   examples: Record<string, Value>[];
-  traces: Record<string, AxFieldValue>[]
+export type AxProgramDemos<IN extends AxGenIn, OUT extends AxGenOut> = {
+  traces: (OUT & IN)[]
   programId: string
 }
 
-export type AxProgramExamples = AxProgramDemos | AxProgramDemos['traces']
+export type AxProgramExamples<IN extends AxGenIn, OUT extends AxGenOut> =
+  | AxProgramDemos<IN, OUT>
+  | AxProgramDemos<IN, OUT>['traces']
 
 export type AxProgramForwardOptions = {
   // Execution control
@@ -108,15 +107,15 @@ export type AxSetExamplesOptions = {
   // No options needed - all fields can be missing in examples
 }
 
-export interface AxTunable {
+export interface AxTunable<IN extends AxGenIn, OUT extends AxGenOut> {
   setExamples: (
-    examples: Readonly<AxProgramExamples>,
+    examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) => void
   setId: (id: string) => void
   setParentId: (parentId: string) => void
-  getTraces: () => AxProgramTrace[]
-  setDemos: (demos: readonly AxProgramDemos[]) => void
+  getTraces: () => AxProgramTrace<IN, OUT>[]
+  setDemos: (demos: readonly AxProgramDemos<IN, OUT>[]) => void
 }
 
 export interface AxUsable {
@@ -134,19 +133,19 @@ export interface AxProgramWithSignatureOptions {
 }
 
 export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxTunable, AxUsable
+  implements AxTunable<IN, OUT>, AxUsable
 {
   protected signature: AxSignature
   protected sigHash: string
 
-  protected examples?: Record<string, AxFieldValue>[]
+  protected examples?: OUT[]
   protected examplesOptions?: AxSetExamplesOptions
-  protected demos?: Record<string, AxFieldValue>[]
-  protected trace?: Record<string, AxFieldValue>
+  protected demos?: OUT[]
+  protected trace?: OUT
   protected usage: AxProgramUsage[] = []
 
   private key: { id: string; custom?: boolean }
-  private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>
+  private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT> & AxUsable>>
 
   constructor(
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
@@ -170,7 +169,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     return this.signature
   }
 
-  public register(prog: Readonly<AxTunable & AxUsable>) {
+  public register(prog: Readonly<AxTunable<IN, OUT> & AxUsable>) {
     if (this.key) {
       prog.setParentId(this.key.id)
     }
@@ -214,7 +213,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setExamples(
-    examples: Readonly<AxProgramExamples>,
+    examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
     this._setExamples(examples, options)
@@ -229,7 +228,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   private _setExamples(
-    examples: Readonly<AxProgramExamples>,
+    examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
     let traces: Record<string, AxFieldValue>[] = []
@@ -259,15 +258,15 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
           }
         }
         return res
-      })
+      }) as OUT[]
     }
   }
 
-  public getTraces(): AxProgramTrace[] {
-    let traces: AxProgramTrace[] = []
+  public getTraces(): AxProgramTrace<IN, OUT>[] {
+    let traces: AxProgramTrace<IN, OUT>[] = []
 
     if (this.trace) {
-      traces.push({ trace: this.trace, programId: this.key.id })
+      traces.push({ trace: this.trace as OUT & IN, programId: this.key.id })
     }
 
     for (const child of this.children) {
@@ -294,7 +293,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setDemos(demos: readonly AxProgramDemos[]) {
+  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
     // biome-ignore lint/complexity/useFlatMap: it can't
     this.demos = demos
       .filter((v) => v.programId === this.key.id)
@@ -308,20 +307,20 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
 }
 
 export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxTunable, AxUsable
+  implements AxTunable<IN, OUT>, AxUsable
 {
-  protected trace?: Record<string, AxFieldValue>
+  protected trace?: OUT
   protected usage: AxProgramUsage[] = []
 
   private key: { id: string; custom?: boolean }
-  private children: AxInstanceRegistry<Readonly<AxTunable & AxUsable>>
+  private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT> & AxUsable>>
 
   constructor() {
     this.children = new AxInstanceRegistry()
     this.key = { id: this.constructor.name }
   }
 
-  public register(prog: Readonly<AxTunable & AxUsable>) {
+  public register(prog: Readonly<AxTunable<IN, OUT> & AxUsable>) {
     if (this.key) {
       prog.setParentId(this.key.id)
     }
@@ -365,7 +364,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setExamples(
-    examples: Readonly<AxProgramExamples>,
+    examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
     if (!('programId' in examples)) {
@@ -377,11 +376,11 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public getTraces(): AxProgramTrace[] {
-    let traces: AxProgramTrace[] = []
+  public getTraces(): AxProgramTrace<IN, OUT>[] {
+    let traces: AxProgramTrace<IN, OUT>[] = []
 
     if (this.trace) {
-      traces.push({ trace: this.trace, programId: this.key.id })
+      traces.push({ trace: this.trace as OUT & IN, programId: this.key.id })
     }
 
     for (const child of this.children) {
@@ -408,7 +407,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setDemos(demos: readonly AxProgramDemos[]) {
+  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
     for (const child of this.children) {
       child.setDemos(demos)
     }

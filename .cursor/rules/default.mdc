@@ -60,6 +60,43 @@ npm run tsx ./src/examples/<example-file>.ts
 npm run dev --workspace=@ax-llm/ax
 ```
 
+## Demo Creation Guidelines
+**KEEP DEMOS SIMPLE AND DIRECT** - No unnecessary abstractions or complexity:
+
+### Structure
+- **Top-level code**: Put all code at the top level, no function wrappers
+- **Direct execution**: Code should run immediately when file is executed
+- **No try-catch blocks**: It's just a demo, don't add error handling clutter
+- **No IIFE wrappers**: Top-level await works fine with modern Node.js/tsx
+
+### Code Style
+- **Export reusable components**: Export generators, signatures, or functions that other examples might use
+- **Save minimal data**: Only save essential data (like demos), not complex config objects
+- **Import and reuse**: Import exported components in other examples rather than recreating them
+- **Clean separation**: Optimize once, save demos, use anywhere
+
+### Example Pattern
+```typescript
+// Export reusable generator
+export const myGen = ax`input:${f.string('User input')} -> output:${f.string('AI response')}`
+
+// Top-level execution - no function wrappers
+console.log('=== Demo ===')
+
+const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! })
+const result = await myGen.forward(ai, { input: 'test' })
+
+// Save only essential data
+await fs.writeFile('demos.json', JSON.stringify(demos, null, 2))
+```
+
+### Key Principles
+- **It just works**: Don't overthink it, modern Node.js handles top-level await fine
+- **No abstractions**: Avoid function wrappers, IIFEs, or unnecessary error handling
+- **Focus on functionality**: Show the core feature, not error handling patterns
+- **Reusable components**: Export what others might want to import and use
+- **Minimal persistence**: Save only what's needed, not metadata or complex configs
+
 ## Code Standards & Architecture
 
 ### TypeScript Configuration

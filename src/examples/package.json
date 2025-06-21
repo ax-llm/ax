@@ -12,6 +12,7 @@
   "keywords": [],
   "scripts": {
     "test": "run-s test:*",
+    "test:type-check": "tsc --noEmit",
     "test:lint": "eslint .",
     "test:format": "prettier --check \"**/*.{ts,json,md}\"",
     "fix": "run-s fix:*",

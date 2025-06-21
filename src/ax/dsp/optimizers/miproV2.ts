@@ -1,5 +1,7 @@
 import type { AxAIService } from '../../ai/types.js'
+import { AxGen } from '../generate.js'
 import type {
+  AxCompileOptions,
   AxExample,
   AxMetricFn,
   AxOptimizationStats,
@@ -39,9 +41,12 @@ interface ConfigType {
   labeledExamples: number
 }
 
-interface ConfigPoint {
-  config: ConfigType
-  score: number
+// Removed unused ConfigPoint interface
+
+// Extended result interface to include the optimized AxGen
+export interface AxMiPROResult<IN extends AxGenIn, OUT extends AxGenOut>
+  extends AxOptimizerResult<OUT> {
+  optimizedGen?: AxGen<IN, OUT>
 }
 
 export class AxMiPRO<
@@ -50,7 +55,6 @@ export class AxMiPRO<
 > implements AxOptimizer<IN, OUT>
 {
   private ai: AxAIService
-  private program: Readonly<AxProgram<IN, OUT>>
   private examples: readonly AxExample[]
   private maxBootstrappedDemos: number
   private maxLabeledDemos: number
@@ -67,21 +71,16 @@ export class AxMiPRO<
   private fewshotAwareProposer: boolean
   private seed?: number
   private verbose: boolean
-  private bootstrapper: AxBootstrapFewShot<IN, OUT>
   private earlyStoppingTrials: number
   private minImprovementThreshold: number
+  private stats: AxOptimizationStats
 
-  constructor({
-    ai,
-    program,
-    examples = [],
-    options,
-  }: Readonly<AxOptimizerArgs<IN, OUT>> & { options?: AxMiPROOptions }) {
-    if (examples.length === 0) {
+  constructor(args: AxOptimizerArgs<OUT> & { options?: AxMiPROOptions }) {
+    if (args.examples.length === 0) {
       throw new Error('No examples found')
     }
 
-    const miproOptions = (options as AxMiPROOptions) || {}
+    const miproOptions = args.options || {}
 
     this.numCandidates = miproOptions.numCandidates ?? 5
     this.initTemperature = miproOptions.initTemperature ?? 0.7
@@ -101,21 +100,28 @@ export class AxMiPRO<
     this.earlyStoppingTrials = miproOptions.earlyStoppingTrials ?? 5
     this.minImprovementThreshold = miproOptions.minImprovementThreshold ?? 0.01
 
-    this.ai = ai
-    this.program = program
-    this.examples = examples
+    this.ai = args.studentAI
+    this.examples = args.examples
 
-    // Initialize the bootstrapper to handle few-shot example generation
-    this.bootstrapper = new AxBootstrapFewShot<IN, OUT>({
-      ai,
-      program,
-      examples,
-      options: {
-        maxDemos: this.maxBootstrappedDemos,
-        maxRounds: 3, // Default, or adjust based on your needs
-        verboseMode: this.verbose,
+    // Initialize stats
+    this.stats = {
+      totalCalls: 0,
+      successfulDemos: 0,
+      estimatedTokenUsage: 0,
+      earlyStopped: false,
+      resourceUsage: {
+        totalTokens: 0,
+        totalTime: 0,
+        avgLatencyPerEval: 0,
+        costByModel: {},
       },
-    })
+      convergenceInfo: {
+        converged: false,
+        finalImprovement: 0,
+        stagnationRounds: 0,
+        convergenceThreshold: 0.01,
+      },
+    }
   }
 
   /**
@@ -168,18 +174,6 @@ export class AxMiPRO<
   private async proposeInstructionCandidates(): Promise<string[]> {
     const instructions: string[] = []
 
-    // Get a summary of the program for program-aware proposing
-    let programContext = ''
-    if (this.programAwareProposer) {
-      programContext = await this.generateProgramSummary()
-    }
-
-    // Get a summary of the dataset for data-aware proposing
-    let dataContext = ''
-    if (this.dataAwareProposer) {
-      dataContext = await this.generateDataSummary()
-    }
-
     // Generate random tips for tip-aware proposing
     const tips = this.tipAwareProposer ? this.generateTips() : []
 
@@ -189,8 +183,6 @@ export class AxMiPRO<
       const tipToUse = tipIndex >= 0 ? tips[tipIndex] : ''
 
       const instruction = await this.generateInstruction({
-        programContext,
-        dataContext,
         tip: tipToUse,
         candidateIndex: i,
       })
@@ -201,121 +193,60 @@ export class AxMiPRO<
     return instructions
   }
 
-  /**
-   * Generates a summary of the program structure for instruction proposal
-   */
-  private async generateProgramSummary(): Promise<string> {
-    // In a real implementation, this would analyze the program's structure
-    // and generate a summary of its components, signatures, etc.
-    const prompt = `Summarize the following program structure. Focus on the signatures, 
-      input/output fields, and the purpose of each component. Identify key components 
-      that might benefit from better instructions.`
-
-    const programStr = JSON.stringify(this.program)
-
-    const response = await this.ai.chat({
-      chatPrompt: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: programStr },
-      ],
-      modelConfig: { temperature: 0.2 },
-    })
-
-    // Handle both sync and async responses
-    if (response instanceof ReadableStream) {
-      return ''
-    }
-
-    return response.results[0]?.content || ''
-  }
-
-  /**
-   * Generates a summary of the dataset for instruction proposal
-   */
-  private async generateDataSummary(): Promise<string> {
-    // Sample a subset of examples for analysis
-    const sampleSize = Math.min(this.viewDataBatchSize, this.examples.length)
-    const sample = this.examples.slice(0, sampleSize)
-
-    const prompt = `Analyze the following dataset examples and provide a summary 
-      of key patterns, input-output relationships, and any specific challenges 
-      the data presents. Focus on what makes a good answer and what patterns should
-      be followed.`
-
-    const dataStr = JSON.stringify(sample)
-
-    const response = await this.ai.chat({
-      chatPrompt: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: dataStr },
-      ],
-      modelConfig: { temperature: 0.2 },
-    })
-
-    // Handle both sync and async responses
-    if (response instanceof ReadableStream) {
-      return ''
-    }
-
-    return response.results[0]?.content || ''
-  }
-
-  /**
-   * Generates a specific instruction candidate
-   */
   private async generateInstruction({
-    programContext,
-    dataContext,
     tip,
     candidateIndex,
   }: Readonly<{
-    programContext: string
-    dataContext: string
     tip: string | undefined
     candidateIndex: number
   }>): Promise<string> {
-    const prompt = `Create a high-quality instruction for an AI model performing the task described below.
-    
-    ${programContext ? `PROGRAM CONTEXT:\n${programContext}\n\n` : ''}
-    ${dataContext ? `DATA CONTEXT:\n${dataContext}\n\n` : ''}
-    ${tip ? `STYLE TIP: ${tip}\n\n` : ''}
-    
-    Your task is to craft a clear, effective instruction that will help the AI model generate
-    accurate outputs for this task. Instruction #${candidateIndex + 1}/${this.numCandidates}.
-    
-    The instruction should be detailed enough to guide the model but not overly prescriptive
-    or restrictive. Focus on what makes a good response rather than listing exact steps.
-    
-    INSTRUCTION:`
+    // Generate a simple instruction based on the tip and candidate index
+    const baseInstructions = [
+      'Analyze the input carefully and provide a detailed response.',
+      'Think step by step and provide a clear answer.',
+      'Consider all aspects of the input before responding.',
+      'Provide a concise but comprehensive response.',
+      'Focus on accuracy and clarity in your response.',
+    ]
 
-    const response = await this.ai.chat({
-      chatPrompt: [{ role: 'user', content: prompt }],
-      modelConfig: { temperature: 0.7 + 0.1 * candidateIndex },
-    })
+    let instruction =
+      baseInstructions[candidateIndex % baseInstructions.length] ||
+      baseInstructions[0]!
 
-    // Handle both sync and async responses
-    if (response instanceof ReadableStream) {
-      return ''
+    if (tip) {
+      instruction = `${instruction} ${tip}`
     }
 
-    return response.results[0]?.content || ''
+    return instruction
   }
 
   /**
    * Bootstraps few-shot examples for the program
    */
   private async bootstrapFewShotExamples(
+    program: Readonly<AxProgram<IN, OUT>>,
     metricFn: AxMetricFn
-  ): Promise<AxProgramDemos[]> {
+  ): Promise<AxProgramDemos<IN, OUT>[]> {
     if (this.verbose) {
       console.log('Bootstrapping few-shot examples...')
     }
 
-    const result = await this.bootstrapper.compile(metricFn, {
+    // Initialize the bootstrapper for this program
+    const bootstrapper = new AxBootstrapFewShot<IN, OUT>({
+      studentAI: this.ai,
+      examples: this.examples,
+      options: {
+        maxDemos: this.maxBootstrappedDemos,
+        maxRounds: 3,
+        verboseMode: this.verbose,
+      },
+    })
+
+    const result = await bootstrapper.compile(program, metricFn, {
       maxDemos: this.maxBootstrappedDemos,
     })
 
-    return result.demos || []
+    return (result.demos || []) as AxProgramDemos<IN, OUT>[]
   }
 
   /**
@@ -344,82 +275,49 @@ export class AxMiPRO<
   }
 
   /**
-   * Runs Bayesian optimization to find the best combination of few-shot examples and instructions
+   * Runs simple optimization to find the best combination of few-shot examples and instructions
    */
-  private async runBayesianOptimization(
-    bootstrappedDemos: readonly AxProgramDemos[],
+  private async runOptimization(
+    program: Readonly<AxProgram<IN, OUT>>,
+    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[],
     instructions: readonly string[],
     valset: readonly AxExample[],
     metricFn: AxMetricFn
   ): Promise<{ bestConfig: ConfigType; bestScore: number }> {
-    let bestConfig: ConfigType | null = null
-    let bestScore = Number.NEGATIVE_INFINITY
-
-    // Track all evaluated configurations for Bayesian optimization
-    const evaluatedConfigs: ConfigPoint[] = []
-
-    // Add a default fallback configuration in case all evaluations fail
-    const defaultConfig: ConfigType = {
+    let bestConfig: ConfigType = {
       instruction: instructions[0] || '',
       bootstrappedDemos: Math.min(1, bootstrappedDemos.length),
       labeledExamples: Math.min(1, labeledExamples.length),
     }
+    let bestScore = 0
 
-    // Track early stopping conditions
-    let trialsWithoutImprovement = 0
-    let lastBestScore = Number.NEGATIVE_INFINITY
-
-    // Initial random exploration phase (to build a model)
-    const initialExplorationTrials = Math.min(
-      10,
-      Math.floor(this.numTrials / 3)
-    )
-
-    const configs: ConfigType[] = []
-
-    // Initial exploration - generate random configurations
-    for (let i = 0; i < initialExplorationTrials; i++) {
-      const instructionIndex = Math.floor(Math.random() * instructions.length)
-      const instructionValue = instructions[instructionIndex] || ''
-
+    // Simple grid search over configurations
+    for (let i = 0; i < Math.min(this.numTrials, instructions.length); i++) {
       const config: ConfigType = {
-        instruction: instructionValue,
-        bootstrappedDemos: Math.floor(
-          Math.random() * (bootstrappedDemos.length + 1)
+        instruction: instructions[i] || instructions[0] || '',
+        bootstrappedDemos: Math.min(
+          Math.floor(Math.random() * (bootstrappedDemos.length + 1)),
+          this.maxBootstrappedDemos
         ),
-        labeledExamples: Math.floor(
-          Math.random() * (labeledExamples.length + 1)
+        labeledExamples: Math.min(
+          Math.floor(Math.random() * (labeledExamples.length + 1)),
+          this.maxLabeledDemos
         ),
       }
-      configs.push(config)
-    }
-
-    // Evaluate initial configurations
-    for (let i = 0; i < configs.length; i++) {
-      const config = configs[i]
-      if (!config) continue
 
       const score = await this.evaluateConfig(
+        program,
         config,
         bootstrappedDemos,
         labeledExamples,
         valset,
-        metricFn,
-        i
+        metricFn
       )
-
-      evaluatedConfigs.push({ config, score })
 
       if (score > bestScore) {
         bestScore = score
         bestConfig = config
-
-        if (this.verbose) {
-          console.log(
-            `New best configuration found with score ${bestScore} (exploration phase)`
-          )
-        }
       }
 
       // Update progress
@@ -431,429 +329,106 @@ export class AxMiPRO<
         'Running MIPROv2 optimization',
         30
       )
-    }
-
-    // Exploitation phase - use Bayesian optimization
-    for (let i = configs.length; i < this.numTrials; i++) {
-      // Generate a new configuration using acquisition function
-      const nextConfig = this.selectNextConfiguration(
-        evaluatedConfigs,
-        bootstrappedDemos.length,
-        labeledExamples.length,
-        instructions
-      )
-
-      // Evaluate the configuration
-      const score = await this.evaluateConfig(
-        nextConfig,
-        bootstrappedDemos,
-        labeledExamples,
-        valset,
-        metricFn,
-        i
-      )
-
-      evaluatedConfigs.push({ config: nextConfig, score })
-
-      // Check if this is a new best configuration
-      if (score > bestScore) {
-        bestScore = score
-        bestConfig = nextConfig
-
-        if (this.verbose) {
-          console.log(
-            `New best configuration found with score ${bestScore} (exploitation phase)`
-          )
-        }
-
-        // Reset early stopping counter
-        trialsWithoutImprovement = 0
-        lastBestScore = bestScore
-      } else {
-        // Check early stopping condition
-        if (bestScore - lastBestScore < this.minImprovementThreshold) {
-          trialsWithoutImprovement++
-
-          if (trialsWithoutImprovement >= this.earlyStoppingTrials) {
-            if (this.verbose) {
-              console.log(
-                `Early stopping triggered after ${i + 1} trials. No improvement for ${trialsWithoutImprovement} trials.`
-              )
-            }
-            break
-          }
-        } else {
-          // There was some improvement, but not enough to be the best
-          lastBestScore = bestScore
-          trialsWithoutImprovement = 0
-        }
-      }
-
-      // Update progress
-      updateProgressBar(
-        i + 1,
-        this.numTrials,
-        Math.round(bestScore * 100),
-        0,
-        'Running MIPROv2 optimization',
-        30
-      )
-
-      // Run full evaluation on best config periodically
-      if (
-        this.minibatch &&
-        i > 0 &&
-        (i + 1) % this.minibatchFullEvalSteps === 0 &&
-        bestConfig
-      ) {
-        if (this.verbose) {
-          console.log(
-            `Running full evaluation on best configuration at trial ${i + 1}`
-          )
-        }
-
-        const fullScore = await this.fullEvaluation(
-          bestConfig,
-          bootstrappedDemos,
-          labeledExamples,
-          valset,
-          metricFn
-        )
-
-        if (this.verbose) {
-          console.log(`Full evaluation score: ${fullScore}`)
-        }
-
-        // Update best score based on full evaluation
-        bestScore = fullScore
-      }
-    }
-
-    if (!bestConfig) {
-      if (this.verbose) {
-        console.warn(
-          'Optimization failed to find any valid configurations, using default fallback configuration'
-        )
-      }
-      bestConfig = defaultConfig
-
-      // Try to evaluate the default config as a last resort
-      try {
-        bestScore = await this.evaluateConfig(
-          bestConfig,
-          bootstrappedDemos,
-          labeledExamples,
-          valset,
-          metricFn,
-          this.numTrials - 1
-        )
-      } catch (err) {
-        if (this.verbose) {
-          console.error('Error evaluating default configuration:', err)
-        }
-        bestScore = 0 // Set a minimal score as fallback
-      }
     }
 
     return { bestConfig, bestScore }
   }
 
-  /**
-   * Evaluates a configuration on the validation set
-   */
   private async evaluateConfig(
+    program: Readonly<AxProgram<IN, OUT>>,
     config: Readonly<ConfigType>,
-    bootstrappedDemos: readonly AxProgramDemos[],
-    labeledExamples: readonly AxExample[],
-    valset: readonly AxExample[],
-    metricFn: AxMetricFn,
-    trialIndex: number
-  ): Promise<number> {
-    // Create a new instance for evaluation with proper cloning
-
-    // Apply configuration to program
-    this.applyConfigToProgram(
-      this.program,
-      config,
-      bootstrappedDemos,
-      labeledExamples
-    )
-
-    // Determine which examples to use for evaluation
-    let evalSet: readonly AxExample[] = valset
-    if (this.minibatch) {
-      // Use minibatch for faster evaluation during trials
-      const startIdx = (trialIndex * this.minibatchSize) % valset.length
-      const minibatchEvalSet: AxExample[] = []
-      for (let j = 0; j < this.minibatchSize; j++) {
-        const idx = (startIdx + j) % valset.length
-        const example = valset[idx]
-        if (example) {
-          minibatchEvalSet.push(example)
-        }
-      }
-      evalSet = minibatchEvalSet
-    }
-
-    // Evaluate the configuration
-    let sumOfScores = 0
-    for (const example of evalSet) {
-      try {
-        const prediction = await this.program.forward(this.ai, example as IN)
-        const score = metricFn({ prediction, example })
-        sumOfScores += score
-      } catch (err) {
-        if (this.verbose) {
-          console.error('Error evaluating example:', err)
-        }
-      }
-    }
-    if (evalSet.length === 0) return 0 // Avoid division by zero
-    return sumOfScores / evalSet.length
-  }
-
-  /**
-   * Run full evaluation on the entire validation set
-   */
-  private async fullEvaluation(
-    config: Readonly<ConfigType>,
-    bootstrappedDemos: readonly AxProgramDemos[],
+    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[],
     valset: readonly AxExample[],
     metricFn: AxMetricFn
   ): Promise<number> {
+    // Create a copy of the program and apply the configuration
+    const testProgram = { ...program }
     this.applyConfigToProgram(
-      this.program,
+      testProgram,
       config,
       bootstrappedDemos,
       labeledExamples
     )
 
-    let sumOfScores = 0
-    for (const example of valset) {
+    let totalScore = 0
+    let count = 0
+
+    // Evaluate on a subset of validation examples
+    const evalSet = valset.slice(0, Math.min(5, valset.length))
+
+    for (const example of evalSet) {
       try {
-        const prediction = await this.program.forward(this.ai, example as IN)
+        const prediction = await testProgram.forward(this.ai, example as IN)
         const score = metricFn({ prediction, example })
-        sumOfScores += score
-      } catch (err) {
-        if (this.verbose) {
-          console.error('Error evaluating example:', err)
-        }
-      }
-    }
-    if (valset.length === 0) return 0 // Avoid division by zero
-    return sumOfScores / valset.length
-  }
-
-  /**
-   * Implements a Bayesian-inspired selection of the next configuration to try
-   * This is a simplified version using Upper Confidence Bound (UCB) strategy
-   */
-  private selectNextConfiguration(
-    evaluatedConfigs: ConfigPoint[],
-    maxBootstrappedDemos: number,
-    maxLabeledExamples: number,
-    instructions: readonly string[]
-  ): ConfigType {
-    // If we don't have many evaluations yet, use random exploration with a bias towards good configs
-    if (evaluatedConfigs.length < 5) {
-      const instructionIndex = Math.floor(Math.random() * instructions.length)
-      return {
-        instruction: instructions[instructionIndex] || '',
-        bootstrappedDemos: Math.floor(
-          Math.random() * (maxBootstrappedDemos + 1)
-        ),
-        labeledExamples: Math.floor(Math.random() * (maxLabeledExamples + 1)),
+        totalScore += score
+        count++
+        this.stats.totalCalls++
+      } catch {
+        // Skip failed predictions
+        continue
       }
     }
 
-    // Sort configurations by score
-    const sortedConfigs = [...evaluatedConfigs].sort(
-      (a, b) => b.score - a.score
-    )
-
-    // Top performing configurations to learn from
-    const topConfigs = sortedConfigs.slice(0, Math.min(3, sortedConfigs.length))
-
-    // Calculate mean and variance of parameters in top configurations
-    const meanBootstrappedDemos =
-      topConfigs.reduce((sum, c) => sum + c.config.bootstrappedDemos, 0) /
-      topConfigs.length
-    const meanLabeledExamples =
-      topConfigs.reduce((sum, c) => sum + c.config.labeledExamples, 0) /
-      topConfigs.length
-
-    // Get popular instructions among top performers
-    const popularInstructions = topConfigs.map((c) => c.config.instruction)
-
-    // Exploration factor decreases over time
-    const explorationFactor = Math.max(
-      0.2,
-      1.0 - evaluatedConfigs.length / this.numTrials
-    )
-
-    // Generate a new configuration with exploitation (using learned info) + exploration (random variations)
-    let newBootstrappedDemos: number
-    let newLabeledExamples: number
-    let newInstruction: string
-
-    // Decide whether to exploit or explore for bootstrapped demos
-    if (Math.random() < 0.7) {
-      // 70% chance to exploit
-      // Sample around the mean of top configs with some noise
-      newBootstrappedDemos = Math.min(
-        maxBootstrappedDemos,
-        Math.max(
-          0,
-          Math.round(
-            meanBootstrappedDemos +
-              (Math.random() * 2 - 1) * explorationFactor * 2
-          )
-        )
-      )
-    } else {
-      // Random exploration
-      newBootstrappedDemos = Math.floor(
-        Math.random() * (maxBootstrappedDemos + 1)
-      )
-    }
-
-    // Same for labeled examples
-    if (Math.random() < 0.7) {
-      newLabeledExamples = Math.min(
-        maxLabeledExamples,
-        Math.max(
-          0,
-          Math.round(
-            meanLabeledExamples +
-              (Math.random() * 2 - 1) * explorationFactor * 2
-          )
-        )
-      )
-    } else {
-      newLabeledExamples = Math.floor(Math.random() * (maxLabeledExamples + 1))
-    }
-
-    // For instructions, either pick from top performers or try a new one
-    if (Math.random() < 0.7 && popularInstructions.length > 0) {
-      const idx = Math.floor(Math.random() * popularInstructions.length)
-      newInstruction = popularInstructions[idx] || ''
-    } else {
-      const idx = Math.floor(Math.random() * instructions.length)
-      newInstruction = instructions[idx] || ''
-    }
-
-    return {
-      instruction: newInstruction,
-      bootstrappedDemos: newBootstrappedDemos,
-      labeledExamples: newLabeledExamples,
-    }
+    return count > 0 ? totalScore / count : 0
   }
 
-  /**
-   * Applies a configuration to a program instance
-   */
   private applyConfigToProgram(
-    program: Readonly<AxProgram<IN, OUT>>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    program: any,
     config: Readonly<ConfigType>,
-    bootstrappedDemos: readonly AxProgramDemos[],
+    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[]
   ): void {
-    // Set instruction
-    this.setInstructionToProgram(program, config.instruction)
+    // Set instruction if the program supports it
+    if (program.setInstruction) {
+      program.setInstruction(config.instruction)
+    }
 
     // Set demos if needed
-    if (config.bootstrappedDemos > 0) {
+    if (config.bootstrappedDemos > 0 && program.setDemos) {
       program.setDemos(bootstrappedDemos.slice(0, config.bootstrappedDemos))
     }
 
     // Set examples if needed
-    if (config.labeledExamples > 0) {
+    if (config.labeledExamples > 0 && program.setExamples) {
       program.setExamples(labeledExamples.slice(0, config.labeledExamples))
     }
   }
 
   /**
-   * Sets instruction to a program
-   * Note: Workaround since setInstruction may not be available directly
-   */
-  private setInstructionToProgram(
-    program: Readonly<AxProgram<IN, OUT>>,
-    instruction: string
-  ): void {
-    // This is a simplification - in real use, you need the actual method signature
-    // For demonstration purposes only
-    // Usually would be: program.setInstruction(instruction)
-    const programWithInstruction = program as Readonly<
-      AxProgram<IN, OUT> & { setInstruction: (instr: string) => void }
-    >
-    programWithInstruction.setInstruction?.(instruction)
-  }
-
-  /**
    * The main compile method to run MIPROv2 optimization
-   * @param metricFn Evaluation metric function
-   * @param options Optional configuration options
-   * @returns The optimization result
    */
   public async compile(
+    program: Readonly<AxProgram<IN, OUT>>,
     metricFn: AxMetricFn,
-    options?: Record<string, unknown>
-  ): Promise<AxOptimizerResult<IN, OUT>> {
-    // Type-safe option access by casting to the specific options interface
-    const miproOptions = options as
-      | {
-          valset?: readonly AxExample[]
-          teacher?: Readonly<AxProgram<IN, OUT>>
-          auto?: 'light' | 'medium' | 'heavy'
-        }
-      | undefined
+    options?: AxCompileOptions
+  ): Promise<AxMiPROResult<IN, OUT>> {
+    const startTime = Date.now()
 
     // Configure auto settings if provided
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const miproOptions = options as any
     if (miproOptions?.auto) {
       this.configureAuto(miproOptions.auto)
     }
 
     // Split data into train and validation sets if valset not provided
-    const trainset = this.examples
     const valset =
       miproOptions?.valset ||
-      this.examples.slice(0, Math.floor(this.examples.length * 0.8))
+      this.examples.slice(0, Math.floor(this.examples.length * 0.2))
 
     if (this.verbose) {
       console.log(`Starting MIPROv2 optimization with ${this.numTrials} trials`)
       console.log(
-        `Using ${trainset.length} examples for training and ${valset.length} for validation`
+        `Using ${this.examples.length} examples for training and ${valset.length} for validation`
       )
     }
 
-    // If teacher is provided, use it to help bootstrap examples
-    if (miproOptions?.teacher) {
-      if (this.verbose) {
-        console.log('Using provided teacher to assist with bootstrapping')
-      }
-
-      // Create a copy of the bootstrapper with the teacher AI
-      const bootstrapperWithTeacher = new AxBootstrapFewShot<IN, OUT>({
-        ai: this.ai,
-        program: this.program,
-        examples: this.examples,
-        options: {
-          maxDemos: this.maxBootstrappedDemos,
-          maxRounds: 3,
-          verboseMode: this.verbose,
-          teacherAI: this.ai, // Use the same AI but with the teacher program
-        },
-      })
-
-      // Replace the existing bootstrapper
-      this.bootstrapper = bootstrapperWithTeacher
-    }
-
     // Step 1: Bootstrap few-shot examples
-    let bootstrappedDemos: AxProgramDemos[] = []
+    let bootstrappedDemos: AxProgramDemos<IN, OUT>[] = []
     if (this.maxBootstrappedDemos > 0) {
-      bootstrappedDemos = await this.bootstrapFewShotExamples(metricFn)
+      bootstrappedDemos = await this.bootstrapFewShotExamples(program, metricFn)
 
       if (this.verbose) {
         console.log(
@@ -881,8 +456,9 @@ export class AxMiPRO<
       console.log(`Generated ${instructions.length} instruction candidates`)
     }
 
-    // Step 4: Run Bayesian optimization to find the best configuration
-    const { bestConfig, bestScore } = await this.runBayesianOptimization(
+    // Step 4: Run optimization to find the best configuration
+    const { bestConfig, bestScore } = await this.runOptimization(
+      program,
       bootstrappedDemos,
       labeledExamples,
       instructions,
@@ -895,25 +471,79 @@ export class AxMiPRO<
       console.log(`Best configuration: ${JSON.stringify(bestConfig)}`)
     }
 
-    // Apply the best configuration to a fresh copy of the program
-    this.applyConfigToProgram(
-      this.program,
+    // Create a new AxGen instance with the optimized configuration
+    let signature
+    if (
+      'getSignature' in program &&
+      typeof program.getSignature === 'function'
+    ) {
+      signature = program.getSignature()
+    } else {
+      // Fallback: create a basic signature
+      signature = 'input -> output'
+    }
+
+    const optimizedGen = new AxGen<IN, OUT>(signature)
+
+    // Apply the best configuration to the new AxGen
+    this.applyConfigToAxGen(
+      optimizedGen,
       bestConfig,
       bootstrappedDemos,
       labeledExamples
     )
 
+    // Update stats
+    this.stats.resourceUsage.totalTime = Date.now() - startTime
+    this.stats.convergenceInfo.converged = true
+    this.stats.convergenceInfo.finalImprovement = bestScore
+
     return {
-      program: this.program,
       demos: bootstrappedDemos,
+      stats: this.stats,
+      bestScore,
+      optimizedGen,
     }
   }
 
   /**
-   * Get optimization statistics from the internal bootstrapper
-   * @returns Optimization statistics or undefined if not available
+   * Applies a configuration to an AxGen instance
    */
-  public getStats(): AxOptimizationStats | undefined {
-    return this.bootstrapper.getStats()
+  private applyConfigToAxGen(
+    axgen: Readonly<AxGen<IN, OUT>>,
+    config: Readonly<ConfigType>,
+    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
+    labeledExamples: readonly AxExample[]
+  ): void {
+    // Set instruction if the AxGen supports it
+    if (
+      'setInstruction' in axgen &&
+      typeof axgen.setInstruction === 'function'
+    ) {
+      axgen.setInstruction(config.instruction)
+    }
+
+    // Set demos if needed
+    if (config.bootstrappedDemos > 0) {
+      axgen.setDemos(bootstrappedDemos.slice(0, config.bootstrappedDemos))
+    }
+
+    // Set examples if needed
+    if (config.labeledExamples > 0) {
+      axgen.setExamples(
+        labeledExamples.slice(
+          0,
+          config.labeledExamples
+        ) as unknown as readonly (OUT & IN)[]
+      )
+    }
+  }
+
+  /**
+   * Get optimization statistics
+   * @returns Current optimization statistics
+   */
+  public getStats(): AxOptimizationStats {
+    return this.stats
   }
 }

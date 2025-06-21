@@ -39,18 +39,17 @@ const optimize = new AxBootstrapFewShot<
   { question: string },
   { answer: string }
 >({
-  ai,
-  program,
+  studentAI: ai,
   examples,
 })
 
 // Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
 const metricFn: AxMetricFn = ({ prediction, example }) => {
-  return prediction.answer === example.answer
+  return prediction.answer === example.answer ? 1 : 0
 }
 
 // Run the optimizer
-const result = await optimize.compile(metricFn)
+const result = await optimize.compile(program, metricFn)
 
 // save the resulting demonstrations to use later
 const values = JSON.stringify(result, null, 2)

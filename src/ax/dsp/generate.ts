@@ -840,7 +840,7 @@ export class AxGen<
       buffer = mergeDeltas(buffer, item.delta)
     }
 
-    this.trace = { ...values, ...buffer }
+    this.trace = { ...values, ...buffer } as unknown as OUT
     return buffer as OUT
   }
 
@@ -856,7 +856,7 @@ export class AxGen<
   }
 
   public override setExamples(
-    examples: Readonly<AxProgramExamples>,
+    examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
     super.setExamples(examples, options)

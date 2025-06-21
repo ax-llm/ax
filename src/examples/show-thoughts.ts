@@ -1,4 +1,9 @@
-import { AxAI, AxAIGoogleGeminiModel, AxAIOpenAIModel, AxGen } from '@ax-llm/ax'
+import {
+  AxAI,
+  AxAIGoogleGeminiModel,
+  AxAIOpenAIResponsesModel,
+  AxGen,
+} from '@ax-llm/ax'
 
 // Example demonstrating the showThoughts feature
 // This allows you to see the model's reasoning process
@@ -23,7 +28,7 @@ const main = async () => {
     name: 'openai-responses',
     apiKey: process.env.OPENAI_APIKEY || '',
     config: {
-      model: AxAIOpenAIModel.O1,
+      model: AxAIOpenAIResponsesModel.O1,
     },
   })
 

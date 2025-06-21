@@ -34,7 +34,7 @@ export class AxRAG extends AxChainOfThought<
       { query: string }
     >(qsig)
     this.queryFn = queryFn
-    this.register(this.genQuery)
+    // Note: genQuery is not registered as it has a different output signature than the parent
   }
 
   public override async forward(

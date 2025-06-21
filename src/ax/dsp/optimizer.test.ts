@@ -5,8 +5,6 @@ import type { AxAIService } from '../ai/types.js'
 import type { AxOptimizer } from './optimizer.js'
 import { AxBootstrapFewShot } from './optimizers/bootstrapFewshot.js'
 import { AxMiPRO } from './optimizers/miproV2.js'
-import type { AxProgram } from './program.js'
-import type { AxGenIn, AxGenOut } from './types.js'
 
 // Mock dependencies
 const mockAI = {
@@ -14,12 +12,7 @@ const mockAI = {
   chat: async () => ({ results: [{ content: 'mock response' }] }),
 } as unknown as AxAIService
 
-const mockProgram = {
-  forward: async () => ({ output: 'test' }),
-  getTraces: () => [],
-  setExamples: () => {},
-  setDemos: () => {},
-} as unknown as AxProgram<AxGenIn, AxGenOut>
+// Removed unused mockProgram
 
 const mockExamples = [
   { input: 'test input', output: 'test output' },
@@ -29,8 +22,7 @@ const mockExamples = [
 describe('Optimizer Interface', () => {
   it('AxBootstrapFewShot implements AxOptimizer interface', () => {
     const optimizer = new AxBootstrapFewShot({
-      ai: mockAI,
-      program: mockProgram,
+      studentAI: mockAI,
       examples: mockExamples,
     })
 
@@ -44,8 +36,7 @@ describe('Optimizer Interface', () => {
 
   it('AxMiPRO implements AxOptimizer interface', () => {
     const optimizer = new AxMiPRO({
-      ai: mockAI,
-      program: mockProgram,
+      studentAI: mockAI,
       examples: mockExamples,
     })
 
@@ -59,14 +50,12 @@ describe('Optimizer Interface', () => {
 
   it('Both optimizers have compatible compile method signatures', () => {
     const bootstrap = new AxBootstrapFewShot({
-      ai: mockAI,
-      program: mockProgram,
+      studentAI: mockAI,
       examples: mockExamples,
     })
 
     const mipro = new AxMiPRO({
-      ai: mockAI,
-      program: mockProgram,
+      studentAI: mockAI,
       examples: mockExamples,
     })
 
@@ -78,20 +67,18 @@ describe('Optimizer Interface', () => {
     // Both should have the same compile method signature
     for (const optimizer of optimizers) {
       expect(typeof optimizer.compile).toBe('function')
-      expect(optimizer.compile).toHaveLength(2) // metricFn and options
+      expect(optimizer.compile).toHaveLength(3) // program, metricFn and options
     }
   })
 
   it('Both optimizers support getStats method', () => {
     const bootstrap = new AxBootstrapFewShot({
-      ai: mockAI,
-      program: mockProgram,
+      studentAI: mockAI,
       examples: mockExamples,
     })
 
     const mipro = new AxMiPRO({
-      ai: mockAI,
-      program: mockProgram,
+      studentAI: mockAI,
       examples: mockExamples,
     })
 

@@ -25,7 +25,9 @@ import type { AxGenIn, AxGenOut, AxMessage } from '../dsp/types.js'
  * Interface for agents that can be used as child agents.
  * Provides methods to get the agent's function definition and features.
  */
-export interface AxAgentic extends AxTunable, AxUsable {
+export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
+  extends AxTunable<IN, OUT>,
+    AxUsable {
   getFunction(): AxFunction
   getFeatures(): AxAgentFeatures
 }
@@ -155,13 +157,13 @@ const definitionError = new Error(
  * An AI agent that can process inputs using an AI service and coordinate with child agents.
  * Supports features like smart model routing and automatic input field passing to child agents.
  */
-export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
-  implements AxAgentic
+export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
+  implements AxAgentic<IN, OUT>
 {
   private ai?: AxAIService
   private program: AxProgramWithSignature<IN, OUT>
   private functions?: AxInputFunctionType
-  private agents?: AxAgentic[]
+  private agents?: AxAgentic<IN, OUT>[]
   private disableSmartModelRouting?: boolean
   private excludeFieldsFromPassthrough: string[]
   private debug?: boolean
@@ -185,7 +187,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       description: string
       definition?: string
       signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-      agents?: AxAgentic[]
+      agents?: AxAgentic<IN, OUT>[]
       functions?: AxInputFunctionType
     }>,
     options?: Readonly<AxAgentOptions>
@@ -220,7 +222,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     })
 
     for (const agent of agents ?? []) {
-      this.program.register(agent)
+      this.program.register(
+        agent as unknown as Readonly<AxTunable<IN, OUT> & AxUsable>
+      )
     }
 
     this.name = name
@@ -241,7 +245,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
   }
 
   public setExamples(
-    examples: Readonly<AxProgramExamples>,
+    examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
     this.program.setExamples(examples, options)
@@ -259,7 +263,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     return this.program.getTraces()
   }
 
-  public setDemos(demos: readonly AxProgramDemos[]) {
+  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
     this.program.setDemos(demos)
   }
 

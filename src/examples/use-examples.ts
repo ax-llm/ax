@@ -27,7 +27,8 @@ classifier.setExamples([
   {
     contentToClassify: 'Lakers win championship in dramatic overtime victory',
     category: 'sports',
-    // Missing confidence and reasoning - this is now allowed!
+    confidence: 0.9,
+    // Missing reasoning - this is now allowed!
   },
   {
     contentToClassify: 'Breaking: Major policy changes announced in Congress',

@@ -17,6 +17,7 @@ const ai = new AxAI({
 })
 
 const res = await rag.forward(ai, {
+  context: [],
   question:
     'List 3 of the top most important work done by Michael Stonebraker?',
 })

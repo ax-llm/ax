@@ -1,4 +1,4 @@
-import { AxAI, AxReAct } from '@ax-llm/ax'
+import { AxAI, AxChainOfThought } from '@ax-llm/ax'
 
 const values = {
   question: 'What is the weather like in tokyo?',
@@ -31,7 +31,7 @@ const functions = [
   },
 ]
 
-const cot = new AxReAct(`question:string -> answer:string`, {
+const cot = new AxChainOfThought(`question:string -> answer:string`, {
   functions,
 })
 
