@@ -58,7 +58,7 @@ export class AxBootstrapFewShot<
   }
 
   constructor(
-    args: AxOptimizerArgs<OUT> & { options?: AxBootstrapOptimizerOptions }
+    args: AxOptimizerArgs & { options?: AxBootstrapOptimizerOptions }
   ) {
     if (args.examples.length === 0) {
       throw new Error('No examples found')
@@ -138,7 +138,7 @@ export class AxBootstrapFewShot<
               JSON.stringify(ex).length / 4 + JSON.stringify(res).length / 4
           }
 
-          const score = metricFn({ prediction: res, example: ex })
+          const score = await metricFn({ prediction: res, example: ex })
           const success = score >= 0.5 // Assuming a threshold of 0.5 for success
           if (success) {
             this.traces = [...this.traces, ...program.getTraces()]

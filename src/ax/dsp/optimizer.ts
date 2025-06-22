@@ -8,7 +8,7 @@ export type AxExample = Record<string, AxFieldValue>
 
 export type AxMetricFn = <T extends AxGenOut = AxGenOut>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
-) => number
+) => number | Promise<number>
 
 export type AxMetricFnArgs = Parameters<AxMetricFn>[0]
 
@@ -38,48 +38,31 @@ export interface AxOptimizationProgress {
 // Cost tracking interface for monitoring resource usage
 export interface AxCostTracker {
   trackTokens(count: number, model: string): void
-  trackLatency(ms: number): void
   getCurrentCost(): number
   getTokenUsage(): Record<string, number>
+  getTotalTokens(): number
+  isLimitReached(): boolean
   reset(): void
 }
 
-// Evaluation strategy configuration
-export interface AxEvaluationStrategy {
-  name: 'holdout' | 'cross-validation' | 'bootstrap' | 'temporal-split'
+// Cost tracker configuration options
+export interface AxCostTrackerOptions {
+  // Cost-based limits
+  costPerModel?: Record<string, number>
+  maxCost?: number
 
-  // For cross-validation
-  folds?: number
-  stratified?: boolean
-
-  // For temporal splits (time-series data)
-  splitRatio?: number
-  timeColumn?: string
-
-  // For bootstrap
-  bootstrapSamples?: number
-
-  // Custom validation function
-  customSplit?: (examples: readonly AxExample[]) => {
-    train: readonly AxExample[]
-    validation: readonly AxExample[]
-  }
+  // Token-based limits
+  maxTokens?: number
 }
 
 // Enhanced optimizer arguments - no longer includes program
-export type AxOptimizerArgs<OUT extends AxGenOut = AxGenOut> = {
+export type AxOptimizerArgs = {
   studentAI: AxAIService
   teacherAI?: AxAIService // For generating high-quality examples/corrections
   examples: readonly AxExample[]
 
-  // Resource management
-  tokenBudget?: number
-  timeBudget?: number // in milliseconds
-  maxConcurrentEvals?: number
-
   // Evaluation strategy
   validationSet?: readonly AxExample[]
-  evaluationStrategy?: AxEvaluationStrategy
 
   // Quality thresholds
   minSuccessRate?: number
@@ -92,15 +75,6 @@ export type AxOptimizerArgs<OUT extends AxGenOut = AxGenOut> = {
 
   // Reproducibility
   seed?: number
-  cacheResults?: boolean
-  cacheKey?: string
-
-  // Warm start support
-  warmStart?: {
-    previousResults: AxOptimizerResult<OUT>
-    continueFromBest: boolean
-    inheritDemos?: boolean
-  }
 }
 
 // Enhanced optimization statistics
@@ -151,13 +125,6 @@ export interface AxOptimizerResult<OUT extends AxGenOut> {
   // Optimization history for analysis
   scoreHistory?: number[]
   configurationHistory?: Record<string, unknown>[]
-
-  // Cache information
-  cacheInfo?: {
-    cacheHits: number
-    cacheMisses: number
-    cacheKey?: string
-  }
 }
 
 // Pareto optimization result for multi-objective optimization
@@ -185,12 +152,7 @@ export interface AxCompileOptions {
 
   // Override args for this specific run
   overrideValidationSet?: readonly AxExample[]
-  overrideTokenBudget?: number
-  overrideTimeBudget?: number
   overrideTargetScore?: number
-
-  // Evaluation overrides
-  overrideEvaluationStrategy?: AxEvaluationStrategy
   overrideCostTracker?: AxCostTracker
 
   // Progress monitoring overrides
@@ -199,11 +161,6 @@ export interface AxCompileOptions {
     reason: string,
     stats: Readonly<AxOptimizationStats>
   ) => void
-
-  // Experimental features
-  enableParallelEvaluation?: boolean
-  enableAdaptiveBatching?: boolean
-  enableProgressiveValidation?: boolean
 }
 
 // Enhanced base optimizer interface
@@ -326,7 +283,6 @@ export interface AxMiPROOptimizerOptions {
   viewDataBatchSize?: number
   tipAwareProposer?: boolean
   fewshotAwareProposer?: boolean
-  seed?: number
   verbose?: boolean
   earlyStoppingTrials?: number
   minImprovementThreshold?: number
@@ -338,8 +294,6 @@ export interface AxMiPROOptimizerOptions {
     | 'upper_confidence_bound'
     | 'probability_improvement'
   explorationWeight?: number
-  multiObjective?: boolean
-  paretoFrontSize?: number
 }
 
 // Legacy compile options (for backward compatibility)
@@ -366,132 +320,63 @@ export interface AxMiPROCompileOptions extends AxCompileOptions {
 }
 
 // Default cost tracker implementation
-export class DefaultCostTracker implements AxCostTracker {
+export class AxDefaultCostTracker implements AxCostTracker {
   private tokenUsage: Record<string, number> = {}
-  private latencies: number[] = []
-  private totalCost = 0
+  private totalTokens = 0
 
-  // Rough cost estimates per 1K tokens (in USD)
-  private readonly costPerModel: Record<string, number> = {
-    'gpt-4': 0.03,
-    'gpt-4-turbo': 0.01,
-    'gpt-3.5-turbo': 0.002,
-    'claude-3-opus': 0.015,
-    'claude-3-sonnet': 0.003,
-    'claude-3-haiku': 0.00025,
-    'gemini-pro': 0.0005,
-    'gemini-pro-vision': 0.002,
+  // Configuration options
+  private readonly costPerModel: Record<string, number>
+  private readonly maxCost?: number
+  private readonly maxTokens?: number
+
+  constructor(options?: AxCostTrackerOptions) {
+    this.costPerModel = options?.costPerModel ?? {}
+    this.maxCost = options?.maxCost
+    this.maxTokens = options?.maxTokens
   }
 
   trackTokens(count: number, model: string): void {
     this.tokenUsage[model] = (this.tokenUsage[model] || 0) + count
-    const costPer1K = this.costPerModel[model] || 0.001 // Default fallback
-    this.totalCost += (count / 1000) * costPer1K
-  }
-
-  trackLatency(ms: number): void {
-    this.latencies.push(ms)
+    this.totalTokens += count
   }
 
   getCurrentCost(): number {
-    return this.totalCost
+    // Calculate cost on-demand
+    let totalCost = 0
+    for (const [model, tokens] of Object.entries(this.tokenUsage)) {
+      const costPer1K = this.costPerModel[model] || 0.001 // Default fallback
+      totalCost += (tokens / 1000) * costPer1K
+    }
+    return totalCost
   }
 
   getTokenUsage(): Record<string, number> {
     return { ...this.tokenUsage }
   }
 
+  getTotalTokens(): number {
+    return this.totalTokens
+  }
+
+  isLimitReached(): boolean {
+    // Check token limit if configured
+    if (this.maxTokens !== undefined && this.totalTokens >= this.maxTokens) {
+      return true
+    }
+
+    // Check cost limit if configured (calculate cost on-demand)
+    if (this.maxCost !== undefined) {
+      const currentCost = this.getCurrentCost()
+      if (currentCost >= this.maxCost) {
+        return true
+      }
+    }
+
+    return false
+  }
+
   reset(): void {
     this.tokenUsage = {}
-    this.latencies = []
-    this.totalCost = 0
-  }
-
-  getAverageLatency(): number {
-    return this.latencies.length > 0
-      ? this.latencies.reduce((a, b) => a + b, 0) / this.latencies.length
-      : 0
-  }
-}
-
-// Utility functions for optimizer management
-
-/**
- * Create a default evaluation strategy based on dataset size
- */
-export function createDefaultEvaluationStrategy(
-  exampleCount: number,
-  hasValidationSet: boolean = false
-): AxEvaluationStrategy {
-  if (hasValidationSet) {
-    return { name: 'holdout' }
-  }
-
-  if (exampleCount < 50) {
-    return { name: 'bootstrap', bootstrapSamples: 100 }
-  } else if (exampleCount < 200) {
-    return { name: 'cross-validation', folds: 5, stratified: true }
-  } else {
-    return { name: 'holdout', splitRatio: 0.8 }
-  }
-}
-
-/**
- * Create a default cost tracker with common model pricing
- */
-export function createDefaultCostTracker(): DefaultCostTracker {
-  return new DefaultCostTracker()
-}
-
-/**
- * Validate optimizer arguments for common issues
- */
-export function validateOptimizerArgs(args: Readonly<AxOptimizerArgs>): {
-  isValid: boolean
-  issues: string[]
-  suggestions: string[]
-} {
-  const issues: string[] = []
-  const suggestions: string[] = []
-
-  if (args.examples.length === 0) {
-    issues.push('No examples provided')
-    suggestions.push(
-      'Provide at least 10-20 examples for effective optimization'
-    )
-  } else if (args.examples.length < 5) {
-    issues.push('Very few examples provided')
-    suggestions.push(
-      'Consider providing more examples (10-50) for better optimization results'
-    )
-  }
-
-  if (args.tokenBudget && args.tokenBudget < 1000) {
-    issues.push('Token budget is very low')
-    suggestions.push(
-      'Consider increasing token budget to at least 10,000 for meaningful optimization'
-    )
-  }
-
-  if (args.timeBudget && args.timeBudget < 60000) {
-    // 1 minute
-    issues.push('Time budget is very short')
-    suggestions.push('Consider allowing at least 5-10 minutes for optimization')
-  }
-
-  if (
-    args.validationSet &&
-    args.validationSet.length < Math.max(5, args.examples.length * 0.2)
-  ) {
-    issues.push('Validation set is too small')
-    suggestions.push(
-      'Validation set should be at least 20% of training examples or 5 examples minimum'
-    )
-  }
-
-  return {
-    isValid: issues.length === 0,
-    issues,
-    suggestions,
+    this.totalTokens = 0
   }
 }

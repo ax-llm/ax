@@ -44,7 +44,7 @@ export class AxTestPrompt<
       }
 
       const res = await this.program.forward(this.ai, ex as IN)
-      const score = metricFn({ prediction: res, example: ex })
+      const score = await metricFn({ prediction: res, example: ex })
       sumOfScores += score
 
       const et = new Date().getTime() - st

@@ -355,6 +355,26 @@ import {
   type AxDBWeaviateOpOptions
 } from './db/weaviate.js';
 import {
+  AxDefaultCostTracker,
+  type AxBootstrapCompileOptions,
+  type AxBootstrapOptimizerOptions,
+  type AxCompileOptions,
+  type AxCostTracker,
+  type AxCostTrackerOptions,
+  type AxExample,
+  type AxMetricFn,
+  type AxMetricFnArgs,
+  type AxMiPROCompileOptions,
+  type AxMiPROOptimizerOptions,
+  type AxMultiMetricFn,
+  type AxOptimizationProgress,
+  type AxOptimizationStats,
+  type AxOptimizer,
+  type AxOptimizerArgs,
+  type AxOptimizerResult,
+  type AxParetoResult
+} from './dsp/optimizer.js';
+import {
   AxDefaultQueryRewriter,
   AxRewriter
 } from './docs/rewriter.js';
@@ -397,7 +417,6 @@ import {
 } from './mcp/httpTransport.js';
 import {
   AxMiPRO,
-  type AxMiPROOptions,
   type AxMiPROResult
 } from './dsp/optimizers/miproV2.js';
 import {
@@ -481,25 +500,6 @@ import {
   type AxRateLimiterFunction,
   type AxTokenUsage
 } from './ai/types.js';
-import {
-  type AxBootstrapCompileOptions,
-  type AxBootstrapOptimizerOptions,
-  type AxCompileOptions,
-  type AxCostTracker,
-  type AxEvaluationStrategy,
-  type AxExample,
-  type AxMetricFn,
-  type AxMetricFnArgs,
-  type AxMiPROCompileOptions,
-  type AxMiPROOptimizerOptions,
-  type AxMultiMetricFn,
-  type AxOptimizationProgress,
-  type AxOptimizationStats,
-  type AxOptimizer,
-  type AxOptimizerArgs,
-  type AxOptimizerResult,
-  type AxParetoResult
-} from './dsp/optimizer.js';
 import {
   type AxDBQueryRequest,
   type AxDBQueryResponse,
@@ -610,6 +610,7 @@ export { AxDBManager };
 export { AxDBMemory };
 export { AxDBPinecone };
 export { AxDBWeaviate };
+export { AxDefaultCostTracker };
 export { AxDefaultQueryRewriter };
 export { AxDefaultResultReranker };
 export { AxDockerSession };
@@ -885,6 +886,7 @@ export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
 export type { AxCompileOptions };
 export type { AxCostTracker };
+export type { AxCostTrackerOptions };
 export type { AxDBArgs };
 export type { AxDBBaseArgs };
 export type { AxDBBaseOpOptions };
@@ -911,7 +913,6 @@ export type { AxDockerContainer };
 export type { AxEmbedRequest };
 export type { AxEmbedResponse };
 export type { AxEvaluateArgs };
-export type { AxEvaluationStrategy };
 export type { AxExample };
 export type { AxField };
 export type { AxFieldDescriptor };
@@ -942,7 +943,6 @@ export type { AxMetricFn };
 export type { AxMetricFnArgs };
 export type { AxMiPROCompileOptions };
 export type { AxMiPROOptimizerOptions };
-export type { AxMiPROOptions };
 export type { AxMiPROResult };
 export type { AxMockAIServiceConfig };
 export type { AxModelConfig };

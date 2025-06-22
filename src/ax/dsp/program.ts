@@ -145,7 +145,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   protected usage: AxProgramUsage[] = []
 
   private key: { id: string; custom?: boolean }
-  private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT> & AxUsable>>
+  private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT>>, IN, OUT>
 
   constructor(
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
@@ -201,8 +201,8 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
 
   public setId(id: string) {
     this.key = { id, custom: true }
-    for (const child of this.children) {
-      child.setParentId(id)
+    for (const child of Array.from(this.children)) {
+      child?.setParentId(id)
     }
   }
 
@@ -222,8 +222,8 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
       return
     }
 
-    for (const child of this.children) {
-      child.setExamples(examples, options)
+    for (const child of Array.from(this.children)) {
+      child?.setExamples(examples, options)
     }
   }
 
@@ -269,9 +269,9 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
       traces.push({ trace: this.trace as OUT & IN, programId: this.key.id })
     }
 
-    for (const child of this.children) {
-      const _traces = child.getTraces()
-      traces = [...traces, ..._traces]
+    for (const child of Array.from(this.children)) {
+      const _traces = child?.getTraces()
+      traces = [...traces, ...(_traces ?? [])]
     }
     return traces
   }
@@ -279,17 +279,17 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   public getUsage(): AxProgramUsage[] {
     let usage: AxProgramUsage[] = [...(this.usage ?? [])]
 
-    for (const child of this.children) {
-      const cu = child.getUsage()
-      usage = [...usage, ...cu]
+    for (const child of Array.from(this.children)) {
+      const cu = child?.getUsage()
+      usage = [...usage, ...(cu ?? [])]
     }
     return mergeProgramUsage(usage)
   }
 
   public resetUsage() {
     this.usage = []
-    for (const child of this.children) {
-      child.resetUsage()
+    for (const child of Array.from(this.children)) {
+      child?.resetUsage()
     }
   }
 
@@ -300,8 +300,8 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
       .map((v) => v.traces)
       .flat()
 
-    for (const child of this.children) {
-      child.setDemos(demos)
+    for (const child of Array.from(this.children)) {
+      child?.setDemos(demos)
     }
   }
 }
@@ -313,7 +313,11 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   protected usage: AxProgramUsage[] = []
 
   private key: { id: string; custom?: boolean }
-  private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT> & AxUsable>>
+  private children: AxInstanceRegistry<
+    Readonly<AxTunable<IN, OUT> & AxUsable>,
+    IN,
+    OUT
+  >
 
   constructor() {
     this.children = new AxInstanceRegistry()
@@ -352,8 +356,8 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
 
   public setId(id: string) {
     this.key = { id, custom: true }
-    for (const child of this.children) {
-      child.setParentId(id)
+    for (const child of Array.from(this.children)) {
+      child?.setParentId(id)
     }
   }
 
@@ -371,8 +375,8 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
       return
     }
 
-    for (const child of this.children) {
-      child.setExamples(examples, options)
+    for (const child of Array.from(this.children)) {
+      child?.setExamples(examples, options)
     }
   }
 
@@ -383,9 +387,9 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
       traces.push({ trace: this.trace as OUT & IN, programId: this.key.id })
     }
 
-    for (const child of this.children) {
-      const _traces = child.getTraces()
-      traces = [...traces, ..._traces]
+    for (const child of Array.from(this.children)) {
+      const _traces = child?.getTraces()
+      traces = [...traces, ...(_traces ?? [])]
     }
     return traces
   }
@@ -393,23 +397,23 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   public getUsage(): AxProgramUsage[] {
     let usage: AxProgramUsage[] = [...(this.usage ?? [])]
 
-    for (const child of this.children) {
-      const cu = child.getUsage()
-      usage = [...usage, ...cu]
+    for (const child of Array.from(this.children)) {
+      const cu = child?.getUsage()
+      usage = [...usage, ...(cu ?? [])]
     }
     return mergeProgramUsage(usage)
   }
 
   public resetUsage() {
     this.usage = []
-    for (const child of this.children) {
-      child.resetUsage()
+    for (const child of Array.from(this.children)) {
+      child?.resetUsage()
     }
   }
 
   public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
-    for (const child of this.children) {
-      child.setDemos(demos)
+    for (const child of Array.from(this.children)) {
+      child?.setDemos(demos)
     }
   }
 }

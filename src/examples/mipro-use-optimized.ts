@@ -2,7 +2,11 @@ import fs from 'fs/promises'
 
 import { ax, AxAI, AxAIOpenAIModel, f } from '@ax-llm/ax'
 
-import { reasoningGen } from './mipro-optimized-gen-demo.js'
+// Create the reasoning generator inline since the original was removed
+const reasoningGen = ax`
+  scenario:${f.string('Business or logical scenario to analyze')} -> 
+  analysis:${f.string('Critical analysis explaining what is wrong or misleading about the scenario')}
+`
 
 /**
  * Demonstrates loading and using previously optimized demos

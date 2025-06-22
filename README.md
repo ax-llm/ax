@@ -1103,8 +1103,8 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [mcp-client-pipedream.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-pipedream.ts) | Example of integrating with a remote MCP                |
 | [tune-bootstrap.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-bootstrap.ts)       | Use bootstrap optimizer to improve prompt efficiency    |
 | [tune-mipro.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-mipro.ts)           | Use mipro v2 optimizer to improve prompt efficiency     |
-| [mipro-optimized-gen-demo.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-optimized-gen-demo.ts) | Complex reasoning optimization with teacher model & save |
-| [mipro-load-optimized.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-load-optimized.ts) | Load and use saved optimization with cheaper models |
+| [mipro-optimize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-optimize.ts) | Complex reasoning optimization with teacher model & save |
+| [mipro-use-optimized.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-use-optimized.ts) | Load and use saved optimization with cheaper models |
 | [tune-usage.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-usage.ts)           | Use the optimized tuned prompts                         |
 | [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)            | Trace and push traces to a Jaeger service               |
 | [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)     | Example using the new OpenAI Responses API              |

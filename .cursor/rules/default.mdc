@@ -68,12 +68,41 @@ npm run dev --workspace=@ax-llm/ax
 - **Direct execution**: Code should run immediately when file is executed
 - **No try-catch blocks**: It's just a demo, don't add error handling clutter
 - **No IIFE wrappers**: Top-level await works fine with modern Node.js/tsx
+- **Minimal console logs**: Only essential output, avoid verbose logging
+- **No fallback logic**: Keep examples clean and focused on the main functionality
 
 ### Code Style
 - **Export reusable components**: Export generators, signatures, or functions that other examples might use
 - **Save minimal data**: Only save essential data (like demos), not complex config objects
 - **Import and reuse**: Import exported components in other examples rather than recreating them
 - **Clean separation**: Optimize once, save demos, use anywhere
+
+### LLM Judge Pattern
+When using LLM judges in metric functions, use factory functions with closure:
+```typescript
+// Create judge generator
+const judgeGen = ax`
+  original:${f.string('Original text')} ->
+  candidate:${f.string('Candidate to evaluate')} ->
+  expected:${f.string('Expected result')} ->
+  score:${f.number('Quality score 0-1')}
+`
+
+// Create metric function factory
+const createMetric = (judgeAI: AxAI): AxMetricFn => {
+  return async ({ prediction, example }) => {
+    const result = await judgeGen.forward(judgeAI, {
+      original: example.original,
+      candidate: prediction.output,
+      expected: example.expected
+    })
+    return result.score as number
+  }
+}
+
+// Use the metric
+const metric = createMetric(ai)
+```
 
 ### Example Pattern
 ```typescript
@@ -96,6 +125,7 @@ await fs.writeFile('demos.json', JSON.stringify(demos, null, 2))
 - **Focus on functionality**: Show the core feature, not error handling patterns
 - **Reusable components**: Export what others might want to import and use
 - **Minimal persistence**: Save only what's needed, not metadata or complex configs
+- **Clean and direct**: No try-catch blocks, minimal logging, no fallback complexity
 
 ## Code Standards & Architecture
 
