@@ -1,5 +1,12 @@
 # Changelog
 
+## [12.0.8](https://github.com/ax-llm/ax/compare/12.0.6...12.0.7) (2025-06-23)
+
+### Features
+
+* introduce comprehensive LLM optimization guide and checkpointing functionality ([d8b5e90](https://github.com/ax-llm/ax/commit/d8b5e904e8169baf454de511f321a365c76042e3))
+## [12.0.7](https://github.com/ax-llm/ax/compare/12.0.6...12.0.7) (2025-06-20)
+
 ## [12.0.7](https://github.com/ax-llm/ax/compare/12.0.5...12.0.6) (2025-06-20)
 ## [12.0.6](https://github.com/ax-llm/ax/compare/12.0.5...12.0.6) (2025-06-19)
 
