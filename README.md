@@ -1042,6 +1042,8 @@ console.log(result.category) // More accurate classification
 
 - **Improved Accuracy**: Programs perform significantly better with relevant examples
 - **Consistent Output**: Demos help maintain consistent response formats
+
+
 - **Reduced Hallucination**: Examples guide the model toward expected behaviors
 - **Cost Effective**: Better results without needing larger/more expensive models
 
@@ -1053,6 +1055,10 @@ console.log(result.category) // More accurate classification
 4. **Regular Updates**: Re-tune periodically with new data to improve demos
 
 Both Bootstrap Few Shot and MiPRO v2 generate demos in the same format, so you can use this same loading pattern regardless of which optimizer you used for tuning.
+
+## 📖 Complete Optimization Guide
+
+For comprehensive documentation on optimization strategies, teacher-student architectures, cost management, and advanced techniques, see our detailed [**Optimization Guide**](./OPTIMIZE.md).
 
 ## Built-in Functions
 
@@ -1104,7 +1110,9 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [tune-bootstrap.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-bootstrap.ts)       | Use bootstrap optimizer to improve prompt efficiency    |
 | [tune-mipro.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-mipro.ts)           | Use mipro v2 optimizer to improve prompt efficiency     |
 | [mipro-optimize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-optimize.ts) | Complex reasoning optimization with teacher model & save |
+| [mipro-chained-optimize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-chained-optimize.ts) | Teacher-student pipeline with cost optimization & overrides |
 | [mipro-use-optimized.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-use-optimized.ts) | Load and use saved optimization with cheaper models |
+| [checkpoint-recovery.ts](https://github.com/ax-llm/ax/blob/main/src/examples/checkpoint-recovery.ts) | Fault-tolerant optimization with checkpoint recovery |
 | [tune-usage.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-usage.ts)           | Use the optimized tuned prompts                         |
 | [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)            | Trace and push traces to a Jaeger service               |
 | [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)     | Example using the new OpenAI Responses API              |

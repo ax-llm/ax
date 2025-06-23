@@ -1,0 +1,46 @@
+---
+// src/pages/optimize.astro
+import fs from 'fs'
+import path from 'path'
+import { marked } from 'marked'
+import Navigation from '../components/Navigation.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+import '../styles/shared.css'
+
+// Read OPTIMIZE.md from the root of the project
+const optimizePath = path.join(process.cwd(), '..', '..', 'OPTIMIZE.md')
+const optimizeRawContent = fs.readFileSync(optimizePath, 'utf-8')
+
+// Parse markdown to HTML
+const htmlContent = marked(optimizeRawContent)
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ax Optimization Guide</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <Navigation />
+    <div class="container">
+      <Header />
+
+      <!-- Main Content from OPTIMIZE.md -->
+      <main class="prose">
+        <Fragment set:html={htmlContent} />
+      </main>
+
+      <Footer />
+    </div>
+  </body>
+</html> 

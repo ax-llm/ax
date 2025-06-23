@@ -410,7 +410,6 @@ export class AxSignature {
       })
 
       this.sigHash = createHash('sha256')
-        .update(this.description ?? '')
         .update(JSON.stringify(this.inputFields))
         .update(JSON.stringify(this.outputFields))
         .digest('hex')

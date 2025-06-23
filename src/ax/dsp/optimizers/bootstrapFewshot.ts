@@ -1,13 +1,10 @@
-import type { AxAIService } from '../../ai/types.js'
-import type {
-  AxBootstrapCompileOptions,
-  AxBootstrapOptimizerOptions,
-  AxExample,
-  AxMetricFn,
-  AxOptimizationStats,
-  AxOptimizer,
-  AxOptimizerArgs,
-  AxOptimizerResult,
+import {
+  AxBaseOptimizer,
+  type AxBootstrapCompileOptions,
+  type AxBootstrapOptimizerOptions,
+  type AxMetricFn,
+  type AxOptimizerArgs,
+  type AxOptimizerResult,
 } from '../optimizer.js'
 import type { AxProgram, AxProgramDemos, AxProgramTrace } from '../program.js'
 import type { AxFieldValue, AxGenIn, AxGenOut } from '../types.js'
@@ -23,11 +20,7 @@ interface ModelConfig {
 export class AxBootstrapFewShot<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
-> implements AxOptimizer<IN, OUT>
-{
-  private studentAI: AxAIService
-  private teacherAI?: AxAIService
-  private examples: readonly AxExample[]
+> extends AxBaseOptimizer<IN, OUT> {
   private maxRounds: number
   private maxDemos: number
   private maxExamples: number
@@ -38,31 +31,12 @@ export class AxBootstrapFewShot<
   private verboseMode: boolean
   private debugMode: boolean
   private traces: AxProgramTrace<IN, OUT>[] = []
-  private stats: AxOptimizationStats = {
-    totalCalls: 0,
-    successfulDemos: 0,
-    estimatedTokenUsage: 0,
-    earlyStopped: false,
-    resourceUsage: {
-      totalTokens: 0,
-      totalTime: 0,
-      avgLatencyPerEval: 0,
-      costByModel: {},
-    },
-    convergenceInfo: {
-      converged: false,
-      finalImprovement: 0,
-      stagnationRounds: 0,
-      convergenceThreshold: 0.01,
-    },
-  }
 
   constructor(
-    args: AxOptimizerArgs & { options?: AxBootstrapOptimizerOptions }
+    args: Readonly<AxOptimizerArgs & { options?: AxBootstrapOptimizerOptions }>
   ) {
-    if (args.examples.length === 0) {
-      throw new Error('No examples found')
-    }
+    // Call parent constructor
+    super(args)
 
     const options = args.options || {}
 
@@ -76,9 +50,8 @@ export class AxBootstrapFewShot<
     this.verboseMode = options.verboseMode ?? true
     this.debugMode = options.debugMode ?? false
 
-    this.studentAI = args.studentAI
-    this.teacherAI = args.teacherAI || options.teacherAI
-    this.examples = args.examples
+    // Note: teacherAI from options can be used via compile options overrideTeacherAI
+    // The base class provides methods to access teacher AI with fallbacks
   }
 
   private async compileRound(
@@ -122,7 +95,7 @@ export class AxBootstrapFewShot<
         program.setExamples(exList as unknown as readonly (OUT & IN)[])
 
         // Use teacher AI if provided, otherwise use student AI
-        const aiService = this.teacherAI || this.studentAI
+        const aiService = this.getTeacherOrStudentAI()
 
         this.stats.totalCalls++
         let res: OUT
@@ -234,24 +207,9 @@ export class AxBootstrapFewShot<
   ): Promise<AxOptimizerResult<OUT>> {
     const maxRounds = options?.maxIterations ?? this.maxRounds
     this.traces = []
-    this.stats = {
-      totalCalls: 0,
-      successfulDemos: 0,
-      estimatedTokenUsage: 0,
-      earlyStopped: false,
-      resourceUsage: {
-        totalTokens: 0,
-        totalTime: 0,
-        avgLatencyPerEval: 0,
-        costByModel: {},
-      },
-      convergenceInfo: {
-        converged: false,
-        finalImprovement: 0,
-        stagnationRounds: 0,
-        convergenceThreshold: 0.01,
-      },
-    }
+
+    // Reset stats using parent method
+    this.reset()
 
     for (let i = 0; i < maxRounds; i++) {
       await this.compileRound(program, i, metricFn, options)
@@ -289,11 +247,6 @@ export class AxBootstrapFewShot<
         successRate: bestScore,
       },
     }
-  }
-
-  // Get optimization statistics
-  public getStats(): AxOptimizationStats {
-    return this.stats
   }
 }
 

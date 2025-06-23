@@ -1,17 +1,14 @@
 import type { AxAIService } from '../../ai/types.js'
 import { AxGen } from '../generate.js'
-import type {
-  AxCompileOptions,
-  AxCostTracker,
-  AxExample,
-  AxMetricFn,
-  AxMiPROCompileOptions,
-  AxMiPROOptimizerOptions,
-  AxOptimizationProgress,
-  AxOptimizationStats,
-  AxOptimizer,
-  AxOptimizerArgs,
-  AxOptimizerResult,
+import {
+  AxBaseOptimizer,
+  type AxCompileOptions,
+  type AxExample,
+  type AxMetricFn,
+  type AxMiPROCompileOptions,
+  type AxMiPROOptimizerOptions,
+  type AxOptimizerArgs,
+  type AxOptimizerResult,
 } from '../optimizer.js'
 import type { AxProgram, AxProgramDemos } from '../program.js'
 import type { AxGenIn, AxGenOut } from '../types.js'
@@ -34,19 +31,7 @@ export interface AxMiPROResult<IN extends AxGenIn, OUT extends AxGenOut>
 export class AxMiPRO<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
-> implements AxOptimizer<IN, OUT>
-{
-  private studentAI: AxAIService
-  private teacherAI?: AxAIService
-  private examples: readonly AxExample[]
-  private validationSet?: readonly AxExample[]
-
-  // Resource management
-  private costTracker?: AxCostTracker
-
-  // Reproducibility
-  private seed?: number
-
+> extends AxBaseOptimizer<IN, OUT> {
   // MiPRO-specific options
   private maxBootstrappedDemos: number
   private maxLabeledDemos: number
@@ -71,39 +56,13 @@ export class AxMiPRO<
     | 'probability_improvement'
   private explorationWeight: number
 
-  // Standardized optimizer features
-  private targetScore?: number
-  private minSuccessRate?: number
-  private onProgress?: (progress: Readonly<AxOptimizationProgress>) => void
-  private onEarlyStop?: (
-    reason: string,
-    stats: Readonly<AxOptimizationStats>
-  ) => void
-
-  private stats: AxOptimizationStats
-
-  constructor(args: AxOptimizerArgs & { options?: AxMiPROOptimizerOptions }) {
-    if (args.examples.length === 0) {
-      throw new Error('No examples found')
-    }
+  constructor(
+    args: Readonly<AxOptimizerArgs & { options?: AxMiPROOptimizerOptions }>
+  ) {
+    // Call parent constructor with base args
+    super(args)
 
     const options = args.options || {}
-
-    // Use standardized args
-    this.studentAI = args.studentAI
-    this.teacherAI = args.teacherAI
-    this.examples = args.examples
-    this.validationSet = args.validationSet
-    this.targetScore = args.targetScore
-    this.minSuccessRate = args.minSuccessRate
-    this.onProgress = args.onProgress
-    this.onEarlyStop = args.onEarlyStop
-
-    // Resource management
-    this.costTracker = args.costTracker
-
-    // Reproducibility
-    this.seed = args.seed
 
     // MiPRO-specific options with proper defaults
     this.numCandidates = options.numCandidates ?? 5
@@ -127,25 +86,9 @@ export class AxMiPRO<
       options.acquisitionFunction ?? 'expected_improvement'
     this.explorationWeight = options.explorationWeight ?? 0.1
 
-    // Initialize stats
-    this.stats = {
-      totalCalls: 0,
-      successfulDemos: 0,
-      estimatedTokenUsage: 0,
-      earlyStopped: false,
-      resourceUsage: {
-        totalTokens: 0,
-        totalTime: 0,
-        avgLatencyPerEval: 0,
-        costByModel: {},
-      },
-      convergenceInfo: {
-        converged: false,
-        finalImprovement: 0,
-        stagnationRounds: 0,
-        convergenceThreshold: this.minImprovementThreshold,
-      },
-    }
+    // Update convergence threshold in stats
+    this.stats.convergenceInfo.convergenceThreshold =
+      this.minImprovementThreshold
   }
 
   /**
@@ -193,11 +136,14 @@ export class AxMiPRO<
 
   /**
    * Generates instruction candidates using the teacher model if available
+   * @param options Optional compile options that may override teacher AI
    * @returns Array of generated instruction candidates
    */
-  private async proposeInstructionCandidates(): Promise<string[]> {
+  private async proposeInstructionCandidates(
+    options?: AxCompileOptions
+  ): Promise<string[]> {
     const instructions: string[] = []
-    const aiToUse = this.teacherAI || this.studentAI
+    const aiToUse = this.getTeacherOrStudentAI(options)
 
     // Generate random tips for tip-aware proposing
     const tips = this.tipAwareProposer ? this.generateTips() : []
@@ -311,7 +257,8 @@ export class AxMiPRO<
     labeledExamples: readonly AxExample[],
     instructions: readonly string[],
     valset: readonly AxExample[],
-    metricFn: AxMetricFn
+    metricFn: AxMetricFn,
+    options?: AxCompileOptions
   ): Promise<{ bestConfig: ConfigType; bestScore: number }> {
     let bestConfig: ConfigType = {
       instruction: instructions[0] || '',
@@ -322,8 +269,31 @@ export class AxMiPRO<
     let stagnationRounds = 0
     const scoreHistory: number[] = []
 
-    // Optimization loop with early stopping
-    for (let i = 0; i < this.numTrials; i++) {
+    // Check for checkpoint resume
+    let startRound = 0
+    if (this.resumeFromCheckpoint) {
+      const checkpoint = await this.loadCheckpoint(
+        this.resumeFromCheckpoint,
+        options
+      )
+      if (checkpoint && checkpoint.optimizerType === 'MiPRO') {
+        if (this.verbose || options?.verbose) {
+          console.log(
+            `Resuming from checkpoint at round ${checkpoint.currentRound}`
+          )
+        }
+
+        this.restoreFromCheckpoint(checkpoint)
+        startRound = checkpoint.currentRound
+        bestScore = checkpoint.bestScore
+        bestConfig = (checkpoint.bestConfiguration as ConfigType) || bestConfig
+        stagnationRounds =
+          checkpoint.stats.convergenceInfo?.stagnationRounds || 0
+      }
+    }
+
+    // Optimization loop with early stopping and checkpointing
+    for (let i = startRound; i < this.numTrials; i++) {
       const config: ConfigType = {
         instruction:
           instructions[i % instructions.length] || instructions[0] || '',
@@ -358,6 +328,24 @@ export class AxMiPRO<
         stagnationRounds++
       }
 
+      // Update optimization progress with checkpointing
+      await this.updateOptimizationProgress(
+        i + 1,
+        score,
+        config,
+        'MiPRO',
+        this.getConfiguration(),
+        bestScore,
+        bestConfig,
+        {
+          stagnationRounds,
+          bootstrappedDemos: bootstrappedDemos.length,
+          labeledExamples: labeledExamples.length,
+          instructions: instructions.length,
+        },
+        options
+      )
+
       // Progress callback
       if (this.onProgress) {
         this.onProgress({
@@ -389,35 +377,26 @@ export class AxMiPRO<
       )
 
       // Cost tracking check (handles token/time/cost budgets)
-      if (this.costTracker?.isLimitReached()) {
-        this.stats.earlyStopped = true
-        this.stats.earlyStopping = {
-          bestScoreRound: i + 1,
-          patienceExhausted: false,
-          reason: 'Cost limit reached',
-        }
+      if (this.checkCostLimits()) {
+        this.triggerEarlyStopping('Cost limit reached', i + 1)
         break
       }
 
       // Early stopping check
       if (stagnationRounds >= this.earlyStoppingTrials) {
-        this.stats.earlyStopped = true
-        this.stats.earlyStopping = {
-          bestScoreRound: i - stagnationRounds + 1,
-          patienceExhausted: true,
-          reason: `No improvement for ${this.earlyStoppingTrials} trials`,
-        }
+        this.triggerEarlyStopping(
+          `No improvement for ${this.earlyStoppingTrials} trials`,
+          i - stagnationRounds + 1
+        )
         break
       }
 
       // Target score check
-      if (this.targetScore && bestScore >= this.targetScore) {
-        this.stats.earlyStopped = true
-        this.stats.earlyStopping = {
-          bestScoreRound: i + 1,
-          patienceExhausted: false,
-          reason: `Target score ${this.targetScore} reached`,
-        }
+      if (this.checkTargetScore(bestScore)) {
+        this.triggerEarlyStopping(
+          `Target score ${this.targetScore} reached`,
+          i + 1
+        )
         break
       }
     }
@@ -507,19 +486,8 @@ export class AxMiPRO<
   ): Promise<AxMiPROResult<IN, OUT>> {
     const startTime = Date.now()
 
-    // Budget constraints are handled by costTracker if provided
-
     // Initialize random seed if provided
-    if (this.seed !== undefined) {
-      // Note: For full reproducibility, we'd need a proper PRNG
-      Math.random = (() => {
-        let seed = this.seed!
-        return () => {
-          seed = (seed * 9301 + 49297) % 233280
-          return seed / 233280
-        }
-      })()
-    }
+    this.setupRandomSeed()
 
     // Configure auto settings if provided (cast to access MiPRO-specific options)
     const miproOptions = options as AxMiPROCompileOptions
@@ -527,12 +495,11 @@ export class AxMiPRO<
       this.configureAuto(miproOptions.auto)
     }
 
-    // Use validation set from constructor args or options, with fallback to split
+    // Use validation set from parent class method
     const valset =
-      options?.overrideValidationSet ||
-      this.validationSet ||
-      miproOptions?.valset ||
-      this.examples.slice(0, Math.floor(this.examples.length * 0.2))
+      this.getValidationSet(options) ||
+      (miproOptions?.valset ??
+        this.examples.slice(0, Math.floor(this.examples.length * 0.2)))
 
     if (this.verbose || options?.verbose) {
       console.log(`Starting MIPROv2 optimization with ${this.numTrials} trials`)
@@ -569,10 +536,13 @@ export class AxMiPRO<
     }
 
     // Step 3: Generate instruction candidates
-    const instructions = await this.proposeInstructionCandidates()
+    const instructions = await this.proposeInstructionCandidates(options)
 
     if (this.verbose) {
       console.log(`Generated ${instructions.length} instruction candidates`)
+      if (this.hasTeacherAI(options)) {
+        console.log('Using teacher AI for instruction generation')
+      }
     }
 
     // Step 4: Run optimization to find the best configuration
@@ -582,7 +552,8 @@ export class AxMiPRO<
       labeledExamples,
       instructions,
       valset,
-      metricFn
+      metricFn,
+      options
     )
 
     if (this.verbose || options?.verbose) {
@@ -591,17 +562,11 @@ export class AxMiPRO<
     }
 
     // Check if target score was reached
-    if (this.targetScore && bestScore >= this.targetScore) {
-      this.stats.earlyStopped = true
-      this.stats.earlyStopping = {
-        bestScoreRound: this.numTrials,
-        patienceExhausted: false,
-        reason: `Target score ${this.targetScore} reached with score ${bestScore}`,
-      }
-
-      if (this.onEarlyStop) {
-        this.onEarlyStop(this.stats.earlyStopping.reason, this.stats)
-      }
+    if (this.checkTargetScore(bestScore)) {
+      this.triggerEarlyStopping(
+        `Target score ${this.targetScore} reached with score ${bestScore}`,
+        this.numTrials
+      )
     }
 
     // Create a new AxGen instance with the optimized configuration
@@ -626,10 +591,25 @@ export class AxMiPRO<
       labeledExamples
     )
 
-    // Update stats
-    this.stats.resourceUsage.totalTime = Date.now() - startTime
+    // Update stats using parent class method
+    this.updateResourceUsage(startTime)
     this.stats.convergenceInfo.converged = true
     this.stats.convergenceInfo.finalImprovement = bestScore
+
+    // Save final checkpoint
+    await this.saveFinalCheckpoint(
+      'MiPRO',
+      this.getConfiguration(),
+      bestScore,
+      bestConfig,
+      {
+        bootstrappedDemos: bootstrappedDemos.length,
+        labeledExamples: labeledExamples.length,
+        instructions: instructions.length,
+        optimizedGen: !!optimizedGen,
+      },
+      options
+    )
 
     return {
       demos: bootstrappedDemos,
@@ -680,14 +660,6 @@ export class AxMiPRO<
   }
 
   /**
-   * Get optimization statistics
-   * @returns Current optimization statistics
-   */
-  public getStats(): AxOptimizationStats {
-    return this.stats
-  }
-
-  /**
    * Get optimizer-specific configuration
    * @returns Current optimizer configuration
    */
@@ -717,7 +689,7 @@ export class AxMiPRO<
    * Update optimizer configuration
    * @param config New configuration to merge with existing
    */
-  public updateConfiguration(config: Record<string, unknown>): void {
+  public updateConfiguration(config: Readonly<Record<string, unknown>>): void {
     if (config.numCandidates !== undefined) {
       this.numCandidates = config.numCandidates as number
     }
@@ -753,25 +725,11 @@ export class AxMiPRO<
   /**
    * Reset optimizer state for reuse with different programs
    */
-  public reset(): void {
-    this.stats = {
-      totalCalls: 0,
-      successfulDemos: 0,
-      estimatedTokenUsage: 0,
-      earlyStopped: false,
-      resourceUsage: {
-        totalTokens: 0,
-        totalTime: 0,
-        avgLatencyPerEval: 0,
-        costByModel: {},
-      },
-      convergenceInfo: {
-        converged: false,
-        finalImprovement: 0,
-        stagnationRounds: 0,
-        convergenceThreshold: this.minImprovementThreshold,
-      },
-    }
+  public override reset(): void {
+    super.reset()
+    // Update convergence threshold after reset
+    this.stats.convergenceInfo.convergenceThreshold =
+      this.minImprovementThreshold
   }
 
   /**
@@ -779,46 +737,44 @@ export class AxMiPRO<
    * @param program Program to validate
    * @returns Validation result with any issues found
    */
-  public validateProgram(program: Readonly<AxProgram<IN, OUT>>): {
+  public override validateProgram(program: Readonly<AxProgram<IN, OUT>>): {
     isValid: boolean
     issues: string[]
     suggestions: string[]
   } {
-    const issues: string[] = []
-    const suggestions: string[] = []
+    // Start with base validation
+    const result = super.validateProgram(program)
 
-    // Check if program has required methods for optimization
-    if (!('forward' in program) || typeof program.forward !== 'function') {
-      issues.push('Program must have a forward method')
-    }
-
-    // Check if we have enough examples
+    // Add MiPRO-specific validation
     if (
       this.examples.length <
       this.maxBootstrappedDemos + this.maxLabeledDemos
     ) {
-      issues.push(
+      result.issues.push(
         `Not enough examples: need at least ${
           this.maxBootstrappedDemos + this.maxLabeledDemos
         }, got ${this.examples.length}`
       )
-      suggestions.push(
+      result.suggestions.push(
         'Reduce maxBootstrappedDemos or maxLabeledDemos, or provide more examples'
       )
     }
 
-    // Check if validation set is reasonable
-    const valSetSize =
-      this.validationSet?.length || Math.floor(this.examples.length * 0.2)
+    // Check if validation set is reasonable for MiPRO
+    const valSetSize = this.getValidationSet().length
     if (valSetSize < 5) {
-      issues.push('Validation set too small for reliable optimization')
-      suggestions.push('Provide more examples or a larger validation set')
+      result.issues.push(
+        'Validation set too small for reliable MiPRO optimization'
+      )
+      result.suggestions.push(
+        'Provide more examples or a larger validation set'
+      )
     }
 
     return {
-      isValid: issues.length === 0,
-      issues,
-      suggestions,
+      isValid: result.issues.length === 0,
+      issues: result.issues,
+      suggestions: result.suggestions,
     }
   }
 }

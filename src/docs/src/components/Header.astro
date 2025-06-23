@@ -3,24 +3,21 @@
 ---
 
 <!-- Header Section inspired by Humming design -->
-<header style="padding: 80px 0 120px 0;">
-  <div style="margin-bottom: 32px;">
-    <div
-      style="font-size: 14px; font-weight: 500; color: #6c757d; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.1em;"
-    >
+<header class="pt-20 pb-30">
+  <div class="mb-8">
+    <div class="text-sm font-medium text-gray-500 mb-4 uppercase tracking-wider">
       Documentation
     </div>
   </div>
 
-  <div style="max-width: 800px;">
-    <h1
-      style="font-size: 56px; font-weight: 700; line-height: 1.1; color: #000000; margin: 0 0 24px 0; letter-spacing: -0.02em;"
-    >
+  <div class="max-w-4xl pb-6 relative">
+    <!-- Gradient border using pseudo-element -->
+    <div class="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-500 via-purple-500 to-cyan-500"></div>
+    
+    <h1 class="text-6xl font-bold leading-tight text-black mb-6 tracking-tight">
       Build LLM-powered agents<br />with production-ready TypeScript
     </h1>
-    <p
-      style="font-size: 20px; line-height: 1.6; color: #4a4a4a; margin: 0; max-width: 600px;"
-    >
+    <p class="text-xl leading-relaxed text-gray-700 max-w-2xl">
       <b>DSPy for TypeScript.</b> Working with LLMs is complex they don't always
       do what you want. DSPy makes it easier to build amazing things with LLMs. Just
       define your inputs and outputs (signature) and an efficient prompt is auto-generated
@@ -29,70 +26,31 @@
     </p>
 
     <!-- Mobile Badges Section -->
-    <div
-      class="mobile-badges-section"
-      style="display: none; margin: 32px 0 0 0; gap: 16px; flex-direction: column; max-width: 600px;"
-    >
+    <div class="mobile-badges-section hidden mt-8 gap-4 flex-col max-w-2xl">
       <a
         href="https://www.npmjs.com/package/@ax-llm/ax"
         target="_blank"
         rel="noopener noreferrer"
-        style="display: flex; align-items: center;"
+        class="flex items-center"
       >
         <img
           src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green"
           alt="NPM Package"
-          style="height: 32px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+          class="h-8 rounded max-w-full object-contain"
         />
       </a>
       <a
         href="https://twitter.com/dosco"
         target="_blank"
         rel="noopener noreferrer"
-        style="display: flex; align-items: center;"
+        class="flex items-center"
       >
         <img
           src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red"
           alt="Twitter"
-          style="height: 32px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+          class="h-8 rounded max-w-full object-contain"
         />
       </a>
     </div>
   </div>
 </header>
-
-<style>
-  @media (max-width: 768px) {
-    header {
-      padding: 48px 0 80px 0 !important;
-    }
-
-    header h1 {
-      font-size: 40px !important;
-      margin-bottom: 16px !important;
-    }
-
-    header p {
-      font-size: 18px !important;
-    }
-
-    /* Show mobile badges only on mobile */
-    .mobile-badges-section {
-      display: flex !important;
-    }
-  }
-
-  @media (max-width: 480px) {
-    header {
-      padding: 32px 0 60px 0 !important;
-    }
-
-    header h1 {
-      font-size: 32px !important;
-    }
-
-    header p {
-      font-size: 16px !important;
-    }
-  }
-</style>

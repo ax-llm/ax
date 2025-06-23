@@ -240,6 +240,7 @@ export * from './prompts/index.js'
 - **Runtime**: ES Modules only
 - **Core Dependencies**: Minimal, zero-dependencies philosophy
 - **Peer Dependencies**: Handle LLM SDKs as peer deps where possible
+- **Browser Compatibility**: **CRITICAL** - Do not add filesystem calls (`fs`, `path`, `os`) or other Node.js-specific APIs to the main library (`src/ax/`). The library must run in browser environments. Use only web-standard APIs and platform-agnostic code. Node.js-specific functionality should be in examples or separate utility packages.
 
 ## Testing Guidelines
 - Write tests in `.test.ts` files

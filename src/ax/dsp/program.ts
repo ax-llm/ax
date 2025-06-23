@@ -162,7 +162,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.sigHash = this.signature?.hash()
     this.children = new AxInstanceRegistry()
-    this.key = { id: this.constructor.name }
+    this.key = { id: this.signature.hash() }
   }
 
   public getSignature() {
@@ -294,6 +294,16 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
+    // Check if this program has children and if its programId is not found in demos
+    const hasChildren = Array.from(this.children).length > 0
+    const hasMatchingDemo = demos.some((demo) => demo.programId === this.key.id)
+
+    if (hasChildren && !hasMatchingDemo) {
+      throw new Error(
+        `Program with id '${this.key.id}' has children but no matching programId found in demos`
+      )
+    }
+
     // biome-ignore lint/complexity/useFlatMap: it can't
     this.demos = demos
       .filter((v) => v.programId === this.key.id)
@@ -412,6 +422,16 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
+    // Check if this program has children and if its programId is not found in demos
+    const hasChildren = Array.from(this.children).length > 0
+    const hasMatchingDemo = demos.some((demo) => demo.programId === this.key.id)
+
+    if (hasChildren && !hasMatchingDemo) {
+      throw new Error(
+        `Program with id '${this.key.id}' has children but no matching programId found in demos`
+      )
+    }
+
     for (const child of Array.from(this.children)) {
       child?.setDemos(demos)
     }

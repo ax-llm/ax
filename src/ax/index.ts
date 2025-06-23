@@ -315,6 +315,30 @@ import {
   type AxBaseAIArgs
 } from './ai/base.js';
 import {
+  AxBaseOptimizer,
+  AxDefaultCostTracker,
+  type AxCheckpointLoadFn,
+  type AxCheckpointSaveFn,
+  type AxOptimizationCheckpoint,
+  type AxBootstrapCompileOptions,
+  type AxBootstrapOptimizerOptions,
+  type AxCompileOptions,
+  type AxCostTracker,
+  type AxCostTrackerOptions,
+  type AxExample,
+  type AxMetricFn,
+  type AxMetricFnArgs,
+  type AxMiPROCompileOptions,
+  type AxMiPROOptimizerOptions,
+  type AxMultiMetricFn,
+  type AxOptimizationProgress,
+  type AxOptimizationStats,
+  type AxOptimizer,
+  type AxOptimizerArgs,
+  type AxOptimizerResult,
+  type AxParetoResult
+} from './dsp/optimizer.js';
+import {
   AxDB,
   type AxDBArgs
 } from './db/wrap.js';
@@ -354,26 +378,6 @@ import {
   type AxDBWeaviateArgs,
   type AxDBWeaviateOpOptions
 } from './db/weaviate.js';
-import {
-  AxDefaultCostTracker,
-  type AxBootstrapCompileOptions,
-  type AxBootstrapOptimizerOptions,
-  type AxCompileOptions,
-  type AxCostTracker,
-  type AxCostTrackerOptions,
-  type AxExample,
-  type AxMetricFn,
-  type AxMetricFnArgs,
-  type AxMiPROCompileOptions,
-  type AxMiPROOptimizerOptions,
-  type AxMultiMetricFn,
-  type AxOptimizationProgress,
-  type AxOptimizationStats,
-  type AxOptimizer,
-  type AxOptimizerArgs,
-  type AxOptimizerResult,
-  type AxParetoResult
-} from './dsp/optimizer.js';
 import {
   AxDefaultQueryRewriter,
   AxRewriter
@@ -601,6 +605,7 @@ export { AxApacheTika };
 export { AxAssertionError };
 export { AxBalancer };
 export { AxBaseAI };
+export { AxBaseOptimizer };
 export { AxBootstrapFewShot };
 export { AxChainOfThought };
 export { AxDB };
@@ -612,6 +617,7 @@ export { AxDBPinecone };
 export { AxDBWeaviate };
 export { AxDefaultCostTracker };
 export { AxDefaultQueryRewriter };
+
 export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
@@ -884,6 +890,8 @@ export type { AxChatRequest };
 export type { AxChatResponse };
 export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
+export type { AxCheckpointLoadFn };
+export type { AxCheckpointSaveFn };
 export type { AxCompileOptions };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };
@@ -950,6 +958,7 @@ export type { AxModelInfo };
 export type { AxModelInfoWithProvider };
 export type { AxModelUsage };
 export type { AxMultiMetricFn };
+export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
 export type { AxOptimizer };
