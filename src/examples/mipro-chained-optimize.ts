@@ -157,9 +157,7 @@ const checkpointLoad: AxCheckpointLoadFn = async (id) => {
 console.log(
   '1. Optimizing summarizer with teacher-student AI setup and checkpointing...'
 )
-console.log('   Teacher AI: GPT-4O (for instruction generation)')
-console.log('   Student AI: GPT-4O-Mini (for optimization)')
-console.log('   Checkpoints will be saved in memory (for demo purposes)')
+
 
 // Create the LLM judge-based metric function
 const summaryMetric = createSummaryMetric(studentAI)
@@ -333,13 +331,6 @@ if (checkpointList.length > 0) {
 } else {
   console.log('   No checkpoints found')
 }
-
-console.log('\n💰 Cost Optimization Summary:')
-console.log('   Teacher AI (GPT-4O): High-quality instruction generation')
-console.log('   Student AI (GPT-4O-Mini): Cost-effective optimization')
-console.log('   Inference AI (GPT-3.5-Turbo): Production deployment')
-console.log('   Runtime override: Premium teacher for critical optimizations')
-console.log('   Checkpointing: Automatic state saving for fault tolerance')
 
 console.log(
   '✅ Saved optimizations to summary-demos.json, sentiment-demos.json, and enhanced-demos.json'

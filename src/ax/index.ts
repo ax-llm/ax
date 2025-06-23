@@ -317,11 +317,10 @@ import {
 import {
   AxBaseOptimizer,
   AxDefaultCostTracker,
-  type AxCheckpointLoadFn,
-  type AxCheckpointSaveFn,
-  type AxOptimizationCheckpoint,
   type AxBootstrapCompileOptions,
   type AxBootstrapOptimizerOptions,
+  type AxCheckpointLoadFn,
+  type AxCheckpointSaveFn,
   type AxCompileOptions,
   type AxCostTracker,
   type AxCostTrackerOptions,
@@ -331,6 +330,7 @@ import {
   type AxMiPROCompileOptions,
   type AxMiPROOptimizerOptions,
   type AxMultiMetricFn,
+  type AxOptimizationCheckpoint,
   type AxOptimizationProgress,
   type AxOptimizationStats,
   type AxOptimizer,
@@ -476,6 +476,12 @@ import {
   type AxSignatureTemplateValue
 } from './dsp/template.js';
 import {
+  axCreateDefaultLogger,
+  axCreateDefaultTextLogger,
+  axCreateOptimizerLogger,
+  axDefaultOptimizerLogger
+} from './dsp/loggers.js';
+import {
   type AxAIInputModelList,
   type AxAIModelList,
   type AxAIModelListBase,
@@ -617,7 +623,6 @@ export { AxDBPinecone };
 export { AxDBWeaviate };
 export { AxDefaultCostTracker };
 export { AxDefaultQueryRewriter };
-
 export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
@@ -686,6 +691,10 @@ export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
+export { axCreateDefaultLogger };
+export { axCreateDefaultTextLogger };
+export { axCreateOptimizerLogger };
+export { axDefaultOptimizerLogger };
 export { axGlobals };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };

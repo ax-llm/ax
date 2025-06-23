@@ -1,7 +1,10 @@
-import type { AxAIService } from '../ai/types.js'
+import type { AxAIService, AxLoggerFunction } from '../ai/types.js'
 
+import { axDefaultOptimizerLogger } from './loggers.js'
 import type { AxProgram, AxProgramDemos } from './program.js'
 import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
+
+// Logger utilities are now exported from ./loggers.js
 
 // Common types used by optimizers
 export type AxExample = Record<string, AxFieldValue>
@@ -114,6 +117,10 @@ export type AxOptimizerArgs = {
   checkpointLoad?: AxCheckpointLoadFn
   checkpointInterval?: number // Save checkpoint every N rounds
   resumeFromCheckpoint?: string // Checkpoint ID to resume from
+
+  // Logging
+  logger?: AxLoggerFunction
+  verbose?: boolean
 
   // Reproducibility
   seed?: number
@@ -462,6 +469,10 @@ export abstract class AxBaseOptimizer<
   protected readonly checkpointInterval?: number
   protected readonly resumeFromCheckpoint?: string
 
+  // Logging fields
+  protected readonly logger?: AxLoggerFunction
+  protected readonly verbose?: boolean
+
   // Checkpoint state
   private currentRound: number = 0
   private scoreHistory: number[] = []
@@ -491,6 +502,10 @@ export abstract class AxBaseOptimizer<
     this.checkpointLoad = args.checkpointLoad
     this.checkpointInterval = args.checkpointInterval ?? 10 // Default: checkpoint every 10 rounds
     this.resumeFromCheckpoint = args.resumeFromCheckpoint
+
+    // Set up logging
+    this.logger = args.logger
+    this.verbose = args.verbose
 
     // Set up cost tracker with default if not provided
     const costTracker = new AxDefaultCostTracker({
@@ -737,8 +752,14 @@ export abstract class AxBaseOptimizer<
     const startTime = Date.now()
 
     if (options?.verbose) {
-      console.log('Starting Pareto optimization using base implementation')
-      console.log('This will run multiple single-objective optimizations')
+      this.getLogger(options)?.(
+        'Starting Pareto optimization using base implementation',
+        { tags: ['discovery'] }
+      )
+      this.getLogger(options)?.(
+        'This will run multiple single-objective optimizations',
+        { tags: ['discovery'] }
+      )
     }
 
     // Strategy 1: Generate different weighted combinations of objectives
@@ -759,7 +780,10 @@ export abstract class AxBaseOptimizer<
     const allSolutions = [...solutions, ...constraintSolutions]
 
     if (options?.verbose) {
-      console.log(`Generated ${allSolutions.length} candidate solutions`)
+      this.getLogger(options)?.(
+        `Generated ${allSolutions.length} candidate solutions`,
+        { tags: ['discovery'] }
+      )
     }
 
     // Find Pareto frontier
@@ -769,8 +793,14 @@ export abstract class AxBaseOptimizer<
     const hypervolume = this.calculateHypervolume(paretoFront)
 
     if (options?.verbose) {
-      console.log(`Found ${paretoFront.length} non-dominated solutions`)
-      console.log(`Hypervolume: ${hypervolume?.toFixed(4) || 'N/A'}`)
+      this.getLogger(options)?.(
+        `Found ${paretoFront.length} non-dominated solutions`,
+        { tags: ['discovery'] }
+      )
+      this.getLogger(options)?.(
+        `Hypervolume: ${hypervolume?.toFixed(4) || 'N/A'}`,
+        { tags: ['discovery'] }
+      )
     }
 
     // Update stats
@@ -834,7 +864,10 @@ export abstract class AxBaseOptimizer<
     const objectives = Object.keys(sampleScores)
 
     if (options?.verbose) {
-      console.log(`Detected objectives: ${objectives.join(', ')}`)
+      this.getLogger(options)?.(
+        `Detected objectives: ${objectives.join(', ')}`,
+        { tags: ['discovery'] }
+      )
     }
 
     // Generate different weight combinations
@@ -844,7 +877,10 @@ export abstract class AxBaseOptimizer<
       const weights = weightCombinations[i]!
 
       if (options?.verbose) {
-        console.log(`Optimizing with weights: ${JSON.stringify(weights)}`)
+        this.getLogger(options)?.(
+          `Optimizing with weights: ${JSON.stringify(weights)}`,
+          { tags: ['discovery'] }
+        )
       }
 
       // Create a weighted single-objective metric
@@ -882,9 +918,9 @@ export abstract class AxBaseOptimizer<
         })
       } catch (error) {
         if (options?.verbose) {
-          console.warn(
-            `Failed optimization with weights ${JSON.stringify(weights)}:`,
-            error
+          this.getLogger(options)?.(
+            `Failed optimization with weights ${JSON.stringify(weights)}: ${error}`,
+            { tags: ['warning'] }
           )
         }
         continue
@@ -929,8 +965,9 @@ export abstract class AxBaseOptimizer<
     // For each objective, optimize it while constraining others
     for (const primaryObjective of objectives) {
       if (options?.verbose) {
-        console.log(
-          `Optimizing ${primaryObjective} with constraints on other objectives`
+        this.getLogger(options)?.(
+          `Optimizing ${primaryObjective} with constraints on other objectives`,
+          { tags: ['discovery'] }
         )
       }
 
@@ -979,9 +1016,9 @@ export abstract class AxBaseOptimizer<
         })
       } catch (error) {
         if (options?.verbose) {
-          console.warn(
-            `Failed constraint optimization for ${primaryObjective}:`,
-            error
+          this.getLogger(options)?.(
+            `Failed constraint optimization for ${primaryObjective}: ${error}`,
+            { tags: ['warning'] }
           )
         }
         continue
@@ -1347,5 +1384,53 @@ export abstract class AxBaseOptimizer<
         options
       )
     }
+  }
+
+  /**
+   * Get the logger function with fallback hierarchy:
+   * 1. Explicit logger passed to optimizer
+   * 2. Logger from student AI service
+   * 3. Default optimizer logger
+   * 4. undefined if verbose is false
+   */
+  protected getLogger(
+    options?: AxCompileOptions
+  ): AxLoggerFunction | undefined {
+    // Check if logging should be disabled
+    const isVerbose = this.isLoggingEnabled(options)
+    if (!isVerbose) {
+      return undefined
+    }
+
+    // Use explicit logger if provided
+    if (this.logger) {
+      return this.logger
+    }
+
+    // Try to get logger from AI service
+    try {
+      const aiLogger = this.studentAI.getLogger()
+      if (aiLogger) {
+        return aiLogger
+      }
+    } catch {
+      // AI service might not be available or might not have a logger
+    }
+
+    // Fall back to default optimizer logger
+    return axDefaultOptimizerLogger
+  }
+
+  /**
+   * Check if logging is enabled based on verbose settings
+   */
+  protected isLoggingEnabled(options?: AxCompileOptions): boolean {
+    // Explicit verbose setting in options takes precedence
+    if (options?.verbose !== undefined) {
+      return options.verbose
+    }
+
+    // Use optimizer's verbose setting
+    return this.verbose ?? true // Default to true if not specified
   }
 }

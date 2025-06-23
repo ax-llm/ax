@@ -198,6 +198,26 @@ const signature = `emailText -> categoryType:class "urgent, normal, low", action
 
 ### Code Conventions
 
+#### Naming Conventions
+**CRITICAL**: All exported functions and utilities must be prefixed with `ax` to ensure they are properly exported from the package:
+
+```typescript
+// ✅ CORRECT: Functions prefixed with 'ax' will be exported
+export const axCreateLogger = () => { ... }
+export const axDefaultLogger = axCreateLogger()
+export const axParseData = (data: string) => { ... }
+
+// ❌ INCORRECT: Functions without 'ax' prefix will NOT be exported outside the package
+export const createLogger = () => { ... } // Will not be available to users
+export const defaultLogger = createLogger() // Will not be available to users
+export const parseData = (data: string) => { ... } // Will not be available to users
+```
+
+**Classes and Types**: Follow existing patterns:
+- Classes: `AxClassName` (e.g., `AxAI`, `AxChainOfThought`)
+- Types/Interfaces: `AxTypeName` (e.g., `AxLoggerFunction`, `AxOptimizerArgs`)
+- Functions/Utilities: `axFunctionName` (e.g., `axCreateOptimizerLogger`, `axDefaultOptimizerLogger`)
+
 #### Import/Export Patterns
 ```typescript
 // Prefer named exports

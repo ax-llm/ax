@@ -254,6 +254,14 @@ export type AxLoggerTag =
   | 'assistantContent'
   | 'assistantEnd'
   | 'discovery'
+  | 'optimizer'
+  | 'start'
+  | 'config'
+  | 'phase'
+  | 'progress'
+  | 'result'
+  | 'complete'
+  | 'checkpoint'
 
 export type AxLoggerFunction = (
   message: string,

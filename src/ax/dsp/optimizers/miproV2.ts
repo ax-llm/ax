@@ -46,7 +46,6 @@ export class AxMiPRO<
   private viewDataBatchSize: number
   private tipAwareProposer: boolean
   private fewshotAwareProposer: boolean
-  private verbose: boolean
   private earlyStoppingTrials: number
   private minImprovementThreshold: number
   private bayesianOptimization: boolean
@@ -78,7 +77,6 @@ export class AxMiPRO<
     this.viewDataBatchSize = options.viewDataBatchSize ?? 10
     this.tipAwareProposer = options.tipAwareProposer ?? true
     this.fewshotAwareProposer = options.fewshotAwareProposer ?? true
-    this.verbose = options.verbose ?? false
     this.earlyStoppingTrials = options.earlyStoppingTrials ?? 5
     this.minImprovementThreshold = options.minImprovementThreshold ?? 0.01
     this.bayesianOptimization = options.bayesianOptimization ?? false
@@ -201,8 +199,10 @@ export class AxMiPRO<
     program: Readonly<AxProgram<IN, OUT>>,
     metricFn: AxMetricFn
   ): Promise<AxProgramDemos<IN, OUT>[]> {
-    if (this.verbose) {
-      console.log('Bootstrapping few-shot examples...')
+    if (this.isLoggingEnabled()) {
+      this.getLogger()?.('Bootstrapping few-shot examples...', {
+        tags: ['optimizer', 'phase'],
+      })
     }
 
     // Initialize the bootstrapper for this program
@@ -212,7 +212,7 @@ export class AxMiPRO<
       options: {
         maxDemos: this.maxBootstrappedDemos,
         maxRounds: 3,
-        verboseMode: this.verbose,
+        verboseMode: this.isLoggingEnabled(),
       },
     })
 
@@ -277,9 +277,10 @@ export class AxMiPRO<
         options
       )
       if (checkpoint && checkpoint.optimizerType === 'MiPRO') {
-        if (this.verbose || options?.verbose) {
-          console.log(
-            `Resuming from checkpoint at round ${checkpoint.currentRound}`
+        if (this.isLoggingEnabled(options)) {
+          this.getLogger(options)?.(
+            `Resuming from checkpoint at round ${checkpoint.currentRound}`,
+            { tags: ['optimizer', 'checkpoint'] }
           )
         }
 
@@ -293,6 +294,13 @@ export class AxMiPRO<
     }
 
     // Optimization loop with early stopping and checkpointing
+    if (this.isLoggingEnabled(options)) {
+      this.getLogger(options)?.(
+        `Running optimization trials (${this.numTrials} total)`,
+        { tags: ['optimizer', 'phase'] }
+      )
+    }
+
     for (let i = startRound; i < this.numTrials; i++) {
       const config: ConfigType = {
         instruction:
@@ -324,6 +332,13 @@ export class AxMiPRO<
         bestScore = score
         bestConfig = config
         stagnationRounds = 0
+        
+        if (this.isLoggingEnabled(options)) {
+          this.getLogger(options)?.(
+            `Trial ${i + 1}/${this.numTrials}: New best score ${bestScore.toFixed(3)}`,
+            { tags: ['optimizer', 'progress'] }
+          )
+        }
       } else {
         stagnationRounds++
       }
@@ -501,13 +516,20 @@ export class AxMiPRO<
       (miproOptions?.valset ??
         this.examples.slice(0, Math.floor(this.examples.length * 0.2)))
 
-    if (this.verbose || options?.verbose) {
-      console.log(`Starting MIPROv2 optimization with ${this.numTrials} trials`)
-      console.log(
-        `Using ${this.examples.length} examples for training and ${valset.length} for validation`
+    if (this.isLoggingEnabled(options)) {
+      this.getLogger(options)?.(
+        `Starting MIPROv2 optimization with ${this.numTrials} trials`,
+        { tags: ['optimizer', 'start'] }
+      )
+      this.getLogger(options)?.(
+        `Using ${this.examples.length} examples for training and ${valset.length} for validation`,
+        { tags: ['optimizer', 'config'] }
       )
       if (this.teacherAI) {
-        console.log('Using separate teacher model for instruction generation')
+        this.getLogger(options)?.(
+          'Using separate teacher model for instruction generation',
+          { tags: ['optimizer', 'config'] }
+        )
       }
     }
 
@@ -516,9 +538,10 @@ export class AxMiPRO<
     if (this.maxBootstrappedDemos > 0) {
       bootstrappedDemos = await this.bootstrapFewShotExamples(program, metricFn)
 
-      if (this.verbose) {
-        console.log(
-          `Generated ${bootstrappedDemos.length} bootstrapped demonstrations`
+      if (this.isLoggingEnabled(options)) {
+        this.getLogger(options)?.(
+          `Generated ${bootstrappedDemos.length} bootstrapped demonstrations`,
+          { tags: ['optimizer', 'result'] }
         )
       }
     }
@@ -528,9 +551,10 @@ export class AxMiPRO<
     if (this.maxLabeledDemos > 0) {
       labeledExamples = this.selectLabeledExamples()
 
-      if (this.verbose) {
-        console.log(
-          `Selected ${labeledExamples.length} labeled examples from training set`
+      if (this.isLoggingEnabled(options)) {
+        this.getLogger(options)?.(
+          `Selected ${labeledExamples.length} labeled examples from training set`,
+          { tags: ['optimizer', 'result'] }
         )
       }
     }
@@ -538,10 +562,16 @@ export class AxMiPRO<
     // Step 3: Generate instruction candidates
     const instructions = await this.proposeInstructionCandidates(options)
 
-    if (this.verbose) {
-      console.log(`Generated ${instructions.length} instruction candidates`)
+    if (this.isLoggingEnabled(options)) {
+      this.getLogger(options)?.(
+        `Generated ${instructions.length} instruction candidates`,
+        { tags: ['optimizer', 'result'] }
+      )
       if (this.hasTeacherAI(options)) {
-        console.log('Using teacher AI for instruction generation')
+        this.getLogger(options)?.(
+          'Using teacher AI for instruction generation',
+          { tags: ['optimizer', 'config'] }
+        )
       }
     }
 
@@ -556,9 +586,15 @@ export class AxMiPRO<
       options
     )
 
-    if (this.verbose || options?.verbose) {
-      console.log(`Optimization complete. Best score: ${bestScore}`)
-      console.log(`Best configuration: ${JSON.stringify(bestConfig)}`)
+    if (this.isLoggingEnabled(options)) {
+      this.getLogger(options)?.(
+        `Optimization complete. Best score: ${bestScore}`,
+        { tags: ['optimizer', 'complete'] }
+      )
+      this.getLogger(options)?.(
+        `Best configuration: ${JSON.stringify(bestConfig)}`,
+        { tags: ['optimizer', 'result'] }
+      )
     }
 
     // Check if target score was reached
@@ -717,9 +753,7 @@ export class AxMiPRO<
     if (config.minImprovementThreshold !== undefined) {
       this.minImprovementThreshold = config.minImprovementThreshold as number
     }
-    if (config.verbose !== undefined) {
-      this.verbose = config.verbose as boolean
-    }
+    // Note: verbose is now handled by the base class and cannot be updated here
   }
 
   /**

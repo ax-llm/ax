@@ -190,8 +190,9 @@ export class AxBootstrapFewShot<
         this.stats.earlyStopping.reason = `No improvement for ${this.earlyStoppingPatience} rounds`
 
         if (this.verboseMode || this.debugMode) {
-          console.log(
-            `\nEarly stopping triggered after ${roundIndex + 1} rounds. No improvement for ${this.earlyStoppingPatience} rounds.`
+          this.getLogger()?.(
+            `Early stopping after ${roundIndex + 1} rounds (no improvement for ${this.earlyStoppingPatience} rounds)`,
+            { tags: ['optimizer', 'warning'] }
           )
         }
 
@@ -210,6 +211,17 @@ export class AxBootstrapFewShot<
 
     // Reset stats using parent method
     this.reset()
+
+    if (this.verboseMode || this.debugMode) {
+      this.getLogger()?.(
+        `Starting BootstrapFewshot optimization with ${maxRounds} rounds`,
+        { tags: ['optimizer', 'start'] }
+      )
+      this.getLogger()?.(
+        `Using ${this.examples.length} examples, max ${this.maxDemos} demos`,
+        { tags: ['optimizer', 'config'] }
+      )
+    }
 
     for (let i = 0; i < maxRounds; i++) {
       await this.compileRound(program, i, metricFn, options)
@@ -234,6 +246,13 @@ export class AxBootstrapFewShot<
       // Simple approximation - in a real implementation you'd track scores properly
       bestScore =
         this.stats.successfulDemos / Math.max(1, this.stats.totalCalls)
+    }
+
+    if (this.verboseMode || this.debugMode) {
+      this.getLogger()?.(
+        `Bootstrap complete. Generated ${demos.length} demos with ${bestScore.toFixed(3)} success rate`,
+        { tags: ['optimizer', 'complete'] }
+      )
     }
 
     return {

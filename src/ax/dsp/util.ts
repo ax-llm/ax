@@ -20,11 +20,18 @@ export const updateProgressBar = (
   const emptyBarLength = progressBarWidth - filledBarLength
   const filledBar = colorLog.blueBright('█'.repeat(filledBarLength))
   const emptyBar = ' '.repeat(emptyBarLength)
-  const itemsPerSecond =
-    elapsedTime > 0 ? (current / elapsedTime).toFixed(2) : '0.00'
+  const successRate = total > 0 ? ((success / total) * 100).toFixed(1) : '0.0'
 
+  // More user-friendly message
+  const friendlyMsg = msg.includes('Running MIPROv2 optimization') 
+    ? 'Testing prompt variations' 
+    : msg.includes('Tuning Prompt')
+    ? 'Generating training examples'
+    : msg
+
+  // Use newline instead of carriage return to avoid overwriting structured logs
   process.stdout.write(
-    `\r${msg}: ${current} / ${total} (${colorLog.yellow(percentage)}%): 100%|${filledBar}${emptyBar}| Success: ${success}/${total} [${colorLog.red(elapsedTime.toFixed(2))}, ${itemsPerSecond}it/s]`
+    `│  ${friendlyMsg}: ${current}/${total} (${colorLog.yellow(percentage)}%) |${filledBar}${emptyBar}| Success rate: ${colorLog.greenBright(successRate)}%\n`
   )
 }
 
@@ -409,13 +416,13 @@ export const updateDetailedProgress = <T extends AxGenOut = AxGenOut>(
     elapsedTime > 0 ? ((current / elapsedTime) * 1000).toFixed(2) : '0.00'
   const eta = calculateETA(current, total, elapsedTime)
 
-  // Basic progress info (always shown)
-  let output = `Round ${roundIndex + 1}/${configInfo.maxRounds}: ${current}/${total} (${percentage}%) [${formattedTime}, ${itemsPerSecond} it/s, ETA: ${eta}]`
+  // Basic progress info (always shown) - more user-friendly
+  let output = `Training round ${roundIndex + 1}/${configInfo.maxRounds}: ${current}/${total} (${percentage}%) [${formattedTime}, ETA: ${eta}]`
 
-  // Add success stats
+  // Add success stats in a cleaner format
   const successRate =
     stats.totalCalls > 0 ? (stats.successfulDemos / stats.totalCalls) * 100 : 0
-  output += ` | Success: ${stats.successfulDemos}/${stats.totalCalls} (${successRate.toFixed(1)}%)`
+  output += ` | Success rate: ${successRate.toFixed(1)}% (${stats.successfulDemos}/${stats.totalCalls})`
 
   // Additional info for verbose mode
   if (configInfo.verboseMode || configInfo.debugMode) {

@@ -7,6 +7,7 @@ import {
   type AxMetricFn,
   AxMiPRO,
   type AxMiPROCompileOptions,
+  axCreateOptimizerLogger,
   f,
 } from '@ax-llm/ax'
 
@@ -104,9 +105,13 @@ console.log('Task: Analyze scenarios for logical flaws and misleading claims')
 console.log('Teacher Model: GPT-4o-mini (high reasoning capability)')
 console.log('Examples:', complexReasoningExamples.length)
 
+// Create enhanced logger for better output
+const enhancedLogger = axCreateOptimizerLogger()
+
 const optimizer = new AxMiPRO({
   studentAI: teacherAI,
   examples: complexReasoningExamples,
+  logger: enhancedLogger, // Use enhanced logger explicitly
   options: {
     numCandidates: 3,
     numTrials: 8,
