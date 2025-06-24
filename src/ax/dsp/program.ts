@@ -83,6 +83,9 @@ export type AxProgramForwardOptions = {
   asserts?: AxAssertion[]
   streamingAsserts?: AxStreamingAssertion[]
   excludeContentFromTrace?: boolean
+
+  // Field prefix is required for single output field programs
+  strictMode?: boolean
 }
 
 export type AxProgramStreamingForwardOptions = Omit<

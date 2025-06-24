@@ -597,3 +597,165 @@ describe('AxGen Signature Validation', () => {
     expect(() => new AxGen('userInput:string')).toThrow()
   })
 })
+
+describe('AxGen DSPy field prefix format', () => {
+  it('should extract content without field prefix for userInput -> agentOutput signature', async () => {
+    const signature = 'userInput -> agentOutput'
+
+    // Mock AI service to return a response without field prefix
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            content: 'This is the agent response to the user input',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: {
+            promptTokens: 10,
+            completionTokens: 20,
+            totalTokens: 30,
+          },
+        },
+      },
+    })
+
+    const gen = new AxGen<{ userInput: string }, { agentOutput: string }>(
+      signature
+    )
+
+    const response = await gen.forward(ai, {
+      userInput: 'Hello, how can you help me?',
+    })
+
+    expect(response).toEqual({
+      agentOutput: 'This is the agent response to the user input',
+    })
+  })
+
+  it('should handle streaming response and extract content without field prefix', async () => {
+    const signature = 'userInput -> agentOutput'
+
+    // Prepare a streaming response without field prefix
+    const chunks: AxChatResponse['results'] = [
+      { content: 'This is part 1 ' },
+      { content: 'of the agent response ' },
+      { content: 'to the user input', finishReason: 'stop' },
+    ]
+    const streamingResponse = createStreamingResponse(chunks)
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: true },
+      chatResponse: streamingResponse,
+    })
+
+    const gen = new AxGen<{ userInput: string }, { agentOutput: string }>(
+      signature
+    )
+
+    const response = await gen.forward(
+      ai,
+      { userInput: 'Hello, how can you help me?' },
+      { stream: true }
+    )
+
+    expect(response).toBeDefined()
+    expect(response.agentOutput).toBe(
+      'This is part 1 of the agent response to the user input'
+    )
+  })
+
+  it('should throw validation error with strictMode enabled when field prefix is missing', async () => {
+    const signature = 'userInput -> agentOutput'
+
+    // Mock AI service to return a response without field prefix
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            content: 'This is the agent response without field prefix',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: {
+            promptTokens: 10,
+            completionTokens: 20,
+            totalTokens: 30,
+          },
+        },
+      },
+    })
+
+    const gen = new AxGen<{ userInput: string }, { agentOutput: string }>(
+      signature
+    )
+
+    // With strictMode enabled, should throw validation error for missing field prefix
+    try {
+      await gen.forward(
+        ai,
+        { userInput: 'Hello, how can you help me?' },
+        { strictMode: true }
+      )
+      // If forward does not throw, fail the test
+      throw new Error('Test should have failed but did not.')
+    } catch (e) {
+      const error = e as Error
+      expect(error.message).toContain('Generate failed')
+      // Check if the original validation error is available as the cause
+      expect(error.cause).toBeInstanceOf(Error)
+      expect((error.cause as Error).message).toContain(
+        'Expected (Required) field not found'
+      )
+    }
+  })
+
+  it('should extract content with proper field prefix when strictMode is enabled', async () => {
+    const signature = 'userInput -> agentOutput'
+
+    // Mock AI service to return a response with proper field prefix
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            content:
+              'Agent Output: This is the agent response with proper field prefix',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: {
+            promptTokens: 10,
+            completionTokens: 20,
+            totalTokens: 30,
+          },
+        },
+      },
+    })
+
+    const gen = new AxGen<{ userInput: string }, { agentOutput: string }>(
+      signature
+    )
+
+    const response = await gen.forward(
+      ai,
+      { userInput: 'Hello, how can you help me?' },
+      { strictMode: true }
+    )
+
+    expect(response).toEqual({
+      agentOutput: 'This is the agent response with proper field prefix',
+    })
+  })
+})

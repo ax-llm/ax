@@ -238,6 +238,8 @@ export type AxLoggerTag =
   | 'functionName'
   | 'functionArg'
   | 'functionEnd'
+  | 'firstFunction'
+  | 'multipleFunctions'
   | 'responseStart'
   | 'responseContent'
   | 'responseEnd'

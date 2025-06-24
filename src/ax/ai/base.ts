@@ -952,6 +952,29 @@ function validateChatPrompt(
   // Validate chat prompt for empty content
   for (let i = 0; i < chatPrompt.length; i++) {
     const message = chatPrompt[i]
+
+    if (
+      message &&
+      'functionCalls' in message &&
+      Array.isArray(message.functionCalls) &&
+      message.functionCalls.length === 0
+    ) {
+      throw new Error(
+        `Chat prompt validation failed: Message at index ${i} has empty functionCalls`
+      )
+    }
+
+    if (
+      message &&
+      'content' in message &&
+      Array.isArray(message.content) &&
+      message.content.length === 0
+    ) {
+      throw new Error(
+        `Chat prompt validation failed: Message at index ${i} has empty content`
+      )
+    }
+
     if (
       message &&
       'content' in message &&

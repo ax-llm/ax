@@ -4,10 +4,10 @@ import {
   ax,
   AxAI,
   AxAIOpenAIModel,
+  axCreateOptimizerLogger,
   type AxMetricFn,
   AxMiPRO,
   type AxMiPROCompileOptions,
-  axCreateOptimizerLogger,
   f,
 } from '@ax-llm/ax'
 

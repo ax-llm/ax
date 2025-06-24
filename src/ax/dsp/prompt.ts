@@ -164,7 +164,7 @@ export class AxPromptTemplate {
     }
 
     if (Array.isArray(values)) {
-      let userMessages: Extract<
+      let messages: Extract<
         AxChatRequest['chatPrompt'][number],
         { role: 'user' } | { role: 'assistant' }
       >[] = []
@@ -191,7 +191,7 @@ export class AxPromptTemplate {
         }
 
         if (message.role === 'user') {
-          userMessages.push({ role: 'user', content })
+          messages.push({ role: 'user', content })
           continue
         }
 
@@ -205,9 +205,10 @@ export class AxPromptTemplate {
           )
         }
 
-        userMessages.push({ role: 'assistant', content })
+        messages.push({ role: 'assistant', content })
       }
-      return [systemPrompt, ...userMessages]
+
+      return [systemPrompt, ...messages]
     }
 
     // values is T (AxGenIn) - existing logic path

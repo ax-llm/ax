@@ -8,10 +8,11 @@ import { ValidationError } from './validate.js'
 export const extractValues = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
-  content: string
+  content: string,
+  strictMode: boolean = false
 ) => {
   const xstate = { extractedFields: [], streamedIndex: {}, s: -1 }
-  streamingExtractValues(sig, values, xstate, content)
+  streamingExtractValues(sig, values, xstate, content, strictMode)
   streamingExtractFinalValue(sig, values, xstate, content)
 
   // Filter out internal fields
@@ -36,13 +37,11 @@ export interface extractionState {
 const checkMissingRequiredFields = (
   xstate: Readonly<extractionState>,
   values: Record<string, unknown>,
-  currentIndex: number
+  outputFields: Readonly<AxField[]>
 ) => {
   const missingFields: AxField[] = []
 
-  // Check all fields up to the current index
-  for (let i = 0; i < currentIndex; i++) {
-    const field = xstate.extractedFields[i]
+  for (const field of outputFields) {
     if (field && !field.isOptional && values[field.name] === undefined) {
       missingFields.push(field)
     }
@@ -62,27 +61,46 @@ export const streamingExtractValues = (
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState,
   content: string,
-  streamingValidation: boolean = false
+  strictMode: boolean = false
 ) => {
   const fields = sig.getOutputFields()
+  let expectedField: AxField | undefined
 
   for (const [index, field] of fields.entries()) {
+    if (index === xstate.currFieldIndex) {
+      continue
+    }
+
     if (field.name in values) {
       continue
     }
 
     const isFirst = xstate.extractedFields.length === 0
     const prefix = (isFirst ? '' : '\n') + field.title + ':'
+
     let e = matchesContent(content, prefix, xstate.s)
+    let prefixLen = prefix.length
 
     switch (e) {
       case -1:
-        if (streamingValidation && values.length == 0 && !field.isOptional) {
+        // If there is only one field then we assume the content is streaming to the first field
+        if (
+          !strictMode &&
+          fields.length === 1 &&
+          xstate.currField === undefined
+        ) {
+          prefixLen = 0
+          e = 0
+          break
+        }
+        // if multiple fields, we need to validate the field name
+        if (xstate.currField === undefined && !field.isOptional) {
           throw new ValidationError({
-            message: 'Required field not found',
+            message: 'Expected (Required) field not found',
             fields: [field],
           })
         }
+        expectedField = field.isOptional ? undefined : field
         continue // Field is not found, continue to the next field
       case -2:
         return true // Partial match at end, skip and gather more content
@@ -92,9 +110,16 @@ export const streamingExtractValues = (
         xstate.inBlock = true
         return true // String is only backticks, skip and gather more content
     }
-    // We found the next field!!!
+    // We found a field!!!
 
-    let prefixLen = prefix.length
+    if (expectedField && expectedField.name !== field.name) {
+      throw new ValidationError({
+        message: 'Expected (Required) field not found',
+        fields: [expectedField],
+      })
+    }
+
+    // It's the expected next field
 
     // Lets wrap up the last field which is still the current field
     if (xstate.currField) {
@@ -109,8 +134,6 @@ export const streamingExtractValues = (
         xstate.prevFields = [{ field: xstate.currField, s: xstate.s, e }]
       }
     }
-
-    checkMissingRequiredFields(xstate, values, index)
 
     // Lets update the state for the new current field
 
@@ -143,10 +166,8 @@ export const streamingExtractFinalValue = (
       values[xstate.currField.name] = parsedValue
     }
   }
-  const sigFields = sig.getOutputFields()
-
   // Check all previous required fields before processing current field
-  checkMissingRequiredFields(xstate, values, sigFields.length)
+  checkMissingRequiredFields(xstate, values, sig.getOutputFields())
 }
 
 const convertValueToType = (

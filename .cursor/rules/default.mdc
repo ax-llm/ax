@@ -37,7 +37,7 @@ npm i lodash --workspace=@ax-llm/ax-examples
 
 ## Testing
 - **Test Framework**: Vitest (configured in root)
-- **Run Tests**: `npx vitest` or `npm run test`
+- **Run Tests**: `npx vitest` for example `npx vitest run src/ax/dsp/generate.test.ts`
 - **Run Tests for Specific Workspace**: `npm run test --workspace=@ax-llm/ax`
 - **Watch Mode**: `npx vitest --watch`
 - **Coverage**: `npx vitest --coverage`

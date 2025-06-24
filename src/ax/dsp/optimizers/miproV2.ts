@@ -332,7 +332,7 @@ export class AxMiPRO<
         bestScore = score
         bestConfig = config
         stagnationRounds = 0
-        
+
         if (this.isLoggingEnabled(options)) {
           this.getLogger(options)?.(
             `Trial ${i + 1}/${this.numTrials}: New best score ${bestScore.toFixed(3)}`,

@@ -158,7 +158,6 @@ console.log(
   '1. Optimizing summarizer with teacher-student AI setup and checkpointing...'
 )
 
-
 // Create the LLM judge-based metric function
 const summaryMetric = createSummaryMetric(studentAI)
 

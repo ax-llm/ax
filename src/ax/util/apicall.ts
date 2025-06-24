@@ -242,6 +242,21 @@ export class AxAIServiceAuthenticationError extends AxAIServiceError {
 }
 
 // Utility Functions
+async function safeReadResponseBody(response: Response): Promise<unknown> {
+  try {
+    if (response.headers.get('content-type')?.includes('application/json')) {
+      return await response.json()
+    }
+
+    // Clone the response so we can read it without consuming the original
+    const clonedResponse = response.clone()
+    return await clonedResponse.text()
+  } catch (e) {
+    // If we can't read the body, return a descriptive message
+    return `[ReadableStream - read failed: ${(e as Error).message}]`
+  }
+}
+
 function calculateRetryDelay(
   attempt: number,
   config: Readonly<RetryConfig>
@@ -380,9 +395,15 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
       // Handle authentication errors
       if (res.status === 401 || res.status === 403) {
-        throw new AxAIServiceAuthenticationError(apiUrl.href, json, res.body, {
-          metrics,
-        })
+        const responseBody = await safeReadResponseBody(res)
+        throw new AxAIServiceAuthenticationError(
+          apiUrl.href,
+          json,
+          responseBody,
+          {
+            metrics,
+          }
+        )
       }
 
       // Handle retryable status codes
@@ -408,12 +429,13 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       }
 
       if (res.status >= 400) {
+        const responseBody = await safeReadResponseBody(res)
         throw new AxAIServiceStatusError(
           res.status,
           res.statusText,
           apiUrl.href,
           json,
-          res.body,
+          responseBody,
           { metrics }
         )
       }
@@ -541,7 +563,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                     error,
                     apiUrl.href,
                     json,
-                    res.body,
+                    '[ReadableStream - consumed during streaming]',
                     {
                       streamMetrics,
                     }

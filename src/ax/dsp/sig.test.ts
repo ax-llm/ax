@@ -359,9 +359,9 @@ describe('extract values with signatures', () => {
   it('should not extract value with no prefix and single output', () => {
     const sig = new AxSignature(`userQuestion:string -> responseText:string`)
     const v1 = {}
-    extractValues(sig, v1, `"hello world"`)
+    extractValues(sig, v1, `hello world`)
 
-    expect(v1).toEqual({})
+    expect(v1).toEqual({ responseText: 'hello world' })
   })
 
   it('should extract and parse JSON values', () => {

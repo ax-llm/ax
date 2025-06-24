@@ -1,5 +1,4 @@
 import { axCreateDefaultLogger } from '../dsp/loggers.js'
-import { ColorLog } from '../util/log.js'
 
 import type {
   AxChatRequest,
@@ -7,7 +6,6 @@ import type {
   AxLoggerFunction,
   AxLoggerTag,
 } from './types.js'
-
 
 // Default logger instance
 const defaultLogger: AxLoggerFunction = axCreateDefaultLogger()
@@ -113,9 +111,14 @@ export const logResponseResult = (
   if (r.functionCalls && r.functionCalls.length > 0) {
     for (const [i, f] of r.functionCalls.entries()) {
       if (f.function.name) {
-        logger(`[${i + 1}] ${f.function.name}`, {
-          tags: ['functionName'],
-        })
+        const tags: AxLoggerTag[] = ['functionName']
+        if (i === 0) {
+          tags.push('firstFunction')
+        }
+        if (r.functionCalls.length > 1) {
+          tags.push('multipleFunctions')
+        }
+        logger(`[${i + 1}] ${f.function.name}`, { tags })
       }
       if (f.function.params) {
         const params =

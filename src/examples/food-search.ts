@@ -171,9 +171,9 @@ const ai = new AxAI({
 // })
 
 // const ai = new AxAI({
-//   name: 'anthropic',
-//   apiKey: process.env.ANTHROPIC_APIKEY as string,
-//   config: { stream: true },
+//     name: 'anthropic',
+//     apiKey: process.env.ANTHROPIC_APIKEY as string,
+//     config: { stream: true },
 // })
 
 ai.setOptions({ debug: true })

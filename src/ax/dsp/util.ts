@@ -23,11 +23,11 @@ export const updateProgressBar = (
   const successRate = total > 0 ? ((success / total) * 100).toFixed(1) : '0.0'
 
   // More user-friendly message
-  const friendlyMsg = msg.includes('Running MIPROv2 optimization') 
-    ? 'Testing prompt variations' 
+  const friendlyMsg = msg.includes('Running MIPROv2 optimization')
+    ? 'Testing prompt variations'
     : msg.includes('Tuning Prompt')
-    ? 'Generating training examples'
-    : msg
+      ? 'Generating training examples'
+      : msg
 
   // Use newline instead of carriage return to avoid overwriting structured logs
   process.stdout.write(
@@ -340,24 +340,23 @@ export function matchesContent(
     prefixCache.set(prefix, prefixes)
   }
 
-  // Get the content slice we'll check for partial matches
-  const contentEnd = content.slice(
-    Math.max(startIndex, content.length - prefix.length)
-  )
+  // Check for partial matches at the end (for streaming content)
+  // We want to find the longest partial prefix that the content ends with
+  let longestPartialMatch = -1
 
-  // Check for partial matches at the end, starting from shortest to longest
-  // Skip the full prefix as it was already checked
-  for (let i = 0; i < prefixes.length - 1; i++) {
-    const partialPrefix = prefixes[i]
-    if (partialPrefix === '\n' || partialPrefix === ':') {
-      continue
-    }
-    if (partialPrefix && contentEnd.endsWith(partialPrefix)) {
-      return -2
+  // Start from the longest prefix and work backwards to find the longest match
+  for (let i = prefixes.length - 1; i >= 0; i--) {
+    const partialPrefix = prefixes[i] as string
+
+    // Check if content ends with this partial prefix
+    if (content.endsWith(partialPrefix)) {
+      longestPartialMatch = i
+      break // Found the longest match, no need to continue
     }
   }
 
-  return -1
+  // Return -2 for partial match, -1 for no match
+  return longestPartialMatch >= 0 ? -2 : -1
 }
 
 export const formatTime = (ms: number): string => {
@@ -412,8 +411,6 @@ export const updateDetailedProgress = <T extends AxGenOut = AxGenOut>(
 
   const percentage = ((current / total) * 100).toFixed(1)
   const formattedTime = formatTime(elapsedTime)
-  const itemsPerSecond =
-    elapsedTime > 0 ? ((current / elapsedTime) * 1000).toFixed(2) : '0.00'
   const eta = calculateETA(current, total, elapsedTime)
 
   // Basic progress info (always shown) - more user-friendly

@@ -75,7 +75,7 @@ export interface AxResponseHandlerArgs<T> {
   sessionId?: string
   traceId?: string
   functions?: Readonly<AxFunction[]>
-  fastFail?: boolean
+  strictMode?: boolean
   span?: Span
 }
 
@@ -271,7 +271,7 @@ export class AxGen<
     traceContext?: Context
   }>) {
     const { sessionId, traceId, functions: _functions } = options ?? {}
-    const fastFail = options?.fastFail ?? this.options?.fastFail
+    const strictMode = options?.strictMode ?? false
     const model = options.model
 
     // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
@@ -296,7 +296,7 @@ export class AxGen<
         traceId,
         sessionId,
         functions,
-        fastFail,
+        strictMode,
         span,
       })
 
@@ -311,6 +311,7 @@ export class AxGen<
         sessionId,
         functions,
         span,
+        strictMode,
       })
     }
   }
@@ -323,11 +324,9 @@ export class AxGen<
     sessionId,
     traceId,
     functions,
-    fastFail,
+    strictMode,
     span,
   }: Readonly<AxResponseHandlerArgs<ReadableStream<AxChatResponse>>>) {
-    const streamingValidation =
-      fastFail ?? ai.getFeatures(model).functionCot !== true
     const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> = []
     this.values = {}
     const xstate: extractionState = {
@@ -385,7 +384,7 @@ export class AxGen<
           this.values,
           xstate,
           content,
-          streamingValidation
+          strictMode
         )
 
         if (skip) {
@@ -499,6 +498,7 @@ export class AxGen<
     traceId,
     functions,
     span,
+    strictMode,
   }: Readonly<AxResponseHandlerArgs<AxChatResponse>>): Promise<OUT> {
     this.values = {}
 
@@ -538,7 +538,7 @@ export class AxGen<
           this.values[this.thoughtFieldName] = result.thought
         }
 
-        extractValues(this.signature, this.values, result.content)
+        extractValues(this.signature, this.values, result.content, strictMode)
         await assertAssertions(this.asserts, this.values)
 
         if (this.fieldProcessors.length) {
@@ -782,7 +782,6 @@ export class AxGen<
       ...(options?.showThoughts ? { show_thoughts: options.showThoughts } : {}),
       ...(options?.maxSteps ? { max_steps: options.maxSteps } : {}),
       ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
-      ...(options?.fastFail ? { fast_fail: options.fastFail } : {}),
     }
 
     const traceLabel = options.traceLabel ?? this.options?.traceLabel

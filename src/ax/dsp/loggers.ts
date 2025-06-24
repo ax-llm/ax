@@ -1,7 +1,6 @@
 import type { AxLoggerFunction, AxLoggerTag } from '../ai/types.js'
 import { ColorLog } from '../util/log.js'
 
-
 const colorLog = new ColorLog()
 
 // Default output function that writes to stdout
@@ -23,15 +22,20 @@ export const axCreateDefaultLogger = (
     } else if (tags.includes('success') || tags.includes('responseContent')) {
       formattedMessage = colorLog.greenBright(formattedMessage)
     } else if (tags.includes('functionName')) {
-      formattedMessage = colorLog.whiteBright(formattedMessage)
+      if (tags.includes('firstFunction')) {
+        formattedMessage = `\n${colorLog.whiteBright(formattedMessage)}`
+      } else {
+        formattedMessage = `${colorLog.whiteBright(formattedMessage)}`
+      }
     } else if (
-      tags.includes('functionArg') ||
       tags.includes('systemContent') ||
       tags.includes('assistantContent')
     ) {
       formattedMessage = colorLog.blueBright(formattedMessage)
     } else if (tags.includes('warning') || tags.includes('discovery')) {
       formattedMessage = colorLog.yellow(formattedMessage)
+    } else if (tags.includes('functionArg')) {
+      formattedMessage = ''
     }
 
     // Apply semantic spacing
@@ -52,7 +56,7 @@ export const axCreateDefaultLogger = (
     } else if (tags.includes('error')) {
       formattedMessage = `\n${formattedMessage}\n`
     } else if (tags.includes('functionEnd')) {
-      formattedMessage = `${formattedMessage}\n`
+      formattedMessage = `\n`
     }
 
     output(formattedMessage)
@@ -100,7 +104,7 @@ export const axCreateOptimizerLogger = (
   output: (message: string) => void = (msg) => process.stdout.write(msg)
 ): AxLoggerFunction => {
   const baseLogger = axCreateDefaultLogger(output)
-  
+
   // Track state for better visual flow
   let isFirstPhase = true
 
@@ -111,10 +115,13 @@ export const axCreateOptimizerLogger = (
     // Use tags for semantic formatting instead of string pattern matching
     if (tags.includes('optimizer')) {
       if (tags.includes('start')) {
-        const trialsMatch = message.match(/with (\d+) trials?/) || message.match(/(\d+) trials?/)
-        const optimizerMatch = message.match(/(MIPROv2|BootstrapFewshot|[A-Z][a-zA-Z]+)/)
+        const trialsMatch =
+          message.match(/with (\d+) trials?/) || message.match(/(\d+) trials?/)
+        const optimizerMatch = message.match(
+          /(MIPROv2|BootstrapFewshot|[A-Z][a-zA-Z]+)/
+        )
         const optimizerName = optimizerMatch ? optimizerMatch[1] : 'Optimizer'
-        
+
         if (trialsMatch && trialsMatch[1]) {
           formattedMessage = `\n┌─ ${optimizerName} optimization (${trialsMatch[1]} trials)\n`
         } else {
@@ -123,8 +130,10 @@ export const axCreateOptimizerLogger = (
         isFirstPhase = true
       } else if (tags.includes('config')) {
         if (message.includes('examples') && message.includes('training')) {
-          const match = message.match(/(\d+) examples for training and (\d+) for validation/) ||
-                       message.match(/(\d+) training.*?(\d+) validation/)
+          const match =
+            message.match(
+              /(\d+) examples for training and (\d+) for validation/
+            ) || message.match(/(\d+) training.*?(\d+) validation/)
           if (match && match[1] && match[2]) {
             formattedMessage = `│  Dataset: ${match[1]} training, ${match[2]} validation\n`
           } else {
@@ -160,22 +169,24 @@ export const axCreateOptimizerLogger = (
         }
       } else if (tags.includes('progress')) {
         formattedMessage = `│  ${message}\n`
-             } else if (tags.includes('complete')) {
-         const scoreMatch = message.match(/(score|performance):\s*([\d.]+)/)
-         if (scoreMatch && scoreMatch[2]) {
-           const score = parseFloat(scoreMatch[2])
-           const percentage = score <= 1 ? (score * 100).toFixed(1) + '%' : score.toFixed(3)
-           formattedMessage = `├─ Complete! Best: ${percentage}\n`
-         } else if (message.includes('Bootstrap')) {
-           formattedMessage = `├─ ${message}\n`
-         } else {
-           formattedMessage = `├─ Optimization complete\n`
-         }
+      } else if (tags.includes('complete')) {
+        const scoreMatch = message.match(/(score|performance):\s*([\d.]+)/)
+        if (scoreMatch && scoreMatch[2]) {
+          const score = parseFloat(scoreMatch[2])
+          const percentage =
+            score <= 1 ? (score * 100).toFixed(1) + '%' : score.toFixed(3)
+          formattedMessage = `├─ Complete! Best: ${percentage}\n`
+        } else if (message.includes('Bootstrap')) {
+          formattedMessage = `├─ ${message}\n`
+        } else {
+          formattedMessage = `├─ Optimization complete\n`
+        }
       } else if (tags.includes('checkpoint')) {
         if (message.includes('Resuming')) {
           formattedMessage = `│  ${message}\n`
         } else {
-          const match = message.match(/checkpoint:\s*(.+)/) || message.match(/Saved\s+(.+)/)
+          const match =
+            message.match(/checkpoint:\s*(.+)/) || message.match(/Saved\s+(.+)/)
           if (match && match[1]) {
             formattedMessage = `└─ Saved: ${match[1]}\n`
           } else {
@@ -184,7 +195,7 @@ export const axCreateOptimizerLogger = (
         }
       }
     }
-    
+
     // Handle non-optimizer messages with basic formatting
     else if (tags.includes('discovery')) {
       if (message.includes('Found') && message.includes('examples')) {

@@ -241,9 +241,9 @@ Model Answer:`
     const values: Record<string, unknown> = {}
     const malformedContent = 'Some random content without output prefix'
 
-    extractValues(sig, values, malformedContent)
-
-    expect(values).toEqual({})
+    expect(() => extractValues(sig, values, malformedContent)).toThrow(
+      'Expected (Required) field not found'
+    )
   })
 
   // New test cases
