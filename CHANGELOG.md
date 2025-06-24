@@ -1,5 +1,20 @@
 # Changelog
 
+## [12.0.11](https://github.com/ax-llm/ax/compare/12.0.9...12.0.10) (2025-06-24)
+
+### Bug Fixes
+
+* Empty Function Calls Handling [#254](https://github.com/ax-llm/ax/issues/254) ([0eebda0](https://github.com/ax-llm/ax/commit/0eebda0a3224790199b57668d419e4c194c6538b))
+## [12.0.10](https://github.com/ax-llm/ax/compare/12.0.9...12.0.10) (2025-06-24)
+
+### Features
+
+* add thinking configuration and enhance Anthropic model support ([5bdb6ed](https://github.com/ax-llm/ax/commit/5bdb6ed169117e501b11541d47db7c863e3bc491))
+
+### Bug Fixes
+
+* issue with anthropic models streaming random text before function calls causing our early fail to trigger breaking things ([f49197c](https://github.com/ax-llm/ax/commit/f49197cf1cb2ca3c843754ae5599fd0aee8f9687))
+
 ## [12.0.10](https://github.com/ax-llm/ax/compare/12.0.8...12.0.9) (2025-06-24)
 
 ### Features
