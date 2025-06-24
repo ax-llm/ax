@@ -29,7 +29,9 @@ import {
   type AxAIAnthropicMessageDeltaEvent,
   type AxAIAnthropicMessageStartEvent,
   type AxAIAnthropicMessageStopEvent,
-  type AxAIAnthropicPingEvent
+  type AxAIAnthropicPingEvent,
+  type AxAIAnthropicThinkingConfig,
+  type AxAIAnthropicThinkingTokenBudgetLevels
 } from './ai/anthropic/types.js';
 import {
   AxAIAzureOpenAI,
@@ -728,6 +730,8 @@ export type { AxAIAnthropicMessageDeltaEvent };
 export type { AxAIAnthropicMessageStartEvent };
 export type { AxAIAnthropicMessageStopEvent };
 export type { AxAIAnthropicPingEvent };
+export type { AxAIAnthropicThinkingConfig };
+export type { AxAIAnthropicThinkingTokenBudgetLevels };
 export type { AxAIArgs };
 export type { AxAIAzureOpenAIArgs };
 export type { AxAIAzureOpenAIConfig };
