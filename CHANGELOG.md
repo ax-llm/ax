@@ -1,5 +1,17 @@
 # Changelog
 
+## [12.0.9](https://github.com/ax-llm/ax/compare/12.0.7...12.0.8) (2025-06-24)
+
+### Features
+
+* enhance validation and logging in AxGen and extraction processes ([d06dde1](https://github.com/ax-llm/ax/commit/d06dde17f85561150ae02ebc039acfd6cc3b292f))
+* implement enhanced logging functionality and naming conventions ([bb6f47a](https://github.com/ax-llm/ax/commit/bb6f47a012b264c99f8f00dda5bc6effb76ae006))
+## [12.0.8](https://github.com/ax-llm/ax/compare/12.0.7...12.0.8) (2025-06-23)
+
+### Features
+
+* introduce comprehensive LLM optimization guide and checkpointing functionality ([d8b5e90](https://github.com/ax-llm/ax/commit/d8b5e904e8169baf454de511f321a365c76042e3))
+
 ## [12.0.8](https://github.com/ax-llm/ax/compare/12.0.6...12.0.7) (2025-06-23)
 
 ### Features
