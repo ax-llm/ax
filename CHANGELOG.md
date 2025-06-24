@@ -1,5 +1,21 @@
 # Changelog
 
+## [12.0.10](https://github.com/ax-llm/ax/compare/12.0.8...12.0.9) (2025-06-24)
+
+### Features
+
+* add thinking configuration and enhance Anthropic model support ([5bdb6ed](https://github.com/ax-llm/ax/commit/5bdb6ed169117e501b11541d47db7c863e3bc491))
+
+### Bug Fixes
+
+* issue with anthropic models streaming random text before function calls causing our early fail to trigger breaking things ([f49197c](https://github.com/ax-llm/ax/commit/f49197cf1cb2ca3c843754ae5599fd0aee8f9687))
+## [12.0.9](https://github.com/ax-llm/ax/compare/12.0.8...12.0.9) (2025-06-24)
+
+### Features
+
+* enhance validation and logging in AxGen and extraction processes ([d06dde1](https://github.com/ax-llm/ax/commit/d06dde17f85561150ae02ebc039acfd6cc3b292f))
+* implement enhanced logging functionality and naming conventions ([bb6f47a](https://github.com/ax-llm/ax/commit/bb6f47a012b264c99f8f00dda5bc6effb76ae006))
+
 ## [12.0.9](https://github.com/ax-llm/ax/compare/12.0.7...12.0.8) (2025-06-24)
 
 ### Features
