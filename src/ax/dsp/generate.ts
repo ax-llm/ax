@@ -338,13 +338,7 @@ export class AxGen<
 
         let content = ''
 
-        mem.addResult(
-            {
-                content: '',
-                functionCalls: [],
-            },
-            sessionId
-        )
+        mem.addResult({}, sessionId)
 
         for await (const v of res) {
             const result = v.results[0]
