@@ -422,6 +422,10 @@ import {
   type AxMCPStreamableHTTPTransportOptions
 } from './mcp/httpTransport.js';
 import {
+  AxMemory,
+  type AxMemoryData
+} from './mem/memory.js';
+import {
   AxMiPRO,
   type AxMiPROResult
 } from './dsp/optimizers/miproV2.js';
@@ -433,6 +437,8 @@ import {
   AxProgram,
   AxProgramWithSignature,
   type AxGenDeltaOut,
+  type AxGenMultiSampleDeltaOut,
+  type AxGenMultiSampleStreamingOut,
   type AxGenStreamingOut,
   type AxProgramDemos,
   type AxProgramExamples,
@@ -542,7 +548,6 @@ import {AxEvalUtil} from './dsp/eval.js';
 import {AxInstanceRegistry} from './dsp/registry.js';
 import {AxMCPClient} from './mcp/client.js';
 import {AxMCPStdioTransport} from './mcp/stdioTransport.js';
-import {AxMemory} from './mem/memory.js';
 import {AxMultiServiceRouter} from './ai/multiservice.js';
 import {AxRAG} from './prompts/rag.js';
 import {AxStringUtil} from './dsp/strutil.js';
@@ -947,6 +952,8 @@ export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
+export type { AxGenMultiSampleDeltaOut };
+export type { AxGenMultiSampleStreamingOut };
 export type { AxGenOut };
 export type { AxGenStreamingOut };
 export type { AxGenerateErrorDetails };
@@ -959,6 +966,7 @@ export type { AxLoggerFunction };
 export type { AxLoggerTag };
 export type { AxMCPStreamableHTTPTransportOptions };
 export type { AxMCPTransport };
+export type { AxMemoryData };
 export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };

@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js'
+import type { AxGenStreamingOut, GenDeltaOut } from './program.js'
 import type { AxField, AxSignature } from './sig.js'
+import type { AxGenOut } from './types.js'
 import { matchesContent, parseMarkdownList } from './util.js'
 import { ValidationError } from './validate.js'
 
@@ -27,6 +29,7 @@ export interface extractionState {
     prevFields?: { field: AxField; s: number; e: number }[]
     currField?: AxField
     currFieldIndex?: number
+    inAssumedField?: boolean
     extractedFields: AxField[]
     streamedIndex: Record<string, number>
     s: number
@@ -72,11 +75,13 @@ export const streamingExtractValues = (
     let expectedField: AxField | undefined
 
     for (const [index, field] of fields.entries()) {
-        if (index === xstate.currFieldIndex) {
+        // If the field is the current field and it's not assumed, skip it
+        if (index === xstate.currFieldIndex && !xstate.inAssumedField) {
             continue
         }
 
-        if (field.name in values) {
+        // If field is already in values and it's not the current field and it's not assumed, skip it
+        if (field.name in values && !(index === xstate.currFieldIndex && xstate.inAssumedField)) {
             continue
         }
 
@@ -93,16 +98,20 @@ export const streamingExtractValues = (
                 }
 
                 // If there is only one field then we assume the content is streaming to the first field
+                // Note: optimization for single field responses
                 if (
                     !strictMode &&
                     fields.length === 1 &&
                     xstate.currField === undefined
                 ) {
+                    xstate.inAssumedField = true
+                    expectedField = field
                     prefixLen = 0
                     e = 0
                     break
                 }
-                // if multiple fields, we need to validate the field name
+
+                // if multiple fields, we need to validate the field name of the first required field
                 if (xstate.currField === undefined && !field.isOptional) {
                     throw new ValidationError({
                         message: 'Expected (Required) field not found',
@@ -122,6 +131,7 @@ export const streamingExtractValues = (
         }
         // We found a field!!!
 
+        // If the field we found is not the expected field, throw an error
         if (expectedField && expectedField.name !== field.name) {
             throw new ValidationError({
                 message: 'Expected (Required) field not found',
@@ -129,7 +139,11 @@ export const streamingExtractValues = (
             })
         }
 
-        // It's the expected next field
+        if (xstate.currField !== undefined && xstate.inAssumedField) {
+            xstate.inAssumedField = false
+            xstate.streamedIndex[xstate.currField.name] = 0
+            xstate.currField = undefined;
+        }
 
         // Lets wrap up the last field which is still the current field
         if (xstate.currField) {
@@ -242,14 +256,15 @@ const convertValueToType = (
     }
 }
 
-export function* yieldDelta<OUT>(
+export function* yieldDelta<OUT extends AxGenOut>(
     content: string,
     field: Readonly<AxField>,
     s: number,
     e: number,
     // eslint-disable-next-line functional/prefer-immutable-types
-    xstate: extractionState
-) {
+    xstate: extractionState,
+    index: number
+): GenDeltaOut<OUT> {
     const { name: fieldName, isInternal } = field
     const { isArray: fieldIsArray, name: fieldTypeName } = field.type ?? {}
 
@@ -286,29 +301,22 @@ export function* yieldDelta<OUT>(
     }
 
     if (d3.length > 0) {
-        yield { [fieldName]: d3 } as Partial<OUT>
+        yield { index, delta: { [fieldName]: d3 } as Partial<OUT> }
         xstate.streamedIndex[fieldName] = pos + d2.length
     }
 }
 
-// export function getStreamingDelta(
-//   values: Record<string, unknown>,
-//   // eslint-disable-next-line functional/prefer-immutable-types
-//   xstate: extractionState
-// ) {
-//   return processStreamingDelta(values, xstate)
-// }
-
-export function* streamValues<OUT>(
+export function* streamValues<OUT extends AxGenOut>(
     sig: Readonly<AxSignature>,
     content: string,
     values: Readonly<Record<string, OUT>>,
     // eslint-disable-next-line functional/prefer-immutable-types
-    xstate: extractionState
-) {
+    xstate: extractionState,
+    index: number
+): GenDeltaOut<OUT> {
     for (const prevField of xstate.prevFields ?? []) {
         const { field, s, e } = prevField
-        yield* yieldDelta<OUT>(content, field, s, e, xstate)
+        yield* yieldDelta<OUT>(content, field, s, e, xstate, index)
     }
     xstate.prevFields = undefined
 
@@ -321,7 +329,8 @@ export function* streamValues<OUT>(
         xstate.currField,
         xstate.s,
         content.length,
-        xstate
+        xstate,
+        index
     )
 
     const outputFields = sig.getOutputFields()
@@ -338,14 +347,14 @@ export function* streamValues<OUT>(
             const s = xstate.streamedIndex?.[key] ?? 0
             const v = value.slice(s)
             if (v && v.length > 0) {
-                yield { [key]: v } as Partial<OUT>
+                yield { index, delta: { [key]: v } as Partial<OUT> }
                 xstate.streamedIndex[key] = s + v.length
             }
             continue
         }
 
         if (!xstate.streamedIndex[key]) {
-            yield { [key]: value } as Partial<OUT>
+            yield { index, delta: { [key]: value } as Partial<OUT> }
             xstate.streamedIndex[key] = 1
         }
     }
