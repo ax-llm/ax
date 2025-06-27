@@ -1,6 +1,3 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-import { type AxAIOpenAIResponsesConfig } from '@ax-llm/ax/index.js'
-
 import { AxBaseAI } from '../base.js'
 import type { AxAIFeatures } from '../base.js'
 import type {
@@ -22,6 +19,9 @@ import type {
   AxAIOpenAIResponsesResponseDelta,
 } from './responses_types.js'
 import { AxAIOpenAIResponsesModel } from './responses_types.js'
+
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+import { type AxAIOpenAIResponsesConfig } from '@ax-llm/ax/index.js'
 
 // Helper functions to create default configurations
 export const axAIOpenAIResponsesDefaultConfig = (): AxAIOpenAIResponsesConfig<

@@ -3,7 +3,9 @@ import { AxAI, AxGen, AxJSInterpreter } from '@ax-llm/ax'
 const gen = new AxGen<{ numberSeriesTask: string }>(
   {
     inputs: [{ name: 'numberSeriesTask', type: { name: 'string' } }],
-    outputs: [{ name: 'fibonacciSeries', type: { name: 'number' } }],
+    outputs: [
+      { name: 'fibonacciSeries', type: { name: 'number', isArray: true } },
+    ],
   },
   {
     functions: [new AxJSInterpreter()],

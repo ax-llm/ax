@@ -126,6 +126,7 @@ export class AxMockAIService implements AxAIService {
       this.config.chatResponse ?? {
         results: [
           {
+            index: 0,
             content: 'Mock response',
             finishReason: 'stop',
           },

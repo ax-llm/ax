@@ -1,10 +1,4 @@
 import type {
-  AxAIOpenAIEmbedRequest,
-  AxAIOpenAIEmbedResponse,
-  AxAPI,
-} from '@ax-llm/ax/index.js'
-
-import type {
   AxAIPromptConfig,
   AxAIServiceImpl,
   AxChatRequest,
@@ -42,6 +36,12 @@ import type {
   ResponsesReqUpdater,
   UserMessageContentItem,
 } from './responses_types.js'
+
+import type {
+  AxAIOpenAIEmbedRequest,
+  AxAIOpenAIEmbedResponse,
+  AxAPI,
+} from '@ax-llm/ax/index.js'
 
 export class AxAIOpenAIResponsesImpl<
   TModel,
@@ -590,7 +590,7 @@ export class AxAIOpenAIResponsesImpl<
     }
 
     return {
-      results: [currentResult],
+      results: [{ ...currentResult, index: 0 }],
       remoteId: id,
     }
   }
@@ -604,6 +604,7 @@ export class AxAIOpenAIResponsesImpl<
 
     // Create a basic result structure
     const baseResult: AxChatResponseResult = {
+      index: 0,
       id: '',
       content: '',
       finishReason: 'stop',

@@ -42,6 +42,15 @@ export default [
             'import/parsers': {
                 '@typescript-eslint/parser': ['.ts', '.tsx'],
             },
+            'import/resolver': {
+                'typescript': {
+                    'alwaysTryTypes': true,
+                    'project': ['./tsconfig.json', './src/*/tsconfig.json']
+                },
+                'node': {
+                    'extensions': ['.js', '.jsx', '.ts', '.tsx']
+                }
+            }
         },
         files: ['**/*.ts', '**/*.tsx'],  // Explicitly only match TypeScript files
         rules: {
@@ -55,6 +64,17 @@ export default [
                 'ignorePackages',
                 { js: 'always', ts: 'never', tsx: 'never' }
             ],
+            'import/no-cycle': [
+                'error',
+                {
+                    maxDepth: 10,
+                    ignoreExternal: true,
+                    allowUnsafeDynamicCyclicDependency: false
+                }
+            ],
+            'import/no-self-import': 'error',
+            'import/no-useless-path-segments': 'error',
+            'import/no-duplicates': 'error',
             'functional/no-class-inheritance': 'off',
             'functional/no-mixed-types': 'off',
             'functional/no-classes': 'off',
@@ -88,7 +108,7 @@ export default [
                 {
                     selector: ['variable'],
                     modifiers: ['exported'],
-                    format: ['PascalCase','camelCase'],
+                    format: ['PascalCase', 'camelCase'],
                 },
                 {
                     selector: 'class',

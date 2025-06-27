@@ -23,13 +23,14 @@ type ChatRequestUserMessage = Exclude<
 const functionCallInstructions = `
 ## Function Call Instructions
 - Complete the task, using the functions defined earlier in this prompt. 
-- Call functions step-by-step, using the output of one function as input to the next.
+- Output fields should only be generated after all functions have been called.
 - Use the function results to generate the output fields.`
 
 const formattingRules = `
 ## Strict Output Formatting Rules
 - Output must strictly follow the defined plain-text \`field name: value\` field format.
 - Output field, values must strictly adhere to the specified output field formatting rules.
+- No formatting rules should override these **Strict Output Formatting Rules**
 - Do not add any text before or after the output fields, just the field name and value.
 - Do not use code blocks.`
 
@@ -128,7 +129,10 @@ export class AxPromptTemplate {
       examples?: Record<string, AxFieldValue>[] // Keep as is, examples are specific structures
       demos?: Record<string, AxFieldValue>[] // Keep as is
     }>
-  ): AxChatRequest['chatPrompt'] => {
+  ): Extract<
+    AxChatRequest['chatPrompt'][number],
+    { role: 'user' | 'system' | 'assistant' }
+  >[] => {
     const renderedExamples = examples
       ? [
           { type: 'text' as const, text: '\n\n## Examples\n' },
@@ -171,16 +175,18 @@ export class AxPromptTemplate {
 
       const history = values as ReadonlyArray<AxMessage<T>>
 
-      for (const [index, message] of history.entries()) {
+      let firstItem = true
+      for (const message of history) {
         let content: string | ChatRequestUserMessage
 
-        if (index === 0) {
+        if (firstItem) {
           content = this.renderSingleValueUserContent(
             message.values,
             renderedExamples,
             renderedDemos,
             examplesInSystemPrompt
           )
+          firstItem = false
         } else {
           content = this.renderSingleValueUserContent(
             message.values,

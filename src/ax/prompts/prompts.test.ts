@@ -28,6 +28,7 @@ const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
   const mockRes = {
     choices: [
       {
+        index: 0,
         message: {
           role: 'assistant',
           content: 'Reason: Blah blah blah\nShort Summary: More blah blah blah',

@@ -26,6 +26,7 @@ function createStreamingResponse(
             controller.enqueue({
               results: [
                 {
+                  index: 0,
                   content: chunk.content,
                   finishReason: chunk.finishReason,
                 },
@@ -231,6 +232,7 @@ describe('AxAgent', () => {
       chatResponse: {
         results: [
           {
+            index: 0,
             content: 'Agent Response: Mocked response for message array',
             finishReason: 'stop',
           },
@@ -264,9 +266,9 @@ describe('AxAgent', () => {
   it('should handle AxMessage array input in streamingForward method', async () => {
     // Create streaming response chunks
     const chunks: AxChatResponse['results'] = [
-      { content: 'Agent Response: Streaming ' },
-      { content: 'response ' },
-      { content: 'chunk', finishReason: 'stop' },
+      { index: 0, content: 'Agent Response: Streaming ' },
+      { index: 0, content: 'response ' },
+      { index: 0, content: 'chunk', finishReason: 'stop' },
     ]
     const streamingResponse = createStreamingResponse(chunks)
 
@@ -327,6 +329,7 @@ describe('AxAgent', () => {
       chatResponse: {
         results: [
           {
+            index: 0,
             content: 'Agent Response: Parent response with child interaction',
             finishReason: 'stop',
           },

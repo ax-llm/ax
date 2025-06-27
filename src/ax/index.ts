@@ -381,10 +381,6 @@ import {
   type AxDBWeaviateOpOptions
 } from './db/weaviate.js';
 import {
-  AxDefaultQueryRewriter,
-  AxRewriter
-} from './docs/rewriter.js';
-import {
   AxDockerSession,
   type AxDockerContainer
 } from './funcs/docker.js';
@@ -422,10 +418,6 @@ import {
   type AxMCPStreamableHTTPTransportOptions
 } from './mcp/httpTransport.js';
 import {
-  AxMemory,
-  type AxMemoryData
-} from './mem/memory.js';
-import {
   AxMiPRO,
   type AxMiPROResult
 } from './dsp/optimizers/miproV2.js';
@@ -437,8 +429,6 @@ import {
   AxProgram,
   AxProgramWithSignature,
   type AxGenDeltaOut,
-  type AxGenMultiSampleDeltaOut,
-  type AxGenMultiSampleStreamingOut,
   type AxGenStreamingOut,
   type AxProgramDemos,
   type AxProgramExamples,
@@ -519,6 +509,10 @@ import {
   type AxTokenUsage
 } from './ai/types.js';
 import {
+  type AxAIMemory,
+  type AxMemoryData
+} from './mem/types.js';
+import {
   type AxDBQueryRequest,
   type AxDBQueryResponse,
   type AxDBQueryService,
@@ -548,6 +542,7 @@ import {AxEvalUtil} from './dsp/eval.js';
 import {AxInstanceRegistry} from './dsp/registry.js';
 import {AxMCPClient} from './mcp/client.js';
 import {AxMCPStdioTransport} from './mcp/stdioTransport.js';
+import {AxMemory} from './mem/memory.js';
 import {AxMultiServiceRouter} from './ai/multiservice.js';
 import {AxRAG} from './prompts/rag.js';
 import {AxStringUtil} from './dsp/strutil.js';
@@ -563,7 +558,6 @@ import {axModelInfoMistral} from './ai/mistral/info.js';
 import {axModelInfoOpenAI} from './ai/openai/info.js';
 import {axModelInfoReka} from './ai/reka/info.js';
 import {axModelInfoTogether} from './ai/together/info.js';
-import {type AxAIMemory} from './mem/types.js';
 import {type AxMCPTransport} from './mcp/transport.js';
 
 // Value exports
@@ -629,7 +623,6 @@ export { AxDBMemory };
 export { AxDBPinecone };
 export { AxDBWeaviate };
 export { AxDefaultCostTracker };
-export { AxDefaultQueryRewriter };
 export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
@@ -656,7 +649,6 @@ export { AxProgramWithSignature };
 export { AxPromptTemplate };
 export { AxRAG };
 export { AxRateLimiterTokenUsage };
-export { AxRewriter };
 export { AxSignature };
 export { AxSimpleClassifier };
 export { AxSimpleClassifierClass };
@@ -952,8 +944,6 @@ export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
-export type { AxGenMultiSampleDeltaOut };
-export type { AxGenMultiSampleStreamingOut };
 export type { AxGenOut };
 export type { AxGenStreamingOut };
 export type { AxGenerateErrorDetails };

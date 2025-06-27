@@ -81,7 +81,9 @@ const serviceA: AxAIService<string, string> = {
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
     serviceALastUsed.chatModel = req.model
-    return { results: [{ content: `model ${req.model} from Service A` }] }
+    return {
+      results: [{ index: 0, content: `model ${req.model} from Service A` }],
+    }
   },
   embed: async (): Promise<AxEmbedResponse> => {
     serviceALastUsed.embedModel = 'test-model'
@@ -137,7 +139,9 @@ const serviceB: AxAIService<string, string> = {
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
     serviceBLastUsed.chatModel = req.model
-    return { results: [{ content: `model ${req.model} from Service B` }] }
+    return {
+      results: [{ index: 0, content: `model ${req.model} from Service B` }],
+    }
   },
   embed: async (): Promise<AxEmbedResponse> => {
     serviceBLastUsed.embedModel = 'test-model'
@@ -168,7 +172,9 @@ const serviceC: AxAIService<string, string> = {
   chat: async (
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
-    return { results: [{ content: `model ${req.model} from Service C` }] }
+    return {
+      results: [{ index: 0, content: `model ${req.model} from Service C` }],
+    }
   },
   embed: async (): Promise<AxEmbedResponse> => {
     return {
@@ -229,7 +235,7 @@ describe('AxMultiServiceRouter', () => {
     const dummyKeyServiceChat = vi.fn(
       async (req: Readonly<AxChatRequest<string>>) => {
         // Echo back the model value received for verification.
-        return { results: [{ content: req.model }] }
+        return { results: [{ index: 0, content: req.model }] }
       }
     )
     const dummyKeyServiceEmbed = vi.fn(
@@ -267,7 +273,7 @@ describe('AxMultiServiceRouter', () => {
     // Create a dummy non–key–based service.
     const dummyNonKeyServiceChat = vi.fn(
       async (req: Readonly<AxChatRequest<string>>) => {
-        return { results: [{ content: req.model }] }
+        return { results: [{ index: 0, content: req.model }] }
       }
     )
     const dummyNonKeyServiceEmbed = vi.fn(
@@ -356,7 +362,7 @@ describe('AxMultiServiceRouter', () => {
       getFeatures: () => ({ functions: false, streaming: false }),
       getModelList: () => [],
       chat: async () => {
-        return { results: [{ content: 'dummy key service' }] }
+        return { results: [{ index: 0, content: 'dummy key service' }] }
       },
       embed: dummyKeyServiceEmbed,
       setOptions: () => {},
@@ -393,7 +399,7 @@ describe('AxMultiServiceRouter', () => {
         { key: 'B', description: 'Non-key model', model: 'modelB' },
       ],
       chat: async () => {
-        return { results: [{ content: 'dummy non-key service' }] }
+        return { results: [{ index: 0, content: 'dummy non-key service' }] }
       },
       getLastUsedChatModel: function (): string | undefined {
         return 'modelB'

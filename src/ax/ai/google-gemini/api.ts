@@ -1,5 +1,3 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-
 import type { AxAPI } from '../../util/apicall.js'
 import {
   AxBaseAI,
@@ -41,6 +39,8 @@ import {
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './types.js'
+
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
   {
@@ -495,7 +495,7 @@ class AxAIGoogleGeminiImpl
   ): AxChatResponse => {
     const results: AxChatResponseResult[] = resp.candidates?.map(
       (candidate) => {
-        const result: AxChatResponseResult = {}
+        const result: AxChatResponseResult = { index: 0 }
 
         switch (candidate.finishReason) {
           case 'MAX_TOKENS':

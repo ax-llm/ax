@@ -1,7 +1,9 @@
+import type { AxAIService } from '../ai/types.js'
+import { AxGen } from '../dsp/generate.js'
 import { type AxProgramForwardOptions } from '../dsp/program.js'
+import { AxSignature } from '../dsp/sig.js'
 import { AxStringUtil } from '../dsp/strutil.js'
 import type { AxMessage } from '../dsp/types.js'
-import { type AxAIService, AxGen, AxSignature } from '../index.js'
 
 import { AxChainOfThought } from './cot.js'
 

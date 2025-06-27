@@ -144,7 +144,7 @@ class AxAIRekaImpl
         }
       : undefined
 
-    const results = responses.map((res) => {
+    const results = responses.map((res, index) => {
       const finishReason = mapFinishReason(res.finish_reason)
       let content
       if (typeof res.message.content === 'string') {
@@ -154,6 +154,7 @@ class AxAIRekaImpl
       }
 
       return {
+        index,
         id: `${id}`,
         content,
         finishReason,
@@ -176,7 +177,7 @@ class AxAIRekaImpl
         }
       : undefined
 
-    const results = responses.map((res) => {
+    const results = responses.map((res, index) => {
       const finishReason = mapFinishReason(res.finish_reason)
       let content
       if (typeof res.chunk.content === 'string') {
@@ -186,6 +187,7 @@ class AxAIRekaImpl
       }
 
       return {
+        index,
         id: `${id}`,
         content,
         finishReason,

@@ -1296,3 +1296,24 @@ avoids non-deduplicated `node_modules`.
 Adding new dependencies in packages should be done with e.g.
 `npm install lodash --workspace=ax` (or just modify the appropriate
 `package.json` and run `npm install` from root).
+
+## Development Commands
+```bash
+# Build all workspaces
+npm run build
+
+# Run tests across all workspaces
+npm run test
+
+# Fix formatting and linting
+npm run fix
+
+# Check for circular dependencies (helps maintain clean architecture)
+npm run lint:circular
+
+# Run examples with tsx
+npm run tsx ./src/examples/<example-file>.ts
+
+# Development mode for specific workspace
+npm run dev --workspace=@ax-llm/ax
+```

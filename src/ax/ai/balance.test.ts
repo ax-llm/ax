@@ -12,6 +12,7 @@ const createMockService = ({
   chatResponse = async () => ({
     results: [
       {
+        index: 0,
         content: 'test response',
         finishReason: 'stop' as const,
       },
@@ -59,6 +60,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -83,6 +85,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -121,6 +124,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -170,6 +174,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -193,6 +198,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -246,6 +252,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },

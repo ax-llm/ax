@@ -1,5 +1,3 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-
 import {
   type AxAIOpenAIArgs,
   AxAIOpenAIBase,
@@ -14,6 +12,8 @@ import type {
   AxAIOpenAIModel,
 } from '../openai/chat_types.js'
 import { axModelInfoOpenAI } from '../openai/info.js'
+
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
 export const axAIAzureOpenAIDefaultConfig = axAIOpenAIDefaultConfig
 

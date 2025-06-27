@@ -76,7 +76,11 @@ describe('AxGen forward and streamingForward', () => {
     // Prepare a non-streaming (plain) response.
     const nonStreamingResponse: AxChatResponse = {
       results: [
-        { content: 'Model Answer: Non-stream response', finishReason: 'stop' },
+        {
+          index: 0,
+          content: 'Model Answer: Non-stream response',
+          finishReason: 'stop',
+        },
       ],
       modelUsage: {
         ai: 'test-ai',
@@ -108,9 +112,9 @@ describe('AxGen forward and streamingForward', () => {
   it('should return aggregated output from forward when stream option is true', async () => {
     // Prepare a streaming response that enqueues three chunks with a timer.
     const chunks: AxChatResponse['results'] = [
-      { content: 'Model Answer: chunk 1 ' },
-      { content: 'chunk 2 ' },
-      { content: 'chunk 3', finishReason: 'stop' },
+      { index: 0, content: 'Model Answer: chunk 1 ' },
+      { index: 0, content: 'chunk 2 ' },
+      { index: 0, content: 'chunk 3', finishReason: 'stop' },
     ]
     const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
@@ -193,6 +197,7 @@ describe('AxGen thoughtFieldName', () => {
       chatResponse: {
         results: [
           {
+            index: 0,
             thought: 'This is a custom thought.',
             content: 'Model Answer: Test output',
             finishReason: 'stop',
@@ -224,6 +229,7 @@ describe('AxGen thoughtFieldName', () => {
       chatResponse: {
         results: [
           {
+            index: 0,
             thought: 'This is a default thought.',
             content: 'Model Answer: Test output',
             finishReason: 'stop',
@@ -250,11 +256,11 @@ describe('AxGen thoughtFieldName', () => {
 
   it('should stream thought with custom field name when thoughtFieldName is provided', async () => {
     const chunks: AxChatResponse['results'] = [
-      { thought: 'Thinking...' },
-      { content: 'Model Answer: chunk 1 ' },
-      { thought: 'Still thinking...' },
-      { content: 'chunk 2 ' },
-      { content: 'chunk 3', finishReason: 'stop' },
+      { index: 0, thought: 'Thinking...' },
+      { index: 0, content: 'Model Answer: chunk 1 ' },
+      { index: 0, thought: 'Still thinking...' },
+      { index: 0, content: 'chunk 2 ' },
+      { index: 0, content: 'chunk 3', finishReason: 'stop' },
     ]
     const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
@@ -287,11 +293,11 @@ describe('AxGen thoughtFieldName', () => {
 
   it('should stream thought with default field name "thought" when thoughtFieldName is not provided', async () => {
     const chunks: AxChatResponse['results'] = [
-      { thought: 'Thinking...' },
-      { content: 'Model Answer: chunk 1 ' },
-      { thought: 'Still thinking...' },
-      { content: 'chunk 2 ' },
-      { content: 'chunk 3', finishReason: 'stop' },
+      { index: 0, thought: 'Thinking...' },
+      { index: 0, content: 'Model Answer: chunk 1 ' },
+      { index: 0, thought: 'Still thinking...' },
+      { index: 0, content: 'chunk 2 ' },
+      { index: 0, content: 'chunk 3', finishReason: 'stop' },
     ]
     const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
@@ -331,6 +337,7 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
     const nonStreamingResponse: AxChatResponse = {
       results: [
         {
+          index: 0,
           content: 'Model Answer: response1\nAnother Answer: response2',
           finishReason: 'stop',
         },
@@ -369,9 +376,9 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
     const signatureWithThreeOutputs =
       'userQuestion:string -> modelAnswer:string, anotherAnswer:string, thirdAnswer:string'
     const chunks: AxChatResponse['results'] = [
-      { content: 'Model Answer: resp1\n' },
-      { content: 'Another Answer: resp2\n' },
-      { content: 'Third Answer: resp3', finishReason: 'stop' },
+      { index: 0, content: 'Model Answer: resp1\n' },
+      { index: 0, content: 'Another Answer: resp2\n' },
+      { index: 0, content: 'Third Answer: resp3', finishReason: 'stop' },
     ]
     const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
@@ -398,8 +405,8 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
     const signatureWithTwoOutputs =
       'userQuestion:string -> modelAnswer:string, anotherAnswer:string'
     const chunks: AxChatResponse['results'] = [
-      { content: 'Model Answer: resp1\n' },
-      { content: 'Another Answer: resp2', finishReason: 'stop' },
+      { index: 0, content: 'Model Answer: resp1\n' },
+      { index: 0, content: 'Another Answer: resp2', finishReason: 'stop' },
     ]
     const streamingResponse = createStreamingResponse(chunks)
     const ai = new AxMockAIService({
@@ -414,8 +421,8 @@ describe('AxGen forward and streamingForward with multiple outputs', () => {
     const stream = await gen.streamingForward(ai, { userQuestion: 'test' })
 
     const expectedOutputs = [
-      { version: 0, delta: { modelAnswer: 'resp1' } },
-      { version: 0, delta: { anotherAnswer: 'resp2' } },
+      { version: 0, index: 0, delta: { modelAnswer: 'resp1' } },
+      { version: 0, index: 0, delta: { anotherAnswer: 'resp2' } },
     ]
 
     let outputIndex = 0
@@ -432,11 +439,11 @@ it('should yield streaming multi-output fields from streamingForward for a signa
     'userQuestion:string -> answerA:string, answerB:string, answerC:string, answerD:string, answerE:string'
 
   const chunks: AxChatResponse['results'] = [
-    { content: 'Answer A: r1\n' },
-    { content: 'Answer B: r2\n' },
-    { content: 'Answer C: r3\n' },
-    { content: 'Answer D: r4\n' },
-    { content: 'Answer E: r5', finishReason: 'stop' },
+    { index: 0, content: 'Answer A: r1\n' },
+    { index: 0, content: 'Answer B: r2\n' },
+    { index: 0, content: 'Answer C: r3\n' },
+    { index: 0, content: 'Answer D: r4\n' },
+    { index: 0, content: 'Answer E: r5', finishReason: 'stop' },
   ]
   const streamingResponse = createStreamingResponse(chunks)
   const ai = new AxMockAIService({
@@ -457,11 +464,11 @@ it('should yield streaming multi-output fields from streamingForward for a signa
   const stream = await gen.streamingForward(ai, { userQuestion: 'test' })
 
   const expectedOutputs = [
-    { version: 0, delta: { answerA: 'r1' } },
-    { version: 0, delta: { answerB: 'r2' } },
-    { version: 0, delta: { answerC: 'r3' } },
-    { version: 0, delta: { answerD: 'r4' } },
-    { version: 0, delta: { answerE: 'r5' } },
+    { version: 0, index: 0, delta: { answerA: 'r1' } },
+    { version: 0, index: 0, delta: { answerB: 'r2' } },
+    { version: 0, index: 0, delta: { answerC: 'r3' } },
+    { version: 0, index: 0, delta: { answerD: 'r4' } },
+    { version: 0, index: 0, delta: { answerE: 'r5' } },
   ]
 
   let outputIndex = 0
@@ -494,7 +501,7 @@ describe('Error handling in AxGen', () => {
       const error = e as Error
       expect(error.message).toContain('Generate failed')
       // Check if the original error is available as the cause
-      expect(error.cause).toBe(originalError)
+      expect((error as unknown as { cause?: Error }).cause).toBe(originalError)
     }
   })
 
@@ -505,7 +512,7 @@ describe('Error handling in AxGen', () => {
       return new ReadableStream({
         start(controller) {
           controller.enqueue({
-            results: [{ content: 'Model Answer: First part...' }],
+            results: [{ index: 0, content: 'Model Answer: First part...' }],
             modelUsage: {
               ai: 'test-ai',
               model: 'test-model',
@@ -539,7 +546,7 @@ describe('Error handling in AxGen', () => {
     } catch (e) {
       const error = e as Error
       expect(error.message).toContain('Generate failed')
-      expect(error.cause).toBe(originalError)
+      expect((error as unknown as { cause?: Error }).cause).toBe(originalError)
     }
   })
 })
@@ -608,6 +615,7 @@ describe('AxGen DSPy field prefix format', () => {
       chatResponse: {
         results: [
           {
+            index: 0,
             content: 'This is the agent response to the user input',
             finishReason: 'stop',
           },
@@ -642,9 +650,9 @@ describe('AxGen DSPy field prefix format', () => {
 
     // Prepare a streaming response without field prefix
     const chunks: AxChatResponse['results'] = [
-      { content: 'This is part 1 ' },
-      { content: 'of the agent response ' },
-      { content: 'to the user input', finishReason: 'stop' },
+      { index: 0, content: 'This is part 1 ' },
+      { index: 0, content: 'of the agent response ' },
+      { index: 0, content: 'to the user input', finishReason: 'stop' },
     ]
     const streamingResponse = createStreamingResponse(chunks)
 
@@ -678,6 +686,7 @@ describe('AxGen DSPy field prefix format', () => {
       chatResponse: {
         results: [
           {
+            index: 0,
             content: 'This is the agent response without field prefix',
             finishReason: 'stop',
           },
@@ -711,10 +720,12 @@ describe('AxGen DSPy field prefix format', () => {
       const error = e as Error
       expect(error.message).toContain('Generate failed')
       // Check if the original validation error is available as the cause
-      expect(error.cause).toBeInstanceOf(Error)
-      expect((error.cause as Error).message).toContain(
-        'Expected (Required) field not found'
+      expect((error as unknown as { cause?: Error }).cause).toBeInstanceOf(
+        Error
       )
+      expect(
+        ((error as unknown as { cause?: Error }).cause as Error).message
+      ).toContain('Expected (Required) field not found')
     }
   })
 
@@ -727,6 +738,7 @@ describe('AxGen DSPy field prefix format', () => {
       chatResponse: {
         results: [
           {
+            index: 0,
             content:
               'Agent Output: This is the agent response with proper field prefix',
             finishReason: 'stop',

@@ -1,7 +1,6 @@
 import type {
   AxAIService,
   AxAIServiceActionOptions,
-  AxChatRequest,
   AxChatResponseResult,
   AxFunction,
 } from '../ai/types.js'
@@ -135,7 +134,11 @@ export class AxFunctionProcessor {
       const res =
         fnSpec.func.length === 1 ? await fnSpec.func(opt) : await fnSpec.func()
 
-      return typeof res === 'string' ? res : JSON.stringify(res, null, 2)
+      return typeof res === 'string'
+        ? res
+        : res === undefined || res === null
+          ? ''
+          : JSON.stringify(res, null, 2)
     }
 
     const res =
@@ -143,7 +146,11 @@ export class AxFunctionProcessor {
         ? await fnSpec.func(args, opt)
         : await fnSpec.func(args)
 
-    return typeof res === 'string' ? res : JSON.stringify(res, null, 2)
+    return typeof res === 'string'
+      ? res
+      : res === undefined || res === null
+        ? ''
+        : JSON.stringify(res, null, 2)
   }
 
   public execute = async (
@@ -208,18 +215,35 @@ export const parseFunctions = (
 
 type FunctionPromise =
   | undefined
-  | Promise<Extract<AxChatRequest['chatPrompt'][number], { role: 'function' }>>
+  | Promise<{
+      result: string
+      functionId: string
+      index: number
+    }>
 
-export const processFunctions = async (
-  ai: Readonly<AxAIService>,
-  functionList: Readonly<AxFunction[]>,
-  functionCalls: readonly AxChatResponseFunctionCall[],
-  mem: Readonly<AxMemory>,
-  sessionId?: string,
-  traceId?: string,
-  span?: import('@opentelemetry/api').Span,
-  excludeContentFromTelemetry?: boolean
-) => {
+type ProcessFunctionsArgs = {
+  ai: Readonly<AxAIService>
+  functionList: Readonly<AxFunction[]>
+  functionCalls: readonly AxChatResponseFunctionCall[]
+  mem: Readonly<AxMemory>
+  sessionId?: string
+  traceId?: string
+  span?: import('@opentelemetry/api').Span
+  excludeContentFromTrace?: boolean
+  index: number
+}
+
+export const processFunctions = async ({
+  ai,
+  functionList,
+  functionCalls,
+  mem,
+  sessionId,
+  traceId,
+  span,
+  excludeContentFromTrace,
+  index,
+}: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList)
   const functionsExecuted = new Set<string>()
 
@@ -239,7 +263,7 @@ export const processFunctions = async (
           const eventData: { name: string; args?: string; result?: string } = {
             name: func.name,
           }
-          if (!excludeContentFromTelemetry) {
+          if (!excludeContentFromTrace) {
             eventData.args = func.args
             eventData.result = functionResult ?? ''
           }
@@ -247,9 +271,9 @@ export const processFunctions = async (
         }
 
         return {
-          role: 'function' as const,
           result: functionResult ?? '',
           functionId: func.id,
+          index,
         }
       })
       .catch((e) => {
@@ -267,23 +291,23 @@ export const processFunctions = async (
               name: func.name,
               message: e.toString(),
             }
-            if (!excludeContentFromTelemetry) {
+            if (!excludeContentFromTrace) {
               errorEventData.args = func.args
               errorEventData.fixing_instructions = result
             }
             span.addEvent('function.error', errorEventData)
           }
 
-          mem.add(
+          mem.addFunctionResult(
             {
-              role: 'function' as const,
               functionId: func.id,
               isError: true,
+              index,
               result,
             },
             sessionId
           )
-          mem.addTag('error')
+          mem.addTag('error', sessionId)
 
           if (ai.getOptions().debug) {
             const logger = ai.getLogger()
@@ -304,7 +328,7 @@ export const processFunctions = async (
 
   for (const result of results) {
     if (result) {
-      mem.add(result, sessionId)
+      mem.addFunctionResult(result, sessionId)
     }
   }
 

@@ -26,7 +26,8 @@
     "dependencies:rebuild": "rm -rf package-lock.json && rm -rf node_modules && rm -rf */*/node_modules && npm i --no-audit --no-fund",
     "tsx": "node --env-file=.env --import=tsx",
     "fix:format": "prettier --write README.md",
-    "init-package": "node scripts/initPackage.js"
+    "init-package": "node scripts/initPackage.js",
+            "lint:circular": "eslint src/ax/**/*.ts 2>/dev/null | grep -E '(import/no-cycle|import/no-self-import|Dependency cycle)' || echo 'No circular dependencies found!'"
   },
   "engines": {
     "node": ">=20"
@@ -43,6 +44,7 @@
     "cz-conventional-changelog": "^3.3.0",
     "eslint": "^9.22.0",
     "eslint-config-prettier": "^10.1.1",
+    "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-functional": "^8.0.0",
     "eslint-plugin-import": "^2.31.0",
@@ -51,6 +53,7 @@
     "gh-pages": "^6.1.1",
     "glob": "^11.0.1",
     "husky": "^9.0.0",
+    "npm-run-all2": "^8.0.4",
     "prettier": "^3.5.3",
     "release-it": "^19.0.3",
     "standard-version": "^9.5.0",
@@ -62,13 +65,7 @@
     "typedoc-plugin-frontmatter": "^1.2.1",
     "typedoc-plugin-markdown": "^4.4.2",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.1",
-    "npm-run-all2": "^8.0.4"
-  },
-  "config": {
-    "commitizen": {
-      "path": "cz-conventional-changelog"
-    }
+    "vitest": "^3.2.1"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"

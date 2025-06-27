@@ -5,30 +5,29 @@ import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
 import { MemoryImpl } from './memory.js'
 
 describe('MemoryImpl', () => {
-  it('constructor should enforce positive limit', () => {
-    expect(() => new MemoryImpl(0)).toThrow(
-      "argument 'limit' must be greater than 0"
-    )
-    expect(() => new MemoryImpl(-1)).toThrow(
-      "argument 'limit' must be greater than 0"
-    )
+  it('constructor should accept options object', () => {
+    expect(() => new MemoryImpl()).not.toThrow()
+    expect(() => new MemoryImpl({ debug: false })).not.toThrow()
+    expect(
+      () => new MemoryImpl({ debug: true, debugHideSystemPrompt: true })
+    ).not.toThrow()
   })
 
-  it('add should store single chat message', () => {
+  it('addRequest should store single chat message', () => {
     const memory = new MemoryImpl()
     const message: AxChatRequest['chatPrompt'][0] = {
       role: 'user',
       content: 'test message',
     }
 
-    memory.add(message)
+    memory.addRequest([message], 0)
 
-    const history = memory.history()
+    const history = memory.history(0)
     expect(history.length).toBe(1)
     expect(history[0]).toEqual(message)
   })
 
-  it('add should store array of chat messages', () => {
+  it('addRequest should store array of chat messages', () => {
     const memory = new MemoryImpl()
     const messages: AxChatRequest['chatPrompt'] = [
       {
@@ -42,44 +41,34 @@ describe('MemoryImpl', () => {
       },
     ]
 
-    memory.add(messages)
+    memory.addRequest(messages, 0)
 
-    const history = memory.history()
+    // When adding an array, all messages get the same index
+    const history = memory.history(0)
     expect(history.length).toBe(2)
-    expect(history).toEqual(messages)
+    expect(history[0]).toEqual(messages[0])
+    expect(history[1]).toEqual(messages[1])
   })
 
-  it('add should respect memory limit', () => {
-    const memory = new MemoryImpl(2)
-    const messages: AxChatRequest['chatPrompt'] = [
-      { role: 'system', content: 'message 1' },
-      { role: 'user', content: 'message 2' },
-      { role: 'system', content: 'message 3' },
-    ]
-
-    memory.add(messages)
-
-    const history = memory.history()
-    expect(history.length).toBe(2)
-    expect(history).toEqual(messages.slice(-2))
-  })
-
-  it('addResult should store assistant message', () => {
+  it('addResponse should store assistant message', () => {
     const memory = new MemoryImpl()
     const result: AxChatResponseResult = {
+      index: 0,
       content: 'test response',
       name: 'Claude',
       functionCalls: [],
     }
 
-    memory.addResult(result)
+    memory.addResponse([result])
 
     const last = memory.getLast()
-    if (!last || last.chat.role !== 'assistant') {
+    if (!last || last.role !== 'assistant') {
       throw new Error('Last message is not a valid assistant message')
     }
-    expect(last.chat.content).toBe(result.content)
-    expect(last.chat.name).toBe(result.name)
+    const chat = last.chat.find((c) => c.index === 0)
+    const assistantValue = chat?.value as { content?: string; name?: string }
+    expect(assistantValue?.content).toBe(result.content)
+    expect(assistantValue?.name).toBe(result.name)
   })
 
   it('rewindToTag should remove and return items from tagged message onwards', () => {
@@ -95,8 +84,8 @@ describe('MemoryImpl', () => {
       content: 'second message',
     }
 
-    memory.add(message1)
-    memory.add(message2)
+    memory.addRequest([message1], 0)
+    memory.addRequest([message2], 0)
     memory.addTag('checkpoint')
 
     const message3 = {
@@ -104,19 +93,28 @@ describe('MemoryImpl', () => {
       content: 'third message',
     }
 
-    memory.add(message3)
+    memory.addRequest([message3], 0)
 
     // Rewind to checkpoint tag
     const removed = memory.rewindToTag('checkpoint')
 
-    // Check returned items
+    // Check returned items - rewindToTag returns raw AxMemoryData structure
     expect(removed).toEqual([
-      { role: 'assistant', content: 'second message' },
-      { role: 'user', content: 'third message' },
+      {
+        role: 'assistant',
+        chat: [
+          { index: 0, value: { role: 'assistant', content: 'second message' } },
+        ],
+        tags: ['checkpoint'],
+      },
+      {
+        role: 'user',
+        chat: [{ index: 0, value: { role: 'user', content: 'third message' } }],
+      },
     ])
 
     // Verify memory state
-    expect(memory.history()).toEqual([
+    expect(memory.history(0)).toEqual([
       { role: 'user', content: 'first message' },
     ])
   })
@@ -125,77 +123,97 @@ describe('MemoryImpl', () => {
     const memory = new MemoryImpl()
 
     // Add messages with and without tags
-    memory.add({ role: 'user', content: 'first message' })
-    memory.add({ role: 'assistant', content: 'second message' })
+    memory.addRequest([{ role: 'user', content: 'first message' }], 0)
+    memory.addRequest([{ role: 'assistant', content: 'second message' }], 0)
     memory.addTag('important')
 
-    memory.add({ role: 'user', content: 'third message' })
-    memory.add({ role: 'assistant', content: 'fourth message' })
+    memory.addRequest([{ role: 'user', content: 'third message' }], 0)
+    memory.addRequest([{ role: 'assistant', content: 'fourth message' }], 0)
     memory.addTag('important')
 
     // Remove items with 'important' tag
     const removed = memory.removeByTag('important')
 
-    // Check removed items
+    // Check removed items - removeByTag returns raw AxMemoryData structure
     expect(removed).toEqual([
-      { role: 'assistant', content: 'second message' },
-      { role: 'assistant', content: 'fourth message' },
+      {
+        role: 'assistant',
+        chat: [
+          { index: 0, value: { role: 'assistant', content: 'second message' } },
+        ],
+        tags: ['important'],
+      },
+      {
+        role: 'assistant',
+        chat: [
+          { index: 0, value: { role: 'assistant', content: 'fourth message' } },
+        ],
+        tags: ['important'],
+      },
     ])
 
     // Verify remaining items
-    expect(memory.history()).toEqual([
+    expect(memory.history(0)).toEqual([
       { role: 'user', content: 'first message' },
       { role: 'user', content: 'third message' },
     ])
   })
 
-  it('removeTaggedItems should throw for unknown tag', () => {
+  it('removeByTag should throw for unknown tag', () => {
     const memory = new MemoryImpl()
     const message = {
       role: 'user' as const,
       content: 'test',
     }
-    memory.add(message)
+    memory.addRequest([message], 0)
 
     expect(() => memory.removeByTag('unknown')).toThrow(
       'No items found with tag "unknown"'
     )
   })
 
-  it('addResult should ignore empty results', () => {
+  it('addResponse should handle empty results', () => {
     const memory = new MemoryImpl()
     const emptyResult: AxChatResponseResult = {
+      index: 0,
       content: '',
       functionCalls: [],
     }
 
-    memory.addResult(emptyResult)
+    memory.addResponse([emptyResult])
 
-    expect(memory.history().length).toBe(1)
+    expect(memory.history(0).length).toBe(1)
   })
 
   it('updateResult should modify last assistant message', () => {
     const memory = new MemoryImpl()
     const initial: AxChatResponseResult = {
+      index: 0,
       content: 'initial response',
       name: 'Claude',
       functionCalls: [],
     }
     const update: AxChatResponseResult = {
+      index: 0,
       content: 'updated response',
       name: 'Claude 2.0',
       functionCalls: [],
     }
 
-    memory.addResult(initial)
+    memory.addResponse([initial])
     memory.updateResult(update)
 
     const last = memory.getLast()
-    if (!last || last.chat.role !== 'assistant') {
+    if (!last || last.role !== 'assistant') {
       throw new Error('Last message is not a valid assistant message')
     }
-    expect(last.chat.content).toBe(update.content)
-    expect(last.chat.name).toBe(update.name)
+    const chat = last.chat.find((c) => c.index === 0)
+    expect((chat?.value as unknown as { content?: string })?.content).toBe(
+      update.content
+    )
+    expect((chat?.value as unknown as { name?: string })?.name).toBe(
+      update.name
+    )
   })
 
   it('updateResult should add new message if last message is not assistant', () => {
@@ -205,16 +223,26 @@ describe('MemoryImpl', () => {
       content: 'test',
     }
     const update: AxChatResponseResult = {
+      index: 0,
       content: 'response',
       name: 'Claude',
       functionCalls: [],
     }
 
-    memory.add(userMessage)
+    memory.addRequest([userMessage], 0)
 
-    expect(() => memory.updateResult(update)).toThrow(
-      'No assistant message to update'
-    )
+    // updateResult doesn't throw when last message is not assistant;
+    // it creates a new assistant message instead
+    memory.updateResult(update)
+
+    const history = memory.history(0)
+    expect(history.length).toBe(2) // user message + new assistant message
+    expect(history[1]).toEqual({
+      role: 'assistant',
+      content: 'response',
+      name: 'Claude',
+      functionCalls: [],
+    })
   })
 
   it('addTag should add tag to last message', () => {
@@ -228,9 +256,9 @@ describe('MemoryImpl', () => {
       content: 'test2',
     }
 
-    memory.add(message1)
+    memory.addRequest([message1], 0)
     memory.addTag('tag1')
-    memory.add(message2)
+    memory.addRequest([message2], 0)
     memory.addTag('tag2')
 
     expect(() => memory.rewindToTag('tag2')).not.toThrow()
@@ -241,7 +269,7 @@ describe('MemoryImpl', () => {
     const memory = new MemoryImpl()
 
     expect(() => memory.addTag('tag')).not.toThrow()
-    expect(memory.history().length).toBe(0)
+    expect(memory.history(0).length).toBe(0)
   })
 
   it('rewindToTag should remove messages including and after tag', () => {
@@ -259,14 +287,14 @@ describe('MemoryImpl', () => {
       content: 'message 3',
     }
 
-    memory.add(message1)
-    memory.add(message2)
+    memory.addRequest([message1], 0)
+    memory.addRequest([message2], 0)
     memory.addTag('checkpoint')
-    memory.add(message3)
+    memory.addRequest([message3], 0)
 
     memory.rewindToTag('checkpoint')
 
-    const history = memory.history()
+    const history = memory.history(0)
     expect(history.length).toBe(1)
     expect(history[0]).toEqual(message1)
   })
@@ -277,7 +305,7 @@ describe('MemoryImpl', () => {
       role: 'user',
       content: 'test',
     }
-    memory.add(message)
+    memory.addRequest([message], 0)
 
     expect(() => memory.rewindToTag('unknown')).toThrow(
       'Tag "unknown" not found'
@@ -290,12 +318,12 @@ describe('MemoryImpl', () => {
       role: 'user',
       content: 'test',
     }
-    memory.add(message)
+    memory.addRequest([message], 0)
     memory.addTag('tag')
 
     memory.reset()
 
-    expect(memory.history().length).toBe(0)
+    expect(memory.history(0).length).toBe(0)
     expect(() => memory.rewindToTag('tag')).toThrow('Tag "tag" not found')
   })
 
@@ -311,9 +339,15 @@ describe('MemoryImpl', () => {
       { role: 'assistant', content: 'message 2', functionCalls: [] },
     ]
 
-    memory.add(messages)
+    memory.addRequest(messages, 0)
 
     const last = memory.getLast()
-    expect(last?.chat).toEqual(messages[1])
+    // getLast returns raw AxMemoryData structure, not a flat message
+    expect(last?.chat).toEqual([
+      {
+        index: 0,
+        value: { role: 'assistant', content: 'message 2', functionCalls: [] },
+      },
+    ])
   })
 })

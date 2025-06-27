@@ -1,5 +1,3 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
 import type {
@@ -10,6 +8,8 @@ import type { AxAIServiceOptions, AxModelInfo } from '../types.js'
 
 import { axModelInfoGrok } from './info.js'
 import { AxAIGrokEmbedModels, AxAIGrokModel } from './types.js'
+
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
 export const axAIGrokDefaultConfig = (): AxAIOpenAIConfig<
   AxAIGrokModel,

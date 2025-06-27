@@ -9,7 +9,7 @@ import { AxMiPRO } from './optimizers/miproV2.js'
 // Mock dependencies
 const mockAI = {
   name: 'mock',
-  chat: async () => ({ results: [{ content: 'mock response' }] }),
+  chat: async () => ({ results: [{ index: 0, content: 'mock response' }] }),
 } as unknown as AxAIService
 
 // Removed unused mockProgram
