@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { AxMockAIService } from '../ai/mock/api.js'
 import type { AxChatResponse, AxFunction } from '../ai/types.js'
+import { AxMemory } from '../mem/memory.js'
 
 import { AxGen } from './generate.js'
 
@@ -438,54 +439,304 @@ describe('AxGen Validation - Function Call Failures', () => {
     )
   })
 
-  // it('should handle function that returns empty result', async () => {
-  //     const emptyFunction: AxFunction = {
-  //         name: 'emptyFunction',
-  //         description: 'A function that returns empty result',
-  //         parameters: {
-  //             type: 'object',
-  //             properties: {
-  //                 input: { type: 'string', description: 'Input parameter' }
-  //             },
-  //             required: ['input']
-  //         },
-  //         func: async () => {
-  //             return ''
-  //         }
-  //     }
+  it('should handle function that returns empty result and add to memory', async () => {
+    const emptyFunction: AxFunction = {
+      name: 'emptyFunction',
+      description: 'A function that returns empty result',
+      parameters: {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Input parameter' },
+        },
+        required: ['input'],
+      },
+      func: async () => {
+        return ''
+      },
+    }
 
-  //     const ai = new AxMockAIService({
-  //         features: { functions: true, streaming: false },
-  //         chatResponse: {
-  //             results: [
-  //                 {
-  //                     index: 0,
-  //                     content: 'Output: Function returned empty result',
-  //                     finishReason: 'stop',
-  //                     functionCalls: [
-  //                         {
-  //                             id: 'call_1',
-  //                             type: 'function',
-  //                             function: { name: 'emptyFunction', params: { input: 'test' } }
-  //                         }
-  //                     ]
-  //                 },
-  //             ],
-  //             modelUsage: {
-  //                 ai: 'test-ai',
-  //                 model: 'test-model',
-  //                 tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-  //             },
-  //         },
-  //     })
+    let callCount = 0
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async () => {
+        callCount++
+        if (callCount === 1) {
+          // First call: provide function call
+          return {
+            results: [
+              {
+                index: 0,
+                content: '',
+                finishReason: 'stop' as const,
+                functionCalls: [
+                  {
+                    id: 'call_1',
+                    type: 'function' as const,
+                    function: {
+                      name: 'emptyFunction',
+                      params: { input: 'test' },
+                    },
+                  },
+                ],
+              },
+            ],
+            modelUsage: {
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 10,
+                completionTokens: 20,
+                totalTokens: 30,
+              },
+            },
+          }
+        } else {
+          // Second call: provide final response
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Assistant Output: Function returned empty result',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: {
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 10,
+                completionTokens: 20,
+                totalTokens: 30,
+              },
+            },
+          }
+        }
+      },
+    })
 
-  //     const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(signature, {
-  //         functions: [emptyFunction]
-  //     })
+    const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
+      signature,
+      {
+        functions: [emptyFunction],
+      }
+    )
 
-  //     const response = await gen.forward(ai, { userQuery: 'test input' })
-  //     expect(response.assistantOutput).toBe('Function returned empty result')
-  // })
+    // Create memory instance to track function calls
+    const memory = new AxMemory()
+
+    const response = await gen.forward(
+      ai,
+      { userQuery: 'test input' },
+      { mem: memory }
+    )
+
+    expect(response.assistantOutput).toBe('Function returned empty result')
+
+    // Check that function result was added to memory with empty string
+    const history = memory.history(0)
+    const functionMessage = history.find((msg) => msg.role === 'function')
+
+    expect(functionMessage).toBeDefined()
+    expect(functionMessage?.functionId).toBe('call_1')
+    expect(functionMessage?.result).toBe('')
+  })
+
+  it('should handle multiple parallel function calls with variety of return values', async () => {
+    const emptyFunction: AxFunction = {
+      name: 'emptyFunction',
+      description: 'Returns empty string',
+      parameters: {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Input parameter' },
+        },
+        required: ['input'],
+      },
+      func: async () => {
+        return ''
+      },
+    }
+
+    const textFunction: AxFunction = {
+      name: 'textFunction',
+      description: 'Returns normal text',
+      parameters: {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Input parameter' },
+        },
+        required: ['input'],
+      },
+      func: async () => {
+        return 'Normal text response'
+      },
+    }
+
+    const jsonFunction: AxFunction = {
+      name: 'jsonFunction',
+      description: 'Returns JSON object',
+      parameters: {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Input parameter' },
+        },
+        required: ['input'],
+      },
+      func: async () => {
+        return { status: 'success', data: [1, 2, 3] }
+      },
+    }
+
+    const nullFunction: AxFunction = {
+      name: 'nullFunction',
+      description: 'Returns null',
+      parameters: {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Input parameter' },
+        },
+        required: ['input'],
+      },
+      func: async () => {
+        return null
+      },
+    }
+
+    let callCount = 0
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async () => {
+        callCount++
+        if (callCount === 1) {
+          // First call: provide multiple function calls in parallel
+          return {
+            results: [
+              {
+                index: 0,
+                content: '',
+                finishReason: 'stop' as const,
+                functionCalls: [
+                  {
+                    id: 'call_1',
+                    type: 'function' as const,
+                    function: {
+                      name: 'emptyFunction',
+                      params: { input: 'test1' },
+                    },
+                  },
+                  {
+                    id: 'call_2',
+                    type: 'function' as const,
+                    function: {
+                      name: 'textFunction',
+                      params: { input: 'test2' },
+                    },
+                  },
+                  {
+                    id: 'call_3',
+                    type: 'function' as const,
+                    function: {
+                      name: 'jsonFunction',
+                      params: { input: 'test3' },
+                    },
+                  },
+                  {
+                    id: 'call_4',
+                    type: 'function' as const,
+                    function: {
+                      name: 'nullFunction',
+                      params: { input: 'test4' },
+                    },
+                  },
+                ],
+              },
+            ],
+            modelUsage: {
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 15,
+                completionTokens: 25,
+                totalTokens: 40,
+              },
+            },
+          }
+        } else {
+          // Second call: provide final response
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Assistant Output: All functions executed successfully',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: {
+              ai: 'test-ai',
+              model: 'test-model',
+              tokens: {
+                promptTokens: 10,
+                completionTokens: 20,
+                totalTokens: 30,
+              },
+            },
+          }
+        }
+      },
+    })
+
+    const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
+      signature,
+      {
+        functions: [emptyFunction, textFunction, jsonFunction, nullFunction],
+      }
+    )
+
+    // Create memory instance to track function calls
+    const memory = new AxMemory()
+
+    const response = await gen.forward(
+      ai,
+      { userQuery: 'test multiple functions' },
+      { mem: memory }
+    )
+
+    expect(response.assistantOutput).toBe('All functions executed successfully')
+
+    // Check that all function results were added to memory
+    const history = memory.history(0)
+    const functionMessages = history.filter((msg) => msg.role === 'function')
+
+    expect(functionMessages).toHaveLength(4)
+
+    // Verify each function result
+    const emptyFunctionMessage = functionMessages.find(
+      (msg) => msg.functionId === 'call_1'
+    )
+    expect(emptyFunctionMessage).toBeDefined()
+    expect(emptyFunctionMessage?.result).toBe('')
+
+    const textFunctionMessage = functionMessages.find(
+      (msg) => msg.functionId === 'call_2'
+    )
+    expect(textFunctionMessage).toBeDefined()
+    expect(textFunctionMessage?.result).toBe('Normal text response')
+
+    const jsonFunctionMessage = functionMessages.find(
+      (msg) => msg.functionId === 'call_3'
+    )
+    expect(jsonFunctionMessage).toBeDefined()
+    expect(jsonFunctionMessage?.result).toBe(
+      '{\n  "status": "success",\n  "data": [\n    1,\n    2,\n    3\n  ]\n}'
+    )
+
+    const nullFunctionMessage = functionMessages.find(
+      (msg) => msg.functionId === 'call_4'
+    )
+    expect(nullFunctionMessage).toBeDefined()
+    expect(nullFunctionMessage?.result).toBe('')
+  })
 
   // it('should handle function that returns null or undefined', async () => {
   //     const nullFunction: AxFunction = {
