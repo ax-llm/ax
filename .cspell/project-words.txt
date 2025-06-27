@@ -113,3 +113,6 @@ Evals
 hypervolume
 axgen
 checkpointing
+camelcasefield
+émojis
+accénts

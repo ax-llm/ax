@@ -1242,6 +1242,30 @@ describe('AxBaseAI Tracing with Token Usage', () => {
     }
     mockServiceImpl.getModelConfig.mockReturnValue(streamingModelConfig)
 
+    // Enable streaming support for this test
+    aiService = new AxBaseAI(
+      mockServiceImpl as AxAIServiceImpl<
+        string,
+        string,
+        AxChatRequest,
+        AxEmbedRequest,
+        AxChatResponse,
+        AxChatResponseResult,
+        AxEmbedResponse
+      >,
+      {
+        name: 'mockAI',
+        apiURL: 'http://localhost',
+        headers: async () => ({}),
+        modelInfo: [{ name: 'test-model' } as AxModelInfo],
+        defaults: { model: 'test-model', embedModel: 'test-embed-model' },
+        supportFor: { functions: false, streaming: true }, // Enable streaming for this test
+        options: {
+          tracer: mockTracer as unknown as AxAIServiceOptions['tracer'],
+        },
+      }
+    )
+
     const serviceProvidedUsage: AxTokenUsage = {
       promptTokens: 12,
       completionTokens: 24,
@@ -1271,7 +1295,10 @@ describe('AxBaseAI Tracing with Token Usage', () => {
       tracer: mockTracer as unknown as AxAIServiceOptions['tracer'],
     })
 
-    mockServiceImpl.createChatStreamResp.mockReturnValue(mockStreamingResponse)
+    // Replace the implementation to always return the response with modelUsage
+    mockServiceImpl.createChatStreamResp.mockImplementation(
+      () => mockStreamingResponse
+    )
 
     const response = await aiService.chat(
       { chatPrompt: [{ role: 'user', content: 'hello' }] },

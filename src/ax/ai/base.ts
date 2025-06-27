@@ -353,6 +353,11 @@ export class AxBaseAI<
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const model = this.getModel(req.model) ?? req.model ?? this.defaults.model
 
+    // Validate chat prompt messages for empty content
+    if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
+      validateAxMessageArray(req.chatPrompt)
+    }
+
     const modelConfig = {
       ...this.aiImpl.getModelConfig(),
       ...req.modelConfig,
@@ -535,11 +540,15 @@ export class AxBaseAI<
           const res = respFn(resp, state)
           res.sessionId = options?.sessionId
 
+          // Only call getTokenUsage if modelUsage is not already provided by the service
           if (!res.modelUsage) {
-            res.modelUsage = {
-              ai: this.name,
-              model: model as string,
-              tokens: this.aiImpl.getTokenUsage(),
+            const tokenUsage = this.aiImpl.getTokenUsage()
+            if (tokenUsage) {
+              res.modelUsage = {
+                ai: this.name,
+                model: model as string,
+                tokens: tokenUsage,
+              }
             }
           }
           this.modelUsage = res.modelUsage
@@ -581,6 +590,7 @@ export class AxBaseAI<
     const res = this.aiImpl.createChatResp(rv as TChatResponse)
     res.sessionId = options?.sessionId
 
+    // Only call getTokenUsage if modelUsage is not already provided by the service
     if (!res.modelUsage) {
       const tokenUsage = this.aiImpl.getTokenUsage()
       if (tokenUsage) {
@@ -717,11 +727,15 @@ export class AxBaseAI<
 
     res.sessionId = options?.sessionId
 
+    // Only call getTokenUsage if modelUsage is not already provided by the service
     if (!res.modelUsage) {
-      res.modelUsage = {
-        ai: this.name,
-        model: embedModel as string,
-        tokens: this.aiImpl.getTokenUsage(),
+      const tokenUsage = this.aiImpl.getTokenUsage()
+      if (tokenUsage) {
+        res.modelUsage = {
+          ai: this.name,
+          model: embedModel as string,
+          tokens: tokenUsage,
+        }
       }
     }
     this.embedModelUsage = res.modelUsage
