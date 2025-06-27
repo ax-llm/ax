@@ -27,7 +27,7 @@
     "tsx": "node --env-file=.env --import=tsx",
     "fix:format": "prettier --write README.md",
     "init-package": "node scripts/initPackage.js",
-            "lint:circular": "eslint src/ax/**/*.ts 2>/dev/null | grep -E '(import/no-cycle|import/no-self-import|Dependency cycle)' || echo 'No circular dependencies found!'"
+    "lint:circular": "eslint src/ax/**/*.ts 2>/dev/null | grep -E '(import/no-cycle|import/no-self-import|Dependency cycle)' || echo 'No circular dependencies found!'"
   },
   "engines": {
     "node": ">=20"
@@ -79,5 +79,5 @@
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
-  "version": "12.0.11"
+  "version": "12.0.12"
 }

@@ -1,5 +1,22 @@
 # Changelog
 
+## [12.0.12](https://github.com/ax-llm/ax/compare/12.0.10...12.0.11) (2025-06-27)
+
+### Features
+
+* rewrite of the streaming parser and memory handling functionality to allow for  sampled outputs and increased stability ([d98cfb4](https://github.com/ax-llm/ax/commit/d98cfb4a7c1efa823985045d44013aaad71798d3))
+* support for multiple sample response streams and non streaming multi sample response ([231ecca](https://github.com/ax-llm/ax/commit/231ecca988907809f6b7de8e691ced518bc0cf0d))
+
+### Bug Fixes
+
+* more test coverage for function calling ([e48cf16](https://github.com/ax-llm/ax/commit/e48cf1667bd05e3d26b97cacdc2b914e1771b05c))
+* various test fixes ([1d6f4e7](https://github.com/ax-llm/ax/commit/1d6f4e71cbb0f3172edff38d65cea5968046923d))
+## [12.0.11](https://github.com/ax-llm/ax/compare/12.0.10...12.0.11) (2025-06-24)
+
+### Bug Fixes
+
+* Empty Function Calls Handling [#254](https://github.com/ax-llm/ax/issues/254) ([0eebda0](https://github.com/ax-llm/ax/commit/0eebda0a3224790199b57668d419e4c194c6538b))
+
 ## [12.0.11](https://github.com/ax-llm/ax/compare/12.0.9...12.0.10) (2025-06-24)
 
 ### Bug Fixes
