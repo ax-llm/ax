@@ -1,5 +1,17 @@
 # Changelog
 
+## [12.0.14](https://github.com/ax-llm/ax/compare/12.0.12...12.0.13) (2025-06-29)
+
+### Features
+
+* enhance AxMiPRO v2 with self-consistency sampling and validation example updates ([4f334a3](https://github.com/ax-llm/ax/commit/4f334a396d9b0f06502729be41b4f28d1df4c206))
+* introduce enhanced MIPRO v2 optimizer with AI-powered instruction generation and Bayesian optimization ([3372f87](https://github.com/ax-llm/ax/commit/3372f875bf9d07c7bbf30b3439cb6d9e84e25b44))
+## [12.0.13](https://github.com/ax-llm/ax/compare/12.0.12...12.0.13) (2025-06-29)
+
+### Features
+
+* add result picker functionality for selecting optimal outputs from multiple samples ([483506a](https://github.com/ax-llm/ax/commit/483506a1941b8762ee3a12bfbcf2010fea53e8c1))
+
 ## [12.0.13](https://github.com/ax-llm/ax/compare/12.0.11...12.0.12) (2025-06-29)
 
 ### Features
