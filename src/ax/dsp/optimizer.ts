@@ -350,17 +350,20 @@ export interface AxMiPROOptimizerOptions {
     | 'upper_confidence_bound'
     | 'probability_improvement'
   explorationWeight?: number
+
+  // New option: number of samples to generate per forward call for self-consistency
+  sampleCount?: number
 }
 
 // Legacy compile options (for backward compatibility)
 export interface AxBootstrapCompileOptions extends AxCompileOptions {
-  valset?: readonly AxExample[]
+  validationExamples?: readonly AxExample[]
   maxDemos?: number
   teacherProgram?: Readonly<AxProgram<AxGenIn, AxGenOut>>
 }
 
 export interface AxMiPROCompileOptions extends AxCompileOptions {
-  valset?: readonly AxExample[]
+  validationExamples?: readonly AxExample[]
   teacher?: Readonly<AxProgram<AxGenIn, AxGenOut>>
   auto?: 'light' | 'medium' | 'heavy'
 

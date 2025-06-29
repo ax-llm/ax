@@ -1,7 +1,5 @@
-import { AxAI } from '@ax-llm/ax'
-import { ax, f } from '@ax-llm/ax'
-import { AxMiPRO } from '@ax-llm/ax'
-import type { AxMetricFn, AxExample } from '@ax-llm/ax'
+import { ax, AxAI, AxAIOpenAIModel, AxMiPRO, f } from '@ax-llm/ax'
+import type { AxExample, AxMetricFn, AxMiPROCompileOptions } from '@ax-llm/ax'
 
 // Example: Enhanced Email Classification with MIPRO v2
 console.log('=== Enhanced MIPRO v2 Demo ===')
@@ -10,13 +8,13 @@ console.log('=== Enhanced MIPRO v2 Demo ===')
 const studentAI = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: 'gpt-4o-mini' }, // Cheaper model for optimization
+  config: { model: AxAIOpenAIModel.GPT4OMini }, // Cheaper model for optimization
 })
 
 const teacherAI = new AxAI({
-  name: 'openai', 
+  name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: 'gpt-4o' }, // More capable model for instruction generation
+  config: { model: AxAIOpenAIModel.GPT4O }, // More capable model for instruction generation
 })
 
 // 2. Create a complex classification program using modern template literals
@@ -30,66 +28,73 @@ export const emailClassifier = ax`
 // 3. Training examples with diverse email types
 const trainingExamples: AxExample[] = [
   {
-    emailText: "URGENT: Server outage affecting all customers. Need immediate response.",
-    category: "urgent",
+    emailText:
+      'URGENT: Server outage affecting all customers. Need immediate response.',
+    category: 'urgent',
     confidence: 0.95,
-    reasoning: "Contains urgent keyword and describes critical system failure"
+    reasoning: 'Contains urgent keyword and describes critical system failure',
   },
   {
-    emailText: "Meeting reminder: Quarterly review tomorrow at 2 PM",
-    category: "important", 
+    emailText: 'Meeting reminder: Quarterly review tomorrow at 2 PM',
+    category: 'important',
     confidence: 0.8,
-    reasoning: "Work-related meeting with time constraint"
+    reasoning: 'Work-related meeting with time constraint',
   },
   {
-    emailText: "Newsletter: 10 tips for better productivity this week",
-    category: "normal",
+    emailText: 'Newsletter: 10 tips for better productivity this week',
+    category: 'normal',
     confidence: 0.7,
-    reasoning: "Informational content, not time-sensitive"
+    reasoning: 'Informational content, not time-sensitive',
   },
   {
     emailText: "You've won $1,000,000! Click here to claim your prize!!!",
-    category: "spam",
+    category: 'spam',
     confidence: 0.98,
-    reasoning: "Classic spam pattern with unrealistic claims and suspicious formatting"
+    reasoning:
+      'Classic spam pattern with unrealistic claims and suspicious formatting',
   },
   {
-    emailText: "Budget approval needed for Q4 marketing campaign by Friday",
-    category: "important",
+    emailText: 'Budget approval needed for Q4 marketing campaign by Friday',
+    category: 'important',
     confidence: 0.85,
-    reasoning: "Business decision with clear deadline"
+    reasoning: 'Business decision with clear deadline',
   },
   {
-    emailText: "RE: Project status update - all milestones on track",
-    category: "normal",
+    emailText: 'RE: Project status update - all milestones on track',
+    category: 'normal',
     confidence: 0.6,
-    reasoning: "Routine project communication"
-  }
+    reasoning: 'Routine project communication',
+  },
 ]
 
 const validationExamples: AxExample[] = [
   {
-    emailText: "CRITICAL: Database corruption detected, backup systems failing",
-    category: "urgent",
+    emailText: 'CRITICAL: Database corruption detected, backup systems failing',
+    category: 'urgent',
     confidence: 0.9,
-    reasoning: "Critical system failure requiring immediate attention"
+    reasoning: 'Critical system failure requiring immediate attention',
   },
   {
-    emailText: "Team lunch next Friday - please confirm attendance",
-    category: "normal", 
+    emailText: 'Team lunch next Friday - please confirm attendance',
+    category: 'normal',
     confidence: 0.6,
-    reasoning: "Social work event, not urgent"
-  }
+    reasoning: 'Social work event, not urgent',
+  },
 ]
 
 // 4. Define evaluation metric
 const classificationMetric: AxMetricFn = ({ prediction, example }) => {
   // Multi-criteria evaluation
   const categoryMatch = prediction.category === example.category ? 1 : 0
-  const confidenceAccuracy = 1 - Math.abs((prediction.confidence || 0.5) - (example.confidence || 0.5))
-  
+  const confidenceAccuracy =
+    1 -
+    Math.abs(
+      ((prediction.confidence as number) || 0.5) -
+        ((example.confidence as number) || 0.5)
+    )
+
   // Weighted score emphasizing category correctness
-  return (categoryMatch * 0.7) + (confidenceAccuracy * 0.3)
+  return categoryMatch * 0.7 + confidenceAccuracy * 0.3
 }
 
 // 5. Create enhanced MIPRO optimizer with all new features
@@ -105,28 +110,28 @@ const optimizer = new AxMiPRO({
     numTrials: 15,
     maxBootstrappedDemos: 3,
     maxLabeledDemos: 2,
-    
+
     // 🆕 Enhanced AI-powered features
-    programAwareProposer: true,  // Analyze program structure
-    dataAwareProposer: true,     // Analyze dataset characteristics  
-    tipAwareProposer: true,      // Use creative instruction tips
-    fewshotAwareProposer: true,  // Consider previous instructions
-    
+    programAwareProposer: true, // Analyze program structure
+    dataAwareProposer: true, // Analyze dataset characteristics
+    tipAwareProposer: true, // Use creative instruction tips
+    fewshotAwareProposer: true, // Consider previous instructions
+
     // 🆕 Bayesian optimization with surrogate model
     bayesianOptimization: true,
     acquisitionFunction: 'expected_improvement', // Smart exploration
     explorationWeight: 0.1,
-    
+
     // 🆕 Adaptive evaluation strategy
     minibatch: true,
     minibatchSize: 20,
     minibatchFullEvalSteps: 5, // Full evaluation every 5 trials
-    
+
     // Performance settings
     earlyStoppingTrials: 4,
     minImprovementThreshold: 0.02,
     verbose: true,
-  }
+  },
 })
 
 // 6. Run the enhanced optimization
@@ -139,9 +144,9 @@ console.log('  ✅ Adaptive minibatch evaluation')
 console.log('  ✅ Surrogate model for efficient exploration\n')
 
 const result = await optimizer.compile(emailClassifier, classificationMetric, {
-  valset: validationExamples,
-  auto: 'medium' // Balanced optimization approach
-})
+  validationExamples: validationExamples,
+  auto: 'medium', // Balanced optimization approach
+} as AxMiPROCompileOptions)
 
 // 7. Display results
 console.log('\n🎯 Optimization Results:')
@@ -158,19 +163,23 @@ if (result.finalConfiguration) {
 // 8. Test the optimized classifier
 if (result.optimizedGen) {
   console.log('\n🧪 Testing Optimized Classifier:')
-  
+
   const testEmails = [
-    "EMERGENCY: Security breach detected in production environment",
-    "Weekly team standup moved to Thursday 10 AM",
-    "Congratulations! You've been selected for our exclusive offer!"
+    'EMERGENCY: Security breach detected in production environment',
+    'Weekly team standup moved to Thursday 10 AM',
+    "Congratulations! You've been selected for our exclusive offer!",
   ]
-  
+
   for (const email of testEmails) {
     try {
-      const classification = await result.optimizedGen.forward(studentAI, { emailText: email })
+      const classification = await result.optimizedGen.forward(studentAI, {
+        emailText: email,
+      })
       console.log(`\n📧 Email: "${email.substring(0, 50)}..."`)
       console.log(`   Category: ${classification.category}`)
-      console.log(`   Confidence: ${classification.confidence?.toFixed(2)}`)
+      console.log(
+        `   Confidence: ${(classification.confidence as number)?.toFixed(2)}`
+      )
       console.log(`   Reasoning: ${classification.reasoning}`)
     } catch (error) {
       console.log(`   Error: ${error}`)
@@ -180,8 +189,10 @@ if (result.optimizedGen) {
 
 console.log('\n✨ Enhanced MIPRO Demo Complete!')
 console.log('\nKey Improvements Demonstrated:')
-console.log('1. AI generates contextual instructions based on program structure')
+console.log(
+  '1. AI generates contextual instructions based on program structure'
+)
 console.log('2. Dataset analysis informs instruction generation')
 console.log('3. Bayesian optimization efficiently explores configuration space')
 console.log('4. Adaptive evaluation balances speed and accuracy')
-console.log('5. Surrogate model predicts performance without full evaluation') 
+console.log('5. Surrogate model predicts performance without full evaluation')

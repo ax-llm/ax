@@ -10,6 +10,7 @@ Our v2 implementation moves beyond simple template-based optimization by integra
 1.  **AI-Powered Instruction Generation**: Using a "teacher" LLM to craft high-quality, context-aware instructions.
 2.  **Bayesian Optimization**: Employing a surrogate model to intelligently and efficiently search the vast configuration space.
 3.  **Adaptive Evaluation**: Using minibatching to balance optimization speed with evaluation accuracy.
+4.  **Self-Consistency (Multi-Sample Voting)**: Requesting multiple completions per prompt (`sampleCount`) and aggregating them (e.g. majority vote) for more robust scoring.
 
 ## How It Works: The Optimization Process
 
@@ -70,6 +71,16 @@ Full evaluations on a large validation set are slow and expensive. `AxMiPRO` emp
 -   **Adaptive Sizing**: It can start with small minibatches and increase their size for more promising configurations or in later stages of optimization.
 -   **Scheduled Full Evaluation**: It periodically runs a full evaluation to get a more accurate score for the leading candidates.
 
+### 4. Self-Consistency with Multiple Samples (`sampleCount`)
+
+Recent research (e.g. "Self-Consistency Improves Chain-of-Thought Reasoning") shows that asking the model for *k* independent samples and then selecting the best one often boosts accuracy. `AxMiPRO v2` now exposes this capability via the **`sampleCount`** option:
+
+*   During evaluation it calls `program.forward()` with `{ sampleCount: k }`.
+*   A lightweight **majority-vote result picker** (`axMajorityVotePicker`) chooses the most frequent answer (ties → first seen).
+*   If `sampleCount === 1` the overhead is zero – the feature is pay-as-you-go.
+
+> **Design note**  `sampleCount` currently lives in `AxMiPROOptimizerOptions` because only MiPRO uses it. In the future it may graduate to the **optimizer-level interface** (`AxOptimizerArgs` / `AxCompileOptions`) so that other optimizers (e.g. Pareto, Bootstrap) can reuse the same mechanism.
+
 ## Usage Example
 
 Here's how to use the enhanced `AxMiPRO` optimizer with its new features.
@@ -117,13 +128,15 @@ const optimizer = new AxMiPRO({
     // Enable adaptive evaluation
     minibatch: true,
     minibatchSize: 20,
+    // Self-consistency: ask for 3 samples and vote
+    sampleCount: 3,
     
     verbose: true
   }
 });
 
 const result = await optimizer.compile(emailClassifier, classificationMetric, {
-  valset: validationExamples
+  validationExamples: validationExamples
 });
 
 // 5. Use the optimized generator
@@ -147,6 +160,7 @@ Based on a recent audit against the MIPRO research paper, here is the current st
 | Data Awareness         | Dataset summarization           | ✅ Sample analysis + summary      | **COMPLETE** |
 | Minibatch Evaluation   | Stochastic + adaptive           | ✅ Adaptive sizing + sampling     | **COMPLETE** |
 | Few-shot Bootstrap     | High-quality demos              | ✅ Advanced bootstrapping         | **COMPLETE** |
+| Self-Consistency       | Multi-sample voting             | ✅ `sampleCount` + majority vote  | **COMPLETE** |
 | **Multi-Module Support**   | Pipeline optimization           | 🔶 Single program only            | **PARTIAL**  |
 | **Meta-Optimization**      | Proposer improvement over time  | ❌ Static approach                | **MISSING**  |
 

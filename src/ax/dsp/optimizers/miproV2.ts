@@ -10,7 +10,11 @@ import {
   type AxOptimizerArgs,
   type AxOptimizerResult,
 } from '../optimizer.js'
-import type { AxProgram, AxProgramDemos } from '../program.js'
+import type {
+  AxProgram,
+  AxProgramDemos,
+  AxResultPickerFunction,
+} from '../program.js'
 import type { AxGenIn, AxGenOut } from '../types.js'
 import { updateProgressBar } from '../util.js'
 
@@ -55,9 +59,13 @@ export class AxMiPRO<
     | 'probability_improvement'
   private explorationWeight: number
 
+  // Self-consistency / multiple sampling
+  private sampleCount: number
+
   // Surrogate model state for Bayesian optimization
   private miproConfigHistory: { config: ConfigType; score: number }[] = []
-  private surrogateModel: Map<string, { mean: number; variance: number }> = new Map()
+  private surrogateModel: Map<string, { mean: number; variance: number }> =
+    new Map()
 
   constructor(
     args: Readonly<AxOptimizerArgs & { options?: AxMiPROOptimizerOptions }>
@@ -87,6 +95,9 @@ export class AxMiPRO<
     this.acquisitionFunction =
       options.acquisitionFunction ?? 'expected_improvement'
     this.explorationWeight = options.explorationWeight ?? 0.1
+
+    // Self-consistency options
+    this.sampleCount = options.sampleCount ?? 1
 
     // Update convergence threshold in stats
     this.stats.convergenceInfo.convergenceThreshold =
@@ -145,10 +156,13 @@ export class AxMiPRO<
   ): Promise<string> {
     // Extract program structure information
     let signature = 'input -> output' // Default fallback
-    if ('getSignature' in program && typeof program.getSignature === 'function') {
+    if (
+      'getSignature' in program &&
+      typeof program.getSignature === 'function'
+    ) {
       signature = program.getSignature()
     }
-    
+
     // Create program summary prompt based on paper's Appendix C.5
     const summaryPrompt = `
 Analyze this language model program and provide a concise summary of its purpose and structure.
@@ -163,9 +177,14 @@ Provide a 2-3 sentence summary focusing on:
 Summary:`
 
     try {
-      const response = await ai.chat({ chatPrompt: [{ role: 'user', content: summaryPrompt }] })
+      const response = await ai.chat({
+        chatPrompt: [{ role: 'user', content: summaryPrompt }],
+      })
       if ('results' in response) {
-        return response.results[0]?.content?.trim() || 'General language model program'
+        return (
+          response.results[0]?.content?.trim() ||
+          'General language model program'
+        )
       }
       return 'General language model program'
     } catch {
@@ -181,16 +200,16 @@ Summary:`
     ai: Readonly<AxAIService>
   ): Promise<string> {
     if (examples.length === 0) return 'No examples available'
-    
+
     // Sample a few examples for analysis (based on paper's approach)
     const sampleSize = Math.min(this.viewDataBatchSize, examples.length)
     const sampledExamples = examples.slice(0, sampleSize)
-    
+
     // Create dataset summary prompt based on paper's Appendix C.3
     const exampleTexts = sampledExamples
       .map((ex, i) => `Example ${i + 1}: ${JSON.stringify(ex)}`)
       .join('\n')
-    
+
     const summaryPrompt = `
 Analyze this dataset and provide a concise summary of its characteristics.
 
@@ -205,7 +224,9 @@ Provide a 2-3 sentence summary focusing on:
 Dataset Summary:`
 
     try {
-      const response = await ai.chat({ chatPrompt: [{ role: 'user', content: summaryPrompt }] })
+      const response = await ai.chat({
+        chatPrompt: [{ role: 'user', content: summaryPrompt }],
+      })
       if ('results' in response) {
         return response.results[0]?.content?.trim() || 'General dataset'
       }
@@ -235,19 +256,19 @@ Dataset Summary:`
   }>): Promise<string> {
     // Build context-aware instruction generation prompt based on paper
     let contextInfo = ''
-    
+
     if (this.programAwareProposer && programSummary) {
       contextInfo += `\nProgram Context: ${programSummary}`
     }
-    
+
     if (this.dataAwareProposer && datasetSummary) {
       contextInfo += `\nDataset Context: ${datasetSummary}`
     }
-    
+
     if (this.fewshotAwareProposer && previousInstructions.length > 0) {
       contextInfo += `\nPrevious Instructions (avoid repeating): ${previousInstructions.slice(-3).join('; ')}`
     }
-    
+
     // Core instruction generation prompt inspired by paper's Appendix C.1
     const instructionPrompt = `
 Generate a high-quality instruction for a language model program.
@@ -268,12 +289,14 @@ Instruction:`
 
     try {
       const response = await ai.chat({
-        chatPrompt: [{ 
-          role: 'user', 
-          content: instructionPrompt,
-        }]
+        chatPrompt: [
+          {
+            role: 'user',
+            content: instructionPrompt,
+          },
+        ],
       })
-      
+
       if ('results' in response) {
         const instruction = response.results[0]?.content?.trim()
         if (instruction && instruction.length > 10) {
@@ -283,11 +306,11 @@ Instruction:`
     } catch (error) {
       if (this.isLoggingEnabled()) {
         this.getLogger()?.(`Failed to generate AI instruction: ${error}`, {
-          tags: ['optimizer', 'warning']
+          tags: ['optimizer', 'warning'],
         })
       }
     }
-    
+
     // Fallback to enhanced templates if AI generation fails
     const enhancedTemplates = [
       'Analyze the input systematically and provide a precise, well-reasoned response.',
@@ -296,13 +319,15 @@ Instruction:`
       'Process the information methodically and deliver a clear, comprehensive response.',
       'Consider the context thoroughly and provide a thoughtful, accurate answer.',
     ]
-    
-    let instruction = enhancedTemplates[candidateIndex % enhancedTemplates.length] || enhancedTemplates[0]!
-    
+
+    let instruction =
+      enhancedTemplates[candidateIndex % enhancedTemplates.length] ||
+      enhancedTemplates[0]!
+
     if (tip) {
       instruction = `${instruction} ${tip}`
     }
-    
+
     return instruction
   }
 
@@ -317,25 +342,25 @@ Instruction:`
   ): Promise<string[]> {
     const instructions: string[] = []
     const aiToUse = this.getTeacherOrStudentAI(options)
-    
+
     // Generate contextual information if enabled
     let programSummary: string | undefined
     let datasetSummary: string | undefined
-    
+
     if (this.programAwareProposer) {
       programSummary = await this.generateProgramSummary(program, aiToUse)
       if (this.isLoggingEnabled(options)) {
         this.getLogger(options)?.(`Program summary: ${programSummary}`, {
-          tags: ['optimizer', 'config']
+          tags: ['optimizer', 'config'],
         })
       }
     }
-    
+
     if (this.dataAwareProposer) {
       datasetSummary = await this.generateDatasetSummary(this.examples, aiToUse)
       if (this.isLoggingEnabled(options)) {
         this.getLogger(options)?.(`Dataset summary: ${datasetSummary}`, {
-          tags: ['optimizer', 'config']
+          tags: ['optimizer', 'config'],
         })
       }
     }
@@ -427,7 +452,7 @@ Instruction:`
     bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[],
     instructions: readonly string[],
-    valset: readonly AxExample[],
+    validationExamples: readonly AxExample[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<{ bestConfig: ConfigType; bestScore: number }> {
@@ -503,7 +528,7 @@ Instruction:`
         config,
         bootstrappedDemos,
         labeledExamples,
-        valset,
+        validationExamples,
         metricFn,
         i + 1 // Pass current trial number for adaptive evaluation
       )
@@ -618,7 +643,7 @@ Instruction:`
     config: Readonly<ConfigType>,
     bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[],
-    valset: readonly AxExample[],
+    validationExamples: readonly AxExample[],
     metricFn: AxMetricFn,
     currentTrial: number = 0
   ): Promise<number> {
@@ -638,30 +663,38 @@ Instruction:`
     let evalSize: number
     if (this.minibatch) {
       // Start with smaller batches and increase for more promising configurations
-      const baseSize = Math.min(this.minibatchSize, valset.length)
-      
+      const baseSize = Math.min(this.minibatchSize, validationExamples.length)
+
       // Use full evaluation for top configurations in later trials
       const isFullEvalTrial = currentTrial % this.minibatchFullEvalSteps === 0
       if (isFullEvalTrial || currentTrial > this.numTrials * 0.8) {
-        evalSize = Math.min(valset.length, baseSize * 2)
+        evalSize = Math.min(validationExamples.length, baseSize * 2)
       } else {
         // Stochastic minibatch evaluation
-        evalSize = Math.max(3, Math.min(baseSize, valset.length))
+        evalSize = Math.max(3, Math.min(baseSize, validationExamples.length))
       }
     } else {
-      evalSize = valset.length
+      evalSize = validationExamples.length
     }
 
     // Randomly sample evaluation examples for stochastic evaluation
-    const evalIndices = this.shuffleArray([...Array(valset.length).keys()])
-      .slice(0, evalSize)
-    const evalSet = evalIndices.map(i => valset[i]!)
+    const evalIndices = this.shuffleArray([
+      ...Array(validationExamples.length).keys(),
+    ]).slice(0, evalSize)
+    const evalSet = evalIndices.map((i) => validationExamples[i]!)
 
     for (const example of evalSet) {
       try {
         const prediction = await testProgram.forward(
           this.studentAI,
-          example as IN
+          example as IN,
+          this.sampleCount > 1
+            ? {
+                sampleCount: this.sampleCount,
+                resultPicker:
+                  axMajorityVotePicker<OUT>() as AxResultPickerFunction<AxGenOut>,
+              }
+            : undefined
         )
         const score = await metricFn({ prediction, example })
         totalScore += score
@@ -731,9 +764,9 @@ Instruction:`
     }
 
     // Use validation set from parent class method
-    const valset =
+    const validationExamples =
       this.getValidationSet(options) ||
-      (miproOptions?.valset ??
+      (miproOptions?.validationExamples ??
         this.examples.slice(0, Math.floor(this.examples.length * 0.2)))
 
     if (this.isLoggingEnabled(options)) {
@@ -742,7 +775,7 @@ Instruction:`
         { tags: ['optimizer', 'start'] }
       )
       this.getLogger(options)?.(
-        `Using ${this.examples.length} examples for training and ${valset.length} for validation`,
+        `Using ${this.examples.length} examples for training and ${validationExamples.length} for validation`,
         { tags: ['optimizer', 'config'] }
       )
       if (this.teacherAI) {
@@ -780,7 +813,10 @@ Instruction:`
     }
 
     // Step 3: Generate instruction candidates
-    const instructions = await this.proposeInstructionCandidates(program, options)
+    const instructions = await this.proposeInstructionCandidates(
+      program,
+      options
+    )
 
     if (this.isLoggingEnabled(options)) {
       this.getLogger(options)?.(
@@ -801,7 +837,7 @@ Instruction:`
       bootstrappedDemos,
       labeledExamples,
       instructions,
-      valset,
+      validationExamples,
       metricFn,
       options
     )
@@ -878,6 +914,7 @@ Instruction:`
         labeledExamples: bestConfig.labeledExamples,
         numCandidates: this.numCandidates,
         numTrials: this.numTrials,
+        sampleCount: this.sampleCount,
       },
     }
   }
@@ -938,6 +975,7 @@ Instruction:`
       bayesianOptimization: this.bayesianOptimization,
       acquisitionFunction: this.acquisitionFunction,
       explorationWeight: this.explorationWeight,
+      sampleCount: this.sampleCount,
     }
   }
 
@@ -972,6 +1010,9 @@ Instruction:`
     }
     if (config.minImprovementThreshold !== undefined) {
       this.minImprovementThreshold = config.minImprovementThreshold as number
+    }
+    if (config.sampleCount !== undefined) {
+      this.sampleCount = config.sampleCount as number
     }
     // Note: verbose is now handled by the base class and cannot be updated here
   }
@@ -1018,8 +1059,8 @@ Instruction:`
     }
 
     // Check if validation set is reasonable for MiPRO
-    const valSetSize = this.getValidationSet().length
-    if (valSetSize < 5) {
+    const validationSetSize = this.getValidationSet().length
+    if (validationSetSize < 5) {
       result.issues.push(
         'Validation set too small for reliable MiPRO optimization'
       )
@@ -1045,24 +1086,29 @@ Instruction:`
   /**
    * Updates the surrogate model with a new configuration-score pair
    */
-  private updateSurrogateModel(config: Readonly<ConfigType>, score: number): void {
+  private updateSurrogateModel(
+    config: Readonly<ConfigType>,
+    score: number
+  ): void {
     this.miproConfigHistory.push({ config: { ...config }, score })
-    
+
     // Simple Gaussian Process approximation for the surrogate model
     const key = this.encodeConfiguration(config)
-    
+
     // Find similar configurations (same instruction length and demo counts)
     const similarConfigs = this.miproConfigHistory.filter(
       (entry) => this.encodeConfiguration(entry.config) === key
     )
-    
+
     if (similarConfigs.length > 0) {
       const scores = similarConfigs.map((entry) => entry.score)
       const mean = scores.reduce((sum, s) => sum + s, 0) / scores.length
-      const variance = scores.length > 1 
-        ? scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / (scores.length - 1)
-        : 0.1 // Default variance for single observation
-      
+      const variance =
+        scores.length > 1
+          ? scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) /
+            (scores.length - 1)
+          : 0.1 // Default variance for single observation
+
       this.surrogateModel.set(key, { mean, variance })
     }
   }
@@ -1070,29 +1116,35 @@ Instruction:`
   /**
    * Predicts performance using the surrogate model
    */
-  private predictPerformance(config: Readonly<ConfigType>): { mean: number; variance: number } {
+  private predictPerformance(config: Readonly<ConfigType>): {
+    mean: number
+    variance: number
+  } {
     const key = this.encodeConfiguration(config)
-    
+
     if (this.surrogateModel.has(key)) {
       return this.surrogateModel.get(key)!
     }
-    
+
     // For unseen configurations, use prior knowledge
     if (this.miproConfigHistory.length > 0) {
       // Find most similar configurations based on demo counts
       const similarities = this.miproConfigHistory.map((entry) => {
-        const diff = Math.abs(entry.config.bootstrappedDemos - config.bootstrappedDemos) +
-                     Math.abs(entry.config.labeledExamples - config.labeledExamples)
+        const diff =
+          Math.abs(entry.config.bootstrappedDemos - config.bootstrappedDemos) +
+          Math.abs(entry.config.labeledExamples - config.labeledExamples)
         return { score: entry.score, similarity: 1 / (1 + diff) }
       })
-      
+
       // Weighted average based on similarity
       const totalWeight = similarities.reduce((sum, s) => sum + s.similarity, 0)
-      const weightedMean = similarities.reduce((sum, s) => sum + s.score * s.similarity, 0) / totalWeight
-      
+      const weightedMean =
+        similarities.reduce((sum, s) => sum + s.score * s.similarity, 0) /
+        totalWeight
+
       return { mean: weightedMean, variance: 0.2 } // Higher variance for unseen configs
     }
-    
+
     // Default prior for completely unknown configurations
     return { mean: 0.5, variance: 0.3 }
   }
@@ -1104,36 +1156,37 @@ Instruction:`
     const prediction = this.predictPerformance(config)
     const { mean, variance } = prediction
     const std = Math.sqrt(variance)
-    
+
     // Current best score
-    const bestScore = this.miproConfigHistory.length > 0
-      ? Math.max(...this.miproConfigHistory.map(entry => entry.score))
-      : 0
-    
+    const bestScore =
+      this.miproConfigHistory.length > 0
+        ? Math.max(...this.miproConfigHistory.map((entry) => entry.score))
+        : 0
+
     switch (this.acquisitionFunction) {
       case 'expected_improvement': {
         const improvement = mean - bestScore
         if (std === 0) return Math.max(0, improvement)
-        
+
         const z = improvement / std
         const phi = 0.5 * (1 + this.erf(z / Math.sqrt(2))) // CDF of standard normal
         const pdfValue = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI) // PDF of standard normal
-        
+
         return improvement * phi + std * pdfValue
       }
-      
+
       case 'upper_confidence_bound': {
         return mean + this.explorationWeight * std
       }
-      
+
       case 'probability_improvement': {
         const improvement = mean - bestScore
         if (std === 0) return improvement > 0 ? 1 : 0
-        
+
         const z = improvement / std
         return 0.5 * (1 + this.erf(z / Math.sqrt(2)))
       }
-      
+
       default:
         return mean
     }
@@ -1144,19 +1197,21 @@ Instruction:`
    */
   private erf(x: number): number {
     // Abramowitz and Stegun approximation
-    const a1 =  0.254829592
+    const a1 = 0.254829592
     const a2 = -0.284496736
-    const a3 =  1.421413741
+    const a3 = 1.421413741
     const a4 = -1.453152027
-    const a5 =  1.061405429
-    const p  =  0.3275911
-    
+    const a5 = 1.061405429
+    const p = 0.3275911
+
     const sign = x >= 0 ? 1 : -1
     x = Math.abs(x)
-    
+
     const t = 1.0 / (1.0 + p * x)
-    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
-    
+    const y =
+      1.0 -
+      ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
+
     return sign * y
   }
 
@@ -1168,14 +1223,16 @@ Instruction:`
     bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[]
   ): Promise<ConfigType> {
-    const candidates: Array<{ config: ConfigType; acquisitionValue: number }> = []
-    
+    const candidates: Array<{ config: ConfigType; acquisitionValue: number }> =
+      []
+
     // Generate candidate configurations
     const numCandidates = Math.min(20, instructions.length * 3) // Reasonable number of candidates
-    
+
     for (let i = 0; i < numCandidates; i++) {
       const config: ConfigType = {
-        instruction: instructions[i % instructions.length] || instructions[0] || '',
+        instruction:
+          instructions[i % instructions.length] || instructions[0] || '',
         bootstrappedDemos: Math.min(
           Math.floor(Math.random() * (bootstrappedDemos.length + 1)),
           this.maxBootstrappedDemos
@@ -1185,15 +1242,51 @@ Instruction:`
           this.maxLabeledDemos
         ),
       }
-      
+
       const acquisitionValue = this.calculateAcquisitionValue(config)
       candidates.push({ config, acquisitionValue })
     }
-    
+
     // Sort by acquisition value (higher is better)
     candidates.sort((a, b) => b.acquisitionValue - a.acquisitionValue)
-    
+
     // Return the most promising configuration
     return candidates[0]!.config
+  }
+}
+
+// ---------------------------------------
+// Helper: Majority-vote result picker for self-consistency
+// ---------------------------------------
+const axMajorityVotePicker = <
+  OUT extends AxGenOut,
+>(): AxResultPickerFunction<OUT> => {
+  // Return a picker function capturing no external state
+  return async (data) => {
+    // If we have field results, do majority vote on stringified payload
+    if (data.type === 'fields') {
+      const counts: Record<string, { count: number; index: number }> = {}
+      for (const { index, sample } of data.results) {
+        const key = JSON.stringify(sample)
+        if (!counts[key]) {
+          counts[key] = { count: 0, index }
+        }
+        counts[key]!.count += 1
+      }
+
+      // Select the sample with highest count (ties -> first seen)
+      let bestKey: string | undefined
+      let bestCount = -1
+      for (const [k, v] of Object.entries(counts)) {
+        if (v.count > bestCount) {
+          bestCount = v.count
+          bestKey = k
+        }
+      }
+      return counts[bestKey!]?.index ?? 0
+    }
+
+    // For function results, fall back to first sample (could be improved)
+    return data.results[0]?.index ?? 0
   }
 }

@@ -116,3 +116,5 @@ checkpointing
 camelcasefield
 émojis
 accénts
+Abramowitz
+Stegun
