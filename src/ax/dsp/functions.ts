@@ -3,6 +3,7 @@ import type {
   AxAIServiceActionOptions,
   AxChatResponseResult,
   AxFunction,
+  AxFunctionResult,
 } from '../ai/types.js'
 import type { AxMemory } from '../mem/memory.js'
 
@@ -213,14 +214,6 @@ export const parseFunctions = (
   return [...(existingFuncs ?? []), ...functions]
 }
 
-type FunctionPromise =
-  | undefined
-  | Promise<{
-      result: string
-      functionId: string
-      index: number
-    }>
-
 type ProcessFunctionsArgs = {
   ai: Readonly<AxAIService>
   functionList: Readonly<AxFunction[]>
@@ -253,7 +246,7 @@ export const processFunctions = async ({
       throw new Error(`Function ${func.name} did not return an ID`)
     }
 
-    const promise: FunctionPromise = funcProc
+    const promise: Promise<AxFunctionResult | undefined> = funcProc
       .execute(func, { sessionId, traceId, ai })
       .then((functionResult) => {
         functionsExecuted.add(func.name.toLowerCase())
@@ -272,64 +265,62 @@ export const processFunctions = async ({
 
         return {
           result: functionResult ?? '',
+          role: 'function' as const,
           functionId: func.id,
           index,
         }
       })
       .catch((e) => {
-        if (e instanceof FunctionError) {
-          const result = e.getFixingInstructions()
-
-          // Add telemetry event for function error
-          if (span) {
-            const errorEventData: {
-              name: string
-              args?: string
-              message: string
-              fixing_instructions?: string
-            } = {
-              name: func.name,
-              message: e.toString(),
-            }
-            if (!excludeContentFromTrace) {
-              errorEventData.args = func.args
-              errorEventData.fixing_instructions = result
-            }
-            span.addEvent('function.error', errorEventData)
-          }
-
-          mem.addFunctionResult(
-            {
-              functionId: func.id,
-              isError: true,
-              index,
-              result,
-            },
-            sessionId
-          )
-          mem.addTag('error', sessionId)
-
-          if (ai.getOptions().debug) {
-            const logger = ai.getLogger()
-            logger(`❌ Function Error Correction:\n${result}`, {
-              tags: ['error'],
-            })
-          }
-        } else {
+        if (!(e instanceof FunctionError)) {
           throw e
         }
-      }) as FunctionPromise
+        const result = e.getFixingInstructions()
+
+        // Add telemetry event for function error
+        if (span) {
+          const errorEventData: {
+            name: string
+            args?: string
+            message: string
+            fixing_instructions?: string
+          } = {
+            name: func.name,
+            message: e.toString(),
+          }
+          if (!excludeContentFromTrace) {
+            errorEventData.args = func.args
+            errorEventData.fixing_instructions = result
+          }
+          span.addEvent('function.error', errorEventData)
+        }
+
+        if (ai.getOptions().debug) {
+          const logger = ai.getLogger()
+          logger(`❌ Function Error Correction:\n${result}`, {
+            tags: ['error'],
+          })
+        }
+
+        return {
+          functionId: func.id,
+          isError: true,
+          index,
+          result,
+          role: 'function' as const,
+        }
+      })
 
     return promise
   })
 
   // Wait for all promises to resolve
   const results = await Promise.all(promises)
+  const functionResults = results.filter((result) => result !== undefined)
 
-  for (const result of results) {
-    if (result) {
-      mem.addFunctionResult(result, sessionId)
-    }
+  mem.addFunctionResults(functionResults, sessionId)
+
+  if (functionResults.some((result) => result.isError)) {
+    mem.addTag('error', sessionId)
   }
 
   return functionsExecuted

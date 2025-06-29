@@ -1,4 +1,8 @@
-import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
+import type {
+  AxChatRequest,
+  AxChatResponseResult,
+  AxFunctionResult,
+} from '../ai/types.js'
 
 export type AxMemoryData = {
   tags?: string[]
@@ -22,18 +26,8 @@ export interface AxAIMemory {
     sessionId?: string
   ): void
 
-  addFunctionResult(
-    {
-      functionId,
-      isError,
-      index,
-      result,
-    }: Readonly<{
-      functionId: string
-      isError: boolean
-      index: number
-      result: Readonly<string>
-    }>,
+  addFunctionResults(
+    results: Readonly<AxFunctionResult[]>,
     sessionId?: string
   ): void
 

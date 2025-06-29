@@ -31,6 +31,29 @@ export type AxProgramExamples<IN extends AxGenIn, OUT extends AxGenOut> =
   | AxProgramDemos<IN, OUT>
   | AxProgramDemos<IN, OUT>['traces']
 
+export type AxResultPickerFunctionFieldResults<OUT extends AxGenOut> = {
+  type: 'fields'
+  results: readonly { index: number; sample: Partial<OUT> }[]
+}
+
+export type AxResultPickerFunctionFunctionResults = {
+  type: 'function'
+  results: readonly {
+    index: number
+    functionName: string
+    functionId: string
+    args: string | object
+    result: string
+    isError?: boolean
+  }[]
+}
+
+export type AxResultPickerFunction<OUT extends AxGenOut> = (
+  data:
+    | AxResultPickerFunctionFieldResults<OUT>
+    | AxResultPickerFunctionFunctionResults
+) => number | Promise<number>
+
 export type AxProgramForwardOptions = {
   // Execution control
   maxRetries?: number
@@ -51,6 +74,7 @@ export type AxProgramForwardOptions = {
   // Streaming and output
   stream?: boolean
   sampleCount?: number
+  resultPicker?: AxResultPickerFunction<AxGenOut>
 
   // Functions and calls
   functions?: AxInputFunctionType

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
+import type {
+  AxChatRequest,
+  AxChatResponseResult,
+  AxFunctionResult,
+} from '../ai/types.js'
 
-import { MemoryImpl } from './memory.js'
+import { AxMemory, MemoryImpl } from './memory.js'
 
 describe('MemoryImpl', () => {
   it('constructor should accept options object', () => {
@@ -349,5 +353,474 @@ describe('MemoryImpl', () => {
         value: { role: 'assistant', content: 'message 2', functionCalls: [] },
       },
     ])
+  })
+
+  // New tests for missing coverage
+  it('addFunctionResults should append to existing function message', () => {
+    const memory = new MemoryImpl()
+    // First add a non-function message to set up the condition
+    const userMessage: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test',
+    }
+    memory.addRequest([userMessage], 0)
+
+    // Add first function result - this creates a new function entry
+    const functionResults1: AxFunctionResult[] = [
+      { index: 0, role: 'function', result: 'result1', functionId: 'func1' },
+    ]
+    memory.addFunctionResults(functionResults1)
+
+    // Add second function result - this should append to existing function entry
+    const functionResults2: AxFunctionResult[] = [
+      { index: 0, role: 'function', result: 'result2', functionId: 'func2' },
+    ]
+    memory.addFunctionResults(functionResults2)
+
+    const last = memory.getLast()
+    expect(last?.role).toBe('function')
+    expect(last?.chat).toHaveLength(2)
+    expect(last?.chat[0]!.value).toEqual({
+      role: 'function',
+      result: 'result1',
+      functionId: 'func1',
+    })
+    expect(last?.chat[1]!.value).toEqual({
+      role: 'function',
+      result: 'result2',
+      functionId: 'func2',
+    })
+  })
+
+  it('addFunctionResults should create new function entry when last message is not function', () => {
+    const memory = new MemoryImpl()
+    const userMessage: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test message',
+    }
+    const functionResults: AxFunctionResult[] = [
+      { index: 0, role: 'function', result: 'result1', functionId: 'func1' },
+    ]
+
+    memory.addRequest([userMessage], 0)
+    memory.addFunctionResults(functionResults)
+
+    const history = memory.history(0)
+    expect(history).toHaveLength(2)
+    expect(history[1]).toEqual({
+      role: 'function',
+      result: 'result1',
+      functionId: 'func1',
+    })
+  })
+
+  it('updateResult should add new chat entry when index does not exist', () => {
+    const memory = new MemoryImpl()
+    const initial: AxChatResponseResult = {
+      index: 0,
+      content: 'initial response',
+      functionCalls: [],
+    }
+    const newIndexUpdate: AxChatResponseResult = {
+      index: 1,
+      content: 'new index response',
+      functionCalls: [],
+    }
+
+    memory.addResponse([initial])
+    memory.updateResult(newIndexUpdate)
+
+    const last = memory.getLast()
+    if (!last || last.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
+    }
+    expect(last.chat).toHaveLength(2)
+    expect(last.chat.find((c) => c.index === 1)?.value).toEqual({
+      content: 'new index response',
+      name: undefined,
+      functionCalls: [],
+    })
+  })
+
+  it('updateResult should not update content when empty or whitespace', () => {
+    const memory = new MemoryImpl()
+    const initial: AxChatResponseResult = {
+      index: 0,
+      content: 'initial content',
+      functionCalls: [],
+    }
+
+    memory.addResponse([initial])
+    memory.updateResult({ index: 0, content: '', functionCalls: [] })
+    memory.updateResult({ index: 0, content: '   ', functionCalls: [] })
+
+    const last = memory.getLast()
+    if (!last || last.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
+    }
+    const chat = last.chat.find((c) => c.index === 0)
+    expect((chat?.value as { content?: string })?.content).toBe(
+      'initial content'
+    )
+  })
+
+  it('updateResult should not update name when empty or whitespace', () => {
+    const memory = new MemoryImpl()
+    const initial: AxChatResponseResult = {
+      index: 0,
+      content: 'test',
+      name: 'Initial Name',
+      functionCalls: [],
+    }
+
+    memory.addResponse([initial])
+    memory.updateResult({
+      index: 0,
+      content: 'test',
+      name: '',
+      functionCalls: [],
+    })
+    memory.updateResult({
+      index: 0,
+      content: 'test',
+      name: '   ',
+      functionCalls: [],
+    })
+
+    const last = memory.getLast()
+    if (!last || last.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
+    }
+    const chat = last.chat.find((c) => c.index === 0)
+    expect((chat?.value as { name?: string })?.name).toBe('Initial Name')
+  })
+
+  it('updateResult should not update functionCalls when empty array', () => {
+    const memory = new MemoryImpl()
+    const initial: AxChatResponseResult = {
+      index: 0,
+      content: 'test',
+      functionCalls: [
+        {
+          id: 'func1',
+          type: 'function',
+          function: { name: 'test', params: {} },
+        },
+      ],
+    }
+
+    memory.addResponse([initial])
+    memory.updateResult({ index: 0, content: 'test', functionCalls: [] })
+
+    const last = memory.getLast()
+    if (!last || last.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
+    }
+    const chat = last.chat.find((c) => c.index === 0)
+    expect(
+      (chat?.value as { functionCalls?: unknown[] })?.functionCalls
+    ).toEqual([
+      { id: 'func1', type: 'function', function: { name: 'test', params: {} } },
+    ])
+  })
+
+  it('addTag should not add duplicate tags', () => {
+    const memory = new MemoryImpl()
+    const message: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test message',
+    }
+
+    memory.addRequest([message], 0)
+    memory.addTag('duplicate')
+    memory.addTag('duplicate')
+    memory.addTag('different')
+
+    const last = memory.getLast()
+    expect(last?.tags).toEqual(['duplicate', 'different'])
+  })
+
+  it('addTag should work when tags array already exists', () => {
+    const memory = new MemoryImpl()
+    const message: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test message',
+    }
+
+    memory.addRequest([message], 0)
+    memory.addTag('first')
+    memory.addTag('second')
+
+    const last = memory.getLast()
+    expect(last?.tags).toEqual(['first', 'second'])
+  })
+
+  it('history should handle function role messages correctly', () => {
+    const memory = new MemoryImpl()
+    const userMessage: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test',
+    }
+    const functionResults: AxFunctionResult[] = [
+      { index: 0, role: 'function', result: 'result1', functionId: 'func1' },
+      { index: 0, role: 'function', result: 'result2', functionId: 'func2' },
+    ]
+
+    memory.addRequest([userMessage], 0)
+    memory.addFunctionResults(functionResults)
+
+    const history = memory.history(0)
+    expect(history).toHaveLength(3)
+    expect(history[1]).toEqual({
+      role: 'function',
+      result: 'result1',
+      functionId: 'func1',
+    })
+    expect(history[2]).toEqual({
+      role: 'function',
+      result: 'result2',
+      functionId: 'func2',
+    })
+  })
+
+  it('history should return empty when no matching index found', () => {
+    const memory = new MemoryImpl()
+    const message: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test message',
+    }
+
+    memory.addRequest([message], 0)
+
+    const history = memory.history(999) // Non-existent index
+    expect(history).toEqual([])
+  })
+
+  it('updateResult should handle missing chat value properties', () => {
+    const memory = new MemoryImpl()
+    const initial: AxChatResponseResult = {
+      index: 0,
+      content: 'test',
+      functionCalls: [],
+    }
+
+    memory.addResponse([initial])
+
+    // Try to update name when it doesn't exist in chat.value
+    memory.updateResult({ index: 0, name: 'New Name', functionCalls: [] })
+
+    const last = memory.getLast()
+    if (!last || last.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
+    }
+    const chat = last.chat.find((c) => c.index === 0)
+    // Should not add name property since it wasn't in the original value
+    expect('name' in (chat?.value as object)).toBe(false)
+  })
+
+  it('history should handle different index filtering for function vs non-function roles', () => {
+    const memory = new MemoryImpl()
+    const userMessage: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test',
+    }
+    const functionResults: AxFunctionResult[] = [
+      { index: 0, role: 'function', result: 'result1', functionId: 'func1' },
+      { index: 1, role: 'function', result: 'result2', functionId: 'func2' },
+    ]
+
+    memory.addRequest([userMessage], 0)
+    memory.addFunctionResults(functionResults)
+
+    // Index 0 should get user message + func1
+    const history0 = memory.history(0)
+    expect(history0).toHaveLength(2)
+    expect(history0[0]!.role).toBe('user')
+    expect(history0[1]).toEqual({
+      role: 'function',
+      result: 'result1',
+      functionId: 'func1',
+    })
+
+    // Index 1 should get only func2
+    const history1 = memory.history(1)
+    expect(history1).toHaveLength(1)
+    expect(history1[0]).toEqual({
+      role: 'function',
+      result: 'result2',
+      functionId: 'func2',
+    })
+  })
+})
+
+describe('AxMemory', () => {
+  it('should handle sessionId operations independently', () => {
+    const memory = new AxMemory()
+    const message1: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'session1 message',
+    }
+    const message2: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'session2 message',
+    }
+
+    memory.addRequest([message1], 'session1')
+    memory.addRequest([message2], 'session2')
+
+    const history1 = memory.history(0, 'session1')
+    const history2 = memory.history(0, 'session2')
+
+    expect(history1).toHaveLength(1)
+    expect((history1[0] as { content?: string }).content).toBe(
+      'session1 message'
+    )
+    expect(history2).toHaveLength(1)
+    expect((history2[0] as { content?: string }).content).toBe(
+      'session2 message'
+    )
+  })
+
+  it('should isolate different sessions', () => {
+    const memory = new AxMemory()
+    const message: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test message',
+    }
+
+    memory.addRequest([message], 'session1')
+    memory.addTag('tag1', 'session1')
+    memory.reset('session1')
+
+    // session1 should be empty, but default session should be unaffected
+    expect(memory.history(0, 'session1')).toEqual([])
+    expect(() => memory.rewindToTag('tag1', 'session1')).toThrow(
+      'Tag "tag1" not found'
+    )
+  })
+
+  it('should handle reset with sessionId vs no sessionId differently', () => {
+    const memory = new AxMemory()
+    const message1: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'default session',
+    }
+    const message2: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'named session',
+    }
+
+    memory.addRequest([message1]) // default session
+    memory.addRequest([message2], 'session1')
+
+    // Reset only named session
+    memory.reset('session1')
+
+    expect(memory.history(0)).toHaveLength(1) // default session unchanged
+    expect(memory.history(0, 'session1')).toHaveLength(0) // named session reset
+
+    // Reset default session
+    memory.reset()
+
+    expect(memory.history(0)).toHaveLength(0) // default session now reset
+  })
+
+  it('should handle all methods with sessionId parameter', () => {
+    const memory = new AxMemory()
+    const userMessage: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test',
+    }
+    const response: AxChatResponseResult = {
+      index: 0,
+      content: 'response',
+      functionCalls: [],
+    }
+    const functionResult: AxFunctionResult = {
+      index: 0,
+      role: 'function',
+      result: 'result',
+      functionId: 'func1',
+    }
+
+    // Test all methods with sessionId
+    memory.addRequest([userMessage], 'test-session')
+    memory.addResponse([response], 'test-session')
+    memory.addFunctionResults([functionResult], 'test-session')
+    memory.updateResult(
+      { index: 0, content: 'updated', functionCalls: [] },
+      'test-session'
+    )
+    memory.addTag('test-tag', 'test-session')
+
+    const history = memory.history(0, 'test-session')
+    expect(history).toHaveLength(4) // user + assistant + function + updated assistant
+
+    const last = memory.getLast('test-session')
+    expect(last?.role).toBe('assistant') // updateResult created a new assistant message
+
+    const removed = memory.rewindToTag('test-tag', 'test-session')
+    expect(removed).toHaveLength(1) // only the tagged assistant message is removed
+  })
+
+  it('should work with debug options', () => {
+    const memory = new AxMemory({ debug: true, debugHideSystemPrompt: true })
+    const message: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test message',
+    }
+
+    // Should not throw with debug enabled
+    expect(() => memory.addRequest([message])).not.toThrow()
+  })
+})
+
+describe('MemoryImpl Debug Logging', () => {
+  it('should handle debug logging when debug option is true', () => {
+    const memory = new MemoryImpl({ debug: true })
+    const message: AxChatRequest['chatPrompt'][0] = {
+      role: 'user',
+      content: 'test message',
+    }
+    const response: AxChatResponseResult = {
+      index: 0,
+      content: 'test response',
+      functionCalls: [],
+    }
+
+    // These should not throw when debug is enabled
+    expect(() => memory.addRequest([message], 0)).not.toThrow()
+    expect(() => memory.addResponse([response])).not.toThrow()
+  })
+
+  it('should handle debug logging for updateResult with delta vs content paths', () => {
+    const memory = new MemoryImpl({ debug: true })
+
+    // Test delta path
+    expect(() =>
+      memory.updateResult({
+        index: 0,
+        content: 'test',
+        functionCalls: [],
+        delta: 'delta content',
+      })
+    ).not.toThrow()
+
+    // Test content path (no delta)
+    expect(() =>
+      memory.updateResult({
+        index: 0,
+        content: 'test content',
+        functionCalls: [],
+      })
+    ).not.toThrow()
+
+    // Test neither delta nor content (should not log)
+    expect(() =>
+      memory.updateResult({
+        index: 0,
+        functionCalls: [],
+      })
+    ).not.toThrow()
   })
 })

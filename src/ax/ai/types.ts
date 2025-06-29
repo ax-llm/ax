@@ -81,6 +81,11 @@ export type AxFunction = {
   func: AxFunctionHandler
 }
 
+export type AxFunctionResult = Extract<
+  AxChatRequest['chatPrompt'][number],
+  { role: 'function' }
+> & { index: number }
+
 export type AxChatResponseResult = {
   index: number
   content?: string

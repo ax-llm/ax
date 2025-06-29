@@ -4,7 +4,11 @@ import {
   logResponseDelta,
   logResponseResult,
 } from '../ai/debug.js'
-import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
+import type {
+  AxChatRequest,
+  AxChatResponseResult,
+  AxFunctionResult,
+} from '../ai/types.js'
 import {
   axValidateChatRequestMessage,
   axValidateChatResponseResult,
@@ -38,16 +42,27 @@ export class MemoryImpl {
     }
   }
 
-  addResponse(results: Readonly<AxChatResponseResult[]>): void {
-    const chat = results.map((result) => ({
-      index: result.index,
-      value: structuredClone(result),
+  addFunctionResults(results: Readonly<AxFunctionResult[]>): void {
+    const chat = results.map(({ index, ...value }) => ({
+      index,
+      value: structuredClone(value),
     }))
 
-    this.data.push({
-      role: 'assistant',
-      chat,
-    })
+    const lastItem = this.getLast()
+    if (lastItem?.role === 'function') {
+      lastItem.chat.push(...chat)
+    } else {
+      this.data.push({ role: 'function', chat })
+    }
+  }
+
+  addResponse(results: Readonly<AxChatResponseResult[]>): void {
+    const chat = results.map(({ index, ...value }) => ({
+      index,
+      value: structuredClone(value),
+    }))
+
+    this.data.push({ role: 'assistant', chat })
 
     if (this.options?.debug) {
       for (const result of results) {
@@ -168,11 +183,25 @@ export class MemoryImpl {
     const result: AxChatRequest['chatPrompt'] = []
 
     for (const { role, chat } of this.data) {
-      const value = chat.find((v) => v.index === index)?.value
-      if (value) {
-        result.push({ role, ...value } as AxChatRequest['chatPrompt'][number])
+      let values
+
+      if (role === 'function') {
+        values = chat.filter((v) => v.index === index).map((v) => v.value)
+      } else {
+        values = chat.find((v) => v.index === index)?.value
+      }
+
+      if (Array.isArray(values)) {
+        result.push(
+          ...values.map(
+            (v) => ({ ...v, role }) as AxChatRequest['chatPrompt'][number]
+          )
+        )
+      } else if (values) {
+        result.push({ ...values, role } as AxChatRequest['chatPrompt'][number])
       }
     }
+
     return result
   }
 
@@ -225,31 +254,11 @@ export class AxMemory implements AxAIMemory {
     this.getMemory(sessionId).addResponse(results)
   }
 
-  addFunctionResult(
-    {
-      functionId,
-      isError,
-      index,
-      result,
-    }: Readonly<{
-      functionId: string
-      isError?: boolean
-      index: number
-      result: Readonly<string>
-    }>,
+  addFunctionResults(
+    results: Readonly<AxFunctionResult[]>,
     sessionId?: string
   ): void {
-    const functionMessage = {
-      role: 'function' as const,
-      functionId,
-      isError,
-      result,
-    }
-
-    // Validate the function message before adding
-    axValidateChatRequestMessage(functionMessage)
-
-    this.getMemory(sessionId).addRequest([functionMessage], index)
+    this.getMemory(sessionId).addFunctionResults(results)
   }
 
   updateResult(

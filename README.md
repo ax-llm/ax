@@ -140,8 +140,7 @@ By default, Ax enforces strict naming rules for signature fields. To allow gener
 
 ## LLMs Supported
 
-`Google Gemini`, `OpenAI`, `Azure OpenAI`, `Anthropic`, `X Grok`, `TogetherAI`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`, `Reka`,
-`Hugging Face`
+`Google Gemini`, `OpenAI`, `OpenAI Responses`, `Azure OpenAI`, `Anthropic`, `X Grok`, `TogetherAI`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`, `Reka`, `Hugging Face`
 
 ## Install
 
@@ -1084,6 +1083,8 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [debug-logging.ts](https://github.com/ax-llm/ax/blob/main/src/examples/debug-logging.ts)        | Debug and custom logging examples with different loggers |
 | [function.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function.ts)             | Simple single function calling example                  |
 | [food-search.ts](https://github.com/ax-llm/ax/blob/main/src/examples/food-search.ts)          | Multi-step, multi-function calling example              |
+| [result-picker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/result-picker.ts)        | Select best result from multiple field-based samples    |
+| [function-result-picker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function-result-picker.ts) | Advanced result selection based on function execution   |
 | [marketing.ts](https://github.com/ax-llm/ax/blob/main/src/examples/marketing.ts)            | Generate short effective marketing sms messages         |
 | [vectordb.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vectordb.ts)             | Chunk, embed and search text                            |
 | [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)            | Use the JS code interpreter to compute fibonacci        |

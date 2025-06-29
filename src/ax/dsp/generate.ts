@@ -40,9 +40,11 @@ import {
   type AxProgramForwardOptions,
   type AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
+  type AxResultPickerFunction,
   type AxSetExamplesOptions,
 } from './program.js'
 import { AxPromptTemplate } from './prompt.js'
+import { selectFromSamples, selectFromSamplesInMemory } from './samples.js'
 import type { AxIField, AxSignature } from './sig.js'
 import type {
   AxGenIn,
@@ -223,7 +225,14 @@ export class AxGen<
       showThoughts,
     } = options ?? {}
 
-    const chatPrompt = mem?.history(0, sessionId) ?? []
+    // Use selectFromSamplesInMemory to choose the best sample before getting history
+    const selectedIndex = await selectFromSamplesInMemory<OUT>(mem, sessionId, {
+      resultPicker: options?.resultPicker as
+        | AxResultPickerFunction<OUT>
+        | undefined,
+    })
+
+    const chatPrompt = mem?.history(selectedIndex, sessionId) ?? []
 
     if (chatPrompt.length === 0) {
       throw new Error('No chat prompt found')
@@ -246,6 +255,9 @@ export class AxGen<
     const modelConfig = {
       ...options?.modelConfig,
       ...(options?.sampleCount ? { n: options.sampleCount } : {}),
+      ...(options?.sampleCount && options?.modelConfig?.temperature == 1
+        ? { temperature: 0.8 }
+        : {}),
     }
 
     const res = await ai.chat(
@@ -612,7 +624,21 @@ export class AxGen<
       buffer = mergeDeltas<OUT>(buffer, delta)
     }
 
-    const result = buffer[0]?.delta ?? {}
+    // Use result picker to select from multiple samples
+    const selectedIndex = await selectFromSamples(
+      buffer,
+      {
+        resultPicker: options?.resultPicker as
+          | AxResultPickerFunction<OUT>
+          | undefined,
+      },
+      // Pass memory to enable function result selection
+      options?.mem,
+      options?.sessionId
+    )
+
+    const selectedResult = buffer[selectedIndex]
+    const result = selectedResult?.delta ?? {}
     this.trace = { ...values, ...result } as unknown as OUT
 
     return result as unknown as OUT
@@ -623,10 +649,54 @@ export class AxGen<
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
-    yield* this._forward1(ai, values, {
+    // If no result picker, use normal streaming
+    if (!options?.resultPicker) {
+      yield* this._forward1(ai, values, {
+        ...options,
+        stream: true,
+      })
+      return
+    }
+
+    // For result picker, we need to buffer all results first
+    const generator = this._forward1(ai, values, {
       ...options,
       stream: true,
     })
+
+    let buffer: AxGenDeltaOut<OUT>[] = []
+    let currentVersion = 0
+
+    for await (const delta of generator) {
+      if (delta.version !== currentVersion) {
+        buffer = []
+      }
+      currentVersion = delta.version
+      buffer = mergeDeltas<OUT>(buffer, delta)
+    }
+
+    // Use result picker to select from samples
+    const selectedIndex = await selectFromSamples(
+      buffer,
+      {
+        resultPicker: options?.resultPicker as
+          | AxResultPickerFunction<OUT>
+          | undefined,
+      },
+      // Pass memory to enable function result selection
+      options?.mem,
+      options?.sessionId
+    )
+
+    // Yield the selected result
+    const selectedResult = buffer[selectedIndex]
+    if (selectedResult) {
+      yield {
+        version: currentVersion,
+        index: selectedIndex,
+        delta: selectedResult.delta,
+      }
+    }
   }
 
   public override setExamples(
