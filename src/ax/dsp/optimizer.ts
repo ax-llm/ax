@@ -1407,16 +1407,6 @@ export abstract class AxBaseOptimizer<
       return this.logger
     }
 
-    // Try to get logger from AI service
-    try {
-      const aiLogger = this.studentAI.getLogger()
-      if (aiLogger) {
-        return aiLogger
-      }
-    } catch {
-      // AI service might not be available or might not have a logger
-    }
-
     // Fall back to default optimizer logger
     return axDefaultOptimizerLogger
   }

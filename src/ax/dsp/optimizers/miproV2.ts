@@ -55,6 +55,10 @@ export class AxMiPRO<
     | 'probability_improvement'
   private explorationWeight: number
 
+  // Surrogate model state for Bayesian optimization
+  private miproConfigHistory: { config: ConfigType; score: number }[] = []
+  private surrogateModel: Map<string, { mean: number; variance: number }> = new Map()
+
   constructor(
     args: Readonly<AxOptimizerArgs & { options?: AxMiPROOptimizerOptions }>
   ) {
@@ -133,63 +137,230 @@ export class AxMiPRO<
   }
 
   /**
-   * Generates instruction candidates using the teacher model if available
+   * Generates program summary for context-aware instruction generation
+   */
+  private async generateProgramSummary(
+    program: Readonly<AxProgram<IN, OUT>>,
+    ai: Readonly<AxAIService>
+  ): Promise<string> {
+    // Extract program structure information
+    let signature = 'input -> output' // Default fallback
+    if ('getSignature' in program && typeof program.getSignature === 'function') {
+      signature = program.getSignature()
+    }
+    
+    // Create program summary prompt based on paper's Appendix C.5
+    const summaryPrompt = `
+Analyze this language model program and provide a concise summary of its purpose and structure.
+
+Program Signature: ${signature}
+
+Provide a 2-3 sentence summary focusing on:
+1. The main task or purpose of this program
+2. The input-output relationship
+3. Any special constraints or requirements
+
+Summary:`
+
+    try {
+      const response = await ai.chat({ chatPrompt: [{ role: 'user', content: summaryPrompt }] })
+      if ('results' in response) {
+        return response.results[0]?.content?.trim() || 'General language model program'
+      }
+      return 'General language model program'
+    } catch {
+      return 'General language model program'
+    }
+  }
+
+  /**
+   * Generates dataset summary for context-aware instruction generation
+   */
+  private async generateDatasetSummary(
+    examples: readonly AxExample[],
+    ai: Readonly<AxAIService>
+  ): Promise<string> {
+    if (examples.length === 0) return 'No examples available'
+    
+    // Sample a few examples for analysis (based on paper's approach)
+    const sampleSize = Math.min(this.viewDataBatchSize, examples.length)
+    const sampledExamples = examples.slice(0, sampleSize)
+    
+    // Create dataset summary prompt based on paper's Appendix C.3
+    const exampleTexts = sampledExamples
+      .map((ex, i) => `Example ${i + 1}: ${JSON.stringify(ex)}`)
+      .join('\n')
+    
+    const summaryPrompt = `
+Analyze this dataset and provide a concise summary of its characteristics.
+
+Sample Examples:
+${exampleTexts}
+
+Provide a 2-3 sentence summary focusing on:
+1. The type of data and domain
+2. Common patterns or structures in the examples
+3. Key challenges or requirements for processing this data
+
+Dataset Summary:`
+
+    try {
+      const response = await ai.chat({ chatPrompt: [{ role: 'user', content: summaryPrompt }] })
+      if ('results' in response) {
+        return response.results[0]?.content?.trim() || 'General dataset'
+      }
+      return 'General dataset'
+    } catch {
+      return 'General dataset'
+    }
+  }
+
+  /**
+   * Enhanced instruction generation using AI with program and data awareness
+   */
+  private async generateInstruction({
+    tip,
+    candidateIndex,
+    ai,
+    programSummary,
+    datasetSummary,
+    previousInstructions = [],
+  }: Readonly<{
+    tip: string | undefined
+    candidateIndex: number
+    ai: Readonly<AxAIService>
+    programSummary?: string
+    datasetSummary?: string
+    previousInstructions?: string[]
+  }>): Promise<string> {
+    // Build context-aware instruction generation prompt based on paper
+    let contextInfo = ''
+    
+    if (this.programAwareProposer && programSummary) {
+      contextInfo += `\nProgram Context: ${programSummary}`
+    }
+    
+    if (this.dataAwareProposer && datasetSummary) {
+      contextInfo += `\nDataset Context: ${datasetSummary}`
+    }
+    
+    if (this.fewshotAwareProposer && previousInstructions.length > 0) {
+      contextInfo += `\nPrevious Instructions (avoid repeating): ${previousInstructions.slice(-3).join('; ')}`
+    }
+    
+    // Core instruction generation prompt inspired by paper's Appendix C.1
+    const instructionPrompt = `
+Generate a high-quality instruction for a language model program.
+
+${contextInfo}
+
+${tip ? `Tip: ${tip}` : ''}
+
+Requirements:
+1. Be specific and actionable
+2. Focus on accuracy and clarity
+3. Consider the program's purpose and data characteristics
+4. Make the instruction distinct from previous ones
+5. Keep it concise but comprehensive
+
+Generate a single, well-crafted instruction:
+Instruction:`
+
+    try {
+      const response = await ai.chat({
+        chatPrompt: [{ 
+          role: 'user', 
+          content: instructionPrompt,
+        }]
+      })
+      
+      if ('results' in response) {
+        const instruction = response.results[0]?.content?.trim()
+        if (instruction && instruction.length > 10) {
+          return instruction
+        }
+      }
+    } catch (error) {
+      if (this.isLoggingEnabled()) {
+        this.getLogger()?.(`Failed to generate AI instruction: ${error}`, {
+          tags: ['optimizer', 'warning']
+        })
+      }
+    }
+    
+    // Fallback to enhanced templates if AI generation fails
+    const enhancedTemplates = [
+      'Analyze the input systematically and provide a precise, well-reasoned response.',
+      'Think through this step-by-step, considering all relevant factors before responding.',
+      'Examine the input carefully and generate an accurate, detailed answer.',
+      'Process the information methodically and deliver a clear, comprehensive response.',
+      'Consider the context thoroughly and provide a thoughtful, accurate answer.',
+    ]
+    
+    let instruction = enhancedTemplates[candidateIndex % enhancedTemplates.length] || enhancedTemplates[0]!
+    
+    if (tip) {
+      instruction = `${instruction} ${tip}`
+    }
+    
+    return instruction
+  }
+
+  /**
+   * Generates instruction candidates using enhanced AI-powered generation
    * @param options Optional compile options that may override teacher AI
    * @returns Array of generated instruction candidates
    */
   private async proposeInstructionCandidates(
+    program: Readonly<AxProgram<IN, OUT>>,
     options?: AxCompileOptions
   ): Promise<string[]> {
     const instructions: string[] = []
     const aiToUse = this.getTeacherOrStudentAI(options)
+    
+    // Generate contextual information if enabled
+    let programSummary: string | undefined
+    let datasetSummary: string | undefined
+    
+    if (this.programAwareProposer) {
+      programSummary = await this.generateProgramSummary(program, aiToUse)
+      if (this.isLoggingEnabled(options)) {
+        this.getLogger(options)?.(`Program summary: ${programSummary}`, {
+          tags: ['optimizer', 'config']
+        })
+      }
+    }
+    
+    if (this.dataAwareProposer) {
+      datasetSummary = await this.generateDatasetSummary(this.examples, aiToUse)
+      if (this.isLoggingEnabled(options)) {
+        this.getLogger(options)?.(`Dataset summary: ${datasetSummary}`, {
+          tags: ['optimizer', 'config']
+        })
+      }
+    }
 
-    // Generate random tips for tip-aware proposing
+    // Generate creative tips for tip-aware proposing
     const tips = this.tipAwareProposer ? this.generateTips() : []
 
     // Generate instructions for each candidate
     for (let i = 0; i < this.numCandidates; i++) {
       const tipIndex = tips.length > 0 ? i % tips.length : -1
-      const tipToUse = tipIndex >= 0 ? tips[tipIndex] : ''
+      const tipToUse = tipIndex >= 0 ? tips[tipIndex] : undefined
 
       const instruction = await this.generateInstruction({
         tip: tipToUse,
         candidateIndex: i,
         ai: aiToUse,
+        programSummary,
+        datasetSummary,
+        previousInstructions: instructions, // Pass previous instructions for diversity
       })
 
       instructions.push(instruction)
     }
 
     return instructions
-  }
-
-  private async generateInstruction({
-    tip,
-    candidateIndex,
-  }: Readonly<{
-    tip: string | undefined
-    candidateIndex: number
-    ai: Readonly<AxAIService>
-  }>): Promise<string> {
-    // For now, use simple instruction generation
-    // TODO: Implement proper program-aware and data-aware instruction generation using the AI
-    const baseInstructions = [
-      'Analyze the input carefully and provide a detailed response.',
-      'Think step by step and provide a clear answer.',
-      'Consider all aspects of the input before responding.',
-      'Provide a concise but comprehensive response.',
-      'Focus on accuracy and clarity in your response.',
-    ]
-
-    let instruction =
-      baseInstructions[candidateIndex % baseInstructions.length] ||
-      baseInstructions[0]!
-
-    if (tip) {
-      instruction = `${instruction} ${tip}`
-    }
-
-    return instruction
   }
 
   /**
@@ -302,17 +473,29 @@ export class AxMiPRO<
     }
 
     for (let i = startRound; i < this.numTrials; i++) {
-      const config: ConfigType = {
-        instruction:
-          instructions[i % instructions.length] || instructions[0] || '',
-        bootstrappedDemos: Math.min(
-          Math.floor(Math.random() * (bootstrappedDemos.length + 1)),
-          this.maxBootstrappedDemos
-        ),
-        labeledExamples: Math.min(
-          Math.floor(Math.random() * (labeledExamples.length + 1)),
-          this.maxLabeledDemos
-        ),
+      let config: ConfigType
+
+      if (this.bayesianOptimization && this.miproConfigHistory.length > 2) {
+        // Use Bayesian optimization with acquisition function
+        config = await this.selectConfigurationViaBayesianOptimization(
+          instructions,
+          bootstrappedDemos,
+          labeledExamples
+        )
+      } else {
+        // Random or round-robin selection (exploration phase)
+        config = {
+          instruction:
+            instructions[i % instructions.length] || instructions[0] || '',
+          bootstrappedDemos: Math.min(
+            Math.floor(Math.random() * (bootstrappedDemos.length + 1)),
+            this.maxBootstrappedDemos
+          ),
+          labeledExamples: Math.min(
+            Math.floor(Math.random() * (labeledExamples.length + 1)),
+            this.maxLabeledDemos
+          ),
+        }
       }
 
       const score = await this.evaluateConfig(
@@ -321,8 +504,12 @@ export class AxMiPRO<
         bootstrappedDemos,
         labeledExamples,
         valset,
-        metricFn
+        metricFn,
+        i + 1 // Pass current trial number for adaptive evaluation
       )
+
+      // Update surrogate model with observed score
+      this.updateSurrogateModel(config, score)
 
       scoreHistory.push(score)
 
@@ -432,7 +619,8 @@ export class AxMiPRO<
     bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[],
     valset: readonly AxExample[],
-    metricFn: AxMetricFn
+    metricFn: AxMetricFn,
+    currentTrial: number = 0
   ): Promise<number> {
     // Create a copy of the program and apply the configuration
     const testProgram = { ...program }
@@ -446,8 +634,28 @@ export class AxMiPRO<
     let totalScore = 0
     let count = 0
 
-    // Evaluate on a subset of validation examples
-    const evalSet = valset.slice(0, Math.min(5, valset.length))
+    // Adaptive minibatch size based on paper's approach
+    let evalSize: number
+    if (this.minibatch) {
+      // Start with smaller batches and increase for more promising configurations
+      const baseSize = Math.min(this.minibatchSize, valset.length)
+      
+      // Use full evaluation for top configurations in later trials
+      const isFullEvalTrial = currentTrial % this.minibatchFullEvalSteps === 0
+      if (isFullEvalTrial || currentTrial > this.numTrials * 0.8) {
+        evalSize = Math.min(valset.length, baseSize * 2)
+      } else {
+        // Stochastic minibatch evaluation
+        evalSize = Math.max(3, Math.min(baseSize, valset.length))
+      }
+    } else {
+      evalSize = valset.length
+    }
+
+    // Randomly sample evaluation examples for stochastic evaluation
+    const evalIndices = this.shuffleArray([...Array(valset.length).keys()])
+      .slice(0, evalSize)
+    const evalSet = evalIndices.map(i => valset[i]!)
 
     for (const example of evalSet) {
       try {
@@ -466,6 +674,18 @@ export class AxMiPRO<
     }
 
     return count > 0 ? totalScore / count : 0
+  }
+
+  /**
+   * Fisher-Yates shuffle for stochastic evaluation
+   */
+  private shuffleArray<T>(array: T[]): T[] {
+    const shuffled = [...array]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!]
+    }
+    return shuffled
   }
 
   private applyConfigToProgram(
@@ -560,7 +780,7 @@ export class AxMiPRO<
     }
 
     // Step 3: Generate instruction candidates
-    const instructions = await this.proposeInstructionCandidates(options)
+    const instructions = await this.proposeInstructionCandidates(program, options)
 
     if (this.isLoggingEnabled(options)) {
       this.getLogger(options)?.(
@@ -761,6 +981,9 @@ export class AxMiPRO<
    */
   public override reset(): void {
     super.reset()
+    // Reset surrogate model state
+    this.miproConfigHistory = []
+    this.surrogateModel.clear()
     // Update convergence threshold after reset
     this.stats.convergenceInfo.convergenceThreshold =
       this.minImprovementThreshold
@@ -810,5 +1033,167 @@ export class AxMiPRO<
       issues: result.issues,
       suggestions: result.suggestions,
     }
+  }
+
+  /**
+   * Encodes a configuration into a string key for surrogate model lookup
+   */
+  private encodeConfiguration(config: Readonly<ConfigType>): string {
+    return `${config.instruction.length}_${config.bootstrappedDemos}_${config.labeledExamples}`
+  }
+
+  /**
+   * Updates the surrogate model with a new configuration-score pair
+   */
+  private updateSurrogateModel(config: Readonly<ConfigType>, score: number): void {
+    this.miproConfigHistory.push({ config: { ...config }, score })
+    
+    // Simple Gaussian Process approximation for the surrogate model
+    const key = this.encodeConfiguration(config)
+    
+    // Find similar configurations (same instruction length and demo counts)
+    const similarConfigs = this.miproConfigHistory.filter(
+      (entry) => this.encodeConfiguration(entry.config) === key
+    )
+    
+    if (similarConfigs.length > 0) {
+      const scores = similarConfigs.map((entry) => entry.score)
+      const mean = scores.reduce((sum, s) => sum + s, 0) / scores.length
+      const variance = scores.length > 1 
+        ? scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / (scores.length - 1)
+        : 0.1 // Default variance for single observation
+      
+      this.surrogateModel.set(key, { mean, variance })
+    }
+  }
+
+  /**
+   * Predicts performance using the surrogate model
+   */
+  private predictPerformance(config: Readonly<ConfigType>): { mean: number; variance: number } {
+    const key = this.encodeConfiguration(config)
+    
+    if (this.surrogateModel.has(key)) {
+      return this.surrogateModel.get(key)!
+    }
+    
+    // For unseen configurations, use prior knowledge
+    if (this.miproConfigHistory.length > 0) {
+      // Find most similar configurations based on demo counts
+      const similarities = this.miproConfigHistory.map((entry) => {
+        const diff = Math.abs(entry.config.bootstrappedDemos - config.bootstrappedDemos) +
+                     Math.abs(entry.config.labeledExamples - config.labeledExamples)
+        return { score: entry.score, similarity: 1 / (1 + diff) }
+      })
+      
+      // Weighted average based on similarity
+      const totalWeight = similarities.reduce((sum, s) => sum + s.similarity, 0)
+      const weightedMean = similarities.reduce((sum, s) => sum + s.score * s.similarity, 0) / totalWeight
+      
+      return { mean: weightedMean, variance: 0.2 } // Higher variance for unseen configs
+    }
+    
+    // Default prior for completely unknown configurations
+    return { mean: 0.5, variance: 0.3 }
+  }
+
+  /**
+   * Calculates acquisition function value for Bayesian optimization
+   */
+  private calculateAcquisitionValue(config: Readonly<ConfigType>): number {
+    const prediction = this.predictPerformance(config)
+    const { mean, variance } = prediction
+    const std = Math.sqrt(variance)
+    
+    // Current best score
+    const bestScore = this.miproConfigHistory.length > 0
+      ? Math.max(...this.miproConfigHistory.map(entry => entry.score))
+      : 0
+    
+    switch (this.acquisitionFunction) {
+      case 'expected_improvement': {
+        const improvement = mean - bestScore
+        if (std === 0) return Math.max(0, improvement)
+        
+        const z = improvement / std
+        const phi = 0.5 * (1 + this.erf(z / Math.sqrt(2))) // CDF of standard normal
+        const pdfValue = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI) // PDF of standard normal
+        
+        return improvement * phi + std * pdfValue
+      }
+      
+      case 'upper_confidence_bound': {
+        return mean + this.explorationWeight * std
+      }
+      
+      case 'probability_improvement': {
+        const improvement = mean - bestScore
+        if (std === 0) return improvement > 0 ? 1 : 0
+        
+        const z = improvement / std
+        return 0.5 * (1 + this.erf(z / Math.sqrt(2)))
+      }
+      
+      default:
+        return mean
+    }
+  }
+
+  /**
+   * Error function approximation for acquisition function calculations
+   */
+  private erf(x: number): number {
+    // Abramowitz and Stegun approximation
+    const a1 =  0.254829592
+    const a2 = -0.284496736
+    const a3 =  1.421413741
+    const a4 = -1.453152027
+    const a5 =  1.061405429
+    const p  =  0.3275911
+    
+    const sign = x >= 0 ? 1 : -1
+    x = Math.abs(x)
+    
+    const t = 1.0 / (1.0 + p * x)
+    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
+    
+    return sign * y
+  }
+
+  /**
+   * Selects the next configuration to evaluate using Bayesian optimization
+   */
+  private async selectConfigurationViaBayesianOptimization(
+    instructions: readonly string[],
+    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
+    labeledExamples: readonly AxExample[]
+  ): Promise<ConfigType> {
+    const candidates: Array<{ config: ConfigType; acquisitionValue: number }> = []
+    
+    // Generate candidate configurations
+    const numCandidates = Math.min(20, instructions.length * 3) // Reasonable number of candidates
+    
+    for (let i = 0; i < numCandidates; i++) {
+      const config: ConfigType = {
+        instruction: instructions[i % instructions.length] || instructions[0] || '',
+        bootstrappedDemos: Math.min(
+          Math.floor(Math.random() * (bootstrappedDemos.length + 1)),
+          this.maxBootstrappedDemos
+        ),
+        labeledExamples: Math.min(
+          Math.floor(Math.random() * (labeledExamples.length + 1)),
+          this.maxLabeledDemos
+        ),
+      }
+      
+      const acquisitionValue = this.calculateAcquisitionValue(config)
+      candidates.push({ config, acquisitionValue })
+    }
+    
+    // Sort by acquisition value (higher is better)
+    candidates.sort((a, b) => b.acquisitionValue - a.acquisitionValue)
+    
+    // Return the most promising configuration
+    return candidates[0]!.config
   }
 }
