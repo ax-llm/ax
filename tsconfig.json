@@ -1,6 +1,7 @@
 {
   "extends": "@total-typescript/tsconfig/tsc/no-dom/library",
   "compilerOptions": {
+    "lib": ["ESNext", "DOM"], // Added "DOM" here
     "jsx": "react",
     "esModuleInterop": true,
     "moduleResolution": "NodeNext",
