@@ -430,12 +430,23 @@ describe('MemoryImpl', () => {
     memory.addResponse([initial])
     memory.updateResult(newIndexUpdate)
 
-    const last = memory.getLast()
-    if (!last || last.role !== 'assistant') {
-      throw new Error('Last message is not a valid assistant message')
-    }
-    expect(last.chat).toHaveLength(2)
-    expect(last.chat.find((c) => c.index === 1)?.value).toEqual({
+    // Since addResponse creates non-updatable assistant messages,
+    // updateResult creates a new assistant message instead of updating the existing one
+    const history = memory.history(0)
+    const historyIndex1 = memory.history(1)
+
+    // Original message should still exist at index 0
+    expect(history).toHaveLength(1)
+    expect(history[0]).toEqual({
+      role: 'assistant',
+      content: 'initial response',
+      functionCalls: [],
+    })
+
+    // New message should exist at index 1
+    expect(historyIndex1).toHaveLength(1)
+    expect(historyIndex1[0]).toEqual({
+      role: 'assistant',
       content: 'new index response',
       name: undefined,
       functionCalls: [],
@@ -451,17 +462,28 @@ describe('MemoryImpl', () => {
     }
 
     memory.addResponse([initial])
+    // Since addResponse creates non-updatable messages, updateResult will create new messages
     memory.updateResult({ index: 0, content: '', functionCalls: [] })
     memory.updateResult({ index: 0, content: '   ', functionCalls: [] })
 
-    const last = memory.getLast()
-    if (!last || last.role !== 'assistant') {
-      throw new Error('Last message is not a valid assistant message')
-    }
-    const chat = last.chat.find((c) => c.index === 0)
-    expect((chat?.value as { content?: string })?.content).toBe(
-      'initial content'
-    )
+    // First updateResult creates new assistant message, second one updates the updatable message
+    const history = memory.history(0)
+    expect(history).toHaveLength(2)
+
+    // Original message from addResponse should remain unchanged
+    expect(history[0]).toEqual({
+      role: 'assistant',
+      content: 'initial content',
+      functionCalls: [],
+    })
+
+    // Second message should keep the content from the first updateResult since '   '.trim() === ''
+    expect(history[1]).toEqual({
+      role: 'assistant',
+      content: '', // This remains unchanged because '   '.trim() === '' so no update occurs
+      name: undefined,
+      functionCalls: [],
+    })
   })
 
   it('updateResult should not update name when empty or whitespace', () => {
@@ -474,6 +496,7 @@ describe('MemoryImpl', () => {
     }
 
     memory.addResponse([initial])
+    // Since addResponse creates non-updatable messages, updateResult will create new messages
     memory.updateResult({
       index: 0,
       content: 'test',
@@ -487,12 +510,25 @@ describe('MemoryImpl', () => {
       functionCalls: [],
     })
 
-    const last = memory.getLast()
-    if (!last || last.role !== 'assistant') {
-      throw new Error('Last message is not a valid assistant message')
-    }
-    const chat = last.chat.find((c) => c.index === 0)
-    expect((chat?.value as { name?: string })?.name).toBe('Initial Name')
+    // First updateResult creates new assistant message, second one updates it
+    const history = memory.history(0)
+    expect(history).toHaveLength(2)
+
+    // Original message from addResponse should remain unchanged
+    expect(history[0]).toEqual({
+      role: 'assistant',
+      content: 'test',
+      name: 'Initial Name',
+      functionCalls: [],
+    })
+
+    // Second message should have empty name from the first call (second call doesn't update empty/whitespace names)
+    expect(history[1]).toEqual({
+      role: 'assistant',
+      content: 'test',
+      name: '', // First updateResult set this, second one doesn't change it because '   ' is whitespace
+      functionCalls: [],
+    })
   })
 
   it('updateResult should not update functionCalls when empty array', () => {
@@ -510,18 +546,58 @@ describe('MemoryImpl', () => {
     }
 
     memory.addResponse([initial])
+    // Since addResponse creates non-updatable messages, updateResult will create new messages
     memory.updateResult({ index: 0, content: 'test', functionCalls: [] })
 
-    const last = memory.getLast()
-    if (!last || last.role !== 'assistant') {
-      throw new Error('Last message is not a valid assistant message')
+    // updateResult creates a new assistant message
+    const history = memory.history(0)
+    expect(history).toHaveLength(2)
+
+    // Original message from addResponse should remain unchanged
+    expect(history[0]).toEqual({
+      role: 'assistant',
+      content: 'test',
+      functionCalls: [
+        {
+          id: 'func1',
+          type: 'function',
+          function: { name: 'test', params: {} },
+        },
+      ],
+    })
+
+    // New message should have empty functionCalls since it doesn't get updated when empty
+    expect(history[1]).toEqual({
+      role: 'assistant',
+      content: 'test',
+      name: undefined,
+      functionCalls: [],
+    })
+  })
+
+  it('updateResult should handle missing chat value properties', () => {
+    const memory = new MemoryImpl()
+    const initial: AxChatResponseResult = {
+      index: 0,
+      content: 'test',
+      functionCalls: [],
     }
-    const chat = last.chat.find((c) => c.index === 0)
-    expect(
-      (chat?.value as { functionCalls?: unknown[] })?.functionCalls
-    ).toEqual([
-      { id: 'func1', type: 'function', function: { name: 'test', params: {} } },
-    ])
+
+    memory.addResponse([initial])
+
+    // Since addResponse creates non-updatable messages, updateResult creates a new message
+    // Try to update name when it doesn't exist in chat.value
+    memory.updateResult({ index: 0, name: 'New Name', functionCalls: [] })
+
+    // Should create a new updatable assistant message with all properties including name
+    const history = memory.history(0)
+    expect(history).toHaveLength(2) // Original + new message
+    expect(history[1]).toEqual({
+      role: 'assistant',
+      content: undefined,
+      name: 'New Name',
+      functionCalls: [],
+    })
   })
 
   it('addTag should not add duplicate tags', () => {
@@ -596,28 +672,6 @@ describe('MemoryImpl', () => {
     expect(history).toEqual([])
   })
 
-  it('updateResult should handle missing chat value properties', () => {
-    const memory = new MemoryImpl()
-    const initial: AxChatResponseResult = {
-      index: 0,
-      content: 'test',
-      functionCalls: [],
-    }
-
-    memory.addResponse([initial])
-
-    // Try to update name when it doesn't exist in chat.value
-    memory.updateResult({ index: 0, name: 'New Name', functionCalls: [] })
-
-    const last = memory.getLast()
-    if (!last || last.role !== 'assistant') {
-      throw new Error('Last message is not a valid assistant message')
-    }
-    const chat = last.chat.find((c) => c.index === 0)
-    // Should not add name property since it wasn't in the original value
-    expect('name' in (chat?.value as object)).toBe(false)
-  })
-
   it('history should handle different index filtering for function vs non-function roles', () => {
     const memory = new MemoryImpl()
     const userMessage: AxChatRequest['chatPrompt'][0] = {
@@ -649,6 +703,133 @@ describe('MemoryImpl', () => {
       role: 'function',
       result: 'result2',
       functionId: 'func2',
+    })
+  })
+
+  it('updateResult should create updatable messages that can be modified', () => {
+    const memory = new MemoryImpl()
+
+    // First updateResult creates an updatable message
+    memory.updateResult({
+      index: 0,
+      content: 'initial content',
+      name: 'Initial Name',
+      functionCalls: [],
+    })
+
+    // Second updateResult should modify the existing updatable message
+    memory.updateResult({
+      index: 0,
+      content: 'updated content',
+      name: 'Updated Name',
+      functionCalls: [
+        {
+          id: 'func1',
+          type: 'function',
+          function: { name: 'test', params: {} },
+        },
+      ],
+    })
+
+    const history = memory.history(0)
+    expect(history).toHaveLength(1) // Should still be just one message
+    expect(history[0]).toEqual({
+      role: 'assistant',
+      content: 'updated content',
+      name: 'Updated Name',
+      functionCalls: [
+        {
+          id: 'func1',
+          type: 'function',
+          function: { name: 'test', params: {} },
+        },
+      ],
+    })
+  })
+
+  it('updateResult should not modify content/name/functionCalls when values are empty', () => {
+    const memory = new MemoryImpl()
+
+    // Create initial updatable message
+    memory.updateResult({
+      index: 0,
+      content: 'initial content',
+      name: 'Initial Name',
+      functionCalls: [
+        {
+          id: 'func1',
+          type: 'function',
+          function: { name: 'test', params: {} },
+        },
+      ],
+    })
+
+    // Try to update with empty/whitespace values - should not change anything
+    memory.updateResult({
+      index: 0,
+      content: '',
+      name: '   ',
+      functionCalls: [],
+    })
+
+    const history = memory.history(0)
+    expect(history).toHaveLength(1)
+    expect(history[0]).toEqual({
+      role: 'assistant',
+      content: 'initial content',
+      name: 'Initial Name',
+      functionCalls: [
+        {
+          id: 'func1',
+          type: 'function',
+          function: { name: 'test', params: {} },
+        },
+      ],
+    })
+  })
+
+  it('updateResult should add new chat entry to updatable message when index does not exist', () => {
+    const memory = new MemoryImpl()
+
+    // Create initial updatable message with index 0
+    memory.updateResult({
+      index: 0,
+      content: 'index 0 content',
+      functionCalls: [],
+    })
+
+    // Add new chat entry with index 1 to the same updatable message
+    memory.updateResult({
+      index: 1,
+      content: 'index 1 content',
+      name: 'Assistant',
+      functionCalls: [],
+    })
+
+    const last = memory.getLast()
+    if (!last || last.role !== 'assistant') {
+      throw new Error('Last message is not a valid assistant message')
+    }
+    expect(last.chat).toHaveLength(2)
+    expect(last.updatable).toBe(true)
+
+    const history0 = memory.history(0)
+    const history1 = memory.history(1)
+
+    expect(history0).toHaveLength(1)
+    expect(history0[0]).toEqual({
+      role: 'assistant',
+      content: 'index 0 content',
+      name: undefined,
+      functionCalls: [],
+    })
+
+    expect(history1).toHaveLength(1)
+    expect(history1[0]).toEqual({
+      role: 'assistant',
+      content: 'index 1 content',
+      name: 'Assistant',
+      functionCalls: [],
     })
   })
 })

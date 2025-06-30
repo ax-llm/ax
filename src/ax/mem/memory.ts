@@ -90,9 +90,14 @@ export class MemoryImpl {
       }
     }
 
-    if (!lastItem || lastItem.role !== 'assistant') {
+    if (
+      !lastItem ||
+      lastItem.role !== 'assistant' ||
+      (lastItem.role === 'assistant' && !lastItem.updatable)
+    ) {
       this.data.push({
         role: 'assistant',
+        updatable: true,
         chat: [
           { index, value: structuredClone({ content, name, functionCalls }) },
         ],
@@ -112,24 +117,17 @@ export class MemoryImpl {
       return
     }
 
-    if (
-      'content' in chat.value &&
-      typeof content === 'string' &&
-      content.trim() !== ''
-    ) {
-      chat.value.content = content
+    if (typeof content === 'string' && content.trim() !== '') {
+      ;(chat.value as { content: string }).content = content
     }
 
-    if ('name' in chat.value && name && name.trim() !== '') {
-      chat.value.name = name
+    if (typeof name === 'string' && name.trim() !== '') {
+      ;(chat.value as { name: string }).name = name
     }
 
-    if (
-      'functionCalls' in chat.value &&
-      functionCalls &&
-      functionCalls.length > 0
-    ) {
-      chat.value.functionCalls = functionCalls
+    if (Array.isArray(functionCalls) && functionCalls.length > 0) {
+      ;(chat.value as { functionCalls: typeof functionCalls }).functionCalls =
+        functionCalls
     }
 
     log()

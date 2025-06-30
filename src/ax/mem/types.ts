@@ -7,6 +7,7 @@ import type {
 export type AxMemoryData = {
   tags?: string[]
   role: AxChatRequest['chatPrompt'][number]['role']
+  updatable?: boolean
   chat: {
     index: number
     value: Omit<AxChatRequest['chatPrompt'][number], 'role'>
