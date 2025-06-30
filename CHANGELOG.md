@@ -1,5 +1,18 @@
 # Changelog
 
+## [12.0.16](https://github.com/ax-llm/ax/compare/12.0.14...12.0.15) (2025-06-30)
+
+### Features
+
+* enhance MemoryImpl to support updatable messages and improve updateResult logic ([8afe0ff](https://github.com/ax-llm/ax/commit/8afe0ff7f6814030bbc0c345e5eff752badd4e2e))
+## [12.0.15](https://github.com/ax-llm/ax/compare/12.0.14...12.0.15) (2025-06-30)
+
+### Bug Fixes
+
+* build issues ([169f4cc](https://github.com/ax-llm/ax/commit/169f4cc23a167715cfc072a562058ea167174989))
+* Clean up extraneous files and revert package.json changes ([#257](https://github.com/ax-llm/ax/issues/257)) ([4866c07](https://github.com/ax-llm/ax/commit/4866c074fc953a661fbed8873bce5111a3e3d5e3))
+* issue with require function call in multi step axgen ([f652785](https://github.com/ax-llm/ax/commit/f6527850dd3a7a97f86fd284ea166af0dc41e94d))
+
 ## [12.0.15](https://github.com/ax-llm/ax/compare/12.0.13...12.0.14) (2025-06-30)
 
 ### Bug Fixes
