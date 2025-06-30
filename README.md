@@ -4,6 +4,9 @@ Working with LLMs is complex they don't always do what you want. DSPy makes it e
 
 And to help you really use this in production we have everything else you need like observability, streaming, support for other modalities (images,audio, etc), error-correction, multi-step function calling, MCP, RAG, etc
 
+<img width="517" alt="Screenshot 2025-06-30 at 12 52 57 PM" src="https://github.com/user-attachments/assets/059865cd-dfc3-4db1-9e04-7e9fc55a1f90" />
+
+
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
