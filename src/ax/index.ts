@@ -385,10 +385,6 @@ import {
   type AxDockerContainer
 } from './funcs/docker.js';
 import {
-  AxFlow,
-  type AxFlowNode
-} from './flow/flow.js';
-import {
   AxFunctionError,
   AxFunctionProcessor,
   type AxChatResponseFunctionCall,
@@ -640,7 +636,6 @@ export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
 export { AxEvalUtil };
-export { AxFlow };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGen };
@@ -955,7 +950,6 @@ export type { AxFieldProcessorProcess };
 export type { AxFieldTemplateFn };
 export type { AxFieldType };
 export type { AxFieldValue };
-export type { AxFlowNode };
 export type { AxFunction };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
