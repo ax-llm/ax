@@ -1,5 +1,16 @@
 # Changelog
 
+## [12.0.17](https://github.com/ax-llm/ax/compare/12.0.15...12.0.16) (2025-07-01)
+
+### Features
+
+* introduce AxFlow workflow orchestration (Beta) in README.md ([0d8d0e4](https://github.com/ax-llm/ax/commit/0d8d0e4ebbc1b8e9152ca0915f4d054bc1602e55))
+## [12.0.16](https://github.com/ax-llm/ax/compare/12.0.15...12.0.16) (2025-06-30)
+
+### Features
+
+* enhance MemoryImpl to support updatable messages and improve updateResult logic ([8afe0ff](https://github.com/ax-llm/ax/commit/8afe0ff7f6814030bbc0c345e5eff752badd4e2e))
+
 ## [12.0.16](https://github.com/ax-llm/ax/compare/12.0.14...12.0.15) (2025-06-30)
 
 ### Features
