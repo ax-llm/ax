@@ -241,6 +241,45 @@ export class AxAIServiceAuthenticationError extends AxAIServiceError {
   }
 }
 
+export class AxAIRefusalError extends Error {
+  public readonly timestamp: string
+  public readonly errorId: string
+
+  constructor(
+    public readonly refusalMessage: string,
+    public readonly model?: string,
+    public readonly requestId?: string
+  ) {
+    super(`Model refused to fulfill request: ${refusalMessage}`)
+    this.name = 'AxAIRefusalError'
+    this.timestamp = new Date().toISOString()
+    this.errorId = crypto.randomUUID()
+  }
+
+  override toString(): string {
+    return [
+      `${this.name}: ${this.message}`,
+      `Refusal: ${this.refusalMessage}`,
+      this.model ? `Model: ${this.model}` : '',
+      this.requestId ? `Request ID: ${this.requestId}` : '',
+      `Timestamp: ${this.timestamp}`,
+      `Error ID: ${this.errorId}`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  // For Node.js, override the custom inspect method so console.log shows our custom string.
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString()
+  }
+}
+
 // Utility Functions
 async function safeReadResponseBody(response: Response): Promise<unknown> {
   try {

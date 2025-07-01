@@ -1,3 +1,4 @@
+import { AxAIRefusalError } from '../../util/apicall.js'
 import type {
   AxAIPromptConfig,
   AxAIServiceImpl,
@@ -435,7 +436,7 @@ export class AxAIOpenAIResponsesImpl<
       switch (item.type) {
         case 'message':
           currentResult.id = item.id
-          currentResult.content = contentToText(item.content)
+          currentResult.content = contentToText(item.content, id)
           currentResult.finishReason =
             item.status === 'completed' ? 'stop' : 'content_filter'
           break
@@ -626,7 +627,10 @@ export class AxAIOpenAIResponsesImpl<
         switch (event.item.type) {
           case 'message':
             baseResult.id = event.item.id
-            baseResult.content = contentToText(event.item.content)
+            baseResult.content = contentToText(
+              event.item.content,
+              event.item.id
+            )
             break
           case 'function_call':
             baseResult.id = event.item.id
@@ -808,7 +812,7 @@ export class AxAIOpenAIResponsesImpl<
       case 'response.content_part.added':
         // Content part added - return the initial text if any
         baseResult.id = event.item_id
-        baseResult.content = contentToText([event.part])
+        baseResult.content = contentToText([event.part], event.item_id)
         break
 
       case 'response.output_text.delta':
@@ -1052,10 +1056,19 @@ const contentToText = (
   content: ReadonlyArray<
     | AxAIOpenAIResponsesOutputTextContentPart
     | AxAIOpenAIResponsesOutputRefusalContentPart
-  >
+  >,
+  responseId?: string
 ): string => {
-  return [
-    ...content.filter((c) => c.type === 'output_text').map((c) => c.text),
-    ...content.filter((c) => c.type === 'refusal').map((c) => c.refusal),
-  ].join('\n')
+  // Check for refusal content and throw exception
+  const refusalContent = content.filter((c) => c.type === 'refusal')
+  if (refusalContent.length > 0) {
+    const refusalMessage = refusalContent.map((c) => c.refusal).join('\n')
+    throw new AxAIRefusalError(refusalMessage, undefined, responseId)
+  }
+
+  // Return only text content
+  return content
+    .filter((c) => c.type === 'output_text')
+    .map((c) => c.text)
+    .join('\n')
 }

@@ -1,4 +1,5 @@
 import type { AxAPI } from '../../util/apicall.js'
+import { AxAIRefusalError } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -505,11 +506,23 @@ class AxAIGoogleGeminiImpl
             result.finishReason = 'stop'
             break
           case 'SAFETY':
-            throw new Error('Finish reason: SAFETY')
+            throw new AxAIRefusalError(
+              'Content was blocked due to safety settings',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
           case 'RECITATION':
-            throw new Error('Finish reason: RECITATION')
+            throw new AxAIRefusalError(
+              'Content was blocked due to recitation policy',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
           case 'MALFORMED_FUNCTION_CALL':
-            throw new Error('Finish reason: MALFORMED_FUNCTION_CALL')
+            throw new AxAIRefusalError(
+              'Function call was malformed and blocked',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
         }
 
         if (!candidate.content || !candidate.content.parts) {

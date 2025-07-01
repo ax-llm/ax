@@ -97,6 +97,14 @@ export type AxChatResponseResult = {
     type: 'function'
     function: { name: string; params?: string | object }
   }[]
+  annotations?: {
+    type: 'url_citation'
+    url_citation: {
+      url: string
+      title?: string
+      description?: string
+    }
+  }[]
   finishReason?:
     | 'stop'
     | 'length'

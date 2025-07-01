@@ -23,6 +23,18 @@ export enum AxAIOpenAIEmbedModel {
   TextEmbedding3Large = 'text-embedding-3-large',
 }
 
+// Web search annotation types
+export type AxAIOpenAIUrlCitation = {
+  url: string
+  title?: string
+  description?: string
+}
+
+export type AxAIOpenAIAnnotation = {
+  type: 'url_citation'
+  url_citation: AxAIOpenAIUrlCitation
+}
+
 export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   AxModelConfig,
   'topK'
@@ -193,8 +205,10 @@ export type AxAIOpenAIChatResponse = {
     index: number
     message: {
       role: string
-      content: string
+      content: string | null
+      refusal: string | null
       reasoning_content?: string
+      annotations?: AxAIOpenAIAnnotation[]
       tool_calls?: {
         id: string
         type: 'function'
@@ -215,9 +229,11 @@ export type AxAIOpenAIChatResponse = {
 }
 
 export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
-  content: string
+  content: string | null
+  refusal?: string | null
   reasoning_content?: string
   role?: string
+  annotations?: AxAIOpenAIAnnotation[]
   tool_calls?: (NonNullable<
     AxAIOpenAIChatResponse['choices'][0]['message']['tool_calls']
   >[0] & {

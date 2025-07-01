@@ -176,6 +176,16 @@ const signature = `emailText -> categoryType:class "urgent, normal, low", action
 - **Modifiers**: `f.optional(f.string())`, `f.internal(f.string())`, chaining: `f.optional(f.array(f.string()))`
 - **Field names should be descriptive**: `emailText` not `text`, `userQuestion` not `question`
 
+**CRITICAL - Field Naming Requirements**:
+- **NEVER use generic field names** like `text`, `result`, `value`, `item`, `data`, `input`, `output`
+- **ALWAYS use descriptive field names** that indicate the content's purpose:
+  - ✅ Good: `documentText`, `userQuestion`, `responseText`, `summaryText`, `emailContent`
+  - ✅ Good: `processedResult`, `analysisOutput`, `categoryType`, `confidenceScore`
+  - ✅ Good: `inputData`, `outputResult`, `dataItem`, `iterationCount`
+  - ❌ Bad: `text`, `result`, `value`, `item`, `data`, `input`, `output`
+- **Signature validation will reject generic names** - this is enforced at runtime
+- **Use context-specific names** that make the field's role clear in the signature
+
 **Template Literal Advantages**:
 - Type-safe field creation with IntelliSense
 - Cleaner, more readable syntax

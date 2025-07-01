@@ -1,4 +1,5 @@
 import type { AxAPI } from '../../util/apicall.js'
+import { AxAIRefusalError } from '../../util/apicall.js'
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js'
 import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
@@ -275,7 +276,12 @@ class AxAIAnthropicImpl
     resp: Readonly<AxAIAnthropicChatResponse | AxAIAnthropicChatError>
   ): AxChatResponse => {
     if (resp.type === 'error') {
-      throw new Error(`Anthropic Chat API Error: ${resp.error.message}`)
+      // Use AxAIRefusalError for authentication and API errors that could be refusal-related
+      throw new AxAIRefusalError(
+        resp.error.message,
+        undefined, // model not specified in error response
+        undefined // requestId not specified in error response
+      )
     }
 
     const finishReason = mapFinishReason(resp.stop_reason)
@@ -356,7 +362,11 @@ class AxAIAnthropicImpl
 
     if (resp.type === 'error') {
       const { error } = resp as unknown as AxAIAnthropicErrorEvent
-      throw new Error(error.message)
+      throw new AxAIRefusalError(
+        error.message,
+        undefined, // model not specified in error event
+        undefined // requestId not specified in error event
+      )
     }
 
     const index = 0

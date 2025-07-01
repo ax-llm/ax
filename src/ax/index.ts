@@ -158,6 +158,7 @@ import {
 import {
   AxAIOpenAIEmbedModel,
   AxAIOpenAIModel,
+  type AxAIOpenAIAnnotation,
   type AxAIOpenAIChatRequest,
   type AxAIOpenAIChatResponse,
   type AxAIOpenAIChatResponseDelta,
@@ -166,6 +167,7 @@ import {
   type AxAIOpenAIEmbedResponse,
   type AxAIOpenAILogprob,
   type AxAIOpenAIResponseDelta,
+  type AxAIOpenAIUrlCitation,
   type AxAIOpenAIUsage
 } from './ai/openai/chat_types.js';
 import {
@@ -257,6 +259,19 @@ import {
   type AxAIOpenAIResponsesWebSearchToolCall
 } from './ai/openai/responses_types.js';
 import {
+  AxAIRefusalError,
+  AxAIServiceAbortedError,
+  AxAIServiceAuthenticationError,
+  AxAIServiceError,
+  AxAIServiceNetworkError,
+  AxAIServiceResponseError,
+  AxAIServiceStatusError,
+  AxAIServiceStreamTerminatedError,
+  AxAIServiceTimeoutError,
+  type AxAPI,
+  type AxAPIConfig
+} from './util/apicall.js';
+import {
   AxAIReka,
   axAIRekaBestConfig,
   axAIRekaCreativeConfig,
@@ -272,18 +287,6 @@ import {
   type AxAIRekaConfig,
   type AxAIRekaUsage
 } from './ai/reka/types.js';
-import {
-  AxAIServiceAbortedError,
-  AxAIServiceAuthenticationError,
-  AxAIServiceError,
-  AxAIServiceNetworkError,
-  AxAIServiceResponseError,
-  AxAIServiceStatusError,
-  AxAIServiceStreamTerminatedError,
-  AxAIServiceTimeoutError,
-  type AxAPI,
-  type AxAPIConfig
-} from './util/apicall.js';
 import {
   AxAITogether,
   axAITogetherDefaultConfig,
@@ -547,6 +550,7 @@ import {AxChainOfThought} from './prompts/cot.js';
 import {AxDefaultResultReranker} from './docs/reranker.js';
 import {AxEmbeddingAdapter} from './funcs/embed.js';
 import {AxEvalUtil} from './dsp/eval.js';
+import {AxFlow} from './flow/flow.js';
 import {AxInstanceRegistry} from './dsp/registry.js';
 import {AxMCPClient} from './mcp/client.js';
 import {AxMCPStdioTransport} from './mcp/stdioTransport.js';
@@ -605,6 +609,7 @@ export { AxAIOpenAIResponses };
 export { AxAIOpenAIResponsesBase };
 export { AxAIOpenAIResponsesImpl };
 export { AxAIOpenAIResponsesModel };
+export { AxAIRefusalError };
 export { AxAIReka };
 export { AxAIRekaModel };
 export { AxAIServiceAbortedError };
@@ -636,6 +641,7 @@ export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
 export { AxEvalUtil };
+export { AxFlow };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGen };
@@ -793,6 +799,7 @@ export type { AxAIModelListBase };
 export type { AxAIModels };
 export type { AxAIOllamaAIConfig };
 export type { AxAIOllamaArgs };
+export type { AxAIOpenAIAnnotation };
 export type { AxAIOpenAIArgs };
 export type { AxAIOpenAIBaseArgs };
 export type { AxAIOpenAIChatRequest };
@@ -881,6 +888,7 @@ export type { AxAIOpenAIResponsesWebSearchCallCompletedEvent };
 export type { AxAIOpenAIResponsesWebSearchCallInProgressEvent };
 export type { AxAIOpenAIResponsesWebSearchCallSearchingEvent };
 export type { AxAIOpenAIResponsesWebSearchToolCall };
+export type { AxAIOpenAIUrlCitation };
 export type { AxAIOpenAIUsage };
 export type { AxAIPromptConfig };
 export type { AxAIRekaArgs };

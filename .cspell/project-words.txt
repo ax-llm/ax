@@ -118,3 +118,4 @@ camelcasefield
 accénts
 Abramowitz
 Stegun
+dspy

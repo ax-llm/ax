@@ -1,4 +1,5 @@
 import type { AxAPI } from '../../util/apicall.js'
+import { AxAIRefusalError } from '../../util/apicall.js'
 import {
   type AxAIFeatures,
   AxBaseAI,
@@ -326,6 +327,11 @@ class AxAIOpenAIImpl<
       : undefined
 
     const results = choices.map((choice) => {
+      // Check for refusal and throw exception if present
+      if (choice.message.refusal) {
+        throw new AxAIRefusalError(choice.message.refusal, resp.model, resp.id)
+      }
+
       const finishReason = mapFinishReason(choice.finish_reason)
 
       const functionCalls = choice.message.tool_calls?.map(
@@ -339,8 +345,9 @@ class AxAIOpenAIImpl<
       return {
         index: choice.index,
         id: `${choice.index}`,
-        content: choice.message.content,
+        content: choice.message.content ?? undefined,
         thought: choice.message.reasoning_content,
+        annotations: choice.message.annotations,
         functionCalls,
         finishReason,
       }
@@ -380,11 +387,18 @@ class AxAIOpenAIImpl<
         delta: {
           content,
           role,
+          refusal,
           tool_calls: toolCalls,
           reasoning_content: thought,
+          annotations,
         },
         finish_reason: oaiFinishReason,
       }) => {
+        // Check for refusal and throw exception if present
+        if (refusal) {
+          throw new AxAIRefusalError(refusal, undefined, id)
+        }
+
         const finishReason = mapFinishReason(oaiFinishReason)
 
         const functionCalls = toolCalls
@@ -412,9 +426,10 @@ class AxAIOpenAIImpl<
 
         return {
           index,
-          content,
+          content: content ?? undefined,
           role,
           thought,
+          annotations,
           functionCalls,
           finishReason,
           id,
