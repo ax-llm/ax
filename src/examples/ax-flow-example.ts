@@ -2,129 +2,234 @@
 // This example demonstrates the AxFlow API for building complex, stateful AI programs
 // with different AI models for different tasks.
 
-import { AxAI, AxFlow, f } from '@ax-llm/ax'
+import { AxAI, AxFlow } from '@ax-llm/ax'
 
-// Simple mock for demonstration (you would use real AI providers)
-const cheapAI = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY || 'demo-key',
+const ai = new AxAI({
+    name: 'openai',
+    apiKey: process.env.OPENAI_APIKEY!
 })
 
-const powerfulAI = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY || 'demo-key',
+// Example 1: Basic Flow with Conditional Branching
+console.log('=== Example 1: Conditional Branching ===')
+
+const branchingFlow = new AxFlow<
+    { userQuery: string },
+    { finalAnswer: string; strategy: string }
+>('userQuery:string -> finalAnswer:string, strategy:string')
+    .node('qualityCheck', 'query:string -> needsMoreInfo:boolean, confidence:number')
+    .node('simpleAnswer', 'query:string -> answer:string')
+    .node('detailedResearch', 'query:string -> researchData:string')
+    .node('complexAnswer', 'query:string, research:string -> answer:string')
+
+    .execute('qualityCheck', state => ({ query: state.userQuery }))
+    .branch(state => state.qualityCheckResult.needsMoreInfo)
+    .when(true)
+    .execute('detailedResearch', state => ({ query: state.userQuery }))
+    .execute('complexAnswer', state => ({
+        query: state.userQuery,
+        research: state.detailedResearchResult.researchData
+    }))
+    .map(state => ({
+        ...state,
+        finalAnswer: state.complexAnswerResult.answer,
+        strategy: 'detailed_research'
+    }))
+    .when(false)
+    .execute('simpleAnswer', state => ({ query: state.userQuery }))
+    .map(state => ({
+        ...state,
+        finalAnswer: state.simpleAnswerResult.answer,
+        strategy: 'simple_answer'
+    }))
+    .merge()
+
+const branchResult = await branchingFlow.forward(ai, {
+    userQuery: "What's the capital of France?"
 })
+console.log('Branching result:', branchResult)
 
-// Define the multi-model flow as specified in the requirements
-const multiModelFlow = new AxFlow<
-  { topic: string },
-  { summary: string; analysis: string }
->()
-  // 1. Define nodes with their input/output signatures
-  .node('summarizer', {
-    'documentText:string': { summary: f.string('Generated summary') },
-  })
-  .node('analyzer', {
-    'inputText:string': { analysis: f.string('Detailed analysis') },
-  })
+// Example 2: Parallel Execution
+console.log('\n=== Example 2: Parallel Execution ===')
 
-  // 2. Define orchestration logic
-  .map((input) => ({
-    originalText: `Some long text about ${input.topic}. This is a comprehensive discussion covering various aspects and implications of the topic.`,
-  }))
+const parallelFlow = new AxFlow<
+    { topic: string },
+    { combinedInsights: string[] }
+>('topic:string -> combinedInsights:string[]')
+    .node('historicalAnalysis', 'topic:string -> analysis:string')
+    .node('currentTrends', 'topic:string -> trends:string')
+    .node('futureOutlook', 'topic:string -> outlook:string')
 
-  // Use the cheap AI for a simple summarization task
-  .execute(
-    'summarizer',
-    (state) => ({
-      documentText: state.originalText,
-    }),
-    { ai: cheapAI }
-  )
+    .parallel([
+        subFlow => subFlow.execute('historicalAnalysis', state => ({ topic: state.topic })),
+        subFlow => subFlow.execute('currentTrends', state => ({ topic: state.topic })),
+        subFlow => subFlow.execute('futureOutlook', state => ({ topic: state.topic }))
+    ])
+    .merge('combinedInsights', (historical, current, future) => [
+        historical.historicalAnalysisResult.analysis,
+        current.currentTrendsResult.trends,
+        future.futureOutlookResult.outlook
+    ])
 
-  // Use the powerful AI for a complex analysis task
-  .execute(
-    'analyzer',
-    (state) => ({
-      inputText: state.originalText,
-    }),
-    { ai: powerfulAI }
-  )
+const parallelResult = await parallelFlow.forward(ai, {
+    topic: "artificial intelligence"
+})
+console.log('Parallel result:', parallelResult)
 
-  // 3. Transform final state to match the OUT generic type
-  .map((state) => ({
-    summary: state.summarizerResult.summary,
-    analysis: state.analyzerResult.analysis,
-  }))
+// Example 3: Feedback Loops
+console.log('\n=== Example 3: Feedback Loops ===')
 
-// Example with loops - demonstrates iterative processing
-const iterativeFlow = new AxFlow<
-  { iterations: number; data: string },
-  { results: string[]; finalCount: number }
->()
-  .node('processor', {
-    'inputData:string, iterationNumber:number': {
-      processedResult: f.string('Processed result'),
-    },
-  })
-  .map((input) => ({
-    ...input,
-    results: [] as string[],
-    currentIteration: 0,
-  }))
-  .while((state) => state.currentIteration < state.iterations)
-  .map((state) => ({
-    ...state,
-    currentIteration: state.currentIteration + 1,
-  }))
-  .execute('processor', (state) => ({
-    inputData: state.data,
-    iterationNumber: state.currentIteration,
-  }))
-  .map((state) => ({
-    ...state,
-    results: [...state.results, state.processorResult.processedResult],
-  }))
-  .endWhile()
-  .map((state) => ({
-    results: state.results,
-    finalCount: state.currentIteration,
-  }))
+const feedbackFlow = new AxFlow<
+    { question: string },
+    { finalAnswer: string; iterations: number }
+>('question:string -> finalAnswer:string, iterations:number')
+    .node('generateAnswer', 'question:string, attempt:number -> answer:string')
+    .node('evaluateQuality', 'answer:string -> confidence:number, needsImprovement:boolean')
 
-// Example usage
-async function runExamples() {
-  console.log('=== AxFlow Multi-Model Example ===')
+    .map(state => ({ ...state, attempt: 1 }))
+    .label('retry-point')
+    .execute('generateAnswer', state => ({
+        question: state.question,
+        attempt: state.attempt || 1
+    }))
+    .execute('evaluateQuality', state => ({
+        answer: state.generateAnswerResult.answer
+    }))
+    .map(state => ({
+        ...state,
+        attempt: (state.attempt || 1) + 1
+    }))
+    .feedback(
+        state => state.evaluateQualityResult.confidence < 0.7 && (state.attempt || 1) < 4,
+        'retry-point'
+    )
+    .map(state => ({
+        finalAnswer: state.generateAnswerResult.answer,
+        iterations: state.attempt || 1
+    }))
 
-  try {
-    // Execute the multi-model flow
-    const result = await multiModelFlow.forward(powerfulAI, {
-      topic: 'the future of AI',
-    })
+const feedbackResult = await feedbackFlow.forward(ai, {
+    question: "Explain quantum computing in simple terms"
+})
+console.log('Feedback result:', feedbackResult)
 
-    console.log('Multi-model flow result:')
-    console.log('Summary:', result.summary)
-    console.log('Analysis:', result.analysis)
+// Example 4: Complex Combined Flow
+console.log('\n=== Example 4: Complex Combined Flow ===')
 
-    console.log('\n=== AxFlow Iterative Example ===')
+const complexFlow = new AxFlow<
+    { userRequest: string },
+    { response: string; metadata: { strategy: string; sources: number; confidence: number } }
+>('userRequest:string -> response:string, metadata:object')
+    .node('intentClassifier', 'request:string -> intent:string, complexity:number')
+    .node('quickAnswer', 'request:string -> answer:string')
+    .node('researcher1', 'request:string -> findings:string')
+    .node('researcher2', 'request:string -> findings:string')
+    .node('synthesizer', 'request:string, sources:string[] -> answer:string')
+    .node('qualityChecker', 'answer:string -> confidence:number')
 
-    // Execute the iterative flow
-    const iterativeResult = await iterativeFlow.forward(cheapAI, {
-      iterations: 3,
-      data: 'Sample data to process',
-    })
+    .execute('intentClassifier', state => ({ request: state.userRequest }))
 
-    console.log('Iterative flow result:')
-    console.log('Results:', iterativeResult.results)
-    console.log('Final count:', iterativeResult.finalCount)
-  } catch (error) {
-    console.error('Error running AxFlow examples:', error)
-  }
-}
+    // Branch based on complexity
+    .branch(state => state.intentClassifierResult.complexity > 0.7)
+    .when(true)
+    // Complex request - use parallel research
+    .parallel([
+        subFlow => subFlow.execute('researcher1', state => ({ request: state.userRequest })),
+        subFlow => subFlow.execute('researcher2', state => ({ request: state.userRequest }))
+    ])
+    .merge('researchFindings', (findings1, findings2) => [
+        (findings1 as any).researcher1Result.findings,
+        (findings2 as any).researcher2Result.findings
+    ])
+    .execute('synthesizer', state => ({
+        request: state.userRequest,
+        sources: state.researchFindings
+    }))
+    .map(state => ({
+        ...state,
+        strategy: 'research_synthesis',
+        sourceCount: 2
+    }))
+    .when(false)
+    // Simple request - quick answer
+    .execute('quickAnswer', state => ({ request: state.userRequest }))
+    .map(state => ({
+        ...state,
+        synthesizerResult: { answer: state.quickAnswerResult.answer },
+        strategy: 'quick_answer',
+        sourceCount: 0
+    }))
+    .merge()
 
-// Run the examples if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runExamples()
-}
+    // Quality check with feedback loop
+    .label('quality-check')
+    .execute('qualityChecker', state => ({ answer: state.synthesizerResult.answer }))
+    .feedback(
+        state => state.qualityCheckerResult.confidence < 0.6,
+        'quality-check'
+    )
 
-// Export for use in other examples
-export { multiModelFlow, iterativeFlow }
+    // Final mapping
+    .map(state => ({
+        response: state.synthesizerResult.answer,
+        metadata: {
+            strategy: state.strategy,
+            sources: state.sourceCount,
+            confidence: state.qualityCheckerResult.confidence
+        }
+    }))
+
+const complexResult = await complexFlow.forward(ai, {
+    userRequest: "What are the latest developments in renewable energy technology?"
+})
+console.log('Complex result:', complexResult)
+
+// Example 5: Loop with Branching
+console.log('\n=== Example 5: Loop with Branching ===')
+
+const loopBranchFlow = new AxFlow<
+    { items: string[] },
+    { processedItems: string[]; totalProcessed: number }
+>('items:string[] -> processedItems:string[], totalProcessed:number')
+    .node('processor', 'item:string, method:string -> processedItem:string')
+    .node('complexityChecker', 'item:string -> isComplex:boolean')
+
+    .map(state => ({
+        ...state,
+        processedItems: [],
+        currentIndex: 0
+    }))
+
+    .while(state => state.currentIndex < state.items.length)
+    .map(state => ({
+        ...state,
+        currentItem: state.items[state.currentIndex]
+    }))
+    .execute('complexityChecker', state => ({ item: state.currentItem }))
+    .branch(state => state.complexityCheckerResult.isComplex)
+    .when(true)
+    .execute('processor', state => ({
+        item: state.currentItem,
+        method: 'complex'
+    }))
+    .when(false)
+    .execute('processor', state => ({
+        item: state.currentItem,
+        method: 'simple'
+    }))
+    .merge()
+    .map(state => ({
+        ...state,
+        processedItems: [...state.processedItems, state.processorResult.processedItem],
+        currentIndex: state.currentIndex + 1
+    }))
+    .endWhile()
+
+    .map(state => ({
+        processedItems: state.processedItems,
+        totalProcessed: state.processedItems.length
+    }))
+
+const loopBranchResult = await loopBranchFlow.forward(ai, {
+    items: ["apple", "quantum computer", "book", "artificial intelligence"]
+})
+console.log('Loop with branching result:', loopBranchResult)
