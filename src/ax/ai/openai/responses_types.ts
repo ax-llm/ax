@@ -228,7 +228,10 @@ export interface AxAIOpenAIResponsesFunctionCallItem {
 export interface AxAIOpenAIResponsesReasoningItem {
   readonly type: 'reasoning' // Typically not built incrementally in the same way by client
   readonly id: string
-  readonly summary: ReadonlyArray<string | object>
+  readonly summary: ReadonlyArray<{
+    type: 'summary_text'
+    text: string
+  }>
   readonly encrypted_content?: string | null
   readonly status?: 'in_progress' | 'completed' | 'incomplete'
 }
@@ -740,6 +743,7 @@ export type AxAIOpenAIResponsesConfig<TModel, TEmbedModel> = Omit<
   echo?: boolean
   dimensions?: number
   reasoningEffort?: 'low' | 'medium' | 'high'
+  reasoningSummary?: 'auto' | 'concise' | 'detailed'
   store?: boolean
   systemPrompt?: string
   parallelToolCalls?: boolean

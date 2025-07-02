@@ -28,7 +28,6 @@ export type AxModelInfo = {
   hasThinkingBudget?: boolean
   hasShowThoughts?: boolean
   maxTokens?: number
-  samplingDisabled?: boolean
   isExpensive?: boolean
 }
 

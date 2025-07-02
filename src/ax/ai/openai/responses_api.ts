@@ -25,7 +25,6 @@ import type {
   AxAIOpenAIResponsesMCPToolCall,
   AxAIOpenAIResponsesOutputRefusalContentPart,
   AxAIOpenAIResponsesOutputTextContentPart,
-  AxAIOpenAIResponsesReasoningItem,
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
   AxAIOpenAIResponsesResponseDelta,
@@ -37,12 +36,30 @@ import type {
   ResponsesReqUpdater,
   UserMessageContentItem,
 } from './responses_types.js'
+import { AxAIOpenAIResponsesModel } from './responses_types.js'
 
 import type {
   AxAIOpenAIEmbedRequest,
   AxAIOpenAIEmbedResponse,
   AxAPI,
 } from '@ax-llm/ax/index.js'
+
+/**
+ * Checks if the given OpenAI Responses model is a thinking/reasoning model.
+ * Thinking models (o1, o3, o4 series) have different parameter restrictions.
+ */
+export const isOpenAIResponsesThinkingModel = (model: string): boolean => {
+  const thinkingModels = [
+    AxAIOpenAIResponsesModel.O1,
+    AxAIOpenAIResponsesModel.O1Mini,
+    AxAIOpenAIResponsesModel.O1Pro,
+    AxAIOpenAIResponsesModel.O3,
+    AxAIOpenAIResponsesModel.O3Mini,
+    AxAIOpenAIResponsesModel.O3Pro,
+    AxAIOpenAIResponsesModel.O4Mini,
+  ]
+  return thinkingModels.includes(model as AxAIOpenAIResponsesModel)
+}
 
 export class AxAIOpenAIResponsesImpl<
   TModel,
@@ -274,17 +291,43 @@ export class AxAIOpenAIResponsesImpl<
       )
 
     // Set include field based on showThoughts option, but override if thinkingTokenBudget is 'none'
-    const includeFields: (
-      | 'file_search_call.results'
-      | 'message.input_image.image_url'
-      | 'computer_call_output.output.image_url'
-      | 'reasoning.encrypted_content'
-      | 'code_interpreter_call.outputs'
-    )[] = []
-    const shouldShowThoughts =
-      config?.thinkingTokenBudget === 'none' ? false : config?.showThoughts
-    if (shouldShowThoughts) {
-      includeFields.push('reasoning.encrypted_content')
+    const includeFields: // | 'file_search_call.results'
+    'message.input_image.image_url'[] =
+      // | 'computer_call_output.output.image_url'
+      // | 'reasoning.encrypted_content'
+      // | 'code_interpreter_call.outputs'
+      []
+
+    const isThinkingModel = isOpenAIResponsesThinkingModel(model as string)
+
+    let reasoningSummary = this.config.reasoningSummary
+
+    if (!config?.showThoughts) {
+      reasoningSummary = undefined
+    } else if (!reasoningSummary) {
+      reasoningSummary = 'auto'
+    }
+
+    let reasoningEffort = this.config.reasoningEffort
+
+    // Handle thinkingTokenBudget config parameter
+    if (config?.thinkingTokenBudget) {
+      switch (config.thinkingTokenBudget) {
+        case 'none':
+          reasoningEffort = undefined
+          break
+        case 'minimal':
+          reasoningEffort = 'low'
+          break
+        case 'low':
+          reasoningEffort = 'medium'
+          break
+        case 'medium':
+        case 'high':
+        case 'highest':
+          reasoningEffort = 'high'
+          break
+      }
     }
 
     let mutableReq: Mutable<AxAIOpenAIResponsesRequest<TModel>> = {
@@ -300,11 +343,27 @@ export class AxAIOpenAIResponsesImpl<
           : typeof req.functionCall === 'object' && req.functionCall.function
             ? { type: 'function', name: req.functionCall.function.name }
             : undefined,
-      max_output_tokens:
-        req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
-      temperature:
-        req.modelConfig?.temperature ?? this.config.temperature ?? undefined,
-      top_p: req.modelConfig?.topP ?? this.config.topP ?? undefined,
+      // For thinking models, don't set these parameters as they're not supported
+      ...(isThinkingModel
+        ? {
+            max_output_tokens:
+              req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
+          }
+        : {
+            temperature:
+              req.modelConfig?.temperature ??
+              this.config.temperature ??
+              undefined,
+            top_p: req.modelConfig?.topP ?? this.config.topP ?? undefined,
+            presence_penalty:
+              req.modelConfig?.presencePenalty ??
+              this.config.presencePenalty ??
+              undefined,
+            frequency_penalty:
+              req.modelConfig?.frequencyPenalty ??
+              this.config.frequencyPenalty ??
+              undefined,
+          }),
       stream: req.modelConfig?.stream ?? this.config.stream ?? false, // Sourced from modelConfig or global config
       // Optional fields from AxAIOpenAIResponsesRequest that need to be in Mutable for initialization
       background: undefined,
@@ -312,7 +371,14 @@ export class AxAIOpenAIResponsesImpl<
       metadata: undefined,
       parallel_tool_calls: this.config.parallelToolCalls,
       previous_response_id: undefined,
-      reasoning: undefined,
+      ...(reasoningEffort
+        ? {
+            reasoning: {
+              effort: reasoningEffort,
+              summary: reasoningSummary,
+            },
+          }
+        : {}),
       service_tier: this.config.serviceTier,
       store: this.config.store,
       text: undefined,
@@ -789,23 +855,23 @@ export class AxAIOpenAIResponsesImpl<
               ]
             }
             break
-          case 'reasoning':
-            {
-              const reasoningItem =
-                event.item as AxAIOpenAIResponsesReasoningItem
-              baseResult.id = event.item.id
-              // Use encrypted_content if available (when showThoughts is enabled), otherwise use summary
-              if (reasoningItem.encrypted_content) {
-                baseResult.thought = reasoningItem.encrypted_content
-              } else if (reasoningItem.summary) {
-                baseResult.thought = reasoningItem.summary
-                  .map((s: string | object) =>
-                    typeof s === 'object' ? JSON.stringify(s) : s
-                  )
-                  .join('\n')
-              }
-            }
-            break
+          // case 'reasoning':
+          //     {
+          //         const reasoningItem =
+          //             event.item as AxAIOpenAIResponsesReasoningItem
+          //         baseResult.id = event.item.id
+          //         // Use encrypted_content if available (when showThoughts is enabled), otherwise use summary
+          //         if (reasoningItem.encrypted_content) {
+          //             baseResult.thought = reasoningItem.encrypted_content
+          //         } else if (reasoningItem.summary) {
+          //             baseResult.thought = reasoningItem.summary
+          //                 .map((s: string | object) =>
+          //                     typeof s === 'object' ? JSON.stringify(s) : s
+          //                 )
+          //                 .join('\n')
+          //         }
+          //     }
+          //     break
         }
         break
 
@@ -839,12 +905,12 @@ export class AxAIOpenAIResponsesImpl<
         ]
         break
 
-      case 'response.function_call_arguments.done':
-        // Function call arguments done - don't return function calls here
-        // The mergeFunctionCalls will handle combining name and arguments
-        // baseResult.id = event.item_id
-        // baseResult.finishReason = 'function_call'
-        break
+      // case 'response.function_call_arguments.done':
+      //     // Function call arguments done - don't return function calls here
+      //     // The mergeFunctionCalls will handle combining name and arguments
+      //     baseResult.id = event.item_id
+      //     baseResult.finishReason = 'function_call'
+      //     break
 
       case 'response.reasoning_summary_text.delta':
         // Reasoning summary delta
@@ -852,11 +918,11 @@ export class AxAIOpenAIResponsesImpl<
         baseResult.thought = event.delta
         break
 
-      case 'response.reasoning_summary_text.done':
-        // Reasoning summary done
-        baseResult.id = event.item_id
-        baseResult.thought = event.text
-        break
+      // case 'response.reasoning_summary_text.done':
+      //     // Reasoning summary done
+      //     baseResult.id = event.item_id
+      //     baseResult.thought = event.text
+      //     break
 
       // File search tool events
       case 'response.file_search_call.in_progress':
@@ -970,11 +1036,10 @@ export class AxAIOpenAIResponsesImpl<
             baseResult.id = event.item.id
             baseResult.finishReason = 'function_call'
             break
-          case 'reasoning':
-            // Reasoning completed
-            baseResult.id = event.item.id
-            baseResult.finishReason = 'stop'
-            break
+          // case 'reasoning':
+          //     // Reasoning completed
+          //     baseResult.id = event.item.id
+          //     break
         }
         break
 
@@ -1051,6 +1116,13 @@ export class AxAIOpenAIResponsesImpl<
     return [apiConfig, reqValue]
   }
 }
+
+// const getThought = (item: AxAIOpenAIResponsesReasoningItem): string => {
+//     if (item.encrypted_content) {
+//         return item.encrypted_content
+//     }
+//     return item.summary.map((s) => s.text).join('\n')
+// }
 
 const contentToText = (
   content: ReadonlyArray<

@@ -60,6 +60,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     for (const result of v.results) {
       if (
         result.content === '' &&
+        (!result.thought || result.thought === '') &&
         (!result.functionCalls || result.functionCalls.length === 0)
       ) {
         continue

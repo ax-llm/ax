@@ -35,6 +35,27 @@ import { axModelInfoOpenAI } from './info.js'
 
 import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
+/**
+ * Checks if the given OpenAI model is a thinking/reasoning model.
+ * Thinking models (o1, o3, o4 series) have different parameter restrictions.
+ */
+export const isOpenAIThinkingModel = (model: string): boolean => {
+  const thinkingModels = [
+    AxAIOpenAIModel.O1,
+    AxAIOpenAIModel.O1Mini,
+    AxAIOpenAIModel.O3,
+    AxAIOpenAIModel.O3Mini,
+    AxAIOpenAIModel.O4Mini,
+    // Pro models (string values since they're not in the regular chat enum)
+    'o1-pro',
+    'o3-pro',
+  ]
+  return (
+    thinkingModels.includes(model as AxAIOpenAIModel) ||
+    thinkingModels.includes(model)
+  )
+}
+
 export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel
@@ -187,6 +208,8 @@ class AxAIOpenAIImpl<
 
     const store = this.config.store
 
+    const isThinkingModel = isOpenAIThinkingModel(model as string)
+
     let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
       messages,
@@ -195,16 +218,24 @@ class AxAIOpenAIImpl<
         : undefined,
       tools,
       tool_choice: toolsChoice,
-      max_completion_tokens:
-        req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
-      n: req.modelConfig?.n ?? this.config.n,
+      // For thinking models, don't set these parameters as they're not supported
+      ...(isThinkingModel
+        ? {}
+        : {
+            max_completion_tokens:
+              req.modelConfig?.maxTokens ?? this.config.maxTokens,
+            temperature:
+              req.modelConfig?.temperature ?? this.config.temperature,
+            top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
+            n: req.modelConfig?.n ?? this.config.n,
+            presence_penalty:
+              req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
+            ...(frequencyPenalty
+              ? { frequency_penalty: frequencyPenalty }
+              : {}),
+          }),
       stop: req.modelConfig?.stopSequences ?? this.config.stop,
-      presence_penalty:
-        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       logit_bias: this.config.logitBias,
-      ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {}),
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
