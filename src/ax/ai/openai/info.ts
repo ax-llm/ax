@@ -181,7 +181,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     completionTokenCostPer1M: 600,
     hasThinkingBudget: true,
     samplingDisabled: true,
-    expensive: true,
+    isExpensive: true,
   },
   {
     name: AxAIOpenAIResponsesModel.O1,
@@ -207,7 +207,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     hasThinkingBudget: true,
     hasShowThoughts: true,
     samplingDisabled: true,
-    expensive: true,
+    isExpensive: true,
   },
   {
     name: AxAIOpenAIResponsesModel.O3,

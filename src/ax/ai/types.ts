@@ -29,7 +29,7 @@ export type AxModelInfo = {
   hasShowThoughts?: boolean
   maxTokens?: number
   samplingDisabled?: boolean
-  expensive?: boolean
+  isExpensive?: boolean
 }
 
 export type AxTokenUsage = {
@@ -296,6 +296,7 @@ export type AxAIPromptConfig = {
     | 'highest'
     | 'none'
   showThoughts?: boolean
+  useExpensiveModel?: 'yes'
 }
 
 export type AxAIServiceOptions = {

@@ -378,6 +378,16 @@ export class AxBaseAI<
       throw new Error(`Model ${model as string} does not support showThoughts.`)
     }
 
+    // Check for expensive model usage
+    const modelInfo = this.modelInfo.find(
+      (info) => info.name === (model as string)
+    )
+    if (modelInfo?.isExpensive && options?.useExpensiveModel !== 'yes') {
+      throw new Error(
+        `Model ${model as string} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: "yes" to proceed.`
+      )
+    }
+
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
       (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
