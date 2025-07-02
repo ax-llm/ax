@@ -28,6 +28,8 @@ export type AxModelInfo = {
   hasThinkingBudget?: boolean
   hasShowThoughts?: boolean
   maxTokens?: number
+  samplingDisabled?: boolean
+  expensive?: boolean
 }
 
 export type AxTokenUsage = {

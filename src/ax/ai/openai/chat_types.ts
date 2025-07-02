@@ -1,8 +1,7 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIOpenAIModel {
-  O1 = 'o1',
-  O1Mini = 'o1-mini',
+  // Non-reasoning models
   GPT4 = 'gpt-4',
   GPT41 = 'gpt-4.1',
   GPT41Mini = 'gpt-4.1-mini',
@@ -15,6 +14,12 @@ export enum AxAIOpenAIModel {
   GPT35TextDavinci002 = 'text-davinci-002',
   GPT3TextBabbage002 = 'text-babbage-002',
   GPT3TextAda001 = 'text-ada-001',
+  // Reasoning models
+  O1 = 'o1',
+  O1Mini = 'o1-mini',
+  O3 = 'o3',
+  O3Mini = 'o3-mini',
+  O4Mini = 'o4-mini',
 }
 
 export enum AxAIOpenAIEmbedModel {

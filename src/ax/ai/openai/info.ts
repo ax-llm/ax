@@ -7,20 +7,7 @@ import { AxAIOpenAIResponsesModel } from './responses_types.js'
  * OpenAI: Model information
  */
 export const axModelInfoOpenAI: AxModelInfo[] = [
-  {
-    name: AxAIOpenAIModel.O1,
-    currency: 'usd',
-    promptTokenCostPer1M: 15,
-    completionTokenCostPer1M: 60,
-    hasThinkingBudget: true,
-  },
-  {
-    name: AxAIOpenAIModel.O1Mini,
-    currency: 'usd',
-    promptTokenCostPer1M: 1.1,
-    completionTokenCostPer1M: 14.4,
-    hasThinkingBudget: true,
-  },
+  // Not Reasoning models
   {
     name: AxAIOpenAIModel.GPT4,
     currency: 'usd',
@@ -69,30 +56,48 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
   },
-  // Responses API only models
+  // Reasoning models
   {
-    name: AxAIOpenAIResponsesModel.O3,
+    name: AxAIOpenAIModel.O1,
+    currency: 'usd',
+    promptTokenCostPer1M: 15,
+    completionTokenCostPer1M: 60,
+    hasThinkingBudget: true,
+    samplingDisabled: true,
+  },
+  {
+    name: AxAIOpenAIModel.O1Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.1,
+    completionTokenCostPer1M: 14.4,
+    hasThinkingBudget: true,
+  },
+  {
+    name: AxAIOpenAIModel.O3,
     currency: 'usd',
     promptTokenCostPer1M: 15,
     completionTokenCostPer1M: 60,
     hasThinkingBudget: true,
     hasShowThoughts: true,
+    samplingDisabled: true,
   },
   {
-    name: AxAIOpenAIResponsesModel.O3Mini,
+    name: AxAIOpenAIModel.O3Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 4.4,
     hasThinkingBudget: true,
     hasShowThoughts: true,
+    samplingDisabled: true,
   },
   {
-    name: AxAIOpenAIResponsesModel.O4Mini,
+    name: AxAIOpenAIModel.O4Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 4.4,
     hasThinkingBudget: true,
     hasShowThoughts: true,
+    samplingDisabled: true,
   },
   // Embedding models
   {
@@ -112,5 +117,114 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 0.13,
     completionTokenCostPer1M: 0.13,
+  },
+]
+
+/**
+ * OpenAI: Model information
+ */
+export const axModelInfoOpenAIResponses: AxModelInfo[] = [
+  // Not Reasoning models
+  {
+    name: AxAIOpenAIResponsesModel.GPT4,
+    currency: 'usd',
+    promptTokenCostPer1M: 30,
+    completionTokenCostPer1M: 60,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT41,
+    currency: 'usd',
+    promptTokenCostPer1M: 2,
+    completionTokenCostPer1M: 8,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT41Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.4,
+    completionTokenCostPer1M: 1.6,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT4O,
+    currency: 'usd',
+    promptTokenCostPer1M: 5,
+    completionTokenCostPer1M: 15,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT4OMini,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.15,
+    completionTokenCostPer1M: 0.6,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT4ChatGPT4O,
+    currency: 'usd',
+    promptTokenCostPer1M: 5,
+    completionTokenCostPer1M: 15,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT4Turbo,
+    currency: 'usd',
+    promptTokenCostPer1M: 10,
+    completionTokenCostPer1M: 30,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT35Turbo,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.5,
+    completionTokenCostPer1M: 1.5,
+  },
+  // Reasoning models
+  {
+    name: AxAIOpenAIResponsesModel.O1Pro,
+    currency: 'usd',
+    promptTokenCostPer1M: 150,
+    completionTokenCostPer1M: 600,
+    hasThinkingBudget: true,
+    samplingDisabled: true,
+    expensive: true,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.O1,
+    currency: 'usd',
+    promptTokenCostPer1M: 15,
+    completionTokenCostPer1M: 60,
+    hasThinkingBudget: true,
+    samplingDisabled: true,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.O1Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.1,
+    completionTokenCostPer1M: 14.4,
+    hasThinkingBudget: true,
+    samplingDisabled: true,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.O3Pro,
+    currency: 'usd',
+    promptTokenCostPer1M: 20,
+    completionTokenCostPer1M: 80,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
+    samplingDisabled: true,
+    expensive: true,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.O3,
+    currency: 'usd',
+    promptTokenCostPer1M: 15,
+    completionTokenCostPer1M: 60,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
+    samplingDisabled: true,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.O4Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.1,
+    completionTokenCostPer1M: 4.4,
+    hasThinkingBudget: true,
+    hasShowThoughts: true,
+    samplingDisabled: true,
   },
 ]

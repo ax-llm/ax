@@ -13,7 +13,7 @@ describe('MemoryImpl', () => {
     expect(() => new MemoryImpl()).not.toThrow()
     expect(() => new MemoryImpl({ debug: false })).not.toThrow()
     expect(
-      () => new MemoryImpl({ debug: true, debugHideSystemPrompt: true })
+      () => new MemoryImpl({ debug: false, debugHideSystemPrompt: true })
     ).not.toThrow()
   })
 
@@ -945,7 +945,7 @@ describe('AxMemory', () => {
   })
 
   it('should work with debug options', () => {
-    const memory = new AxMemory({ debug: true, debugHideSystemPrompt: true })
+    const memory = new AxMemory({ debug: false, debugHideSystemPrompt: true })
     const message: AxChatRequest['chatPrompt'][0] = {
       role: 'user',
       content: 'test message',

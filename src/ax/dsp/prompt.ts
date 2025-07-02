@@ -611,7 +611,7 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'number':
         return 'number'
       case 'boolean':
-        return 'boolean'
+        return 'boolean (true or false)'
       case 'date':
         return 'date ("YYYY-MM-DD" format)'
       case 'datetime':

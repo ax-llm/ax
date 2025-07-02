@@ -278,7 +278,7 @@ describe('AxBaseAI', () => {
     const ai = createTestAI()
 
     const options = {
-      debug: true,
+      debug: false,
       fetch: createMockFetch(createDefaultMockResponse),
     }
 

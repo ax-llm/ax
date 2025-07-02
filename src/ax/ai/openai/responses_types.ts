@@ -6,9 +6,7 @@ import type {
 
 // Extended model enum for the responses API that includes models only available on responses API
 export enum AxAIOpenAIResponsesModel {
-  // All chat API models
-  O1 = 'o1',
-  O1Mini = 'o1-mini',
+  // Non-reasoning models
   GPT4 = 'gpt-4',
   GPT41 = 'gpt-4.1',
   GPT41Mini = 'gpt-4.1-mini',
@@ -21,7 +19,11 @@ export enum AxAIOpenAIResponsesModel {
   GPT35TextDavinci002 = 'text-davinci-002',
   GPT3TextBabbage002 = 'text-babbage-002',
   GPT3TextAda001 = 'text-ada-001',
-  // Responses API only models
+  // Reasoning models
+  O1Pro = 'o1-pro',
+  O1 = 'o1',
+  O1Mini = 'o1-mini',
+  O3Pro = 'o3-pro',
   O3 = 'o3',
   O3Mini = 'o3-mini',
   O4Mini = 'o4-mini',

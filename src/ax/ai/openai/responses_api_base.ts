@@ -11,7 +11,7 @@ import type {
   AxAIOpenAIEmbedResponse,
 } from './chat_types.js'
 import { AxAIOpenAIEmbedModel } from './chat_types.js'
-import { axModelInfoOpenAI } from './info.js'
+import { axModelInfoOpenAIResponses } from './info.js'
 import { AxAIOpenAIResponsesImpl } from './responses_api.js'
 import type {
   AxAIOpenAIResponsesRequest,
@@ -172,7 +172,7 @@ export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
     }
 
     // Use the original OpenAI model info since it contains both chat and embed models
-    modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])]
+    modelInfo = [...axModelInfoOpenAIResponses, ...(modelInfo ?? [])]
 
     const supportFor = (model: AxAIOpenAIResponsesModel) => {
       const mi = getModelInfo<AxAIOpenAIResponsesModel, AxAIOpenAIEmbedModel>({
