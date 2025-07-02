@@ -1,5 +1,19 @@
 # Changelog
 
+## [12.0.19](https://github.com/ax-llm/ax/compare/12.0.17...12.0.18) (2025-07-02)
+
+### Features
+
+* add comprehensive AxFlow guide and enhance documentation ([2acf9c8](https://github.com/ax-llm/ax/commit/2acf9c82871391b964d824e6548a59e6d9b4d3cd))
+## [12.0.18](https://github.com/ax-llm/ax/compare/12.0.17...12.0.18) (2025-07-02)
+
+### Features
+
+* enhance AxFlow with new features and examples ([caf8442](https://github.com/ax-llm/ax/commit/caf84421d5c6446196ee79b728db98053bd2871f))
+* enhance OpenAI model handling with reasoning checks ([a58904b](https://github.com/ax-llm/ax/commit/a58904b4f8d857ecef974ecd704897dc05442741))
+* implement expensive model safety checks in AxBaseAI ([f50cb59](https://github.com/ax-llm/ax/commit/f50cb59cb50539a3091ab749f2d38c50b666c7c9))
+* improved type system for axflow ([649b5e4](https://github.com/ax-llm/ax/commit/649b5e47a88a3b89807bc7dcdaf45079970a022c))
+
 ## [12.0.18](https://github.com/ax-llm/ax/compare/12.0.16...12.0.17) (2025-07-02)
 
 ### Features
