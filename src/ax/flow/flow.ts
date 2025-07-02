@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, functional/prefer-immutable-types */
 import type { AxAIService } from '../ai/types.js'
 import { AxGen } from '../dsp/generate.js'
 import {
@@ -169,7 +169,7 @@ export class AxFlow<
   }
 
   /**
-   * Declares a reusable computational node and its input/output signature.
+   * Declares a reusable computational node using a signature string.
    * Returns a new AxFlow type that tracks this node in the TNodes registry.
    *
    * @param name - The name of the node
@@ -192,31 +192,101 @@ export class AxFlow<
     OUT,
     TNodes & { [K in TName]: InferAxGen<TSig> }, // Add new node to registry
     TState // State unchanged
+  >
+
+  /**
+   * Declares a reusable computational node using an existing AxGen instance.
+   * This allows reusing pre-configured generators in the flow.
+   *
+   * @param name - The name of the node
+   * @param axgenInstance - Existing AxGen instance to use for this node
+   * @returns New AxFlow instance with updated TNodes type
+   *
+   * @example
+   * ```typescript
+   * const summarizer = new AxGen('text:string -> summary:string', { temperature: 0.1 })
+   * flow.node('summarizer', summarizer)
+   * ```
+   */
+  public node<TName extends string, TGen extends AxGen<any, any>>(
+    name: TName,
+    axgenInstance: TGen
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: TGen }, // Add new node to registry with exact type
+    TState // State unchanged
+  >
+
+  // Implementation
+  public node<TName extends string, TSig extends string>(
+    name: TName,
+    signatureOrAxGen: TSig | AxGen<any, any>,
+    options?: Readonly<AxProgramForwardOptions>
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: any }, // Using any here as the implementation handles both cases
+    TState
   > {
-    // Validate that signature is provided
-    if (!signature) {
-      throw new Error(
-        `Invalid signature for node '${name}': signature cannot be empty`
+    if (signatureOrAxGen instanceof AxGen) {
+      // Using existing AxGen instance
+      this.nodes.set(name, {
+        inputs: {},
+        outputs: {},
+      })
+
+      // Store the existing AxGen instance
+      this.nodeGenerators.set(
+        name,
+        signatureOrAxGen as AxGen<AxGenIn, AxGenOut>
       )
+    } else {
+      // Using signature string (original behavior)
+      const signature = signatureOrAxGen as string
+
+      // Validate that signature is provided
+      if (!signature) {
+        throw new Error(
+          `Invalid signature for node '${name}': signature cannot be empty`
+        )
+      }
+
+      // Store node definition (simplified since we're using standard signatures)
+      this.nodes.set(name, {
+        inputs: {},
+        outputs: {},
+      })
+
+      // Create and store the AxGen instance for this node with the same arguments as AxGen
+      this.nodeGenerators.set(name, new AxGen(signature, options))
     }
-
-    // Store node definition (simplified since we're using standard signatures)
-    this.nodes.set(name, {
-      inputs: {},
-      outputs: {},
-    })
-
-    // Create and store the AxGen instance for this node with the same arguments as AxGen
-    this.nodeGenerators.set(name, new AxGen(signature, options))
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
     // The runtime value is the same object, but TypeScript can't track the evolving generic types
-    return this as AxFlow<
-      IN,
-      OUT,
-      TNodes & { [K in TName]: InferAxGen<TSig> },
-      TState
-    >
+    return this as any
+  }
+
+  /**
+   * Short alias for node() - supports both signature strings and AxGen instances
+   */
+  public n<TName extends string, TSig extends string>(
+    name: TName,
+    signature: TSig,
+    options?: Readonly<AxProgramForwardOptions>
+  ): AxFlow<IN, OUT, TNodes & { [K in TName]: InferAxGen<TSig> }, TState>
+
+  public n<TName extends string, TGen extends AxGen<any, any>>(
+    name: TName,
+    axgenInstance: TGen
+  ): AxFlow<IN, OUT, TNodes & { [K in TName]: TGen }, TState>
+
+  public n<TName extends string>(
+    name: TName,
+    signatureOrAxGen: string | AxGen<any, any>,
+    options?: Readonly<AxProgramForwardOptions>
+  ): any {
+    return this.node(name, signatureOrAxGen as any, options)
   }
 
   /**
@@ -259,6 +329,15 @@ export class AxFlow<
   }
 
   /**
+   * Short alias for map()
+   */
+  public m<TNewState extends AxFlowState>(
+    transform: (state: TState) => TNewState
+  ): AxFlow<IN, OUT, TNodes, TNewState> {
+    return this.map(transform)
+  }
+
+  /**
    * Labels a step for later reference (useful for feedback loops).
    *
    * @param label - The label to assign to the current step position
@@ -276,6 +355,13 @@ export class AxFlow<
     }
     this.stepLabels.set(label, this.flowDefinition.length)
     return this
+  }
+
+  /**
+   * Short alias for label()
+   */
+  public l(label: string): this {
+    return this.label(label)
   }
 
   /**
@@ -363,6 +449,22 @@ export class AxFlow<
   }
 
   /**
+   * Short alias for execute()
+   */
+  public e<TNodeName extends keyof TNodes & string>(
+    nodeName: TNodeName,
+    mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
+    dynamicContext?: AxFlowDynamicContext
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes,
+    AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
+  > {
+    return this.execute(nodeName, mapping, dynamicContext)
+  }
+
+  /**
    * Starts a conditional branch based on a predicate function.
    *
    * @param predicate - Function that takes state and returns a value to branch on
@@ -393,6 +495,13 @@ export class AxFlow<
   }
 
   /**
+   * Short alias for branch()
+   */
+  public b(predicate: (state: TState) => unknown): this {
+    return this.branch(predicate)
+  }
+
+  /**
    * Defines a branch case for the current branch context.
    *
    * @param value - The value to match against the branch predicate result
@@ -410,11 +519,40 @@ export class AxFlow<
   }
 
   /**
-   * Ends the current branch and merges all branch paths back into the main flow.
-   *
-   * @returns this (for chaining)
+   * Short alias for when()
    */
-  public merge(): this {
+  public w(value: unknown): this {
+    return this.when(value)
+  }
+
+  /**
+   * Ends the current branch and merges all branch paths back into the main flow.
+   * Optionally specify the explicit merged state type for better type safety.
+   *
+   * @param explicitMergedType - Optional type hint for the merged state (defaults to current TState)
+   * @returns AxFlow instance with the merged state type
+   *
+   * @example
+   * ```typescript
+   * // Default behavior - preserves current TState
+   * flow.branch(state => state.type)
+   *   .when('simple').execute('simpleProcessor', ...)
+   *   .when('complex').execute('complexProcessor', ...)
+   *   .merge()
+   *
+   * // Explicit type - specify exact merged state shape
+   * flow.branch(state => state.type)
+   *   .when('simple').map(state => ({ result: state.simpleResult, method: 'simple' }))
+   *   .when('complex').map(state => ({ result: state.complexResult, method: 'complex' }))
+   *   .merge<{ result: string; method: string }>()
+   * ```
+   */
+  public merge<TMergedState extends AxFlowState = TState>(): AxFlow<
+    IN,
+    OUT,
+    TNodes,
+    TMergedState
+  > {
     if (!this.branchContext) {
       throw new Error('merge() called without matching branch()')
     }
@@ -441,7 +579,20 @@ export class AxFlow<
       return currentState
     })
 
-    return this
+    // Cast `this` to preserve runtime object while updating compile-time type information.
+    return this as unknown as AxFlow<IN, OUT, TNodes, TMergedState>
+  }
+
+  /**
+   * Short alias for merge()
+   */
+  public mg<TMergedState extends AxFlowState = TState>(): AxFlow<
+    IN,
+    OUT,
+    TNodes,
+    TMergedState
+  > {
+    return this.merge<TMergedState>()
   }
 
   /**
@@ -533,6 +684,23 @@ export class AxFlow<
   }
 
   /**
+   * Short alias for parallel()
+   */
+  public p(
+    branches: (
+      | AxFlowParallelBranch
+      | AxFlowTypedParallelBranch<TNodes, TState>
+    )[]
+  ): {
+    merge<T, TResultKey extends string>(
+      resultKey: TResultKey,
+      mergeFunction: (...results: unknown[]) => T
+    ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>
+  } {
+    return this.parallel(branches)
+  }
+
+  /**
    * Creates a feedback loop that jumps back to a labeled step if a condition is met.
    *
    * @param condition - Function that returns true to trigger the feedback loop
@@ -597,27 +765,43 @@ export class AxFlow<
   }
 
   /**
+   * Short alias for feedback()
+   */
+  public fb(
+    condition: (state: TState) => boolean,
+    targetLabel: string,
+    maxIterations: number = 10
+  ): this {
+    return this.feedback(condition, targetLabel, maxIterations)
+  }
+
+  /**
    * Marks the beginning of a loop block.
    *
    * @param condition - Function that takes the current state and returns a boolean
+   * @param maxIterations - Maximum number of iterations to prevent infinite loops (default: 100)
    * @returns this (for chaining)
    *
    * @example
    * ```typescript
-   * flow.while(state => state.iterations < 3)
+   * flow.while(state => state.iterations < 3, 10)
    *   .map(state => ({ ...state, iterations: (state.iterations || 0) + 1 }))
    *   .endWhile()
    * ```
    */
-  public while(condition: (state: TState) => boolean): this {
+  public while(
+    condition: (state: TState) => boolean,
+    maxIterations: number = 100
+  ): this {
     // Store the condition and mark the start of the loop
     const loopStartIndex = this.flowDefinition.length
     this.loopStack.push(loopStartIndex)
 
     // Add a placeholder step that will be replaced in endWhile()
-    // We store the condition in the placeholder for later use
+    // We store the condition and maxIterations in the placeholder for later use
     interface LoopPlaceholder extends AxFlowStepFunction {
       _condition: (state: TState) => boolean
+      _maxIterations: number
       _isLoopStart: boolean
     }
 
@@ -625,6 +809,7 @@ export class AxFlow<
       (state: AxFlowState) => state,
       {
         _condition: condition,
+        _maxIterations: maxIterations,
         _isLoopStart: true,
       }
     )
@@ -632,6 +817,16 @@ export class AxFlow<
     this.flowDefinition.push(placeholderStep)
 
     return this
+  }
+
+  /**
+   * Short alias for while()
+   */
+  public wh(
+    condition: (state: TState) => boolean,
+    maxIterations: number = 100
+  ): this {
+    return this.while(condition, maxIterations)
   }
 
   /**
@@ -655,8 +850,16 @@ export class AxFlow<
     const condition = (
       placeholderStep as unknown as {
         _condition: (state: TState) => boolean
+        _maxIterations: number
       }
     )._condition
+
+    const maxIterations = (
+      placeholderStep as unknown as {
+        _condition: (state: TState) => boolean
+        _maxIterations: number
+      }
+    )._maxIterations
 
     // Extract the loop body steps (everything between while and endWhile)
     const loopBodySteps = this.flowDefinition.splice(loopStartIndex + 1)
@@ -664,19 +867,37 @@ export class AxFlow<
     // Replace the placeholder with the actual loop implementation
     this.flowDefinition[loopStartIndex] = async (state, context) => {
       let currentState = state
+      let iterations = 0
 
-      // Execute the loop while condition is true
-      while (condition(currentState as TState)) {
+      // Execute the loop while condition is true and within iteration limit
+      while (condition(currentState as TState) && iterations < maxIterations) {
+        iterations++
+
         // Execute all steps in the loop body
         for (const step of loopBodySteps) {
           currentState = await step(currentState, context)
         }
       }
 
+      // Check if we exceeded the maximum iterations
+      if (iterations >= maxIterations && condition(currentState as TState)) {
+        throw new Error(
+          `While loop exceeded maximum iterations (${maxIterations}). ` +
+            `Consider increasing maxIterations or ensuring the loop condition eventually becomes false.`
+        )
+      }
+
       return currentState
     }
 
     return this
+  }
+
+  /**
+   * Short alias for endWhile()
+   */
+  public end(): this {
+    return this.endWhile()
   }
 
   /**

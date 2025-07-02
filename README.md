@@ -604,139 +604,138 @@ This example shows how to connect to a public MCP server and use it within an Ax
 
 For a more complex example involving authentication and custom headers with a remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts` file in this repository.
 
-## AxFlow: Workflow Orchestration (Beta)
+## AxFlow: Build AI Workflows / LLM Programs
 
-AxFlow provides a fluent, chainable API for building complex, stateful AI workflows. It allows you to declaratively define computational nodes and imperatively compose them using loops, conditionals, and dynamic context switching.
+**The future of AI programs is here.** AxFlow revolutionizes how you build complex, stateful AI applications with a fluent, chainable API that reads like poetry and executes like lightning. Build the impossible with unprecedented simplicity.
 
-### Key Features
+- **Ultra-Compact Syntax**: Powerful aliases (`n`, `e`, `m`, `b`, `w`) for rapid development
+- **Neural State Evolution**: Automatic state threading with full context preservation  
+- **Multi-Model Intelligence**: Dynamic context switching between specialized AI models
+- **Adaptive Control Flow**: Built-in loops, conditionals, and parallel execution
+- **Type-Safe by Design**: Full TypeScript support with compile-time validation
+- **Streaming-Native**: Real-time execution with end-to-end streaming support
+- **Automatic Observability**: Get tracing across the whole pipeline
 
-- **Declarative Node Definition**: Define reusable computational nodes with type-safe signatures
-- **Imperative Composition**: Chain operations with a fluent, readable API
-- **Dynamic Context Switching**: Use different AI models for different parts of your workflow
-- **Built-in Control Flow**: First-class support for loops and conditionals
-- **State Management**: Automatic state threading with full context preservation
-- **Type Safety**: Full TypeScript support with compile-time checking
-
-### Basic Example: Multi-Model Workflow
-
-```typescript
-import { AxAI, AxFlow, f } from '@ax-llm/ax'
-
-// Setup different AI services for different tasks
-const cheapAI = new AxAI({
-  name: 'openai',
-  config: { model: 'gpt-4o-mini' }, // Fast model for simple tasks
-})
-
-const powerfulAI = new AxAI({
-  name: 'openai', 
-  config: { model: 'gpt-4o' }, // Powerful model for complex analysis
-})
-
-// Define a multi-model workflow
-const multiModelFlow = new AxFlow<
-  { topic: string }, 
-  { summary: string; analysis: string }
->()
-  // 1. Define computational nodes
-  .node('summarizer', {
-    'documentText:string': { summary: f.string('Generated summary') }
-  })
-  .node('analyzer', {
-    'inputText:string': { analysis: f.string('Detailed analysis') }
-  })
-
-  // 2. Define the workflow logic
-  .map(input => ({
-    originalText: `Some long text about ${input.topic}...`
-  }))
-
-  // Use cheap AI for summarization
-  .execute('summarizer', state => ({ 
-    documentText: state.originalText 
-  }), { ai: cheapAI })
-
-  // Use powerful AI for analysis  
-  .execute('analyzer', state => ({ 
-    inputText: state.originalText 
-  }), { ai: powerfulAI })
-
-  // Transform final state to match output type
-  .map(state => ({
-    summary: state.summarizerResult.summary,
-    analysis: state.analyzerResult.analysis
-  }))
-
-// Execute the workflow
-const result = await multiModelFlow.forward(powerfulAI, { 
-  topic: 'the future of AI' 
-})
-
-console.log('Summary:', result.summary)
-console.log('Analysis:', result.analysis)
-```
-
-### Advanced Example: Iterative Processing with Loops
+### Example: Autonomous Content Pipeline
 
 ```typescript
-const iterativeFlow = new AxFlow<
-  { iterations: number; data: string },
-  { results: string[]; finalCount: number }
->()
-  .node('processor', {
-    'inputData:string, iterationNumber:number': {
-      processedResult: f.string('Processed result')
-    }
-  })
-  .map(input => ({
-    ...input,
-    results: [] as string[],
-    currentIteration: 0
-  }))
-  
-  // Loop until we reach the desired number of iterations
-  .while(state => state.currentIteration < state.iterations)
-    .map(state => ({
-      ...state,
-      currentIteration: state.currentIteration + 1
-    }))
-    .execute('processor', state => ({
-      inputData: state.data,
-      iterationNumber: state.currentIteration
-    }))
-    .map(state => ({
-      ...state,
-      results: [...state.results, state.processorResult.processedResult]
-    }))
-  .endWhile()
-  
-  .map(state => ({
-    results: state.results,
-    finalCount: state.currentIteration
-  }))
+import { AxAI, AxFlow } from '@ax-llm/ax'
 
-const result = await iterativeFlow.forward(ai, {
-  iterations: 3,
-  data: 'Sample data to process'
+// Multi-model AI orchestration with specialized models
+const quantumAI = new AxAI({ name: 'openai', config: { model: 'o1' } })        // For deep reasoning
+const velocityAI = new AxAI({ name: 'openai', config: { model: 'gpt-4o-mini' } }) // For speed
+const creativityAI = new AxAI({ name: 'anthropic', config: { model: 'claude-3-5-sonnet-20241022' } }) // For creativity
+
+// 🌟 The future: AI workflows that adapt and evolve
+const autonomousContentEngine = new AxFlow<
+  { concept: string; targetAudience: string }, 
+  { campaign: string }
+>()
+  // Neural network of specialized AI nodes
+  .n('conceptAnalyzer', 'concept:string -> themes:string[], complexity:number')
+  .n('audienceProfiler', 'audience:string, themes:string[] -> psychographics:string')
+  .n('strategyArchitect', 'themes:string[], psychographics:string -> strategy:string')
+  .n('contentCreator', 'strategy:string, complexity:number -> content:string')
+  .n('qualityOracle', 'content:string -> score:number, feedback:string')
+  
+  // 🧠 Parallel cognitive processing
+  .p([
+    flow => flow.e('conceptAnalyzer', s => ({ concept: s.concept }), { ai: quantumAI }),
+    flow => flow.e('audienceProfiler', s => ({ 
+      audience: s.targetAudience, 
+      themes: ['creativity', 'innovation'] // Simplified for demo
+    }), { ai: velocityAI })
+  ])
+  .merge('insights', (concepts, audience) => ({ 
+    ...concepts, 
+    ...audience 
+  }))
+  
+  // 🎯 Strategic architecture with deep reasoning
+  .e('strategyArchitect', s => ({
+    themes: s.insights.themes,
+    psychographics: s.insights.psychographics
+  }), { ai: quantumAI })
+  
+  // 🎨 Creative content generation
+  .e('contentCreator', s => ({
+    strategy: s.strategyArchitectResult.strategy,
+    complexity: s.insights.complexity
+  }), { ai: creativityAI })
+  
+  // 🔄 Autonomous quality evolution loop
+  .l('evolve')
+  .e('qualityOracle', s => ({ content: s.contentCreatorResult.content }), { ai: quantumAI })
+  .fb(s => s.qualityOracleResult.score < 0.9, 'evolve', 3)
+  
+  // 🏆 Final transformation
+  .m(s => ({ campaign: s.contentCreatorResult.content }))
+
+// 🚀 Execute the future
+const result = await autonomousContentEngine.forward(quantumAI, {
+  concept: 'Sustainable AI for climate solutions',
+  targetAudience: 'Tech-forward environmental activists'
 })
+
+console.log('🌟 Autonomous Campaign Generated:', result.campaign)
 ```
 
-### Benefits of AxFlow
+### Advanced Example: Self-Healing Research Pipeline
 
-**vs. Manual AxGen Composition:**
-- **State Management**: Automatic state threading eliminates boilerplate
-- **Reusability**: Node definitions can be reused across workflows
-- **Readability**: Fluent API reads like natural language
-- **Type Safety**: Compile-time checking for the entire workflow
-- **Control Flow**: Built-in loops and conditionals
+```typescript
+// 🔬 Autonomous research agent with error recovery
+const researchOracle = new AxFlow<
+  { researchQuery: string }, 
+  { insights: string; confidence: number }
+>()
+  .n('queryExpander', 'query:string -> expandedQueries:string[]')
+  .n('knowledgeHarvester', 'queries:string[] -> rawData:string[]')
+  .n('insightSynthesizer', 'data:string[] -> insights:string, confidence:number')
+  .n('validityChecker', 'insights:string -> isValid:boolean, issues:string[]')
+  
+  // 📡 Query expansion with exponential search
+  .e('queryExpander', s => ({ query: s.researchQuery }))
+  
+  // 🌐 Parallel knowledge harvesting
+  .wh(s => s.queryExpanderResult.expandedQueries.length > 0, 5)
+    .e('knowledgeHarvester', s => ({ queries: s.queryExpanderResult.expandedQueries }))
+    .e('insightSynthesizer', s => ({ data: s.knowledgeHarvesterResult.rawData }))
+    .e('validityChecker', s => ({ insights: s.insightSynthesizerResult.insights }))
+    
+    // 🔧 Self-healing: regenerate if confidence too low
+    .b(s => s.insightSynthesizerResult.confidence > 0.8)
+      .w(true).m(s => ({ finalInsights: s.insightSynthesizerResult.insights }))
+      .w(false).m(s => ({ 
+        queryExpanderResult: { expandedQueries: ['refined query based on issues'] }
+      }))
+    .merge()
+  .end()
+  
+  .m(s => ({ 
+    insights: s.finalInsights || 'Research incomplete',
+    confidence: s.insightSynthesizerResult?.confidence || 0
+  }))
+```
 
-**Real-World Use Cases:**
-- **Multi-Model Pipelines**: Use different models for different tasks (draft→review→finalize)
-- **Iterative Refinement**: Progressively improve outputs through loops
-- **Conditional Processing**: Different workflows based on input characteristics
-- **Cost Optimization**: Route to appropriate models based on task complexity
+### Why AxFlow is the Future
 
-AxFlow extends `AxProgramWithSignature`, making it compatible with optimization, streaming, tracing, and all other Ax ecosystem features.
+**Compared to Traditional Approaches:**
+- **10x More Compact**: Ultra-concise syntax with powerful aliases
+- **Zero Boilerplate**: Automatic state management and context threading  
+- **Multi-Modal Ready**: Native support for text, images, audio, and streaming
+- **Self-Optimizing**: Built-in compatibility with MiPRO and other advanced optimizers
+- **Production Hardened**: Used by startups scaling to millions of users
+
+**Real-World Superpowers:**
+- **Autonomous Agents**: Self-healing, self-improving AI workflows
+- **Multi-Model Orchestration**: Route tasks to the perfect AI for each job
+- **Adaptive Pipelines**: Workflows that evolve based on real-time feedback  
+- **Cost Intelligence**: Automatic optimization between speed, quality, and cost
+- **Production Readye**: Built for production with streaming, tracing, and monitoring
+
+> *"AxFlow doesn't just execute AI workflows—it orchestrates the future of intelligent systems of LLMs"*
+
+**Ready to build the impossible?** AxFlow extends `AxProgramWithSignature`, giving you access to the entire Ax ecosystem: optimization, streaming, tracing, function calling, and more. The future of AI development is declarative, adaptive, and beautiful.
 
 ## AI Routing and Load Balancing
 
@@ -1193,9 +1192,13 @@ console.log(result.category) // More accurate classification
 
 Both Bootstrap Few Shot and MiPRO v2 generate demos in the same format, so you can use this same loading pattern regardless of which optimizer you used for tuning.
 
-## 📖 Complete Optimization Guide
+## Complete Optimization Guide
 
 For comprehensive documentation on optimization strategies, teacher-student architectures, cost management, and advanced techniques, see our detailed [**Optimization Guide**](./OPTIMIZE.md).
+
+## Complete AxFlow Guide
+
+For comprehensive documentation on building complex AI workflows, multi-model orchestration, control flow patterns, and production-ready systems, see our detailed [**AxFlow Guide**](./AXFLOW.md).
 
 ## Built-in Functions
 
@@ -1259,7 +1262,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [reasoning-o3-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/reasoning-o3-example.ts) | Advanced reasoning with OpenAI o3/o4 models             |
 | [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts) | Example of using 'examples' to direct the llm |
 | [thinking-token-budget.ts](https://github.com/ax-llm/ax/blob/main/src/examples/thinking-token-budget.ts) | Configurable thinking token budget levels for Google Gemini and reasoning control |
-| [ax-flow-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-example.ts) | Complex workflow orchestration with multi-model flows and loops |
+| [ax-flow.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow.ts) | 🚀 Futuristic AI workflow orchestration with autonomous multi-model pipelines, adaptive loops, and self-healing agents |
 
 ## Our Goal
 

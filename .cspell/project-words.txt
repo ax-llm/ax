@@ -119,3 +119,5 @@ accénts
 Abramowitz
 Stegun
 dspy
+psychographics
+Readye

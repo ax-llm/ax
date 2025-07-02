@@ -388,6 +388,10 @@ import {
   type AxDockerContainer
 } from './funcs/docker.js';
 import {
+  AxFlow,
+  AxFlowTypedSubContextImpl
+} from './flow/flow.js';
+import {
   AxFunctionError,
   AxFunctionProcessor,
   type AxChatResponseFunctionCall,
@@ -486,6 +490,10 @@ import {
   axDefaultOptimizerLogger
 } from './dsp/loggers.js';
 import {
+  axModelInfoOpenAI,
+  axModelInfoOpenAIResponses
+} from './ai/openai/info.js';
+import {
   axValidateChatRequestMessage,
   axValidateChatResponseResult
 } from './ai/validate.js';
@@ -550,7 +558,6 @@ import {AxChainOfThought} from './prompts/cot.js';
 import {AxDefaultResultReranker} from './docs/reranker.js';
 import {AxEmbeddingAdapter} from './funcs/embed.js';
 import {AxEvalUtil} from './dsp/eval.js';
-import {AxFlow} from './flow/flow.js';
 import {AxInstanceRegistry} from './dsp/registry.js';
 import {AxMCPClient} from './mcp/client.js';
 import {AxMCPStdioTransport} from './mcp/stdioTransport.js';
@@ -567,7 +574,6 @@ import {axModelInfoGrok} from './ai/x-grok/info.js';
 import {axModelInfoGroq} from './ai/groq/info.js';
 import {axModelInfoHuggingFace} from './ai/huggingface/info.js';
 import {axModelInfoMistral} from './ai/mistral/info.js';
-import {axModelInfoOpenAI} from './ai/openai/info.js';
 import {axModelInfoReka} from './ai/reka/info.js';
 import {axModelInfoTogether} from './ai/together/info.js';
 import {type AxMCPTransport} from './mcp/transport.js';
@@ -642,6 +648,7 @@ export { AxDockerSession };
 export { AxEmbeddingAdapter };
 export { AxEvalUtil };
 export { AxFlow };
+export { AxFlowTypedSubContextImpl };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGen };
@@ -719,6 +726,7 @@ export { axModelInfoGroq };
 export { axModelInfoHuggingFace };
 export { axModelInfoMistral };
 export { axModelInfoOpenAI };
+export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
 export { axModelInfoTogether };
 export { axSpanAttributes };
