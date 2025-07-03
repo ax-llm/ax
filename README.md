@@ -921,6 +921,17 @@ const res = await gen.forward({ text })
 }
 ```
 
+### Setting Telemetry Globally
+
+You can set up OpenTelemetry tracing globally for all Ax operations using `axGlobals`. You can also pass it into AxGen, AxAI, AxAgent, etc as needed.
+
+```typescript
+// Set the tracer globally for all Ax operations
+axGlobals.tracer = trace.getTracer('my-app')
+// Set the meter globally
+axGlobals.meter = metrics.getMeter('my-app')
+```
+
 ## Tuning the prompts (Basic)
 
 You can tune your prompts using a larger model to help them run more efficiently

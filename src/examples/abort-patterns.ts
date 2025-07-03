@@ -9,7 +9,6 @@ import { AxAI, AxAIServiceAbortedError } from '@ax-llm/ax'
 
 async function basicAbortPattern() {
   console.log('\n🚨 Basic Abort Pattern')
-  console.log('=====================================')
 
   const ai = new AxAI({
     name: 'openai',
@@ -44,10 +43,7 @@ async function basicAbortPattern() {
     if (response instanceof ReadableStream) {
       console.log('✅ Stream response received')
     } else {
-      console.log(
-        '✅ Response received:',
-        response.results[0]?.content?.slice(0, 100) + '...'
-      )
+      console.log('✅ Response received')
     }
   } catch (error) {
     if (error instanceof AxAIServiceAbortedError) {
@@ -61,7 +57,6 @@ async function basicAbortPattern() {
 
 async function timeoutAbortPattern() {
   console.log('\n⏰ Timeout Abort Pattern')
-  console.log('=====================================')
 
   const ai = new AxAI({
     name: 'openai',
@@ -94,10 +89,7 @@ async function timeoutAbortPattern() {
     if (response instanceof ReadableStream) {
       console.log('✅ Stream response received within timeout')
     } else {
-      console.log(
-        '✅ Response received within timeout:',
-        response.results[0]?.content?.slice(0, 100) + '...'
-      )
+      console.log('✅ Response received within timeout')
     }
   } catch (error) {
     clearTimeout(timeoutId) // Important: always clean up
@@ -227,7 +219,6 @@ async function streamingAbortPattern() {
 
 async function eventHandlerPattern() {
   console.log('\n📡 Event Handler Pattern')
-  console.log('=====================================')
 
   const ai = new AxAI({
     name: 'openai',
@@ -269,10 +260,7 @@ async function eventHandlerPattern() {
     if (response instanceof ReadableStream) {
       console.log('✅ Stream response received')
     } else {
-      console.log(
-        '✅ Response received:',
-        response.results[0]?.content?.slice(0, 100) + '...'
-      )
+      console.log('✅ Response received')
     }
   } catch (error) {
     if (error instanceof AxAIServiceAbortedError) {
@@ -283,7 +271,6 @@ async function eventHandlerPattern() {
 
 async function conditionalAbortPattern() {
   console.log('\n🎯 Conditional Abort Pattern')
-  console.log('=====================================')
 
   const ai = new AxAI({
     name: 'openai',
@@ -325,10 +312,7 @@ async function conditionalAbortPattern() {
     if (response instanceof ReadableStream) {
       console.log('✅ Stream response received')
     } else {
-      console.log(
-        '✅ Response received:',
-        response.results[0]?.content?.slice(0, 100) + '...'
-      )
+      console.log('✅ Response received')
     }
   } catch (error) {
     if (error instanceof AxAIServiceAbortedError) {
@@ -396,10 +380,7 @@ async function utilityRacePattern() {
     if (response instanceof ReadableStream) {
       console.log('✅ Stream response won the race')
     } else {
-      console.log(
-        '✅ Response won the race:',
-        response.results[0]?.content?.slice(0, 100) + '...'
-      )
+      console.log('✅ Response won the race')
     }
   } catch (error) {
     console.log('❌ Abort won the race:', (error as Error).message)

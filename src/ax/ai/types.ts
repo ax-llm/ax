@@ -1,6 +1,6 @@
 import type { ReadableStream } from 'node:stream/web'
 
-import type { Context, Tracer } from '@opentelemetry/api'
+import type { Context, Meter, Tracer } from '@opentelemetry/api'
 
 import type { AxAPI } from '../util/apicall.js'
 
@@ -29,6 +29,7 @@ export type AxModelInfo = {
   hasShowThoughts?: boolean
   maxTokens?: number
   isExpensive?: boolean
+  contextWindow?: number
 }
 
 export type AxTokenUsage = {
@@ -303,6 +304,7 @@ export type AxAIServiceOptions = {
   rateLimiter?: AxRateLimiterFunction
   fetch?: typeof fetch
   tracer?: Tracer
+  meter?: Meter
   timeout?: number
   excludeContentFromTrace?: boolean
   abortSignal?: AbortSignal

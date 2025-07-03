@@ -576,6 +576,7 @@ import {axModelInfoHuggingFace} from './ai/huggingface/info.js';
 import {axModelInfoMistral} from './ai/mistral/info.js';
 import {axModelInfoReka} from './ai/reka/info.js';
 import {axModelInfoTogether} from './ai/together/info.js';
+import {type AxAIMetricsInstruments} from './ai/metrics.js';
 import {type AxMCPTransport} from './mcp/transport.js';
 import {type AxSamplePickerOptions} from './dsp/samples.js';
 
@@ -800,6 +801,7 @@ export type { AxAIHuggingFaceRequest };
 export type { AxAIHuggingFaceResponse };
 export type { AxAIInputModelList };
 export type { AxAIMemory };
+export type { AxAIMetricsInstruments };
 export type { AxAIMistralArgs };
 export type { AxAIMistralChatRequest };
 export type { AxAIModelList };
