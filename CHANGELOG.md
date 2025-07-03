@@ -1,5 +1,16 @@
 # Changelog
 
+## [12.0.20](https://github.com/ax-llm/ax/compare/12.0.18...12.0.19) (2025-07-03)
+
+### Features
+
+* integrate OpenTelemetry metrics for enhanced monitoring ([5f8265c](https://github.com/ax-llm/ax/commit/5f8265c28de89bfa6aab123c81e1e4358c6e9349))
+## [12.0.19](https://github.com/ax-llm/ax/compare/12.0.18...12.0.19) (2025-07-02)
+
+### Features
+
+* add comprehensive AxFlow guide and enhance documentation ([2acf9c8](https://github.com/ax-llm/ax/commit/2acf9c82871391b964d824e6548a59e6d9b4d3cd))
+
 ## [12.0.19](https://github.com/ax-llm/ax/compare/12.0.17...12.0.18) (2025-07-02)
 
 ### Features
