@@ -2,55 +2,110 @@
 
 ---
 
-<!-- Header Section inspired by Humming design -->
-<header class="pt-20 pb-30">
-  <div class="mb-8">
-    <div class="text-sm font-medium text-gray-500 mb-4 uppercase tracking-wider">
-      Documentation
-    </div>
+<!-- Header Section with enhanced design -->
+<header class="pt-20 relative overflow-hidden">
+  <!-- Subtle background pattern -->
+  <div class="absolute inset-0 opacity-5">
+    <div class="absolute inset-0" style="background-image: radial-gradient(circle at 1px 1px, rgba(0,0,0,0.15) 1px, transparent 0); background-size: 20px 20px;"></div>
   </div>
+  
+  <div class="relative">
+    <div class="mb-8">
+      <div class="text-sm font-medium text-gray-500 mb-4 uppercase tracking-wider">
+        Documentation
+      </div>
+    </div>
 
-  <div class="max-w-4xl pb-6 relative">
-    <!-- Gradient border using pseudo-element -->
-    <div class="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-500 via-purple-500 to-cyan-500"></div>
-    
-    <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight text-black mb-6 tracking-tight">
-      Build LLM-powered agents<br />with production-ready TypeScript
-    </h1>
-    <p class="text-xl leading-relaxed text-gray-700 max-w-2xl">
-      <b>DSPy for TypeScript.</b> Working with LLMs is complex they don't always
-      do what you want. DSPy makes it easier to build amazing things with LLMs. Just
-      define your inputs and outputs (signature) and an efficient prompt is auto-generated
-      and used. Connect together various signatures to build complex systems and
-      workflows using LLMs
-    </p>
+    <div class="max-w-4xl">
+      <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight text-black mb-6 tracking-tight">
+        Build LLM-powered agents<br />
+        <span class="bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent animate-gradient bg-300% bg-left">
+          with production-ready TypeScript
+        </span>
+      </h1>
+      
+      <p class="text-xl leading-relaxed text-gray-600 max-w-2xl mb-8">
+        <span class="font-semibold text-gray-800">DSPy for TypeScript.</span> Working with LLMs is complex—they don't always
+        do what you want. DSPy makes it easier to build amazing things with LLMs. Just
+        define your inputs and outputs (signature) and an efficient prompt is auto-generated
+        and used. Connect together various signatures to build complex systems and
+        workflows using LLMs.
+      </p>
 
-    <!-- Mobile Badges Section -->
-    <div class="mobile-badges-section hidden mt-8 gap-4 flex-col max-w-2xl">
-      <a
-        href="https://www.npmjs.com/package/@ax-llm/ax"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="flex items-center"
-      >
-        <img
-          src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green"
-          alt="NPM Package"
-          class="h-8 rounded max-w-full object-contain"
-        />
-      </a>
-      <a
-        href="https://twitter.com/dosco"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="flex items-center"
-      >
-        <img
-          src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red"
-          alt="Twitter"
-          class="h-8 rounded max-w-full object-contain"
-        />
-      </a>
+      <!-- Key Features -->
+      <div class="flex flex-wrap items-center gap-x-8 gap-y-4 mb-10">
+        <div class="flex items-center space-x-2">
+          <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+          <span class="text-sm text-gray-600">15+ LLM Providers</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+          <span class="text-sm text-gray-600">End-to-end Streaming</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <div class="w-2 h-2 bg-cyan-500 rounded-full"></div>
+          <span class="text-sm text-gray-600">Auto Prompt Tuning</span>
+        </div>
+      </div>
+
+      <!-- Badges Section -->
+      <div class="flex flex-wrap items-center gap-3 mb-8">
+        <a
+          href="https://github.com/ax-llm/ax"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:scale-105 transition-transform"
+        >
+          <img
+            src="https://img.shields.io/github/stars/ax-llm/ax?style=for-the-badge&logo=github&logoColor=white&color=black&labelColor=555"
+            alt="GitHub Stars"
+            class="h-8 rounded-lg shadow-sm"
+          />
+        </a>
+        <a
+          href="https://www.npmjs.com/package/@ax-llm/ax"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:scale-105 transition-transform"
+        >
+          <img
+            src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&logo=npm&logoColor=white&color=CC3534&labelColor=555"
+            alt="NPM Package"
+            class="h-8 rounded-lg shadow-sm"
+          />
+        </a>
+        <a
+          href="https://twitter.com/dosco"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:scale-105 transition-transform"
+        >
+          <img
+            src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&logo=twitter&logoColor=white&color=1DA1F2&labelColor=555"
+            alt="Twitter Follow"
+            class="h-8 rounded-lg shadow-sm"
+          />
+        </a>
+      </div>
     </div>
   </div>
 </header>
+
+<style>
+  @keyframes gradient {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+  
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient 4s ease-in-out infinite;
+  }
+</style>

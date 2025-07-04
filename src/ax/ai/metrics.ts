@@ -1,5 +1,21 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api'
 
+// Utility function to sanitize metric labels
+const sanitizeLabels = (
+  labels: Record<string, unknown>
+): Record<string, string> => {
+  const sanitized: Record<string, string> = {}
+  for (const [key, value] of Object.entries(labels)) {
+    if (value !== undefined && value !== null) {
+      const stringValue = String(value)
+      // Limit label length to prevent excessive memory usage
+      sanitized[key] =
+        stringValue.length > 100 ? stringValue.substring(0, 100) : stringValue
+    }
+  }
+  return sanitized
+}
+
 export interface AxAIMetricsInstruments {
   latencyHistogram?: Histogram
   errorCounter?: Counter
@@ -33,6 +49,31 @@ export interface AxAIMetricsInstruments {
 
   thinkingBudgetUsageCounter?: Counter
   multimodalRequestsCounter?: Counter
+}
+
+// Singleton instance for AI metrics instruments
+let globalAIMetricsInstruments: AxAIMetricsInstruments | undefined
+
+// Function to get or create AI metrics instruments (singleton pattern)
+export const getOrCreateAIMetricsInstruments = (
+  meter?: Meter
+): AxAIMetricsInstruments | undefined => {
+  // Return existing instance if available
+  if (globalAIMetricsInstruments) {
+    return globalAIMetricsInstruments
+  }
+
+  if (meter) {
+    globalAIMetricsInstruments = createMetricsInstruments(meter)
+    return globalAIMetricsInstruments
+  }
+
+  return undefined
+}
+
+// Function to reset the AI metrics singleton (useful for testing)
+export const resetAIMetricsInstruments = (): void => {
+  globalAIMetricsInstruments = undefined
 }
 
 export const createMetricsInstruments = (
@@ -167,12 +208,17 @@ export const recordLatencyMetric = (
   aiService: string,
   model?: string
 ): void => {
-  if (instruments.latencyHistogram) {
-    instruments.latencyHistogram.record(duration, {
-      operation: type,
-      ai_service: aiService,
-      ...(model ? { model } : {}),
-    })
+  try {
+    if (instruments.latencyHistogram) {
+      const labels = sanitizeLabels({
+        operation: type,
+        ai_service: aiService,
+        ...(model ? { model } : {}),
+      })
+      instruments.latencyHistogram.record(duration, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record latency metric:', error)
   }
 }
 
@@ -210,12 +256,17 @@ export const recordErrorMetric = (
   aiService: string,
   model?: string
 ): void => {
-  if (instruments.errorCounter) {
-    instruments.errorCounter.add(1, {
-      operation: type,
-      ai_service: aiService,
-      ...(model ? { model } : {}),
-    })
+  try {
+    if (instruments.errorCounter) {
+      const labels = sanitizeLabels({
+        operation: type,
+        ai_service: aiService,
+        ...(model ? { model } : {}),
+      })
+      instruments.errorCounter.add(1, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record error metric:', error)
   }
 }
 
@@ -258,26 +309,30 @@ export const recordTokenMetric = (
   aiService: string,
   model?: string
 ): void => {
-  const labels = {
-    ai_service: aiService,
-    ...(model ? { model } : {}),
-  }
-
-  // Record in the general token counter with type label
-  if (instruments.tokenCounter) {
-    instruments.tokenCounter.add(tokens, {
-      token_type: type,
-      ...labels,
+  try {
+    const labels = sanitizeLabels({
+      ai_service: aiService,
+      ...(model ? { model } : {}),
     })
-  }
 
-  // Also record in specific counters for input/output
-  if (type === 'input' && instruments.inputTokenCounter) {
-    instruments.inputTokenCounter.add(tokens, labels)
-  }
+    // Record in the general token counter with type label
+    if (instruments.tokenCounter) {
+      instruments.tokenCounter.add(tokens, {
+        token_type: type,
+        ...labels,
+      })
+    }
 
-  if (type === 'output' && instruments.outputTokenCounter) {
-    instruments.outputTokenCounter.add(tokens, labels)
+    // Also record in specific counters for input/output
+    if (type === 'input' && instruments.inputTokenCounter) {
+      instruments.inputTokenCounter.add(tokens, labels)
+    }
+
+    if (type === 'output' && instruments.outputTokenCounter) {
+      instruments.outputTokenCounter.add(tokens, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record token metric:', error)
   }
 }
 

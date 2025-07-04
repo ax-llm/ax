@@ -11,7 +11,7 @@ import { RespTransformStream } from '../util/transform.js'
 import { logChatRequest, logResponse } from './debug.js'
 import {
   type AxAIMetricsInstruments,
-  createMetricsInstruments,
+  getOrCreateAIMetricsInstruments,
   recordAbortMetric,
   recordContextWindowUsageMetric,
   recordErrorMetric,
@@ -114,9 +114,6 @@ export class AxBaseAI<
   private abortSignal?: AbortSignal
   private logger: AxLoggerFunction = defaultLogger
 
-  // OpenTelemetry metrics instruments
-  private metricsInstruments?: AxAIMetricsInstruments
-
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxModelUsage
   private embedModelUsage?: AxModelUsage
@@ -209,17 +206,14 @@ export class AxBaseAI<
     }
 
     this.setOptions(options)
-    this.initializeMetricsInstruments()
 
     if (models) {
       validateModels(models)
     }
   }
 
-  private initializeMetricsInstruments(): void {
-    if (this.meter) {
-      this.metricsInstruments = createMetricsInstruments(this.meter)
-    }
+  private getMetricsInstruments(): AxAIMetricsInstruments | undefined {
+    return getOrCreateAIMetricsInstruments(this.meter)
   }
 
   public setName(name: string): void {
@@ -248,9 +242,6 @@ export class AxBaseAI<
     this.excludeContentFromTrace = options.excludeContentFromTrace
     this.abortSignal = options.abortSignal
     this.logger = options.logger ?? defaultLogger
-
-    // Re-initialize metrics instruments if meter changed
-    this.initializeMetricsInstruments()
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -348,24 +339,19 @@ export class AxBaseAI<
     metrics.p99 = this.calculatePercentile(metrics.samples, 99)
 
     // Export to OpenTelemetry metrics
-    if (this.metricsInstruments) {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string)
 
       // Record individual latency measurement
-      recordLatencyMetric(
-        this.metricsInstruments,
-        type,
-        duration,
-        this.name,
-        model
-      )
+      recordLatencyMetric(metricsInstruments, type, duration, this.name, model)
 
       // Record latency statistics as gauges
       recordLatencyStatsMetrics(
-        this.metricsInstruments,
+        metricsInstruments,
         type,
         metrics.mean,
         metrics.p95,
@@ -386,23 +372,24 @@ export class AxBaseAI<
     metrics.rate = metrics.count / metrics.total
 
     // Export to OpenTelemetry metrics
-    if (this.metricsInstruments) {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string)
 
       // Always record request count
-      recordRequestMetric(this.metricsInstruments, type, this.name, model)
+      recordRequestMetric(metricsInstruments, type, this.name, model)
 
       // Record error count if there was an error
       if (isError) {
-        recordErrorMetric(this.metricsInstruments, type, this.name, model)
+        recordErrorMetric(metricsInstruments, type, this.name, model)
       }
 
       // Record current error rate as a gauge
       recordErrorRateMetric(
-        this.metricsInstruments,
+        metricsInstruments,
         type,
         metrics.rate,
         this.name,
@@ -413,13 +400,14 @@ export class AxBaseAI<
 
   // Method to record token usage metrics
   private recordTokenUsage(modelUsage?: AxModelUsage): void {
-    if (this.metricsInstruments && modelUsage?.tokens) {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments && modelUsage?.tokens) {
       const { promptTokens, completionTokens, totalTokens, thoughtsTokens } =
         modelUsage.tokens
 
       if (promptTokens) {
         recordTokenMetric(
-          this.metricsInstruments,
+          metricsInstruments,
           'input',
           promptTokens,
           this.name,
@@ -429,7 +417,7 @@ export class AxBaseAI<
 
       if (completionTokens) {
         recordTokenMetric(
-          this.metricsInstruments,
+          metricsInstruments,
           'output',
           completionTokens,
           this.name,
@@ -439,7 +427,7 @@ export class AxBaseAI<
 
       if (totalTokens) {
         recordTokenMetric(
-          this.metricsInstruments,
+          metricsInstruments,
           'total',
           totalTokens,
           this.name,
@@ -449,7 +437,7 @@ export class AxBaseAI<
 
       if (thoughtsTokens) {
         recordTokenMetric(
-          this.metricsInstruments,
+          metricsInstruments,
           'thoughts',
           thoughtsTokens,
           this.name,
@@ -603,7 +591,8 @@ export class AxBaseAI<
     functionCalls?: readonly unknown[],
     model?: TModel
   ): void {
-    if (!this.metricsInstruments || !functionCalls) return
+    const metricsInstruments = this.getMetricsInstruments()
+    if (!metricsInstruments || !functionCalls) return
 
     for (const call of functionCalls) {
       if (
@@ -615,7 +604,7 @@ export class AxBaseAI<
         'name' in call.function
       ) {
         recordFunctionCallMetric(
-          this.metricsInstruments,
+          metricsInstruments,
           (call.function as { name: string }).name,
           undefined, // latency would need to be tracked separately
           this.name,
@@ -627,23 +616,25 @@ export class AxBaseAI<
 
   // Helper method to record timeout metrics
   private recordTimeoutMetric(type: 'chat' | 'embed'): void {
-    if (this.metricsInstruments) {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string)
-      recordTimeoutMetric(this.metricsInstruments, type, this.name, model)
+      recordTimeoutMetric(metricsInstruments, type, this.name, model)
     }
   }
 
   // Helper method to record abort metrics
   private recordAbortMetric(type: 'chat' | 'embed'): void {
-    if (this.metricsInstruments) {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string)
-      recordAbortMetric(this.metricsInstruments, type, this.name, model)
+      recordAbortMetric(metricsInstruments, type, this.name, model)
     }
   }
 
@@ -655,7 +646,8 @@ export class AxBaseAI<
     >,
     result?: AxChatResponse | ReadableStream<AxChatResponse>
   ): void {
-    if (!this.metricsInstruments) return
+    const metricsInstruments = this.getMetricsInstruments()
+    if (!metricsInstruments) return
 
     const model = this.lastUsedChatModel as string
     const modelConfig = this.lastUsedModelConfig
@@ -663,7 +655,7 @@ export class AxBaseAI<
     // Record streaming request metric
     const isStreaming = modelConfig?.stream ?? false
     recordStreamingRequestMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       'chat',
       isStreaming,
       this.name,
@@ -673,7 +665,7 @@ export class AxBaseAI<
     // Record multimodal request metric
     const { hasImages, hasAudio } = this.detectMultimodalContent(req)
     recordMultimodalRequestMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       hasImages,
       hasAudio,
       this.name,
@@ -682,16 +674,11 @@ export class AxBaseAI<
 
     // Record prompt length metric
     const promptLength = this.calculatePromptLength(req)
-    recordPromptLengthMetric(
-      this.metricsInstruments,
-      promptLength,
-      this.name,
-      model
-    )
+    recordPromptLengthMetric(metricsInstruments, promptLength, this.name, model)
 
     // Record model configuration metrics
     recordModelConfigMetrics(
-      this.metricsInstruments,
+      metricsInstruments,
       modelConfig?.temperature,
       modelConfig?.maxTokens,
       this.name,
@@ -704,7 +691,7 @@ export class AxBaseAI<
       this.modelUsage?.tokens?.thoughtsTokens
     ) {
       recordThinkingBudgetUsageMetric(
-        this.metricsInstruments,
+        metricsInstruments,
         this.modelUsage.tokens.thoughtsTokens,
         this.name,
         model
@@ -714,7 +701,7 @@ export class AxBaseAI<
     // Record request size
     const requestSize = this.calculateRequestSize(req)
     recordRequestSizeMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       'chat',
       requestSize,
       this.name,
@@ -726,7 +713,7 @@ export class AxBaseAI<
       const chatResponse = result as AxChatResponse
       const responseSize = this.calculateResponseSize(chatResponse)
       recordResponseSizeMetric(
-        this.metricsInstruments,
+        metricsInstruments,
         'chat',
         responseSize,
         this.name,
@@ -752,7 +739,7 @@ export class AxBaseAI<
       )
       if (contextUsage > 0) {
         recordContextWindowUsageMetric(
-          this.metricsInstruments,
+          metricsInstruments,
           contextUsage,
           this.name,
           model
@@ -766,7 +753,7 @@ export class AxBaseAI<
       )
       if (estimatedCost > 0) {
         recordEstimatedCostMetric(
-          this.metricsInstruments,
+          metricsInstruments,
           'chat',
           estimatedCost,
           this.name,
@@ -781,14 +768,15 @@ export class AxBaseAI<
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
     result: Readonly<AxEmbedResponse>
   ): void {
-    if (!this.metricsInstruments) return
+    const metricsInstruments = this.getMetricsInstruments()
+    if (!metricsInstruments) return
 
     const model = this.lastUsedEmbedModel as string
 
     // Record request size
     const requestSize = this.calculateRequestSize(req)
     recordRequestSizeMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       'embed',
       requestSize,
       this.name,
@@ -798,7 +786,7 @@ export class AxBaseAI<
     // Record response size
     const responseSize = this.calculateResponseSize(result)
     recordResponseSizeMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       'embed',
       responseSize,
       this.name,
@@ -809,7 +797,7 @@ export class AxBaseAI<
     const estimatedCost = this.estimateCostByName(model, result.modelUsage)
     if (estimatedCost > 0) {
       recordEstimatedCostMetric(
-        this.metricsInstruments,
+        metricsInstruments,
         'embed',
         estimatedCost,
         this.name,

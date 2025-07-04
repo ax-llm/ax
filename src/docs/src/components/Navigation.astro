@@ -1,9 +1,5 @@
 ---
 const sections = [
-  //   {
-  //     name: 'guides',
-  //     slug: '/guides',
-  //   },
   {
     name: 'apidocs',
     slug: '/api',
@@ -11,304 +7,238 @@ const sections = [
 ]
 ---
 
-<nav
-  style="background: #ffffff; border-bottom: 1px solid #f1f3f4; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); background: rgba(255, 255, 255, 0.95); overflow-x: hidden;"
->
-  <div style="max-width: 1200px; margin: 0 auto; padding: 0 24px; width: 100%;">
-    <div
-      style="display: flex; align-items: center; justify-content: space-between; height: 72px; min-width: 0;"
-    >
-      <!-- Left Section: Logo & Badges -->
-      <div style="display: flex; align-items: left; gap: 16px;">
-        <div
-          style="display: flex; align-items: center; gap: 8px; cursor: pointer;"
-          id="logo-area"
-        >
-          <div
-            style="font-size: 24px; font-weight: 700; color: #000000; letter-spacing: -0.02em;"
-          >
-            <a href="/">ax.</a>
+<nav class="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-100 shadow-sm">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16">
+      <!-- Left Section: Logo -->
+      <div class="flex items-center">
+        <a href="/" class="flex items-center space-x-2 group">
+          <div class="text-2xl font-bold text-black tracking-tight group-hover:text-gray-700 transition-colors">
+            ax.
           </div>
-        </div>
+        </a>
+      </div>
 
-        <!-- Badges next to logo - Desktop -->
-        <div
-          style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;"
-          class="desktop-badges"
+      <!-- Center Section: Main Navigation (Desktop) -->
+      <div class="hidden md:flex items-center space-x-1">
+        <a
+          href="/optimize"
+          class="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
         >
+          Optimize
+        </a>
+        <a
+          href="/axflow"
+          class="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          AxFlow
+        </a>
+        <a
+          href="/telemetry"
+          class="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          Telemetry
+        </a>
+        <a
+          href="https://deepwiki.com/ax-llm/ax"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          DeepWiki
+        </a>
+        <a
+          href="/api"
+          class="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          API Docs
+        </a>
+      </div>
+
+      <!-- Right Section: Badges & GitHub -->
+      <div class="flex items-center space-x-3">
+        <!-- Badges (Desktop only) -->
+        <div class="hidden lg:flex items-center space-x-2">
+          <a
+            href="https://github.com/ax-llm/ax"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="hover:scale-105 transition-transform"
+          >
+            <img
+              src="https://img.shields.io/github/stars/ax-llm/ax?style=for-the-badge&logo=github&logoColor=white&color=black&labelColor=555"
+              alt="GitHub Stars"
+              class="h-6 rounded shadow-sm"
+            />
+          </a>
           <a
             href="https://www.npmjs.com/package/@ax-llm/ax"
             target="_blank"
             rel="noopener noreferrer"
-            style="display: flex; align-items: center; flex-shrink: 0;"
+            class="hover:scale-105 transition-transform"
           >
             <img
-              src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green"
+              src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&logo=npm&logoColor=white&color=CC3534&labelColor=555"
               alt="NPM Package"
-              style="height: 28px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+              class="h-6 rounded shadow-sm"
             />
           </a>
           <a
             href="https://twitter.com/dosco"
             target="_blank"
             rel="noopener noreferrer"
-            style="display: flex; align-items: center; flex-shrink: 0;"
+            class="hover:scale-105 transition-transform"
           >
             <img
-              src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red"
-              alt="Twitter"
-              style="height: 28px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+              src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&logo=twitter&logoColor=white&color=1DA1F2&labelColor=555"
+              alt="Twitter Follow"
+              class="h-6 rounded shadow-sm"
             />
           </a>
         </div>
-      </div>
 
-      <!-- Right Section: Optimize, API Docs & GitHub Buttons -->
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <a
-          href="/optimize"
-          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
-          onmouseover="this.style.background='#e9ecef';"
-          onmouseout="this.style.background='#f8f9fa';"
-          class="desktop-api-docs"
-        >
-          <span>Optimize Guide</span>
-        </a>
-        <a
-          href="/axflow"
-          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
-          onmouseover="this.style.background='#e9ecef';"
-          onmouseout="this.style.background='#f8f9fa';"
-          class="desktop-api-docs"
-        >
-          <span>AxFlow Guide</span>
-        </a>
-        <a
-          href="/telemetry"
-          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
-          onmouseover="this.style.background='#e9ecef';"
-          onmouseout="this.style.background='#f8f9fa';"
-          class="desktop-api-docs"
-        >
-          <span>Telemetry Guide</span>
-        </a>
-        <a
-          href="https://deepwiki.com/ax-llm/ax"
-          target="_blank"
-          rel="noopener noreferrer"
-          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
-          onmouseover="this.style.background='#e9ecef';"
-          onmouseout="this.style.background='#f8f9fa';"
-          class="desktop-api-docs"
-        >
-          <span>DeepWiki</span>
-        </a>
-        <a
-          href="/api"
-          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
-          onmouseover="this.style.background='#e9ecef';"
-          onmouseout="this.style.background='#f8f9fa';"
-          class="desktop-api-docs"
-        >
-          <span>API Docs</span>
-        </a>
-
+        <!-- Colorful GitHub Button -->
         <a
           href="https://github.com/ax-llm/ax"
           target="_blank"
           rel="noopener noreferrer"
-          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #000000; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; transition: all 0.2s ease;"
-          onmouseover="this.style.background='#333333';"
-          onmouseout="this.style.background='#000000';"
-          class="desktop-github"
+          class="hidden sm:inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors shadow-lg"
         >
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.30.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
           <span>GitHub</span>
         </a>
 
         <!-- Mobile Menu Button -->
         <button
           id="mobile-menu-btn"
-          style="display: none; flex-direction: column; gap: 4px; background: none; border: none; cursor: pointer; padding: 8px;"
-          class="mobile-menu-btn"
+          class="md:hidden inline-flex items-center justify-center p-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-50 transition-colors"
+          aria-label="Toggle mobile menu"
         >
-          <div
-            style="width: 20px; height: 2px; background: #000000; transition: all 0.3s ease;"
-            class="line1"
-          >
-          </div>
-          <div
-            style="width: 20px; height: 2px; background: #000000; transition: all 0.3s ease;"
-            class="line2"
-          >
-          </div>
-          <div
-            style="width: 20px; height: 2px; background: #000000; transition: all 0.3s ease;"
-            class="line3"
-          >
-          </div>
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path class="menu-icon" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+            <path class="close-icon hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
         </button>
       </div>
     </div>
 
     <!-- Mobile Navigation Menu -->
-    <div
-      id="mobile-menu"
-      style="display: none; flex-direction: column; gap: 0; padding: 16px 0; border-top: 1px solid #f1f3f4; background: #ffffff;"
-      class="mobile-menu"
-    >
-      <a
-        href="/optimize"
-        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
-      >
-        Optimize Guide
-      </a>
-      <a
-        href="/axflow"
-        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
-      >
-        AxFlow Guide
-      </a>
-      <a
-        href="/telemetry"
-        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
-      >
-        Telemetry Guide
-      </a>
-      <a
-        href="https://deepwiki.com/ax-llm/ax"
-        target="_blank"
-        rel="noopener noreferrer"
-        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
-      >
-        DeepWiki
-      </a>
-      <a
-        href="/api"
-        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
-      >
-        API Docs
-      </a>
-
-      <a
-        href="https://github.com/ax-llm/ax"
-        target="_blank"
-        rel="noopener noreferrer"
-        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0;"
-      >
-        GitHub
-      </a>
+    <div id="mobile-menu" class="hidden md:hidden border-t border-gray-100 py-4">
+      <div class="flex flex-col space-y-1">
+        <a
+          href="/optimize"
+          class="px-4 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          Optimize Guide
+        </a>
+        <a
+          href="/axflow"
+          class="px-4 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          AxFlow Guide
+        </a>
+        <a
+          href="/telemetry"
+          class="px-4 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          Telemetry Guide
+        </a>
+        <a
+          href="https://deepwiki.com/ax-llm/ax"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="px-4 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          DeepWiki
+        </a>
+        <a
+          href="/api"
+          class="px-4 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          API Docs
+        </a>
+        
+        <!-- Mobile: GitHub & Badges -->
+        <div class="pt-4 mt-4 border-t border-gray-100">
+          <a
+            href="https://github.com/ax-llm/ax"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex items-center space-x-2 px-4 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+            <span>GitHub</span>
+          </a>
+          
+          <!-- Mobile Badges -->
+          <div class="flex flex-col space-y-3 px-4 pt-4">
+            <a
+              href="https://github.com/ax-llm/ax"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-block"
+            >
+              <img
+                src="https://img.shields.io/github/stars/ax-llm/ax?style=for-the-badge&logo=github&logoColor=white&color=black&labelColor=555"
+                alt="GitHub Stars"
+                class="h-7 rounded shadow-sm"
+              />
+            </a>
+            <a
+              href="https://www.npmjs.com/package/@ax-llm/ax"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-block"
+            >
+              <img
+                src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&logo=npm&logoColor=white&color=CC3534&labelColor=555"
+                alt="NPM Package"
+                class="h-7 rounded shadow-sm"
+              />
+            </a>
+            <a
+              href="https://twitter.com/dosco"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-block"
+            >
+              <img
+                src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&logo=twitter&logoColor=white&color=1DA1F2&labelColor=555"
+                alt="Twitter Follow"
+                class="h-7 rounded shadow-sm"
+              />
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </nav>
 
-<style>
-  /* Ensure proper mobile viewport handling */
-  html,
-  body {
-    overflow-x: hidden;
-    max-width: 100vw;
-  }
-
-  /* Navigation container styles */
-  nav {
-    width: 100%;
-    box-sizing: border-box;
-  }
-
-  nav > div {
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  /* Prevent badge overflow */
-  .desktop-badges img {
-    max-width: none;
-    height: 28px;
-  }
-
-  @media (max-width: 768px) {
-    .desktop-github,
-    .desktop-badges,
-    .desktop-api-docs {
-      display: none !important;
-    }
-
-    .mobile-menu-btn {
-      display: flex !important;
-    }
-
-    nav div:first-child {
-      padding: 0 16px !important;
-    }
-
-    /* Ensure mobile menu doesn't overflow */
-    .mobile-menu {
-      width: 100%;
-      box-sizing: border-box;
-      overflow-x: hidden;
-    }
-
-    .mobile-menu img {
-      max-width: calc(100vw - 64px);
-      height: auto;
-      max-height: 32px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    .desktop-badges {
-      display: none !important;
-    }
-  }
-
-  @media (min-width: 769px) {
-    .mobile-menu {
-      display: none !important;
-    }
-  }
-
-  /* Mobile menu animation */
-  .mobile-menu-open .line1 {
-    transform: rotate(-45deg) translate(-5px, 6px);
-  }
-
-  .mobile-menu-open .line2 {
-    opacity: 0;
-  }
-
-  .mobile-menu-open .line3 {
-    transform: rotate(45deg) translate(-5px, -6px);
-  }
-</style>
-
 <script>
-  // Logo click to scroll to top
-  const logoArea = document.getElementById('logo-area')
-  if (logoArea) {
-    logoArea.addEventListener('click', () => {
-      window.scrollTo({
-        top: 0,
-        behavior: 'smooth',
-      })
-    })
-  }
-
   // Mobile menu toggle
-  const mobileMenuBtn = document.getElementById('mobile-menu-btn')
-  const mobileMenu = document.getElementById('mobile-menu')
+  const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+  const mobileMenu = document.getElementById('mobile-menu');
+  const menuIcon = mobileMenuBtn?.querySelector('.menu-icon');
+  const closeIcon = mobileMenuBtn?.querySelector('.close-icon');
 
   if (mobileMenuBtn && mobileMenu) {
     mobileMenuBtn.addEventListener('click', () => {
-      const isOpen = mobileMenu.style.display === 'flex'
+      const isOpen = !mobileMenu.classList.contains('hidden');
 
       if (isOpen) {
-        mobileMenu.style.display = 'none'
-        mobileMenuBtn.classList.remove('mobile-menu-open')
+        mobileMenu.classList.add('hidden');
+        menuIcon?.classList.remove('hidden');
+        closeIcon?.classList.add('hidden');
       } else {
-        mobileMenu.style.display = 'flex'
-        mobileMenuBtn.classList.add('mobile-menu-open')
+        mobileMenu.classList.remove('hidden');
+        menuIcon?.classList.add('hidden');
+        closeIcon?.classList.remove('hidden');
       }
-    })
+    });
   }
 </script>

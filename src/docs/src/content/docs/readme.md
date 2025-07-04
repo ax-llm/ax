@@ -1,3 +1,8 @@
+---
+title: "Documentation"
+description: "Ax, DSPy for TypeScript - Complete documentation"
+---
+
 # Ax, DSPy for Typescript
 
 Working with LLMs is complex they don't always do what you want. DSPy makes it easier to build amazing things with LLMs. Just define your inputs and outputs (signature) and an efficient prompt is auto-generated and used. Connect together various signatures to build complex systems and workflows using LLMs

@@ -3,6 +3,7 @@ import { ReadableStream } from 'node:stream/web'
 import {
   context,
   type Context,
+  type Meter,
   type Span,
   SpanKind,
   trace,
@@ -32,6 +33,20 @@ import {
   createFunctionConfig,
   parseFunctions,
 } from './functions.js'
+import {
+  type AxGenMetricsInstruments,
+  getOrCreateGenMetricsInstruments,
+  recordErrorCorrectionMetric,
+  recordFieldProcessingMetric,
+  recordFunctionCallingMetric,
+  recordGenerationMetric,
+  recordMultiStepMetric,
+  recordPerformanceMetric,
+  recordSamplesMetric,
+  recordSignatureComplexityMetrics,
+  recordStreamingMetric,
+  recordValidationErrorMetric,
+} from './metrics.js'
 import {
   processResponse,
   processStreamingResponse,
@@ -134,6 +149,19 @@ export class AxGen<
     if (options?.functions) {
       this.functions = parseFunctions(options.functions)
     }
+  }
+
+  private getSignatureName(): string {
+    return this.signature.getDescription() || 'unknown_signature'
+  }
+
+  private getMetricsInstruments(): AxGenMetricsInstruments | undefined {
+    return getOrCreateGenMetricsInstruments()
+  }
+
+  public updateMeter(meter?: Meter): void {
+    // This now just updates the global singleton, no need to store locally
+    getOrCreateGenMetricsInstruments(meter)
   }
 
   private createStates(n: number) {
@@ -397,6 +425,9 @@ export class AxGen<
     // New logic:
     let prompt
 
+    // Track prompt rendering performance
+    const promptRenderStart = performance.now()
+
     if (Array.isArray(values)) {
       // Validate AxMessage array items
       validateAxMessageArray(values)
@@ -418,7 +449,33 @@ export class AxGen<
       })
     }
 
+    const promptRenderDuration = performance.now() - promptRenderStart
+
+    // Record prompt render performance metric
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
+      recordPerformanceMetric(
+        metricsInstruments,
+        'prompt_render',
+        promptRenderDuration,
+        this.getSignatureName()
+      )
+    }
+
+    // Track memory update performance
+    const memoryUpdateStart = performance.now()
     mem.addRequest(prompt, options.sessionId)
+    const memoryUpdateDuration = performance.now() - memoryUpdateStart
+
+    // Record memory update performance metric
+    if (metricsInstruments) {
+      recordPerformanceMetric(
+        metricsInstruments,
+        'memory_update',
+        memoryUpdateDuration,
+        this.getSignatureName()
+      )
+    }
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       const firstStep = n === 0
@@ -451,7 +508,56 @@ export class AxGen<
           )
 
           if (shouldContinue) {
+            // Record multi-step generation metric
+            const metricsInstruments = this.getMetricsInstruments()
+            if (metricsInstruments) {
+              recordMultiStepMetric(
+                metricsInstruments,
+                n + 1,
+                maxSteps,
+                this.getSignatureName()
+              )
+            }
             continue multiStepLoop
+          }
+
+          // Record successful completion metrics
+          const metricsInstruments = this.getMetricsInstruments()
+          if (metricsInstruments) {
+            recordMultiStepMetric(
+              metricsInstruments,
+              n + 1,
+              maxSteps,
+              this.getSignatureName()
+            )
+
+            // Count unique functions executed across all states
+            const allFunctionsExecuted = new Set<string>()
+            states.forEach((state) => {
+              state.functionsExecuted.forEach((func) =>
+                allFunctionsExecuted.add(func)
+              )
+            })
+
+            // Record function metrics if functions were used
+            if (allFunctionsExecuted.size > 0) {
+              recordFunctionCallingMetric(
+                metricsInstruments,
+                true,
+                allFunctionsExecuted.size,
+                true,
+                false,
+                this.getSignatureName()
+              )
+            }
+
+            // Record field processing metrics
+            recordFieldProcessingMetric(
+              metricsInstruments,
+              this.fieldProcessors.length,
+              this.streamingFieldProcessors.length,
+              this.getSignatureName()
+            )
           }
 
           this.getLogger(ai, options)?.('', { tags: ['responseEnd'] })
@@ -465,6 +571,16 @@ export class AxGen<
             errorFields = e.getFixingInstructions()
             err = e
 
+            // Record validation error metric
+            const metricsInstruments = this.getMetricsInstruments()
+            if (metricsInstruments) {
+              recordValidationErrorMetric(
+                metricsInstruments,
+                'validation',
+                this.getSignatureName()
+              )
+            }
+
             // Add telemetry event for validation error
             if (span) {
               span.addEvent('validation.error', {
@@ -477,6 +593,16 @@ export class AxGen<
             const e1 = e as AxAssertionError
             errorFields = e1.getFixingInstructions()
             err = e
+
+            // Record assertion error metric
+            const assertionMetricsInstruments = this.getMetricsInstruments()
+            if (assertionMetricsInstruments) {
+              recordValidationErrorMetric(
+                assertionMetricsInstruments,
+                'assertion',
+                this.getSignatureName()
+              )
+            }
 
             // Add telemetry event for assertion error
             if (span) {
@@ -504,10 +630,32 @@ export class AxGen<
         }
       }
 
+      // Record max retries reached
+      const metricsInstruments = this.getMetricsInstruments()
+      if (metricsInstruments) {
+        recordErrorCorrectionMetric(
+          metricsInstruments,
+          maxRetries,
+          false, // failed
+          maxRetries,
+          this.getSignatureName()
+        )
+      }
+
       throw enhanceError(
         new Error(`Unable to fix validation error: ${err?.toString()}`),
         ai,
         this.signature
+      )
+    }
+
+    // Record max steps reached
+    if (metricsInstruments) {
+      recordMultiStepMetric(
+        metricsInstruments,
+        maxSteps,
+        maxSteps,
+        this.getSignatureName()
       )
     }
 
@@ -523,7 +671,21 @@ export class AxGen<
     values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions>
   ): AxGenStreamingOut<OUT> {
+    // Track state creation performance
+    const stateCreationStart = performance.now()
     const states = this.createStates(options.sampleCount ?? 1)
+    const stateCreationDuration = performance.now() - stateCreationStart
+
+    // Record state creation performance metric
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
+      recordPerformanceMetric(
+        metricsInstruments,
+        'state_creation',
+        stateCreationDuration,
+        this.getSignatureName()
+      )
+    }
 
     const tracer =
       options?.tracer ?? this.options?.tracer ?? ai.getOptions().tracer
@@ -604,37 +766,137 @@ export class AxGen<
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const generator = this._forward1(ai, values, options ?? {})
+    const startTime = performance.now()
+    const signatureName = this.getSignatureName()
+    const isStreaming = options?.stream ?? false
+    let success = false
+    let errorCorrectionAttempts = 0
+    let functionsEnabled = false
+    let functionsExecuted = 0
+    let resultPickerUsed = false
 
-    let buffer: AxGenDeltaOut<OUT>[] = []
-    let currentVersion = 0
-
-    for await (const delta of generator) {
-      if (delta.version !== currentVersion) {
-        buffer = []
+    try {
+      // Record signature complexity metrics
+      const metricsInstruments = this.getMetricsInstruments()
+      if (metricsInstruments) {
+        recordSignatureComplexityMetrics(
+          metricsInstruments,
+          this.signature.getInputFields().length,
+          this.signature.getOutputFields().length,
+          this.examples?.length ?? 0,
+          this.demos?.length ?? 0,
+          signatureName
+        )
       }
-      currentVersion = delta.version
-      buffer = mergeDeltas<OUT>(buffer, delta)
+
+      // Check if functions are enabled
+      functionsEnabled = !!(options?.functions || this.functions)
+
+      const generator = this._forward1(ai, values, options ?? {})
+
+      let buffer: AxGenDeltaOut<OUT>[] = []
+      let currentVersion = 0
+      let deltasEmitted = 0
+
+      for await (const delta of generator) {
+        if (delta.version !== currentVersion) {
+          buffer = []
+        }
+        currentVersion = delta.version
+        buffer = mergeDeltas<OUT>(buffer, delta)
+        deltasEmitted++
+      }
+
+      // Track error correction attempts from the version count
+      errorCorrectionAttempts = currentVersion
+
+      // Use result picker to select from multiple samples
+      const resultPickerStart = performance.now()
+      resultPickerUsed = !!options?.resultPicker
+
+      const selectedIndex = await selectFromSamples(
+        buffer,
+        {
+          resultPicker: options?.resultPicker as
+            | AxResultPickerFunction<OUT>
+            | undefined,
+        },
+        // Pass memory to enable function result selection
+        options?.mem,
+        options?.sessionId
+      )
+
+      const resultPickerLatency = performance.now() - resultPickerStart
+
+      const selectedResult = buffer[selectedIndex]
+      const result = selectedResult?.delta ?? {}
+      this.trace = { ...values, ...result } as unknown as OUT
+
+      success = true
+
+      // Record samples metrics
+      if (metricsInstruments) {
+        recordSamplesMetric(
+          metricsInstruments,
+          buffer.length,
+          resultPickerUsed,
+          resultPickerUsed ? resultPickerLatency : undefined,
+          signatureName
+        )
+
+        // Record streaming metrics
+        recordStreamingMetric(
+          metricsInstruments,
+          isStreaming,
+          deltasEmitted,
+          undefined, // finalization latency not applicable here
+          signatureName
+        )
+      }
+
+      return result as unknown as OUT
+    } catch (error) {
+      success = false
+      throw error
+    } finally {
+      const duration = performance.now() - startTime
+
+      // Record generation metrics
+      const finalMetricsInstruments = this.getMetricsInstruments()
+      if (finalMetricsInstruments) {
+        recordGenerationMetric(
+          finalMetricsInstruments,
+          duration,
+          success,
+          signatureName,
+          ai.getName(),
+          options?.model
+        )
+
+        // Record function calling metrics if functions were used
+        if (functionsEnabled) {
+          recordFunctionCallingMetric(
+            finalMetricsInstruments,
+            functionsEnabled,
+            functionsExecuted,
+            functionsExecuted > 0,
+            false, // function error correction tracking would need more complex logic
+            signatureName
+          )
+        }
+
+        // Record error correction metrics
+        if (errorCorrectionAttempts > 0) {
+          recordErrorCorrectionMetric(
+            finalMetricsInstruments,
+            errorCorrectionAttempts,
+            success,
+            options?.maxRetries ?? 10,
+            signatureName
+          )
+        }
+      }
     }
-
-    // Use result picker to select from multiple samples
-    const selectedIndex = await selectFromSamples(
-      buffer,
-      {
-        resultPicker: options?.resultPicker as
-          | AxResultPickerFunction<OUT>
-          | undefined,
-      },
-      // Pass memory to enable function result selection
-      options?.mem,
-      options?.sessionId
-    )
-
-    const selectedResult = buffer[selectedIndex]
-    const result = selectedResult?.delta ?? {}
-    this.trace = { ...values, ...result } as unknown as OUT
-
-    return result as unknown as OUT
   }
 
   override async *streamingForward(

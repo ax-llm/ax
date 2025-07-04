@@ -1,19 +1,14 @@
 ---
-// src/pages/optimize.astro
-import fs from 'fs'
-import path from 'path'
-import { marked } from 'marked'
 import Navigation from '../components/Navigation.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 import '../styles/shared.css'
 
-// Read OPTIMIZE.md from the root of the project
-const optimizePath = path.join(process.cwd(), '..', '..', 'OPTIMIZE.md')
-const optimizeRawContent = fs.readFileSync(optimizePath, 'utf-8')
+export interface Props {
+  title: string
+}
 
-// Parse markdown to HTML
-const htmlContent = marked(optimizeRawContent)
+const { title } = Astro.props
 ---
 
 <!doctype html>
@@ -21,7 +16,7 @@ const htmlContent = marked(optimizeRawContent)
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ax Optimization Guide</title>
+    <title>{title}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -34,12 +29,9 @@ const htmlContent = marked(optimizeRawContent)
     <Navigation />
     <div class="container">
       <Header />
-
-      <!-- Main Content from OPTIMIZE.md -->
-      <main class="prose">
-        <Fragment set:html={htmlContent} />
-      </main>
-
+      
+      <slot />
+      
       <Footer />
     </div>
   </body>

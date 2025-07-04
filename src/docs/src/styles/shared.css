@@ -114,39 +114,32 @@ main.prose h1:first-of-type {
     border-bottom-color: #0066cc;
 }
 
-/* Code styles */
-.prose code {
-    font-family:
-        'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
-        'Courier New', monospace;
-    background: #f8f9fa;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 14px;
-    color: #e83e8c;
-    border: 1px solid #e9ecef;
-}
-
-.prose pre {
-    background: #f8f9fa;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    padding: 24px;
+/* Shiki syntax highlighting styles */
+.prose .astro-code {
     margin: 32px 0;
+    padding: 24px;
+    border-radius: 12px;
     overflow-x: auto;
-    font-family:
-        'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
-        'Courier New', monospace;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.6;
+    border: 1px solid #e2e8f0;
+    position: relative;
 }
 
-.prose pre code {
-    background: none;
-    border: none;
-    padding: 0;
-    color: #24292f;
-    font-size: inherit;
+.prose .astro-code code {
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    font-size: inherit !important;
+    font-family: inherit !important;
+}
+
+/* Dark mode support for Shiki dual themes */
+@media (prefers-color-scheme: dark) {
+    .prose .astro-code {
+        border-color: #374151;
+    }
 }
 
 /* Tables */

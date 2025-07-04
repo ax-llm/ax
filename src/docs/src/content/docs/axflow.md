@@ -1,3 +1,8 @@
+---
+title: "AxFlow Guide"
+description: "AxFlow - Orchestration framework for building AI workflows with Ax"
+---
+
 # AxFlow, The DSPy Compute Graph
 
 **🎯 Goal**: Learn how to build complex, stateful AI workflows that orchestrate multiple models, handle control flow, and scale to production.

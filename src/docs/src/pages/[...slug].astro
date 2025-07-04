@@ -1,0 +1,49 @@
+---
+import { getCollection, getEntry, render } from 'astro:content'
+import Layout from '../layouts/Layout.astro'
+
+// This is a server-rendered dynamic route
+export const prerender = false
+
+// Get the slug from the URL
+const { slug } = Astro.params
+
+// Handle root path (/) - redirect to readme
+if (!slug || slug === '') {
+  return Astro.redirect('/readme')
+}
+
+// Map some common paths to their actual file names
+const pathMap = {
+  'api': 'readme',
+  'docs': 'readme',
+  'documentation': 'readme',
+  'optimize': 'optimize',
+  'optimization': 'optimize',
+  'axflow': 'axflow',
+  'flow': 'axflow',
+  'telemetry': 'telemetry',
+  'observability': 'telemetry',
+  'readme': 'readme'
+}
+
+// Get the actual file name
+const fileName = pathMap[slug] || slug
+
+// Get the document from the docs collection
+const doc = await getEntry('docs', fileName)
+
+if (!doc) {
+  // If not found, redirect to docs listing
+  return Astro.redirect('/docs')
+}
+
+// Render the content
+const { Content } = await render(doc)
+---
+
+<Layout title={doc.data.title}>
+  <main class="prose">
+    <Content />
+  </main>
+</Layout> 

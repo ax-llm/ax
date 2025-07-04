@@ -1,5 +1,8 @@
+import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api'
+
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js'
 
+import { axGlobals } from './globals.js'
 import { axDefaultOptimizerLogger } from './loggers.js'
 import type { AxProgram, AxProgramDemos } from './program.js'
 import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
@@ -161,6 +164,712 @@ export interface AxOptimizationStats {
     validationScore: number
     crossValidationScores?: number[]
     standardDeviation?: number
+  }
+}
+
+// Optimizer metrics configuration interface
+export interface AxOptimizerMetricsConfig {
+  enabled: boolean
+  enabledCategories: (
+    | 'optimization'
+    | 'convergence'
+    | 'resource_usage'
+    | 'teacher_student'
+    | 'checkpointing'
+    | 'pareto'
+  )[]
+  maxLabelLength: number
+  samplingRate: number
+}
+
+// Default optimizer metrics configuration
+export const axDefaultOptimizerMetricsConfig: AxOptimizerMetricsConfig = {
+  enabled: true,
+  enabledCategories: [
+    'optimization',
+    'convergence',
+    'resource_usage',
+    'teacher_student',
+    'checkpointing',
+    'pareto',
+  ],
+  maxLabelLength: 100,
+  samplingRate: 1.0,
+}
+
+// Optimizer metrics instruments interface
+export interface AxOptimizerMetricsInstruments {
+  // Optimization flow metrics
+  optimizationLatencyHistogram?: Histogram
+  optimizationRequestsCounter?: Counter
+  optimizationErrorsCounter?: Counter
+
+  // Convergence metrics
+  convergenceRoundsHistogram?: Histogram
+  convergenceScoreGauge?: Gauge
+  convergenceImprovementGauge?: Gauge
+  stagnationRoundsGauge?: Gauge
+  earlyStoppingCounter?: Counter
+
+  // Resource usage metrics
+  tokenUsageCounter?: Counter
+  costUsageCounter?: Counter
+  memoryUsageGauge?: Gauge
+  optimizationDurationHistogram?: Histogram
+
+  // Teacher-student metrics
+  teacherStudentUsageCounter?: Counter
+  teacherStudentLatencyHistogram?: Histogram
+  teacherStudentScoreImprovementGauge?: Gauge
+
+  // Checkpointing metrics
+  checkpointSaveCounter?: Counter
+  checkpointLoadCounter?: Counter
+  checkpointSaveLatencyHistogram?: Histogram
+  checkpointLoadLatencyHistogram?: Histogram
+
+  // Pareto optimization metrics
+  paretoOptimizationsCounter?: Counter
+  paretoFrontSizeHistogram?: Histogram
+  paretoHypervolumeGauge?: Gauge
+  paretoSolutionsGeneratedHistogram?: Histogram
+
+  // Program complexity metrics
+  programInputFieldsGauge?: Gauge
+  programOutputFieldsGauge?: Gauge
+  examplesCountGauge?: Gauge
+  validationSetSizeGauge?: Gauge
+
+  // Performance metrics
+  evaluationLatencyHistogram?: Histogram
+  demoGenerationLatencyHistogram?: Histogram
+  metricComputationLatencyHistogram?: Histogram
+
+  // Configuration metrics
+  optimizerTypeGauge?: Gauge
+  targetScoreGauge?: Gauge
+  maxRoundsGauge?: Gauge
+}
+
+// Singleton instance for optimizer metrics instruments
+let globalOptimizerMetricsInstruments: AxOptimizerMetricsInstruments | undefined
+
+// Function to get or create optimizer metrics instruments (singleton pattern)
+export const getOrCreateOptimizerMetricsInstruments = (
+  meter?: Meter
+): AxOptimizerMetricsInstruments | undefined => {
+  // Return existing instance if available
+  if (globalOptimizerMetricsInstruments) {
+    return globalOptimizerMetricsInstruments
+  }
+
+  if (meter) {
+    globalOptimizerMetricsInstruments = createOptimizerMetricsInstruments(meter)
+    return globalOptimizerMetricsInstruments
+  }
+
+  return undefined
+}
+
+// Function to reset the optimizer metrics singleton (useful for testing)
+export const resetOptimizerMetricsInstruments = (): void => {
+  globalOptimizerMetricsInstruments = undefined
+}
+
+// Global optimizer metrics configuration
+let currentOptimizerMetricsConfig: AxOptimizerMetricsConfig =
+  axDefaultOptimizerMetricsConfig
+
+// Function to update optimizer metrics configuration
+export const axUpdateOptimizerMetricsConfig = (
+  config: Readonly<Partial<AxOptimizerMetricsConfig>>
+): void => {
+  currentOptimizerMetricsConfig = {
+    ...currentOptimizerMetricsConfig,
+    ...config,
+  }
+}
+
+// Function to get current optimizer metrics configuration
+export const axGetOptimizerMetricsConfig = (): AxOptimizerMetricsConfig => {
+  return { ...currentOptimizerMetricsConfig }
+}
+
+export const createOptimizerMetricsInstruments = (
+  meter: Meter
+): AxOptimizerMetricsInstruments => {
+  return {
+    // Optimization flow metrics
+    optimizationLatencyHistogram: meter.createHistogram(
+      'ax_optimizer_optimization_duration_ms',
+      {
+        description: 'End-to-end duration of optimization runs',
+        unit: 'ms',
+      }
+    ),
+
+    optimizationRequestsCounter: meter.createCounter(
+      'ax_optimizer_optimization_requests_total',
+      {
+        description: 'Total number of optimization requests',
+      }
+    ),
+
+    optimizationErrorsCounter: meter.createCounter(
+      'ax_optimizer_optimization_errors_total',
+      {
+        description: 'Total number of failed optimizations',
+      }
+    ),
+
+    // Convergence metrics
+    convergenceRoundsHistogram: meter.createHistogram(
+      'ax_optimizer_convergence_rounds',
+      {
+        description: 'Number of rounds until convergence',
+      }
+    ),
+
+    convergenceScoreGauge: meter.createGauge('ax_optimizer_convergence_score', {
+      description: 'Current best score during optimization',
+    }),
+
+    convergenceImprovementGauge: meter.createGauge(
+      'ax_optimizer_convergence_improvement',
+      {
+        description: 'Improvement in score from baseline',
+      }
+    ),
+
+    stagnationRoundsGauge: meter.createGauge('ax_optimizer_stagnation_rounds', {
+      description: 'Number of rounds without improvement',
+    }),
+
+    earlyStoppingCounter: meter.createCounter(
+      'ax_optimizer_early_stopping_total',
+      {
+        description: 'Total number of early stopping events',
+      }
+    ),
+
+    // Resource usage metrics
+    tokenUsageCounter: meter.createCounter('ax_optimizer_token_usage_total', {
+      description: 'Total tokens used during optimization',
+    }),
+
+    costUsageCounter: meter.createCounter('ax_optimizer_cost_usage_total', {
+      description: 'Total cost incurred during optimization',
+      unit: '$',
+    }),
+
+    memoryUsageGauge: meter.createGauge('ax_optimizer_memory_usage_bytes', {
+      description: 'Peak memory usage during optimization',
+      unit: 'By',
+    }),
+
+    optimizationDurationHistogram: meter.createHistogram(
+      'ax_optimizer_duration_ms',
+      {
+        description: 'Duration of optimization runs',
+        unit: 'ms',
+      }
+    ),
+
+    // Teacher-student metrics
+    teacherStudentUsageCounter: meter.createCounter(
+      'ax_optimizer_teacher_student_usage_total',
+      {
+        description: 'Total number of teacher-student interactions',
+      }
+    ),
+
+    teacherStudentLatencyHistogram: meter.createHistogram(
+      'ax_optimizer_teacher_student_latency_ms',
+      {
+        description: 'Latency of teacher-student interactions',
+        unit: 'ms',
+      }
+    ),
+
+    teacherStudentScoreImprovementGauge: meter.createGauge(
+      'ax_optimizer_teacher_student_score_improvement',
+      {
+        description: 'Score improvement from teacher-student interactions',
+      }
+    ),
+
+    // Checkpointing metrics
+    checkpointSaveCounter: meter.createCounter(
+      'ax_optimizer_checkpoint_save_total',
+      {
+        description: 'Total number of checkpoint saves',
+      }
+    ),
+
+    checkpointLoadCounter: meter.createCounter(
+      'ax_optimizer_checkpoint_load_total',
+      {
+        description: 'Total number of checkpoint loads',
+      }
+    ),
+
+    checkpointSaveLatencyHistogram: meter.createHistogram(
+      'ax_optimizer_checkpoint_save_latency_ms',
+      {
+        description: 'Latency of checkpoint save operations',
+        unit: 'ms',
+      }
+    ),
+
+    checkpointLoadLatencyHistogram: meter.createHistogram(
+      'ax_optimizer_checkpoint_load_latency_ms',
+      {
+        description: 'Latency of checkpoint load operations',
+        unit: 'ms',
+      }
+    ),
+
+    // Pareto optimization metrics
+    paretoOptimizationsCounter: meter.createCounter(
+      'ax_optimizer_pareto_optimizations_total',
+      {
+        description: 'Total number of Pareto optimizations',
+      }
+    ),
+
+    paretoFrontSizeHistogram: meter.createHistogram(
+      'ax_optimizer_pareto_front_size',
+      {
+        description: 'Size of Pareto frontier',
+      }
+    ),
+
+    paretoHypervolumeGauge: meter.createGauge(
+      'ax_optimizer_pareto_hypervolume',
+      {
+        description: 'Hypervolume of Pareto frontier',
+      }
+    ),
+
+    paretoSolutionsGeneratedHistogram: meter.createHistogram(
+      'ax_optimizer_pareto_solutions_generated',
+      {
+        description: 'Number of solutions generated for Pareto optimization',
+      }
+    ),
+
+    // Program complexity metrics
+    programInputFieldsGauge: meter.createGauge(
+      'ax_optimizer_program_input_fields',
+      {
+        description: 'Number of input fields in optimized program',
+      }
+    ),
+
+    programOutputFieldsGauge: meter.createGauge(
+      'ax_optimizer_program_output_fields',
+      {
+        description: 'Number of output fields in optimized program',
+      }
+    ),
+
+    examplesCountGauge: meter.createGauge('ax_optimizer_examples_count', {
+      description: 'Number of training examples used',
+    }),
+
+    validationSetSizeGauge: meter.createGauge(
+      'ax_optimizer_validation_set_size',
+      {
+        description: 'Size of validation set used',
+      }
+    ),
+
+    // Performance metrics
+    evaluationLatencyHistogram: meter.createHistogram(
+      'ax_optimizer_evaluation_latency_ms',
+      {
+        description: 'Latency of program evaluations',
+        unit: 'ms',
+      }
+    ),
+
+    demoGenerationLatencyHistogram: meter.createHistogram(
+      'ax_optimizer_demo_generation_latency_ms',
+      {
+        description: 'Latency of demo generation',
+        unit: 'ms',
+      }
+    ),
+
+    metricComputationLatencyHistogram: meter.createHistogram(
+      'ax_optimizer_metric_computation_latency_ms',
+      {
+        description: 'Latency of metric computation',
+        unit: 'ms',
+      }
+    ),
+
+    // Configuration metrics
+    optimizerTypeGauge: meter.createGauge('ax_optimizer_type', {
+      description: 'Type of optimizer being used',
+    }),
+
+    targetScoreGauge: meter.createGauge('ax_optimizer_target_score', {
+      description: 'Target score for optimization',
+    }),
+
+    maxRoundsGauge: meter.createGauge('ax_optimizer_max_rounds', {
+      description: 'Maximum rounds for optimization',
+    }),
+  }
+}
+
+// Utility function to sanitize optimizer metric labels
+const sanitizeOptimizerLabels = (
+  labels: Record<string, unknown>
+): Record<string, string> => {
+  const sanitized: Record<string, string> = {}
+  for (const [key, value] of Object.entries(labels)) {
+    if (value !== undefined && value !== null) {
+      const stringValue = String(value)
+      // Limit label length based on configuration
+      const maxLength = currentOptimizerMetricsConfig.maxLabelLength
+      sanitized[key] =
+        stringValue.length > maxLength
+          ? stringValue.substring(0, maxLength)
+          : stringValue
+    }
+  }
+  return sanitized
+}
+
+// Recording functions for optimization flow metrics
+export const recordOptimizationMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  duration: number,
+  success: boolean,
+  optimizerType: string,
+  programSignature?: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      success: success.toString(),
+      optimizer_type: optimizerType,
+      ...(programSignature ? { program_signature: programSignature } : {}),
+    })
+
+    if (instruments.optimizationLatencyHistogram) {
+      instruments.optimizationLatencyHistogram.record(duration, labels)
+    }
+
+    if (instruments.optimizationRequestsCounter) {
+      instruments.optimizationRequestsCounter.add(1, labels)
+    }
+
+    if (!success && instruments.optimizationErrorsCounter) {
+      instruments.optimizationErrorsCounter.add(1, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record optimization metric:', error)
+  }
+}
+
+// Recording functions for convergence metrics
+export const recordConvergenceMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  rounds: number,
+  currentScore: number,
+  improvement: number,
+  stagnationRounds: number,
+  optimizerType: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.convergenceRoundsHistogram) {
+      instruments.convergenceRoundsHistogram.record(rounds, labels)
+    }
+
+    if (instruments.convergenceScoreGauge) {
+      instruments.convergenceScoreGauge.record(currentScore, labels)
+    }
+
+    if (instruments.convergenceImprovementGauge) {
+      instruments.convergenceImprovementGauge.record(improvement, labels)
+    }
+
+    if (instruments.stagnationRoundsGauge) {
+      instruments.stagnationRoundsGauge.record(stagnationRounds, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record convergence metric:', error)
+  }
+}
+
+export const recordEarlyStoppingMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  reason: string,
+  optimizerType: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      reason,
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.earlyStoppingCounter) {
+      instruments.earlyStoppingCounter.add(1, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record early stopping metric:', error)
+  }
+}
+
+// Recording functions for resource usage metrics
+export const recordResourceUsageMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  tokensUsed: number,
+  costIncurred: number,
+  optimizerType: string,
+  memoryUsage?: number
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.tokenUsageCounter) {
+      instruments.tokenUsageCounter.add(tokensUsed, labels)
+    }
+
+    if (instruments.costUsageCounter) {
+      instruments.costUsageCounter.add(costIncurred, labels)
+    }
+
+    if (memoryUsage !== undefined && instruments.memoryUsageGauge) {
+      instruments.memoryUsageGauge.record(memoryUsage, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record resource usage metric:', error)
+  }
+}
+
+export const recordOptimizationDurationMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  duration: number,
+  optimizerType: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.optimizationDurationHistogram) {
+      instruments.optimizationDurationHistogram.record(duration, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record optimization duration metric:', error)
+  }
+}
+
+// Recording functions for teacher-student metrics
+export const recordTeacherStudentMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  latency: number,
+  scoreImprovement: number,
+  optimizerType: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.teacherStudentUsageCounter) {
+      instruments.teacherStudentUsageCounter.add(1, labels)
+    }
+
+    if (instruments.teacherStudentLatencyHistogram) {
+      instruments.teacherStudentLatencyHistogram.record(latency, labels)
+    }
+
+    if (instruments.teacherStudentScoreImprovementGauge) {
+      instruments.teacherStudentScoreImprovementGauge.record(
+        scoreImprovement,
+        labels
+      )
+    }
+  } catch (error) {
+    console.warn('Failed to record teacher-student metric:', error)
+  }
+}
+
+// Recording functions for checkpointing metrics
+export const recordCheckpointMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  operation: 'save' | 'load',
+  latency: number,
+  success: boolean,
+  optimizerType: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      operation,
+      success: success.toString(),
+      optimizer_type: optimizerType,
+    })
+
+    if (operation === 'save') {
+      if (instruments.checkpointSaveCounter) {
+        instruments.checkpointSaveCounter.add(1, labels)
+      }
+      if (instruments.checkpointSaveLatencyHistogram) {
+        instruments.checkpointSaveLatencyHistogram.record(latency, labels)
+      }
+    } else {
+      if (instruments.checkpointLoadCounter) {
+        instruments.checkpointLoadCounter.add(1, labels)
+      }
+      if (instruments.checkpointLoadLatencyHistogram) {
+        instruments.checkpointLoadLatencyHistogram.record(latency, labels)
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to record checkpoint metric:', error)
+  }
+}
+
+// Recording functions for Pareto optimization metrics
+export const recordParetoMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  frontSize: number,
+  solutionsGenerated: number,
+  optimizerType: string,
+  hypervolume?: number
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.paretoOptimizationsCounter) {
+      instruments.paretoOptimizationsCounter.add(1, labels)
+    }
+
+    if (instruments.paretoFrontSizeHistogram) {
+      instruments.paretoFrontSizeHistogram.record(frontSize, labels)
+    }
+
+    if (hypervolume !== undefined && instruments.paretoHypervolumeGauge) {
+      instruments.paretoHypervolumeGauge.record(hypervolume, labels)
+    }
+
+    if (instruments.paretoSolutionsGeneratedHistogram) {
+      instruments.paretoSolutionsGeneratedHistogram.record(
+        solutionsGenerated,
+        labels
+      )
+    }
+  } catch (error) {
+    console.warn('Failed to record Pareto metric:', error)
+  }
+}
+
+// Recording functions for program complexity metrics
+export const recordProgramComplexityMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  inputFields: number,
+  outputFields: number,
+  examplesCount: number,
+  validationSetSize: number,
+  optimizerType: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.programInputFieldsGauge) {
+      instruments.programInputFieldsGauge.record(inputFields, labels)
+    }
+
+    if (instruments.programOutputFieldsGauge) {
+      instruments.programOutputFieldsGauge.record(outputFields, labels)
+    }
+
+    if (instruments.examplesCountGauge) {
+      instruments.examplesCountGauge.record(examplesCount, labels)
+    }
+
+    if (instruments.validationSetSizeGauge) {
+      instruments.validationSetSizeGauge.record(validationSetSize, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record program complexity metric:', error)
+  }
+}
+
+// Recording functions for performance metrics
+export const recordOptimizerPerformanceMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  metricType: 'evaluation' | 'demo_generation' | 'metric_computation',
+  duration: number,
+  optimizerType: string
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      metric_type: metricType,
+      optimizer_type: optimizerType,
+    })
+
+    switch (metricType) {
+      case 'evaluation':
+        if (instruments.evaluationLatencyHistogram) {
+          instruments.evaluationLatencyHistogram.record(duration, labels)
+        }
+        break
+      case 'demo_generation':
+        if (instruments.demoGenerationLatencyHistogram) {
+          instruments.demoGenerationLatencyHistogram.record(duration, labels)
+        }
+        break
+      case 'metric_computation':
+        if (instruments.metricComputationLatencyHistogram) {
+          instruments.metricComputationLatencyHistogram.record(duration, labels)
+        }
+        break
+    }
+  } catch (error) {
+    console.warn('Failed to record optimizer performance metric:', error)
+  }
+}
+
+// Recording functions for configuration metrics
+export const recordOptimizerConfigurationMetric = (
+  instruments: Readonly<AxOptimizerMetricsInstruments>,
+  optimizerType: string,
+  targetScore?: number,
+  maxRounds?: number
+): void => {
+  try {
+    const labels = sanitizeOptimizerLabels({
+      optimizer_type: optimizerType,
+    })
+
+    if (instruments.optimizerTypeGauge) {
+      instruments.optimizerTypeGauge.record(1, labels)
+    }
+
+    if (targetScore !== undefined && instruments.targetScoreGauge) {
+      instruments.targetScoreGauge.record(targetScore, labels)
+    }
+
+    if (maxRounds !== undefined && instruments.maxRoundsGauge) {
+      instruments.maxRoundsGauge.record(maxRounds, labels)
+    }
+  } catch (error) {
+    console.warn('Failed to record optimizer configuration metric:', error)
   }
 }
 
@@ -484,6 +1193,9 @@ export abstract class AxBaseOptimizer<
   // Common optimization statistics
   protected stats: AxOptimizationStats
 
+  // Metrics instruments
+  protected readonly metricsInstruments?: AxOptimizerMetricsInstruments
+
   constructor(args: Readonly<AxOptimizerArgs>) {
     if (args.examples.length === 0) {
       throw new Error('No examples found')
@@ -515,6 +1227,11 @@ export abstract class AxBaseOptimizer<
       maxTokens: 1000000,
     })
     this.costTracker = args.costTracker ?? costTracker
+
+    // Initialize metrics instruments
+    this.metricsInstruments = getOrCreateOptimizerMetricsInstruments(
+      axGlobals.meter
+    )
 
     // Initialize common stats structure
     this.stats = this.initializeStats()
@@ -600,6 +1317,9 @@ export abstract class AxBaseOptimizer<
       patienceExhausted: reason.includes('improvement'),
       reason,
     }
+
+    // Record early stopping metrics (use a default optimizer type)
+    this.recordEarlyStoppingMetrics(reason, 'unknown')
 
     if (this.onEarlyStop) {
       this.onEarlyStop(reason, this.stats)
@@ -809,6 +1529,14 @@ export abstract class AxBaseOptimizer<
     // Update stats
     this.updateResourceUsage(startTime)
     this.stats.convergenceInfo.converged = true
+
+    // Record Pareto optimization metrics
+    this.recordParetoMetrics(
+      paretoFront.length,
+      allSolutions.length,
+      'base_optimizer',
+      hypervolume
+    )
 
     // Calculate best score as the maximum across all objectives and solutions
     const bestScore =
@@ -1277,25 +2005,40 @@ export abstract class AxBaseOptimizer<
     const saveFn = options?.overrideCheckpointSave || this.checkpointSave
     if (!saveFn) return undefined
 
-    const checkpoint: AxOptimizationCheckpoint = {
-      version: '1.0.0',
-      timestamp: Date.now(),
-      optimizerType,
-      optimizerConfig,
-      currentRound: this.currentRound,
-      totalRounds:
-        this.stats.resourceUsage.totalTime > 0 ? this.currentRound : 0,
-      bestScore,
-      bestConfiguration,
-      scoreHistory: [...this.scoreHistory],
-      configurationHistory: [...this.configurationHistory],
-      stats: { ...this.stats },
-      optimizerState,
-      examples: this.examples,
-      validationSet: this.validationSet,
+    const startTime = Date.now()
+    let success = false
+    let checkpointId: string | undefined
+
+    try {
+      const checkpoint: AxOptimizationCheckpoint = {
+        version: '1.0.0',
+        timestamp: Date.now(),
+        optimizerType,
+        optimizerConfig,
+        currentRound: this.currentRound,
+        totalRounds:
+          this.stats.resourceUsage.totalTime > 0 ? this.currentRound : 0,
+        bestScore,
+        bestConfiguration,
+        scoreHistory: [...this.scoreHistory],
+        configurationHistory: [...this.configurationHistory],
+        stats: { ...this.stats },
+        optimizerState,
+        examples: this.examples,
+        validationSet: this.validationSet,
+      }
+
+      checkpointId = await saveFn(checkpoint)
+      success = true
+    } catch (error) {
+      success = false
+      throw error
+    } finally {
+      const latency = Date.now() - startTime
+      this.recordCheckpointMetrics('save', latency, success, optimizerType)
     }
 
-    return await saveFn(checkpoint)
+    return checkpointId
   }
 
   /**
@@ -1308,7 +2051,23 @@ export abstract class AxBaseOptimizer<
     const loadFn = options?.overrideCheckpointLoad || this.checkpointLoad
     if (!loadFn) return null
 
-    return await loadFn(checkpointId)
+    const startTime = Date.now()
+    let success = false
+    let checkpoint: AxOptimizationCheckpoint | null = null
+
+    try {
+      checkpoint = await loadFn(checkpointId)
+      success = checkpoint !== null
+    } catch (error) {
+      success = false
+      throw error
+    } finally {
+      const latency = Date.now() - startTime
+      // Use a default optimizer type since we don't know it at load time
+      this.recordCheckpointMetrics('load', latency, success, 'unknown')
+    }
+
+    return checkpoint
   }
 
   /**
@@ -1425,5 +2184,185 @@ export abstract class AxBaseOptimizer<
 
     // Use optimizer's verbose setting
     return this.verbose ?? true // Default to true if not specified
+  }
+
+  /**
+   * Record optimization start metrics
+   */
+  protected recordOptimizationStart(
+    optimizerType: string,
+    programSignature?: string
+  ): void {
+    if (!this.metricsInstruments) return
+
+    // Record program complexity metrics
+    if (programSignature) {
+      // Extract field counts from signature (simplified)
+      const inputFields = (programSignature.match(/input:/g) || []).length
+      const outputFields = (programSignature.match(/output:/g) || []).length
+
+      recordProgramComplexityMetric(
+        this.metricsInstruments,
+        inputFields,
+        outputFields,
+        this.examples.length,
+        this.getValidationSet().length,
+        optimizerType
+      )
+    }
+
+    // Record configuration metrics
+    recordOptimizerConfigurationMetric(
+      this.metricsInstruments,
+      optimizerType,
+      this.targetScore,
+      undefined // maxRounds would be set by concrete optimizers
+    )
+  }
+
+  /**
+   * Record optimization completion metrics
+   */
+  protected recordOptimizationComplete(
+    duration: number,
+    success: boolean,
+    optimizerType: string,
+    programSignature?: string
+  ): void {
+    if (!this.metricsInstruments) return
+
+    recordOptimizationMetric(
+      this.metricsInstruments,
+      duration,
+      success,
+      optimizerType,
+      programSignature
+    )
+
+    recordOptimizationDurationMetric(
+      this.metricsInstruments,
+      duration,
+      optimizerType
+    )
+
+    // Record resource usage
+    const currentCost = this.costTracker?.getCurrentCost() ?? 0
+    const totalTokens = this.costTracker?.getTotalTokens() ?? 0
+    recordResourceUsageMetric(
+      this.metricsInstruments,
+      totalTokens,
+      currentCost,
+      optimizerType
+    )
+  }
+
+  /**
+   * Record convergence metrics
+   */
+  protected recordConvergenceMetrics(
+    rounds: number,
+    currentScore: number,
+    improvement: number,
+    stagnationRounds: number,
+    optimizerType: string
+  ): void {
+    if (!this.metricsInstruments) return
+
+    recordConvergenceMetric(
+      this.metricsInstruments,
+      rounds,
+      currentScore,
+      improvement,
+      stagnationRounds,
+      optimizerType
+    )
+  }
+
+  /**
+   * Record early stopping metrics
+   */
+  protected recordEarlyStoppingMetrics(
+    reason: string,
+    optimizerType: string
+  ): void {
+    if (!this.metricsInstruments) return
+
+    recordEarlyStoppingMetric(this.metricsInstruments, reason, optimizerType)
+  }
+
+  /**
+   * Record teacher-student interaction metrics
+   */
+  protected recordTeacherStudentMetrics(
+    latency: number,
+    scoreImprovement: number,
+    optimizerType: string
+  ): void {
+    if (!this.metricsInstruments) return
+
+    recordTeacherStudentMetric(
+      this.metricsInstruments,
+      latency,
+      scoreImprovement,
+      optimizerType
+    )
+  }
+
+  /**
+   * Record checkpoint metrics
+   */
+  protected recordCheckpointMetrics(
+    operation: 'save' | 'load',
+    latency: number,
+    success: boolean,
+    optimizerType: string
+  ): void {
+    if (!this.metricsInstruments) return
+
+    recordCheckpointMetric(
+      this.metricsInstruments,
+      operation,
+      latency,
+      success,
+      optimizerType
+    )
+  }
+
+  /**
+   * Record Pareto optimization metrics
+   */
+  protected recordParetoMetrics(
+    frontSize: number,
+    solutionsGenerated: number,
+    optimizerType: string,
+    hypervolume?: number
+  ): void {
+    if (!this.metricsInstruments) return
+
+    recordParetoMetric(
+      this.metricsInstruments,
+      frontSize,
+      solutionsGenerated,
+      optimizerType,
+      hypervolume
+    )
+  }
+
+  /**
+   * Record performance metrics
+   */
+  protected recordPerformanceMetrics(
+    metricType: 'evaluation' | 'demo_generation' | 'metric_computation',
+    duration: number,
+    optimizerType: string
+  ): void {
+    if (!this.metricsInstruments) return
+
+    recordOptimizerPerformanceMetric(
+      this.metricsInstruments,
+      metricType,
+      duration,
+      optimizerType
+    )
   }
 }

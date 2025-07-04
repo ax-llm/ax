@@ -1,3 +1,8 @@
+---
+title: "Telemetry Guide"
+description: "Observability and monitoring for Ax applications"
+---
+
 # Telemetry Guide
 
 **🎯 Goal**: Learn how to monitor, trace, and observe your AI applications with industry-standard OpenTelemetry integration.
