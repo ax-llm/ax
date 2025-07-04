@@ -1,4 +1,20 @@
 ---
-// Redirect to readme page
-return Astro.redirect('/readme')
+import { getEntry, render } from 'astro:content'
+import Layout from '../layouts/Layout.astro'
+
+// Get the readme document
+const doc = await getEntry('docs', 'readme')
+
+if (!doc) {
+  return Astro.redirect('/docs')
+}
+
+// Render the content
+const { Content } = await render(doc)
 ---
+
+<Layout title={doc.data.title}>
+  <main class="prose">
+    <Content />
+  </main>
+</Layout>

@@ -16,9 +16,9 @@ export async function getStaticPaths() {
 // Get the slug from the URL
 const { slug } = Astro.params
 
-// Handle root path (/) - redirect to readme
+// Handle empty slug
 if (!slug || slug === '') {
-  return Astro.redirect('/readme')
+  return Astro.redirect('/docs')
 }
 
 // Map some common paths to their actual file names
