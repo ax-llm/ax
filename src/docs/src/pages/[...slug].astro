@@ -2,8 +2,16 @@
 import { getCollection, getEntry, render } from 'astro:content'
 import Layout from '../layouts/Layout.astro'
 
-// This is a server-rendered dynamic route
-export const prerender = false
+// This is a statically generated dynamic route
+export const prerender = true
+
+// Generate static paths for all docs
+export async function getStaticPaths() {
+  const docs = await getCollection('docs')
+  return docs.map((doc) => ({
+    params: { slug: doc.slug },
+  }))
+}
 
 // Get the slug from the URL
 const { slug } = Astro.params
@@ -14,7 +22,7 @@ if (!slug || slug === '') {
 }
 
 // Map some common paths to their actual file names
-const pathMap = {
+const pathMap: Record<string, string> = {
   'api': 'readme',
   'docs': 'readme',
   'documentation': 'readme',
