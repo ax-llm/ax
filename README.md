@@ -932,6 +932,61 @@ axGlobals.tracer = trace.getTracer('my-app')
 axGlobals.meter = metrics.getMeter('my-app')
 ```
 
+## DSPy Metrics & Observability
+
+Ax provides comprehensive metrics tracking for DSPy-style generation workflows, giving you deep insights into performance, error rates, and optimization opportunities. The metrics system tracks everything from basic generation latency to complex multi-step function calling patterns.
+
+### Automatic Metrics Collection
+
+When you set up a meter globally, AxGen automatically tracks detailed metrics for all generation operations:
+
+```typescript
+import { metrics } from '@opentelemetry/api'
+import { axGlobals } from '@ax-llm/ax'
+
+// Set up metrics globally
+axGlobals.meter = metrics.getMeter('my-app')
+
+// All AxGen operations now automatically track metrics
+const gen = new AxGen('userQuestion:string -> assistantAnswer:string')
+const result = await gen.forward(ai, { userQuestion: 'Hello!' })
+```
+
+### Metrics Tracked
+
+The DSPy metrics system provides comprehensive coverage of your generation workflows:
+
+#### Generation Performance
+- **End-to-end latency**: Total time from input to final output
+- **Success/failure rates**: Track generation reliability
+- **AI service and model performance**: Compare different providers
+- **Signature complexity**: Monitor input/output field counts
+
+#### Multi-step Generation
+- **Step counts**: Track how many steps each generation takes
+- **Error correction attempts**: Monitor validation and assertion failures
+- **Retry patterns**: Understand when and why retries occur
+- **Max steps/retries hit**: Identify problematic signatures
+
+#### Function Calling
+- **Function execution rates**: Track how often functions are used
+- **Unique functions per generation**: Monitor function diversity
+- **Function error correction**: Track function-related failures
+- **Function calling success rates**: Measure function reliability
+
+#### Streaming Performance
+- **Streaming vs non-streaming**: Compare performance modes
+- **Delta counts**: Track streaming granularity
+- **Finalization latency**: Measure streaming completion time
+- **Result picker usage**: Monitor sample selection patterns
+
+#### Performance Breakdown
+- **Prompt rendering time**: Measure template processing
+- **Memory update latency**: Track context management
+- **State creation overhead**: Monitor internal operations
+- **Field processing time**: Measure output extraction
+
+
 ## Tuning the prompts (Basic)
 
 You can tune your prompts using a larger model to help them run more efficiently
@@ -1205,11 +1260,15 @@ Both Bootstrap Few Shot and MiPRO v2 generate demos in the same format, so you c
 
 ## Complete Optimization Guide
 
-For comprehensive documentation on optimization strategies, teacher-student architectures, cost management, and advanced techniques, see our detailed [**Optimization Guide**](./OPTIMIZE.md).
+For comprehensive documentation on optimization strategies, teacher-student architectures, cost management, and advanced techniques, see our detailed [**Optimization Guide**](https://github.com/ax-llm/ax/blob/main/OPTIMIZE.md).
 
 ## Complete AxFlow Guide
 
-For comprehensive documentation on building complex AI workflows, multi-model orchestration, control flow patterns, and production-ready systems, see our detailed [**AxFlow Guide**](./AXFLOW.md).
+For comprehensive documentation on building complex AI workflows, multi-model orchestration, control flow patterns, and production-ready systems, see our detailed [**AxFlow Guide**](https://github.com/ax-llm/ax/blob/main/AXFLOW.md).
+
+## Complete Telemetry Guide
+
+For comprehensive documentation on observability, metrics, tracing, and monitoring your AI applications with OpenTelemetry integration, see our detailed [**Telemetry Guide**](https://github.com/ax-llm/ax/blob/main/TELEMETRY.md).
 
 ## Built-in Functions
 
@@ -1273,6 +1332,8 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [reasoning-o3-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/reasoning-o3-example.ts) | Advanced reasoning with OpenAI o3/o4 models             |
 | [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts) | Example of using 'examples' to direct the llm |
 | [thinking-token-budget.ts](https://github.com/ax-llm/ax/blob/main/src/examples/thinking-token-budget.ts) | Configurable thinking token budget levels for Google Gemini and reasoning control |
+| [metrics-dspy.ts](https://github.com/ax-llm/ax/blob/main/src/examples/metrics-dspy.ts) | Comprehensive DSPy metrics tracking and observability for generation workflows |
+| [optimizer-metrics.ts](https://github.com/ax-llm/ax/blob/main/src/examples/optimizer-metrics.ts) | Optimizer metrics collection and monitoring for program tuning |
 | [ax-flow.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow.ts) | 🚀 Futuristic AI workflow orchestration with autonomous multi-model pipelines, adaptive loops, and self-healing agents |
 
 ## Our Goal

@@ -70,6 +70,7 @@ npm run dev --workspace=@ax-llm/ax
 - **No IIFE wrappers**: Top-level await works fine with modern Node.js/tsx
 - **Minimal console logs**: Only essential output, avoid verbose logging
 - **No fallback logic**: Keep examples clean and focused on the main functionality
+- **Public vs Private functions**: Only functions or classes exported publicly outside the library should be prefixed with Ax or ax not internal functions.
 
 ### Code Style
 - **Export reusable components**: Export generators, signatures, or functions that other examples might use
@@ -77,34 +78,13 @@ npm run dev --workspace=@ax-llm/ax
 - **Import and reuse**: Import exported components in other examples rather than recreating them
 - **Clean separation**: Optimize once, save demos, use anywhere
 
-### LLM Judge Pattern
-When using LLM judges in metric functions, use factory functions with closure:
-```typescript
-// Create judge generator
-const judgeGen = ax`
-  original:${f.string('Original text')} ->
-  candidate:${f.string('Candidate to evaluate')} ->
-  expected:${f.string('Expected result')} ->
-  score:${f.number('Quality score 0-1')}
-`
+### Example Creation Guidelines
 
-// Create metric function factory
-const createMetric = (judgeAI: AxAI): AxMetricFn => {
-  return async ({ prediction, example }) => {
-    const result = await judgeGen.forward(judgeAI, {
-      original: example.original,
-      candidate: prediction.output,
-      expected: example.expected
-    })
-    return result.score as number
-  }
-}
+- Do not fill the examples with console.log messages just use one of two
+- Do not use try .. catch in examples
+- Do not use top level functions
+- Keep it simple but make the example interesting
 
-// Use the metric
-const metric = createMetric(ai)
-```
-
-### Example Pattern
 ```typescript
 // Export reusable generator
 export const myGen = ax`input:${f.string('User input')} -> output:${f.string('AI response')}`
@@ -209,19 +189,7 @@ const signature = `emailText -> categoryType:class "urgent, normal, low", action
 ### Code Conventions
 
 #### Naming Conventions
-**CRITICAL**: All exported functions and utilities must be prefixed with `ax` to ensure they are properly exported from the package:
-
-```typescript
-// ✅ CORRECT: Functions prefixed with 'ax' will be exported
-export const axCreateLogger = () => { ... }
-export const axDefaultLogger = axCreateLogger()
-export const axParseData = (data: string) => { ... }
-
-// ❌ INCORRECT: Functions without 'ax' prefix will NOT be exported outside the package
-export const createLogger = () => { ... } // Will not be available to users
-export const defaultLogger = createLogger() // Will not be available to users
-export const parseData = (data: string) => { ... } // Will not be available to users
-```
+**CRITICAL**: All publicly exported (to the users of this library)  functions and utilities must be prefixed with `ax` or classes `Ax` do not do this with internal functions
 
 **Classes and Types**: Follow existing patterns:
 - Classes: `AxClassName` (e.g., `AxAI`, `AxChainOfThought`)
@@ -253,6 +221,8 @@ export * from './prompts/index.js'
 - `trace/` - OpenTelemetry integration
 - `funcs/` - Function calling utilities
 - `mcp/` - Model Context Protocol support
+- `flow/` - AxFlow ai workflow orchastration engine
+- `dsp` - The AxGen implementation which sits at the core of this library
 
 ### Provider Package (`src/ai-sdk-provider/`)
 - Integration with Vercel AI SDK
