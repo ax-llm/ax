@@ -208,6 +208,53 @@ const tasks = {
 .e('writer', mapping, { ai: tasks.creative })
 ```
 
+### 5. Node Types: Signatures vs Custom Programs
+
+AxFlow supports multiple ways to define nodes:
+
+**String Signatures** (creates AxGen):
+```typescript
+.n('summarizer', 'text:string -> summary:string')
+.n('analyzer', 'text:string -> analysis:string, confidence:number')
+```
+
+**AxSignature Instances** (creates AxGen):
+```typescript
+const sig = new AxSignature('text:string -> summary:string')
+.n('summarizer', sig, { debug: true })
+```
+
+**AxGen Instances** (uses directly):
+```typescript
+const summarizer = new AxGen('text:string -> summary:string', { temperature: 0.1 })
+.n('summarizer', summarizer)
+```
+
+**AxFlow or AxAgent Instances** (uses directly):
+```typescript
+// Use AxAgent as a node
+const agent = new AxAgent('userQuery:string -> agentResponse:string')
+
+.n('agent', agent) // Creates instance and uses directly
+
+// Use AxFlow as a node (sub-flow)
+const subFlow = new AxFlow('input:string -> processedOutput:string')
+  .n('processor', 'input:string -> processed:string')
+  .e('processor', s => ({ input: s.input }))
+  .m(s => ({ processedOutput: s.processorResult.processed }))
+
+.n('subFlow', subFlow) // Creates instance and uses directly
+```
+
+**🎯 Key Benefits of Custom Programs:**
+- **No AI calls**: Execute custom logic, data processing, or API calls
+- **Reusability**: Share custom logic across multiple flows
+- **Performance**: Avoid LLM latency for deterministic operations
+- **Cost savings**: Use AI only when needed
+- **Composability**: Mix AI and non-AI operations seamlessly
+- **Agent integration**: Use AxAgent for tool-based workflows
+- **Flow composition**: Use AxFlow for complex sub-workflows
+
 ---
 
 ## 🎯 Common Patterns (Copy & Paste Ready)
@@ -353,6 +400,81 @@ const robustProcessor = new AxFlow<
   .merge()
   
   .m(s => ({ output: s.processorResult.output }))
+```
+
+### 6. Mixed AI + Custom Logic Workflows
+
+```typescript
+// Custom data processor (no AI needed)
+class DataCleaner extends AxProgramWithSignature<{ rawData: string }, { cleanedData: string }> {
+  constructor() {
+    super('rawData:string -> cleanedData:string')
+  }
+  
+  async forward(ai: AxAIService, values: { rawData: string }): Promise<{ cleanedData: string }> {
+    // Custom logic: clean and normalize data
+    return { 
+      cleanedData: values.rawData
+        .trim()
+        .toLowerCase()
+        .replace(/[^\w\s]/g, '')
+    }
+  }
+}
+
+// Custom API caller (no AI needed)
+class WeatherAPI extends AxProgramWithSignature<{ city: string }, { temperature: number, conditions: string }> {
+  constructor() {
+    super('city:string -> temperature:number, conditions:string')
+  }
+  
+  async forward(ai: AxAIService, values: { city: string }): Promise<{ temperature: number, conditions: string }> {
+    // Custom logic: call external API
+    const response = await fetch(`https://api.weather.com/${values.city}`)
+    const data = await response.json()
+    return { temperature: data.temp, conditions: data.conditions }
+  }
+}
+
+const smartWeatherAnalyzer = new AxFlow<
+  { userQuery: string }, 
+  { analysis: string; recommendations: string[] }
+>()
+  .n('dataCleaner', DataCleaner)
+  .n('weatherAPI', WeatherAPI)
+  .n('analyzer', 'cleanedQuery:string, weatherData:object -> analysis:string')
+  .n('recommender', 'analysis:string, weatherData:object -> recommendations:string[]')
+  
+  // Clean user input (custom logic)
+  .e('dataCleaner', s => ({ rawData: s.userQuery }))
+  
+  // Extract city and get weather (custom logic)
+  .m(s => ({ city: s.cleanedData.split(' ').pop() || 'default' }))
+  .e('weatherAPI', s => ({ city: s.city }))
+  
+  // Analyze with AI
+  .e('analyzer', s => ({ 
+    cleanedQuery: s.dataCleanerResult.cleanedData,
+    weatherData: s.weatherAPIResult 
+  }), { ai: powerAI })
+  
+  // Generate recommendations with AI
+  .e('recommender', s => ({ 
+    analysis: s.analyzerResult.analysis,
+    weatherData: s.weatherAPIResult 
+  }), { ai: powerAI })
+  
+  .m(s => ({ 
+    analysis: s.analyzerResult.analysis,
+    recommendations: s.recommenderResult.recommendations 
+  }))
+
+// Usage: Mix of custom logic and AI
+const result = await smartWeatherAnalyzer.forward(ai, { 
+  userQuery: "What should I wear in NEW YORK today?" 
+})
+// Custom logic handles data cleaning and API calls
+// AI handles analysis and recommendations
 ```
 
 ---

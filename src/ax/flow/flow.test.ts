@@ -2,6 +2,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AxMockAIService } from '../ai/mock/api.js'
+import type { AxAIService } from '../ai/types.js'
+import { AxProgramWithSignature } from '../dsp/program.js'
+import { AxSignature } from '../dsp/sig.js'
 
 import { AxFlow } from './flow.js'
 
@@ -775,5 +778,137 @@ describe('AxFlow', () => {
         result.processedResults.every((r: unknown) => r === 'processed')
       ).toBe(true)
     })
+  })
+
+  describe('custom program execution', () => {
+    it('should execute custom program logic (not just signature)', async () => {
+      class CustomUppercaseProgram extends AxProgramWithSignature<
+        { userInput: string },
+        { processedOutput: string }
+      > {
+        constructor() {
+          super('userInput:string -> processedOutput:string')
+        }
+
+        override async forward(
+          ai: AxAIService,
+          values: Readonly<{ userInput: string }>
+        ): Promise<{ processedOutput: string }> {
+          // Custom logic - this should be executed, not the AI
+          return {
+            processedOutput: `CUSTOM: ${values.userInput.toUpperCase()}`,
+          }
+        }
+      }
+
+      const flow = new AxFlow<{ topic: string }, { result: string }>()
+        .node('custom', CustomUppercaseProgram)
+        // @ts-expect-error - testing runtime behavior with custom typing
+        .execute('custom', () => ({ userInput: 'hello world' }))
+        // @ts-expect-error - testing runtime behavior with custom typing
+        .map((state) => ({ result: state.customResult.processedOutput }))
+
+      const result = await flow.forward(mockAI, { topic: 'test' })
+
+      // Verify that our custom logic was executed, not the AI
+      expect(result.result).toBe('CUSTOM: HELLO WORLD')
+    })
+  })
+})
+
+describe('AxFlow > node definition > new overloads', () => {
+  it('should define a node with AxSignature instance', () => {
+    const flow = new AxFlow<{ topic: string }, { result: string }>()
+    const signature = new AxSignature(
+      'documentText:string -> summaryText:string'
+    )
+
+    flow.node('summarizer', signature, { debug: true })
+
+    // Test that the node was registered (we can't easily test execution without proper typing)
+    expect(() => {
+      // @ts-expect-error - testing runtime behavior
+      flow.execute('summarizer', () => ({ documentText: 'test' }))
+    }).not.toThrow()
+  })
+
+  it('should define a node with program class extending AxProgramWithSignature', () => {
+    class CustomProgram extends AxProgramWithSignature<
+      { userInput: string },
+      { processedOutput: string }
+    > {
+      constructor() {
+        super('userInput:string -> processedOutput:string')
+      }
+
+      override async forward(
+        ai: AxAIService,
+        values: Readonly<{ userInput: string }>
+      ): Promise<{ processedOutput: string }> {
+        return { processedOutput: values.userInput.toUpperCase() }
+      }
+    }
+
+    const flow = new AxFlow<{ topic: string }, { result: string }>()
+
+    flow.node('custom', CustomProgram)
+
+    // Test that the node was registered (we can't easily test execution without proper typing)
+    expect(() => {
+      // @ts-expect-error - testing runtime behavior
+      flow.execute('custom', () => ({ userInput: 'test' }))
+    }).not.toThrow()
+  })
+
+  it('should support n alias with AxSignature instance', () => {
+    const flow = new AxFlow<{ topic: string }, { result: string }>()
+    const signature = new AxSignature(
+      'documentText:string -> summaryText:string'
+    )
+
+    flow.n('summarizer', signature, { debug: true })
+
+    // Test that the node was registered (we can't easily test execution without proper typing)
+    expect(() => {
+      // @ts-expect-error - testing runtime behavior
+      flow.execute('summarizer', () => ({ documentText: 'test' }))
+    }).not.toThrow()
+  })
+
+  it('should support n alias with program class', () => {
+    class CustomProgram extends AxProgramWithSignature<
+      { userInput: string },
+      { processedOutput: string }
+    > {
+      constructor() {
+        super('userInput:string -> processedOutput:string')
+      }
+
+      override async forward(
+        ai: AxAIService,
+        values: Readonly<{ userInput: string }>
+      ): Promise<{ processedOutput: string }> {
+        return { processedOutput: values.userInput.toUpperCase() }
+      }
+    }
+
+    const flow = new AxFlow<{ topic: string }, { result: string }>()
+
+    flow.n('custom', CustomProgram)
+
+    // Test that the node was registered (we can't easily test execution without proper typing)
+    expect(() => {
+      // @ts-expect-error - testing runtime behavior
+      flow.execute('custom', () => ({ userInput: 'test' }))
+    }).not.toThrow()
+  })
+
+  it('should throw error for invalid second argument', () => {
+    const flow = new AxFlow<{ topic: string }, { result: string }>()
+
+    expect(() => {
+      // @ts-expect-error - testing invalid argument
+      flow.node('invalid', 123)
+    }).toThrow('Invalid second argument for node')
   })
 })

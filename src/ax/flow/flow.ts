@@ -154,8 +154,10 @@ export class AxFlow<
 > extends AxProgramWithSignature<IN, OUT> {
   private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map()
   private readonly flowDefinition: AxFlowStepFunction[] = []
-  private readonly nodeGenerators: Map<string, AxGen<AxGenIn, AxGenOut>> =
-    new Map()
+  private readonly nodeGenerators: Map<
+    string,
+    AxGen<AxGenIn, AxGenOut> | AxProgramWithSignature<AxGenIn, AxGenOut>
+  > = new Map()
   private readonly loopStack: number[] = []
   private readonly stepLabels: Map<string, number> = new Map()
   private branchContext: AxFlowBranchContext | null = null
@@ -195,6 +197,32 @@ export class AxFlow<
   >
 
   /**
+   * Declares a reusable computational node using an AxSignature instance.
+   * This allows using pre-configured signatures in the flow.
+   *
+   * @param name - The name of the node
+   * @param signature - AxSignature instance to use for this node
+   * @param options - Optional program forward options (same as AxGen)
+   * @returns New AxFlow instance with updated TNodes type
+   *
+   * @example
+   * ```typescript
+   * const sig = new AxSignature('text:string -> summary:string')
+   * flow.node('summarizer', sig, { temperature: 0.1 })
+   * ```
+   */
+  public node<TName extends string>(
+    name: TName,
+    signature: AxSignature,
+    options?: Readonly<AxProgramForwardOptions>
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: AxGen<AxGenIn, AxGenOut> }, // Add new node to registry
+    TState // State unchanged
+  >
+
+  /**
    * Declares a reusable computational node using an existing AxGen instance.
    * This allows reusing pre-configured generators in the flow.
    *
@@ -218,18 +246,51 @@ export class AxFlow<
     TState // State unchanged
   >
 
-  // Implementation
-  public node<TName extends string, TSig extends string>(
+  /**
+   * Declares a reusable computational node using a class that extends AxProgramWithSignature.
+   * This allows using custom program classes in the flow.
+   *
+   * @param name - The name of the node
+   * @param programClass - Class that extends AxProgramWithSignature to use for this node
+   * @returns New AxFlow instance with updated TNodes type
+   *
+   * @example
+   * ```typescript
+   * class CustomProgram extends AxProgramWithSignature<{ input: string }, { output: string }> {
+   *   async forward(ai, values) { return { output: values.input.toUpperCase() } }
+   * }
+   * flow.node('custom', CustomProgram)
+   * ```
+   */
+  public node<
+    TName extends string,
+    TProgram extends new () => AxProgramWithSignature<any, any>,
+  >(
     name: TName,
-    signatureOrAxGen: TSig | AxGen<any, any>,
+    programClass: TProgram
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: InstanceType<TProgram> }, // Add new node to registry with exact type
+    TState // State unchanged
+  >
+
+  // Implementation
+  public node<TName extends string>(
+    name: TName,
+    signatureOrAxGenOrClass:
+      | string
+      | AxSignature
+      | AxGen<any, any>
+      | (new () => AxProgramWithSignature<any, any>),
     options?: Readonly<AxProgramForwardOptions>
   ): AxFlow<
     IN,
     OUT,
-    TNodes & { [K in TName]: any }, // Using any here as the implementation handles both cases
+    TNodes & { [K in TName]: any }, // Using any here as the implementation handles all cases
     TState
   > {
-    if (signatureOrAxGen instanceof AxGen) {
+    if (signatureOrAxGenOrClass instanceof AxGen) {
       // Using existing AxGen instance
       this.nodes.set(name, {
         inputs: {},
@@ -239,11 +300,33 @@ export class AxFlow<
       // Store the existing AxGen instance
       this.nodeGenerators.set(
         name,
-        signatureOrAxGen as AxGen<AxGenIn, AxGenOut>
+        signatureOrAxGenOrClass as AxGen<AxGenIn, AxGenOut>
       )
-    } else {
+    } else if (signatureOrAxGenOrClass instanceof AxSignature) {
+      // Using AxSignature instance
+      this.nodes.set(name, {
+        inputs: {},
+        outputs: {},
+      })
+
+      // Create and store the AxGen instance for this node using the signature
+      this.nodeGenerators.set(name, new AxGen(signatureOrAxGenOrClass, options))
+    } else if (
+      typeof signatureOrAxGenOrClass === 'function' &&
+      signatureOrAxGenOrClass.prototype instanceof AxProgramWithSignature
+    ) {
+      // Using a class that extends AxProgramWithSignature
+      this.nodes.set(name, {
+        inputs: {},
+        outputs: {},
+      })
+
+      // Create an instance of the program class and store it directly
+      const programInstance = new signatureOrAxGenOrClass()
+      this.nodeGenerators.set(name, programInstance)
+    } else if (typeof signatureOrAxGenOrClass === 'string') {
       // Using signature string (original behavior)
-      const signature = signatureOrAxGen as string
+      const signature = signatureOrAxGenOrClass
 
       // Validate that signature is provided
       if (!signature) {
@@ -260,6 +343,10 @@ export class AxFlow<
 
       // Create and store the AxGen instance for this node with the same arguments as AxGen
       this.nodeGenerators.set(name, new AxGen(signature, options))
+    } else {
+      throw new Error(
+        `Invalid second argument for node '${name}': expected string, AxSignature, AxGen instance, or class extending AxProgramWithSignature`
+      )
     }
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
@@ -268,7 +355,7 @@ export class AxFlow<
   }
 
   /**
-   * Short alias for node() - supports both signature strings and AxGen instances
+   * Short alias for node() - supports signature strings, AxSignature instances, AxGen instances, and program classes
    */
   public n<TName extends string, TSig extends string>(
     name: TName,
@@ -276,17 +363,40 @@ export class AxFlow<
     options?: Readonly<AxProgramForwardOptions>
   ): AxFlow<IN, OUT, TNodes & { [K in TName]: InferAxGen<TSig> }, TState>
 
+  public n<TName extends string>(
+    name: TName,
+    signature: AxSignature,
+    options?: Readonly<AxProgramForwardOptions>
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: AxGen<AxGenIn, AxGenOut> },
+    TState
+  >
+
   public n<TName extends string, TGen extends AxGen<any, any>>(
     name: TName,
     axgenInstance: TGen
   ): AxFlow<IN, OUT, TNodes & { [K in TName]: TGen }, TState>
 
+  public n<
+    TName extends string,
+    TProgram extends new () => AxProgramWithSignature<any, any>,
+  >(
+    name: TName,
+    programClass: TProgram
+  ): AxFlow<IN, OUT, TNodes & { [K in TName]: InstanceType<TProgram> }, TState>
+
   public n<TName extends string>(
     name: TName,
-    signatureOrAxGen: string | AxGen<any, any>,
+    signatureOrAxGenOrClass:
+      | string
+      | AxSignature
+      | AxGen<any, any>
+      | (new () => AxProgramWithSignature<any, any>),
     options?: Readonly<AxProgramForwardOptions>
   ): any {
-    return this.node(name, signatureOrAxGen as any, options)
+    return this.node(name, signatureOrAxGenOrClass as any, options)
   }
 
   /**
@@ -394,9 +504,9 @@ export class AxFlow<
       )
     }
 
-    const nodeGenerator = this.nodeGenerators.get(nodeName)
-    if (!nodeGenerator) {
-      throw new Error(`Node generator for '${nodeName}' not found.`)
+    const nodeProgram = this.nodeGenerators.get(nodeName)
+    if (!nodeProgram) {
+      throw new Error(`Node program for '${nodeName}' not found.`)
     }
 
     const step = async (
@@ -413,8 +523,8 @@ export class AxFlow<
       // Map the state to node inputs (with type safety)
       const nodeInputs = mapping(state as TState)
 
-      // Execute the node
-      const result = await nodeGenerator.forward(ai, nodeInputs, options)
+      // Execute the node (works for both AxGen and AxProgramWithSignature)
+      const result = await nodeProgram.forward(ai, nodeInputs, options)
 
       // Merge result back into state under a key like `${nodeName}Result`
       return {
@@ -939,7 +1049,10 @@ class AxFlowSubContextImpl implements AxFlowSubContext {
   private readonly steps: AxFlowStepFunction[] = []
 
   constructor(
-    private readonly nodeGenerators: Map<string, AxGen<AxGenIn, AxGenOut>>
+    private readonly nodeGenerators: Map<
+      string,
+      AxGen<AxGenIn, AxGenOut> | AxProgramWithSignature<AxGenIn, AxGenOut>
+    >
   ) {}
 
   execute(
@@ -947,16 +1060,16 @@ class AxFlowSubContextImpl implements AxFlowSubContext {
     mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
     dynamicContext?: AxFlowDynamicContext
   ): this {
-    const nodeGenerator = this.nodeGenerators.get(nodeName)
-    if (!nodeGenerator) {
-      throw new Error(`Node generator for '${nodeName}' not found.`)
+    const nodeProgram = this.nodeGenerators.get(nodeName)
+    if (!nodeProgram) {
+      throw new Error(`Node program for '${nodeName}' not found.`)
     }
 
     this.steps.push(async (state, context) => {
       const ai = dynamicContext?.ai ?? context.mainAi
       const options = dynamicContext?.options ?? context.mainOptions
       const nodeInputs = mapping(state)
-      const result = await nodeGenerator.forward(ai, nodeInputs, options)
+      const result = await nodeProgram.forward(ai, nodeInputs, options)
 
       return {
         ...state,
@@ -1002,7 +1115,10 @@ export class AxFlowTypedSubContextImpl<
   private readonly steps: AxFlowStepFunction[] = []
 
   constructor(
-    private readonly nodeGenerators: Map<string, AxGen<AxGenIn, AxGenOut>>
+    private readonly nodeGenerators: Map<
+      string,
+      AxGen<AxGenIn, AxGenOut> | AxProgramWithSignature<AxGenIn, AxGenOut>
+    >
   ) {}
 
   execute<TNodeName extends keyof TNodes & string>(
@@ -1013,16 +1129,16 @@ export class AxFlowTypedSubContextImpl<
     TNodes,
     AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
   > {
-    const nodeGenerator = this.nodeGenerators.get(nodeName)
-    if (!nodeGenerator) {
-      throw new Error(`Node generator for '${nodeName}' not found.`)
+    const nodeProgram = this.nodeGenerators.get(nodeName)
+    if (!nodeProgram) {
+      throw new Error(`Node program for '${nodeName}' not found.`)
     }
 
     this.steps.push(async (state, context) => {
       const ai = dynamicContext?.ai ?? context.mainAi
       const options = dynamicContext?.options ?? context.mainOptions
       const nodeInputs = mapping(state as TState)
-      const result = await nodeGenerator.forward(ai, nodeInputs, options)
+      const result = await nodeProgram.forward(ai, nodeInputs, options)
 
       return {
         ...state,

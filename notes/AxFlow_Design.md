@@ -72,6 +72,54 @@ Computational nodes are declared separately from their usage, providing:
 - **Testability**: Nodes can be tested in isolation
 - **Performance**: Node generators are created once and reused
 
+### 3. Multi-Modal Node Types
+
+AxFlow supports four different ways to define nodes, enabling maximum flexibility:
+
+**String Signatures** (creates AxGen):
+```typescript
+.node('summarizer', 'text:string -> summary:string')
+```
+- Creates a new AxGen instance with the specified signature
+- Standard approach for AI-powered operations
+
+**AxSignature Instances** (creates AxGen):
+```typescript
+const sig = new AxSignature('text:string -> summary:string')
+.node('summarizer', sig, { debug: true })
+```
+- Creates a new AxGen instance using a pre-configured signature
+- Useful for reusing signature configurations
+
+**AxGen Instances** (uses directly):
+```typescript
+const summarizer = new AxGen('text:string -> summary:string', { temperature: 0.1 })
+.node('summarizer', summarizer)
+```
+- Uses an existing AxGen instance directly
+- Enables sharing pre-configured generators across flows
+
+**AxFlow or AxAgent Classes** (uses directly):
+```typescript
+// Use AxAgent as a node
+const agent = new AxAgent('userQuery:string -> agentResponse:string')
+
+.node('agent', agent)
+
+// Use AxFlow as a node (sub-flow)
+const subFlow = new AxFlow('input:string -> processedOutput:string')
+  .node('processor', 'input:string -> processed:string')
+  .execute('processor', s => ({ input: s.input }))
+  .map(s => ({ processedOutput: s.processorResult.processed }))
+
+.node('subFlow', subFlow)
+```
+- Creates an instance of the custom class and uses it directly
+- Enables non-AI operations, data processing, API calls, etc.
+- **Key innovation**: Allows seamless mixing of AI and non-AI operations
+- **Agent integration**: Use AxAgent for tool-based workflows
+- **Flow composition**: Use AxFlow for complex sub-workflows
+
 ### 3. Context-Aware Execution
 
 Each execution step can override the default AI service and options:
