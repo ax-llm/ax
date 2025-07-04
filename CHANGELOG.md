@@ -1,5 +1,17 @@
 # Changelog
 
+## [12.0.21](https://github.com/ax-llm/ax/compare/12.0.19...12.0.20) (2025-07-04)
+
+### Features
+
+* enhance documentation and introduce telemetry guide ([b581aa3](https://github.com/ax-llm/ax/commit/b581aa3aa63aab78d91d22e6a6d97db05438a2e3))
+* update documentation and enhance metrics integration ([c031e6c](https://github.com/ax-llm/ax/commit/c031e6cc6e67c4624e72e9e61e00808e263fba7f))
+## [12.0.20](https://github.com/ax-llm/ax/compare/12.0.19...12.0.20) (2025-07-03)
+
+### Features
+
+* integrate OpenTelemetry metrics for enhanced monitoring ([5f8265c](https://github.com/ax-llm/ax/commit/5f8265c28de89bfa6aab123c81e1e4358c6e9349))
+
 ## [12.0.20](https://github.com/ax-llm/ax/compare/12.0.18...12.0.19) (2025-07-03)
 
 ### Features
