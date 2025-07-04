@@ -1,5 +1,21 @@
 # Changelog
 
+## [12.0.22](https://github.com/ax-llm/ax/compare/12.0.20...12.0.21) (2025-07-04)
+
+### Features
+
+* enhance AxFlow documentation with new node types and custom program examples ([0ca143e](https://github.com/ax-llm/ax/commit/0ca143e81a23e58d6411c65d8a7e5f01f3bdd85d))
+
+### Bug Fixes
+
+* update redirection logic for documentation paths ([159c6c4](https://github.com/ax-llm/ax/commit/159c6c4812b874f942ef31b3de43fcf214eebc77))
+## [12.0.21](https://github.com/ax-llm/ax/compare/12.0.20...12.0.21) (2025-07-04)
+
+### Features
+
+* enhance documentation and introduce telemetry guide ([b581aa3](https://github.com/ax-llm/ax/commit/b581aa3aa63aab78d91d22e6a6d97db05438a2e3))
+* update documentation and enhance metrics integration ([c031e6c](https://github.com/ax-llm/ax/commit/c031e6cc6e67c4624e72e9e61e00808e263fba7f))
+
 ## [12.0.21](https://github.com/ax-llm/ax/compare/12.0.19...12.0.20) (2025-07-04)
 
 ### Features
