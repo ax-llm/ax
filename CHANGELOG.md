@@ -1,5 +1,20 @@
 # Changelog
 
+## [12.0.23](https://github.com/ax-llm/ax/compare/12.0.21...12.0.22) (2025-07-05)
+
+### Features
+
+* introduce automatic parallelization in AxFlow for enhanced performance ([9f27182](https://github.com/ax-llm/ax/commit/9f27182404cd1ca8aae7e4359d148080c4931b3a))
+## [12.0.22](https://github.com/ax-llm/ax/compare/12.0.21...12.0.22) (2025-07-04)
+
+### Features
+
+* enhance AxFlow documentation with new node types and custom program examples ([0ca143e](https://github.com/ax-llm/ax/commit/0ca143e81a23e58d6411c65d8a7e5f01f3bdd85d))
+
+### Bug Fixes
+
+* update redirection logic for documentation paths ([159c6c4](https://github.com/ax-llm/ax/commit/159c6c4812b874f942ef31b3de43fcf214eebc77))
+
 ## [12.0.22](https://github.com/ax-llm/ax/compare/12.0.20...12.0.21) (2025-07-04)
 
 ### Features
