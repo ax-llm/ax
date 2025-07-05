@@ -1,8 +1,7 @@
 # LLM Optimization Made Simple: A Beginner's Guide to Ax
 
-**🎯 Goal**: Learn how to make your AI programs smarter, faster, and cheaper through automatic optimization.
-**⏱️ Time to first results**: 5 minutes  
-**💰 Cost**: Start with $1-2 for experimentation
+**Goal**: Learn how to make your AI programs smarter, faster, and cheaper through automatic optimization.
+**Time to first results**: 5 minutes  
 
 ## 📋 Table of Contents
 
@@ -35,7 +34,6 @@ Think of optimization like having a writing tutor for your AI. Instead of manual
 Beginner     → Intermediate → Advanced
      ↓              ↓           ↓
 Quick Start → Use Cases → Teacher-Student → Multi-Objective
-(5 min)      (15 min)    (30 min)         (1 hour)
 ```
 
 ---

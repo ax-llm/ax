@@ -129,7 +129,10 @@ export class AxGen<
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
     options?: Readonly<AxProgramForwardOptions>
   ) {
-    super(signature, { description: options?.description })
+    super(signature, {
+      description: options?.description,
+      traceLabel: options?.traceLabel,
+    })
 
     this.options = options
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
@@ -721,8 +724,11 @@ export class AxGen<
       ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
     }
 
-    const traceLabel = options.traceLabel ?? this.options?.traceLabel
-    const spanName = traceLabel ? `${traceLabel} (AxGen)` : 'AxGen'
+    const traceLabel =
+      this.traceLabel && options.traceLabel
+        ? `${this.traceLabel} > ${options.traceLabel}`
+        : (options.traceLabel ?? this.traceLabel)
+    const spanName = traceLabel ? `AxGen > ${traceLabel}` : 'AxGen'
 
     const span = tracer.startSpan(spanName, {
       kind: SpanKind.SERVER,

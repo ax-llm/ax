@@ -124,6 +124,258 @@ interface AxFlowBranchContext {
   currentBranchValue?: unknown
 }
 
+// =============================================================================
+// AUTOMATIC DEPENDENCY ANALYSIS AND PARALLELIZATION
+// =============================================================================
+
+// Type for execution step metadata
+interface AxFlowExecutionStep {
+  type: 'execute' | 'map' | 'other'
+  nodeName?: string
+  dependencies: string[]
+  produces: string[]
+  stepFunction: AxFlowStepFunction
+  stepIndex: number
+}
+
+// Type for parallel execution groups
+interface AxFlowParallelGroup {
+  level: number
+  steps: AxFlowExecutionStep[]
+}
+
+// Configuration for automatic parallelization
+interface AxFlowAutoParallelConfig {
+  enabled: boolean
+}
+
+/**
+ * Analyzes mapping functions to extract state dependencies
+ */
+class AxFlowDependencyAnalyzer {
+  /**
+   * Analyzes a mapping function to determine which state fields it depends on
+   */
+  analyzeMappingDependencies(
+    mapping: (state: any) => any,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _nodeName: string
+  ): string[] {
+    const dependencies: string[] = []
+
+    // Method 1: Static analysis of function source
+    const source = mapping.toString()
+    const stateAccessMatches = Array.from(source.matchAll(/state\.(\w+)/g))
+    for (const match of stateAccessMatches) {
+      if (match[1] && !dependencies.includes(match[1])) {
+        dependencies.push(match[1])
+      }
+    }
+
+    // Method 2: Proxy-based tracking (fallback for complex cases)
+    if (dependencies.length === 0) {
+      try {
+        const tracker = this.createDependencyTracker(dependencies)
+        mapping(tracker)
+      } catch {
+        // Expected - we're just tracking access patterns
+      }
+    }
+
+    return dependencies
+  }
+
+  private createDependencyTracker(dependencies: string[]): any {
+    return new Proxy(
+      {},
+      {
+        get(target, prop) {
+          if (typeof prop === 'string' && !dependencies.includes(prop)) {
+            dependencies.push(prop)
+          }
+          // Return another proxy for nested access
+          return new Proxy(
+            {},
+            {
+              get: () => undefined,
+            }
+          )
+        },
+      }
+    )
+  }
+}
+
+/**
+ * Builds and manages the execution plan with automatic parallelization
+ */
+class AxFlowExecutionPlanner {
+  private steps: AxFlowExecutionStep[] = []
+  private parallelGroups: AxFlowParallelGroup[] = []
+  private readonly analyzer = new AxFlowDependencyAnalyzer()
+  private initialFields: Set<string> = new Set()
+
+  /**
+   * Adds an execution step to the plan
+   */
+  addExecutionStep(
+    stepFunction: AxFlowStepFunction,
+    nodeName?: string,
+    mapping?: (state: any) => any
+  ): void {
+    let dependencies: string[] = []
+    let produces: string[] = []
+    let type: 'execute' | 'map' | 'other' = 'other'
+
+    if (nodeName && mapping) {
+      type = 'execute'
+      dependencies = this.analyzer.analyzeMappingDependencies(mapping, nodeName)
+      produces = [`${nodeName}Result`]
+    } else if (stepFunction.toString().includes('transform(')) {
+      type = 'map'
+      // Map steps are harder to analyze statically, assume they depend on all previous steps
+      dependencies = this.getAllProducedFields()
+    }
+
+    const step: AxFlowExecutionStep = {
+      type,
+      nodeName,
+      dependencies,
+      produces,
+      stepFunction,
+      stepIndex: this.steps.length,
+    }
+
+    this.steps.push(step)
+    // Don't rebuild parallel groups during construction - only after initial fields are set
+    // this.rebuildParallelGroups()
+  }
+
+  /**
+   * Sets the initial fields and rebuilds parallel groups
+   */
+  setInitialFields(fields: string[]): void {
+    this.initialFields = new Set(fields)
+    this.rebuildParallelGroups()
+  }
+
+  /**
+   * Rebuilds the parallel execution groups based on dependencies
+   */
+  private rebuildParallelGroups(): void {
+    this.parallelGroups = []
+    const processedSteps = new Set<number>()
+    const availableFields = new Set<string>(this.initialFields)
+    let currentLevel = 0
+
+    while (processedSteps.size < this.steps.length) {
+      const currentLevelSteps: AxFlowExecutionStep[] = []
+
+      // Find all steps that can run at this level
+      for (const step of this.steps) {
+        if (processedSteps.has(step.stepIndex)) continue
+
+        // Check if all dependencies are available
+        const canRun =
+          step.dependencies.length === 0 ||
+          step.dependencies.every((dep) => availableFields.has(dep))
+
+        if (canRun) {
+          currentLevelSteps.push(step)
+          processedSteps.add(step.stepIndex)
+        }
+      }
+
+      if (currentLevelSteps.length > 0) {
+        // Add all produced fields from this level to available fields
+        for (const step of currentLevelSteps) {
+          step.produces.forEach((field) => availableFields.add(field))
+        }
+
+        this.parallelGroups.push({
+          level: currentLevel,
+          steps: currentLevelSteps,
+        })
+        currentLevel++
+      } else {
+        // No progress made - break to avoid infinite loop
+        break
+      }
+    }
+  }
+
+  /**
+   * Gets all fields produced by previous steps
+   */
+  private getAllProducedFields(): string[] {
+    const fields: string[] = []
+    for (const step of this.steps) {
+      fields.push(...step.produces)
+    }
+    return fields
+  }
+
+  /**
+   * Creates optimized execution function
+   */
+  createOptimizedExecution(): AxFlowStepFunction[] {
+    const optimizedSteps: AxFlowStepFunction[] = []
+
+    for (const group of this.parallelGroups) {
+      if (group.steps.length === 1) {
+        // Single step - execute directly
+        const step = group.steps[0]
+        if (step) {
+          optimizedSteps.push(step.stepFunction)
+        }
+      } else if (group.steps.length > 1) {
+        // Multiple steps - execute in parallel
+        const parallelStep: AxFlowStepFunction = async (state, context) => {
+          const promises = group.steps.map((step) =>
+            step.stepFunction(state, context)
+          )
+
+          const results = await Promise.all(promises)
+
+          // Merge all results
+          let mergedState = state
+          for (const result of results) {
+            mergedState = { ...mergedState, ...result }
+          }
+
+          return mergedState
+        }
+
+        optimizedSteps.push(parallelStep)
+      }
+    }
+
+    return optimizedSteps
+  }
+
+  /**
+   * Gets execution plan info for debugging
+   */
+  getExecutionPlan(): {
+    totalSteps: number
+    parallelGroups: number
+    maxParallelism: number
+    steps: AxFlowExecutionStep[]
+    groups: AxFlowParallelGroup[]
+  } {
+    return {
+      totalSteps: this.steps.length,
+      parallelGroups: this.parallelGroups.length,
+      maxParallelism: Math.max(
+        ...this.parallelGroups.map((g) => g.steps.length),
+        0
+      ),
+      steps: this.steps,
+      groups: this.parallelGroups,
+    }
+  }
+}
+
 /**
  * AxFlow - A fluent, chainable API for building and orchestrating complex, stateful AI programs.
  *
@@ -159,12 +411,22 @@ export class AxFlow<
   private readonly stepLabels: Map<string, number> = new Map()
   private branchContext: AxFlowBranchContext | null = null
 
+  // Automatic parallelization components
+  private readonly autoParallelConfig: AxFlowAutoParallelConfig
+  private readonly executionPlanner = new AxFlowExecutionPlanner()
+
   constructor(
     signature: NonNullable<
       ConstructorParameters<typeof AxSignature>[0]
-    > = 'userInput:string -> flowOutput:string'
+    > = 'userInput:string -> flowOutput:string',
+    options?: {
+      autoParallel?: boolean
+    }
   ) {
     super(signature)
+    this.autoParallelConfig = {
+      enabled: options?.autoParallel !== false, // Default to true
+    }
   }
 
   /**
@@ -429,6 +691,11 @@ export class AxFlow<
     } else {
       // Normal execution - add to main flow
       this.flowDefinition.push(step)
+
+      // Add to execution planner for automatic parallelization
+      if (this.autoParallelConfig.enabled) {
+        this.executionPlanner.addExecutionStep(step)
+      }
     }
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
@@ -520,8 +787,16 @@ export class AxFlow<
       // Map the state to node inputs (with type safety)
       const nodeInputs = mapping(state as TState)
 
-      // Execute the node (works for both AxGen and AxProgram)
-      const result = await nodeProgram.forward(ai, nodeInputs, options)
+      // Create trace label for the node execution
+      const traceLabel = options?.traceLabel
+        ? `Node:${nodeName} (${options.traceLabel})`
+        : `Node:${nodeName}`
+
+      // Execute the node with updated trace label
+      const result = await nodeProgram.forward(ai, nodeInputs, {
+        ...options,
+        traceLabel,
+      })
 
       // Merge result back into state under a key like `${nodeName}Result`
       return {
@@ -544,6 +819,11 @@ export class AxFlow<
     } else {
       // Normal execution - add to main flow
       this.flowDefinition.push(step)
+
+      // Add to execution planner for automatic parallelization
+      if (this.autoParallelConfig.enabled) {
+        this.executionPlanner.addExecutionStep(step, nodeName, mapping)
+      }
     }
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
@@ -1012,13 +1292,13 @@ export class AxFlow<
    *
    * @param ai - The AI service to use as the default for all steps
    * @param values - The input values for the flow
-   * @param options - Optional forward options to use as defaults
+   * @param options - Optional forward options to use as defaults (includes autoParallel override)
    * @returns Promise that resolves to the final output
    */
   public override async forward(
     ai: Readonly<AxAIService>,
     values: IN,
-    options?: Readonly<AxProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions & { autoParallel?: boolean }>
   ): Promise<OUT> {
     // Initialize state with input values
     let state: AxFlowState = { ...values }
@@ -1029,13 +1309,52 @@ export class AxFlow<
       mainOptions: options,
     } as const
 
-    // Execute each step in the flow definition
-    for (const step of this.flowDefinition) {
-      state = await step(state, context)
+    // Determine if auto-parallel should be used
+    const useAutoParallel =
+      options?.autoParallel !== false && this.autoParallelConfig.enabled
+
+    if (useAutoParallel) {
+      // Set initial fields for dependency analysis
+      this.executionPlanner.setInitialFields(Object.keys(values))
+
+      // Use optimized execution with automatic parallelization
+      const optimizedSteps = this.executionPlanner.createOptimizedExecution()
+      for (const step of optimizedSteps) {
+        state = await step(state, context)
+      }
+    } else {
+      // Use original sequential execution
+      for (const step of this.flowDefinition) {
+        state = await step(state, context)
+      }
     }
 
     // Return the final state cast to OUT type
     return state as unknown as OUT
+  }
+
+  /**
+   * Gets execution plan information for debugging automatic parallelization
+   *
+   * @returns Object with execution plan details
+   */
+  public getExecutionPlan(): {
+    totalSteps: number
+    parallelGroups: number
+    maxParallelism: number
+    autoParallelEnabled: boolean
+    steps?: AxFlowExecutionStep[]
+    groups?: AxFlowParallelGroup[]
+  } {
+    const planInfo = this.executionPlanner.getExecutionPlan()
+    return {
+      totalSteps: planInfo.totalSteps,
+      parallelGroups: planInfo.parallelGroups,
+      maxParallelism: planInfo.maxParallelism,
+      autoParallelEnabled: this.autoParallelConfig.enabled,
+      steps: planInfo.steps,
+      groups: planInfo.groups,
+    }
   }
 }
 
@@ -1066,7 +1385,17 @@ class AxFlowSubContextImpl implements AxFlowSubContext {
       const ai = dynamicContext?.ai ?? context.mainAi
       const options = dynamicContext?.options ?? context.mainOptions
       const nodeInputs = mapping(state)
-      const result = await nodeProgram.forward(ai, nodeInputs, options)
+
+      // Create trace label for the node execution
+      const traceLabel = options?.traceLabel
+        ? `Node:${nodeName} (${options.traceLabel})`
+        : `Node:${nodeName}`
+
+      // Execute the node with updated trace label
+      const result = await nodeProgram.forward(ai, nodeInputs, {
+        ...options,
+        traceLabel,
+      })
 
       return {
         ...state,
@@ -1135,7 +1464,17 @@ export class AxFlowTypedSubContextImpl<
       const ai = dynamicContext?.ai ?? context.mainAi
       const options = dynamicContext?.options ?? context.mainOptions
       const nodeInputs = mapping(state as TState)
-      const result = await nodeProgram.forward(ai, nodeInputs, options)
+
+      // Create trace label for the node execution
+      const traceLabel = options?.traceLabel
+        ? `Node:${nodeName} (${options.traceLabel})`
+        : `Node:${nodeName}`
+
+      // Execute the node with updated trace label
+      const result = await nodeProgram.forward(ai, nodeInputs, {
+        ...options,
+        traceLabel,
+      })
 
       return {
         ...state,

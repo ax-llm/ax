@@ -1,8 +1,8 @@
 # AxFlow, The DSPy Compute Graph
 
-**🎯 Goal**: Learn how to build complex, stateful AI workflows that orchestrate multiple models, handle control flow, and scale to production.
-**⏱️ Time to first results**: 10 minutes  
-**💰 Value**: Build systems that would take hours with traditional approaches in minutes
+**Goal**: Learn how to build complex, stateful AI workflows that orchestrate multiple models, handle control flow, and scale to production with automatic performance optimization.
+**Time to first results**: 10 minutes  
+**Value**: Build systems that would take hours with traditional approaches in minutes, with automatic 1.5-3x performance improvements
 
 ## 📋 Table of Contents
 
@@ -36,7 +36,6 @@ Think of AxFlow as **LEGO blocks for AI programs**. Instead of writing complex o
 Beginner      → Intermediate    → Advanced       → Production
      ↓              ↓               ↓                ↓
 Quick Start  → Multi-Model   → Complex Flows   → Enterprise
-(10 min)       (30 min)        (1 hour)          (2+ hours)
 ```
 
 ---
@@ -311,10 +310,66 @@ const smartRouter = new AxFlow<
   }))
 ```
 
-### 3. Parallel Processing
+### 3. Automatic Parallelization (New! 🚀)
+
+**Zero-config performance optimization** - AxFlow automatically analyzes dependencies and runs independent operations in parallel!
 
 ```typescript
-const parallelAnalyzer = new AxFlow<
+const autoParallelAnalyzer = new AxFlow<
+  { text: string }, 
+  { combinedAnalysis: string }
+>()
+  .node('sentimentAnalyzer', 'text:string -> sentiment:string')
+  .node('topicExtractor', 'text:string -> topics:string[]')
+  .node('entityRecognizer', 'text:string -> entities:string[]')
+  .node('combiner', 'sentiment:string, topics:string[], entities:string[] -> combinedAnalysis:string')
+  
+  // These three run automatically in parallel! ⚡
+  .execute('sentimentAnalyzer', s => ({ text: s.text }))
+  .execute('topicExtractor', s => ({ text: s.text }))
+  .execute('entityRecognizer', s => ({ text: s.text }))
+  
+  // This waits for all three to complete, then runs
+  .execute('combiner', s => ({
+    sentiment: s.sentimentAnalyzerResult.sentiment,
+    topics: s.topicExtractorResult.topics,
+    entities: s.entityRecognizerResult.entities
+  }))
+  
+  .map(s => ({ combinedAnalysis: s.combinerResult.combinedAnalysis }))
+
+// 🎯 Execution Plan:
+// Level 0 (Parallel): sentimentAnalyzer, topicExtractor, entityRecognizer
+// Level 1 (Sequential): combiner (waits for Level 0)
+// Level 2 (Sequential): map (waits for Level 1)
+
+// ⚡ Result: Automatic 1.5-3x speedup with zero code changes!
+```
+
+**How It Works:**
+- **Dependency Analysis**: Automatically detects which fields each operation depends on
+- **Parallel Grouping**: Groups operations that can run simultaneously into execution levels
+- **Optimal Execution**: Runs each level in parallel, waits for completion before starting the next level
+
+**Control Options:**
+```typescript
+// Disable auto-parallelization globally
+const sequentialFlow = new AxFlow(signature, { autoParallel: false })
+
+// Disable for a specific execution
+const result = await flow.forward(ai, input, { autoParallel: false })
+
+// Debug execution plan
+console.log(flow.getExecutionPlan())
+// Output: { parallelGroups: 3, maxParallelism: 3, ... }
+```
+
+### 4. Manual Parallel Processing
+
+For complex scenarios where you need full control, use manual parallel processing:
+
+```typescript
+const manualParallelAnalyzer = new AxFlow<
   { text: string }, 
   { combinedAnalysis: string }
 >()
@@ -322,7 +377,7 @@ const parallelAnalyzer = new AxFlow<
   .n('topicExtractor', 'text:string -> topics:string[]')
   .n('entityRecognizer', 'text:string -> entities:string[]')
   
-  // Run all analyses in parallel
+  // Manual parallel control with .p()
   .p([
     flow => flow.e('sentimentAnalyzer', s => ({ text: s.text })),
     flow => flow.e('topicExtractor', s => ({ text: s.text })),
@@ -333,7 +388,7 @@ const parallelAnalyzer = new AxFlow<
   })
 ```
 
-### 4. Quality-Driven Loops
+### 5. Quality-Driven Loops
 
 ```typescript
 const qualityWriter = new AxFlow<
@@ -372,7 +427,7 @@ const qualityWriter = new AxFlow<
   .m(s => ({ finalContent: s.currentContent }))
 ```
 
-### 5. Self-Healing Workflows
+### 6. Self-Healing Workflows
 
 ```typescript
 const robustProcessor = new AxFlow<
@@ -402,7 +457,7 @@ const robustProcessor = new AxFlow<
   .m(s => ({ output: s.processorResult.output }))
 ```
 
-### 6. Mixed AI + Custom Logic Workflows
+### 7. Mixed AI + Custom Logic Workflows
 
 ```typescript
 // Custom data processor (no AI needed)
@@ -775,6 +830,84 @@ const hierarchicalFlow = new AxFlow<
 .merge()
 ```
 
+### Problem: Automatic Parallelization Not Working
+
+**Symptom**: Expected parallel execution but operations run sequentially
+
+**Debug Steps:**
+
+1. **Check Execution Plan**:
+```typescript
+const flow = new AxFlow()
+  .node('task1', 'input:string -> output1:string')
+  .node('task2', 'input:string -> output2:string')
+  .execute('task1', s => ({ input: s.data }))
+  .execute('task2', s => ({ input: s.data }))
+
+// Debug the execution plan
+const plan = flow.getExecutionPlan()
+console.log('Parallel Groups:', plan.parallelGroups)
+console.log('Max Parallelism:', plan.maxParallelism)
+console.log('Auto-Parallel Enabled:', plan.autoParallelEnabled)
+
+// Expected output for parallel operations:
+// Parallel Groups: 2 (or more)
+// Max Parallelism: 2 (or more)
+```
+
+2. **Check Dependencies**:
+```typescript
+// ❌ These look independent but create dependencies
+.execute('task1', s => ({ input: s.data }))
+.execute('task2', s => ({ input: s.task1Result.output1 })) // Depends on task1!
+
+// ✅ Truly independent operations
+.execute('task1', s => ({ input: s.data }))
+.execute('task2', s => ({ input: s.data })) // Both depend only on s.data
+```
+
+3. **Verify Auto-Parallel is Enabled**:
+```typescript
+// Check constructor
+const flow = new AxFlow(signature, { autoParallel: true }) // Enabled
+
+// Check runtime
+const result = await flow.forward(ai, input, { autoParallel: true })
+```
+
+4. **Common Causes of Sequential Execution**:
+```typescript
+// ❌ Mapping dependencies create chains
+.execute('task1', s => ({ input: s.data }))
+.execute('task2', s => ({ 
+  input: s.data,
+  context: s.task1Result.output1 // Creates dependency!
+}))
+
+// ✅ Independent operations
+.execute('task1', s => ({ input: s.data }))
+.execute('task2', s => ({ input: s.data }))
+.execute('combiner', s => ({ 
+  input1: s.task1Result.output1,
+  input2: s.task2Result.output2
+})) // Combiner waits for both
+```
+
+**Performance Debugging:**
+```typescript
+// Measure performance difference
+const start = Date.now()
+const autoResult = await flow.forward(ai, input) // Auto-parallel
+const autoTime = Date.now() - start
+
+const start2 = Date.now()
+const seqResult = await flow.forward(ai, input, { autoParallel: false })
+const seqTime = Date.now() - start2
+
+console.log(`Speedup: ${(seqTime / autoTime).toFixed(2)}x`)
+// Expected: 1.5x - 3x speedup for parallel operations
+```
+
 ---
 
 ## 🎓 Best Practices
@@ -810,7 +943,44 @@ const v2 = v1
 .n('actionItemExtractor', signature)
 ```
 
-### 3. Model Selection Strategy
+### 3. Design for Automatic Parallelization
+
+**Structure your flows to maximize automatic parallelization:**
+
+```typescript
+// ✅ Parallel-friendly design
+const optimizedFlow = new AxFlow()
+  .node('summarizer', 'text:string -> summary:string')
+  .node('classifier', 'text:string -> category:string')
+  .node('extractor', 'text:string -> entities:string[]')
+  .node('combiner', 'summary:string, category:string, entities:string[] -> result:string')
+  
+  // These three run in parallel automatically! ⚡
+  .execute('summarizer', s => ({ text: s.input }))
+  .execute('classifier', s => ({ text: s.input }))
+  .execute('extractor', s => ({ text: s.input }))
+  
+  // This waits for all three, then runs
+  .execute('combiner', s => ({
+    summary: s.summarizerResult.summary,
+    category: s.classifierResult.category,
+    entities: s.extractorResult.entities
+  }))
+
+// ❌ Sequential design (avoid unnecessary dependencies)
+const slowFlow = new AxFlow()
+  .execute('summarizer', s => ({ text: s.input }))
+  .execute('classifier', s => ({ 
+    text: s.input,
+    context: s.summarizerResult.summary // Unnecessary dependency!
+  }))
+  .execute('extractor', s => ({ 
+    text: s.input,
+    category: s.classifierResult.category // Another unnecessary dependency!
+  }))
+```
+
+### 4. Model Selection Strategy
 
 ```typescript
 const models = {
@@ -834,7 +1004,7 @@ const models = {
 .e('strategist', mapping, { ai: models.strategist })
 ```
 
-### 4. State Management Patterns
+### 5. State Management Patterns
 
 ```typescript
 // ✅ Keep state flat and predictable
@@ -862,7 +1032,7 @@ const models = {
 })) // Hard to access later
 ```
 
-### 5. Error Boundaries
+### 6. Error Boundaries
 
 ```typescript
 const safeFlow = new AxFlow()

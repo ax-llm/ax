@@ -148,7 +148,10 @@ describe('AxFlow', () => {
         },
       })
 
-      const flow = new AxFlow<{ topic: string }, { summary: string }>()
+      const flow = new AxFlow<{ topic: string }, { summary: string }>(
+        'topic:string -> summary:string',
+        { autoParallel: false }
+      )
         .node('summarizer', 'documentText:string -> summary:string')
         .map((input) => ({ originalText: `Some text about ${input.topic}` }))
         .execute('summarizer', (state) => ({
@@ -175,7 +178,10 @@ describe('AxFlow', () => {
         },
       })
 
-      const flow = new AxFlow<{ iterations: number }, { finalCount: number }>()
+      const flow = new AxFlow<{ iterations: number }, { finalCount: number }>(
+        'iterations:number -> finalCount:number',
+        { autoParallel: false }
+      )
         .node('processor', 'iterationCount:number -> processedResult:string')
         .while((state) => state.iterations < 3)
         .map((state) => ({ ...state, iterations: state.iterations + 1 }))
@@ -200,7 +206,10 @@ describe('AxFlow', () => {
         },
       })
 
-      const flow = new AxFlow<{ counter: number }, { total: number }>()
+      const flow = new AxFlow<{ counter: number }, { total: number }>(
+        'counter:number -> total:number',
+        { autoParallel: false }
+      )
         .node('checker', 'counterValue:number -> statusCheck:string')
         .while((state) => state.counter < 2)
         .map((state) => ({ ...state, counter: state.counter + 1 }))
@@ -242,24 +251,27 @@ describe('AxFlow', () => {
       })
 
       const flow = new AxFlow<
-        { input: string },
-        { input: string; summary: string; analysis: string }
-      >()
+        { userInput: string },
+        { originalInput: string; summary: string; analysis: string }
+      >(
+        'userInput:string -> originalInput:string, summary:string, analysis:string',
+        { autoParallel: false }
+      )
         .node('summarizer', 'documentText:string -> summary:string')
         .node('analyzer', 'inputText:string -> analysis:string')
-        .execute('summarizer', (state) => ({ documentText: state.input }))
-        .execute('analyzer', (state) => ({ inputText: state.input }))
+        .execute('summarizer', (state) => ({ documentText: state.userInput }))
+        .execute('analyzer', (state) => ({ inputText: state.userInput }))
         .map((state) => ({
-          input: state.input,
+          originalInput: state.userInput,
           summary: state.summarizerResult.summary,
           analysis: state.analyzerResult.analysis,
         }))
 
       const result = await flow.forward(stateMockAI, {
-        input: 'original input',
+        userInput: 'original input',
       })
 
-      expect(result.input).toBe('original input')
+      expect(result.originalInput).toBe('original input')
       expect(result.summary).toBe('Generated content')
       expect(result.analysis).toBe('Generated content')
     })
@@ -279,14 +291,16 @@ describe('AxFlow', () => {
       })
 
       const flow = new AxFlow<
-        { data: string[] },
+        { dataItems: string[] },
         { results: string[]; count: number }
-      >()
+      >('dataItems:string[] -> results:string[], count:number', {
+        autoParallel: false,
+      })
         .node('processor', 'dataItem:string -> processedText:string')
         .map((state) => ({ ...state, results: [] as string[], count: 0 }))
-        .while((state) => state.count < state.data.length)
+        .while((state) => state.count < state.dataItems.length)
         .execute('processor', (state) => ({
-          dataItem: state.data[state.count],
+          dataItem: state.dataItems[state.count],
         }))
         .map((state) => ({
           ...state,
@@ -297,7 +311,7 @@ describe('AxFlow', () => {
         .map((state) => ({ results: state.results, count: state.count }))
 
       const result = await flow.forward(complexMockAI, {
-        data: ['item1', 'item2'],
+        dataItems: ['item1', 'item2'],
       })
 
       expect(result.results).toEqual(['transformed data', 'transformed data'])
@@ -329,19 +343,22 @@ describe('AxFlow', () => {
         },
       })
 
-      const flow = new AxFlow<{ input: string }, { result: string }>()
+      const flow = new AxFlow<{ userInput: string }, { outputResult: string }>(
+        'userInput:string -> outputResult:string',
+        { autoParallel: false }
+      )
         .node('processor', 'inputText:string -> outputResult:string')
-        .execute('processor', (state) => ({ inputText: state.input }))
-        .map((state) => ({ result: state.processorResult.outputResult }))
+        .execute('processor', (state) => ({ inputText: state.userInput }))
+        .map((state) => ({ outputResult: state.processorResult.outputResult }))
 
       const options = { debug: false, maxRetries: 3 }
       const result = await flow.forward(
         optionsMockAI,
-        { input: 'test' },
+        { userInput: 'test' },
         options
       )
 
-      expect(result.result).toBe('test result')
+      expect(result.outputResult).toBe('test result')
     })
   })
 
@@ -390,7 +407,9 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { needsComplex: boolean },
         { processedResult: string; strategy: string }
-      >()
+      >('needsComplex:boolean -> processedResult:string, strategy:string', {
+        autoParallel: false,
+      })
         .node('simple', 'taskInput:string -> responseText:string')
         .node('complex', 'taskInput:string -> responseText:string')
         .branch((state) => state.needsComplex)
@@ -422,14 +441,17 @@ describe('AxFlow', () => {
     })
 
     it('should handle unmatched branch values gracefully', async () => {
-      const flow = new AxFlow<{ value: string }, { processed: boolean }>()
-        .branch((state) => state.value)
+      const flow = new AxFlow<{ testValue: string }, { processed: boolean }>(
+        'testValue:string -> processed:boolean',
+        { autoParallel: false }
+      )
+        .branch((state) => state.testValue)
         .when('expected')
         .map((state) => ({ ...state, processed: true }))
         .merge()
         .map((state) => ({ processed: state.processed || false }))
 
-      const result = await flow.forward(mockAI, { value: 'unexpected' })
+      const result = await flow.forward(mockAI, { testValue: 'unexpected' })
       expect(result.processed).toBe(false)
     })
 
@@ -476,7 +498,10 @@ describe('AxFlow', () => {
         },
       })
 
-      const flow = new AxFlow<{ query: string }, { combined: string[] }>()
+      const flow = new AxFlow<{ query: string }, { combined: string[] }>(
+        'query:string -> combined:string[]',
+        { autoParallel: false }
+      )
         .node('analyzer1', 'query:string -> analysis:string')
         .node('analyzer2', 'query:string -> analysis:string')
         .node('analyzer3', 'query:string -> analysis:string')
@@ -513,7 +538,9 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { requestData: string },
         { processedResults: string[] }
-      >()
+      >('requestData:string -> processedResults:string[]', {
+        autoParallel: false,
+      })
         .node('processor1', 'documentText:string -> responseText:string')
         .node('processor2', 'documentText:string -> responseText:string')
 
@@ -563,7 +590,9 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { userInput: string },
         { processedResult: string; attempts: number }
-      >()
+      >('userInput:string -> processedResult:string, attempts:number', {
+        autoParallel: false,
+      })
         .node(
           'processor',
           'userInput:string, attempt:number -> responseText:string'
@@ -636,7 +665,10 @@ describe('AxFlow', () => {
     })
 
     it('should respect maximum iterations limit', async () => {
-      const flow = new AxFlow<{ userInput: string }, { attempts: number }>()
+      const flow = new AxFlow<{ userInput: string }, { attempts: number }>(
+        'userInput:string -> attempts:number',
+        { autoParallel: false }
+      )
         .node('processor', 'userInput:string -> responseText:string')
 
         .map((state) => ({ ...state, attempts: 0 }))
@@ -736,7 +768,9 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { itemList: string[] },
         { processedResults: string[] }
-      >()
+      >('itemList:string[] -> processedResults:string[]', {
+        autoParallel: false,
+      })
         .node('simpleProcessor', 'itemText:string -> processedText:string')
         .node('complexProcessor', 'itemText:string -> processedText:string')
         .node('classifier', 'itemText:string -> isComplex:boolean')

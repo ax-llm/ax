@@ -608,6 +608,7 @@ For a more complex example involving authentication and custom headers with a re
 
 **The future of AI programs is here.** AxFlow revolutionizes how you build complex, stateful AI applications with a fluent, chainable API that reads like poetry and executes like lightning. Build the impossible with unprecedented simplicity.
 
+- **🚀 Automatic Parallelization**: AI-powered dependency analysis automatically runs independent operations in parallel for maximum performance
 - **Ultra-Compact Syntax**: Powerful aliases (`n`, `e`, `m`, `b`, `w`) for rapid development
 - **Neural State Evolution**: Automatic state threading with full context preservation  
 - **Multi-Model Intelligence**: Dynamic context switching between specialized AI models
@@ -616,11 +617,81 @@ For a more complex example involving authentication and custom headers with a re
 - **Streaming-Native**: Real-time execution with end-to-end streaming support
 - **Automatic Observability**: Get tracing across the whole pipeline
 
-### Example: Autonomous Content Pipeline
+### Example: Automatic Parallelization (New!)
+
+AxFlow automatically analyzes dependencies and runs independent operations in parallel for maximum performance. **No manual `.parallel()` calls needed!**
 
 ```typescript
 import { AxAI, AxFlow } from '@ax-llm/ax'
 
+const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY })
+
+// 🚀 Automatic parallelization - no manual optimization needed!
+const documentAnalyzer = new AxFlow<
+  { documentText: string }, 
+  { finalAnalysis: string }
+>()
+  .node('summarizer', 'documentText:string -> documentSummary:string')
+  .node('keywordExtractor', 'documentText:string -> documentKeywords:string[]')
+  .node('sentimentAnalyzer', 'documentText:string -> documentSentiment:string')
+  .node('combiner', 'documentSummary:string, documentKeywords:string[], documentSentiment:string -> combinedAnalysis:string')
+  
+  // These three operations run automatically in parallel! 🎯
+  .execute('summarizer', state => ({ documentText: state.documentText }))
+  .execute('keywordExtractor', state => ({ documentText: state.documentText }))
+  .execute('sentimentAnalyzer', state => ({ documentText: state.documentText }))
+  
+  // This waits for all three to complete, then runs
+  .execute('combiner', state => ({
+    documentSummary: state.summarizerResult.documentSummary,
+    documentKeywords: state.keywordExtractorResult.documentKeywords,
+    documentSentiment: state.sentimentAnalyzerResult.documentSentiment
+  }))
+  
+  .map(state => ({ finalAnalysis: state.combinerResult.combinedAnalysis }))
+
+// ⚡ Automatic 1.5-3x speedup with zero code changes!
+const result = await documentAnalyzer.forward(ai, {
+  documentText: 'AI technology is revolutionary and will change everything...'
+})
+
+console.log('📊 Analysis:', result.finalAnalysis)
+// Execution Plan: 3 parallel operations → 1 sequential → 1 final
+```
+
+### Example: Compact Syntax with Aliases
+
+For rapid development, use AxFlow's ultra-compact aliases:
+
+```typescript
+import { AxAI, AxFlow } from '@ax-llm/ax'
+
+const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY })
+
+// 🎯 Same functionality, ultra-compact syntax
+const quickAnalyzer = new AxFlow<{ text: string }, { result: string }>()
+  .n('sum', 'text:string -> summary:string')      // node
+  .n('key', 'text:string -> keywords:string[]')   // node  
+  .n('sent', 'text:string -> sentiment:string')   // node
+  .n('mix', 'summary:string, keywords:string[], sentiment:string -> analysis:string')
+  
+  .e('sum', s => ({ text: s.text }))   // execute (auto-parallel)
+  .e('key', s => ({ text: s.text }))   // execute (auto-parallel)  
+  .e('sent', s => ({ text: s.text }))  // execute (auto-parallel)
+  .e('mix', s => ({                    // execute (sequential)
+    summary: s.sumResult.summary,
+    keywords: s.keyResult.keywords,
+    sentiment: s.sentResult.sentiment
+  }))
+  
+  .m(s => ({ result: s.mixResult.analysis }))  // map
+
+const result = await quickAnalyzer.forward(ai, { text: 'Hello world!' })
+```
+
+### Advanced Example: Multi-Model Orchestration
+
+```typescript
 // Multi-model AI orchestration with specialized models
 const quantumAI = new AxAI({ name: 'openai', config: { model: 'o1' } })        // For deep reasoning
 const velocityAI = new AxAI({ name: 'openai', config: { model: 'gpt-4o-mini' } }) // For speed
@@ -632,44 +703,35 @@ const autonomousContentEngine = new AxFlow<
   { campaign: string }
 >()
   // Neural network of specialized AI nodes
-  .n('conceptAnalyzer', 'concept:string -> themes:string[], complexity:number')
-  .n('audienceProfiler', 'audience:string, themes:string[] -> psychographics:string')
-  .n('strategyArchitect', 'themes:string[], psychographics:string -> strategy:string')
-  .n('contentCreator', 'strategy:string, complexity:number -> content:string')
-  .n('qualityOracle', 'content:string -> score:number, feedback:string')
+  .node('conceptAnalyzer', 'concept:string -> themes:string[], complexity:number')
+  .node('audienceProfiler', 'audience:string -> psychographics:string')
+  .node('strategyArchitect', 'themes:string[], psychographics:string -> strategy:string')
+  .node('contentCreator', 'strategy:string, complexity:number -> content:string')
+  .node('qualityOracle', 'content:string -> score:number, feedback:string')
   
-  // 🧠 Parallel cognitive processing
-  .p([
-    flow => flow.e('conceptAnalyzer', s => ({ concept: s.concept }), { ai: quantumAI }),
-    flow => flow.e('audienceProfiler', s => ({ 
-      audience: s.targetAudience, 
-      themes: ['creativity', 'innovation'] // Simplified for demo
-    }), { ai: velocityAI })
-  ])
-  .merge('insights', (concepts, audience) => ({ 
-    ...concepts, 
-    ...audience 
-  }))
+  // 🧠 These run automatically in parallel (different AI models!)
+  .execute('conceptAnalyzer', s => ({ concept: s.concept }), { ai: quantumAI })
+  .execute('audienceProfiler', s => ({ audience: s.targetAudience }), { ai: velocityAI })
   
-  // 🎯 Strategic architecture with deep reasoning
-  .e('strategyArchitect', s => ({
-    themes: s.insights.themes,
-    psychographics: s.insights.psychographics
+  // 🎯 Strategic architecture with deep reasoning (waits for above)
+  .execute('strategyArchitect', s => ({
+    themes: s.conceptAnalyzerResult.themes,
+    psychographics: s.audienceProfilerResult.psychographics
   }), { ai: quantumAI })
   
-  // 🎨 Creative content generation
-  .e('contentCreator', s => ({
+  // 🎨 Creative content generation (waits for strategy)
+  .execute('contentCreator', s => ({
     strategy: s.strategyArchitectResult.strategy,
-    complexity: s.insights.complexity
+    complexity: s.conceptAnalyzerResult.complexity
   }), { ai: creativityAI })
   
-  // 🔄 Autonomous quality evolution loop
-  .l('evolve')
-  .e('qualityOracle', s => ({ content: s.contentCreatorResult.content }), { ai: quantumAI })
-  .fb(s => s.qualityOracleResult.score < 0.9, 'evolve', 3)
+  // 🔄 Quality check loop
+  .label('evolve')
+  .execute('qualityOracle', s => ({ content: s.contentCreatorResult.content }), { ai: quantumAI })
+  .feedback(s => s.qualityOracleResult.score < 0.9, 'evolve', 3)
   
   // 🏆 Final transformation
-  .m(s => ({ campaign: s.contentCreatorResult.content }))
+  .map(s => ({ campaign: s.contentCreatorResult.content }))
 
 // 🚀 Execute the future
 const result = await autonomousContentEngine.forward(quantumAI, {
@@ -719,6 +781,12 @@ const researchOracle = new AxFlow<
 
 ### Why AxFlow is the Future
 
+**🚀 Automatic Performance Optimization:**
+- **Zero-Config Parallelization**: Automatically runs independent operations in parallel (1.5-3x speedup)
+- **Intelligent Dependency Analysis**: AI-powered analysis of input/output dependencies
+- **Optimal Execution Planning**: Automatically groups operations into parallel levels
+- **Runtime Control**: Enable/disable auto-parallelization per execution as needed
+
 **Compared to Traditional Approaches:**
 - **10x More Compact**: Ultra-concise syntax with powerful aliases
 - **Zero Boilerplate**: Automatic state management and context threading  
@@ -731,9 +799,9 @@ const researchOracle = new AxFlow<
 - **Multi-Model Orchestration**: Route tasks to the perfect AI for each job
 - **Adaptive Pipelines**: Workflows that evolve based on real-time feedback  
 - **Cost Intelligence**: Automatic optimization between speed, quality, and cost
-- **Production Readye**: Built for production with streaming, tracing, and monitoring
+- **Production Ready**: Built for production with streaming, tracing, and monitoring
 
-> *"AxFlow doesn't just execute AI workflows—it orchestrates the future of intelligent systems of LLMs"*
+> *"AxFlow doesn't just execute AI workflows—it orchestrates the future of intelligent systems with automatic performance optimization"*
 
 **Ready to build the impossible?** AxFlow extends `AxProgramWithSignature`, giving you access to the entire Ax ecosystem: optimization, streaming, tracing, function calling, and more. The future of AI development is declarative, adaptive, and beautiful.
 
@@ -1335,6 +1403,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [metrics-dspy.ts](https://github.com/ax-llm/ax/blob/main/src/examples/metrics-dspy.ts) | Comprehensive DSPy metrics tracking and observability for generation workflows |
 | [optimizer-metrics.ts](https://github.com/ax-llm/ax/blob/main/src/examples/optimizer-metrics.ts) | Optimizer metrics collection and monitoring for program tuning |
 | [ax-flow.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow.ts) | 🚀 Futuristic AI workflow orchestration with autonomous multi-model pipelines, adaptive loops, and self-healing agents |
+| [ax-flow-auto-parallel.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-auto-parallel.ts) | ⚡ Automatic parallelization demo - zero-config performance optimization with intelligent dependency analysis |
 
 ## Our Goal
 

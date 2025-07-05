@@ -172,6 +172,7 @@ export type AxProgramUsage = AxChatResponse['modelUsage'] & {
 
 export interface AxProgramOptions {
   description?: string
+  traceLabel?: string
 }
 
 export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
@@ -185,6 +186,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   protected demos?: OUT[]
   protected trace?: OUT
   protected usage: AxProgramUsage[] = []
+  protected traceLabel?: string
 
   private key: { id: string; custom?: boolean }
   private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT>>, IN, OUT>
@@ -197,6 +199,10 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
 
     if (options?.description) {
       this.signature.setDescription(options.description)
+    }
+
+    if (options?.traceLabel) {
+      this.traceLabel = options.traceLabel
     }
 
     // Validate full signature consistency for use in generation
