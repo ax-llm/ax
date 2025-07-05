@@ -56,10 +56,10 @@ import {
   type AsyncGenDeltaOut,
   type AxGenDeltaOut,
   type AxGenStreamingOut,
+  AxProgram,
   type AxProgramExamples,
   type AxProgramForwardOptions,
   type AxProgramStreamingForwardOptions,
-  AxProgramWithSignature,
   type AxResultPickerFunction,
   type AxSetExamplesOptions,
 } from './program.js'
@@ -114,7 +114,7 @@ export type InternalAxGenState = {
 export class AxGen<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
-> extends AxProgramWithSignature<IN, OUT> {
+> extends AxProgram<IN, OUT> {
   private promptTemplate: AxPromptTemplate
   private asserts: AxAssertion[]
   private streamingAsserts: AxStreamingAssertion[]

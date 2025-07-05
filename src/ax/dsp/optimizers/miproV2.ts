@@ -155,13 +155,7 @@ export class AxMiPRO<
     ai: Readonly<AxAIService>
   ): Promise<string> {
     // Extract program structure information
-    let signature = 'input -> output' // Default fallback
-    if (
-      'getSignature' in program &&
-      typeof program.getSignature === 'function'
-    ) {
-      signature = program.getSignature()
-    }
+    const signature = program.getSignature()
 
     // Create program summary prompt based on paper's Appendix C.5
     const summaryPrompt = `

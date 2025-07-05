@@ -322,6 +322,9 @@ import {
 import {
   AxBaseOptimizer,
   AxDefaultCostTracker,
+  axDefaultOptimizerMetricsConfig,
+  axGetOptimizerMetricsConfig,
+  axUpdateOptimizerMetricsConfig,
   type AxBootstrapCompileOptions,
   type AxBootstrapOptimizerOptions,
   type AxCheckpointLoadFn,
@@ -340,6 +343,8 @@ import {
   type AxOptimizationStats,
   type AxOptimizer,
   type AxOptimizerArgs,
+  type AxOptimizerMetricsConfig,
+  type AxOptimizerMetricsInstruments,
   type AxOptimizerResult,
   type AxParetoResult
 } from './dsp/optimizer.js';
@@ -434,16 +439,15 @@ import {
 } from './ai/mock/api.js';
 import {
   AxProgram,
-  AxProgramWithSignature,
   type AxGenDeltaOut,
   type AxGenStreamingOut,
   type AxProgramDemos,
   type AxProgramExamples,
   type AxProgramForwardOptions,
+  type AxProgramOptions,
   type AxProgramStreamingForwardOptions,
   type AxProgramTrace,
   type AxProgramUsage,
-  type AxProgramWithSignatureOptions,
   type AxResultPickerFunction,
   type AxResultPickerFunctionFieldResults,
   type AxResultPickerFunctionFunctionResults,
@@ -483,6 +487,15 @@ import {
   type AxFieldType,
   type AxSignatureTemplateValue
 } from './dsp/template.js';
+import {
+  axCheckMetricsHealth,
+  axDefaultMetricsConfig,
+  axGetMetricsConfig,
+  axUpdateMetricsConfig,
+  type AxErrorCategory,
+  type AxGenMetricsInstruments,
+  type AxMetricsConfig
+} from './dsp/metrics.js';
 import {
   axCreateDefaultLogger,
   axCreateDefaultTextLogger,
@@ -668,7 +681,6 @@ export { AxMiPRO };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
 export { AxProgram };
-export { AxProgramWithSignature };
 export { AxPromptTemplate };
 export { AxRAG };
 export { AxRateLimiterTokenUsage };
@@ -713,10 +725,15 @@ export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
+export { axCheckMetricsHealth };
 export { axCreateDefaultLogger };
 export { axCreateDefaultTextLogger };
 export { axCreateOptimizerLogger };
+export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
+export { axDefaultOptimizerMetricsConfig };
+export { axGetMetricsConfig };
+export { axGetOptimizerMetricsConfig };
 export { axGlobals };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };
@@ -732,6 +749,8 @@ export { axModelInfoReka };
 export { axModelInfoTogether };
 export { axSpanAttributes };
 export { axSpanEvents };
+export { axUpdateMetricsConfig };
+export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
 export { f };
@@ -959,6 +978,7 @@ export type { AxDataRow };
 export type { AxDockerContainer };
 export type { AxEmbedRequest };
 export type { AxEmbedResponse };
+export type { AxErrorCategory };
 export type { AxEvaluateArgs };
 export type { AxExample };
 export type { AxField };
@@ -974,6 +994,7 @@ export type { AxFunctionJSONSchema };
 export type { AxFunctionResult };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
+export type { AxGenMetricsInstruments };
 export type { AxGenOut };
 export type { AxGenStreamingOut };
 export type { AxGenerateErrorDetails };
@@ -990,6 +1011,7 @@ export type { AxMemoryData };
 export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
+export type { AxMetricsConfig };
 export type { AxMiPROCompileOptions };
 export type { AxMiPROOptimizerOptions };
 export type { AxMiPROResult };
@@ -1004,15 +1026,17 @@ export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
 export type { AxOptimizer };
 export type { AxOptimizerArgs };
+export type { AxOptimizerMetricsConfig };
+export type { AxOptimizerMetricsInstruments };
 export type { AxOptimizerResult };
 export type { AxParetoResult };
 export type { AxProgramDemos };
 export type { AxProgramExamples };
 export type { AxProgramForwardOptions };
+export type { AxProgramOptions };
 export type { AxProgramStreamingForwardOptions };
 export type { AxProgramTrace };
 export type { AxProgramUsage };
-export type { AxProgramWithSignatureOptions };
 export type { AxPromptTemplateOptions };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };

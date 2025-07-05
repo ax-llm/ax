@@ -170,11 +170,11 @@ export type AxProgramUsage = AxChatResponse['modelUsage'] & {
   model: string
 }
 
-export interface AxProgramWithSignatureOptions {
+export interface AxProgramOptions {
   description?: string
 }
 
-export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
+export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxTunable<IN, OUT>, AxUsable
 {
   protected signature: AxSignature
@@ -191,7 +191,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
 
   constructor(
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
-    options?: Readonly<AxProgramWithSignatureOptions>
+    options?: Readonly<AxProgramOptions>
   ) {
     this.signature = new AxSignature(signature)
 
@@ -351,128 +351,6 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
       .filter((v) => v.programId === this.key.id)
       .map((v) => v.traces)
       .flat()
-
-    for (const child of Array.from(this.children)) {
-      child?.setDemos(demos)
-    }
-  }
-}
-
-export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxTunable<IN, OUT>, AxUsable
-{
-  protected trace?: OUT
-  protected usage: AxProgramUsage[] = []
-
-  private key: { id: string; custom?: boolean }
-  private children: AxInstanceRegistry<
-    Readonly<AxTunable<IN, OUT> & AxUsable>,
-    IN,
-    OUT
-  >
-
-  constructor() {
-    this.children = new AxInstanceRegistry()
-    this.key = { id: this.constructor.name }
-  }
-
-  public register(prog: Readonly<AxTunable<IN, OUT> & AxUsable>) {
-    if (this.key) {
-      prog.setParentId(this.key.id)
-    }
-    this.children.register(prog)
-  }
-
-  public async forward(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _ai: Readonly<AxAIService>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN | AxMessage<IN>[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxProgramForwardOptions>
-  ): Promise<OUT> {
-    throw new Error('forward() not implemented')
-  }
-
-  // biome-ignore lint/correctness/useYield: just a placeholder
-  public async *streamingForward(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _ai: Readonly<AxAIService>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN | AxMessage<IN>[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxProgramStreamingForwardOptions>
-  ): AxGenStreamingOut<OUT> {
-    throw new Error('streamingForward() not implemented')
-  }
-
-  public setId(id: string) {
-    this.key = { id, custom: true }
-    for (const child of Array.from(this.children)) {
-      child?.setParentId(id)
-    }
-  }
-
-  public setParentId(parentId: string) {
-    if (!this.key.custom) {
-      this.key.id = [parentId, this.key.id].join('/')
-    }
-  }
-
-  public setExamples(
-    examples: Readonly<AxProgramExamples<IN, OUT>>,
-    options?: Readonly<AxSetExamplesOptions>
-  ) {
-    if (!('programId' in examples)) {
-      return
-    }
-
-    for (const child of Array.from(this.children)) {
-      child?.setExamples(examples, options)
-    }
-  }
-
-  public getTraces(): AxProgramTrace<IN, OUT>[] {
-    let traces: AxProgramTrace<IN, OUT>[] = []
-
-    if (this.trace) {
-      traces.push({ trace: this.trace as OUT & IN, programId: this.key.id })
-    }
-
-    for (const child of Array.from(this.children)) {
-      const _traces = child?.getTraces()
-      traces = [...traces, ...(_traces ?? [])]
-    }
-    return traces
-  }
-
-  public getUsage(): AxProgramUsage[] {
-    let usage: AxProgramUsage[] = [...(this.usage ?? [])]
-
-    for (const child of Array.from(this.children)) {
-      const cu = child?.getUsage()
-      usage = [...usage, ...(cu ?? [])]
-    }
-    return mergeProgramUsage(usage)
-  }
-
-  public resetUsage() {
-    this.usage = []
-    for (const child of Array.from(this.children)) {
-      child?.resetUsage()
-    }
-  }
-
-  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
-    // Check if this program has children and if its programId is not found in demos
-    const hasChildren = Array.from(this.children).length > 0
-    const hasMatchingDemo = demos.some((demo) => demo.programId === this.key.id)
-
-    if (hasChildren && !hasMatchingDemo) {
-      throw new Error(
-        `Program with id '${this.key.id}' has children but no matching programId found in demos`
-      )
-    }
 
     for (const child of Array.from(this.children)) {
       child?.setDemos(demos)

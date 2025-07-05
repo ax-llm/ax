@@ -1,10 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, functional/prefer-immutable-types */
 import type { AxAIService } from '../ai/types.js'
 import { AxGen } from '../dsp/generate.js'
-import {
-  type AxProgramForwardOptions,
-  AxProgramWithSignature,
-} from '../dsp/program.js'
+import { AxProgram, type AxProgramForwardOptions } from '../dsp/program.js'
 import { AxSignature } from '../dsp/sig.js'
 import type { AxFieldValue, AxGenIn, AxGenOut } from '../dsp/types.js'
 
@@ -151,12 +148,12 @@ export class AxFlow<
   // NOTE: The `any` here is necessary because TNodes must accommodate AxGen instances with various input/output types
   TNodes extends Record<string, AxGen<any, any>> = Record<string, never>, // Node registry for type tracking
   TState extends AxFlowState = IN, // Current evolving state type
-> extends AxProgramWithSignature<IN, OUT> {
+> extends AxProgram<IN, OUT> {
   private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map()
   private readonly flowDefinition: AxFlowStepFunction[] = []
   private readonly nodeGenerators: Map<
     string,
-    AxGen<AxGenIn, AxGenOut> | AxProgramWithSignature<AxGenIn, AxGenOut>
+    AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
   > = new Map()
   private readonly loopStack: number[] = []
   private readonly stepLabels: Map<string, number> = new Map()
@@ -247,16 +244,16 @@ export class AxFlow<
   >
 
   /**
-   * Declares a reusable computational node using a class that extends AxProgramWithSignature.
+   * Declares a reusable computational node using a class that extends AxProgram.
    * This allows using custom program classes in the flow.
    *
    * @param name - The name of the node
-   * @param programClass - Class that extends AxProgramWithSignature to use for this node
+   * @param programClass - Class that extends AxProgram to use for this node
    * @returns New AxFlow instance with updated TNodes type
    *
    * @example
    * ```typescript
-   * class CustomProgram extends AxProgramWithSignature<{ input: string }, { output: string }> {
+   * class CustomProgram extends AxProgram<{ input: string }, { output: string }> {
    *   async forward(ai, values) { return { output: values.input.toUpperCase() } }
    * }
    * flow.node('custom', CustomProgram)
@@ -264,7 +261,7 @@ export class AxFlow<
    */
   public node<
     TName extends string,
-    TProgram extends new () => AxProgramWithSignature<any, any>,
+    TProgram extends new () => AxProgram<any, any>,
   >(
     name: TName,
     programClass: TProgram
@@ -282,7 +279,7 @@ export class AxFlow<
       | string
       | AxSignature
       | AxGen<any, any>
-      | (new () => AxProgramWithSignature<any, any>),
+      | (new () => AxProgram<any, any>),
     options?: Readonly<AxProgramForwardOptions>
   ): AxFlow<
     IN,
@@ -313,9 +310,9 @@ export class AxFlow<
       this.nodeGenerators.set(name, new AxGen(signatureOrAxGenOrClass, options))
     } else if (
       typeof signatureOrAxGenOrClass === 'function' &&
-      signatureOrAxGenOrClass.prototype instanceof AxProgramWithSignature
+      signatureOrAxGenOrClass.prototype instanceof AxProgram
     ) {
-      // Using a class that extends AxProgramWithSignature
+      // Using a class that extends AxProgram
       this.nodes.set(name, {
         inputs: {},
         outputs: {},
@@ -345,7 +342,7 @@ export class AxFlow<
       this.nodeGenerators.set(name, new AxGen(signature, options))
     } else {
       throw new Error(
-        `Invalid second argument for node '${name}': expected string, AxSignature, AxGen instance, or class extending AxProgramWithSignature`
+        `Invalid second argument for node '${name}': expected string, AxSignature, AxGen instance, or class extending AxProgram`
       )
     }
 
@@ -381,7 +378,7 @@ export class AxFlow<
 
   public n<
     TName extends string,
-    TProgram extends new () => AxProgramWithSignature<any, any>,
+    TProgram extends new () => AxProgram<any, any>,
   >(
     name: TName,
     programClass: TProgram
@@ -393,7 +390,7 @@ export class AxFlow<
       | string
       | AxSignature
       | AxGen<any, any>
-      | (new () => AxProgramWithSignature<any, any>),
+      | (new () => AxProgram<any, any>),
     options?: Readonly<AxProgramForwardOptions>
   ): any {
     return this.node(name, signatureOrAxGenOrClass as any, options)
@@ -523,7 +520,7 @@ export class AxFlow<
       // Map the state to node inputs (with type safety)
       const nodeInputs = mapping(state as TState)
 
-      // Execute the node (works for both AxGen and AxProgramWithSignature)
+      // Execute the node (works for both AxGen and AxProgram)
       const result = await nodeProgram.forward(ai, nodeInputs, options)
 
       // Merge result back into state under a key like `${nodeName}Result`
@@ -1051,7 +1048,7 @@ class AxFlowSubContextImpl implements AxFlowSubContext {
   constructor(
     private readonly nodeGenerators: Map<
       string,
-      AxGen<AxGenIn, AxGenOut> | AxProgramWithSignature<AxGenIn, AxGenOut>
+      AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
     >
   ) {}
 
@@ -1117,7 +1114,7 @@ export class AxFlowTypedSubContextImpl<
   constructor(
     private readonly nodeGenerators: Map<
       string,
-      AxGen<AxGenIn, AxGenOut> | AxProgramWithSignature<AxGenIn, AxGenOut>
+      AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
     >
   ) {}
 

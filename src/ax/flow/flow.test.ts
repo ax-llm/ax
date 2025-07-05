@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AxMockAIService } from '../ai/mock/api.js'
 import type { AxAIService } from '../ai/types.js'
-import { AxProgramWithSignature } from '../dsp/program.js'
+import { AxProgram } from '../dsp/program.js'
 import { AxSignature } from '../dsp/sig.js'
 
 import { AxFlow } from './flow.js'
@@ -306,10 +306,10 @@ describe('AxFlow', () => {
   })
 
   describe('integration with dspy-ts ecosystem', () => {
-    it('should be compatible with AxProgramWithSignature interface', () => {
+    it('should be compatible with AxProgram interface', () => {
       const flow = new AxFlow()
 
-      // Should have all required methods from AxProgramWithSignature
+      // Should have all required methods from AxProgram
       expect(typeof flow.forward).toBe('function')
       expect(typeof flow.getSignature).toBe('function')
       expect(typeof flow.setExamples).toBe('function')
@@ -782,7 +782,7 @@ describe('AxFlow', () => {
 
   describe('custom program execution', () => {
     it('should execute custom program logic (not just signature)', async () => {
-      class CustomUppercaseProgram extends AxProgramWithSignature<
+      class CustomUppercaseProgram extends AxProgram<
         { userInput: string },
         { processedOutput: string }
       > {
@@ -832,8 +832,8 @@ describe('AxFlow > node definition > new overloads', () => {
     }).not.toThrow()
   })
 
-  it('should define a node with program class extending AxProgramWithSignature', () => {
-    class CustomProgram extends AxProgramWithSignature<
+  it('should define a node with program class extending AxProgram', () => {
+    class CustomProgram extends AxProgram<
       { userInput: string },
       { processedOutput: string }
     > {
@@ -876,7 +876,7 @@ describe('AxFlow > node definition > new overloads', () => {
   })
 
   it('should support n alias with program class', () => {
-    class CustomProgram extends AxProgramWithSignature<
+    class CustomProgram extends AxProgram<
       { userInput: string },
       { processedOutput: string }
     > {

@@ -9,11 +9,11 @@ import type { AxInputFunctionType } from '../dsp/functions.js'
 import { AxGen } from '../dsp/generate.js'
 import type {
   AxGenStreamingOut,
+  AxProgram,
   AxProgramDemos,
   AxProgramExamples,
   AxProgramForwardOptions,
   AxProgramStreamingForwardOptions,
-  AxProgramWithSignature,
   AxSetExamplesOptions,
   AxTunable,
   AxUsable,
@@ -161,7 +161,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
   private ai?: AxAIService
-  private program: AxProgramWithSignature<IN, OUT>
+  private program: AxProgram<IN, OUT>
   private functions?: AxInputFunctionType
   private agents?: AxAgentic<IN, OUT>[]
   private disableSmartModelRouting?: boolean
