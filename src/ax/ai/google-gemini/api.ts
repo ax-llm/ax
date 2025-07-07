@@ -630,7 +630,8 @@ export class AxAIGoogleGemini extends AxBaseAI<
         path = 'publishers/google'
       }
 
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/${path}`
+      const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`
+      apiURL = `https://${tld}.googleapis.com/v1/projects/${projectId}/locations/${region}/${path}`
       if (apiKey) {
         headers = async () => ({ Authorization: `Bearer ${apiKey}` })
       } else {
