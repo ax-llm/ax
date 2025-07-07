@@ -1,4 +1,5 @@
 # New Words
+aiplatform
 agentic
 apicall
 APIKEY
