@@ -29,7 +29,14 @@ import {
   AxAIOpenAI,
   type AxAIOpenAIArgs as AxAIOpenAIArgs,
 } from './openai/api.js'
-import type { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './openai/types.js'
+import type {
+  AxAIOpenAIEmbedModel,
+  AxAIOpenAIModel,
+} from './openai/chat_types.js'
+import {
+  AxAIOpenAIResponses,
+  type AxAIOpenAIResponsesArgs,
+} from './openai/responses_api_base.js'
 import { AxAIReka, type AxAIRekaArgs } from './reka/api.js'
 import { AxAITogether, type AxAITogetherArgs } from './together/api.js'
 import type {
@@ -43,10 +50,12 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
 } from './types.js'
 
 export type AxAIArgs =
   | AxAIOpenAIArgs
+  | AxAIOpenAIResponsesArgs
   | AxAIAzureOpenAIArgs
   | AxAITogetherArgs
   | AxAIAnthropicArgs
@@ -81,6 +90,9 @@ export class AxAI implements AxAIService {
     switch (options.name) {
       case 'openai':
         this.ai = new AxAIOpenAI(options)
+        break
+      case 'openai-responses':
+        this.ai = new AxAIOpenAIResponses(options)
         break
       case 'azure-openai':
         this.ai = new AxAIAzureOpenAI(options)
@@ -172,5 +184,9 @@ export class AxAI implements AxAIService {
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return this.ai.getOptions()
+  }
+
+  getLogger(): AxLoggerFunction {
+    return this.ai.getLogger()
   }
 }

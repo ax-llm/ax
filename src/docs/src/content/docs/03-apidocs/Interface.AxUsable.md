@@ -2,7 +2,7 @@
 title: AxUsable
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L91
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/program.ts#L122
 
 ## Extended by
 
@@ -10,28 +10,7 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ## Properties
 
-<a id="getUsage"></a>
-
-### getUsage()
-
-> **getUsage**: () => [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L92
-
-#### Returns
-
-[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
-
-***
-
-<a id="resetUsage"></a>
-
-### resetUsage()
-
-> **resetUsage**: () => `void`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L93
-
-#### Returns
-
-`void`
+| Property | Type |
+| :------ | :------ |
+| <a id="getUsage"></a> `getUsage` | () => [`AxModelUsage`](/api/#03-apidocs/typealiasaxmodelusage) & `object`[] |
+| <a id="resetUsage"></a> `resetUsage` | () => `void` |

@@ -1,6 +1,5 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-
 import type { AxAPI } from '../../util/apicall.js'
+import { AxAIRefusalError } from '../../util/apicall.js'
 import {
   type AxAIFeatures,
   AxBaseAI,
@@ -22,7 +21,6 @@ import type {
   AxTokenUsage,
 } from '../types.js'
 
-import { axModelInfoOpenAI } from './info.js'
 import {
   type AxAIOpenAIChatRequest,
   type AxAIOpenAIChatResponse,
@@ -32,7 +30,31 @@ import {
   type AxAIOpenAIEmbedRequest,
   type AxAIOpenAIEmbedResponse,
   AxAIOpenAIModel,
-} from './types.js'
+} from './chat_types.js'
+import { axModelInfoOpenAI } from './info.js'
+
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+
+/**
+ * Checks if the given OpenAI model is a thinking/reasoning model.
+ * Thinking models (o1, o3, o4 series) have different parameter restrictions.
+ */
+export const isOpenAIThinkingModel = (model: string): boolean => {
+  const thinkingModels = [
+    AxAIOpenAIModel.O1,
+    AxAIOpenAIModel.O1Mini,
+    AxAIOpenAIModel.O3,
+    AxAIOpenAIModel.O3Mini,
+    AxAIOpenAIModel.O4Mini,
+    // Pro models (string values since they're not in the regular chat enum)
+    'o1-pro',
+    'o3-pro',
+  ]
+  return (
+    thinkingModels.includes(model as AxAIOpenAIModel) ||
+    thinkingModels.includes(model)
+  )
+}
 
 export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIModel,
@@ -186,6 +208,8 @@ class AxAIOpenAIImpl<
 
     const store = this.config.store
 
+    const isThinkingModel = isOpenAIThinkingModel(model as string)
+
     let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
       messages,
@@ -194,20 +218,32 @@ class AxAIOpenAIImpl<
         : undefined,
       tools,
       tool_choice: toolsChoice,
-      max_completion_tokens:
-        req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
-      n: req.modelConfig?.n ?? this.config.n,
+      // For thinking models, don't set these parameters as they're not supported
+      ...(isThinkingModel
+        ? {}
+        : {
+            max_completion_tokens:
+              req.modelConfig?.maxTokens ?? this.config.maxTokens,
+            temperature:
+              req.modelConfig?.temperature ?? this.config.temperature,
+            top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
+            n: req.modelConfig?.n ?? this.config.n,
+            presence_penalty:
+              req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
+            ...(frequencyPenalty
+              ? { frequency_penalty: frequencyPenalty }
+              : {}),
+          }),
       stop: req.modelConfig?.stopSequences ?? this.config.stop,
-      presence_penalty:
-        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       logit_bias: this.config.logitBias,
-      ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {}),
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
       ...(store ? { store: store } : {}),
+      ...(this.config.serviceTier
+        ? { service_tier: this.config.serviceTier }
+        : {}),
+      ...(this.config.user ? { user: this.config.user } : {}),
     }
 
     if (this.config.reasoningEffort) {
@@ -250,8 +286,12 @@ class AxAIOpenAIImpl<
       }
     }
 
-    if (config.thinkingTokenBudget) {
+    // Then, override based on prompt-specific config
+    if (config?.thinkingTokenBudget) {
       switch (config.thinkingTokenBudget) {
+        case 'none':
+          reqValue.reasoning_effort = undefined // Explicitly set to undefined
+          break
         case 'minimal':
           reqValue.reasoning_effort = 'low'
           break
@@ -309,7 +349,6 @@ class AxAIOpenAIImpl<
     if (error) {
       throw error
     }
-
     this.tokensUsed = usage
       ? {
           promptTokens: usage.prompt_tokens,
@@ -319,6 +358,11 @@ class AxAIOpenAIImpl<
       : undefined
 
     const results = choices.map((choice) => {
+      // Check for refusal and throw exception if present
+      if (choice.message.refusal) {
+        throw new AxAIRefusalError(choice.message.refusal, resp.model, resp.id)
+      }
+
       const finishReason = mapFinishReason(choice.finish_reason)
 
       const functionCalls = choice.message.tool_calls?.map(
@@ -330,9 +374,11 @@ class AxAIOpenAIImpl<
       )
 
       return {
+        index: choice.index,
         id: `${choice.index}`,
-        content: choice.message.content,
+        content: choice.message.content ?? undefined,
         thought: choice.message.reasoning_content,
+        annotations: choice.message.annotations,
         functionCalls,
         finishReason,
       }
@@ -368,14 +414,22 @@ class AxAIOpenAIImpl<
 
     const results = choices.map(
       ({
+        index,
         delta: {
           content,
           role,
+          refusal,
           tool_calls: toolCalls,
           reasoning_content: thought,
+          annotations,
         },
         finish_reason: oaiFinishReason,
       }) => {
+        // Check for refusal and throw exception if present
+        if (refusal) {
+          throw new AxAIRefusalError(refusal, undefined, id)
+        }
+
         const finishReason = mapFinishReason(oaiFinishReason)
 
         const functionCalls = toolCalls
@@ -402,9 +456,11 @@ class AxAIOpenAIImpl<
           .filter((v) => v !== null)
 
         return {
-          content,
+          index,
+          content: content ?? undefined,
           role,
           thought,
+          annotations,
           functionCalls,
           finishReason,
           id,
@@ -448,16 +504,19 @@ const mapFinishReason = (
 function createMessages<TModel>(
   req: Readonly<AxInternalChatRequest<TModel>>
 ): AxAIOpenAIChatRequest<TModel>['messages'] {
-  return req.chatPrompt.map((msg) => {
+  type UserContent = Extract<
+    AxAIOpenAIChatRequest<TModel>['messages'][number],
+    { role: 'user' }
+  >['content']
+
+  const openaiReq = req.chatPrompt.map((msg) => {
     switch (msg.role) {
       case 'system':
         return { role: 'system' as const, content: msg.content }
+
       case 'user':
-        if (Array.isArray(msg.content)) {
-          return {
-            role: 'user' as const,
-            name: msg.name,
-            content: msg.content.map((c) => {
+        const content: UserContent = Array.isArray(msg.content)
+          ? msg.content.map((c) => {
               switch (c.type) {
                 case 'text':
                   return { type: 'text' as const, text: c.text }
@@ -478,27 +537,48 @@ function createMessages<TModel>(
                 default:
                   throw new Error('Invalid content type')
               }
-            }),
+            })
+          : msg.content
+        return {
+          role: 'user' as const,
+          ...(msg.name ? { name: msg.name } : {}),
+          content,
+        }
+
+      case 'assistant':
+        const toolCalls = msg.functionCalls?.map((v) => ({
+          id: v.id,
+          type: 'function' as const,
+          function: {
+            name: v.function.name,
+            arguments:
+              typeof v.function.params === 'object'
+                ? JSON.stringify(v.function.params)
+                : v.function.params,
+          },
+        }))
+
+        if (toolCalls && toolCalls.length > 0) {
+          return {
+            role: 'assistant' as const,
+            ...(msg.content ? { content: msg.content } : {}),
+            name: msg.name,
+            tool_calls: toolCalls,
           }
         }
-        return { role: 'user' as const, content: msg.content, name: msg.name }
-      case 'assistant':
+
+        if (msg.content === undefined) {
+          throw new Error(
+            'Assistant content is required when no tool calls are provided'
+          )
+        }
+
         return {
           role: 'assistant' as const,
-          content: msg.content as string,
-          name: msg.name,
-          tool_calls: msg.functionCalls?.map((v) => ({
-            id: v.id,
-            type: 'function' as const,
-            function: {
-              name: v.function.name,
-              arguments:
-                typeof v.function.params === 'object'
-                  ? JSON.stringify(v.function.params)
-                  : v.function.params,
-            },
-          })),
+          content: msg.content,
+          ...(msg.name ? { name: msg.name } : {}),
         }
+
       case 'function':
         return {
           role: 'tool' as const,
@@ -509,6 +589,7 @@ function createMessages<TModel>(
         throw new Error('Invalid role')
     }
   })
+  return openaiReq
 }
 
 export class AxAIOpenAIBase<

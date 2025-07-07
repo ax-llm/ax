@@ -2,26 +2,17 @@
 title: AxTokenUsage
 ---
 
-> **AxTokenUsage**: `object`
+```ts
+type AxTokenUsage = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L29
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L33
 
 ## Type declaration
 
-<a id="completionTokens"></a>
-
-### completionTokens
-
-> **completionTokens**: `number`
-
-<a id="promptTokens"></a>
-
-### promptTokens
-
-> **promptTokens**: `number`
-
-<a id="totalTokens"></a>
-
-### totalTokens
-
-> **totalTokens**: `number`
+| Name | Type |
+| :------ | :------ |
+| <a id="completionTokens"></a> `completionTokens` | `number` |
+| <a id="promptTokens"></a> `promptTokens` | `number` |
+| <a id="thoughtsTokens"></a> `thoughtsTokens`? | `number` |
+| <a id="totalTokens"></a> `totalTokens` | `number` |

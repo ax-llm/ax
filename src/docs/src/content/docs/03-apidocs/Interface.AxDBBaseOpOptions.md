@@ -2,14 +2,10 @@
 title: AxDBBaseOpOptions
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L18
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/db/base.ts#L18
 
 ## Properties
 
-<a id="span"></a>
-
-### span?
-
-> `optional` **span**: `Span`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/db/base.ts#L19
+| Property | Type |
+| :------ | :------ |
+| <a id="span"></a> `span?` | `Span` |

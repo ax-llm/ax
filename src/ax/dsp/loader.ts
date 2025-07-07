@@ -1,4 +1,4 @@
-import type { AxFieldValue } from './program.js'
+import type { AxFieldValue } from './types.js'
 
 export type AxDataRow = { row: Record<string, AxFieldValue> }
 

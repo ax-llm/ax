@@ -11,6 +11,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
 } from './types.js'
 
@@ -270,5 +271,27 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    */
   getOptions(): Readonly<AxAIServiceOptions> {
     return this.options ?? {}
+  }
+
+  /**
+   * Returns the logger from the last used service,
+   * or falls back to the first service if none has been used.
+   */
+  getLogger(): AxLoggerFunction {
+    let serviceInstance = this.lastUsedService
+    if (!serviceInstance) {
+      const firstServiceEntry = this.services.values().next().value
+      if (firstServiceEntry) {
+        serviceInstance = firstServiceEntry.service
+      }
+    }
+
+    if (!serviceInstance) {
+      // Return a default logger if no service is available
+      return (message: string) => {
+        process.stdout.write(message)
+      }
+    }
+    return serviceInstance.getLogger()
   }
 }

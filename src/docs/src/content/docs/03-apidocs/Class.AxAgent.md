@@ -2,7 +2,7 @@
 title: AxAgent
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L134
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L158
 
 An AI agent that can process inputs using an AI service and coordinate with child agents.
 Supports features like smart model routing and automatic input field passing to child agents.
@@ -10,7 +10,7 @@ Supports features like smart model routing and automatic input field passing to 
 ## Type Parameters
 
 | Type Parameter | Default type |
-| ------ | ------ |
+| :------ | :------ |
 | `IN` *extends* [`AxGenIn`](/api/#03-apidocs/typealiasaxgenin) | - |
 | `OUT` *extends* [`AxGenOut`](/api/#03-apidocs/typealiasaxgenout) | [`AxGenOut`](/api/#03-apidocs/typealiasaxgenout) |
 
@@ -24,15 +24,25 @@ Supports features like smart model routing and automatic input field passing to 
 
 ### new AxAgent()
 
-> **new AxAgent**\<`IN`, `OUT`\>(`__namedParameters`, `options`?): [`AxAgent`](/api/#03-apidocs/classaxagent)\<`IN`, `OUT`\>
+```ts
+new AxAgent<IN, OUT>(__namedParameters: Readonly<{
+  agents: AxAgentic[];
+  ai: Readonly<AxAIService<unknown, unknown>>;
+  definition: string;
+  description: string;
+  functions: AxInputFunctionType;
+  name: string;
+  signature: string | AxSignature;
+}>, options?: Readonly<AxAgentOptions>): AxAgent<IN, OUT>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L149
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L173
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
-| `__namedParameters` | `Readonly`\<\{ `agents`: [`AxAgentic`](/api/#03-apidocs/interfaceaxagentic)[]; `ai`: `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\>; `definition`: `string`; `description`: `string`; `functions`: [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)[]; `name`: `string`; `signature`: `string` \| [`AxSignature`](/api/#03-apidocs/classaxsignature); \}\> |
+| :------ | :------ |
+| `__namedParameters` | `Readonly`\<\{ `agents`: [`AxAgentic`](/api/#03-apidocs/interfaceaxagentic)[]; `ai`: `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\>; `definition`: `string`; `description`: `string`; `functions`: [`AxInputFunctionType`](/api/#03-apidocs/typealiasaxinputfunctiontype); `name`: `string`; `signature`: `string` \| [`AxSignature`](/api/#03-apidocs/classaxsignature); \}\> |
 | `options`? | `Readonly`\<[`AxAgentOptions`](/api/#03-apidocs/typealiasaxagentoptions)\> |
 
 #### Returns
@@ -45,16 +55,21 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### forward()
 
-> **forward**(`parentAi`, `values`, `options`?): `Promise`\<`OUT`\>
+```ts
+forward(
+   parentAi: Readonly<AxAIService<unknown, unknown>>, 
+   values: IN | AxMessage<IN>[], 
+options?: Readonly<AxProgramForwardOptions>): Promise<OUT>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L349
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L380
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `parentAi` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
-| `values` | `IN` |
+| `values` | `IN` \| [`AxMessage`](/api/#03-apidocs/typealiasaxmessage)\<`IN`\>[] |
 | `options`? | `Readonly`\<[`AxProgramForwardOptions`](/api/#03-apidocs/typealiasaxprogramforwardoptions)\> |
 
 #### Returns
@@ -67,9 +82,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getFeatures()
 
-> **getFeatures**(): [`AxAgentFeatures`](/api/#03-apidocs/interfaceaxagentfeatures)
+```ts
+getFeatures(): AxAgentFeatures
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L297
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L328
 
 #### Returns
 
@@ -85,9 +102,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getFunction()
 
-> **getFunction**(): [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)
+```ts
+getFunction(): AxFunction
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L247
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L274
 
 #### Returns
 
@@ -103,9 +122,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getTraces()
 
-> **getTraces**(): [`AxProgramTrace`](/api/#03-apidocs/typealiasaxprogramtrace)[]
+```ts
+getTraces(): AxProgramTrace[]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L231
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L258
 
 #### Returns
 
@@ -121,13 +142,15 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getUsage()
 
-> **getUsage**(): [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
+```ts
+getUsage(): AxModelUsage & object[]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L239
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L266
 
 #### Returns
 
-[`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage) & `object`[]
+[`AxModelUsage`](/api/#03-apidocs/typealiasaxmodelusage) & `object`[]
 
 #### Implementation of
 
@@ -139,9 +162,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### resetUsage()
 
-> **resetUsage**(): `void`
+```ts
+resetUsage(): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L243
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L270
 
 #### Returns
 
@@ -157,14 +182,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setDefinition()
 
-> **setDefinition**(`definition`): `void`
+```ts
+setDefinition(definition: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L391
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L422
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `definition` | `string` |
 
 #### Returns
@@ -177,14 +204,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setDemos()
 
-> **setDemos**(`demos`): `void`
+```ts
+setDemos(demos: readonly AxProgramDemos[]): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L235
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L262
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `demos` | readonly [`AxProgramDemos`](/api/#03-apidocs/typealiasaxprogramdemos)[] |
 
 #### Returns
@@ -201,9 +230,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setDescription()
 
-> **setDescription**(`description`): `void`
+```ts
+setDescription(description: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L382
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L413
 
 Updates the agent's description.
 This updates both the stored description and the function's description.
@@ -211,7 +242,7 @@ This updates both the stored description and the function's description.
 #### Parameters
 
 | Parameter | Type | Description |
-| ------ | ------ | ------ |
+| :------ | :------ | :------ |
 | `description` | `string` | New description for the agent (must be at least 20 characters) |
 
 #### Returns
@@ -228,15 +259,18 @@ Error if description is too short
 
 ### setExamples()
 
-> **setExamples**(`examples`): `void`
+```ts
+setExamples(examples: Readonly<AxProgramExamples>, options?: Readonly<AxSetExamplesOptions>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L219
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L243
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `examples` | `Readonly`\<[`AxProgramExamples`](/api/#03-apidocs/typealiasaxprogramexamples)\> |
+| `options`? | `Readonly`\<[`AxSetExamplesOptions`](/api/#03-apidocs/typealiasaxsetexamplesoptions)\> |
 
 #### Returns
 
@@ -252,14 +286,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setId()
 
-> **setId**(`id`): `void`
+```ts
+setId(id: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L223
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L250
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `id` | `string` |
 
 #### Returns
@@ -276,14 +312,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setParentId()
 
-> **setParentId**(`parentId`): `void`
+```ts
+setParentId(parentId: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L227
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L254
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `parentId` | `string` |
 
 #### Returns
@@ -300,16 +338,21 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### streamingForward()
 
-> **streamingForward**(`parentAi`, `values`, `options`?): [`AxGenStreamingOut`](/api/#03-apidocs/typealiasaxgenstreamingout)\<`OUT`\>
+```ts
+streamingForward(
+   parentAi: Readonly<AxAIService<unknown, unknown>>, 
+   values: IN | AxMessage<IN>[], 
+options?: Readonly<AxProgramStreamingForwardOptions>): AxGenStreamingOut<OUT>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/prompts/agent.ts#L362
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/prompts/agent.ts#L393
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `parentAi` | `Readonly`\<[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>\> |
-| `values` | `IN` |
+| `values` | `IN` \| [`AxMessage`](/api/#03-apidocs/typealiasaxmessage)\<`IN`\>[] |
 | `options`? | `Readonly`\<[`AxProgramStreamingForwardOptions`](/api/#03-apidocs/typealiasaxprogramstreamingforwardoptions)\> |
 
 #### Returns

@@ -2,38 +2,19 @@
 title: AxChatResponseResult
 ---
 
-> **AxChatResponseResult**: `object`
+```ts
+type AxChatResponseResult = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L79
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L84
 
 ## Type declaration
 
-<a id="content"></a>
-
-### content?
-
-> `optional` **content**: `string`
-
-<a id="finishReason"></a>
-
-### finishReason?
-
-> `optional` **finishReason**: `"stop"` \| `"length"` \| `"function_call"` \| `"content_filter"` \| `"error"`
-
-<a id="functionCalls"></a>
-
-### functionCalls?
-
-> `optional` **functionCalls**: `object`[]
-
-<a id="id"></a>
-
-### id?
-
-> `optional` **id**: `string`
-
-<a id="name"></a>
-
-### name?
-
-> `optional` **name**: `string`
+| Name | Type |
+| :------ | :------ |
+| <a id="content"></a> `content`? | `string` |
+| <a id="finishReason"></a> `finishReason`? | `"stop"` \| `"length"` \| `"function_call"` \| `"content_filter"` \| `"error"` |
+| <a id="functionCalls"></a> `functionCalls`? | `object`[] |
+| <a id="id"></a> `id`? | `string` |
+| <a id="name"></a> `name`? | `string` |
+| <a id="thought"></a> `thought`? | `string` |

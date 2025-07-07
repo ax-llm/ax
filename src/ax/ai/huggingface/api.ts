@@ -155,6 +155,7 @@ class AxAIHuggingFaceImpl
     return {
       results: [
         {
+          index: 0,
           content: resp.generated_text,
         },
       ],

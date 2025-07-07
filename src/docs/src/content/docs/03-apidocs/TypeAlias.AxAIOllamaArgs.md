@@ -2,20 +2,16 @@
 title: AxAIOllamaArgs
 ---
 
-> **AxAIOllamaArgs**: [`AxAIOpenAIArgs`](/api/#03-apidocs/interfaceaxaiopenaiargs)\<`"ollama"`, `string`, `string`\> & `object`
+```ts
+type AxAIOllamaArgs = AxAIOpenAIArgs<"ollama", string, string> & object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/ollama/api.ts#L24
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/ollama/api.ts#L24
 
 ## Type declaration
 
-### embedModel?
-
-> `optional` **embedModel**: `string`
-
-### model?
-
-> `optional` **model**: `string`
-
-### url?
-
-> `optional` **url**: `string`
+| Name | Type |
+| :------ | :------ |
+| `embedModel`? | `string` |
+| `model`? | `string` |
+| `url`? | `string` |

@@ -1,4 +1,4 @@
-import { AxAI, AxAIGoogleGeminiModel, AxAIOpenAIModel, AxGen } from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax'
 
 const chatMessage = `Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!`
 
@@ -21,12 +21,12 @@ const currentDate = new Date()
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },
+  config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite },
   options: { timeout: 5000 },
   models: [
     {
       key: 'model-a',
-      model: AxAIGoogleGeminiModel.Gemini15Flash8B,
+      model: AxAIGoogleGeminiModel.Gemini25FlashLite,
       description: 'A model that is good for general purpose',
     },
   ],

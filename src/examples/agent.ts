@@ -16,7 +16,7 @@ const summarizer = new AxAgent({
   signature: `answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"`,
 })
 
-const agent = new AxAgent<{ question: string }>({
+const agent = new AxAgent({
   name: 'Scientist',
   description: 'An agent that can answer advanced science questions',
   signature: 'question -> answer',

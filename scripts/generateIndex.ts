@@ -19,10 +19,15 @@ interface ExportInfo {
 }
 
 /**
- * Checks if a symbol name starts with the expected prefixes (ax or Ax)
+ * Checks if a symbol name starts with the expected prefixes (ax or Ax) or is a special case
  */
 function hasValidPrefix(name: string): boolean {
-  return name.startsWith('ax') || name.startsWith('Ax')
+  return (
+    name.startsWith('ax') ||
+    name.startsWith('Ax') ||
+    name === 'f' ||
+    name === 's'
+  )
 }
 
 /**

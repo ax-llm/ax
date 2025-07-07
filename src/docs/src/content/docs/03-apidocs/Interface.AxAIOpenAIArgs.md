@@ -2,92 +2,30 @@
 title: AxAIOpenAIArgs
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L70
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/openai/api.ts#L74
 
 ## Extends
 
-- `Omit`\<[`AxAIOpenAIBaseArgs`](/api/#03-apidocs/interfaceaxaiopenaibaseargs)\<`TModel`, `TEmbedModel`\>, `"config"` \| `"modelInfo"`\>
+- `Omit`\<[`AxAIOpenAIBaseArgs`](/api/#03-apidocs/interfaceaxaiopenaibaseargs)\<`TModel`, `TEmbedModel`, `TChatReq`\>, `"config"` \| `"supportFor"` \| `"modelInfo"`\>
 
 ## Type Parameters
 
 | Type Parameter | Default type |
-| ------ | ------ |
+| :------ | :------ |
 | `TName` | `"openai"` |
 | `TModel` | [`AxAIOpenAIModel`](/api/#03-apidocs/enumerationaxaiopenaimodel) |
 | `TEmbedModel` | [`AxAIOpenAIEmbedModel`](/api/#03-apidocs/enumerationaxaiopenaiembedmodel) |
+| `TChatReq` *extends* [`AxAIOpenAIChatRequest`](/api/#03-apidocs/typealiasaxaiopenaichatrequest)\<`TModel`\> | [`AxAIOpenAIChatRequest`](/api/#03-apidocs/typealiasaxaiopenaichatrequest)\<`TModel`\> |
 
 ## Properties
 
-<a id="apiKey"></a>
-
-### apiKey
-
-> **apiKey**: `string`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L83
-
-#### Inherited from
-
-`Omit.apiKey`
-
-***
-
-<a id="apiURL"></a>
-
-### apiURL?
-
-> `optional` **apiURL**: `string`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L84
-
-#### Inherited from
-
-`Omit.apiURL`
-
-***
-
-<a id="config"></a>
-
-### config?
-
-> `optional` **config**: `Partial`\<`Readonly`\<[`AxAIOpenAIConfig`](/api/#03-apidocs/typealiasaxaiopenaiconfig)\<`TModel`, `TEmbedModel`\>\>\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L79
-
-***
-
-<a id="models"></a>
-
-### models?
-
-> `optional` **models**: `AxAIInputModelList`\<`TModel`\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L88
-
-#### Inherited from
-
-`Omit.models`
-
-***
-
-<a id="name"></a>
-
-### name
-
-> **name**: `TName`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L78
-
-***
-
-<a id="options"></a>
-
-### options?
-
-> `optional` **options**: `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions) & `object`\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/api.ts#L86
-
-#### Inherited from
-
-`Omit.options`
+| Property | Type | Inherited from |
+| :------ | :------ | :------ |
+| <a id="apiKey"></a> `apiKey` | `string` | `Omit.apiKey` |
+| <a id="apiURL"></a> `apiURL?` | `string` | `Omit.apiURL` |
+| <a id="chatReqUpdater"></a> `chatReqUpdater?` | `ChatReqUpdater`\<`TModel`, `TChatReq`\> | `Omit.chatReqUpdater` |
+| <a id="config"></a> `config?` | `Partial`\<`Readonly`\<[`AxAIOpenAIConfig`](/api/#03-apidocs/typealiasaxaiopenaiconfig)\<`TModel`, `TEmbedModel`\>\>\> | - |
+| <a id="modelInfo"></a> `modelInfo?` | [`AxModelInfo`](/api/#03-apidocs/typealiasaxmodelinfo)[] | - |
+| <a id="models"></a> `models?` | [`AxAIInputModelList`](/api/#03-apidocs/typealiasaxaiinputmodellist)\<`TModel`, `TEmbedModel`\> | `Omit.models` |
+| <a id="name"></a> `name` | `TName` | - |
+| <a id="options"></a> `options?` | `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions) & `object`\> | `Omit.options` |

@@ -2,12 +2,14 @@
 title: AxInternalChatRequest
 ---
 
-> **AxInternalChatRequest**\<`TModel`\>: `Omit`\<[`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest), `"model"`\> & `Required`\<`Pick`\<[`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest)\<`TModel`\>, `"model"`\>\>
+```ts
+type AxInternalChatRequest<TModel> = Omit<AxChatRequest, "model"> & Required<Pick<AxChatRequest<TModel>, "model">>;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L204
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L215
 
 ## Type Parameters
 
 | Type Parameter |
-| ------ |
+| :------ |
 | `TModel` |

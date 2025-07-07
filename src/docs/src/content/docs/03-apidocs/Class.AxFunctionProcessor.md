@@ -2,7 +2,7 @@
 title: AxFunctionProcessor
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L73
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/functions.ts#L106
 
 ## Constructors
 
@@ -10,14 +10,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxFunctionProcessor()
 
-> **new AxFunctionProcessor**(`funcList`): [`AxFunctionProcessor`](/api/#03-apidocs/classaxfunctionprocessor)
+```ts
+new AxFunctionProcessor(funcList: readonly AxFunction[]): AxFunctionProcessor
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L76
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/functions.ts#L109
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `funcList` | readonly [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)[] |
 
 #### Returns
@@ -30,14 +32,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### execute()
 
-> **execute**(`func`, `options`?): `Promise`\<`string`\>
+```ts
+execute(func: Readonly<AxChatResponseFunctionCall>, options?: Readonly<AxAIServiceActionOptions>): Promise<string>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L116
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/functions.ts#L149
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `func` | `Readonly`\<[`AxChatResponseFunctionCall`](/api/#03-apidocs/typealiasaxchatresponsefunctioncall)\> |
 | `options`? | `Readonly`\<[`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\> |
 

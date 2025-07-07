@@ -2,12 +2,12 @@
 title: AxInstanceRegistry
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L1
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/registry.ts#L1
 
 ## Type Parameters
 
 | Type Parameter |
-| ------ |
+| :------ |
 | `T` |
 
 ## Constructors
@@ -16,9 +16,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxInstanceRegistry()
 
-> **new AxInstanceRegistry**\<`T`\>(): [`AxInstanceRegistry`](/api/#03-apidocs/classaxinstanceregistry)\<`T`\>
+```ts
+new AxInstanceRegistry<T>(): AxInstanceRegistry<T>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L4
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/registry.ts#L4
 
 #### Returns
 
@@ -30,9 +32,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### \[iterator\]()
 
-> **\[iterator\]**(): `Generator`\<`T`, `void`, `unknown`\>
+```ts
+iterator: Generator<T, void, unknown>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L12
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/registry.ts#L12
 
 #### Returns
 
@@ -44,14 +48,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### register()
 
-> **register**(`instance`): `void`
+```ts
+register(instance: T): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/registry.ts#L8
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/registry.ts#L8
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `instance` | `T` |
 
 #### Returns

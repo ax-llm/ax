@@ -1,6 +1,6 @@
 import type { ReadableStream } from 'node:stream/web'
 
-import type { Context, Tracer } from '@opentelemetry/api'
+import type { Context, Meter, Tracer } from '@opentelemetry/api'
 
 import type { AxAPI } from '../util/apicall.js'
 
@@ -27,6 +27,9 @@ export type AxModelInfo = {
   aliases?: string[]
   hasThinkingBudget?: boolean
   hasShowThoughts?: boolean
+  maxTokens?: number
+  isExpensive?: boolean
+  contextWindow?: number
 }
 
 export type AxTokenUsage = {
@@ -80,7 +83,13 @@ export type AxFunction = {
   func: AxFunctionHandler
 }
 
+export type AxFunctionResult = Extract<
+  AxChatRequest['chatPrompt'][number],
+  { role: 'function' }
+> & { index: number }
+
 export type AxChatResponseResult = {
+  index: number
   content?: string
   thought?: string
   name?: string
@@ -89,6 +98,14 @@ export type AxChatResponseResult = {
     id: string
     type: 'function'
     function: { name: string; params?: string | object }
+  }[]
+  annotations?: {
+    type: 'url_citation'
+    url_citation: {
+      url: string
+      title?: string
+      description?: string
+    }
   }[]
   finishReason?:
     | 'stop'
@@ -230,9 +247,56 @@ export type AxRateLimiterFunction = <T = unknown>(
   info: Readonly<{ modelUsage?: AxModelUsage }>
 ) => Promise<T | ReadableStream<T>>
 
+export type AxLoggerTag =
+  | 'error'
+  | 'warning'
+  | 'success'
+  | 'functionName'
+  | 'functionArg'
+  | 'functionEnd'
+  | 'firstFunction'
+  | 'multipleFunctions'
+  | 'responseStart'
+  | 'responseContent'
+  | 'responseEnd'
+  | 'requestStart'
+  | 'requestContent'
+  | 'requestEnd'
+  | 'systemStart'
+  | 'systemContent'
+  | 'systemEnd'
+  | 'userStart'
+  | 'userContent'
+  | 'userEnd'
+  | 'assistantStart'
+  | 'assistantContent'
+  | 'assistantEnd'
+  | 'discovery'
+  | 'optimizer'
+  | 'start'
+  | 'config'
+  | 'phase'
+  | 'progress'
+  | 'result'
+  | 'complete'
+  | 'checkpoint'
+
+export type AxLoggerFunction = (
+  message: string,
+  options?: { tags?: AxLoggerTag[] }
+) => void
+
 export type AxAIPromptConfig = {
   stream?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest'
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none'
+  showThoughts?: boolean
+  useExpensiveModel?: 'yes'
 }
 
 export type AxAIServiceOptions = {
@@ -240,8 +304,11 @@ export type AxAIServiceOptions = {
   rateLimiter?: AxRateLimiterFunction
   fetch?: typeof fetch
   tracer?: Tracer
+  meter?: Meter
   timeout?: number
   excludeContentFromTrace?: boolean
+  abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
 }
 
 export type AxAIServiceActionOptions<
@@ -255,8 +322,9 @@ export type AxAIServiceActionOptions<
   rateLimiter?: AxRateLimiterFunction
   debug?: boolean
   debugHideSystemPrompt?: boolean
-  hideThought?: boolean
   traceContext?: Context
+  abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
@@ -265,6 +333,7 @@ export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   getFeatures(model?: TModel): AxAIFeatures
   getModelList(): AxAIModelList | undefined
   getMetrics(): AxAIServiceMetrics
+  getLogger(): AxLoggerFunction
 
   getLastUsedChatModel(): TModel | undefined
   getLastUsedEmbedModel(): TEmbedModel | undefined

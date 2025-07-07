@@ -1,11 +1,4 @@
-import {
-  AxAI,
-  AxAIGoogleGeminiModel,
-  AxAIOpenAIModel,
-  AxChainOfThought,
-  AxGen,
-  AxSignature,
-} from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxGen, AxSignature } from '@ax-llm/ax'
 
 // const ai = new AxAI({ name: 'ollama', model: 'nous-hermes2' });
 
@@ -53,20 +46,17 @@ gen.setExamples([
 //   ],
 // })
 
+// const ai = new AxAI({
+//     name: 'openai-responses',
+//     apiKey: process.env.OPENAI_APIKEY as string,
+//     config: { model: AxAIOpenAIResponsesModel.O3Mini },
+// })
+
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { maxTokens: 1000, model: AxAIGoogleGeminiModel.Gemini20FlashLite },
+  config: { maxTokens: 1000, model: AxAIGoogleGeminiModel.Gemini25Flash },
 })
-// ai.setOptions({ debug: true })
-
-// const generator = gen.streamingForward(ai, { noteText })
-
-// console.log('## Streaming')
-
-// for await (const res of generator) {
-//   console.log(res)
-// }
 
 const updates = [
   `Title: Purrfect Playtime Schedule Change at Cat Cafe
@@ -81,7 +71,11 @@ Summary: Open cat social hour at the Westwood Animal Shelter on Sunday, February
 
 console.log('## Streaming')
 
-const generator = gen.streamingForward(ai, { updates })
+const generator = gen.streamingForward(
+  ai,
+  { updates },
+  { showThoughts: true, thinkingTokenBudget: 'minimal' }
+)
 
 for await (const res of generator) {
   console.log(res)
@@ -89,5 +83,9 @@ for await (const res of generator) {
 
 console.log('\n\n## Not Streaming')
 
-const res = await gen.forward(ai, { updates })
+const res = await gen.forward(
+  ai,
+  { updates },
+  { showThoughts: true, thinkingTokenBudget: 'low' }
+)
 console.log(res)

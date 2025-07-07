@@ -1,7 +1,8 @@
 import type { AxAIService } from '../ai/types.js'
 
-import type { AxExample, AxMetricFn } from './optimize.js'
-import type { AxGenIn, AxGenOut, AxProgram } from './program.js'
+import type { AxExample, AxMetricFn } from './optimizer.js'
+import type { AxProgram } from './program.js'
+import type { AxGenIn, AxGenOut } from './types.js'
 import { updateProgressBar } from './util.js'
 
 export type AxEvaluateArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
@@ -34,7 +35,7 @@ export class AxTestPrompt<
   public async run(metricFn: AxMetricFn) {
     const st = new Date().getTime()
     const total = this.examples.length
-    let successCount = 0
+    let sumOfScores = 0
 
     for (let i = 0; i < total; i++) {
       const ex = this.examples[i]
@@ -43,22 +44,25 @@ export class AxTestPrompt<
       }
 
       const res = await this.program.forward(this.ai, ex as IN)
-      const success = metricFn({ prediction: res, example: ex })
-      if (success) {
-        successCount++
-      }
+      const score = await metricFn({ prediction: res, example: ex })
+      sumOfScores += score
 
       const et = new Date().getTime() - st
-      updateProgressBar(i, total, successCount, et, 'Testing Prompt', 30)
+      // Assuming updateProgressBar's 3rd argument is a count/value that represents progress.
+      // If it specifically needs a 'success count', this might need adjustment.
+      // For now, using sumOfScores, but it might represent total score, not #successes.
+      // If AxMetricFn is always 0 or 1, sumOfScores is equivalent to successCount.
+      updateProgressBar(i, total, sumOfScores, et, 'Testing Prompt', 30)
     }
 
+    const averageScore = total > 0 ? sumOfScores / total : 0
     console.log(
       '\nPerformance: ',
-      successCount,
+      sumOfScores,
       '/',
       total,
-      'Accuracy: ',
-      successCount / total,
+      'Average Score: ',
+      averageScore,
       '\n'
     )
   }

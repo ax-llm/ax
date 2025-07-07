@@ -24,14 +24,18 @@
     "publish": "npm run publish --workspaces  --if-present -- --provenance --access public",
     "git-cz": "npx git-cz",
     "dependencies:rebuild": "rm -rf package-lock.json && rm -rf node_modules && rm -rf */*/node_modules && npm i --no-audit --no-fund",
-    "tsx": "node --env-file=.env --import=tsx"
+    "tsx": "node --env-file=.env --import=tsx",
+    "fix:format": "prettier --write README.md",
+    "init-package": "node scripts/initPackage.js",
+    "lint:circular": "eslint src/ax/**/*.ts 2>/dev/null | grep -E '(import/no-cycle|import/no-self-import|Dependency cycle)' || echo 'No circular dependencies found!'"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "@release-it/bumper": "^7.0.2",
-    "@release-it/conventional-changelog": "^10.0.0",
+    "@release-it/bumper": "^7.0.5",
+    "@release-it/conventional-changelog": "^10.0.1",
+    "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^22.13.10",
     "@typescript-eslint/eslint-plugin": "^8.26.1",
     "@typescript-eslint/parser": "^8.26.1",
@@ -40,6 +44,7 @@
     "cz-conventional-changelog": "^3.3.0",
     "eslint": "^9.22.0",
     "eslint-config-prettier": "^10.1.1",
+    "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-functional": "^8.0.0",
     "eslint-plugin-import": "^2.31.0",
@@ -48,28 +53,19 @@
     "gh-pages": "^6.1.1",
     "glob": "^11.0.1",
     "husky": "^9.0.0",
-    "npm-run-all": "^4.1.5",
+    "npm-run-all2": "^8.0.4",
     "prettier": "^3.5.3",
-    "release-it": "^18.1.2",
+    "release-it": "^19.0.3",
     "standard-version": "^9.5.0",
-    "tsd": "^0.31.2",
+    "tsd": "^0.32.0",
     "tsimp": "^2.0.12",
-    "tsup": "^8.4.0",
-    "tsx": "^4.19.3",
-    "typedoc": "^0.27.9",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.4",
+    "typedoc": "^0.28.5",
     "typedoc-plugin-frontmatter": "^1.2.1",
     "typedoc-plugin-markdown": "^4.4.2",
-    "typescript": "^5.8.2",
-    "vitest": "^3.0.8",
-    "astro": "^5.3.0",
-    "@astrojs/tailwind": "^6.0.0",
-    "@types/react": "^19.0.10",
-    "@total-typescript/tsconfig": "^1.0.4"
-  },
-  "config": {
-    "commitizen": {
-      "path": "cz-conventional-changelog"
-    }
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.1"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
@@ -83,10 +79,5 @@
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
-  "version": "11.0.49",
-  "dependencies": {
-    "@ai-sdk/provider-utils": "^2.1.13",
-    "ai": "^4.1.61",
-    "zod": "^3.24.2"
-  }
+  "version": "12.0.23"
 }

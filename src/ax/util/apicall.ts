@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import {
   ReadableStream,
   TextDecoderStream as TextDecoderStreamNative,
@@ -56,6 +57,7 @@ export interface AxAPIConfig
   span?: Span
   timeout?: number
   retry?: Partial<RetryConfig>
+  abortSignal?: AbortSignal
 }
 
 // Default Configurations
@@ -79,7 +81,8 @@ export class AxAIServiceError extends Error {
   constructor(
     message: string,
     public readonly url: string,
-    public readonly requestBody?: unknown,
+    public readonly requestBody: unknown,
+    public readonly responseBody: unknown,
     context: Record<string, unknown> = {}
   ) {
     super(message)
@@ -96,6 +99,7 @@ export class AxAIServiceError extends Error {
       `${this.name}: ${this.message}`,
       `URL: ${this.url}`,
       `Request Body: ${JSON.stringify(this.requestBody, null, 2)}`,
+      `Response Body: ${JSON.stringify(this.responseBody, null, 2)}`,
       `Context: ${JSON.stringify(this.context, null, 2)}`,
       `Timestamp: ${this.timestamp}`,
       `Error ID: ${this.errorId}`,
@@ -118,12 +122,14 @@ export class AxAIServiceStatusError extends AxAIServiceError {
     public readonly status: number,
     public readonly statusText: string,
     url: string,
-    requestBody?: unknown,
+    requestBody: unknown,
+    responseBody: unknown,
     context?: Record<string, unknown>
   ) {
     super(`HTTP ${status} - ${statusText}`, url, requestBody, {
       httpStatus: status,
       httpStatusText: statusText,
+      responseBody,
       ...context,
     })
     this.name = this.constructor.name
@@ -134,14 +140,21 @@ export class AxAIServiceNetworkError extends AxAIServiceError {
   constructor(
     public readonly originalError: Error,
     url: string,
-    requestBody?: unknown,
+    requestBody: unknown,
+    responseBody: unknown,
     context?: Record<string, unknown>
   ) {
-    super(`Network Error: ${originalError.message}`, url, requestBody, {
-      originalErrorName: originalError.name,
-      originalErrorStack: originalError.stack,
-      ...context,
-    })
+    super(
+      `Network Error: ${originalError.message}`,
+      url,
+      requestBody,
+      responseBody,
+      {
+        originalErrorName: originalError.name,
+        originalErrorStack: originalError.stack,
+        ...context,
+      }
+    )
     this.name = this.constructor.name
     this.stack = originalError.stack
   }
@@ -154,7 +167,7 @@ export class AxAIServiceResponseError extends AxAIServiceError {
     requestBody?: unknown,
     context?: Record<string, unknown>
   ) {
-    super(message, url, requestBody, context)
+    super(message, url, requestBody, undefined, context)
     this.name = this.constructor.name
   }
 }
@@ -166,10 +179,16 @@ export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
     public readonly lastChunk?: unknown,
     context?: Record<string, unknown>
   ) {
-    super('Stream terminated unexpectedly by remote host', url, requestBody, {
-      lastChunk,
-      ...context,
-    })
+    super(
+      'Stream terminated unexpectedly by remote host',
+      url,
+      requestBody,
+      undefined,
+      {
+        lastChunk,
+        ...context,
+      }
+    )
     this.name = this.constructor.name
   }
 }
@@ -181,10 +200,31 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
     requestBody?: unknown,
     context?: Record<string, unknown>
   ) {
-    super(`Request timeout after ${timeoutMs}ms`, url, requestBody, {
-      timeoutMs,
-      ...context,
-    })
+    super(
+      `Request timed out after ${timeoutMs}ms`,
+      url,
+      requestBody,
+      undefined,
+      { timeoutMs, ...context }
+    )
+    this.name = this.constructor.name
+  }
+}
+
+export class AxAIServiceAbortedError extends AxAIServiceError {
+  constructor(
+    url: string,
+    reason?: string,
+    requestBody?: unknown,
+    context?: Record<string, unknown>
+  ) {
+    super(
+      `Request aborted${reason ? `: ${reason}` : ''}`,
+      url,
+      requestBody,
+      undefined,
+      { abortReason: reason, ...context }
+    )
     this.name = this.constructor.name
   }
 }
@@ -192,15 +232,70 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
 export class AxAIServiceAuthenticationError extends AxAIServiceError {
   constructor(
     url: string,
-    requestBody?: unknown,
+    requestBody: unknown,
+    responseBody: unknown,
     context?: Record<string, unknown>
   ) {
-    super('Authentication failed', url, requestBody, context)
+    super('Authentication failed', url, requestBody, responseBody, context)
     this.name = this.constructor.name
   }
 }
 
+export class AxAIRefusalError extends Error {
+  public readonly timestamp: string
+  public readonly errorId: string
+
+  constructor(
+    public readonly refusalMessage: string,
+    public readonly model?: string,
+    public readonly requestId?: string
+  ) {
+    super(`Model refused to fulfill request: ${refusalMessage}`)
+    this.name = 'AxAIRefusalError'
+    this.timestamp = new Date().toISOString()
+    this.errorId = crypto.randomUUID()
+  }
+
+  override toString(): string {
+    return [
+      `${this.name}: ${this.message}`,
+      `Refusal: ${this.refusalMessage}`,
+      this.model ? `Model: ${this.model}` : '',
+      this.requestId ? `Request ID: ${this.requestId}` : '',
+      `Timestamp: ${this.timestamp}`,
+      `Error ID: ${this.errorId}`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  // For Node.js, override the custom inspect method so console.log shows our custom string.
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString()
+  }
+}
+
 // Utility Functions
+async function safeReadResponseBody(response: Response): Promise<unknown> {
+  try {
+    if (response.headers.get('content-type')?.includes('application/json')) {
+      return await response.json()
+    }
+
+    // Clone the response so we can read it without consuming the original
+    const clonedResponse = response.clone()
+    return await clonedResponse.text()
+  } catch (e) {
+    // If we can't read the body, return a descriptive message
+    return `[ReadableStream - read failed: ${(e as Error).message}]`
+  }
+}
+
 function calculateRetryDelay(
   attempt: number,
   config: Readonly<RetryConfig>
@@ -283,10 +378,41 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   let attempt = 0
 
   while (true) {
-    const controller = new AbortController()
+    // Combine user abort signal with timeout signal
+    const combinedAbortController = new AbortController()
+
+    // Handle user abort signal
+    if (api.abortSignal) {
+      if (api.abortSignal.aborted) {
+        throw new AxAIServiceAbortedError(
+          apiUrl.href,
+          api.abortSignal.reason,
+          json,
+          { metrics }
+        )
+      }
+
+      const userAbortHandler = () => {
+        combinedAbortController.abort(
+          api.abortSignal!.reason || 'User aborted request'
+        )
+      }
+      api.abortSignal.addEventListener('abort', userAbortHandler, {
+        once: true,
+      })
+
+      // Clean up listener if we complete before abort
+      const originalAbort = combinedAbortController.abort.bind(
+        combinedAbortController
+      )
+      combinedAbortController.abort = (reason?: string) => {
+        api.abortSignal!.removeEventListener('abort', userAbortHandler)
+        originalAbort(reason)
+      }
+    }
 
     timeoutId = setTimeout(() => {
-      controller.abort('Request timeout')
+      combinedAbortController.abort('Request timeout')
     }, timeoutMs)
 
     try {
@@ -301,14 +427,22 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           ...api.headers,
         },
         body: JSON.stringify(json),
-        signal: controller.signal,
+        signal: combinedAbortController.signal,
       })
 
       clearTimeout(timeoutId)
 
       // Handle authentication errors
       if (res.status === 401 || res.status === 403) {
-        throw new AxAIServiceAuthenticationError(apiUrl.href, json, { metrics })
+        const responseBody = await safeReadResponseBody(res)
+        throw new AxAIServiceAuthenticationError(
+          apiUrl.href,
+          json,
+          responseBody,
+          {
+            metrics,
+          }
+        )
       }
 
       // Handle retryable status codes
@@ -334,11 +468,13 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       }
 
       if (res.status >= 400) {
+        const responseBody = await safeReadResponseBody(res)
         throw new AxAIServiceStatusError(
           res.status,
           res.statusText,
           apiUrl.href,
           json,
+          responseBody,
           { metrics }
         )
       }
@@ -462,9 +598,15 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                 )
               } else {
                 controller.error(
-                  new AxAIServiceNetworkError(error, apiUrl.href, json, {
-                    streamMetrics,
-                  })
+                  new AxAIServiceNetworkError(
+                    error,
+                    apiUrl.href,
+                    json,
+                    '[ReadableStream - consumed during streaming]',
+                    {
+                      streamMetrics,
+                    }
+                  )
                 )
               }
               throw error
@@ -483,9 +625,19 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs, json, {
-          metrics,
-        })
+        // Check if this was a user abort or timeout
+        if (api.abortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            apiUrl.href,
+            api.abortSignal.reason,
+            json,
+            { metrics }
+          )
+        } else {
+          throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs, json, {
+            metrics,
+          })
+        }
       }
 
       if (api.span?.isRecording()) {

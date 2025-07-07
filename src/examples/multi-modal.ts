@@ -12,6 +12,7 @@ const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4O },
+  options: { debug: true },
 })
 
 const res = await gen.forward(ai, {

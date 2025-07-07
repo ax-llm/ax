@@ -2,24 +2,11 @@
 title: AxAIAnthropicContentBlockStopEvent
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L190
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/anthropic/types.ts#L195
 
 ## Properties
 
-<a id="index"></a>
-
-### index
-
-> **index**: `number`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L192
-
-***
-
-<a id="type"></a>
-
-### type
-
-> **type**: `"content_block_stop"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L191
+| Property | Type |
+| :------ | :------ |
+| <a id="index"></a> `index` | `number` |
+| <a id="type"></a> `type` | `"content_block_stop"` |

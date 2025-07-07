@@ -1,6 +1,5 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-
 import type { AxAPI } from '../../util/apicall.js'
+import { AxAIRefusalError } from '../../util/apicall.js'
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -30,6 +29,8 @@ import {
   type AxAIGoogleGeminiChatResponse,
   type AxAIGoogleGeminiChatResponseDelta,
   type AxAIGoogleGeminiConfig,
+  type AxAIGoogleGeminiContent,
+  type AxAIGoogleGeminiContentPart,
   AxAIGoogleGeminiEmbedModel,
   type AxAIGoogleGeminiGenerationConfig,
   AxAIGoogleGeminiModel,
@@ -39,6 +40,8 @@ import {
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './types.js'
+
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
   {
@@ -67,6 +70,13 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
     model: AxAIGoogleGeminiModel.Gemini25Flash,
     embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
     safetySettings,
+    thinkingTokenBudgetLevels: {
+      minimal: 200,
+      low: 800,
+      medium: 5000,
+      high: 10000,
+      highest: 24500,
+    },
     ...axBaseAIDefaultConfig(),
   })
 
@@ -76,6 +86,13 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
       model: AxAIGoogleGeminiModel.Gemini20Flash,
       embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
       safetySettings,
+      thinkingTokenBudgetLevels: {
+        minimal: 200,
+        low: 800,
+        medium: 5000,
+        high: 10000,
+        highest: 24500,
+      },
       ...axBaseAIDefaultCreativeConfig(),
     })
 
@@ -190,15 +207,14 @@ class AxAIGoogleGeminiImpl
           }
         : undefined
 
-    const contents: AxAIGoogleGeminiChatRequest['contents'] = req.chatPrompt
+    const contents: AxAIGoogleGeminiContent[] = req.chatPrompt
       .filter((p) => p.role !== 'system')
       .map((msg, i) => {
         switch (msg.role) {
           case 'user': {
-            const parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'user' }
-            >['parts'] = Array.isArray(msg.content)
+            const parts: AxAIGoogleGeminiContentPart[] = Array.isArray(
+              msg.content
+            )
               ? msg.content.map((c, i) => {
                   switch (c.type) {
                     case 'text':
@@ -221,10 +237,7 @@ class AxAIGoogleGeminiImpl
           }
 
           case 'assistant': {
-            let parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'model' }
-            >['parts'] = []
+            let parts: AxAIGoogleGeminiContentPart[] = []
 
             if (msg.functionCalls) {
               parts = msg.functionCalls.map((f) => {
@@ -265,10 +278,7 @@ class AxAIGoogleGeminiImpl
             if (!('functionId' in msg)) {
               throw new Error(`Chat prompt functionId is empty (index: ${i})`)
             }
-            const parts: Extract<
-              AxAIGoogleGeminiChatRequest['contents'][0],
-              { role: 'function' }
-            >['parts'] = [
+            const parts: AxAIGoogleGeminiContentPart[] = [
               {
                 functionResponse: {
                   name: msg.functionId,
@@ -278,13 +288,15 @@ class AxAIGoogleGeminiImpl
             ]
 
             return {
-              role: 'function' as const,
+              role: 'user' as const,
               parts,
             }
           }
 
           default:
-            throw new Error('Invalid role')
+            throw new Error(
+              `Invalid role: ${JSON.stringify(msg)} (index: ${i})`
+            )
         }
       })
 
@@ -355,24 +367,38 @@ class AxAIGoogleGeminiImpl
       thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget
     }
 
-    if (config.thinkingTokenBudget) {
+    // Then, override based on prompt-specific config
+    if (config?.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
+      const levels = this.config.thinkingTokenBudgetLevels
+
       switch (config.thinkingTokenBudget) {
+        case 'none':
+          thinkingConfig.thinkingBudget = 0 // Explicitly set to 0
+          thinkingConfig.includeThoughts = false // When thinkingTokenBudget is 'none', disable showThoughts
+          break
         case 'minimal':
-          thinkingConfig.thinkingBudget = 200
+          thinkingConfig.thinkingBudget = levels?.minimal ?? 200
           break
         case 'low':
-          thinkingConfig.thinkingBudget = 800
+          thinkingConfig.thinkingBudget = levels?.low ?? 800
           break
         case 'medium':
-          thinkingConfig.thinkingBudget = 5000
+          thinkingConfig.thinkingBudget = levels?.medium ?? 5000
           break
         case 'high':
-          thinkingConfig.thinkingBudget = 10000
+          thinkingConfig.thinkingBudget = levels?.high ?? 10000
           break
         case 'highest':
-          thinkingConfig.thinkingBudget = 24500
+          thinkingConfig.thinkingBudget = levels?.highest ?? 24500
           break
+      }
+    }
+
+    if (config?.showThoughts !== undefined) {
+      // Only override includeThoughts if thinkingTokenBudget is not 'none'
+      if (config?.thinkingTokenBudget !== 'none') {
+        thinkingConfig.includeThoughts = config.showThoughts
       }
     }
 
@@ -388,7 +414,7 @@ class AxAIGoogleGeminiImpl
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
 
-      ...(thinkingConfig ? { thinkingConfig } : {}),
+      ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     }
 
     const safetySettings = this.config.safetySettings
@@ -470,7 +496,7 @@ class AxAIGoogleGeminiImpl
   ): AxChatResponse => {
     const results: AxChatResponseResult[] = resp.candidates?.map(
       (candidate) => {
-        const result: AxChatResponseResult = {}
+        const result: AxChatResponseResult = { index: 0 }
 
         switch (candidate.finishReason) {
           case 'MAX_TOKENS':
@@ -480,11 +506,23 @@ class AxAIGoogleGeminiImpl
             result.finishReason = 'stop'
             break
           case 'SAFETY':
-            throw new Error('Finish reason: SAFETY')
+            throw new AxAIRefusalError(
+              'Content was blocked due to safety settings',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
           case 'RECITATION':
-            throw new Error('Finish reason: RECITATION')
+            throw new AxAIRefusalError(
+              'Content was blocked due to recitation policy',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
           case 'MALFORMED_FUNCTION_CALL':
-            throw new Error('Finish reason: MALFORMED_FUNCTION_CALL')
+            throw new AxAIRefusalError(
+              'Function call was malformed and blocked',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
         }
 
         if (!candidate.content || !candidate.content.parts) {
@@ -500,6 +538,7 @@ class AxAIGoogleGeminiImpl
             }
             continue
           }
+
           if ('functionCall' in part) {
             result.functionCalls = [
               {

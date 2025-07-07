@@ -1,8 +1,10 @@
+/* eslint-disable functional/prefer-immutable-types */
 import { ColorLog } from '../util/log.js'
 
-import type { AxExample, AxOptimizationStats } from './optimize.js'
-import type { AxFieldValue, AxGenOut, AxProgramUsage } from './program.js'
+import type { AxExample, AxOptimizationStats } from './optimizer.js'
+import type { AxGenDeltaOut, AxProgramUsage } from './program.js'
 import type { AxField } from './sig.js'
+import type { AxFieldValue, AxGenOut } from './types.js'
 
 const colorLog = new ColorLog()
 
@@ -19,11 +21,18 @@ export const updateProgressBar = (
   const emptyBarLength = progressBarWidth - filledBarLength
   const filledBar = colorLog.blueBright('█'.repeat(filledBarLength))
   const emptyBar = ' '.repeat(emptyBarLength)
-  const itemsPerSecond =
-    elapsedTime > 0 ? (current / elapsedTime).toFixed(2) : '0.00'
+  const successRate = total > 0 ? ((success / total) * 100).toFixed(1) : '0.0'
 
+  // More user-friendly message
+  const friendlyMsg = msg.includes('Running MIPROv2 optimization')
+    ? 'Testing prompt variations'
+    : msg.includes('Tuning Prompt')
+      ? 'Generating training examples'
+      : msg
+
+  // Use newline instead of carriage return to avoid overwriting structured logs
   process.stdout.write(
-    `\r${msg}: ${current} / ${total} (${colorLog.yellow(percentage)}%): 100%|${filledBar}${emptyBar}| Success: ${success}/${total} [${colorLog.red(elapsedTime.toFixed(2))}, ${itemsPerSecond}it/s]`
+    `│  ${friendlyMsg}: ${current}/${total} (${colorLog.yellow(percentage)}%) |${filledBar}${emptyBar}| Success rate: ${colorLog.greenBright(successRate)}%\n`
   )
 }
 
@@ -38,6 +47,8 @@ export const validateValue = (
     val: Readonly<AxFieldValue>
   ): boolean => {
     switch (expectedType) {
+      case 'class':
+        return typeof val === 'string'
       case 'code':
         return typeof val === 'string'
       case 'string':
@@ -84,7 +95,7 @@ export const validateValue = (
 
     if (msg) {
       throw new Error(
-        `Validation failed: Expected '${field.name}' to be a ${msg} instead got '${value}'`
+        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
       )
     }
     return
@@ -112,7 +123,7 @@ export const validateValue = (
 
     if (msg) {
       throw new Error(
-        `Validation failed: Expected '${field.name}' to be a ${msg} instead got '${value}'`
+        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
       )
     }
     return
@@ -136,8 +147,9 @@ export const validateValue = (
   }
 
   if (!isValid) {
+    const gotType = Array.isArray(value) ? 'array' : typeof value
     throw new Error(
-      `Validation failed: Expected '${field.name}' to be a ${field.type?.isArray ? 'an array of ' : ''}${ft.name} instead got '${typeof value}' (${value})`
+      `Validation failed: Expected '${field.name}' to be a ${field.type?.isArray ? 'an array of ' : ''}${ft.name} instead got '${gotType}' (${JSON.stringify(value)})`
     )
   }
 }
@@ -222,31 +234,46 @@ export const parseMarkdownList = (input: string): string[] => {
   return list
 }
 
-export function mergeDeltas<OUT>(
-  base: Partial<AxGenOut>,
-  delta: Partial<AxGenOut>
+export function mergeDeltas<OUT extends AxGenOut>(
+  base: AxGenDeltaOut<OUT>[],
+  currentDelta: AxGenDeltaOut<OUT>
 ) {
+  type ValueTypeOfAxGenOut = AxGenOut[keyof AxGenOut]
+
+  const { index, delta, version } = currentDelta
+
+  // Cast once for mutation – safe because we'll only assign validated keys
+  const target = base.find((b) => b.index === index)?.delta as Record<
+    string,
+    ValueTypeOfAxGenOut
+  >
+
+  if (!target) {
+    base.push({ index, delta, version })
+    return base
+  }
+
   for (const key of Object.keys(delta)) {
-    const baseValue = base[key]
-    const deltaValue = delta[key]
+    const baseValue = target[key]
+    const deltaValue = (delta as Record<string, unknown>)[key]
 
     if (baseValue === undefined && Array.isArray(deltaValue)) {
-      base[key] = [...deltaValue]
+      target[key] = [...deltaValue]
     } else if (Array.isArray(baseValue) && Array.isArray(deltaValue)) {
       // Concatenate arrays
-      base[key] = [...(baseValue ?? []), ...deltaValue]
+      target[key] = [...(baseValue as unknown[]), ...deltaValue]
     } else if (
       (baseValue === undefined || typeof baseValue === 'string') &&
       typeof deltaValue === 'string'
     ) {
       // Concatenate strings
-      base[key] = (baseValue ?? '') + deltaValue
+      target[key] = `${baseValue ?? ''}${deltaValue}`
     } else {
       // For all other types, overwrite with the new value
-      base[key] = deltaValue
+      target[key] = deltaValue as ValueTypeOfAxGenOut
     }
   }
-  return base as OUT
+  return base
 }
 
 export class LRUCache<K, V> {
@@ -329,24 +356,23 @@ export function matchesContent(
     prefixCache.set(prefix, prefixes)
   }
 
-  // Get the content slice we'll check for partial matches
-  const contentEnd = content.slice(
-    Math.max(startIndex, content.length - prefix.length)
-  )
+  // Check for partial matches at the end (for streaming content)
+  // We want to find the longest partial prefix that the content ends with
+  let longestPartialMatch = -1
 
-  // Check for partial matches at the end, starting from shortest to longest
-  // Skip the full prefix as it was already checked
-  for (let i = 0; i < prefixes.length - 1; i++) {
-    const partialPrefix = prefixes[i]
-    if (partialPrefix === '\n' || partialPrefix === ':') {
-      continue
-    }
-    if (partialPrefix && contentEnd.endsWith(partialPrefix)) {
-      return -2
+  // Start from the longest prefix and work backwards to find the longest match
+  for (let i = prefixes.length - 1; i >= 0; i--) {
+    const partialPrefix = prefixes[i] as string
+
+    // Check if content ends with this partial prefix
+    if (content.endsWith(partialPrefix)) {
+      longestPartialMatch = i
+      break // Found the longest match, no need to continue
     }
   }
 
-  return -1
+  // Return -2 for partial match, -1 for no match
+  return longestPartialMatch >= 0 ? -2 : -1
 }
 
 export const formatTime = (ms: number): string => {
@@ -401,17 +427,15 @@ export const updateDetailedProgress = <T extends AxGenOut = AxGenOut>(
 
   const percentage = ((current / total) * 100).toFixed(1)
   const formattedTime = formatTime(elapsedTime)
-  const itemsPerSecond =
-    elapsedTime > 0 ? ((current / elapsedTime) * 1000).toFixed(2) : '0.00'
   const eta = calculateETA(current, total, elapsedTime)
 
-  // Basic progress info (always shown)
-  let output = `Round ${roundIndex + 1}/${configInfo.maxRounds}: ${current}/${total} (${percentage}%) [${formattedTime}, ${itemsPerSecond} it/s, ETA: ${eta}]`
+  // Basic progress info (always shown) - more user-friendly
+  let output = `Training round ${roundIndex + 1}/${configInfo.maxRounds}: ${current}/${total} (${percentage}%) [${formattedTime}, ETA: ${eta}]`
 
-  // Add success stats
+  // Add success stats in a cleaner format
   const successRate =
     stats.totalCalls > 0 ? (stats.successfulDemos / stats.totalCalls) * 100 : 0
-  output += ` | Success: ${stats.successfulDemos}/${stats.totalCalls} (${successRate.toFixed(1)}%)`
+  output += ` | Success rate: ${successRate.toFixed(1)}% (${stats.successfulDemos}/${stats.totalCalls})`
 
   // Additional info for verbose mode
   if (configInfo.verboseMode || configInfo.debugMode) {

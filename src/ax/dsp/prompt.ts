@@ -2,11 +2,17 @@ import type { AxChatRequest } from '../ai/types.js'
 
 import { formatDateWithTimezone } from './datetime.js'
 import type { AxInputFunctionType } from './functions.js'
-import { type AxFieldValue } from './program.js'
 import type { AxField, AxIField, AxSignature } from './sig.js'
+import type { AxFieldValue, AxGenIn, AxMessage } from './types.js'
 import { validateValue } from './util.js'
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] }
+
+// Define options type for AxPromptTemplate constructor
+export interface AxPromptTemplateOptions {
+  functions?: Readonly<AxInputFunctionType>
+  thoughtFieldName?: string
+}
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>
 
 type ChatRequestUserMessage = Exclude<
@@ -17,13 +23,14 @@ type ChatRequestUserMessage = Exclude<
 const functionCallInstructions = `
 ## Function Call Instructions
 - Complete the task, using the functions defined earlier in this prompt. 
-- Call functions step-by-step, using the output of one function as input to the next.
+- Output fields should only be generated after all functions have been called.
 - Use the function results to generate the output fields.`
 
 const formattingRules = `
 ## Strict Output Formatting Rules
 - Output must strictly follow the defined plain-text \`field name: value\` field format.
 - Output field, values must strictly adhere to the specified output field formatting rules.
+- No formatting rules should override these **Strict Output Formatting Rules**
 - Do not add any text before or after the output fields, just the field name and value.
 - Do not use code blocks.`
 
@@ -36,14 +43,18 @@ export class AxPromptTemplate {
   private sig: Readonly<AxSignature>
   private fieldTemplates?: Record<string, AxFieldTemplateFn>
   private task: { type: 'text'; text: string }
+  private readonly thoughtFieldName: string
+  private readonly functions?: Readonly<AxInputFunctionType>
 
   constructor(
     sig: Readonly<AxSignature>,
-    functions?: Readonly<AxInputFunctionType>,
+    options?: Readonly<AxPromptTemplateOptions>,
     fieldTemplates?: Record<string, AxFieldTemplateFn>
   ) {
     this.sig = sig
     this.fieldTemplates = fieldTemplates
+    this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
+    this.functions = options?.functions
 
     const task = []
 
@@ -54,7 +65,7 @@ export class AxPromptTemplate {
     )
 
     // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
-    const funcs = functions
+    const funcs = this.functions
       ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
       ?.flat()
 
@@ -90,17 +101,38 @@ export class AxPromptTemplate {
     }
   }
 
-  public render = <T extends Record<string, AxFieldValue>>(
+  private renderSingleValueUserContent = <T extends AxGenIn>(
     values: T,
+    renderedExamples: ChatRequestUserMessage,
+    renderedDemos: ChatRequestUserMessage,
+    examplesInSystemPrompt: boolean
+  ): string | ChatRequestUserMessage => {
+    const completion = this.renderInputFields(values)
+    const promptList: ChatRequestUserMessage = examplesInSystemPrompt
+      ? completion
+      : [...renderedExamples, ...renderedDemos, ...completion]
+
+    const prompt = promptList.filter((v) => v !== undefined)
+
+    return prompt.every((v) => v.type === 'text')
+      ? prompt.map((v) => v.text).join('\n')
+      : prompt.reduce(combineConsecutiveStrings('\n'), [])
+  }
+
+  public render = <T extends AxGenIn>(
+    values: T | ReadonlyArray<AxMessage<T>>, // Allow T (AxGenIn) or array of AxMessages
     {
       examples,
       demos,
     }: Readonly<{
       skipSystemPrompt?: boolean
-      examples?: Record<string, AxFieldValue>[]
-      demos?: Record<string, AxFieldValue>[]
+      examples?: Record<string, AxFieldValue>[] // Keep as is, examples are specific structures
+      demos?: Record<string, AxFieldValue>[] // Keep as is
     }>
-  ): AxChatRequest['chatPrompt'] => {
+  ): Extract<
+    AxChatRequest['chatPrompt'][number],
+    { role: 'user' | 'system' | 'assistant' }
+  >[] => {
     const renderedExamples = examples
       ? [
           { type: 'text' as const, text: '\n\n## Examples\n' },
@@ -109,8 +141,6 @@ export class AxPromptTemplate {
       : []
 
     const renderedDemos = demos ? this.renderDemos(demos) : []
-
-    const completion = this.renderInputFields(values)
 
     // Check if demos and examples are all text type
     const allTextExamples = renderedExamples.every((v) => v.type === 'text')
@@ -137,22 +167,65 @@ export class AxPromptTemplate {
       content: systemContent,
     }
 
-    const promptList: ChatRequestUserMessage = examplesInSystemPrompt
-      ? completion
-      : [...renderedExamples, ...renderedDemos, ...completion]
+    if (Array.isArray(values)) {
+      let messages: Extract<
+        AxChatRequest['chatPrompt'][number],
+        { role: 'user' } | { role: 'assistant' }
+      >[] = []
 
-    const prompt = promptList.filter((v) => v !== undefined)
+      const history = values as ReadonlyArray<AxMessage<T>>
 
-    const userContent = prompt.every((v) => v.type === 'text')
-      ? prompt.map((v) => v.text).join('\n')
-      : prompt.reduce(combineConsecutiveStrings('\n'), [])
+      let firstItem = true
+      for (const message of history) {
+        let content: string | ChatRequestUserMessage
 
-    const userPrompt = {
-      role: 'user' as const,
-      content: userContent,
+        if (firstItem) {
+          content = this.renderSingleValueUserContent(
+            message.values,
+            renderedExamples,
+            renderedDemos,
+            examplesInSystemPrompt
+          )
+          firstItem = false
+        } else {
+          content = this.renderSingleValueUserContent(
+            message.values,
+            [],
+            [],
+            false
+          )
+        }
+
+        if (message.role === 'user') {
+          messages.push({ role: 'user', content })
+          continue
+        }
+
+        if (message.role !== 'assistant') {
+          throw new Error('Invalid message role')
+        }
+
+        if (typeof content !== 'string') {
+          throw new Error(
+            'Assistant message cannot contain non-text content like images, files,etc'
+          )
+        }
+
+        messages.push({ role: 'assistant', content })
+      }
+
+      return [systemPrompt, ...messages]
     }
 
-    return [systemPrompt, userPrompt]
+    // values is T (AxGenIn) - existing logic path
+    const userContent = this.renderSingleValueUserContent(
+      values as T,
+      renderedExamples,
+      renderedDemos,
+      examplesInSystemPrompt
+    )
+
+    return [systemPrompt, { role: 'user' as const, content: userContent }]
   }
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {
@@ -162,7 +235,6 @@ export class AxPromptTemplate {
       return prompt
     }
 
-    // First, group fields by title
     const groupedFields = extraFields.reduce(
       (acc, field) => {
         const title = field.title
@@ -175,11 +247,9 @@ export class AxPromptTemplate {
       {} as Record<string, AxIField[]>
     )
 
-    // Convert grouped fields into formatted data
     const formattedGroupedFields = Object.entries(groupedFields)
       .map(([title, fields]) => {
         if (fields.length === 1) {
-          // Single field case
           const field = fields[0]!
           return {
             title,
@@ -187,7 +257,6 @@ export class AxPromptTemplate {
             description: field.description,
           }
         } else if (fields.length > 1) {
-          // Multiple fields case - format as markdown list
           const valuesList = fields
             .map((field) => `- ${field.description}`)
             .join('\n')
@@ -200,7 +269,6 @@ export class AxPromptTemplate {
       })
       .filter(Boolean) as AxIField[]
 
-    // Now render each formatted group using the appropriate template
     formattedGroupedFields.forEach((field) => {
       const fn = this.fieldTemplates?.[field.name] ?? this.defaultRenderInField
       prompt.push(...fn(field, field.description))
@@ -211,25 +279,32 @@ export class AxPromptTemplate {
 
   private renderExamples = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const list: ChatRequestUserMessage = []
+    const exampleContext = {
+      isExample: true,
+    }
 
     for (const [index, item] of data.entries()) {
       const renderedInputItem = this.sig
         .getInputFields()
-        .map((field) => this.renderInField(field, item, true))
+        .map((field) =>
+          this.renderInField(field, item, {
+            ...exampleContext,
+            isInputField: true,
+          })
+        )
         .filter((v) => v !== undefined)
         .flat()
 
       const renderedOutputItem = this.sig
         .getOutputFields()
-        .map((field) => this.renderInField(field, item, true))
+        .map((field) =>
+          this.renderInField(field, item, {
+            ...exampleContext,
+            isInputField: false,
+          })
+        )
         .filter((v) => v !== undefined)
         .flat()
-
-      if (renderedOutputItem.length === 0) {
-        throw new Error(
-          `Output fields are required in examples: index: ${index}, data: ${JSON.stringify(item)}`
-        )
-      }
 
       const renderedItem = [...renderedInputItem, ...renderedOutputItem]
 
@@ -245,9 +320,6 @@ export class AxPromptTemplate {
         if ('text' in v) {
           v.text = v.text + '\n'
         }
-        if ('image' in v) {
-          v.image = v.image
-        }
         list.push(v)
       })
     }
@@ -257,21 +329,38 @@ export class AxPromptTemplate {
 
   private renderDemos = (data: Readonly<Record<string, AxFieldValue>[]>) => {
     const list: ChatRequestUserMessage = []
-
-    const fields = [...this.sig.getInputFields(), ...this.sig.getOutputFields()]
+    const inputFields = this.sig.getInputFields()
+    const outputFields = this.sig.getOutputFields()
+    const demoContext = {
+      isExample: true,
+    }
 
     for (const item of data) {
-      const renderedItem = fields
-        .map((field) => this.renderInField(field, item, true))
+      const inputRenderedItems = inputFields
+        .map((field) =>
+          this.renderInField(field, item, {
+            ...demoContext,
+            isInputField: true,
+          })
+        )
         .filter((v) => v !== undefined)
         .flat()
+
+      const outputRenderedItems = outputFields
+        .map((field) =>
+          this.renderInField(field, item, {
+            ...demoContext,
+            isInputField: false,
+          })
+        )
+        .filter((v) => v !== undefined)
+        .flat()
+
+      const renderedItem = [...inputRenderedItems, ...outputRenderedItems]
 
       renderedItem.slice(0, -1).forEach((v) => {
         if ('text' in v) {
           v.text = v.text + '\n'
-        }
-        if ('image' in v) {
-          v.image = v.image
         }
         list.push(v)
       })
@@ -280,12 +369,10 @@ export class AxPromptTemplate {
     return list
   }
 
-  private renderInputFields = <T extends Record<string, AxFieldValue>>(
-    values: T
-  ) => {
+  private renderInputFields = <T extends AxGenIn>(values: T) => {
     const renderedItems = this.sig
       .getInputFields()
-      .map((field) => this.renderInField(field, values))
+      .map((field) => this.renderInField(field, values, undefined))
       .filter((v) => v !== undefined)
       .flat()
 
@@ -301,15 +388,16 @@ export class AxPromptTemplate {
   private renderInField = (
     field: Readonly<AxField>,
     values: Readonly<Record<string, AxFieldValue>>,
-    skipMissing?: boolean
+    context?: {
+      isExample?: boolean
+      strictExamples?: boolean
+      optionalOutputFields?: string[]
+      isInputField?: boolean
+    }
   ) => {
     const value = values[field.name]
 
-    if (skipMissing && !value) {
-      return
-    }
-
-    if (isEmptyValue(field, value)) {
+    if (isEmptyValue(field, value, context)) {
       return
     }
 
@@ -346,7 +434,7 @@ export class AxPromptTemplate {
         if (!('data' in value)) {
           throw new Error('Image field must have data')
         }
-        return value
+        return value as { mimeType: string; data: string }
       }
 
       let result: ChatRequestUserMessage = [
@@ -358,21 +446,22 @@ export class AxPromptTemplate {
           throw new Error('Image field value must be an array.')
         }
         result = result.concat(
-          value.map((v) => {
-            v = validateImage(v)
+          (value as unknown[]).map((v) => {
+            // Cast to unknown[] before map
+            const validated = validateImage(v as AxFieldValue)
             return {
               type: 'image',
-              mimeType: v.mimeType,
-              image: v.data,
+              mimeType: validated.mimeType,
+              image: validated.data,
             }
           })
         )
       } else {
-        const v = validateImage(value)
+        const validated = validateImage(value)
         result.push({
           type: 'image',
-          mimeType: v.mimeType,
-          image: v.data,
+          mimeType: validated.mimeType,
+          image: validated.data,
         })
       }
       return result
@@ -392,7 +481,7 @@ export class AxPromptTemplate {
         if (!('data' in value)) {
           throw new Error('Audio field must have data')
         }
-        return value
+        return value as { format?: 'wav'; data: string }
       }
 
       let result: ChatRequestUserMessage = [
@@ -401,24 +490,25 @@ export class AxPromptTemplate {
 
       if (field.type.isArray) {
         if (!Array.isArray(value)) {
-          throw new Error('Image field value must be an array.')
+          throw new Error('Audio field value must be an array.')
         }
         result = result.concat(
-          value.map((v) => {
-            v = validateAudio(v)
+          (value as unknown[]).map((v) => {
+            // Cast to unknown[] before map
+            const validated = validateAudio(v as AxFieldValue)
             return {
               type: 'audio',
-              format: v.format ?? 'wav',
-              data: v.data,
+              format: validated.format ?? 'wav',
+              data: validated.data,
             }
           })
         )
       } else {
-        const v = validateAudio(value)
+        const validated = validateAudio(value)
         result.push({
           type: 'audio',
-          format: v.format ?? 'wav',
-          data: v.data,
+          format: validated.format ?? 'wav',
+          data: validated.data,
         })
       }
       return result
@@ -440,7 +530,6 @@ const renderDescFields = (list: readonly AxField[]) =>
   list.map((v) => `\`${v.title}\``).join(', ')
 
 const renderInputFields = (fields: readonly AxField[]) => {
-  // Transform each field into table row
   const rows = fields.map((field) => {
     const name = field.title
     const type = field.type?.name ? toFieldType(field.type) : 'string'
@@ -460,7 +549,6 @@ const renderInputFields = (fields: readonly AxField[]) => {
 }
 
 const renderOutputFields = (fields: readonly AxField[]) => {
-  // Transform each field into table row
   const rows = fields.map((field) => {
     const name = field.title
     const type = field.type?.name ? toFieldType(field.type) : 'string'
@@ -469,9 +557,22 @@ const renderOutputFields = (fields: readonly AxField[]) => {
       ? `Only include this ${type} field if its value is available`
       : `This ${type} field must be included`
 
-    const description = field.description
-      ? ` ${formatDescription(field.description)}`
-      : ''
+    let description = ''
+
+    if (field.description && field.description.length > 0) {
+      const value =
+        field.type?.name === 'class'
+          ? field.description
+          : formatDescription(field.description)
+      description = ` ${value}`
+    }
+
+    if (field.type?.options && field.type.options.length > 0) {
+      if (description.length > 0) {
+        description += `. `
+      }
+      description += `Allowed values: ${field.type.options.join(', ')}`
+    }
 
     return `${name}: (${requiredMsg})${description}`.trim()
   })
@@ -502,12 +603,6 @@ const processValue = (
   return JSON.stringify(value, null, 2)
 }
 
-// const toVar = (name: string, type?: Readonly<Field['type']>) => {
-//   const fmt = type ? type.name + (type.isArray ? '[]' : '') : undefined;
-
-//   return '${' + name + (fmt ? `:${fmt}` : '') + '}';
-// };
-
 export const toFieldType = (type: Readonly<AxField['type']>) => {
   const baseType = (() => {
     switch (type?.name) {
@@ -516,7 +611,7 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'number':
         return 'number'
       case 'boolean':
-        return 'boolean'
+        return 'boolean (true or false)'
       case 'date':
         return 'date ("YYYY-MM-DD" format)'
       case 'datetime':
@@ -524,7 +619,7 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'json':
         return 'JSON object'
       case 'class':
-        return `classification class (allowed classes: ${type.classes?.join(', ')})`
+        return 'classification class'
       case 'code':
         return 'code'
       default:
@@ -536,22 +631,15 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
 }
 
 function combineConsecutiveStrings(separator: string) {
-  return (
-    acc: ChatRequestUserMessage,
-
-    current: ChatRequestUserMessage[0]
-  ) => {
+  return (acc: ChatRequestUserMessage, current: ChatRequestUserMessage[0]) => {
     if (current.type === 'text') {
       const previous = acc.length > 0 ? acc[acc.length - 1] : null
       if (previous && previous.type === 'text') {
-        // If the last item in the accumulator is a string, append the current string to it with the separator
         previous.text += separator + current.text
       } else {
-        // Otherwise, push the current string into the accumulator
         acc.push(current)
       }
     } else {
-      // If current is not of type 'text', just add it to the accumulator
       acc.push(current)
     }
     return acc
@@ -560,9 +648,12 @@ function combineConsecutiveStrings(separator: string) {
 
 const isEmptyValue = (
   field: Readonly<AxField>,
-  value?: Readonly<AxFieldValue>
+  value?: Readonly<AxFieldValue>,
+  context?: {
+    isExample?: boolean
+    isInputField?: boolean
+  }
 ) => {
-  // Boolean type can't be empty
   if (typeof value === 'boolean') {
     return false
   }
@@ -571,10 +662,18 @@ const isEmptyValue = (
     !value ||
     ((Array.isArray(value) || typeof value === 'string') && value.length === 0)
   ) {
-    if (field.isOptional) {
+    // Handle examples case - all fields can be missing in examples
+    if (context?.isExample) {
       return true
     }
-    throw new Error(`Value for input field '${field.name}' is required.`)
+
+    // Handle non-examples case (regular field validation)
+    if (field.isOptional || field.isInternal) {
+      return true
+    }
+
+    const fieldType = context?.isInputField !== false ? 'input' : 'output'
+    throw new Error(`Value for ${fieldType} field '${field.name}' is required.`)
   }
   return false
 }

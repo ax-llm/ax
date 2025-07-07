@@ -2,17 +2,18 @@
   "name": "@ax-llm/ax-docs",
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro check && astro build",
+    "copy-docs": "node scripts/copy-docs.js",
+    "dev": "npm run copy-docs && astro dev",
+    "start": "npm run copy-docs && astro dev",
+    "build": "npm run copy-docs && astro check && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
-    "@astrojs/tailwind": "^6.0.1",
+    "@astrojs/tailwind": "^6.0.2",
     "@tailwindcss/typography": "^0.5.16",
-    "astro": "^5.5.4"
+    "astro": "^5.11.0"
   },
   "private": "true"
 }

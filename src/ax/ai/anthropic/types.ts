@@ -1,6 +1,8 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIAnthropicModel {
+  Claude4Opus = 'claude-opus-4-20250514',
+  Claude4Sonnet = 'claude-sonnet-4-20250514',
   Claude37Sonnet = 'claude-3-7-sonnet-latest',
 
   Claude35Sonnet = 'claude-3-5-sonnet-latest',
@@ -23,8 +25,23 @@ export enum AxAIAnthropicVertexModel {
   Claude3Opus = 'claude-3-opus',
 }
 
+export type AxAIAnthropicThinkingConfig = {
+  type: 'enabled'
+  budget_tokens: number
+}
+
+export type AxAIAnthropicThinkingTokenBudgetLevels = {
+  minimal?: number
+  low?: number
+  medium?: number
+  high?: number
+  highest?: number
+}
+
 export type AxAIAnthropicConfig = AxModelConfig & {
   model: AxAIAnthropicModel | AxAIAnthropicVertexModel
+  thinking?: AxAIAnthropicThinkingConfig
+  thinkingTokenBudgetLevels?: AxAIAnthropicThinkingTokenBudgetLevels
 }
 
 export type AxAIAnthropicChatRequestCacheParam = {
@@ -79,6 +96,12 @@ export type AxAIAnthropicChatRequest = {
           | (
               | { type: 'text'; text: string }
               | { type: 'tool_use'; id: string; name: string; input: object }
+              | { type: 'thinking'; thinking: string; signature?: string }
+              | {
+                  type: 'redacted_thinking'
+                  thinking: string
+                  signature?: string
+                }
             )[]
       }
   )[]
@@ -101,6 +124,7 @@ export type AxAIAnthropicChatRequest = {
   temperature?: number // Randomness of the response
   top_p?: number // Nucleus sampling probability
   top_k?: number // Sample from the top K options
+  thinking?: AxAIAnthropicThinkingConfig // Extended thinking configuration
   metadata?: {
     user_id: string
   }
@@ -120,6 +144,16 @@ export type AxAIAnthropicChatResponse = {
         name: string
         type: 'tool_use'
         input?: string
+      }
+    | {
+        type: 'thinking'
+        thinking: string
+        signature?: string
+      }
+    | {
+        type: 'redacted_thinking'
+        thinking: string
+        signature?: string
       }
   )[]
   model: string
@@ -172,6 +206,10 @@ export interface AxAIAnthropicContentBlockStartEvent {
         name: string
         input: object
       }
+    | {
+        type: 'thinking'
+        thinking: string
+      }
 }
 
 // Represents incremental updates to a content block
@@ -186,6 +224,14 @@ export interface AxAIAnthropicContentBlockDeltaEvent {
     | {
         type: 'input_json_delta'
         partial_json: string
+      }
+    | {
+        type: 'thinking_delta'
+        thinking: string
+      }
+    | {
+        type: 'signature_delta'
+        signature: string
       }
 }
 

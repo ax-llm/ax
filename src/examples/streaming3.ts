@@ -1,9 +1,4 @@
-import {
-  AxAI,
-  AxAIGoogleGeminiModel,
-  AxAIOpenAIModel,
-  AxChainOfThought,
-} from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxChainOfThought } from '@ax-llm/ax'
 
 // Setup the prompt program for movie reviews
 const gen = new AxChainOfThought<{ movieTitle: string }>(

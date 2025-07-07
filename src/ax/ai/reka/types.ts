@@ -41,7 +41,7 @@ export type AxAIRekaChatRequest = {
   )[]
   usage?: AxAIRekaUsage
   response_format?: { type: string }
-  max_tokens: number
+  max_tokens?: number
   temperature?: number
   top_p?: number
   top_k?: number

@@ -2,7 +2,7 @@
 title: AxAIMistral
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/api.ts#L34
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/mistral/api.ts#L35
 
 ## Extends
 
@@ -14,14 +14,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxAIMistral()
 
-> **new AxAIMistral**(`__namedParameters`): [`AxAIMistral`](/api/#03-apidocs/classaxaimistral)
+```ts
+new AxAIMistral(__namedParameters: Readonly<Omit<AxAIMistralArgs, "name">>): AxAIMistral
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/mistral/api.ts#L38
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/mistral/api.ts#L39
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `__namedParameters` | `Readonly`\<`Omit`\<[`AxAIMistralArgs`](/api/#03-apidocs/typealiasaxaimistralargs), `"name"`\>\> |
 
 #### Returns
@@ -38,20 +40,26 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### chat()
 
-> **chat**(`req`, `options`?): `Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+```ts
+chat(req: Readonly<AxChatRequest<AxAIMistralModel>>, options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions<AxAIMistralModel, MistralEmbed>>): Promise<
+  | AxChatResponse
+| ReadableStream<AxChatResponse>>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L290
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L326
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest)\<[`AxAIMistralModel`](/api/#03-apidocs/enumerationaxaimistralmodel)\>\> |
 | `options`? | `Readonly`\<[`AxAIPromptConfig`](/api/#03-apidocs/typealiasaxaipromptconfig) & [`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\<[`AxAIMistralModel`](/api/#03-apidocs/enumerationaxaimistralmodel), [`MistralEmbed`](/api/#03-apidocs/enumerationaxaimistralembedmodelsmdmistralembed)\>\> |
 
 #### Returns
 
-`Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+`Promise`\<
+  \| [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
+  \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
 
 #### Inherited from
 
@@ -63,14 +71,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### embed()
 
-> **embed**(`req`, `options`?): `Promise`\<[`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)\>
+```ts
+embed(req: Readonly<AxEmbedRequest<MistralEmbed>>, options?: Readonly<AxAIServiceActionOptions<AxAIMistralModel, MistralEmbed>>): Promise<AxEmbedResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L524
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L614
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxEmbedRequest`](/api/#03-apidocs/typealiasaxembedrequest)\<[`MistralEmbed`](/api/#03-apidocs/enumerationaxaimistralembedmodelsmdmistralembed)\>\> |
 | `options`? | `Readonly`\<[`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\<[`AxAIMistralModel`](/api/#03-apidocs/enumerationaxaimistralmodel), [`MistralEmbed`](/api/#03-apidocs/enumerationaxaimistralembedmodelsmdmistralembed)\>\> |
 
@@ -84,36 +94,20 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
-<a id="getDefaultModels"></a>
-
-### getDefaultModels()
-
-> **getDefaultModels**(): `Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L230
-
-#### Returns
-
-`Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-#### Inherited from
-
-[`AxAIOpenAIBase`](/api/#03-apidocs/classaxaiopenaibase).[`getDefaultModels`](/api/#03-apidocs/classaxaiopenaibasemdgetdefaultmodels)
-
-***
-
 <a id="getFeatures"></a>
 
 ### getFeatures()
 
-> **getFeatures**(`model`?): [`AxAIFeatures`](/api/#03-apidocs/interfaceaxaifeatures)
+```ts
+getFeatures(model?: AxAIMistralModel): AxAIFeatures
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L241
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L265
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `model`? | [`AxAIMistralModel`](/api/#03-apidocs/enumerationaxaimistralmodel) |
 
 #### Returns
@@ -130,9 +124,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getId()
 
-> **getId**(): `string`
+```ts
+getId(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L181
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L194
 
 #### Returns
 
@@ -144,13 +140,98 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
+<a id="getLastUsedChatModel"></a>
+
+### getLastUsedChatModel()
+
+```ts
+getLastUsedChatModel(): undefined | AxAIMistralModel
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L271
+
+#### Returns
+
+`undefined` \| [`AxAIMistralModel`](/api/#03-apidocs/enumerationaxaimistralmodel)
+
+#### Inherited from
+
+[`AxAIOpenAIBase`](/api/#03-apidocs/classaxaiopenaibase).[`getLastUsedChatModel`](/api/#03-apidocs/classaxaiopenaibasemdgetlastusedchatmodel)
+
+***
+
+<a id="getLastUsedEmbedModel"></a>
+
+### getLastUsedEmbedModel()
+
+```ts
+getLastUsedEmbedModel(): 
+  | undefined
+  | MistralEmbed
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L275
+
+#### Returns
+
+  \| `undefined`
+  \| [`MistralEmbed`](/api/#03-apidocs/enumerationaxaimistralembedmodelsmdmistralembed)
+
+#### Inherited from
+
+[`AxAIOpenAIBase`](/api/#03-apidocs/classaxaiopenaibase).[`getLastUsedEmbedModel`](/api/#03-apidocs/classaxaiopenaibasemdgetlastusedembedmodel)
+
+***
+
+<a id="getLastUsedModelConfig"></a>
+
+### getLastUsedModelConfig()
+
+```ts
+getLastUsedModelConfig(): undefined | AxModelConfig
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L279
+
+#### Returns
+
+`undefined` \| [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
+
+#### Inherited from
+
+[`AxAIOpenAIBase`](/api/#03-apidocs/classaxaiopenaibase).[`getLastUsedModelConfig`](/api/#03-apidocs/classaxaiopenaibasemdgetlastusedmodelconfig)
+
+***
+
+<a id="getLogger"></a>
+
+### getLogger()
+
+```ts
+getLogger(): AxLoggerFunction
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L230
+
+#### Returns
+
+[`AxLoggerFunction`](/api/#03-apidocs/typealiasaxloggerfunction)
+
+#### Inherited from
+
+[`AxAIOpenAIBase`](/api/#03-apidocs/classaxaiopenaibase).[`getLogger`](/api/#03-apidocs/classaxaiopenaibasemdgetlogger)
+
+***
+
 <a id="getMetrics"></a>
 
 ### getMetrics()
 
-> **getMetrics**(): [`AxAIServiceMetrics`](/api/#03-apidocs/interfaceaxaiservicemetrics)
+```ts
+getMetrics(): AxAIServiceMetrics
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L286
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L322
 
 #### Returns
 
@@ -166,9 +247,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getModelList()
 
-> **getModelList**(): `undefined` \| [`AxAIModelList`](/api/#03-apidocs/typealiasaxaimodellist)
+```ts
+getModelList(): undefined | AxAIModelList
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L220
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L234
 
 #### Returns
 
@@ -184,9 +267,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getName()
 
-> **getName**(): `string`
+```ts
+getName(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L237
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L261
 
 #### Returns
 
@@ -202,9 +287,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getOptions()
 
-> **getOptions**(): `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
+```ts
+getOptions(): Readonly<AxAIServiceOptions>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L211
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L217
 
 #### Returns
 
@@ -220,14 +307,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setAPIURL()
 
-> **setAPIURL**(`apiURL`): `void`
+```ts
+setAPIURL(apiURL: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L185
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L198
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `apiURL` | `string` |
 
 #### Returns
@@ -244,14 +333,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setHeaders()
 
-> **setHeaders**(`headers`): `void`
+```ts
+setHeaders(headers: () => Promise<Record<string, string>>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L189
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L202
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `headers` | () => `Promise`\<`Record`\<`string`, `string`\>\> |
 
 #### Returns
@@ -268,14 +359,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setName()
 
-> **setName**(`name`): `void`
+```ts
+setName(name: string): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L177
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L190
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `name` | `string` |
 
 #### Returns
@@ -292,14 +385,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setOptions()
 
-> **setOptions**(`options`): `void`
+```ts
+setOptions(options: Readonly<AxAIServiceOptions>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/base.ts#L193
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/base.ts#L206
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `options` | `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\> |
 
 #### Returns

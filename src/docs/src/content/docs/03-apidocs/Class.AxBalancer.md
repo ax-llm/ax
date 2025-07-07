@@ -2,7 +2,7 @@
 title: AxBalancer
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L40
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L42
 
 Balancer that rotates through services.
 
@@ -16,14 +16,16 @@ Balancer that rotates through services.
 
 ### new AxBalancer()
 
-> **new AxBalancer**(`services`, `options`?): [`AxBalancer`](/api/#03-apidocs/classaxbalancer)
+```ts
+new AxBalancer(services: readonly AxAIService<unknown, unknown>[], options?: AxBalancerOptions): AxBalancer
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L53
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L55
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `services` | readonly [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice)\<`unknown`, `unknown`\>[] |
 | `options`? | [`AxBalancerOptions`](/api/#03-apidocs/typealiasaxbalanceroptions) |
 
@@ -37,20 +39,26 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### chat()
 
-> **chat**(`req`, `options`?): `Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+```ts
+chat(req: Readonly<AxChatRequest>, options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>): Promise<
+  | AxChatResponse
+| ReadableStream<AxChatResponse>>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L194
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L201
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest)\> |
 | `options`? | `Readonly`\<[`AxAIPromptConfig`](/api/#03-apidocs/typealiasaxaipromptconfig) & [`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\> |
 
 #### Returns
 
-`Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+`Promise`\<
+  \| [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
+  \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
 
 #### Implementation of
 
@@ -62,14 +70,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### embed()
 
-> **embed**(`req`, `options`?): `Promise`\<[`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)\>
+```ts
+embed(req: Readonly<AxEmbedRequest>, options?: Readonly<AxAIServiceActionOptions>): Promise<AxEmbedResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L254
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L261
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxEmbedRequest`](/api/#03-apidocs/typealiasaxembedrequest)\> |
 | `options`? | `Readonly`\<[`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\> |
 
@@ -83,36 +93,20 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
-<a id="getDefaultModels"></a>
-
-### getDefaultModels()
-
-> **getDefaultModels**(): `Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L110
-
-#### Returns
-
-`Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-#### Implementation of
-
-[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getDefaultModels`](/api/#03-apidocs/interfaceaxaiservicemdgetdefaultmodels)
-
-***
-
 <a id="getFeatures"></a>
 
 ### getFeatures()
 
-> **getFeatures**(`model`?): [`AxAIFeatures`](/api/#03-apidocs/interfaceaxaifeatures)
+```ts
+getFeatures(model?: string): AxAIFeatures
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L140
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L147
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `model`? | `string` |
 
 #### Returns
@@ -129,9 +123,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getId()
 
-> **getId**(): `string`
+```ts
+getId(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L136
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L143
 
 #### Returns
 
@@ -143,13 +139,95 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
+<a id="getLastUsedChatModel"></a>
+
+### getLastUsedChatModel()
+
+```ts
+getLastUsedChatModel(): unknown
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L76
+
+#### Returns
+
+`unknown`
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLastUsedChatModel`](/api/#03-apidocs/interfaceaxaiservicemdgetlastusedchatmodel)
+
+***
+
+<a id="getLastUsedEmbedModel"></a>
+
+### getLastUsedEmbedModel()
+
+```ts
+getLastUsedEmbedModel(): unknown
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L79
+
+#### Returns
+
+`unknown`
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLastUsedEmbedModel`](/api/#03-apidocs/interfaceaxaiservicemdgetlastusedembedmodel)
+
+***
+
+<a id="getLastUsedModelConfig"></a>
+
+### getLastUsedModelConfig()
+
+```ts
+getLastUsedModelConfig(): undefined | AxModelConfig
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L82
+
+#### Returns
+
+`undefined` \| [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLastUsedModelConfig`](/api/#03-apidocs/interfaceaxaiservicemdgetlastusedmodelconfig)
+
+***
+
+<a id="getLogger"></a>
+
+### getLogger()
+
+```ts
+getLogger(): AxLoggerFunction
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L295
+
+#### Returns
+
+[`AxLoggerFunction`](/api/#03-apidocs/typealiasaxloggerfunction)
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLogger`](/api/#03-apidocs/interfaceaxaiservicemdgetlogger)
+
+***
+
 <a id="getMetrics"></a>
 
 ### getMetrics()
 
-> **getMetrics**(): [`AxAIServiceMetrics`](/api/#03-apidocs/interfaceaxaiservicemetrics)
+```ts
+getMetrics(): AxAIServiceMetrics
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L144
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L151
 
 #### Returns
 
@@ -165,9 +243,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getModelList()
 
-> **getModelList**(): `undefined` \| [`AxAIModelList`](/api/#03-apidocs/typealiasaxaimodellist)
+```ts
+getModelList(): undefined | AxAIModelList
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L106
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L117
 
 #### Returns
 
@@ -183,9 +263,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getName()
 
-> **getName**(): `string`
+```ts
+getName(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L132
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L139
 
 #### Returns
 
@@ -201,9 +283,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getOptions()
 
-> **getOptions**(): `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
+```ts
+getOptions(): Readonly<AxAIServiceOptions>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L284
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L291
 
 #### Returns
 
@@ -219,14 +303,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setOptions()
 
-> **setOptions**(`options`): `void`
+```ts
+setOptions(options: Readonly<AxAIServiceOptions>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L280
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L287
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `options` | `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\> |
 
 #### Returns
@@ -243,9 +329,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### inputOrderComparator()
 
-> `static` **inputOrderComparator**(): `number`
+```ts
+static inputOrderComparator(): number
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L78
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L89
 
 Service comparator that respects the input order of services.
 
@@ -259,16 +347,18 @@ Service comparator that respects the input order of services.
 
 ### metricComparator()
 
-> `static` **metricComparator**(`a`, `b`): `number`
+```ts
+static metricComparator(a: AxAIService, b: AxAIService): number
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/balance.ts#L99
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/balance.ts#L110
 
 Service comparator that sorts services by cost.
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `a` | [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice) |
 | `b` | [`AxAIService`](/api/#03-apidocs/interfaceaxaiservice) |
 

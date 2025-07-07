@@ -1,5 +1,478 @@
 # Changelog
 
+## [12.0.23](https://github.com/ax-llm/ax/compare/12.0.21...12.0.22) (2025-07-05)
+
+### Features
+
+* introduce automatic parallelization in AxFlow for enhanced performance ([9f27182](https://github.com/ax-llm/ax/commit/9f27182404cd1ca8aae7e4359d148080c4931b3a))
+## [12.0.22](https://github.com/ax-llm/ax/compare/12.0.21...12.0.22) (2025-07-04)
+
+### Features
+
+* enhance AxFlow documentation with new node types and custom program examples ([0ca143e](https://github.com/ax-llm/ax/commit/0ca143e81a23e58d6411c65d8a7e5f01f3bdd85d))
+
+### Bug Fixes
+
+* update redirection logic for documentation paths ([159c6c4](https://github.com/ax-llm/ax/commit/159c6c4812b874f942ef31b3de43fcf214eebc77))
+
+## [12.0.22](https://github.com/ax-llm/ax/compare/12.0.20...12.0.21) (2025-07-04)
+
+### Features
+
+* enhance AxFlow documentation with new node types and custom program examples ([0ca143e](https://github.com/ax-llm/ax/commit/0ca143e81a23e58d6411c65d8a7e5f01f3bdd85d))
+
+### Bug Fixes
+
+* update redirection logic for documentation paths ([159c6c4](https://github.com/ax-llm/ax/commit/159c6c4812b874f942ef31b3de43fcf214eebc77))
+## [12.0.21](https://github.com/ax-llm/ax/compare/12.0.20...12.0.21) (2025-07-04)
+
+### Features
+
+* enhance documentation and introduce telemetry guide ([b581aa3](https://github.com/ax-llm/ax/commit/b581aa3aa63aab78d91d22e6a6d97db05438a2e3))
+* update documentation and enhance metrics integration ([c031e6c](https://github.com/ax-llm/ax/commit/c031e6cc6e67c4624e72e9e61e00808e263fba7f))
+
+## [12.0.21](https://github.com/ax-llm/ax/compare/12.0.19...12.0.20) (2025-07-04)
+
+### Features
+
+* enhance documentation and introduce telemetry guide ([b581aa3](https://github.com/ax-llm/ax/commit/b581aa3aa63aab78d91d22e6a6d97db05438a2e3))
+* update documentation and enhance metrics integration ([c031e6c](https://github.com/ax-llm/ax/commit/c031e6cc6e67c4624e72e9e61e00808e263fba7f))
+## [12.0.20](https://github.com/ax-llm/ax/compare/12.0.19...12.0.20) (2025-07-03)
+
+### Features
+
+* integrate OpenTelemetry metrics for enhanced monitoring ([5f8265c](https://github.com/ax-llm/ax/commit/5f8265c28de89bfa6aab123c81e1e4358c6e9349))
+
+## [12.0.20](https://github.com/ax-llm/ax/compare/12.0.18...12.0.19) (2025-07-03)
+
+### Features
+
+* integrate OpenTelemetry metrics for enhanced monitoring ([5f8265c](https://github.com/ax-llm/ax/commit/5f8265c28de89bfa6aab123c81e1e4358c6e9349))
+## [12.0.19](https://github.com/ax-llm/ax/compare/12.0.18...12.0.19) (2025-07-02)
+
+### Features
+
+* add comprehensive AxFlow guide and enhance documentation ([2acf9c8](https://github.com/ax-llm/ax/commit/2acf9c82871391b964d824e6548a59e6d9b4d3cd))
+
+## [12.0.19](https://github.com/ax-llm/ax/compare/12.0.17...12.0.18) (2025-07-02)
+
+### Features
+
+* add comprehensive AxFlow guide and enhance documentation ([2acf9c8](https://github.com/ax-llm/ax/commit/2acf9c82871391b964d824e6548a59e6d9b4d3cd))
+## [12.0.18](https://github.com/ax-llm/ax/compare/12.0.17...12.0.18) (2025-07-02)
+
+### Features
+
+* enhance AxFlow with new features and examples ([caf8442](https://github.com/ax-llm/ax/commit/caf84421d5c6446196ee79b728db98053bd2871f))
+* enhance OpenAI model handling with reasoning checks ([a58904b](https://github.com/ax-llm/ax/commit/a58904b4f8d857ecef974ecd704897dc05442741))
+* implement expensive model safety checks in AxBaseAI ([f50cb59](https://github.com/ax-llm/ax/commit/f50cb59cb50539a3091ab749f2d38c50b666c7c9))
+* improved type system for axflow ([649b5e4](https://github.com/ax-llm/ax/commit/649b5e47a88a3b89807bc7dcdaf45079970a022c))
+
+## [12.0.18](https://github.com/ax-llm/ax/compare/12.0.16...12.0.17) (2025-07-02)
+
+### Features
+
+* enhance AxFlow with new features and examples ([caf8442](https://github.com/ax-llm/ax/commit/caf84421d5c6446196ee79b728db98053bd2871f))
+* enhance OpenAI model handling with reasoning checks ([a58904b](https://github.com/ax-llm/ax/commit/a58904b4f8d857ecef974ecd704897dc05442741))
+* implement expensive model safety checks in AxBaseAI ([f50cb59](https://github.com/ax-llm/ax/commit/f50cb59cb50539a3091ab749f2d38c50b666c7c9))
+* improved type system for axflow ([649b5e4](https://github.com/ax-llm/ax/commit/649b5e47a88a3b89807bc7dcdaf45079970a022c))
+## [12.0.17](https://github.com/ax-llm/ax/compare/12.0.16...12.0.17) (2025-07-01)
+
+### Features
+
+* introduce AxFlow workflow orchestration (Beta) in README.md ([0d8d0e4](https://github.com/ax-llm/ax/commit/0d8d0e4ebbc1b8e9152ca0915f4d054bc1602e55))
+
+## [12.0.17](https://github.com/ax-llm/ax/compare/12.0.15...12.0.16) (2025-07-01)
+
+### Features
+
+* introduce AxFlow workflow orchestration (Beta) in README.md ([0d8d0e4](https://github.com/ax-llm/ax/commit/0d8d0e4ebbc1b8e9152ca0915f4d054bc1602e55))
+## [12.0.16](https://github.com/ax-llm/ax/compare/12.0.15...12.0.16) (2025-06-30)
+
+### Features
+
+* enhance MemoryImpl to support updatable messages and improve updateResult logic ([8afe0ff](https://github.com/ax-llm/ax/commit/8afe0ff7f6814030bbc0c345e5eff752badd4e2e))
+
+## [12.0.16](https://github.com/ax-llm/ax/compare/12.0.14...12.0.15) (2025-06-30)
+
+### Features
+
+* enhance MemoryImpl to support updatable messages and improve updateResult logic ([8afe0ff](https://github.com/ax-llm/ax/commit/8afe0ff7f6814030bbc0c345e5eff752badd4e2e))
+## [12.0.15](https://github.com/ax-llm/ax/compare/12.0.14...12.0.15) (2025-06-30)
+
+### Bug Fixes
+
+* build issues ([169f4cc](https://github.com/ax-llm/ax/commit/169f4cc23a167715cfc072a562058ea167174989))
+* Clean up extraneous files and revert package.json changes ([#257](https://github.com/ax-llm/ax/issues/257)) ([4866c07](https://github.com/ax-llm/ax/commit/4866c074fc953a661fbed8873bce5111a3e3d5e3))
+* issue with require function call in multi step axgen ([f652785](https://github.com/ax-llm/ax/commit/f6527850dd3a7a97f86fd284ea166af0dc41e94d))
+
+## [12.0.15](https://github.com/ax-llm/ax/compare/12.0.13...12.0.14) (2025-06-30)
+
+### Bug Fixes
+
+* build issues ([169f4cc](https://github.com/ax-llm/ax/commit/169f4cc23a167715cfc072a562058ea167174989))
+* Clean up extraneous files and revert package.json changes ([#257](https://github.com/ax-llm/ax/issues/257)) ([4866c07](https://github.com/ax-llm/ax/commit/4866c074fc953a661fbed8873bce5111a3e3d5e3))
+* issue with require function call in multi step axgen ([f652785](https://github.com/ax-llm/ax/commit/f6527850dd3a7a97f86fd284ea166af0dc41e94d))
+## [12.0.14](https://github.com/ax-llm/ax/compare/12.0.13...12.0.14) (2025-06-29)
+
+### Features
+
+* enhance AxMiPRO v2 with self-consistency sampling and validation example updates ([4f334a3](https://github.com/ax-llm/ax/commit/4f334a396d9b0f06502729be41b4f28d1df4c206))
+* introduce enhanced MIPRO v2 optimizer with AI-powered instruction generation and Bayesian optimization ([3372f87](https://github.com/ax-llm/ax/commit/3372f875bf9d07c7bbf30b3439cb6d9e84e25b44))
+
+## [12.0.14](https://github.com/ax-llm/ax/compare/12.0.12...12.0.13) (2025-06-29)
+
+### Features
+
+* enhance AxMiPRO v2 with self-consistency sampling and validation example updates ([4f334a3](https://github.com/ax-llm/ax/commit/4f334a396d9b0f06502729be41b4f28d1df4c206))
+* introduce enhanced MIPRO v2 optimizer with AI-powered instruction generation and Bayesian optimization ([3372f87](https://github.com/ax-llm/ax/commit/3372f875bf9d07c7bbf30b3439cb6d9e84e25b44))
+## [12.0.13](https://github.com/ax-llm/ax/compare/12.0.12...12.0.13) (2025-06-29)
+
+### Features
+
+* add result picker functionality for selecting optimal outputs from multiple samples ([483506a](https://github.com/ax-llm/ax/commit/483506a1941b8762ee3a12bfbcf2010fea53e8c1))
+
+## [12.0.13](https://github.com/ax-llm/ax/compare/12.0.11...12.0.12) (2025-06-29)
+
+### Features
+
+* add result picker functionality for selecting optimal outputs from multiple samples ([483506a](https://github.com/ax-llm/ax/commit/483506a1941b8762ee3a12bfbcf2010fea53e8c1))
+## [12.0.12](https://github.com/ax-llm/ax/compare/12.0.11...12.0.12) (2025-06-27)
+
+### Features
+
+* rewrite of the streaming parser and memory handling functionality to allow for  sampled outputs and increased stability ([d98cfb4](https://github.com/ax-llm/ax/commit/d98cfb4a7c1efa823985045d44013aaad71798d3))
+* support for multiple sample response streams and non streaming multi sample response ([231ecca](https://github.com/ax-llm/ax/commit/231ecca988907809f6b7de8e691ced518bc0cf0d))
+
+### Bug Fixes
+
+* more test coverage for function calling ([e48cf16](https://github.com/ax-llm/ax/commit/e48cf1667bd05e3d26b97cacdc2b914e1771b05c))
+* various test fixes ([1d6f4e7](https://github.com/ax-llm/ax/commit/1d6f4e71cbb0f3172edff38d65cea5968046923d))
+
+## [12.0.12](https://github.com/ax-llm/ax/compare/12.0.10...12.0.11) (2025-06-27)
+
+### Features
+
+* rewrite of the streaming parser and memory handling functionality to allow for  sampled outputs and increased stability ([d98cfb4](https://github.com/ax-llm/ax/commit/d98cfb4a7c1efa823985045d44013aaad71798d3))
+* support for multiple sample response streams and non streaming multi sample response ([231ecca](https://github.com/ax-llm/ax/commit/231ecca988907809f6b7de8e691ced518bc0cf0d))
+
+### Bug Fixes
+
+* more test coverage for function calling ([e48cf16](https://github.com/ax-llm/ax/commit/e48cf1667bd05e3d26b97cacdc2b914e1771b05c))
+* various test fixes ([1d6f4e7](https://github.com/ax-llm/ax/commit/1d6f4e71cbb0f3172edff38d65cea5968046923d))
+## [12.0.11](https://github.com/ax-llm/ax/compare/12.0.10...12.0.11) (2025-06-24)
+
+### Bug Fixes
+
+* Empty Function Calls Handling [#254](https://github.com/ax-llm/ax/issues/254) ([0eebda0](https://github.com/ax-llm/ax/commit/0eebda0a3224790199b57668d419e4c194c6538b))
+
+## [12.0.11](https://github.com/ax-llm/ax/compare/12.0.9...12.0.10) (2025-06-24)
+
+### Bug Fixes
+
+* Empty Function Calls Handling [#254](https://github.com/ax-llm/ax/issues/254) ([0eebda0](https://github.com/ax-llm/ax/commit/0eebda0a3224790199b57668d419e4c194c6538b))
+## [12.0.10](https://github.com/ax-llm/ax/compare/12.0.9...12.0.10) (2025-06-24)
+
+### Features
+
+* add thinking configuration and enhance Anthropic model support ([5bdb6ed](https://github.com/ax-llm/ax/commit/5bdb6ed169117e501b11541d47db7c863e3bc491))
+
+### Bug Fixes
+
+* issue with anthropic models streaming random text before function calls causing our early fail to trigger breaking things ([f49197c](https://github.com/ax-llm/ax/commit/f49197cf1cb2ca3c843754ae5599fd0aee8f9687))
+
+## [12.0.10](https://github.com/ax-llm/ax/compare/12.0.8...12.0.9) (2025-06-24)
+
+### Features
+
+* add thinking configuration and enhance Anthropic model support ([5bdb6ed](https://github.com/ax-llm/ax/commit/5bdb6ed169117e501b11541d47db7c863e3bc491))
+
+### Bug Fixes
+
+* issue with anthropic models streaming random text before function calls causing our early fail to trigger breaking things ([f49197c](https://github.com/ax-llm/ax/commit/f49197cf1cb2ca3c843754ae5599fd0aee8f9687))
+## [12.0.9](https://github.com/ax-llm/ax/compare/12.0.8...12.0.9) (2025-06-24)
+
+### Features
+
+* enhance validation and logging in AxGen and extraction processes ([d06dde1](https://github.com/ax-llm/ax/commit/d06dde17f85561150ae02ebc039acfd6cc3b292f))
+* implement enhanced logging functionality and naming conventions ([bb6f47a](https://github.com/ax-llm/ax/commit/bb6f47a012b264c99f8f00dda5bc6effb76ae006))
+
+## [12.0.9](https://github.com/ax-llm/ax/compare/12.0.7...12.0.8) (2025-06-24)
+
+### Features
+
+* enhance validation and logging in AxGen and extraction processes ([d06dde1](https://github.com/ax-llm/ax/commit/d06dde17f85561150ae02ebc039acfd6cc3b292f))
+* implement enhanced logging functionality and naming conventions ([bb6f47a](https://github.com/ax-llm/ax/commit/bb6f47a012b264c99f8f00dda5bc6effb76ae006))
+## [12.0.8](https://github.com/ax-llm/ax/compare/12.0.7...12.0.8) (2025-06-23)
+
+### Features
+
+* introduce comprehensive LLM optimization guide and checkpointing functionality ([d8b5e90](https://github.com/ax-llm/ax/commit/d8b5e904e8169baf454de511f321a365c76042e3))
+
+## [12.0.8](https://github.com/ax-llm/ax/compare/12.0.6...12.0.7) (2025-06-23)
+
+### Features
+
+* introduce comprehensive LLM optimization guide and checkpointing functionality ([d8b5e90](https://github.com/ax-llm/ax/commit/d8b5e904e8169baf454de511f321a365c76042e3))
+## [12.0.7](https://github.com/ax-llm/ax/compare/12.0.6...12.0.7) (2025-06-20)
+
+## [12.0.7](https://github.com/ax-llm/ax/compare/12.0.5...12.0.6) (2025-06-20)
+## [12.0.6](https://github.com/ax-llm/ax/compare/12.0.5...12.0.6) (2025-06-19)
+
+## [12.0.6](https://github.com/ax-llm/ax/compare/12.0.4...12.0.5) (2025-06-19)
+## [12.0.5](https://github.com/ax-llm/ax/compare/12.0.4...12.0.5) (2025-06-19)
+
+## [12.0.5](https://github.com/ax-llm/ax/compare/12.0.3...12.0.4) (2025-06-19)
+## [12.0.4](https://github.com/ax-llm/ax/compare/12.0.3...12.0.4) (2025-06-19)
+
+### Bug Fixes
+
+* **mistral:** remove unsupported params and fix image compatibility ([#247](https://github.com/ax-llm/ax/issues/247)) ([2f3d4d6](https://github.com/ax-llm/ax/commit/2f3d4d6208c1067df0e26824ef5bc582ace9dde1))
+
+## [12.0.4](https://github.com/ax-llm/ax/compare/12.0.2...12.0.3) (2025-06-19)
+
+### Bug Fixes
+
+* **mistral:** remove unsupported params and fix image compatibility ([#247](https://github.com/ax-llm/ax/issues/247)) ([2f3d4d6](https://github.com/ax-llm/ax/commit/2f3d4d6208c1067df0e26824ef5bc582ace9dde1))
+## [12.0.3](https://github.com/ax-llm/ax/compare/12.0.2...12.0.3) (2025-06-19)
+
+### Features
+
+* add configurable thinking token budget levels for Google Gemini ([fc30ce4](https://github.com/ax-llm/ax/commit/fc30ce48174385e612afd4019e83976a77d51434))
+
+## [12.0.3](https://github.com/ax-llm/ax/compare/12.0.1...12.0.2) (2025-06-19)
+
+### Features
+
+* add configurable thinking token budget levels for Google Gemini ([fc30ce4](https://github.com/ax-llm/ax/commit/fc30ce48174385e612afd4019e83976a77d51434))
+## [12.0.2](https://github.com/ax-llm/ax/compare/12.0.1...12.0.2) (2025-06-18)
+
+### Features
+
+* enhance AxGen and AxSignature validation and parsing ([433b232](https://github.com/ax-llm/ax/commit/433b232ce843460ac8b41e3d73aaad63c5cb6f3d))
+
+## [12.0.2](https://github.com/ax-llm/ax/compare/12.0.0...12.0.1) (2025-06-18)
+
+### Features
+
+* enhance AxGen and AxSignature validation and parsing ([433b232](https://github.com/ax-llm/ax/commit/433b232ce843460ac8b41e3d73aaad63c5cb6f3d))
+## [12.0.1](https://github.com/ax-llm/ax/compare/12.0.0...12.0.1) (2025-06-18)
+
+### Features
+
+* add validation for chat prompt and AxMessage array ([ab3f3d9](https://github.com/ax-llm/ax/commit/ab3f3d9beb500af3b20262e7c70caba0a8018844))
+
+## [12.0.1](https://github.com/ax-llm/ax/compare/11.0.67...12.0.0) (2025-06-18)
+
+### Features
+
+* add validation for chat prompt and AxMessage array ([ab3f3d9](https://github.com/ax-llm/ax/commit/ab3f3d9beb500af3b20262e7c70caba0a8018844))
+## [12.0.0](https://github.com/ax-llm/ax/compare/11.0.67...12.0.0) (2025-06-18)
+
+### Features
+
+* update AxSignature and related components for improved usability ([53d8e72](https://github.com/ax-llm/ax/commit/53d8e7215677684d3a02a4837482da35a22f7aa6))
+
+## [12.0.0](https://github.com/ax-llm/ax/compare/11.0.66...11.0.67) (2025-06-18)
+
+### Features
+
+* update AxSignature and related components for improved usability ([53d8e72](https://github.com/ax-llm/ax/commit/53d8e7215677684d3a02a4837482da35a22f7aa6))
+## [11.0.67](https://github.com/ax-llm/ax/compare/11.0.66...11.0.67) (2025-06-17)
+
+### Features
+
+* enhance tagged template literals for AxGen and AxSignature ([9003b9f](https://github.com/ax-llm/ax/commit/9003b9f8866d27a50b27a4f42d7ed9287de9a33f))
+
+## [11.0.67](https://github.com/ax-llm/ax/compare/11.0.65...11.0.66) (2025-06-17)
+
+### Features
+
+* enhance tagged template literals for AxGen and AxSignature ([9003b9f](https://github.com/ax-llm/ax/commit/9003b9f8866d27a50b27a4f42d7ed9287de9a33f))
+## [11.0.66](https://github.com/ax-llm/ax/compare/11.0.65...11.0.66) (2025-06-16)
+
+### Bug Fixes
+
+* add null checks for config parameter in AI implementations ([#240](https://github.com/ax-llm/ax/issues/240)) ([28664e3](https://github.com/ax-llm/ax/commit/28664e358ae87fdd9922d27966de0b962a1e6e01))
+* add null checks for config parameter in AI implementations ([#241](https://github.com/ax-llm/ax/issues/241)) ([da148d8](https://github.com/ax-llm/ax/commit/da148d89779218aece1b33ea27177574af413f52))
+
+## [11.0.66](https://github.com/ax-llm/ax/compare/11.0.64...11.0.65) (2025-06-16)
+
+### Bug Fixes
+
+* add null checks for config parameter in AI implementations ([#240](https://github.com/ax-llm/ax/issues/240)) ([28664e3](https://github.com/ax-llm/ax/commit/28664e358ae87fdd9922d27966de0b962a1e6e01))
+* add null checks for config parameter in AI implementations ([#241](https://github.com/ax-llm/ax/issues/241)) ([da148d8](https://github.com/ax-llm/ax/commit/da148d89779218aece1b33ea27177574af413f52))
+## [11.0.65](https://github.com/ax-llm/ax/compare/11.0.64...11.0.65) (2025-06-15)
+
+### Features
+
+* Introduce tagged template literals for type-safe signatures ([f52267c](https://github.com/ax-llm/ax/commit/f52267c965c6d050f14d86b1ce5c2e5fe9a4498a))
+
+## [11.0.65](https://github.com/ax-llm/ax/compare/11.0.63...11.0.64) (2025-06-15)
+
+### Features
+
+* Introduce tagged template literals for type-safe signatures ([f52267c](https://github.com/ax-llm/ax/commit/f52267c965c6d050f14d86b1ce5c2e5fe9a4498a))
+## [11.0.64](https://github.com/ax-llm/ax/compare/11.0.63...11.0.64) (2025-06-13)
+
+## [11.0.64](https://github.com/ax-llm/ax/compare/11.0.62...11.0.63) (2025-06-13)
+## [11.0.63](https://github.com/ax-llm/ax/compare/11.0.62...11.0.63) (2025-06-13)
+
+## [11.0.63](https://github.com/ax-llm/ax/compare/11.0.61...11.0.62) (2025-06-13)
+## [11.0.62](https://github.com/ax-llm/ax/compare/11.0.61...11.0.62) (2025-06-12)
+
+### Features
+
+* Introduce AxAIOpenAIResponsesModel and enhance responses API integration ([0ab61f8](https://github.com/ax-llm/ax/commit/0ab61f8020afb3e402c5e178ce9a82da00e797ac))
+
+## [11.0.62](https://github.com/ax-llm/ax/compare/11.0.60...11.0.61) (2025-06-12)
+
+### Features
+
+* Introduce AxAIOpenAIResponsesModel and enhance responses API integration ([0ab61f8](https://github.com/ax-llm/ax/commit/0ab61f8020afb3e402c5e178ce9a82da00e797ac))
+## [11.0.61](https://github.com/ax-llm/ax/compare/11.0.60...11.0.61) (2025-06-12)
+
+## [11.0.61](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-12)
+## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-11)
+
+## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-11)
+## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-10)
+
+### Features
+
+* Add showThoughts feature to enhance model reasoning visibility ([fabc76d](https://github.com/ax-llm/ax/commit/fabc76d5ef5b3d745b78f75615d6f43946d130af))
+
+## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.57...11.0.58) (2025-06-10)
+
+### Features
+
+* Add showThoughts feature to enhance model reasoning visibility ([fabc76d](https://github.com/ax-llm/ax/commit/fabc76d5ef5b3d745b78f75615d6f43946d130af))
+## [11.0.58](https://github.com/ax-llm/ax/compare/11.0.57...11.0.58) (2025-06-10)
+
+### Features
+
+* Enhance logging capabilities with structured tags ([2bb76d3](https://github.com/ax-llm/ax/commit/2bb76d3926d08d32c1a12fc651ee3434d3876bc9))
+* Introduce custom logger functionality for AI services ([a5eaed1](https://github.com/ax-llm/ax/commit/a5eaed118a1c880cdaef32a81763a7f4d6aa4fce))
+
+## [11.0.58](https://github.com/ax-llm/ax/compare/11.0.56...11.0.57) (2025-06-10)
+
+### Features
+
+* Enhance logging capabilities with structured tags ([2bb76d3](https://github.com/ax-llm/ax/commit/2bb76d3926d08d32c1a12fc651ee3434d3876bc9))
+* Introduce custom logger functionality for AI services ([a5eaed1](https://github.com/ax-llm/ax/commit/a5eaed118a1c880cdaef32a81763a7f4d6aa4fce))
+## [11.0.57](https://github.com/ax-llm/ax/compare/11.0.56...11.0.57) (2025-06-09)
+
+### Features
+
+* Add initPackage script for creating new packages in the Ax monorepo ([08746e8](https://github.com/ax-llm/ax/commit/08746e86f33b1b8eee3f978fe5031e8e3c8206fe))
+* Add maxTokens field to AxModelInfo and update Anthropic model configurations ([f2645e6](https://github.com/ax-llm/ax/commit/f2645e684091b03d9740fa5c58641c3ef0047153))
+
+## [11.0.57](https://github.com/ax-llm/ax/compare/11.0.55...11.0.56) (2025-06-09)
+
+### Features
+
+* Add initPackage script for creating new packages in the Ax monorepo ([08746e8](https://github.com/ax-llm/ax/commit/08746e86f33b1b8eee3f978fe5031e8e3c8206fe))
+* Add maxTokens field to AxModelInfo and update Anthropic model configurations ([f2645e6](https://github.com/ax-llm/ax/commit/f2645e684091b03d9740fa5c58641c3ef0047153))
+## [11.0.56](https://github.com/ax-llm/ax/compare/11.0.55...11.0.56) (2025-06-08)
+
+### Features
+
+* Enhance JSON schema validation with flexible handling of union types ([967610d](https://github.com/ax-llm/ax/commit/967610df7cee8e9de11fd9a27835f35398d43c66))
+
+## [11.0.56](https://github.com/ax-llm/ax/compare/11.0.54...11.0.55) (2025-06-08)
+
+### Features
+
+* Enhance JSON schema validation with flexible handling of union types ([967610d](https://github.com/ax-llm/ax/commit/967610df7cee8e9de11fd9a27835f35398d43c66))
+## [11.0.55](https://github.com/ax-llm/ax/compare/11.0.54...11.0.55) (2025-06-07)
+
+### Features
+
+* Add DeepWiki links to navigation component ([48c0194](https://github.com/ax-llm/ax/commit/48c01944ec54fc2e2e5f62cc738d4ab34cdace83))
+* Allow all fields to be optional in examples and simplify prompt template validation ([18cd73b](https://github.com/ax-llm/ax/commit/18cd73b478622516c6bdaac49d8141ae0e1f530e))
+
+## [11.0.55](https://github.com/ax-llm/ax/compare/11.0.53...11.0.54) (2025-06-07)
+
+### Features
+
+* Add DeepWiki links to navigation component ([48c0194](https://github.com/ax-llm/ax/commit/48c01944ec54fc2e2e5f62cc738d4ab34cdace83))
+* Allow all fields to be optional in examples and simplify prompt template validation ([18cd73b](https://github.com/ax-llm/ax/commit/18cd73b478622516c6bdaac49d8141ae0e1f530e))
+## [11.0.54](https://github.com/ax-llm/ax/compare/11.0.53...11.0.54) (2025-06-06)
+
+### Features
+
+* Enhance abortable request functionality and documentation ([0b0495e](https://github.com/ax-llm/ax/commit/0b0495eaaf6f8fd265bd47d81424cb3f75ee15d2))
+
+### Bug Fixes
+
+* support for Gemini Flash <= 2.0 ([#233](https://github.com/ax-llm/ax/issues/233)) ([6424329](https://github.com/ax-llm/ax/commit/64243297a3bbc24aee512a1e1445a8f28fec7b58))
+
+## [11.0.54](https://github.com/ax-llm/ax/compare/11.0.52...11.0.53) (2025-06-06)
+
+### Features
+
+* Enhance abortable request functionality and documentation ([0b0495e](https://github.com/ax-llm/ax/commit/0b0495eaaf6f8fd265bd47d81424cb3f75ee15d2))
+
+### Bug Fixes
+
+* support for Gemini Flash <= 2.0 ([#233](https://github.com/ax-llm/ax/issues/233)) ([6424329](https://github.com/ax-llm/ax/commit/64243297a3bbc24aee512a1e1445a8f28fec7b58))
+## [11.0.53](https://github.com/ax-llm/ax/compare/11.0.52...11.0.53) (2025-06-06)
+
+### Features
+
+* Implement abortable AI requests with AxAbortableAI utility ([b8f5201](https://github.com/ax-llm/ax/commit/b8f5201c5d75d19549e79805a378936118ebf8f2))
+* Introduce optional output fields in examples and enhance prompt template validation ([71ac8f1](https://github.com/ax-llm/ax/commit/71ac8f1d1b30bfa9950503f52e91f7851096f6a8))
+
+## [11.0.53](https://github.com/ax-llm/ax/compare/11.0.51...11.0.52) (2025-06-06)
+
+### Features
+
+* Implement abortable AI requests with AxAbortableAI utility ([b8f5201](https://github.com/ax-llm/ax/commit/b8f5201c5d75d19549e79805a378936118ebf8f2))
+* Introduce optional output fields in examples and enhance prompt template validation ([71ac8f1](https://github.com/ax-llm/ax/commit/71ac8f1d1b30bfa9950503f52e91f7851096f6a8))
+## [11.0.52](https://github.com/ax-llm/ax/compare/11.0.51...11.0.52) (2025-06-05)
+
+## [11.0.52](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
+## [11.0.51](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
+
+### Features
+
+* Add conversational memory weaving example to README ([b0ca31d](https://github.com/ax-llm/ax/commit/b0ca31dcbee044ed2d705890e7ce95959e3a284e))
+* Add Model Context Protocol (MCP) integration to README ([484f2e8](https://github.com/ax-llm/ax/commit/484f2e8a127ed417a697a49e11a614c96e480914))
+* Add Pull Request CI workflow ([38be189](https://github.com/ax-llm/ax/commit/38be189c492cfb1329154f6e604ae1dddd9a01c1))
+* Allow custom field name for thought in AxGen ([#227](https://github.com/ax-llm/ax/issues/227)) ([924bf1b](https://github.com/ax-llm/ax/commit/924bf1b7e17d51443d2ceac62a9e3ecfabc7cf9b))
+* Allow disabling thought token budget with override ([#229](https://github.com/ax-llm/ax/issues/229)) ([89e00e4](https://github.com/ax-llm/ax/commit/89e00e45356f9c0ac784f9398b580030a0b1fb9b))
+* Enable chat history and multi-turn inputs for AxGen and AxPromp… ([#230](https://github.com/ax-llm/ax/issues/230)) ([2bdd6ec](https://github.com/ax-llm/ax/commit/2bdd6ec1db03aee4fe0a425b4008b7b520065de3))
+* Update thinkingTokenBudget options and clean up tests ([1b0351a](https://github.com/ax-llm/ax/commit/1b0351a34d632d10d73cebf3dd241839906c5049))
+
+## [11.0.51](https://github.com/ax-llm/ax/compare/11.0.49...11.0.50) (2025-06-05)
+
+### Features
+
+* Add conversational memory weaving example to README ([b0ca31d](https://github.com/ax-llm/ax/commit/b0ca31dcbee044ed2d705890e7ce95959e3a284e))
+* Add Model Context Protocol (MCP) integration to README ([484f2e8](https://github.com/ax-llm/ax/commit/484f2e8a127ed417a697a49e11a614c96e480914))
+* Add Pull Request CI workflow ([38be189](https://github.com/ax-llm/ax/commit/38be189c492cfb1329154f6e604ae1dddd9a01c1))
+* Allow custom field name for thought in AxGen ([#227](https://github.com/ax-llm/ax/issues/227)) ([924bf1b](https://github.com/ax-llm/ax/commit/924bf1b7e17d51443d2ceac62a9e3ecfabc7cf9b))
+* Allow disabling thought token budget with override ([#229](https://github.com/ax-llm/ax/issues/229)) ([89e00e4](https://github.com/ax-llm/ax/commit/89e00e45356f9c0ac784f9398b580030a0b1fb9b))
+* Enable chat history and multi-turn inputs for AxGen and AxPromp… ([#230](https://github.com/ax-llm/ax/issues/230)) ([2bdd6ec](https://github.com/ax-llm/ax/commit/2bdd6ec1db03aee4fe0a425b4008b7b520065de3))
+* Update thinkingTokenBudget options and clean up tests ([1b0351a](https://github.com/ax-llm/ax/commit/1b0351a34d632d10d73cebf3dd241839906c5049))
+## [11.0.50](https://github.com/ax-llm/ax/compare/11.0.49...11.0.50) (2025-06-03)
+
+### Features
+
+* integrate new transport classes and enhance OpenAI response handling ([5b3ea86](https://github.com/ax-llm/ax/commit/5b3ea860fc4aa640307a441e1d5785f0176b7219))
+
+## [11.0.50](https://github.com/ax-llm/ax/compare/11.0.48...11.0.49) (2025-06-03)
+
+### Features
+
+* integrate new transport classes and enhance OpenAI response handling ([5b3ea86](https://github.com/ax-llm/ax/commit/5b3ea860fc4aa640307a441e1d5785f0176b7219))
+## [11.0.49](https://github.com/ax-llm/ax/compare/11.0.48...11.0.49) (2025-05-29)
+
+### Bug Fixes
+
+* **google-gemini:** implement missing googleSearch option ([#221](https://github.com/ax-llm/ax/issues/221)) ([414a89f](https://github.com/ax-llm/ax/commit/414a89fd06f904e8de13986ccbecc0c07a5214aa))
+* relaxed model info check ([3f1fffb](https://github.com/ax-llm/ax/commit/3f1fffb6b28dedcdc56f8d473b9be5b7964eebb2))
+
 ## [11.0.49](https://github.com/ax-llm/ax/compare/11.0.47...11.0.48) (2025-05-29)
 
 ### Bug Fixes

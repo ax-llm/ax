@@ -21,6 +21,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
 } from './types.js'
 
@@ -289,6 +290,10 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return this.currentService.getOptions()
+  }
+
+  getLogger(): AxLoggerFunction {
+    return this.currentService.getLogger()
   }
 }
 

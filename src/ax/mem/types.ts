@@ -1,27 +1,42 @@
-import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
+import type {
+  AxChatRequest,
+  AxChatResponseResult,
+  AxFunctionResult,
+} from '../ai/types.js'
+
+export type AxMemoryData = {
+  tags?: string[]
+  role: AxChatRequest['chatPrompt'][number]['role']
+  updatable?: boolean
+  chat: {
+    index: number
+    value: Omit<AxChatRequest['chatPrompt'][number], 'role'>
+  }[]
+}[]
 
 export interface AxAIMemory {
-  add(
-    result:
-      | Readonly<AxChatRequest['chatPrompt']>
-      | Readonly<AxChatRequest['chatPrompt'][number]>,
-    sessionId?: string
-  ): void
-  addResult(result: Readonly<AxChatResponseResult>, sessionId?: string): void
-  updateResult(
-    result: Readonly<AxChatResponseResult> & {
-      delta?: string
-    },
+  addRequest(result: AxChatRequest['chatPrompt'], sessionId?: string): void
+
+  addResponse(
+    results: Readonly<AxChatResponseResult[]>,
     sessionId?: string
   ): void
 
-  history(sessionId?: string): AxChatRequest['chatPrompt']
+  updateResult(
+    results: Readonly<AxChatResponseResult> & { delta?: string },
+    sessionId?: string
+  ): void
+
+  addFunctionResults(
+    results: Readonly<AxFunctionResult[]>,
+    sessionId?: string
+  ): void
+
+  history(index: number, sessionId?: string): AxChatRequest['chatPrompt']
   reset(sessionId?: string): void
 
-  getLast(
-    sessionId?: string
-  ): { chat: AxChatRequest['chatPrompt'][number]; tags?: string[] } | undefined
+  getLast(sessionId?: string): AxMemoryData[number] | undefined
 
   addTag(name: string, sessionId?: string): void
-  rewindToTag(name: string, sessionId?: string): AxChatRequest['chatPrompt']
+  rewindToTag(name: string, sessionId?: string): AxMemoryData
 }

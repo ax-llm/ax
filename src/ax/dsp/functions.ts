@@ -4,13 +4,11 @@ import type {
   AxChatRequest,
   AxChatResponseResult,
   AxFunction,
+  AxFunctionResult,
 } from '../ai/types.js'
 import type { AxMemory } from '../mem/memory.js'
-import { ColorLog } from '../util/log.js'
 
 import { validateJSONSchema } from './jsonschema.js'
-
-const colorLog = new ColorLog()
 
 export class AxFunctionError extends Error {
   constructor(
@@ -138,7 +136,11 @@ export class AxFunctionProcessor {
       const res =
         fnSpec.func.length === 1 ? await fnSpec.func(opt) : await fnSpec.func()
 
-      return typeof res === 'string' ? res : JSON.stringify(res, null, 2)
+      return typeof res === 'string'
+        ? res
+        : res === undefined || res === null
+          ? ''
+          : JSON.stringify(res, null, 2)
     }
 
     const res =
@@ -146,7 +148,11 @@ export class AxFunctionProcessor {
         ? await fnSpec.func(args, opt)
         : await fnSpec.func(args)
 
-    return typeof res === 'string' ? res : JSON.stringify(res, null, 2)
+    return typeof res === 'string'
+      ? res
+      : res === undefined || res === null
+        ? ''
+        : JSON.stringify(res, null, 2)
   }
 
   public execute = async (
@@ -209,20 +215,29 @@ export const parseFunctions = (
   return [...(existingFuncs ?? []), ...functions]
 }
 
-type FunctionPromise =
-  | undefined
-  | Promise<Extract<AxChatRequest['chatPrompt'][number], { role: 'function' }>>
+type ProcessFunctionsArgs = {
+  ai: Readonly<AxAIService>
+  functionList: Readonly<AxFunction[]>
+  functionCalls: readonly AxChatResponseFunctionCall[]
+  mem: Readonly<AxMemory>
+  sessionId?: string
+  traceId?: string
+  span?: import('@opentelemetry/api').Span
+  excludeContentFromTrace?: boolean
+  index: number
+}
 
-export const processFunctions = async (
-  ai: Readonly<AxAIService>,
-  functionList: Readonly<AxFunction[]>,
-  functionCalls: readonly AxChatResponseFunctionCall[],
-  mem: Readonly<AxMemory>,
-  sessionId?: string,
-  traceId?: string,
-  span?: import('@opentelemetry/api').Span,
-  excludeContentFromTelemetry?: boolean
-) => {
+export const processFunctions = async ({
+  ai,
+  functionList,
+  functionCalls,
+  mem,
+  sessionId,
+  traceId,
+  span,
+  excludeContentFromTrace,
+  index,
+}: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList)
   const functionsExecuted = new Set<string>()
 
@@ -232,7 +247,7 @@ export const processFunctions = async (
       throw new Error(`Function ${func.name} did not return an ID`)
     }
 
-    const promise: FunctionPromise = funcProc
+    const promise: Promise<AxFunctionResult | undefined> = funcProc
       .execute(func, { sessionId, traceId, ai })
       .then((functionResult) => {
         functionsExecuted.add(func.name.toLowerCase())
@@ -242,7 +257,7 @@ export const processFunctions = async (
           const eventData: { name: string; args?: string; result?: string } = {
             name: func.name,
           }
-          if (!excludeContentFromTelemetry) {
+          if (!excludeContentFromTrace) {
             eventData.args = func.args
             eventData.result = functionResult ?? ''
           }
@@ -250,64 +265,63 @@ export const processFunctions = async (
         }
 
         return {
-          role: 'function' as const,
           result: functionResult ?? '',
+          role: 'function' as const,
           functionId: func.id,
+          index,
         }
       })
       .catch((e) => {
-        if (e instanceof FunctionError) {
-          const result = e.getFixingInstructions()
-
-          // Add telemetry event for function error
-          if (span) {
-            const errorEventData: {
-              name: string
-              args?: string
-              message: string
-              fixing_instructions?: string
-            } = {
-              name: func.name,
-              message: e.toString(),
-            }
-            if (!excludeContentFromTelemetry) {
-              errorEventData.args = func.args
-              errorEventData.fixing_instructions = result
-            }
-            span.addEvent('function.error', errorEventData)
-          }
-
-          mem.add(
-            {
-              role: 'function' as const,
-              functionId: func.id,
-              isError: true,
-              result,
-            },
-            sessionId
-          )
-          mem.addTag('error')
-
-          if (ai.getOptions().debug) {
-            process.stdout.write(
-              colorLog.red(`\n❌ Function Error Correction:\n${result}\n`)
-            )
-          }
-        } else {
+        if (!(e instanceof FunctionError)) {
           throw e
         }
-      }) as FunctionPromise
+        const result = e.getFixingInstructions()
+
+        // Add telemetry event for function error
+        if (span) {
+          const errorEventData: {
+            name: string
+            args?: string
+            message: string
+            fixing_instructions?: string
+          } = {
+            name: func.name,
+            message: e.toString(),
+          }
+          if (!excludeContentFromTrace) {
+            errorEventData.args = func.args
+            errorEventData.fixing_instructions = result
+          }
+          span.addEvent('function.error', errorEventData)
+        }
+
+        if (ai.getOptions().debug) {
+          const logger = ai.getLogger()
+          logger(`❌ Function Error Correction:\n${result}`, {
+            tags: ['error'],
+          })
+        }
+
+        return {
+          functionId: func.id,
+          isError: true,
+          index,
+          result,
+          role: 'function' as const,
+        }
+      })
 
     return promise
   })
 
   // Wait for all promises to resolve
   const results = await Promise.all(promises)
+  const functionResults = results.filter((result) => result !== undefined)
 
-  for (const result of results) {
-    if (result) {
-      mem.add(result, sessionId)
-    }
+  mem.addFunctionResults(functionResults, sessionId)
+
+  if (functionResults.some((result) => result.isError)) {
+    mem.addTag('error', sessionId)
   }
 
   return functionsExecuted
@@ -338,4 +352,40 @@ export function parseFunctionCalls(
   //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
   // }
   return funcs
+}
+
+type FunctionCall = AxChatRequest['functionCall'] | undefined
+
+/**
+ * Utility function to parse a list of functions into AxFunction array
+ */
+export function createFunctionConfig(
+  functionList?: AxInputFunctionType,
+  definedFunctionCall?: FunctionCall,
+  firstStep?: boolean
+): { functions: AxFunction[]; functionCall: FunctionCall } {
+  let functionCall = definedFunctionCall
+
+  if (
+    !firstStep &&
+    (functionCall === 'required' || typeof functionCall === 'function')
+  ) {
+    return { functions: [], functionCall: undefined }
+  }
+
+  if (!functionList) {
+    return { functions: [], functionCall: functionCall }
+  }
+
+  // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
+  const functions = functionList
+    .map((f) => {
+      if ('toFunction' in f) {
+        return f.toFunction()
+      }
+      return f
+    })
+    .flat()
+
+  return { functions, functionCall }
 }

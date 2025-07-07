@@ -2,32 +2,19 @@
 title: AxAIHuggingFaceConfig
 ---
 
-> **AxAIHuggingFaceConfig**: [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig) & `object`
+```ts
+type AxAIHuggingFaceConfig = AxModelConfig & object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/huggingface/types.ts#L7
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/huggingface/types.ts#L7
 
 ## Type declaration
 
-### doSample?
-
-> `optional` **doSample**: `boolean`
-
-### maxTime?
-
-> `optional` **maxTime**: `number`
-
-### model
-
-> **model**: [`AxAIHuggingFaceModel`](/api/#03-apidocs/enumerationaxaihuggingfacemodel)
-
-### returnFullText?
-
-> `optional` **returnFullText**: `boolean`
-
-### useCache?
-
-> `optional` **useCache**: `boolean`
-
-### waitForModel?
-
-> `optional` **waitForModel**: `boolean`
+| Name | Type |
+| :------ | :------ |
+| `doSample`? | `boolean` |
+| `maxTime`? | `number` |
+| `model` | [`AxAIHuggingFaceModel`](/api/#03-apidocs/enumerationaxaihuggingfacemodel) |
+| `returnFullText`? | `boolean` |
+| `useCache`? | `boolean` |
+| `waitForModel`? | `boolean` |

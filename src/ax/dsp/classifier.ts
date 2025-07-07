@@ -6,6 +6,7 @@ const colorLog = new ColorLog()
 
 export interface AxSimpleClassifierForwardOptions {
   cutoff?: number
+  abortSignal?: AbortSignal
 }
 
 export class AxSimpleClassifierClass {
@@ -46,10 +47,16 @@ export class AxSimpleClassifier {
   }
 
   public setClasses = async (
-    classes: readonly AxSimpleClassifierClass[]
+    classes: readonly AxSimpleClassifierClass[],
+    options?: Readonly<{ abortSignal?: AbortSignal }>
   ): Promise<void> => {
     for (const c of classes) {
-      const ret = await this.ai.embed({ texts: c.getContext() })
+      const ret = await this.ai.embed(
+        { texts: c.getContext() },
+        {
+          abortSignal: options?.abortSignal,
+        }
+      )
       await this.db.upsert({
         id: c.getName(),
         table: 'classes',
@@ -62,7 +69,12 @@ export class AxSimpleClassifier {
     text: string,
     options?: Readonly<AxSimpleClassifierForwardOptions>
   ): Promise<string> {
-    const { embeddings } = await this.ai.embed({ texts: [text] })
+    const { embeddings } = await this.ai.embed(
+      { texts: [text] },
+      {
+        abortSignal: options?.abortSignal,
+      }
+    )
 
     const matches = await this.db.query({
       table: 'classes',

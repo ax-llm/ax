@@ -2,12 +2,14 @@
 title: AxAIGoogleGeminiToolGoogleSearchRetrieval
 ---
 
-> **AxAIGoogleGeminiToolGoogleSearchRetrieval**: `object`
+```ts
+type AxAIGoogleGeminiToolGoogleSearchRetrieval = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L87
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/google-gemini/types.ts#L99
 
 ## Type declaration
 
-### dynamic\_retrieval\_config
-
-> \{ `dynamic_threshold`: `number`; `mode`: `"MODE_DYNAMIC"`; \}
+| Name | Type |
+| :------ | :------ |
+| <a id="dynamic_retrieval_config"></a> `dynamic_retrieval_config` | \{ `dynamic_threshold`: `number`; `mode`: `"MODE_DYNAMIC"`; \} |

@@ -1,9 +1,6 @@
-import {
-  type AxAIService,
-  type AxDBQueryResponse,
-  type AxDBService,
-  type AxProgram,
-} from '../index.js'
+import { type AxAIService } from '../ai/types.js'
+import { type AxDBQueryResponse, type AxDBService } from '../db/types.js'
+import { type AxProgram } from '../dsp/program.js'
 
 export type AxRewriteIn = { query: string }
 export type AxRewriteOut = { rewrittenQuery: string }
@@ -56,6 +53,7 @@ export class AxDBManager {
       batchSize?: number
       maxWordsPerChunk?: number
       minWordsPerChunk?: number
+      abortSignal?: AbortSignal
     }>
   ): Promise<void> => {
     try {
@@ -84,7 +82,12 @@ export class AxDBManager {
         const batch = chunks.slice(i, i + bs)
 
         // Get embeddings for the whole batch from the AI service in one call
-        const ret = await this.ai.embed({ texts: batch })
+        const ret = await this.ai.embed(
+          { texts: batch },
+          {
+            abortSignal: options?.abortSignal,
+          }
+        )
 
         // Prepare batch for bulk upsert
         const embeddings = ret.embeddings
@@ -108,7 +111,12 @@ export class AxDBManager {
 
   query = async (
     query: Readonly<string | string[] | number | number[]>,
-    { topPercent }: Readonly<{ topPercent?: number }> | undefined = {}
+    {
+      topPercent,
+      abortSignal,
+    }:
+      | Readonly<{ topPercent?: number; abortSignal?: AbortSignal }>
+      | undefined = {}
   ): Promise<AxDBMatch[][]> => {
     const texts = Array.isArray(query) ? query : [query]
 
@@ -124,7 +132,12 @@ export class AxDBManager {
     let queries: Promise<AxDBQueryResponse>[]
 
     if (typeof texts[0] === 'string') {
-      const embedResults = await this.ai.embed({ texts })
+      const embedResults = await this.ai.embed(
+        { texts },
+        {
+          abortSignal,
+        }
+      )
       queries = embedResults.embeddings.map((values) =>
         this.db.query({ table, values })
       )

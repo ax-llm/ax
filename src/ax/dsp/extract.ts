@@ -1,24 +1,35 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js'
+import { ValidationError } from './errors.js'
+import type { GenDeltaOut } from './program.js'
 import type { AxField, AxSignature } from './sig.js'
+import type { AxGenOut } from './types.js'
 import { matchesContent, parseMarkdownList } from './util.js'
-import { ValidationError } from './validate.js'
 
 export const extractValues = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
-  content: string
+  content: string,
+  strictMode: boolean = false
 ) => {
   const xstate = { extractedFields: [], streamedIndex: {}, s: -1 }
-  streamingExtractValues(sig, values, xstate, content)
+  streamingExtractValues(sig, values, xstate, content, { strictMode })
   streamingExtractFinalValue(sig, values, xstate, content)
+
+  // Filter out internal fields
+  for (const field of sig.getOutputFields()) {
+    if (field.isInternal) {
+      delete values[field.name]
+    }
+  }
 }
 
 export interface extractionState {
   prevFields?: { field: AxField; s: number; e: number }[]
   currField?: AxField
   currFieldIndex?: number
+  inAssumedField?: boolean
   extractedFields: AxField[]
   streamedIndex: Record<string, number>
   s: number
@@ -29,13 +40,11 @@ export interface extractionState {
 const checkMissingRequiredFields = (
   xstate: Readonly<extractionState>,
   values: Record<string, unknown>,
-  currentIndex: number
+  outputFields: Readonly<AxField[]>
 ) => {
   const missingFields: AxField[] = []
 
-  // Check all fields up to the current index
-  for (let i = 0; i < currentIndex; i++) {
-    const field = xstate.extractedFields[i]
+  for (const field of outputFields) {
     if (field && !field.isOptional && values[field.name] === undefined) {
       missingFields.push(field)
     }
@@ -49,33 +58,71 @@ const checkMissingRequiredFields = (
   }
 }
 
+export interface StreamingExtractValuesOptions {
+  strictMode?: boolean
+  skipEarlyFail?: boolean
+}
+
 export const streamingExtractValues = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState,
   content: string,
-  streamingValidation: boolean = false
+  { strictMode, skipEarlyFail }: StreamingExtractValuesOptions = {}
 ) => {
   const fields = sig.getOutputFields()
+  let expectedField: AxField | undefined
 
   for (const [index, field] of fields.entries()) {
-    if (field.name in values) {
+    // If the field is the current field and it's not assumed, skip it
+    if (index === xstate.currFieldIndex && !xstate.inAssumedField) {
+      continue
+    }
+
+    // If field is already in values and it's not the current field and it's not assumed, skip it
+    if (
+      field.name in values &&
+      !(index === xstate.currFieldIndex && xstate.inAssumedField)
+    ) {
       continue
     }
 
     const isFirst = xstate.extractedFields.length === 0
     const prefix = (isFirst ? '' : '\n') + field.title + ':'
+
     let e = matchesContent(content, prefix, xstate.s)
+    let prefixLen = prefix.length
 
     switch (e) {
       case -1:
-        if (streamingValidation && values.length == 0 && !field.isOptional) {
+        if (skipEarlyFail) {
+          continue
+        }
+
+        // If there is only one field then we assume the content is streaming to the first field
+        // Note: optimization for single field responses
+        if (
+          !strictMode &&
+          fields.length === 1 &&
+          xstate.currField === undefined
+        ) {
+          xstate.inAssumedField = true
+          expectedField = field
+          prefixLen = 0
+          e = 0
+          break
+        }
+
+        // if multiple fields, we need to validate the field name of the first required field
+        if (xstate.currField === undefined && !field.isOptional) {
           throw new ValidationError({
-            message: 'Required field not found',
+            message: 'Expected (Required) field not found',
             fields: [field],
           })
         }
+
+        expectedField = field.isOptional ? undefined : field
         continue // Field is not found, continue to the next field
       case -2:
         return true // Partial match at end, skip and gather more content
@@ -85,9 +132,21 @@ export const streamingExtractValues = (
         xstate.inBlock = true
         return true // String is only backticks, skip and gather more content
     }
-    // We found the next field!!!
+    // We found a field!!!
 
-    let prefixLen = prefix.length
+    // If the field we found is not the expected field, throw an error
+    if (expectedField && expectedField.name !== field.name) {
+      throw new ValidationError({
+        message: 'Expected (Required) field not found',
+        fields: [expectedField],
+      })
+    }
+
+    if (xstate.currField !== undefined && xstate.inAssumedField) {
+      xstate.inAssumedField = false
+      xstate.streamedIndex[xstate.currField.name] = 0
+      xstate.currField = undefined
+    }
 
     // Lets wrap up the last field which is still the current field
     if (xstate.currField) {
@@ -102,8 +161,6 @@ export const streamingExtractValues = (
         xstate.prevFields = [{ field: xstate.currField, s: xstate.s, e }]
       }
     }
-
-    checkMissingRequiredFields(xstate, values, index)
 
     // Lets update the state for the new current field
 
@@ -136,10 +193,8 @@ export const streamingExtractFinalValue = (
       values[xstate.currField.name] = parsedValue
     }
   }
-  const sigFields = sig.getOutputFields()
-
   // Check all previous required fields before processing current field
-  checkMissingRequiredFields(xstate, values, sigFields.length)
+  checkMissingRequiredFields(xstate, values, sig.getOutputFields())
 }
 
 const convertValueToType = (
@@ -189,12 +244,12 @@ const convertValueToType = (
 
     case 'class':
       const className = val
-      if (field.type.classes && !field.type.classes.includes(className)) {
+      if (field.type.options && !field.type.options.includes(className)) {
         if (field.isOptional) {
           return
         }
         throw new Error(
-          `Invalid class '${val}', expected one of the following: ${field.type.classes.join(', ')}`
+          `Invalid class '${val}', expected one of the following: ${field.type.options.join(', ')}`
         )
       }
       return className as string
@@ -204,14 +259,15 @@ const convertValueToType = (
   }
 }
 
-export function* yieldDelta<OUT>(
+export function* yieldDelta<OUT extends AxGenOut>(
   content: string,
   field: Readonly<AxField>,
   s: number,
   e: number,
   // eslint-disable-next-line functional/prefer-immutable-types
-  xstate: extractionState
-) {
+  xstate: extractionState,
+  index: number
+): GenDeltaOut<OUT> {
   const { name: fieldName, isInternal } = field
   const { isArray: fieldIsArray, name: fieldTypeName } = field.type ?? {}
 
@@ -248,29 +304,22 @@ export function* yieldDelta<OUT>(
   }
 
   if (d3.length > 0) {
-    yield { [fieldName]: d3 } as Partial<OUT>
+    yield { index, delta: { [fieldName]: d3 } as Partial<OUT> }
     xstate.streamedIndex[fieldName] = pos + d2.length
   }
 }
 
-// export function getStreamingDelta(
-//   values: Record<string, unknown>,
-//   // eslint-disable-next-line functional/prefer-immutable-types
-//   xstate: extractionState
-// ) {
-//   return processStreamingDelta(values, xstate)
-// }
-
-export function* streamValues<OUT>(
+export function* streamValues<OUT extends AxGenOut>(
   sig: Readonly<AxSignature>,
   content: string,
   values: Readonly<Record<string, OUT>>,
   // eslint-disable-next-line functional/prefer-immutable-types
-  xstate: extractionState
-) {
+  xstate: extractionState,
+  index: number
+): GenDeltaOut<OUT> {
   for (const prevField of xstate.prevFields ?? []) {
     const { field, s, e } = prevField
-    yield* yieldDelta<OUT>(content, field, s, e, xstate)
+    yield* yieldDelta<OUT>(content, field, s, e, xstate, index)
   }
   xstate.prevFields = undefined
 
@@ -283,7 +332,8 @@ export function* streamValues<OUT>(
     xstate.currField,
     xstate.s,
     content.length,
-    xstate
+    xstate,
+    index
   )
 
   const outputFields = sig.getOutputFields()
@@ -300,14 +350,14 @@ export function* streamValues<OUT>(
       const s = xstate.streamedIndex?.[key] ?? 0
       const v = value.slice(s)
       if (v && v.length > 0) {
-        yield { [key]: v } as Partial<OUT>
+        yield { index, delta: { [key]: v } as Partial<OUT> }
         xstate.streamedIndex[key] = s + v.length
       }
       continue
     }
 
     if (!xstate.streamedIndex[key]) {
-      yield { [key]: value } as Partial<OUT>
+      yield { index, delta: { [key]: value } as Partial<OUT> }
       xstate.streamedIndex[key] = 1
     }
   }

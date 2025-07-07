@@ -1,12 +1,36 @@
+import crypto from 'crypto'
 import type { ReadableStream } from 'stream/web'
 
 import { context, type Span, SpanKind } from '@opentelemetry/api'
 
+import { axGlobals } from '../dsp/globals.js'
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js'
 import { apiCall } from '../util/apicall.js'
 import { RespTransformStream } from '../util/transform.js'
 
 import { logChatRequest, logResponse } from './debug.js'
+import {
+  type AxAIMetricsInstruments,
+  getOrCreateAIMetricsInstruments,
+  recordAbortMetric,
+  recordContextWindowUsageMetric,
+  recordErrorMetric,
+  recordErrorRateMetric,
+  recordEstimatedCostMetric,
+  recordFunctionCallMetric,
+  recordLatencyMetric,
+  recordLatencyStatsMetrics,
+  recordModelConfigMetrics,
+  recordMultimodalRequestMetric,
+  recordPromptLengthMetric,
+  recordRequestMetric,
+  recordRequestSizeMetric,
+  recordResponseSizeMetric,
+  recordStreamingRequestMetric,
+  recordThinkingBudgetUsageMetric,
+  recordTimeoutMetric,
+  recordTokenMetric,
+} from './metrics.js'
 import type {
   AxAIInputModelList,
   AxAIModelList,
@@ -20,6 +44,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
   AxModelInfo,
   AxModelUsage,
@@ -46,7 +71,6 @@ export interface AxBaseAIArgs<TModel, TEmbedModel> {
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
   structuredClone({
-    maxTokens: 2000,
     temperature: 0,
     topK: 40,
     topP: 0.9,
@@ -54,11 +78,19 @@ export const axBaseAIDefaultConfig = (): AxModelConfig =>
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
-    maxTokens: 2000,
     temperature: 0.4,
     topP: 0.7,
     frequencyPenalty: 0.2,
   })
+
+// Default logger function that uses process.stdout.write
+const defaultLogger: AxLoggerFunction = (
+  message: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: { tags?: string[] }
+) => {
+  process.stdout.write(message)
+}
 
 export class AxBaseAI<
   TModel,
@@ -75,9 +107,12 @@ export class AxBaseAI<
   private rt?: AxAIServiceOptions['rateLimiter']
   private fetch?: AxAIServiceOptions['fetch']
   private tracer?: AxAIServiceOptions['tracer']
+  private meter?: AxAIServiceOptions['meter']
   private timeout?: AxAIServiceOptions['timeout']
   private excludeContentFromTrace?: boolean
   private models?: AxAIInputModelList<TModel, TEmbedModel>
+  private abortSignal?: AbortSignal
+  private logger: AxLoggerFunction = defaultLogger
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxModelUsage
@@ -150,7 +185,8 @@ export class AxBaseAI<
     this.apiURL = apiURL
     this.headers = headers
     this.supportFor = supportFor
-    this.tracer = options.tracer
+    this.tracer = options.tracer ?? axGlobals.tracer
+    this.meter = options.meter ?? axGlobals.meter
     this.modelInfo = modelInfo
     this.models = models
     this.id = crypto.randomUUID()
@@ -176,6 +212,10 @@ export class AxBaseAI<
     }
   }
 
+  private getMetricsInstruments(): AxAIMetricsInstruments | undefined {
+    return getOrCreateAIMetricsInstruments(this.meter)
+  }
+
   public setName(name: string): void {
     this.name = name
   }
@@ -197,8 +237,11 @@ export class AxBaseAI<
     this.rt = options.rateLimiter
     this.fetch = options.fetch
     this.timeout = options.timeout
-    this.tracer = options.tracer
+    this.tracer = options.tracer ?? axGlobals.tracer
+    this.meter = options.meter ?? axGlobals.meter
     this.excludeContentFromTrace = options.excludeContentFromTrace
+    this.abortSignal = options.abortSignal
+    this.logger = options.logger ?? defaultLogger
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -207,9 +250,16 @@ export class AxBaseAI<
       rateLimiter: this.rt,
       fetch: this.fetch,
       tracer: this.tracer,
+      meter: this.meter,
       timeout: this.timeout,
       excludeContentFromTrace: this.excludeContentFromTrace,
+      abortSignal: this.abortSignal,
+      logger: this.logger,
     }
+  }
+
+  getLogger(): AxLoggerFunction {
+    return this.logger
   }
 
   getModelList(): AxAIModelList | undefined {
@@ -287,6 +337,29 @@ export class AxBaseAI<
       metrics.samples.reduce((a, b) => a + b, 0) / metrics.samples.length
     metrics.p95 = this.calculatePercentile(metrics.samples, 95)
     metrics.p99 = this.calculatePercentile(metrics.samples, 99)
+
+    // Export to OpenTelemetry metrics
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
+      const model =
+        type === 'chat'
+          ? (this.lastUsedChatModel as string)
+          : (this.lastUsedEmbedModel as string)
+
+      // Record individual latency measurement
+      recordLatencyMetric(metricsInstruments, type, duration, this.name, model)
+
+      // Record latency statistics as gauges
+      recordLatencyStatsMetrics(
+        metricsInstruments,
+        type,
+        metrics.mean,
+        metrics.p95,
+        metrics.p99,
+        this.name,
+        model
+      )
+    }
   }
 
   // Method to update error metrics
@@ -297,6 +370,440 @@ export class AxBaseAI<
       metrics.count++
     }
     metrics.rate = metrics.count / metrics.total
+
+    // Export to OpenTelemetry metrics
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
+      const model =
+        type === 'chat'
+          ? (this.lastUsedChatModel as string)
+          : (this.lastUsedEmbedModel as string)
+
+      // Always record request count
+      recordRequestMetric(metricsInstruments, type, this.name, model)
+
+      // Record error count if there was an error
+      if (isError) {
+        recordErrorMetric(metricsInstruments, type, this.name, model)
+      }
+
+      // Record current error rate as a gauge
+      recordErrorRateMetric(
+        metricsInstruments,
+        type,
+        metrics.rate,
+        this.name,
+        model
+      )
+    }
+  }
+
+  // Method to record token usage metrics
+  private recordTokenUsage(modelUsage?: AxModelUsage): void {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments && modelUsage?.tokens) {
+      const { promptTokens, completionTokens, totalTokens, thoughtsTokens } =
+        modelUsage.tokens
+
+      if (promptTokens) {
+        recordTokenMetric(
+          metricsInstruments,
+          'input',
+          promptTokens,
+          this.name,
+          modelUsage.model
+        )
+      }
+
+      if (completionTokens) {
+        recordTokenMetric(
+          metricsInstruments,
+          'output',
+          completionTokens,
+          this.name,
+          modelUsage.model
+        )
+      }
+
+      if (totalTokens) {
+        recordTokenMetric(
+          metricsInstruments,
+          'total',
+          totalTokens,
+          this.name,
+          modelUsage.model
+        )
+      }
+
+      if (thoughtsTokens) {
+        recordTokenMetric(
+          metricsInstruments,
+          'thoughts',
+          thoughtsTokens,
+          this.name,
+          modelUsage.model
+        )
+      }
+    }
+  }
+
+  // Helper method to calculate request size in bytes
+  private calculateRequestSize(req: unknown): number {
+    try {
+      return new TextEncoder().encode(JSON.stringify(req)).length
+    } catch {
+      return 0
+    }
+  }
+
+  // Helper method to calculate response size in bytes
+  private calculateResponseSize(response: unknown): number {
+    try {
+      return new TextEncoder().encode(JSON.stringify(response)).length
+    } catch {
+      return 0
+    }
+  }
+
+  // Helper method to detect multimodal content
+  private detectMultimodalContent(req: Readonly<AxChatRequest<TModel>>): {
+    hasImages: boolean
+    hasAudio: boolean
+  } {
+    let hasImages = false
+    let hasAudio = false
+
+    if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
+      for (const message of req.chatPrompt) {
+        if (message.role === 'user' && Array.isArray(message.content)) {
+          for (const part of message.content) {
+            if (part.type === 'image') {
+              hasImages = true
+            } else if (part.type === 'audio') {
+              hasAudio = true
+            }
+          }
+        }
+      }
+    }
+
+    return { hasImages, hasAudio }
+  }
+
+  // Helper method to calculate prompt length
+  private calculatePromptLength(req: Readonly<AxChatRequest<TModel>>): number {
+    let totalLength = 0
+
+    if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
+      for (const message of req.chatPrompt) {
+        if (message.role === 'system' || message.role === 'assistant') {
+          if (message.content) {
+            totalLength += message.content.length
+          }
+        } else if (message.role === 'user') {
+          if (typeof message.content === 'string') {
+            totalLength += message.content.length
+          } else if (Array.isArray(message.content)) {
+            for (const part of message.content) {
+              if (part.type === 'text') {
+                totalLength += part.text.length
+              }
+            }
+          }
+        } else if (message.role === 'function') {
+          if (message.result) {
+            totalLength += message.result.length
+          }
+        }
+      }
+    }
+
+    return totalLength
+  }
+
+  // Helper method to calculate context window usage
+  private calculateContextWindowUsage(
+    model: TModel,
+    modelUsage?: AxModelUsage
+  ): number {
+    if (!modelUsage?.tokens?.promptTokens) return 0
+
+    // Get model info to find context window size
+    const modelInfo = this.modelInfo.find(
+      (info) => info.name === (model as string)
+    )
+    if (!modelInfo?.contextWindow) return 0
+
+    return modelUsage.tokens.promptTokens / modelInfo.contextWindow
+  }
+
+  // Helper method to estimate cost
+  private estimateCost(model: TModel, modelUsage?: AxModelUsage): number {
+    if (!modelUsage?.tokens) return 0
+
+    // Get model info to find pricing
+    const modelInfo = this.modelInfo.find(
+      (info) => info.name === (model as string)
+    )
+    if (
+      !modelInfo ||
+      (!modelInfo.promptTokenCostPer1M && !modelInfo.completionTokenCostPer1M)
+    )
+      return 0
+
+    const { promptTokens = 0, completionTokens = 0 } = modelUsage.tokens
+    const promptCostPer1M = modelInfo.promptTokenCostPer1M || 0
+    const completionCostPer1M = modelInfo.completionTokenCostPer1M || 0
+
+    return (
+      (promptTokens * promptCostPer1M) / 1000000 +
+      (completionTokens * completionCostPer1M) / 1000000
+    )
+  }
+
+  // Helper method to estimate cost by model name
+  private estimateCostByName(
+    modelName: string,
+    modelUsage?: AxModelUsage
+  ): number {
+    if (!modelUsage?.tokens) return 0
+
+    // Get model info to find pricing
+    const modelInfo = this.modelInfo.find((info) => info.name === modelName)
+    if (
+      !modelInfo ||
+      (!modelInfo.promptTokenCostPer1M && !modelInfo.completionTokenCostPer1M)
+    )
+      return 0
+
+    const { promptTokens = 0, completionTokens = 0 } = modelUsage.tokens
+    const promptCostPer1M = modelInfo.promptTokenCostPer1M || 0
+    const completionCostPer1M = modelInfo.completionTokenCostPer1M || 0
+
+    return (
+      (promptTokens * promptCostPer1M) / 1000000 +
+      (completionTokens * completionCostPer1M) / 1000000
+    )
+  }
+
+  // Helper method to record function call metrics
+  private recordFunctionCallMetrics(
+    functionCalls?: readonly unknown[],
+    model?: TModel
+  ): void {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (!metricsInstruments || !functionCalls) return
+
+    for (const call of functionCalls) {
+      if (
+        call &&
+        typeof call === 'object' &&
+        'function' in call &&
+        call.function &&
+        typeof call.function === 'object' &&
+        'name' in call.function
+      ) {
+        recordFunctionCallMetric(
+          metricsInstruments,
+          (call.function as { name: string }).name,
+          undefined, // latency would need to be tracked separately
+          this.name,
+          model as string
+        )
+      }
+    }
+  }
+
+  // Helper method to record timeout metrics
+  private recordTimeoutMetric(type: 'chat' | 'embed'): void {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
+      const model =
+        type === 'chat'
+          ? (this.lastUsedChatModel as string)
+          : (this.lastUsedEmbedModel as string)
+      recordTimeoutMetric(metricsInstruments, type, this.name, model)
+    }
+  }
+
+  // Helper method to record abort metrics
+  private recordAbortMetric(type: 'chat' | 'embed'): void {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (metricsInstruments) {
+      const model =
+        type === 'chat'
+          ? (this.lastUsedChatModel as string)
+          : (this.lastUsedEmbedModel as string)
+      recordAbortMetric(metricsInstruments, type, this.name, model)
+    }
+  }
+
+  // Comprehensive method to record all chat-related metrics
+  private recordChatMetrics(
+    req: Readonly<AxChatRequest<TModel>>,
+    options?: Readonly<
+      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+    >,
+    result?: AxChatResponse | ReadableStream<AxChatResponse>
+  ): void {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (!metricsInstruments) return
+
+    const model = this.lastUsedChatModel as string
+    const modelConfig = this.lastUsedModelConfig
+
+    // Record streaming request metric
+    const isStreaming = modelConfig?.stream ?? false
+    recordStreamingRequestMetric(
+      metricsInstruments,
+      'chat',
+      isStreaming,
+      this.name,
+      model
+    )
+
+    // Record multimodal request metric
+    const { hasImages, hasAudio } = this.detectMultimodalContent(req)
+    recordMultimodalRequestMetric(
+      metricsInstruments,
+      hasImages,
+      hasAudio,
+      this.name,
+      model
+    )
+
+    // Record prompt length metric
+    const promptLength = this.calculatePromptLength(req)
+    recordPromptLengthMetric(metricsInstruments, promptLength, this.name, model)
+
+    // Record model configuration metrics
+    recordModelConfigMetrics(
+      metricsInstruments,
+      modelConfig?.temperature,
+      modelConfig?.maxTokens,
+      this.name,
+      model
+    )
+
+    // Record thinking budget usage if applicable
+    if (
+      options?.thinkingTokenBudget &&
+      this.modelUsage?.tokens?.thoughtsTokens
+    ) {
+      recordThinkingBudgetUsageMetric(
+        metricsInstruments,
+        this.modelUsage.tokens.thoughtsTokens,
+        this.name,
+        model
+      )
+    }
+
+    // Record request size
+    const requestSize = this.calculateRequestSize(req)
+    recordRequestSizeMetric(
+      metricsInstruments,
+      'chat',
+      requestSize,
+      this.name,
+      model
+    )
+
+    // Record response size and function calls for non-streaming responses
+    if (result && !isStreaming) {
+      const chatResponse = result as AxChatResponse
+      const responseSize = this.calculateResponseSize(chatResponse)
+      recordResponseSizeMetric(
+        metricsInstruments,
+        'chat',
+        responseSize,
+        this.name,
+        model
+      )
+
+      // Record function call metrics
+      if (chatResponse.results) {
+        for (const chatResult of chatResponse.results) {
+          if (chatResult.functionCalls) {
+            this.recordFunctionCallMetrics(
+              chatResult.functionCalls,
+              this.lastUsedChatModel
+            )
+          }
+        }
+      }
+
+      // Record context window usage
+      const contextUsage = this.calculateContextWindowUsage(
+        this.lastUsedChatModel!,
+        chatResponse.modelUsage
+      )
+      if (contextUsage > 0) {
+        recordContextWindowUsageMetric(
+          metricsInstruments,
+          contextUsage,
+          this.name,
+          model
+        )
+      }
+
+      // Record estimated cost
+      const estimatedCost = this.estimateCost(
+        this.lastUsedChatModel!,
+        chatResponse.modelUsage
+      )
+      if (estimatedCost > 0) {
+        recordEstimatedCostMetric(
+          metricsInstruments,
+          'chat',
+          estimatedCost,
+          this.name,
+          model
+        )
+      }
+    }
+  }
+
+  // Comprehensive method to record all embed-related metrics
+  private recordEmbedMetrics(
+    req: Readonly<AxEmbedRequest<TEmbedModel>>,
+    result: Readonly<AxEmbedResponse>
+  ): void {
+    const metricsInstruments = this.getMetricsInstruments()
+    if (!metricsInstruments) return
+
+    const model = this.lastUsedEmbedModel as string
+
+    // Record request size
+    const requestSize = this.calculateRequestSize(req)
+    recordRequestSizeMetric(
+      metricsInstruments,
+      'embed',
+      requestSize,
+      this.name,
+      model
+    )
+
+    // Record response size
+    const responseSize = this.calculateResponseSize(result)
+    recordResponseSizeMetric(
+      metricsInstruments,
+      'embed',
+      responseSize,
+      this.name,
+      model
+    )
+
+    // Record estimated cost
+    const estimatedCost = this.estimateCostByName(model, result.modelUsage)
+    if (estimatedCost > 0) {
+      recordEstimatedCostMetric(
+        metricsInstruments,
+        'embed',
+        estimatedCost,
+        this.name,
+        model
+      )
+    }
   }
 
   // Public method to get metrics
@@ -312,17 +819,37 @@ export class AxBaseAI<
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const startTime = performance.now()
     let isError = false
+    let result: AxChatResponse | ReadableStream<AxChatResponse>
 
     try {
-      const result = await this._chat1(req, options)
+      result = await this._chat1(req, options)
       return result
     } catch (error) {
       isError = true
+      // Check for specific error types
+      if (error instanceof Error) {
+        if (
+          error.message.includes('timeout') ||
+          error.name === 'TimeoutError'
+        ) {
+          this.recordTimeoutMetric('chat')
+        } else if (
+          error.message.includes('abort') ||
+          error.name === 'AbortError'
+        ) {
+          this.recordAbortMetric('chat')
+        }
+      }
       throw error
     } finally {
       const duration = performance.now() - startTime
       this.updateLatencyMetrics('chat', duration)
       this.updateErrorMetrics('chat', isError)
+
+      // Record additional metrics if successful
+      if (!isError) {
+        this.recordChatMetrics(req, options, result!)
+      }
     }
   }
 
@@ -333,6 +860,11 @@ export class AxBaseAI<
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const model = this.getModel(req.model) ?? req.model ?? this.defaults.model
+
+    // Validate chat prompt messages for empty content
+    if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
+      validateAxMessageArray(req.chatPrompt)
+    }
 
     const modelConfig = {
       ...this.aiImpl.getModelConfig(),
@@ -346,6 +878,21 @@ export class AxBaseAI<
     ) {
       throw new Error(
         `Model ${model as string} does not support thinkingTokenBudget.`
+      )
+    }
+
+    // Check for showThoughts support
+    if (options?.showThoughts && !this.getFeatures(model).hasShowThoughts) {
+      throw new Error(`Model ${model as string} does not support showThoughts.`)
+    }
+
+    // Check for expensive model usage
+    const modelInfo = this.modelInfo.find(
+      (info) => info.name === (model as string)
+    )
+    if (modelInfo?.isExpensive && options?.useExpensiveModel !== 'yes') {
+      throw new Error(
+        `Model ${model as string} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: "yes" to proceed.`
       )
     }
 
@@ -368,17 +915,19 @@ export class AxBaseAI<
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_OPERATION_NAME]: 'chat',
             [axSpanAttributes.LLM_REQUEST_MODEL]: model as string,
-            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: modelConfig.maxTokens,
+            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]:
+              modelConfig.maxTokens ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: modelConfig.temperature,
-            [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP,
-            [axSpanAttributes.LLM_REQUEST_TOP_K]: modelConfig.topK,
+            [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP ?? 'Not set',
+            [axSpanAttributes.LLM_REQUEST_TOP_K]: modelConfig.topK ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]:
-              modelConfig.frequencyPenalty,
+              modelConfig.frequencyPenalty ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]:
-              modelConfig.presencePenalty,
+              modelConfig.presencePenalty ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
-              modelConfig.stopSequences?.join(', '),
-            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream,
+              modelConfig.stopSequences?.join(', ') ?? 'Not set',
+            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]:
+              modelConfig.stream ?? 'Not set',
           },
         },
         options?.traceContext ?? context.active(),
@@ -480,6 +1029,7 @@ export class AxBaseAI<
           debug,
           fetch: this.fetch,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )
@@ -487,7 +1037,11 @@ export class AxBaseAI<
     }
 
     if (debug) {
-      logChatRequest(req.chatPrompt, options?.debugHideSystemPrompt)
+      logChatRequest(
+        req.chatPrompt,
+        options?.debugHideSystemPrompt,
+        options?.logger ?? this.logger
+      )
     }
 
     const rt = options?.rateLimiter ?? this.rt
@@ -504,29 +1058,26 @@ export class AxBaseAI<
           const res = respFn(resp, state)
           res.sessionId = options?.sessionId
 
-          if (options?.hideThought) {
-            res.results.forEach((result) => {
-              if (result.thought) {
-                result.thought = undefined
-              }
-            })
-          }
-
+          // Only call getTokenUsage if modelUsage is not already provided by the service
           if (!res.modelUsage) {
-            res.modelUsage = {
-              ai: this.name,
-              model: model as string,
-              tokens: this.aiImpl.getTokenUsage(),
+            const tokenUsage = this.aiImpl.getTokenUsage()
+            if (tokenUsage) {
+              res.modelUsage = {
+                ai: this.name,
+                model: model as string,
+                tokens: tokenUsage,
+              }
             }
           }
           this.modelUsage = res.modelUsage
+          this.recordTokenUsage(res.modelUsage)
 
           if (span?.isRecording()) {
             setChatResponseEvents(res, span, this.excludeContentFromTrace)
           }
 
           if (debug) {
-            logResponse(res)
+            logResponse(res, options?.logger ?? this.logger)
           }
           return res
         }
@@ -534,7 +1085,8 @@ export class AxBaseAI<
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
         if (debug) {
-          process.stdout.write('\n')
+          const logger = options?.logger ?? this.logger
+          logger('', { tags: ['responseEnd'] })
         }
         if (span?.isRecording()) {
           span.end()
@@ -553,17 +1105,11 @@ export class AxBaseAI<
     if (!this.aiImpl.createChatResp) {
       throw new Error('generateChatResp not implemented')
     }
+
     const res = this.aiImpl.createChatResp(rv as TChatResponse)
     res.sessionId = options?.sessionId
 
-    if (options?.hideThought) {
-      res.results.forEach((result) => {
-        if (result.thought) {
-          result.thought = undefined
-        }
-      })
-    }
-
+    // Only call getTokenUsage if modelUsage is not already provided by the service
     if (!res.modelUsage) {
       const tokenUsage = this.aiImpl.getTokenUsage()
       if (tokenUsage) {
@@ -577,6 +1123,7 @@ export class AxBaseAI<
 
     if (res.modelUsage) {
       this.modelUsage = res.modelUsage
+      this.recordTokenUsage(res.modelUsage)
     }
 
     if (span?.isRecording()) {
@@ -585,7 +1132,11 @@ export class AxBaseAI<
     }
 
     if (debug) {
-      logResponse(res)
+      logResponse(res, options?.logger ?? this.logger)
+    }
+
+    if (debug) {
+      this.logger('', { tags: ['responseEnd'] })
     }
 
     return res
@@ -597,16 +1148,37 @@ export class AxBaseAI<
   ): Promise<AxEmbedResponse> {
     const startTime = performance.now()
     let isError = false
+    let result: AxEmbedResponse
 
     try {
-      return this._embed1(req, options)
+      result = await this._embed1(req, options)
+      return result
     } catch (error) {
       isError = true
+      // Check for specific error types
+      if (error instanceof Error) {
+        if (
+          error.message.includes('timeout') ||
+          error.name === 'TimeoutError'
+        ) {
+          this.recordTimeoutMetric('embed')
+        } else if (
+          error.message.includes('abort') ||
+          error.name === 'AbortError'
+        ) {
+          this.recordAbortMetric('embed')
+        }
+      }
       throw error
     } finally {
       const duration = performance.now() - startTime
       this.updateLatencyMetrics('embed', duration)
       this.updateErrorMetrics('embed', isError)
+
+      // Record additional metrics if successful
+      if (!isError) {
+        this.recordEmbedMetrics(req, result!)
+      }
     }
   }
 
@@ -682,6 +1254,7 @@ export class AxBaseAI<
           fetch: this.fetch,
           timeout: this.timeout,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )
@@ -695,14 +1268,19 @@ export class AxBaseAI<
 
     res.sessionId = options?.sessionId
 
+    // Only call getTokenUsage if modelUsage is not already provided by the service
     if (!res.modelUsage) {
-      res.modelUsage = {
-        ai: this.name,
-        model: embedModel as string,
-        tokens: this.aiImpl.getTokenUsage(),
+      const tokenUsage = this.aiImpl.getTokenUsage()
+      if (tokenUsage) {
+        res.modelUsage = {
+          ai: this.name,
+          model: embedModel as string,
+          tokens: tokenUsage,
+        }
       }
     }
     this.embedModelUsage = res.modelUsage
+    this.recordTokenUsage(res.modelUsage)
 
     if (span?.isRecording() && res.modelUsage?.tokens) {
       span.addEvent(axSpanEvents.GEN_AI_USAGE, {
@@ -855,7 +1433,22 @@ export function setChatResponseEvents(
     return
   }
 
-  for (const [index, result] of res.results.entries()) {
+  for (let index = 0; index < res.results.length; index++) {
+    const result = res.results[index]
+    if (!result) {
+      continue
+    }
+
+    // Skip empty results that have no meaningful content to avoid empty GEN_AI_CHOICE events
+    if (
+      !result.content &&
+      !result.thought &&
+      !result.functionCalls?.length &&
+      !result.finishReason
+    ) {
+      continue
+    }
+
     const toolCalls = result.functionCalls?.map((call) => {
       return {
         id: call.id,
@@ -883,6 +1476,27 @@ export function setChatResponseEvents(
       index,
       message: JSON.stringify(message, null, 2),
     })
+  }
+}
+
+export function validateAxMessageArray<T>(values: T[]): void {
+  // Validate AxMessage array items
+  for (let i = 0; i < values.length; i++) {
+    const message = values[i]
+    if (!message || typeof message !== 'object') {
+      throw new Error(
+        `AxMessage array validation failed: Item at index ${i} is not a valid message object`
+      )
+    }
+    if (
+      'content' in message &&
+      typeof message.content === 'string' &&
+      message.content.trim() === ''
+    ) {
+      throw new Error(
+        `AxMessage array validation failed: Item at index ${i} has empty content`
+      )
+    }
   }
 }
 

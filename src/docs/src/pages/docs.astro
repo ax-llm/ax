@@ -1,0 +1,26 @@
+---
+import { getCollection } from 'astro:content'
+import Layout from '../layouts/Layout.astro'
+
+// Get all documents from the docs collection
+const allDocs = await getCollection('docs')
+---
+
+<Layout title="Documentation">
+  <main class="prose">
+    <h1>Available Documentation</h1>
+    <p>Choose from the following documentation:</p>
+    <ul>
+      {allDocs.map(doc => (
+        <li>
+          <a href={`/${doc.slug}`}>
+            <strong>{doc.data.title}</strong>
+            {doc.data.description && (
+              <p style="margin: 0.5em 0; color: #666;">{doc.data.description}</p>
+            )}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </main>
+</Layout> 

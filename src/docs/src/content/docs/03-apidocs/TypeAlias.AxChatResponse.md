@@ -2,38 +2,17 @@
 title: AxChatResponse
 ---
 
-> **AxChatResponse**: `object`
+```ts
+type AxChatResponse = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L96
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L108
 
 ## Type declaration
 
-<a id="embedModelUsage"></a>
-
-### embedModelUsage?
-
-> `optional` **embedModelUsage**: [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage)
-
-<a id="modelUsage"></a>
-
-### modelUsage?
-
-> `optional` **modelUsage**: [`AxTokenUsage`](/api/#03-apidocs/typealiasaxtokenusage)
-
-<a id="remoteId"></a>
-
-### remoteId?
-
-> `optional` **remoteId**: `string`
-
-<a id="results"></a>
-
-### results
-
-> **results**: readonly [`AxChatResponseResult`](/api/#03-apidocs/typealiasaxchatresponseresult)[]
-
-<a id="sessionId"></a>
-
-### sessionId?
-
-> `optional` **sessionId**: `string`
+| Name | Type |
+| :------ | :------ |
+| <a id="modelUsage"></a> `modelUsage`? | [`AxModelUsage`](/api/#03-apidocs/typealiasaxmodelusage) |
+| <a id="remoteId"></a> `remoteId`? | `string` |
+| <a id="results"></a> `results` | readonly [`AxChatResponseResult`](/api/#03-apidocs/typealiasaxchatresponseresult)[] |
+| <a id="sessionId"></a> `sessionId`? | `string` |

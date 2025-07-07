@@ -2,16 +2,16 @@
 title: AxAIGoogleGeminiBatchEmbedResponse
 ---
 
-> **AxAIGoogleGeminiBatchEmbedResponse**: `object`
+```ts
+type AxAIGoogleGeminiBatchEmbedResponse = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/google-gemini/types.ts#L189
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/google-gemini/types.ts#L220
 
 AxAIGoogleGeminiEmbedResponse: Structure for handling responses from the Google Gemini API embedding requests.
 
 ## Type declaration
 
-<a id="embeddings"></a>
-
-### embeddings
-
-> **embeddings**: `object`[]
+| Name | Type |
+| :------ | :------ |
+| <a id="embeddings"></a> `embeddings` | `object`[] |

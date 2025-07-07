@@ -2,18 +2,15 @@
 title: AxAIAnthropicChatError
 ---
 
-> **AxAIAnthropicChatError**: `object`
+```ts
+type AxAIAnthropicChatError = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L131
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/anthropic/types.ts#L136
 
 ## Type declaration
 
-### error
-
-> \{ `message`: `string`; `type`: `"authentication_error"`; \}
-
-<a id="type"></a>
-
-### type
-
-> **type**: `"error"`
+| Name | Type |
+| :------ | :------ |
+| <a id="error"></a> `error` | \{ `message`: `string`; `type`: `"authentication_error"`; \} |
+| <a id="type"></a> `type` | `"error"` |

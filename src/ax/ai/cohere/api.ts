@@ -249,6 +249,7 @@ class AxAICohereImpl
 
     const results: AxChatResponse['results'] = [
       {
+        index: 0,
         id: resp.generation_id,
         content: resp.text,
         functionCalls,

@@ -1,7 +1,5 @@
 import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax'
 
-const choice = Math.round(Math.random())
-
 const goodDay = {
   temperature: '27C',
   description: 'Clear Sky',
@@ -16,28 +14,13 @@ const badDay = {
   humidity: 70,
 }
 
-const weatherAPI = ({ location }: Readonly<{ location: string }>) => {
-  const data = [
-    {
-      city: 'san francisco',
-      weather: choice === 1 ? goodDay : badDay,
-    },
-    {
-      city: 'tokyo',
-      weather: choice === 1 ? goodDay : badDay,
-    },
-  ]
-
-  return data
-    .filter((v) => v.city === location.toLowerCase())
-    .map((v) => v.weather)
+const weatherAPI = ({}: Readonly<{ location: string }>) => {
+  return Math.random() > 0.5 ? goodDay : badDay
 }
 
 const opentableAPI = ({
-  location,
+  priceRange,
 }: Readonly<{
-  location: string
-  outdoor: string
   cuisine: string
   priceRange: string
 }>) => {
@@ -84,11 +67,7 @@ const opentableAPI = ({
     },
   ]
 
-  return data
-    .filter((v) => v.city === location?.toLowerCase())
-    .sort((a, b) => {
-      return a.price_range.length - b.price_range.length
-    })
+  return data.filter((v) => v.price_range === priceRange)
 }
 
 // List of functions available to the AI
@@ -140,17 +119,23 @@ const functions: AxFunction[] = [
   },
 ]
 
-// const ai = new AxAI({
-//   name: 'openai',
-//   apiKey: process.env.OPENAI_APIKEY as string,
-//   config: { stream: true },
-// })
-
 const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
   config: { stream: true },
 })
+
+// const ai = new AxAI({
+//     name: 'google-gemini',
+//     apiKey: process.env.GOOGLE_APIKEY as string,
+//     config: { stream: true },
+// })
+
+// const ai = new AxAI({
+//     name: 'openai-responses',
+//     apiKey: process.env.OPENAI_APIKEY as string,
+//     config: { stream: true },
+// })
 
 // const ai = new AxAI({
 //   name: 'groq',
@@ -159,15 +144,15 @@ const ai = new AxAI({
 // })
 
 // const ai = new AxAI({
-//   name: 'cohere',
-//   apiKey: process.env.COHERE_APIKEY as string,
-//   config: { stream: false },
+//     name: 'cohere',
+//     apiKey: process.env.COHERE_APIKEY as string,
+//     config: { stream: false },
 // })
 
 // const ai = new AxAI({
-//   name: 'anthropic',
-//   apiKey: process.env.ANTHROPIC_APIKEY as string,
-//   config: { stream: true },
+//     name: 'anthropic',
+//     apiKey: process.env.ANTHROPIC_APIKEY as string,
+//     config: { stream: true },
 // })
 
 ai.setOptions({ debug: true })

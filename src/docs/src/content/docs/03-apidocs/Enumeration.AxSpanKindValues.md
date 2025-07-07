@@ -2,54 +2,14 @@
 title: AxSpanKindValues
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L53
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/trace/trace.ts#L61
 
 ## Enumeration Members
 
-<a id="AGENT"></a>
-
-### AGENT
-
-> **AGENT**: `"agent"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L56
-
-***
-
-<a id="TASK"></a>
-
-### TASK
-
-> **TASK**: `"task"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L55
-
-***
-
-<a id="TOOL"></a>
-
-### TOOL
-
-> **TOOL**: `"tool"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L57
-
-***
-
-<a id="UNKNOWN"></a>
-
-### UNKNOWN
-
-> **UNKNOWN**: `"unknown"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L58
-
-***
-
-<a id="WORKFLOW"></a>
-
-### WORKFLOW
-
-> **WORKFLOW**: `"workflow"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/trace/trace.ts#L54
+| Enumeration Member | Value |
+| :------ | :------ |
+| <a id="AGENT"></a> `AGENT` | `"agent"` |
+| <a id="TASK"></a> `TASK` | `"task"` |
+| <a id="TOOL"></a> `TOOL` | `"tool"` |
+| <a id="UNKNOWN"></a> `UNKNOWN` | `"unknown"` |
+| <a id="WORKFLOW"></a> `WORKFLOW` | `"workflow"` |

@@ -2,26 +2,16 @@
 title: AxChatResponseFunctionCall
 ---
 
-> **AxChatResponseFunctionCall**: `object`
+```ts
+type AxChatResponseFunctionCall = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/functions.ts#L67
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/functions.ts#L100
 
 ## Type declaration
 
-<a id="args"></a>
-
-### args
-
-> **args**: `string`
-
-<a id="id"></a>
-
-### id
-
-> **id**: `string`
-
-<a id="name"></a>
-
-### name
-
-> **name**: `string`
+| Name | Type |
+| :------ | :------ |
+| <a id="args"></a> `args` | `string` |
+| <a id="id"></a> `id` | `string` |
+| <a id="name"></a> `name` | `string` |

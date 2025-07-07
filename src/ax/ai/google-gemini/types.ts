@@ -1,8 +1,9 @@
 import type { AxModelConfig } from '../types.js'
 
 export enum AxAIGoogleGeminiModel {
-  Gemini25Pro = 'gemini-2.5-pro-preview-05-06',
-  Gemini25Flash = 'gemini-2.5-flash-preview-04-17',
+  Gemini25Pro = 'gemini-2.5-pro',
+  Gemini25Flash = 'gemini-2.5-flash',
+  Gemini25FlashLite = 'gemini-2.5-flash-lite-preview-06-17',
   Gemini20Flash = 'gemini-2.0-flash',
   Gemini20FlashLite = 'gemini-2.0-flash-lite-preview-02-05',
   Gemini1Pro = 'gemini-1.0-pro',
@@ -13,7 +14,7 @@ export enum AxAIGoogleGeminiModel {
 }
 
 export enum AxAIGoogleGeminiEmbedModel {
-  GeminiEmbedding = 'gemini-embedding-exp-03-07',
+  GeminiEmbedding = 'gemini-embedding-exp',
   TextEmbeddingLarge = 'text-embedding-large-exp-03-07',
   TextEmbedding004 = 'text-embedding-004',
   TextEmbedding005 = 'text-embedding-005',
@@ -45,50 +46,44 @@ export enum AxAIGoogleGeminiEmbedTypes {
   CodeRetrievalQuery = 'CODE_RETRIEVAL_QUERY',
 }
 
-export type AxAIGoogleGeminiContent =
+export type AxAIGoogleGeminiContent = {
+  role: 'user' | 'model'
+  parts: AxAIGoogleGeminiContentPart[]
+}
+
+// Part type with common fields intersected with a union of data fields
+export type AxAIGoogleGeminiContentPart = {
+  thought?: boolean
+  metadata?: { videoMetadata: object }
+} & (
+  | { text: string }
   | {
-      role: 'user'
-      parts: (
-        | {
-            text: string
-            thought?: string
-          }
-        | {
-            inlineData: {
-              mimeType: string
-              data: string
-            }
-          }
-        | {
-            fileData: {
-              mimeType: string
-              fileUri: string
-            }
-          }
-      )[]
+      inlineData: {
+        mimeType: string
+        data: string
+      }
     }
   | {
-      role: 'model'
-      parts:
-        | {
-            text: string
-          }[]
-        | {
-            functionCall: {
-              name: string
-              args: object
-            }
-          }[]
+      functionCall: {
+        name: string
+        args: object
+      }
     }
   | {
-      role: 'function'
-      parts: {
-        functionResponse: {
-          name: string
-          response: object
-        }
-      }[]
+      functionResponse: {
+        name: string
+        response: object
+      }
     }
+  | {
+      fileData: {
+        mimeType: string
+        fileUri: string
+      }
+    }
+  | { executableCode: object }
+  | { codeExecutionResult: object }
+)
 
 export type AxAIGoogleGeminiToolFunctionDeclaration = {
   name: string
@@ -188,6 +183,14 @@ export type AxAIGoogleGeminiThinkingConfig = {
   includeThoughts?: boolean
 }
 
+export type AxAIGoogleGeminiThinkingTokenBudgetLevels = {
+  minimal?: number
+  low?: number
+  medium?: number
+  high?: number
+  highest?: number
+}
+
 /**
  * AxAIGoogleGeminiConfig: Configuration options for Google Gemini API
  */
@@ -199,6 +202,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   dimensions?: number
   autoTruncate?: boolean
   thinking?: AxAIGoogleGeminiThinkingConfig
+  thinkingTokenBudgetLevels?: AxAIGoogleGeminiThinkingTokenBudgetLevels
   urlContext?: string
 }
 

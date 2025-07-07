@@ -2,7 +2,7 @@
 title: AxAI
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L77
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L86
 
 ## Implements
 
@@ -14,14 +14,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxAI()
 
-> **new AxAI**(`options`): [`AxAI`](/api/#03-apidocs/classaxai)
+```ts
+new AxAI(options: Readonly<AxAIArgs>): AxAI
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L80
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L89
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `options` | `Readonly`\<[`AxAIArgs`](/api/#03-apidocs/typealiasaxaiargs)\> |
 
 #### Returns
@@ -34,20 +36,26 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### chat()
 
-> **chat**(`req`, `options`?): `Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+```ts
+chat(req: Readonly<AxChatRequest>, options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>): Promise<
+  | AxChatResponse
+| ReadableStream<AxChatResponse>>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L146
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L167
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest)\> |
 | `options`? | `Readonly`\<[`AxAIPromptConfig`](/api/#03-apidocs/typealiasaxaipromptconfig) & [`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\> |
 
 #### Returns
 
-`Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+`Promise`\<
+  \| [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
+  \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
 
 #### Implementation of
 
@@ -59,14 +67,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### embed()
 
-> **embed**(`req`, `options`?): `Promise`\<[`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)\>
+```ts
+embed(req: Readonly<AxEmbedRequest>, options?: Readonly<AxAIServiceActionOptions>): Promise<AxEmbedResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L153
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L174
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxEmbedRequest`](/api/#03-apidocs/typealiasaxembedrequest)\> |
 | `options`? | `Readonly`\<[`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\> |
 
@@ -80,53 +90,30 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
-<a id="getDefaultModels"></a>
-
-### getDefaultModels()
-
-> **getDefaultModels**(): `Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L138
-
-#### Returns
-
-`Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-#### Implementation of
-
-[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getDefaultModels`](/api/#03-apidocs/interfaceaxaiservicemdgetdefaultmodels)
-
-***
-
 <a id="getFeatures"></a>
 
 ### getFeatures()
 
-> **getFeatures**(`model`?): `object`
+```ts
+getFeatures(model?: string): object
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L131
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L143
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `model`? | `string` |
 
 #### Returns
 
 `object`
 
-<a id="functions"></a>
-
-##### functions
-
-> **functions**: `boolean`
-
-<a id="streaming"></a>
-
-##### streaming
-
-> **streaming**: `boolean`
+| Name | Type |
+| :------ | :------ |
+| <a id="functions"></a> `functions` | `boolean` |
+| <a id="streaming"></a> `streaming` | `boolean` |
 
 #### Implementation of
 
@@ -138,9 +125,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getId()
 
-> **getId**(): `string`
+```ts
+getId(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L127
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L139
 
 #### Returns
 
@@ -152,13 +141,95 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
+<a id="getLastUsedChatModel"></a>
+
+### getLastUsedChatModel()
+
+```ts
+getLastUsedChatModel(): unknown
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L151
+
+#### Returns
+
+`unknown`
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLastUsedChatModel`](/api/#03-apidocs/interfaceaxaiservicemdgetlastusedchatmodel)
+
+***
+
+<a id="getLastUsedEmbedModel"></a>
+
+### getLastUsedEmbedModel()
+
+```ts
+getLastUsedEmbedModel(): unknown
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L155
+
+#### Returns
+
+`unknown`
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLastUsedEmbedModel`](/api/#03-apidocs/interfaceaxaiservicemdgetlastusedembedmodel)
+
+***
+
+<a id="getLastUsedModelConfig"></a>
+
+### getLastUsedModelConfig()
+
+```ts
+getLastUsedModelConfig(): undefined | AxModelConfig
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L159
+
+#### Returns
+
+`undefined` \| [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLastUsedModelConfig`](/api/#03-apidocs/interfaceaxaiservicemdgetlastusedmodelconfig)
+
+***
+
+<a id="getLogger"></a>
+
+### getLogger()
+
+```ts
+getLogger(): AxLoggerFunction
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L189
+
+#### Returns
+
+[`AxLoggerFunction`](/api/#03-apidocs/typealiasaxloggerfunction)
+
+#### Implementation of
+
+[`AxAIService`](/api/#03-apidocs/interfaceaxaiservice).[`getLogger`](/api/#03-apidocs/interfaceaxaiservicemdgetlogger)
+
+***
+
 <a id="getMetrics"></a>
 
 ### getMetrics()
 
-> **getMetrics**(): [`AxAIServiceMetrics`](/api/#03-apidocs/interfaceaxaiservicemetrics)
+```ts
+getMetrics(): AxAIServiceMetrics
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L142
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L163
 
 #### Returns
 
@@ -174,9 +245,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getModelList()
 
-> **getModelList**(): `undefined` \| [`AxAIModelList`](/api/#03-apidocs/typealiasaxaimodellist)
+```ts
+getModelList(): undefined | AxAIModelList
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L134
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L147
 
 #### Returns
 
@@ -192,9 +265,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getName()
 
-> **getName**(): `string`
+```ts
+getName(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L123
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L135
 
 #### Returns
 
@@ -210,9 +285,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getOptions()
 
-> **getOptions**(): `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
+```ts
+getOptions(): Readonly<AxAIServiceOptions>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L164
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L185
 
 #### Returns
 
@@ -228,14 +305,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setOptions()
 
-> **setOptions**(`options`): `void`
+```ts
+setOptions(options: Readonly<AxAIServiceOptions>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/wrap.ts#L160
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/wrap.ts#L181
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `options` | `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\> |
 
 #### Returns

@@ -2,70 +2,21 @@
 title: AxAIAnthropicMessageStartEvent
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L140
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/anthropic/types.ts#L145
 
 ## Properties
 
-<a id="message"></a>
-
-### message
-
-> **message**: `object`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L142
-
-<a id=""></a>
-
-#### content
-
-> **content**: \[\]
-
-<a id=""></a>
-
-#### id
-
-> **id**: `string`
-
-<a id=""></a>
-
-#### model
-
-> **model**: `string`
-
-<a id=""></a>
-
-#### role
-
-> **role**: `"assistant"`
-
-<a id=""></a>
-
-#### stop\_reason
-
-> **stop\_reason**: `null` \| `string`
-
-<a id=""></a>
-
-#### stop\_sequence
-
-> **stop\_sequence**: `null` \| `string`
-
-<a id=""></a>
-
-#### type
-
-> **type**: `"message"`
-
-#### usage
-
-> \{ `input_tokens`: `number`; `output_tokens`: `number`; \}
-
-***
-
-<a id="type"></a>
-
-### type
-
-> **type**: `"message_start"`
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/anthropic/types.ts#L141
+| Property | Type |
+| :------ | :------ |
+| <a id="message"></a> `message` | `object` |
+| `message.content` | \[\] |
+| `message.id` | `string` |
+| `message.model` | `string` |
+| `message.role` | `"assistant"` |
+| `message.stop_reason` | `null` \| `string` |
+| `message.stop_sequence` | `null` \| `string` |
+| `message.type` | `"message"` |
+| `message.usage` | `object` |
+| `message.usage.input_tokens` | `number` |
+| `message.usage.output_tokens` | `number` |
+| <a id="type"></a> `type` | `"message_start"` |

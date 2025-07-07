@@ -12,6 +12,7 @@ const createMockService = ({
   chatResponse = async () => ({
     results: [
       {
+        index: 0,
         content: 'test response',
         finishReason: 'stop' as const,
       },
@@ -59,6 +60,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -83,6 +85,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -121,6 +124,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -140,7 +144,12 @@ describe('AxBalancer', () => {
       createMockService({
         name: 'service-1',
         chatResponse: async () => {
-          throw new AxAIServiceNetworkError(new Error('test'), 'test-url')
+          throw new AxAIServiceNetworkError(
+            new Error('test'),
+            'test-url',
+            {},
+            {}
+          )
         },
       }),
     ]
@@ -165,6 +174,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -188,6 +198,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },
@@ -226,7 +237,12 @@ describe('AxBalancer', () => {
         name: 'service-0',
         latencyMs: 200,
         chatResponse: async () => {
-          throw new AxAIServiceNetworkError(new Error('test'), 'test-url')
+          throw new AxAIServiceNetworkError(
+            new Error('test'),
+            'test-url',
+            {},
+            {}
+          )
         },
       }),
       createMockService({
@@ -236,6 +252,7 @@ describe('AxBalancer', () => {
           return {
             results: [
               {
+                index: 0,
                 content: 'test response',
                 finishReason: 'stop' as const,
               },

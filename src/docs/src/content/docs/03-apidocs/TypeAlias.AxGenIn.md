@@ -2,10 +2,14 @@
 title: AxGenIn
 ---
 
-> **AxGenIn**: `object`
+```ts
+type AxGenIn = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/program.ts#L30
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/types.ts#L14
 
 ## Index Signature
 
-\[`key`: `symbol`\]: [`AxFieldValue`](/api/#03-apidocs/typealiasaxfieldvalue)
+```ts
+[key: string]: AxFieldValue
+```

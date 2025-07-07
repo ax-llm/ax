@@ -2,7 +2,7 @@
 title: AxHFDataLoader
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L5
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/loader.ts#L5
 
 ## Constructors
 
@@ -10,14 +10,24 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxHFDataLoader()
 
-> **new AxHFDataLoader**(`__namedParameters`): [`AxHFDataLoader`](/api/#03-apidocs/classaxhfdataloader)
+```ts
+new AxHFDataLoader(__namedParameters: Readonly<{
+  config: string;
+  dataset: string;
+  options: Readonly<{
+     length: number;
+     offset: number;
+    }>;
+  split: string;
+ }>): AxHFDataLoader
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L14
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/loader.ts#L14
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `__namedParameters` | `Readonly`\<\{ `config`: `string`; `dataset`: `string`; `options`: `Readonly`\<\{ `length`: `number`; `offset`: `number`; \}\>; `split`: `string`; \}\> |
 
 #### Returns
@@ -30,9 +40,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getData()
 
-> **getData**(): [`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[]
+```ts
+getData(): AxDataRow[]
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L67
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/loader.ts#L67
 
 #### Returns
 
@@ -44,20 +56,26 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getRows()
 
-> **getRows**\<`T`\>(`__namedParameters`): `Promise`\<`T`[]\>
+```ts
+getRows<T>(__namedParameters: Readonly<{
+  count: number;
+  fields: readonly string[];
+  renameMap: Record<string, string>;
+}>): Promise<T[]>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L71
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/loader.ts#L71
 
 #### Type Parameters
 
 | Type Parameter |
-| ------ |
+| :------ |
 | `T` |
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `__namedParameters` | `Readonly`\<\{ `count`: `number`; `fields`: readonly `string`[]; `renameMap`: `Record`\<`string`, `string`\>; \}\> |
 
 #### Returns
@@ -70,9 +88,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### loadData()
 
-> **loadData**(): `Promise`\<[`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[]\>
+```ts
+loadData(): Promise<AxDataRow[]>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L51
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/loader.ts#L51
 
 #### Returns
 
@@ -84,14 +104,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setData()
 
-> **setData**(`rows`): `void`
+```ts
+setData(rows: AxDataRow[]): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/dsp/loader.ts#L63
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/dsp/loader.ts#L63
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `rows` | [`AxDataRow`](/api/#03-apidocs/typealiasaxdatarow)[] |
 
 #### Returns

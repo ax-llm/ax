@@ -63,7 +63,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
     generate,
     config,
   }: Readonly<{
-    agent: AxAgentic
+    agent: AxAgentic<IN, OUT>
     updateState: (msgs: readonly CoreMessage[]) => void
     generate: Renderer<OUT>
     config?: Readonly<AxConfig>

@@ -1,8 +1,10 @@
 import type { AxAPI } from '../../util/apicall.js'
+import { AxAIRefusalError } from '../../util/apicall.js'
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js'
 import { GoogleVertexAuth } from '../google-vertex/auth.js'
 import type {
   AxAIInputModelList,
+  AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatRequest,
@@ -26,18 +28,37 @@ import {
   type AxAIAnthropicMessageDeltaEvent,
   type AxAIAnthropicMessageStartEvent,
   AxAIAnthropicModel,
+  type AxAIAnthropicThinkingConfig,
   AxAIAnthropicVertexModel,
 } from './types.js'
+
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
 
 export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
     model: AxAIAnthropicModel.Claude37Sonnet,
+    maxTokens: 40000, // Ensure maxTokens is higher than highest thinking budget
+    thinkingTokenBudgetLevels: {
+      minimal: 1024,
+      low: 5000,
+      medium: 10000,
+      high: 20000,
+      highest: 32000,
+    },
     ...axBaseAIDefaultConfig(),
   })
 
 export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
     model: AxAIAnthropicVertexModel.Claude37Sonnet,
+    maxTokens: 40000, // Ensure maxTokens is higher than highest thinking budget
+    thinkingTokenBudgetLevels: {
+      minimal: 1024,
+      low: 5000,
+      medium: 10000,
+      high: 20000,
+      highest: 32000,
+    },
     ...axBaseAIDefaultConfig(),
   })
 
@@ -67,6 +88,7 @@ class AxAIAnthropicImpl
     >
 {
   private tokensUsed: AxTokenUsage | undefined
+  private currentPromptConfig?: AxAIPromptConfig
 
   constructor(
     private config: AxAIAnthropicConfig,
@@ -80,7 +102,7 @@ class AxAIAnthropicImpl
   getModelConfig(): AxModelConfig {
     const { config } = this
     return {
-      maxTokens: config.maxTokens,
+      maxTokens: config.maxTokens ?? 4096,
       temperature: config.temperature,
       topP: config.topP,
       topK: config.topK,
@@ -96,8 +118,12 @@ class AxAIAnthropicImpl
   createChatReq = (
     req: Readonly<
       AxInternalChatRequest<AxAIAnthropicModel | AxAIAnthropicVertexModel>
-    >
+    >,
+    config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIAnthropicChatRequest] => {
+    // Store config for use in response methods
+    this.currentPromptConfig = config
+
     const model = req.model
     const stream = req.modelConfig?.stream ?? this.config.stream
 
@@ -160,20 +186,86 @@ class AxAIAnthropicImpl
       })
     )
 
+    const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens
+    const stopSequences =
+      req.modelConfig?.stopSequences ?? this.config.stopSequences
+    const temperature = req.modelConfig?.temperature ?? this.config.temperature
+    const topP = req.modelConfig?.topP ?? this.config.topP
+    const topK = req.modelConfig?.topK ?? this.config.topK
+    const n = req.modelConfig?.n ?? this.config.n
+
+    if (n && n > 1) {
+      throw new Error('Anthropic does not support sampling (n > 1)')
+    }
+
+    // Handle thinking configuration
+    let thinkingConfig: AxAIAnthropicThinkingConfig | undefined
+
+    if (this.config.thinking?.budget_tokens) {
+      thinkingConfig = this.config.thinking
+    }
+
+    // Override based on prompt-specific config
+    if (config?.thinkingTokenBudget) {
+      const levels = this.config.thinkingTokenBudgetLevels
+
+      switch (config.thinkingTokenBudget) {
+        case 'none':
+          // When thinkingTokenBudget is 'none', disable thinking entirely
+          thinkingConfig = undefined
+          break
+        case 'minimal':
+          thinkingConfig = {
+            type: 'enabled',
+            budget_tokens: levels?.minimal ?? 1024,
+          }
+          break
+        case 'low':
+          thinkingConfig = {
+            type: 'enabled',
+            budget_tokens: levels?.low ?? 5000,
+          }
+          break
+        case 'medium':
+          thinkingConfig = {
+            type: 'enabled',
+            budget_tokens: levels?.medium ?? 10000,
+          }
+          break
+        case 'high':
+          thinkingConfig = {
+            type: 'enabled',
+            budget_tokens: levels?.high ?? 20000,
+          }
+          break
+        case 'highest':
+          thinkingConfig = {
+            type: 'enabled',
+            budget_tokens: levels?.highest ?? 32000,
+          }
+          break
+      }
+    }
+
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
         ? { anthropic_version: 'vertex-2023-10-16' }
         : { model }),
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      stop_sequences:
-        req.modelConfig?.stopSequences ?? this.config.stopSequences,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP,
-      top_k: req.modelConfig?.topK ?? this.config.topK,
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
+      ...(stopSequences && stopSequences.length > 0
+        ? { stop_sequences: stopSequences }
+        : {}),
+      // Only include temperature when thinking is not enabled
+      ...(temperature && !thinkingConfig ? { temperature } : {}),
+      // Only include top_p when thinking is not enabled, or when it's >= 0.95
+      ...(topP && (!thinkingConfig || topP >= 0.95) ? { top_p: topP } : {}),
+      // Only include top_k when thinking is not enabled
+      ...(topK && !thinkingConfig ? { top_k: topK } : {}),
       ...toolsChoice,
       ...(tools && tools.length > 0 ? { tools } : {}),
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
+      ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
       messages,
     }
 
@@ -184,34 +276,64 @@ class AxAIAnthropicImpl
     resp: Readonly<AxAIAnthropicChatResponse | AxAIAnthropicChatError>
   ): AxChatResponse => {
     if (resp.type === 'error') {
-      throw new Error(`Anthropic Chat API Error: ${resp.error.message}`)
+      // Use AxAIRefusalError for authentication and API errors that could be refusal-related
+      throw new AxAIRefusalError(
+        resp.error.message,
+        undefined, // model not specified in error response
+        undefined // requestId not specified in error response
+      )
     }
 
     const finishReason = mapFinishReason(resp.stop_reason)
 
-    const results = resp.content.map((msg): AxChatResponseResult => {
-      if (msg.type === 'tool_use') {
-        return {
-          id: msg.id,
-          functionCalls: [
-            {
-              id: msg.id,
-              type: 'function' as const,
-              function: {
-                name: msg.name,
-                params: msg.input,
+    // Determine if thoughts should be shown
+    const showThoughts =
+      this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
+      this.currentPromptConfig?.showThoughts !== false
+
+    const results = resp.content
+      .map((msg, index): AxChatResponseResult => {
+        if (msg.type === 'tool_use') {
+          return {
+            index,
+            id: msg.id,
+            functionCalls: [
+              {
+                id: msg.id,
+                type: 'function' as const,
+                function: {
+                  name: msg.name,
+                  params: msg.input,
+                },
               },
-            },
-          ],
+            ],
+            finishReason,
+          }
+        }
+        if (
+          (msg.type === 'thinking' || msg.type === 'redacted_thinking') &&
+          showThoughts
+        ) {
+          return {
+            index,
+            thought: msg.thinking,
+            id: resp.id,
+            finishReason,
+          }
+        }
+        return {
+          index,
+          content: msg.type === 'text' ? msg.text : '',
+          id: resp.id,
           finishReason,
         }
-      }
-      return {
-        content: msg.type === 'text' ? msg.text : '',
-        id: resp.id,
-        finishReason,
-      }
-    })
+      })
+      .filter(
+        (result) =>
+          result.content !== '' ||
+          result.thought !== undefined ||
+          result.functionCalls !== undefined
+      )
 
     this.tokensUsed = {
       promptTokens: resp.usage.input_tokens,
@@ -240,12 +362,18 @@ class AxAIAnthropicImpl
 
     if (resp.type === 'error') {
       const { error } = resp as unknown as AxAIAnthropicErrorEvent
-      throw new Error(error.message)
+      throw new AxAIRefusalError(
+        error.message,
+        undefined, // model not specified in error event
+        undefined // requestId not specified in error event
+      )
     }
+
+    const index = 0
 
     if (resp.type === 'message_start') {
       const { message } = resp as unknown as AxAIAnthropicMessageStartEvent
-      const results = [{ content: '', id: message.id }]
+      const results = [{ index, content: '', id: message.id }]
 
       this.tokensUsed = {
         promptTokens: message.usage?.input_tokens ?? 0,
@@ -263,7 +391,21 @@ class AxAIAnthropicImpl
 
       if (contentBlock.type === 'text') {
         return {
-          results: [{ content: contentBlock.text }],
+          results: [{ index, content: contentBlock.text }],
+        }
+      }
+      if (contentBlock.type === 'thinking') {
+        // Determine if thoughts should be shown
+        const showThoughts =
+          this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
+          this.currentPromptConfig?.showThoughts !== false
+        if (showThoughts) {
+          return {
+            results: [{ index, thought: contentBlock.thinking }],
+          }
+        }
+        return {
+          results: [{ index, content: '' }],
         }
       }
       if (contentBlock.type === 'tool_use') {
@@ -284,7 +426,7 @@ class AxAIAnthropicImpl
             },
           ]
           return {
-            results: [{ functionCalls }],
+            results: [{ index, functionCalls }],
           }
         }
       }
@@ -294,7 +436,28 @@ class AxAIAnthropicImpl
       const { delta } = resp as unknown as AxAIAnthropicContentBlockDeltaEvent
       if (delta.type === 'text_delta') {
         return {
-          results: [{ content: delta.text }],
+          results: [{ index, content: delta.text }],
+        }
+      }
+      if (delta.type === 'thinking_delta') {
+        // Determine if thoughts should be shown
+        const showThoughts =
+          this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
+          this.currentPromptConfig?.showThoughts !== false
+        if (showThoughts) {
+          return {
+            results: [{ index, thought: delta.thinking }],
+          }
+        }
+        return {
+          results: [{ index, content: '' }],
+        }
+      }
+      if (delta.type === 'signature_delta') {
+        // Signature deltas are handled internally by Anthropic,
+        // we don't need to expose them in the response
+        return {
+          results: [{ index, content: '' }],
         }
       }
       if (delta.type === 'input_json_delta') {
@@ -313,7 +476,7 @@ class AxAIAnthropicImpl
           },
         ]
         return {
-          results: [{ functionCalls }],
+          results: [{ index, functionCalls }],
         }
       }
     }
@@ -328,13 +491,17 @@ class AxAIAnthropicImpl
       }
 
       const results = [
-        { content: '', finishReason: mapFinishReason(delta.stop_reason) },
+        {
+          index,
+          content: '',
+          finishReason: mapFinishReason(delta.stop_reason),
+        },
       ]
       return { results }
     }
 
     return {
-      results: [{ content: '' }],
+      results: [{ index, content: '' }],
     }
   }
 }
@@ -390,6 +557,26 @@ export class AxAIAnthropic extends AxBaseAI<
 
     const aiImpl = new AxAIAnthropicImpl(_config, isVertex)
 
+    const supportFor = (
+      model: AxAIAnthropicModel | AxAIAnthropicVertexModel
+    ) => {
+      const mi = getModelInfo<
+        AxAIAnthropicModel | AxAIAnthropicVertexModel,
+        undefined
+      >({
+        model,
+        modelInfo: axModelInfoAnthropic,
+        models,
+      })
+      return {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
+        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        functionCot: true,
+      }
+    }
+
     super(aiImpl, {
       name: 'Anthropic',
       apiURL,
@@ -397,7 +584,7 @@ export class AxAIAnthropic extends AxBaseAI<
       modelInfo: axModelInfoAnthropic,
       defaults: { model: _config.model },
       options,
-      supportFor: { functions: true, streaming: true, functionCot: true },
+      supportFor,
       models,
     })
   }

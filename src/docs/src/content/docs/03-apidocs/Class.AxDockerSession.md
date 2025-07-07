@@ -2,7 +2,7 @@
 title: AxDockerSession
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L56
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L56
 
 ## Constructors
 
@@ -10,14 +10,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### new AxDockerSession()
 
-> **new AxDockerSession**(`apiUrl`): [`AxDockerSession`](/api/#03-apidocs/classaxdockersession)
+```ts
+new AxDockerSession(apiUrl: string): AxDockerSession
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L60
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L60
 
 #### Parameters
 
 | Parameter | Type | Default value |
-| ------ | ------ | ------ |
+| :------ | :------ | :------ |
 | `apiUrl` | `string` | `'http://localhost:2375'` |
 
 #### Returns
@@ -30,14 +32,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### connectToContainer()
 
-> **connectToContainer**(`containerId`): `Promise`\<`void`\>
+```ts
+connectToContainer(containerId: string): Promise<void>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L186
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L186
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `containerId` | `string` |
 
 #### Returns
@@ -50,19 +54,30 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### createContainer()
 
-> **createContainer**(`__namedParameters`): `Promise`\<\{ `Id`: `string`; \}\>
+```ts
+createContainer(__namedParameters: Readonly<{
+  doNotPullImage: boolean;
+  imageName: string;
+  tag: string;
+  volumes: object[];
+ }>): Promise<{
+  Id: string;
+}>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L80
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L80
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `__namedParameters` | `Readonly`\<\{ `doNotPullImage`: `boolean`; `imageName`: `string`; `tag`: `string`; `volumes`: `object`[]; \}\> |
 
 #### Returns
 
-`Promise`\<\{ `Id`: `string`; \}\>
+`Promise`\<\{
+  `Id`: `string`;
+ \}\>
 
 ***
 
@@ -70,14 +85,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### executeCommand()
 
-> **executeCommand**(`command`): `Promise`\<`string`\>
+```ts
+executeCommand(command: string): Promise<string>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L274
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L274
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `command` | `string` |
 
 #### Returns
@@ -90,19 +107,32 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### findOrCreateContainer()
 
-> **findOrCreateContainer**(`__namedParameters`): `Promise`\<\{ `Id`: `string`; `isNew`: `boolean`; \}\>
+```ts
+findOrCreateContainer(__namedParameters: Readonly<{
+  doNotPullImage: boolean;
+  imageName: string;
+  tag: string;
+  volumes: object[];
+ }>): Promise<{
+  Id: string;
+  isNew: boolean;
+}>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L128
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L128
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `__namedParameters` | `Readonly`\<\{ `doNotPullImage`: `boolean`; `imageName`: `string`; `tag`: `string`; `volumes`: `object`[]; \}\> |
 
 #### Returns
 
-`Promise`\<\{ `Id`: `string`; `isNew`: `boolean`; \}\>
+`Promise`\<\{
+  `Id`: `string`;
+  `isNew`: `boolean`;
+ \}\>
 
 ***
 
@@ -110,9 +140,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getContainerLogs()
 
-> **getContainerLogs**(): `Promise`\<`string`\>
+```ts
+getContainerLogs(): Promise<string>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L263
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L263
 
 #### Returns
 
@@ -124,14 +156,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### listContainers()
 
-> **listContainers**(`all`): `Promise`\<[`AxDockerContainer`](/api/#03-apidocs/interfaceaxdockercontainer)[]\>
+```ts
+listContainers(all: boolean): Promise<AxDockerContainer[]>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L256
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L256
 
 #### Parameters
 
 | Parameter | Type | Default value |
-| ------ | ------ | ------ |
+| :------ | :------ | :------ |
 | `all` | `boolean` | `false` |
 
 #### Returns
@@ -144,14 +178,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### pullImage()
 
-> **pullImage**(`imageName`): `Promise`\<`void`\>
+```ts
+pullImage(imageName: string): Promise<void>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L64
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L64
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `imageName` | `string` |
 
 #### Returns
@@ -164,9 +200,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### startContainer()
 
-> **startContainer**(): `Promise`\<`void`\>
+```ts
+startContainer(): Promise<void>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L169
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L169
 
 #### Returns
 
@@ -178,14 +216,20 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### stopContainers()
 
-> **stopContainers**(`__namedParameters`): `Promise`\<`object`[]\>
+```ts
+stopContainers(__namedParameters: Readonly<{
+  remove: boolean;
+  tag: string;
+  timeout: number;
+}>): Promise<object[]>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L198
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L198
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `__namedParameters` | `Readonly`\<\{ `remove`: `boolean`; `tag`: `string`; `timeout`: `number`; \}\> |
 
 #### Returns
@@ -198,9 +242,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### toFunction()
 
-> **toFunction**(): [`AxFunction`](/api/#03-apidocs/typealiasaxfunction)
+```ts
+toFunction(): AxFunction
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/funcs/docker.ts#L373
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/funcs/docker.ts#L373
 
 #### Returns
 

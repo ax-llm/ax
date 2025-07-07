@@ -2,11 +2,44 @@
 
 ---
 
-<!-- Footer -->
-<footer class="mt-12 pt-6 border-t border-gray-300">
-  <div class="flex justify-between text-gray-500 text-sm">
-    <span>Based on Stanford DSPy</span>
+<!-- Footer inspired by Humming design -->
+<footer
+  style="margin-top: 120px; padding: 48px 0; border-top: 1px solid #f1f3f4; background: #fafbfc;"
+>
+  <div
+    style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 500; color: #6c757d; flex-wrap: wrap; gap: 16px;"
+  >
+    <div style="display: flex; gap: 32px; flex-wrap: wrap;">
+      <span>Based on Stanford DSPy</span>
+      <span>TypeScript First</span>
+    </div>
     <span>Machines as Agents™</span>
-    <span>TypeScript First</span>
   </div>
 </footer>
+
+<style>
+  @media (max-width: 768px) {
+    footer {
+      margin-top: 80px !important;
+      padding: 32px 0 !important;
+    }
+
+    footer div {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 16px !important;
+    }
+
+    footer div div {
+      flex-direction: row !important;
+      gap: 16px !important;
+    }
+  }
+
+  @media (max-width: 480px) {
+    footer div div {
+      flex-direction: column !important;
+      gap: 8px !important;
+    }
+  }
+</style>

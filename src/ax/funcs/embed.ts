@@ -43,7 +43,10 @@ export class AxEmbeddingAdapter {
   ): Promise<unknown> {
     const embedRes = await this.aiService.embed(
       { texts: [text] },
-      { sessionId: extra?.sessionId }
+      {
+        sessionId: extra?.sessionId,
+        abortSignal: extra?.abortSignal,
+      }
     )
     const embeds = embedRes.embeddings.at(0)
 

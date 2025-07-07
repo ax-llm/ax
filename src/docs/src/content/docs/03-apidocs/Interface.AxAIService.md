@@ -2,12 +2,12 @@
 title: AxAIService
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L245
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L302
 
 ## Type Parameters
 
 | Type Parameter | Default type |
-| ------ | ------ |
+| :------ | :------ |
 | `TModel` | `unknown` |
 | `TEmbedModel` | `unknown` |
 
@@ -17,20 +17,26 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### chat()
 
-> **chat**(`req`, `options`?): `Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+```ts
+chat(req: Readonly<AxChatRequest<TModel>>, options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>>): Promise<
+  | AxChatResponse
+| ReadableStream<AxChatResponse>>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L253
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L314
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxChatRequest`](/api/#03-apidocs/typealiasaxchatrequest)\<`TModel`\>\> |
 | `options`? | `Readonly`\<[`AxAIPromptConfig`](/api/#03-apidocs/typealiasaxaipromptconfig) & [`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\<`TModel`, `TEmbedModel`\>\> |
 
 #### Returns
 
-`Promise`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse) \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
+`Promise`\<
+  \| [`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)
+  \| `ReadableStream`\<[`AxChatResponse`](/api/#03-apidocs/typealiasaxchatresponse)\>\>
 
 ***
 
@@ -38,14 +44,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### embed()
 
-> **embed**(`req`, `options`?): `Promise`\<[`AxEmbedResponse`](/api/#03-apidocs/typealiasaxembedresponse)\>
+```ts
+embed(req: Readonly<AxEmbedRequest<TEmbedModel>>, options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>): Promise<AxEmbedResponse>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L259
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L320
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `req` | `Readonly`\<[`AxEmbedRequest`](/api/#03-apidocs/typealiasaxembedrequest)\<`TEmbedModel`\>\> |
 | `options`? | `Readonly`\<[`AxAIServiceActionOptions`](/api/#03-apidocs/typealiasaxaiserviceactionoptions)\<`TModel`, `TEmbedModel`\>\> |
 
@@ -55,32 +63,20 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
-<a id="getDefaultModels"></a>
-
-### getDefaultModels()
-
-> **getDefaultModels**(): `Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L250
-
-#### Returns
-
-`Readonly`\<\{ `embedModel`: `string`; `model`: `string`; \}\>
-
-***
-
 <a id="getFeatures"></a>
 
 ### getFeatures()
 
-> **getFeatures**(`model`?): [`AxAIFeatures`](/api/#03-apidocs/interfaceaxaifeatures)
+```ts
+getFeatures(model?: TModel): AxAIFeatures
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L248
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L305
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `model`? | `TModel` |
 
 #### Returns
@@ -93,9 +89,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getId()
 
-> **getId**(): `string`
+```ts
+getId(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L246
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L303
 
 #### Returns
 
@@ -103,13 +101,79 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ***
 
+<a id="getLastUsedChatModel"></a>
+
+### getLastUsedChatModel()
+
+```ts
+getLastUsedChatModel(): undefined | TModel
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L310
+
+#### Returns
+
+`undefined` \| `TModel`
+
+***
+
+<a id="getLastUsedEmbedModel"></a>
+
+### getLastUsedEmbedModel()
+
+```ts
+getLastUsedEmbedModel(): undefined | TEmbedModel
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L311
+
+#### Returns
+
+`undefined` \| `TEmbedModel`
+
+***
+
+<a id="getLastUsedModelConfig"></a>
+
+### getLastUsedModelConfig()
+
+```ts
+getLastUsedModelConfig(): undefined | AxModelConfig
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L312
+
+#### Returns
+
+`undefined` \| [`AxModelConfig`](/api/#03-apidocs/typealiasaxmodelconfig)
+
+***
+
+<a id="getLogger"></a>
+
+### getLogger()
+
+```ts
+getLogger(): AxLoggerFunction
+```
+
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L308
+
+#### Returns
+
+[`AxLoggerFunction`](/api/#03-apidocs/typealiasaxloggerfunction)
+
+***
+
 <a id="getMetrics"></a>
 
 ### getMetrics()
 
-> **getMetrics**(): [`AxAIServiceMetrics`](/api/#03-apidocs/interfaceaxaiservicemetrics)
+```ts
+getMetrics(): AxAIServiceMetrics
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L251
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L307
 
 #### Returns
 
@@ -121,9 +185,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getModelList()
 
-> **getModelList**(): `undefined` \| [`AxAIModelList`](/api/#03-apidocs/typealiasaxaimodellist)
+```ts
+getModelList(): undefined | AxAIModelList
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L249
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L306
 
 #### Returns
 
@@ -135,9 +201,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getName()
 
-> **getName**(): `string`
+```ts
+getName(): string
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L247
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L304
 
 #### Returns
 
@@ -149,9 +217,11 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### getOptions()
 
-> **getOptions**(): `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\>
+```ts
+getOptions(): Readonly<AxAIServiceOptions>
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L265
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L326
 
 #### Returns
 
@@ -163,14 +233,16 @@ Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620d
 
 ### setOptions()
 
-> **setOptions**(`options`): `void`
+```ts
+setOptions(options: Readonly<AxAIServiceOptions>): void
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L264
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L325
 
 #### Parameters
 
 | Parameter | Type |
-| ------ | ------ |
+| :------ | :------ |
 | `options` | `Readonly`\<[`AxAIServiceOptions`](/api/#03-apidocs/typealiasaxaiserviceoptions)\> |
 
 #### Returns

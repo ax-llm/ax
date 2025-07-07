@@ -2,44 +2,12 @@
 title: AxDBLoaderOptions
 ---
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L14
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/docs/manager.ts#L11
 
 ## Properties
 
-<a id="chunker"></a>
-
-### chunker()?
-
-> `optional` **chunker**: (`text`) => `string`[]
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L15
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `text` | `string` |
-
-#### Returns
-
-`string`[]
-
-***
-
-<a id="reranker"></a>
-
-### reranker?
-
-> `optional` **reranker**: [`AxProgram`](/api/#03-apidocs/classaxprogram)\<[`AxRerankerIn`](/api/#03-apidocs/typealiasaxrerankerin), [`AxRerankerOut`](/api/#03-apidocs/typealiasaxrerankerout)\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L17
-
-***
-
-<a id="rewriter"></a>
-
-### rewriter?
-
-> `optional` **rewriter**: [`AxProgram`](/api/#03-apidocs/classaxprogram)\<[`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein), [`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\>
-
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/docs/manager.ts#L16
+| Property | Type |
+| :------ | :------ |
+| <a id="chunker"></a> `chunker?` | (`text`: `string`) => `string`[] |
+| <a id="reranker"></a> `reranker?` | [`AxProgram`](/api/#03-apidocs/classaxprogram)\<[`AxRerankerIn`](/api/#03-apidocs/typealiasaxrerankerin), [`AxRerankerOut`](/api/#03-apidocs/typealiasaxrerankerout)\> |
+| <a id="rewriter"></a> `rewriter?` | [`AxProgram`](/api/#03-apidocs/classaxprogram)\<[`AxRewriteIn`](/api/#03-apidocs/typealiasaxrewritein), [`AxRewriteOut`](/api/#03-apidocs/typealiasaxrewriteout)\> |

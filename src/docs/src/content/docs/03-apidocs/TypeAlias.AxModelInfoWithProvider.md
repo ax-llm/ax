@@ -2,12 +2,14 @@
 title: AxModelInfoWithProvider
 ---
 
-> **AxModelInfoWithProvider**: [`AxModelInfo`](/api/#03-apidocs/typealiasaxmodelinfo) & `object`
+```ts
+type AxModelInfoWithProvider = AxModelInfo & object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/types.ts#L111
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/types.ts#L122
 
 ## Type declaration
 
-### provider
-
-> **provider**: `string`
+| Name | Type |
+| :------ | :------ |
+| `provider` | `string` |

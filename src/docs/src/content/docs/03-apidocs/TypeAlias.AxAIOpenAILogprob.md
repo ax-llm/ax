@@ -2,32 +2,17 @@
 title: AxAIOpenAILogprob
 ---
 
-> **AxAIOpenAILogprob**: `object`
+```ts
+type AxAIOpenAILogprob = object;
+```
 
-Defined in: https://github.com/ax-llm/ax/blob/76f1e53f33743ee460569bb94d0bd3620db6e328/src/ax/ai/openai/types.ts#L44
+Defined in: https://github.com/ax-llm/ax/blob/5d189b5efb1a6d8f9665c1966845f7a5ac21c3f1/src/ax/ai/openai/chat_types.ts#L58
 
 ## Type declaration
 
-<a id="text_offset"></a>
-
-### text\_offset
-
-> **text\_offset**: `number`[]
-
-<a id="token_logprobs"></a>
-
-### token\_logprobs
-
-> **token\_logprobs**: `number`[]
-
-<a id="tokens"></a>
-
-### tokens
-
-> **tokens**: `string`[]
-
-<a id="top_logprobs"></a>
-
-### top\_logprobs
-
-> **top\_logprobs**: `Map`\<`string`, `number`\>
+| Name | Type |
+| :------ | :------ |
+| <a id="text_offset"></a> `text_offset` | `number`[] |
+| <a id="token_logprobs"></a> `token_logprobs` | `number`[] |
+| <a id="tokens"></a> `tokens` | `string`[] |
+| <a id="top_logprobs"></a> `top_logprobs` | `Map`\<`string`, `number`\> |

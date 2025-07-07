@@ -1,6 +1,6 @@
 import { axBaseAIDefaultConfig } from '../base.js'
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
-import type { AxAIOpenAIConfig } from '../openai/types.js'
+import type { AxAIOpenAIConfig } from '../openai/chat_types.js'
 
 import { axModelInfoTogether } from './info.js'
 

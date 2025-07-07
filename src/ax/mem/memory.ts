@@ -4,79 +4,70 @@ import {
   logResponseDelta,
   logResponseResult,
 } from '../ai/debug.js'
-import type { AxChatRequest, AxChatResponseResult } from '../ai/types.js'
+import type {
+  AxChatRequest,
+  AxChatResponseResult,
+  AxFunctionResult,
+} from '../ai/types.js'
+import {
+  axValidateChatRequestMessage,
+  axValidateChatResponseResult,
+} from '../ai/validate.js'
 
-import type { AxAIMemory } from './types.js'
-
-type MemoryData = {
-  tags?: string[]
-  chat: AxChatRequest['chatPrompt'][number]
-}[]
-
-const defaultLimit = 10000
+import type { AxAIMemory, AxMemoryData } from './types.js'
 
 export class MemoryImpl {
-  private data: MemoryData = []
+  private data: AxMemoryData = []
 
   constructor(
-    private limit = defaultLimit,
     private options?: {
       debug?: boolean
       debugHideSystemPrompt?: boolean
     }
-  ) {
-    if (limit <= 0) {
-      throw Error("argument 'limit' must be greater than 0")
-    }
-  }
+  ) {}
 
-  private addMemory(
-    value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt']
-  ): void {
-    if (Array.isArray(value)) {
-      this.data.push(...value.map((chat) => ({ chat: structuredClone(chat) })))
-    } else {
-      this.data.push({
-        chat: structuredClone(value),
+  addRequest(items: AxChatRequest['chatPrompt'], index: number): void {
+    this.data.push(
+      ...items.map((item) => {
+        const value = structuredClone(item)
+        return {
+          role: item.role,
+          chat: [{ index, value }],
+        }
       })
-    }
-
-    if (this.data.length > this.limit) {
-      const removeCount = this.data.length - this.limit
-      this.data.splice(0, removeCount)
-    }
-  }
-
-  add(
-    value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt']
-  ): void {
-    this.addMemory(value)
+    )
 
     if (this.options?.debug) {
-      debugRequest(value, this.options?.debugHideSystemPrompt)
+      debugRequest(items, this.options?.debugHideSystemPrompt)
     }
   }
 
-  private addResultMessage({
-    content,
-    name,
-    functionCalls,
-  }: Readonly<AxChatResponseResult>): void {
-    if (!content && (!functionCalls || functionCalls.length === 0)) {
-      return
+  addFunctionResults(results: Readonly<AxFunctionResult[]>): void {
+    const chat = results.map(({ index, ...value }) => ({
+      index,
+      value: structuredClone(value),
+    }))
+
+    const lastItem = this.getLast()
+    if (lastItem?.role === 'function') {
+      lastItem.chat.push(...chat)
+    } else {
+      this.data.push({ role: 'function', chat })
     }
-    this.addMemory({ content, name, role: 'assistant', functionCalls })
   }
 
-  addResult({
-    content,
-    name,
-    functionCalls,
-  }: Readonly<AxChatResponseResult>): void {
-    this.addResultMessage({ content, name, functionCalls })
+  addResponse(results: Readonly<AxChatResponseResult[]>): void {
+    const chat = results.map(({ index, ...value }) => ({
+      index,
+      value: structuredClone(value),
+    }))
+
+    this.data.push({ role: 'assistant', chat })
 
     if (this.options?.debug) {
-      debugResponse({ content, name, functionCalls })
+      for (const result of results) {
+        debugResponse(result)
+      }
     }
   }
 
@@ -85,30 +76,61 @@ export class MemoryImpl {
     name,
     functionCalls,
     delta,
-  }: Readonly<AxChatResponseResult & { delta?: string }>): void {
+    index,
+  }: Readonly<AxChatResponseResult & { delta?: string; index: number }>): void {
     const lastItem = this.data.at(-1)
 
-    if (!lastItem || lastItem.chat.role !== 'assistant') {
-      this.addResultMessage({ content, name, functionCalls })
-    } else {
-      if ('content' in lastItem.chat && content) {
-        lastItem.chat.content = content
-      }
-      if ('name' in lastItem.chat && name) {
-        lastItem.chat.name = name
-      }
-      if ('functionCalls' in lastItem.chat && functionCalls) {
-        lastItem.chat.functionCalls = functionCalls
+    const log = () => {
+      if (this.options?.debug) {
+        if (delta && typeof delta === 'string') {
+          debugResponseDelta(delta)
+        } else if (!delta && (content || functionCalls)) {
+          debugResponse({ content, name, functionCalls, index })
+        }
       }
     }
 
-    if (this.options?.debug) {
-      if (delta && typeof delta === 'string') {
-        debugResponseDelta(delta)
-      } else if (lastItem) {
-        debugResponse({ content, name, functionCalls })
-      }
+    if (
+      !lastItem ||
+      lastItem.role !== 'assistant' ||
+      (lastItem.role === 'assistant' && !lastItem.updatable)
+    ) {
+      this.data.push({
+        role: 'assistant',
+        updatable: true,
+        chat: [
+          { index, value: structuredClone({ content, name, functionCalls }) },
+        ],
+      })
+      log()
+      return
     }
+
+    const chat = lastItem.chat.find((v) => v.index === index)
+
+    if (!chat) {
+      lastItem.chat.push({
+        index,
+        value: structuredClone({ content, name, functionCalls }),
+      })
+      log()
+      return
+    }
+
+    if (typeof content === 'string' && content.trim() !== '') {
+      ;(chat.value as { content: string }).content = content
+    }
+
+    if (typeof name === 'string' && name.trim() !== '') {
+      ;(chat.value as { name: string }).name = name
+    }
+
+    if (Array.isArray(functionCalls) && functionCalls.length > 0) {
+      ;(chat.value as { functionCalls: typeof functionCalls }).functionCalls =
+        functionCalls
+    }
+
+    log()
   }
 
   addTag(name: string): void {
@@ -126,18 +148,17 @@ export class MemoryImpl {
     }
   }
 
-  rewindToTag(name: string): AxChatRequest['chatPrompt'] {
+  rewindToTag(name: string): AxMemoryData {
     const tagIndex = this.data.findIndex((item) => item.tags?.includes(name))
     if (tagIndex === -1) {
       throw new Error(`Tag "${name}" not found`)
     }
 
     // Remove and return the tagged item and everything after it
-    const removedItems = this.data.splice(tagIndex)
-    return removedItems.map((item) => item.chat)
+    return this.data.splice(tagIndex)
   }
 
-  removeByTag(name: string): AxChatRequest['chatPrompt'] {
+  removeByTag(name: string): AxMemoryData {
     const indices = this.data.reduce<number[]>((acc, item, index) => {
       if (item.tags?.includes(name)) {
         acc.push(index)
@@ -151,25 +172,38 @@ export class MemoryImpl {
 
     return indices
       .reverse()
-      .map((index) => this.data.splice(index, 1).at(0)?.chat)
-      .filter(Boolean)
-      .reverse() as AxChatRequest['chatPrompt']
+      .map((index) => this.data.splice(index, 1).at(0))
+      .filter((item) => item !== undefined)
+      .reverse()
   }
 
-  history(): AxChatRequest['chatPrompt'] {
-    return this.data.map((item) => item.chat)
-  }
+  history(index: number): AxChatRequest['chatPrompt'] {
+    const result: AxChatRequest['chatPrompt'] = []
 
-  getLast():
-    | { chat: AxChatRequest['chatPrompt'][number]; tags?: string[] }
-    | undefined {
-    const lastItem = this.data.at(-1)
-    if (!lastItem) return undefined
-    // Merge the tags into the chat object so that consumers can inspect them.
-    return {
-      chat: lastItem.chat,
-      tags: lastItem.tags,
+    for (const { role, chat } of this.data) {
+      let values
+
+      if (role === 'function') {
+        values = chat.filter((v) => v.index === index).map((v) => v.value)
+      } else {
+        values = chat.find((v) => v.index === index)?.value
+      }
+
+      if (Array.isArray(values)) {
+        result.push(
+          ...values.map(
+            (v) => ({ ...v, role }) as AxChatRequest['chatPrompt'][number]
+          )
+        )
+      } else if (values) {
+        result.push({ ...values, role } as AxChatRequest['chatPrompt'][number])
+      }
     }
+    return result
+  }
+
+  getLast(): AxMemoryData[number] | undefined {
+    return this.data.at(-1)
   }
 
   reset(): void {
@@ -182,13 +216,12 @@ export class AxMemory implements AxAIMemory {
   private defaultMemory: MemoryImpl
 
   constructor(
-    private limit = defaultLimit,
     private options?: {
       debug?: boolean
       debugHideSystemPrompt?: boolean
     }
   ) {
-    this.defaultMemory = new MemoryImpl(limit, options)
+    this.defaultMemory = new MemoryImpl(options)
   }
 
   private getMemory(sessionId?: string): MemoryImpl {
@@ -197,25 +230,36 @@ export class AxMemory implements AxAIMemory {
     }
 
     if (!this.memories.has(sessionId)) {
-      this.memories.set(sessionId, new MemoryImpl(this.limit, this.options))
+      this.memories.set(sessionId, new MemoryImpl(this.options))
     }
 
     return this.memories.get(sessionId) as MemoryImpl
   }
 
-  add(
-    value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt'],
-    sessionId?: string
-  ): void {
-    this.getMemory(sessionId).add(value)
+  addRequest(value: AxChatRequest['chatPrompt'], sessionId?: string): void {
+    for (const item of value) {
+      axValidateChatRequestMessage(item)
+    }
+    this.getMemory(sessionId).addRequest(value, 0)
   }
 
-  addResult(result: Readonly<AxChatResponseResult>, sessionId?: string): void {
-    this.getMemory(sessionId).addResult(result)
+  addResponse(
+    results: Readonly<AxChatResponseResult[]>,
+    sessionId?: string
+  ): void {
+    axValidateChatResponseResult(results)
+    this.getMemory(sessionId).addResponse(results)
+  }
+
+  addFunctionResults(
+    results: Readonly<AxFunctionResult[]>,
+    sessionId?: string
+  ): void {
+    this.getMemory(sessionId).addFunctionResults(results)
   }
 
   updateResult(
-    result: Readonly<AxChatResponseResult>,
+    result: Readonly<AxChatResponseResult & { delta?: string }>,
     sessionId?: string
   ): void {
     this.getMemory(sessionId).updateResult(result)
@@ -229,8 +273,8 @@ export class AxMemory implements AxAIMemory {
     return this.getMemory(sessionId).rewindToTag(name)
   }
 
-  history(sessionId?: string) {
-    return this.getMemory(sessionId).history()
+  history(index: number, sessionId?: string) {
+    return this.getMemory(sessionId).history(index)
   }
 
   getLast(sessionId?: string) {
@@ -241,7 +285,7 @@ export class AxMemory implements AxAIMemory {
     if (!sessionId) {
       this.defaultMemory.reset()
     } else {
-      this.memories.set(sessionId, new MemoryImpl(this.limit, this.options))
+      this.memories.set(sessionId, new MemoryImpl(this.options))
     }
   }
 }
@@ -257,7 +301,9 @@ function debugRequest(
   }
 }
 
-function debugResponse(value: Readonly<AxChatResponseResult>) {
+function debugResponse(
+  value: Readonly<AxChatResponseResult & { index: number }>
+) {
   logResponseResult(value)
 }
 
