@@ -584,10 +584,9 @@ class AxAIGoogleGeminiImpl
           }
 
           if ('functionCall' in part) {
-            console.log('>>>>>>', part);
             result.functionCalls = [
               {
-                id: part.functionCall.name,
+                id: crypto.randomUUID(),
                 type: 'function',
                 function: {
                   name: part.functionCall.name,

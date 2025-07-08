@@ -19,47 +19,41 @@ export const axCreateDefaultLogger = (
     // Step 1: Pick color function based on semantic tags
     let colorFunction: (text: string) => string = (text) => text; // default no color
 
-    if (tags.includes('warning') || tags.includes('discovery')) {
-      colorFunction = (text) => colorLog.yellow(text);
-    } else if (tags.includes('error')) {
-      colorFunction = (text) => colorLog.red(text);
-    } else if (tags.includes('success') || tags.includes('responseContent')) {
-      colorFunction = (text) => colorLog.greenBright(text);
-    } else if (
-      tags.includes('systemContent') ||
-      tags.includes('assistantContent')
-    ) {
-      colorFunction = (text) => colorLog.blueBright(text);
+    if (tags.includes('systemContent')) {
+      colorFunction = (text) => colorLog.white(text);
+    } else if (tags.includes('userContent')) {
+      colorFunction = (text) => colorLog.white(text);
     } else if (tags.includes('functionName')) {
-      colorFunction = (text) => colorLog.whiteBright(text);
+      colorFunction = (text) => colorLog.greenBright(text);
     } else if (tags.includes('functionArg')) {
-      colorFunction = (text) => colorLog.blueBright(text);
+      colorFunction = (text) => colorLog.greenBright(text);
+    } else if (tags.includes('assistantContent')) {
+      colorFunction = (text) => colorLog.white(text);
+    } else if (tags.includes('responseContent')) {
+      colorFunction = (text) => colorLog.greenBright(text);
     } else if (tags.includes('functionResult')) {
-      colorFunction = (text) => colorLog.yellow(text);
+      colorFunction = (text) => colorLog.blueBright(text);
+    }
+
+    if (tags.includes('error')) {
+      colorFunction = (text) => colorLog.redBright(text);
+    } else if (tags.includes('warning')) {
+      colorFunction = (text) => colorLog.red(text);
     }
 
     // Step 2: Add prefix based on tag type
     if (
-      tags.includes('responseStart') ||
-      tags.includes('systemStart') ||
-      tags.includes('userStart') ||
-      tags.includes('assistantStart') ||
-      tags.includes('error') ||
+      tags.includes('systemContent') ||
+      tags.includes('userContent') ||
       tags.includes('functionName') ||
-      tags.includes('functionArg')
+      tags.includes('functionArg') ||
+      tags.includes('assistantStart')
     ) {
       formattedMessage = `\n${formattedMessage}`;
     }
 
     // Step 3: Add postfix based on tag type
-    if (
-      tags.includes('responseEnd') ||
-      tags.includes('systemEnd') ||
-      tags.includes('userEnd') ||
-      tags.includes('assistantStart') ||
-      tags.includes('error') ||
-      tags.includes('functionEnd')
-    ) {
+    if (tags.includes('functionEnd') || tags.includes('functionResult')) {
       formattedMessage = `${formattedMessage}\n`;
     }
 
@@ -80,26 +74,17 @@ export const axCreateDefaultTextLogger = (
 
     // Step 2: Add prefix based on tag type
     if (
-      tags.includes('responseStart') ||
-      tags.includes('systemStart') ||
-      tags.includes('userStart') ||
-      tags.includes('assistantStart') ||
-      tags.includes('error') ||
+      tags.includes('systemContent') ||
+      tags.includes('userContent') ||
       tags.includes('functionName') ||
-      tags.includes('functionArg')
+      tags.includes('functionArg') ||
+      tags.includes('assistantStart')
     ) {
       formattedMessage = `\n${formattedMessage}`;
     }
 
     // Step 3: Add postfix based on tag type
-    if (
-      tags.includes('responseEnd') ||
-      tags.includes('systemEnd') ||
-      tags.includes('userEnd') ||
-      tags.includes('assistantStart') ||
-      tags.includes('error') ||
-      tags.includes('functionEnd')
-    ) {
+    if (tags.includes('functionEnd') || tags.includes('functionResult')) {
       formattedMessage = `${formattedMessage}\n`;
     }
 
@@ -224,8 +209,6 @@ export const axCreateOptimizerLogger = (
       formattedMessage = `\n✗ ${message}\n`;
     } else if (tags.includes('warning')) {
       formattedMessage = `\n⚠ ${message}\n`;
-    } else if (tags.includes('success') && !tags.includes('optimizer')) {
-      formattedMessage = `✓ ${message}\n`;
     }
 
     // Use the base logger for color formatting and output

@@ -1,4 +1,4 @@
-import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax';
+import { AxAI, AxAgent, type AxFunction, AxSignature } from '@ax-llm/ax';
 
 const goodDay = {
   temperature: '27C',
@@ -119,17 +119,17 @@ const functions: AxFunction[] = [
   },
 ];
 
+// const ai = new AxAI({
+//   name: 'openai',
+//   apiKey: process.env.OPENAI_APIKEY as string,
+//   config: { stream: true },
+// });
+
 const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY as string,
   config: { stream: true },
 });
-
-// const ai = new AxAI({
-//     name: 'google-gemini',
-//     apiKey: process.env.GOOGLE_APIKEY as string,
-//     config: { stream: false },
-// })
 
 // const ai = new AxAI({
 //     name: 'openai-responses',

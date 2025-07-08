@@ -20,12 +20,12 @@ const formatChatMessage = (
       if (hideSystemPrompt) {
         return '';
       }
-      return `\nSystem:\n${msg.content}`;
+      return `─── System: ───\n${msg.content}`;
     case 'function':
-      return `\nFunction Result:\n${msg.result}`;
+      return `─── Function Result: ───\n${msg.result}`;
     case 'user': {
       if (typeof msg.content === 'string') {
-        return `\nUser:\n${msg.content}`;
+        return `─── User: ───\n${msg.content}`;
       }
       const items = msg.content.map((v) => {
         switch (v.type) {
@@ -37,7 +37,7 @@ const formatChatMessage = (
             throw new Error('Invalid content type');
         }
       });
-      return `\nUser:\n${items.join('\n')}`;
+      return `─── User: ───\n${items.join('\n')}`;
     }
     case 'assistant': {
       if (msg.functionCalls) {
@@ -48,9 +48,9 @@ const formatChatMessage = (
               : fn.params;
           return `${fn.name}(${args})`;
         });
-        return `\nFunctions:\n${fns.join('\n')}`;
+        return `─── Functions: ───\n${fns.join('\n')}`;
       }
-      return `\nAssistant:\n${hideContent ? '' : (msg.content ?? '<empty>')}`;
+      return `─── Assistant: ───\n${hideContent ? '' : (msg.content ?? '<empty>')}`;
     }
     default:
       throw new Error('Invalid role');
@@ -62,19 +62,7 @@ export const logChatRequestMessage = (
   hideSystemPrompt?: boolean,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  const formattedMessage = formatChatMessage(msg, false, hideSystemPrompt);
-  if (formattedMessage) {
-    const tags: AxLoggerTag[] =
-      msg.role === 'system'
-        ? ['systemStart', 'systemContent']
-        : msg.role === 'function'
-          ? ['functionName']
-          : msg.role === 'user'
-            ? ['userStart', 'userContent']
-            : [];
-    logger(formattedMessage, { tags });
-  }
-  logger('Assistant:', { tags: ['assistantStart'] });
+  logChatRequest([msg], hideSystemPrompt, logger);
 };
 
 export const logChatRequest = (
@@ -85,19 +73,25 @@ export const logChatRequest = (
   for (const msg of chatPrompt ?? []) {
     const formattedMessage = formatChatMessage(msg, false, hideSystemPrompt);
     if (formattedMessage) {
-      const tags: AxLoggerTag[] =
-        msg.role === 'system'
-          ? ['systemContent']
-          : msg.role === 'function'
-            ? ['functionName']
-            : msg.role === 'user'
-              ? ['userContent']
-              : [];
+      const tags: AxLoggerTag[] = [];
+
+      switch (msg.role) {
+        case 'system':
+          tags.push('systemContent');
+          break;
+        case 'function':
+          tags.push('functionName');
+          break;
+        case 'user':
+          tags.push('userContent');
+          break;
+      }
+
       logger(formattedMessage, { tags });
     }
   }
 
-  logger('Assistant:', { tags: ['assistantStart'] });
+  logger('─── Assistant: ───', { tags: ['assistantStart'] });
 };
 
 export const logResponseResult = (
@@ -125,7 +119,7 @@ export const logResponseResult = (
         if (r.functionCalls.length > 1) {
           tags.push('multipleFunctions');
         }
-        logger(`[${i + 1}] ${f.function.name}[${f.id}]`, { tags });
+        logger(`[${i + 1}] ${f.function.name} [${f.id}]`, { tags });
       }
 
       if (f.function.params) {
@@ -168,7 +162,7 @@ export const logFunctionResults = (
 ) => {
   for (const result of results) {
     logger(`Function Result [${result.functionId}]:`, {
-      tags: ['functionName'],
+      tags: ['functionResult'],
     });
 
     if (result.isError) {

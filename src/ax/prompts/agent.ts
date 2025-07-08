@@ -294,7 +294,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (debug) {
         const logger = ai.getLogger();
         logger(`🤖 Agent ${this.name} starting...`, {
-          tags: ['assistantStart'],
+          tags: ['start'],
         });
       }
 
@@ -305,7 +305,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       if (debug) {
         const logger = ai.getLogger();
-        logger(`🤖 Agent ${this.name} completed.`, { tags: ['assistantEnd'] });
+        logger(`🤖 Agent ${this.name} completed.`, { tags: ['end'] });
       }
 
       const sig = this.program.getSignature();

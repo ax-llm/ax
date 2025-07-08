@@ -220,25 +220,12 @@ export class AxMCPClient {
       params,
     };
 
-    if (this.options.debug) {
-      this.logger(
-        `> Sending request ${requestId}:\n${JSON.stringify(request, null, 2)}`,
-        { tags: ['requestStart'] }
-      );
-    }
-
     const responsePromise = new Promise<{ result: R }>((resolve, reject) => {
       this.activeRequests.set(requestId, { reject });
       this.transport
         .send(request)
         .then((res: unknown) => {
           this.activeRequests.delete(requestId);
-          if (this.options.debug) {
-            this.logger(
-              `> Received response for request ${requestId}:\n${JSON.stringify(res, null, 2)}`,
-              { tags: ['responseContent'] }
-            );
-          }
           if (res !== null && typeof res === 'object' && 'error' in res) {
             const errorObj = res as {
               error: { code: number; message: string };

@@ -89,7 +89,7 @@ export class MemoryImpl {
       if (this.options?.debug) {
         if (delta && typeof delta === 'string') {
           debugResponseDelta(delta);
-        } else if (!delta && (content || functionCalls)) {
+        } else {
           debugResponse({ content, name, functionCalls, index });
         }
       }
@@ -200,8 +200,13 @@ export class MemoryImpl {
             (v) => ({ ...v, role }) as AxChatRequest['chatPrompt'][number]
           )
         );
-      } else if (values) {
+      } else if (typeof values === 'object' && values !== null) {
         result.push({ ...values, role } as AxChatRequest['chatPrompt'][number]);
+      } else {
+        result.push({
+          content: values,
+          role,
+        } as AxChatRequest['chatPrompt'][number]);
       }
     }
     return result;
