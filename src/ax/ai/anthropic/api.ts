@@ -1,7 +1,8 @@
-import type { AxAPI } from '../../util/apicall.js'
-import { AxAIRefusalError } from '../../util/apicall.js'
-import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js'
-import { GoogleVertexAuth } from '../google-vertex/auth.js'
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
+import type { AxAPI } from '../../util/apicall.js';
+import { AxAIRefusalError } from '../../util/apicall.js';
+import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
+import { GoogleVertexAuth } from '../google-vertex/auth.js';
 import type {
   AxAIInputModelList,
   AxAIPromptConfig,
@@ -13,9 +14,8 @@ import type {
   AxInternalChatRequest,
   AxModelConfig,
   AxTokenUsage,
-} from '../types.js'
-
-import { axModelInfoAnthropic } from './info.js'
+} from '../types.js';
+import { axModelInfoAnthropic } from './info.js';
 import {
   type AxAIAnthropicChatError,
   type AxAIAnthropicChatRequest,
@@ -30,9 +30,7 @@ import {
   AxAIAnthropicModel,
   type AxAIAnthropicThinkingConfig,
   AxAIAnthropicVertexModel,
-} from './types.js'
-
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+} from './types.js';
 
 export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
@@ -46,7 +44,7 @@ export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
       highest: 32000,
     },
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
 export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
@@ -60,19 +58,19 @@ export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
       highest: 32000,
     },
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
 export interface AxAIAnthropicArgs {
-  name: 'anthropic'
-  apiKey?: string
-  projectId?: string
-  region?: string
-  config?: Readonly<Partial<AxAIAnthropicConfig>>
-  options?: Readonly<AxAIServiceOptions>
+  name: 'anthropic';
+  apiKey?: string;
+  projectId?: string;
+  region?: string;
+  config?: Readonly<Partial<AxAIAnthropicConfig>>;
+  options?: Readonly<AxAIServiceOptions>;
   models?: AxAIInputModelList<
     AxAIAnthropicModel | AxAIAnthropicVertexModel,
     undefined
-  >
+  >;
 }
 
 class AxAIAnthropicImpl
@@ -87,8 +85,8 @@ class AxAIAnthropicImpl
       unknown
     >
 {
-  private tokensUsed: AxTokenUsage | undefined
-  private currentPromptConfig?: AxAIPromptConfig
+  private tokensUsed: AxTokenUsage | undefined;
+  private currentPromptConfig?: AxAIPromptConfig;
 
   constructor(
     private config: AxAIAnthropicConfig,
@@ -96,11 +94,11 @@ class AxAIAnthropicImpl
   ) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
-    return this.tokensUsed
+    return this.tokensUsed;
   }
 
   getModelConfig(): AxModelConfig {
-    const { config } = this
+    const { config } = this;
     return {
       maxTokens: config.maxTokens ?? 4096,
       temperature: config.temperature,
@@ -112,7 +110,7 @@ class AxAIAnthropicImpl
       presencePenalty: config.presencePenalty,
       frequencyPenalty: config.frequencyPenalty,
       n: config.n,
-    } as AxModelConfig
+    } as AxModelConfig;
   }
 
   createChatReq = (
@@ -122,37 +120,39 @@ class AxAIAnthropicImpl
     config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIAnthropicChatRequest] => {
     // Store config for use in response methods
-    this.currentPromptConfig = config
+    this.currentPromptConfig = config;
 
-    const model = req.model
-    const stream = req.modelConfig?.stream ?? this.config.stream
+    const model = req.model;
+    const stream = req.modelConfig?.stream ?? this.config.stream;
 
-    let apiConfig
+    let apiConfig: AxAPI;
     if (this.isVertex) {
       apiConfig = {
         name: stream
           ? `/models/${model}:streamRawPredict?alt=sse`
           : `/models/${model}:rawPredict`,
-      }
+      };
     } else {
       apiConfig = {
         name: '/messages',
-      }
+      };
     }
 
-    let toolsChoice
+    let toolsChoice:
+      | { tool_choice: { type: 'auto' | 'any' | 'tool'; name?: string } }
+      | undefined;
 
     if (req.functionCall && req.functions && req.functions.length > 0) {
       if (typeof req.functionCall === 'string') {
         switch (req.functionCall) {
           case 'auto':
-            toolsChoice = { tool_choice: { type: 'auto' as const } }
-            break
+            toolsChoice = { tool_choice: { type: 'auto' as const } };
+            break;
           case 'required':
-            toolsChoice = { tool_choice: { type: 'any' as const } }
-            break
+            toolsChoice = { tool_choice: { type: 'any' as const } };
+            break;
           case 'none':
-            throw new Error('functionCall none not supported')
+            throw new Error('functionCall none not supported');
         }
       } else if ('function' in req.functionCall) {
         toolsChoice = {
@@ -160,9 +160,9 @@ class AxAIAnthropicImpl
             type: 'tool' as const,
             name: req.functionCall.function.name,
           },
-        }
+        };
       } else {
-        throw new Error('Invalid function call type, must be string or object')
+        throw new Error('Invalid function call type, must be string or object');
       }
     }
 
@@ -172,11 +172,11 @@ class AxAIAnthropicImpl
         type: 'text' as const,
         text: msg.content,
         ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
-      }))
+      }));
 
-    const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system')
+    const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
 
-    const messages = createMessages(otherMessages)
+    const messages = createMessages(otherMessages);
 
     const tools: AxAIAnthropicChatRequest['tools'] = req.functions?.map(
       (v) => ({
@@ -184,66 +184,66 @@ class AxAIAnthropicImpl
         description: v.description,
         input_schema: v.parameters,
       })
-    )
+    );
 
-    const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens
+    const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens;
     const stopSequences =
-      req.modelConfig?.stopSequences ?? this.config.stopSequences
-    const temperature = req.modelConfig?.temperature ?? this.config.temperature
-    const topP = req.modelConfig?.topP ?? this.config.topP
-    const topK = req.modelConfig?.topK ?? this.config.topK
-    const n = req.modelConfig?.n ?? this.config.n
+      req.modelConfig?.stopSequences ?? this.config.stopSequences;
+    const temperature = req.modelConfig?.temperature ?? this.config.temperature;
+    const topP = req.modelConfig?.topP ?? this.config.topP;
+    const topK = req.modelConfig?.topK ?? this.config.topK;
+    const n = req.modelConfig?.n ?? this.config.n;
 
     if (n && n > 1) {
-      throw new Error('Anthropic does not support sampling (n > 1)')
+      throw new Error('Anthropic does not support sampling (n > 1)');
     }
 
     // Handle thinking configuration
-    let thinkingConfig: AxAIAnthropicThinkingConfig | undefined
+    let thinkingConfig: AxAIAnthropicThinkingConfig | undefined;
 
     if (this.config.thinking?.budget_tokens) {
-      thinkingConfig = this.config.thinking
+      thinkingConfig = this.config.thinking;
     }
 
     // Override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
-      const levels = this.config.thinkingTokenBudgetLevels
+      const levels = this.config.thinkingTokenBudgetLevels;
 
       switch (config.thinkingTokenBudget) {
         case 'none':
           // When thinkingTokenBudget is 'none', disable thinking entirely
-          thinkingConfig = undefined
-          break
+          thinkingConfig = undefined;
+          break;
         case 'minimal':
           thinkingConfig = {
             type: 'enabled',
             budget_tokens: levels?.minimal ?? 1024,
-          }
-          break
+          };
+          break;
         case 'low':
           thinkingConfig = {
             type: 'enabled',
             budget_tokens: levels?.low ?? 5000,
-          }
-          break
+          };
+          break;
         case 'medium':
           thinkingConfig = {
             type: 'enabled',
             budget_tokens: levels?.medium ?? 10000,
-          }
-          break
+          };
+          break;
         case 'high':
           thinkingConfig = {
             type: 'enabled',
             budget_tokens: levels?.high ?? 20000,
-          }
-          break
+          };
+          break;
         case 'highest':
           thinkingConfig = {
             type: 'enabled',
             budget_tokens: levels?.highest ?? 32000,
-          }
-          break
+          };
+          break;
       }
     }
 
@@ -267,10 +267,10 @@ class AxAIAnthropicImpl
       ...(system ? { system } : {}),
       ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
       messages,
-    }
+    };
 
-    return [apiConfig, reqValue]
-  }
+    return [apiConfig, reqValue];
+  };
 
   createChatResp = (
     resp: Readonly<AxAIAnthropicChatResponse | AxAIAnthropicChatError>
@@ -281,15 +281,15 @@ class AxAIAnthropicImpl
         resp.error.message,
         undefined, // model not specified in error response
         undefined // requestId not specified in error response
-      )
+      );
     }
 
-    const finishReason = mapFinishReason(resp.stop_reason)
+    const finishReason = mapFinishReason(resp.stop_reason);
 
     // Determine if thoughts should be shown
     const showThoughts =
       this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
-      this.currentPromptConfig?.showThoughts !== false
+      this.currentPromptConfig?.showThoughts !== false;
 
     const results = resp.content
       .map((msg, index): AxChatResponseResult => {
@@ -308,7 +308,7 @@ class AxAIAnthropicImpl
               },
             ],
             finishReason,
-          }
+          };
         }
         if (
           (msg.type === 'thinking' || msg.type === 'redacted_thinking') &&
@@ -319,61 +319,61 @@ class AxAIAnthropicImpl
             thought: msg.thinking,
             id: resp.id,
             finishReason,
-          }
+          };
         }
         return {
           index,
           content: msg.type === 'text' ? msg.text : '',
           id: resp.id,
           finishReason,
-        }
+        };
       })
       .filter(
         (result) =>
           result.content !== '' ||
           result.thought !== undefined ||
           result.functionCalls !== undefined
-      )
+      );
 
     this.tokensUsed = {
       promptTokens: resp.usage.input_tokens,
       completionTokens: resp.usage.output_tokens,
       totalTokens: resp.usage.input_tokens + resp.usage.output_tokens,
-    }
+    };
 
-    return { results, remoteId: resp.id }
-  }
+    return { results, remoteId: resp.id };
+  };
 
   createChatStreamResp = (
     resp: Readonly<AxAIAnthropicChatResponseDelta>,
     state: object
   ): AxChatResponse => {
     if (!('type' in resp)) {
-      throw new Error('Invalid Anthropic streaming event')
+      throw new Error('Invalid Anthropic streaming event');
     }
 
     const sstate = state as {
-      indexIdMap: Record<number, string>
-    }
+      indexIdMap: Record<number, string>;
+    };
 
     if (!sstate.indexIdMap) {
-      sstate.indexIdMap = {}
+      sstate.indexIdMap = {};
     }
 
     if (resp.type === 'error') {
-      const { error } = resp as unknown as AxAIAnthropicErrorEvent
+      const { error } = resp as unknown as AxAIAnthropicErrorEvent;
       throw new AxAIRefusalError(
         error.message,
         undefined, // model not specified in error event
         undefined // requestId not specified in error event
-      )
+      );
     }
 
-    const index = 0
+    const index = 0;
 
     if (resp.type === 'message_start') {
-      const { message } = resp as unknown as AxAIAnthropicMessageStartEvent
-      const results = [{ index, content: '', id: message.id }]
+      const { message } = resp as unknown as AxAIAnthropicMessageStartEvent;
+      const results = [{ index, content: '', id: message.id }];
 
       this.tokensUsed = {
         promptTokens: message.usage?.input_tokens ?? 0,
@@ -381,32 +381,32 @@ class AxAIAnthropicImpl
         totalTokens:
           (message.usage?.input_tokens ?? 0) +
           (message.usage?.output_tokens ?? 0),
-      }
-      return { results }
+      };
+      return { results };
     }
 
     if (resp.type === 'content_block_start') {
       const { content_block: contentBlock } =
-        resp as unknown as AxAIAnthropicContentBlockStartEvent
+        resp as unknown as AxAIAnthropicContentBlockStartEvent;
 
       if (contentBlock.type === 'text') {
         return {
           results: [{ index, content: contentBlock.text }],
-        }
+        };
       }
       if (contentBlock.type === 'thinking') {
         // Determine if thoughts should be shown
         const showThoughts =
           this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
-          this.currentPromptConfig?.showThoughts !== false
+          this.currentPromptConfig?.showThoughts !== false;
         if (showThoughts) {
           return {
             results: [{ index, thought: contentBlock.thinking }],
-          }
+          };
         }
         return {
           results: [{ index, content: '' }],
-        }
+        };
       }
       if (contentBlock.type === 'tool_use') {
         if (
@@ -414,7 +414,7 @@ class AxAIAnthropicImpl
           typeof resp.index === 'number' &&
           !sstate.indexIdMap[resp.index]
         ) {
-          sstate.indexIdMap[resp.index] = contentBlock.id
+          sstate.indexIdMap[resp.index] = contentBlock.id;
           const functionCalls = [
             {
               id: contentBlock.id,
@@ -424,46 +424,46 @@ class AxAIAnthropicImpl
                 params: '',
               },
             },
-          ]
+          ];
           return {
             results: [{ index, functionCalls }],
-          }
+          };
         }
       }
     }
 
     if (resp.type === 'content_block_delta') {
-      const { delta } = resp as unknown as AxAIAnthropicContentBlockDeltaEvent
+      const { delta } = resp as unknown as AxAIAnthropicContentBlockDeltaEvent;
       if (delta.type === 'text_delta') {
         return {
           results: [{ index, content: delta.text }],
-        }
+        };
       }
       if (delta.type === 'thinking_delta') {
         // Determine if thoughts should be shown
         const showThoughts =
           this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
-          this.currentPromptConfig?.showThoughts !== false
+          this.currentPromptConfig?.showThoughts !== false;
         if (showThoughts) {
           return {
             results: [{ index, thought: delta.thinking }],
-          }
+          };
         }
         return {
           results: [{ index, content: '' }],
-        }
+        };
       }
       if (delta.type === 'signature_delta') {
         // Signature deltas are handled internally by Anthropic,
         // we don't need to expose them in the response
         return {
           results: [{ index, content: '' }],
-        }
+        };
       }
       if (delta.type === 'input_json_delta') {
-        const id = sstate.indexIdMap[resp.index]
+        const id = sstate.indexIdMap[resp.index];
         if (!id) {
-          throw new Error('invalid streaming index no id found: ' + resp.index)
+          throw new Error(`invalid streaming index no id found: ${resp.index}`);
         }
         const functionCalls = [
           {
@@ -474,21 +474,22 @@ class AxAIAnthropicImpl
               params: delta.partial_json,
             },
           },
-        ]
+        ];
         return {
           results: [{ index, functionCalls }],
-        }
+        };
       }
     }
 
     if (resp.type === 'message_delta') {
-      const { delta, usage } = resp as unknown as AxAIAnthropicMessageDeltaEvent
+      const { delta, usage } =
+        resp as unknown as AxAIAnthropicMessageDeltaEvent;
 
       this.tokensUsed = {
         promptTokens: 0,
         completionTokens: usage.output_tokens,
         totalTokens: usage.output_tokens,
-      }
+      };
 
       const results = [
         {
@@ -496,14 +497,14 @@ class AxAIAnthropicImpl
           content: '',
           finishReason: mapFinishReason(delta.stop_reason),
         },
-      ]
-      return { results }
+      ];
+      return { results };
     }
 
     return {
       results: [{ index, content: '' }],
-    }
-  }
+    };
+  };
 }
 
 export class AxAIAnthropic extends AxBaseAI<
@@ -523,39 +524,39 @@ export class AxAIAnthropic extends AxBaseAI<
     options,
     models,
   }: Readonly<Omit<AxAIAnthropicArgs, 'name'>>) {
-    const isVertex = projectId !== undefined && region !== undefined
+    const isVertex = projectId !== undefined && region !== undefined;
 
-    let apiURL
-    let headers
+    let apiURL: string;
+    let headers: () => Promise<Record<string, string>>;
 
     if (isVertex) {
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`
+      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
       if (apiKey) {
-        headers = async () => ({ Authorization: `Bearer ${apiKey}` })
+        headers = async () => ({ Authorization: `Bearer ${apiKey}` });
       } else {
-        const vertexAuth = new GoogleVertexAuth()
+        const vertexAuth = new GoogleVertexAuth();
         headers = async () => ({
           Authorization: `Bearer ${await vertexAuth.getAccessToken()}`,
-        })
+        });
       }
     } else {
       if (!apiKey) {
-        throw new Error('Anthropic API key not set')
+        throw new Error('Anthropic API key not set');
       }
-      apiURL = 'https://api.anthropic.com/v1'
+      apiURL = 'https://api.anthropic.com/v1';
       headers = async () => ({
         'anthropic-version': '2023-06-01',
         'anthropic-beta': 'prompt-caching-2024-07-31',
         'x-api-key': apiKey,
-      })
+      });
     }
 
-    const _config = {
+    const Config = {
       ...axAIAnthropicDefaultConfig(),
       ...config,
-    }
+    };
 
-    const aiImpl = new AxAIAnthropicImpl(_config, isVertex)
+    const aiImpl = new AxAIAnthropicImpl(Config, isVertex);
 
     const supportFor = (
       model: AxAIAnthropicModel | AxAIAnthropicVertexModel
@@ -567,42 +568,42 @@ export class AxAIAnthropic extends AxBaseAI<
         model,
         modelInfo: axModelInfoAnthropic,
         models,
-      })
+      });
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
         functionCot: true,
-      }
-    }
+      };
+    };
 
     super(aiImpl, {
       name: 'Anthropic',
       apiURL,
       headers,
       modelInfo: axModelInfoAnthropic,
-      defaults: { model: _config.model },
+      defaults: { model: Config.model },
       options,
       supportFor,
       models,
-    })
+    });
   }
 }
 
-type AnthropicMsg = AxAIAnthropicChatRequest['messages'][0]
-type AnthropicMsgRoleUser = Extract<AnthropicMsg, { role: 'user' }>
+type AnthropicMsg = AxAIAnthropicChatRequest['messages'][0];
+type AnthropicMsgRoleUser = Extract<AnthropicMsg, { role: 'user' }>;
 type AnthropicMsgRoleUserToolResult = Extract<
   AnthropicMsgRoleUser['content'][0],
   { type: 'tool_result' }
->
+>;
 
 function createMessages(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>
 ): AxAIAnthropicChatRequest['messages'] {
   const items: AxAIAnthropicChatRequest['messages'] = chatPrompt.map((msg) => {
     switch (msg.role) {
-      case 'function':
+      case 'function': {
         const content: AnthropicMsgRoleUserToolResult[] = [
           {
             type: 'tool_result' as const,
@@ -611,18 +612,19 @@ function createMessages(
             ...(msg.isError ? { is_error: true } : {}),
             ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
           },
-        ]
+        ];
 
         return {
           role: 'user' as const,
           content,
-        }
+        };
+      }
       case 'user': {
         if (typeof msg.content === 'string') {
           return {
             role: 'user' as const,
             content: msg.content,
-          }
+          };
         }
         const content = msg.content.map((v) => {
           switch (v.type) {
@@ -631,7 +633,7 @@ function createMessages(
                 type: 'text' as const,
                 text: v.text,
                 ...(v.cache ? { cache: { type: 'ephemeral' } } : {}),
-              }
+              };
             case 'image':
               return {
                 type: 'image' as const,
@@ -641,32 +643,32 @@ function createMessages(
                   data: v.image,
                 },
                 ...(v.cache ? { cache: { type: 'ephemeral' } } : {}),
-              }
+              };
             default:
-              throw new Error('Invalid content type')
+              throw new Error('Invalid content type');
           }
-        })
+        });
         return {
           role: 'user' as const,
           content,
-        }
+        };
       }
       case 'assistant': {
         let content: Extract<
           AxAIAnthropicChatRequest['messages'][0],
           { role: 'assistant' }
-        >['content'] = ''
+        >['content'] = '';
 
         if (typeof msg.content === 'string') {
-          content = msg.content
+          content = msg.content;
         }
         if (typeof msg.functionCalls !== 'undefined') {
           content = msg.functionCalls.map((v) => {
-            let input
+            let input: object = {};
             if (typeof v.function.params === 'string') {
-              input = JSON.parse(v.function.params)
+              input = JSON.parse(v.function.params);
             } else if (typeof v.function.params === 'object') {
-              input = v.function.params
+              input = v.function.params as object;
             }
             return {
               type: 'tool_use' as const,
@@ -674,71 +676,67 @@ function createMessages(
               name: v.function.name,
               input,
               ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
-            }
-          })
+            };
+          });
         }
         return {
           role: 'assistant' as const,
           content,
-        }
+        };
       }
       default:
-        throw new Error('Invalid role')
+        throw new Error('Invalid role');
     }
-  })
+  });
 
-  return mergeAssistantMessages(items)
+  return mergeAssistantMessages(items);
 }
 
 // Anthropic and some others need this in non-streaming mode
 function mergeAssistantMessages(
   messages: Readonly<AxAIAnthropicChatRequest['messages']>
 ): AxAIAnthropicChatRequest['messages'] {
-  const mergedMessages: AxAIAnthropicChatRequest['messages'] = []
+  const mergedMessages: AxAIAnthropicChatRequest['messages'] = [];
 
   for (const [i, cur] of messages.entries()) {
     // Continue if not an assistant message or first message
     if (cur.role !== 'assistant') {
-      mergedMessages.push(cur)
-      continue
+      mergedMessages.push(cur);
+      continue;
     }
 
     // Merge current message with the previous one if both are from the assistant
     if (i > 0 && messages.at(i - 1)?.role === 'assistant') {
-      const lastMessage = mergedMessages.pop()
+      const lastMessage = mergedMessages.pop();
 
       mergedMessages.push({
         ...(lastMessage ? lastMessage : {}),
         ...cur,
-      })
+      });
     } else {
-      mergedMessages.push(cur)
+      mergedMessages.push(cur);
     }
   }
 
-  return mergedMessages
+  return mergedMessages;
 }
 
 function mapFinishReason(
   stopReason?: AxAIAnthropicChatResponse['stop_reason'] | null
 ): AxChatResponse['results'][0]['finishReason'] | undefined {
   if (!stopReason) {
-    return undefined
+    return undefined;
   }
   switch (stopReason) {
     case 'stop_sequence':
-      return 'stop'
-      break
+      return 'stop';
     case 'max_tokens':
-      return 'length'
-      break
+      return 'length';
     case 'tool_use':
-      return 'function_call'
-      break
+      return 'function_call';
     case 'end_turn':
-      return 'stop'
-      break
+      return 'stop';
     default:
-      return 'stop'
+      return 'stop';
   }
 }

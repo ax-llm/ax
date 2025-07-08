@@ -1,6 +1,6 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIAnthropicModel } from './types.js'
+import { AxAIAnthropicModel } from './types.js';
 
 export const axModelInfoAnthropic: AxModelInfo[] = [
   // 4
@@ -84,4 +84,4 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     completionTokenCostPer1M: 2.24,
     maxTokens: 4096,
   },
-]
+];

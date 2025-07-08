@@ -1,32 +1,32 @@
-import type { AxFunctionJSONSchema } from '../ai/types.js'
+import type { AxFunctionJSONSchema } from '../ai/types.js';
 
 // Extended type to handle flexible JSON schemas with union types
 type FlexibleJSONSchema = AxFunctionJSONSchema & {
-  anyOf?: FlexibleJSONSchema[]
-  oneOf?: FlexibleJSONSchema[]
-  allOf?: FlexibleJSONSchema[]
-  properties?: Record<string, FlexibleJSONSchema | undefined>
-}
+  anyOf?: FlexibleJSONSchema[];
+  oneOf?: FlexibleJSONSchema[];
+  allOf?: FlexibleJSONSchema[];
+  properties?: Record<string, FlexibleJSONSchema | undefined>;
+};
 
 interface ValidationError {
-  path: string
-  issue: string
-  fix: string
-  example?: string
+  path: string;
+  issue: string;
+  fix: string;
+  example?: string;
 }
 
 export const validateJSONSchema = (
   schema: Readonly<AxFunctionJSONSchema>
 ): void => {
-  const errors: ValidationError[] = []
+  const errors: ValidationError[] = [];
 
   const validateSchemaObject = (
     schema: Readonly<FlexibleJSONSchema | undefined>,
-    path: string = ''
+    path = ''
   ): void => {
     // Skip validation if schema is undefined or null
     if (!schema || typeof schema !== 'object') {
-      return
+      return;
     }
 
     const validTypes = [
@@ -37,7 +37,7 @@ export const validateJSONSchema = (
       'boolean',
       'null',
       'object',
-    ]
+    ];
 
     // Handle schemas with anyOf (union types)
     if (schema.anyOf && Array.isArray(schema.anyOf)) {
@@ -47,13 +47,13 @@ export const validateJSONSchema = (
           issue: 'anyOf array is empty',
           fix: 'Add at least one schema to the anyOf array',
           example: 'anyOf: [{ type: "string" }, { type: "null" }]',
-        })
+        });
       }
       // Validate each schema in anyOf
       schema.anyOf.forEach((subSchema: FlexibleJSONSchema, index: number) => {
-        validateSchemaObject(subSchema, `${path}anyOf[${index}].`)
-      })
-      return
+        validateSchemaObject(subSchema, `${path}anyOf[${index}].`);
+      });
+      return;
     }
 
     // Handle schemas with oneOf
@@ -64,12 +64,12 @@ export const validateJSONSchema = (
           issue: 'oneOf array is empty',
           fix: 'Add at least one schema to the oneOf array',
           example: 'oneOf: [{ type: "string" }, { type: "number" }]',
-        })
+        });
       }
       schema.oneOf.forEach((subSchema: FlexibleJSONSchema, index: number) => {
-        validateSchemaObject(subSchema, `${path}oneOf[${index}].`)
-      })
-      return
+        validateSchemaObject(subSchema, `${path}oneOf[${index}].`);
+      });
+      return;
     }
 
     // Handle schemas with allOf
@@ -81,17 +81,17 @@ export const validateJSONSchema = (
           fix: 'Add at least one schema to the allOf array',
           example:
             'allOf: [{ type: "object" }, { properties: { name: { type: "string" } } }]',
-        })
+        });
       }
       schema.allOf.forEach((subSchema: FlexibleJSONSchema, index: number) => {
-        validateSchemaObject(subSchema, `${path}allOf[${index}].`)
-      })
-      return
+        validateSchemaObject(subSchema, `${path}allOf[${index}].`);
+      });
+      return;
     }
 
     // Skip validation if no type is specified (might be a reference or other valid schema)
     if (!schema.type) {
-      return
+      return;
     }
 
     if (!validTypes.includes(schema.type)) {
@@ -100,8 +100,8 @@ export const validateJSONSchema = (
         issue: `Invalid type '${schema.type}'`,
         fix: `Change type to one of: ${validTypes.join(', ')}`,
         example: `{ type: "string" } or { type: "object" }`,
-      })
-      return
+      });
+      return;
     }
 
     if (schema.type === 'object') {
@@ -116,13 +116,13 @@ export const validateJSONSchema = (
             fix: 'Change properties to be an object with property names as keys',
             example:
               'properties: { name: { type: "string" }, age: { type: "number" } }',
-          })
+          });
         } else {
           for (const key in schema.properties) {
-            const value = schema.properties[key]
+            const value = schema.properties[key];
             // Skip undefined or null properties
             if (value === undefined || value === null) {
-              continue
+              continue;
             }
             if (typeof value !== 'object') {
               errors.push({
@@ -130,10 +130,10 @@ export const validateJSONSchema = (
                 issue: `Property schema must be an object, got ${typeof value}`,
                 fix: 'Define the property as a proper schema object',
                 example: `${key}: { type: "string", description: "..." }`,
-              })
-              continue
+              });
+              continue;
             }
-            validateSchemaObject(value, `${path}${key}.`)
+            validateSchemaObject(value, `${path}${key}.`);
           }
         }
       }
@@ -146,7 +146,7 @@ export const validateJSONSchema = (
             fix: 'Change required to be an array of property names',
             example:
               'required: ["name", "email"] instead of required: "name,email"',
-          })
+          });
         } else if (schema.required.length === 0) {
           // This is valid but might be worth noting
         } else {
@@ -160,14 +160,14 @@ export const validateJSONSchema = (
                   fix: 'Ensure all items in required array are strings',
                   example:
                     'required: ["name", "email"] not required: [123, "email"]',
-                })
+                });
               } else if (!(requiredProp in schema.properties)) {
                 errors.push({
                   path: `${path}required`,
                   issue: `Required property '${requiredProp}' is not defined in properties`,
                   fix: `Either add '${requiredProp}' to properties or remove it from required`,
                   example: `properties: { ${requiredProp}: { type: "string" } }`,
-                })
+                });
               }
             }
           }
@@ -184,15 +184,15 @@ export const validateJSONSchema = (
             fix: 'Define items as a proper schema object',
             example:
               'items: { type: "string" } or items: { type: "object", properties: {...} }',
-          })
+          });
         } else {
-          validateSchemaObject(schema.items, `${path}items.`)
+          validateSchemaObject(schema.items, `${path}items.`);
         }
       }
     }
-  }
+  };
 
-  validateSchemaObject(schema)
+  validateSchemaObject(schema);
 
   if (errors.length > 0) {
     const errorMessage = [
@@ -203,19 +203,19 @@ export const validateJSONSchema = (
           `${index + 1}. Path: ${error.path}`,
           `   Issue: ${error.issue}`,
           `   Fix: ${error.fix}`,
-        ]
+        ];
         if (error.example) {
-          parts.push(`   Example: ${error.example}`)
+          parts.push(`   Example: ${error.example}`);
         }
-        return parts.join('\n')
+        return parts.join('\n');
       }),
       '',
       'Please fix these issues and try again.',
-    ].join('\n')
+    ].join('\n');
 
-    throw new Error(errorMessage)
+    throw new Error(errorMessage);
   }
-}
+};
 
 // Example Usage:
 

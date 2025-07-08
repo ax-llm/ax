@@ -1,68 +1,68 @@
-import type { AxFunctionJSONSchema } from '../ai/types.js'
+import type { AxFunctionJSONSchema } from '../ai/types.js';
 
 export interface JSONRPCRequest<T> {
-  jsonrpc: '2.0'
-  id: string | number
-  method: string
-  params?: T
+  jsonrpc: '2.0';
+  id: string | number;
+  method: string;
+  params?: T;
 }
 
 export interface JSONRPCSuccessResponse<T = unknown> {
-  jsonrpc: '2.0'
-  id: string | number
-  result: T
+  jsonrpc: '2.0';
+  id: string | number;
+  result: T;
 }
 
 export interface JSONRPCErrorResponse {
-  jsonrpc: '2.0'
-  id: string | number
+  jsonrpc: '2.0';
+  id: string | number;
   error: {
-    code: number
-    message: string
-    data?: unknown
-  }
+    code: number;
+    message: string;
+    data?: unknown;
+  };
 }
 
 export type JSONRPCResponse<T = unknown> =
   | JSONRPCSuccessResponse<T>
-  | JSONRPCErrorResponse
+  | JSONRPCErrorResponse;
 
 export interface MCPInitializeParams {
-  protocolVersion: string
-  capabilities: Record<string, unknown>
+  protocolVersion: string;
+  capabilities: Record<string, unknown>;
   clientInfo: {
-    name: string
-    version: string
-  }
+    name: string;
+    version: string;
+  };
 }
 
 export interface MCPInitializeResult {
-  protocolVersion: string
+  protocolVersion: string;
   capabilities: {
-    tools?: unknown[]
-    resources?: Record<string, unknown>
-    prompts?: unknown[]
-  }
+    tools?: unknown[];
+    resources?: Record<string, unknown>;
+    prompts?: unknown[];
+  };
   serverInfo: {
-    name: string
-    version: string
-  }
+    name: string;
+    version: string;
+  };
 }
 
 export interface MCPFunctionDescription {
-  name: string
-  description: string
-  inputSchema: AxFunctionJSONSchema
+  name: string;
+  description: string;
+  inputSchema: AxFunctionJSONSchema;
 }
 
 export interface MCPToolsListResult {
-  name: string
-  description: string
-  tools: MCPFunctionDescription[]
+  name: string;
+  description: string;
+  tools: MCPFunctionDescription[];
 }
 
 export interface JSONRPCNotification {
-  jsonrpc: '2.0'
-  method: string
-  params?: Record<string, unknown>
+  jsonrpc: '2.0';
+  method: string;
+  params?: Record<string, unknown>;
 }

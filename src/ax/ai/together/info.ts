@@ -1,3 +1,3 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-export const axModelInfoTogether: AxModelInfo[] = []
+export const axModelInfoTogether: AxModelInfo[] = [];

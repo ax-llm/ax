@@ -1,15 +1,14 @@
-import fs from 'fs/promises'
-
+import fs from 'node:fs/promises';
 import {
-  ax,
   AxAI,
   AxAIOpenAIModel,
-  axCreateOptimizerLogger,
   type AxMetricFn,
   AxMiPRO,
   type AxMiPROCompileOptions,
+  ax,
+  axCreateOptimizerLogger,
   f,
-} from '@ax-llm/ax'
+} from '@ax-llm/ax';
 
 /**
  * Complex reasoning examples that benefit from teacher model optimization
@@ -40,18 +39,18 @@ const complexReasoningExamples = [
     analysis:
       'This confuses correlation with causation. Both ice cream sales and drowning deaths increase in summer due to hot weather and more swimming activity. The correlation is coincidental - temperature is the common cause. Banning ice cream would not reduce drowning deaths.',
   },
-]
+];
 
 // Export the reasoning generator for reuse
 export const reasoningGen = ax`
   scenario:${f.string('Business or logical scenario to analyze')} -> 
   analysis:${f.string('Critical analysis explaining what is wrong or misleading about the scenario')}
-`
+`;
 
 // Sophisticated evaluation metric for reasoning quality
 const reasoningMetric: AxMetricFn = ({ prediction, example }) => {
-  const predicted = (prediction.analysis as string)?.toLowerCase() || ''
-  const expected = (example.analysis as string)?.toLowerCase() || ''
+  const predicted = (prediction.analysis as string)?.toLowerCase() || '';
+  const expected = (example.analysis as string)?.toLowerCase() || '';
 
   // Check for key reasoning concepts
   const reasoningIndicators = [
@@ -68,45 +67,45 @@ const reasoningMetric: AxMetricFn = ({ prediction, example }) => {
     'because',
     'therefore',
     'due to',
-  ]
+  ];
 
-  let score = 0
+  let score = 0;
 
   // Basic content overlap
-  if (predicted.includes(expected.slice(0, 50))) score += 0.3
+  if (predicted.includes(expected.slice(0, 50))) score += 0.3;
 
   // Check for reasoning indicators
   const predictedIndicators = reasoningIndicators.filter((word) =>
     predicted.includes(word)
-  )
+  );
   const expectedIndicators = reasoningIndicators.filter((word) =>
     expected.includes(word)
-  )
+  );
 
   if (predictedIndicators.length >= expectedIndicators.length * 0.5)
-    score += 0.4
+    score += 0.4;
 
   // Length and detail check (good reasoning should be detailed)
-  if (predicted.length >= expected.length * 0.6) score += 0.3
+  if (predicted.length >= expected.length * 0.6) score += 0.3;
 
-  return score
-}
+  return score;
+};
 
-console.log('=== Complex Reasoning Optimization Demo ===\n')
+console.log('=== Complex Reasoning Optimization Demo ===\n');
 
 // Teacher model (GPT-4) for optimization
 const teacherAI = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini }, // Use a capable model as teacher
-})
+});
 
-console.log('Task: Analyze scenarios for logical flaws and misleading claims')
-console.log('Teacher Model: GPT-4o-mini (high reasoning capability)')
-console.log('Examples:', complexReasoningExamples.length)
+console.log('Task: Analyze scenarios for logical flaws and misleading claims');
+console.log('Teacher Model: GPT-4o-mini (high reasoning capability)');
+console.log('Examples:', complexReasoningExamples.length);
 
 // Create enhanced logger for better output
-const enhancedLogger = axCreateOptimizerLogger()
+const enhancedLogger = axCreateOptimizerLogger();
 
 const optimizer = new AxMiPRO({
   studentAI: teacherAI,
@@ -117,39 +116,39 @@ const optimizer = new AxMiPRO({
     numTrials: 8,
     verbose: true,
   },
-})
+});
 
-console.log('\n=== Running Optimization ===')
+console.log('\n=== Running Optimization ===');
 
 const result = await optimizer.compile(reasoningGen, reasoningMetric, {
   auto: 'medium', // More thorough optimization for complex task
-} as AxMiPROCompileOptions) // Use proper type instead of any
+} as AxMiPROCompileOptions); // Use proper type instead of any
 
-console.log('\n✅ Optimization Complete!')
+console.log('\n✅ Optimization Complete!');
 
 // Save just the demos
 await fs.writeFile(
   'reasoning-demos.json',
   JSON.stringify(result.demos, null, 2)
-)
+);
 
-console.log('💾 Saved demos to: reasoning-demos.json')
+console.log('💾 Saved demos to: reasoning-demos.json');
 console.log(
   `📊 Successful demos: ${optimizer.getStats()?.successfulDemos ?? 0}`
-)
+);
 
 // Quick test with teacher model
-console.log('\n=== Testing Optimized Generator ===')
+console.log('\n=== Testing Optimized Generator ===');
 const testScenario =
-  'A social media company boasts record user engagement while quietly reducing content moderation staff by 60%.'
+  'A social media company boasts record user engagement while quietly reducing content moderation staff by 60%.';
 
 // Set demos and test
 if (result.demos) {
-  reasoningGen.setDemos(result.demos)
+  reasoningGen.setDemos(result.demos);
 }
 const testResult = await reasoningGen.forward(teacherAI, {
   scenario: testScenario,
-})
+});
 
-console.log('Test Scenario:', testScenario)
-console.log('Analysis:', testResult.analysis)
+console.log('Test Scenario:', testScenario);
+console.log('Analysis:', testResult.analysis);

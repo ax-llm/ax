@@ -1,28 +1,28 @@
-import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax'
+import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax';
 
 const goodDay = {
   temperature: '27C',
   description: 'Clear Sky',
   wind_speed: 5.1,
   humidity: 56,
-}
+};
 
 const badDay = {
   temperature: '10C',
   description: 'Cloudy',
   wind_speed: 10.6,
   humidity: 70,
-}
+};
 
-const weatherAPI = ({}: Readonly<{ location: string }>) => {
-  return Math.random() > 0.5 ? goodDay : badDay
-}
+const weatherAPI = (_: Readonly<{ location: string }>) => {
+  return Math.random() > 0.5 ? goodDay : badDay;
+};
 
 const opentableAPI = ({
   priceRange,
 }: Readonly<{
-  cuisine: string
-  priceRange: string
+  cuisine: string;
+  priceRange: string;
 }>) => {
   const data = [
     {
@@ -65,10 +65,10 @@ const opentableAPI = ({
       price_range: '$$$',
       outdoor_seating: true,
     },
-  ]
+  ];
 
-  return data.filter((v) => v.price_range === priceRange)
-}
+  return data.filter((v) => v.price_range === priceRange);
+};
 
 // List of functions available to the AI
 const functions: AxFunction[] = [
@@ -117,13 +117,13 @@ const functions: AxFunction[] = [
       required: ['location', 'outdoor', 'cuisine', 'priceRange'],
     },
   },
-]
+];
 
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { stream: true },
-})
+});
 
 // const ai = new AxAI({
 //     name: 'google-gemini',
@@ -155,14 +155,14 @@ const ai = new AxAI({
 //     config: { stream: true },
 // })
 
-ai.setOptions({ debug: true })
+ai.setOptions({ debug: true });
 
 const customerQuery =
-  "Give me an ideas for lunch today in San Francisco. I like sushi, chinese, indian. Also if its a nice day I'd rather sit outside. Find me something."
+  "Give me an ideas for lunch today in San Francisco. I like sushi, chinese, indian. Also if its a nice day I'd rather sit outside. Find me something.";
 
 const signature = new AxSignature(
   `customerQuery:string  -> plan: string "detailed plan to find a place to eat", restaurant:string, priceRange:string "use $ signs to indicate price range"`
-)
+);
 
 const gen = new AxAgent<
   { customerQuery: string },
@@ -173,8 +173,8 @@ const gen = new AxAgent<
     'Use this agent to find restaurants based on what the customer wants. Use the provided functions to get the weather and find restaurants and finally return the best match',
   signature,
   functions,
-})
+});
 
-const res = await gen.forward(ai, { customerQuery })
+const res = await gen.forward(ai, { customerQuery });
 
-console.log('\n>', res)
+console.log('\n>', res);

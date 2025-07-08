@@ -8,16 +8,16 @@
  * https://interconnected.org/more/2024/lares/
  */
 
-import { AxAgent, AxAI, type AxFunctionJSONSchema } from '@ax-llm/ax'
+import { AxAgent, AxAI, type AxFunctionJSONSchema } from '@ax-llm/ax';
 
 interface RoomState {
-  light: boolean
+  light: boolean;
 }
 
 interface HomeState {
-  rooms: { [key: string]: RoomState }
-  robotLocation: string
-  dogLocation: string
+  rooms: { [key: string]: RoomState };
+  robotLocation: string;
+  dogLocation: string;
 }
 
 const state: HomeState = {
@@ -28,12 +28,12 @@ const state: HomeState = {
   },
   robotLocation: 'kitchen',
   dogLocation: 'livingRoom',
-}
+};
 
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-})
+});
 
 const agent = new AxAgent({
   name: 'lares',
@@ -52,21 +52,20 @@ const agent = new AxAgent({
       } as AxFunctionJSONSchema,
       func: async (args) => {
         if (!args?.room) {
-          throw new Error('Missing required parameter: room')
+          throw new Error('Missing required parameter: room');
         }
-        const roomState = state.rooms[args.room]
+        const roomState = state.rooms[args.room];
         if (roomState) {
-          roomState.light = !roomState.light
+          roomState.light = !roomState.light;
           console.log(
             `Toggled light in ${args.room}: ${roomState.light ? 'on' : 'off'}`
-          )
+          );
           return {
             success: true,
             light: roomState.light ? 'on' : 'off',
-          }
-        } else {
-          return { success: false, message: 'Invalid room' }
+          };
         }
+        return { success: false, message: 'Invalid room' };
       },
     },
     {
@@ -81,12 +80,11 @@ const agent = new AxAgent({
       } as AxFunctionJSONSchema,
       func: async (args: Readonly<{ destination: string }>) => {
         if (state.rooms[args.destination]) {
-          state.robotLocation = args.destination
-          console.log(`Moved robot to ${args.destination}`)
-          return { success: true, location: args.destination }
-        } else {
-          return { success: false, message: 'Invalid destination' }
+          state.robotLocation = args.destination;
+          console.log(`Moved robot to ${args.destination}`);
+          return { success: true, location: args.destination };
         }
+        return { success: false, message: 'Invalid destination' };
       },
     },
     {
@@ -97,23 +95,22 @@ const agent = new AxAgent({
         properties: {},
       } as AxFunctionJSONSchema,
       func: async () => {
-        const location = state.robotLocation
-        const room = state.rooms[location]
+        const location = state.robotLocation;
+        const room = state.rooms[location];
 
-        if (room && room.light) {
-          const items = location === state.dogLocation ? ['dog'] : []
+        if (room?.light) {
+          const items = location === state.dogLocation ? ['dog'] : [];
           console.log(
             `Looking in ${location}: ${items.length ? 'dog found' : 'no dog'}`
-          )
-          return { success: true, items }
-        } else {
-          console.log(`Too dark to see anything in ${location}`)
-          return { success: false, message: "It's too dark to see anything" }
+          );
+          return { success: true, items };
         }
+        console.log(`Too dark to see anything in ${location}`);
+        return { success: false, message: "It's too dark to see anything" };
       },
     },
   ],
-})
+});
 
 // Initial state prompt for the LLM
 const instruction = `
@@ -121,7 +118,7 @@ const instruction = `
     Each room has a light that can be toggled on or off. There is a robot that can move between rooms.
     Your task is to find the dog. You can turn on lights in rooms to see inside them, and move the robot to different rooms.
     The initial state is: ${JSON.stringify({ ...state, dogLocation: 'unknown' })}.
-  `
+  `;
 
-const res = await agent.forward(ai, { instruction })
-console.log('Response:', res)
+const res = await agent.forward(ai, { instruction });
+console.log('Response:', res);

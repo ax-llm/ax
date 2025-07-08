@@ -1,31 +1,31 @@
-import { ReadableStream } from 'stream/web'
+import { ReadableStream } from 'node:stream/web';
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 
-import { AxMockAIService } from '../ai/mock/api.js'
-import type { AxChatResponse, AxFunction } from '../ai/types.js'
-import { AxMemory } from '../mem/memory.js'
+import { AxMockAIService } from '../ai/mock/api.js';
+import type { AxChatResponse, AxFunction } from '../ai/types.js';
+import { AxMemory } from '../mem/memory.js';
 
-import { AxGen } from './generate.js'
+import { AxGen } from './generate.js';
 
 function createStreamingResponse(
   chunks: AxChatResponse['results']
 ): ReadableStream<AxChatResponse> {
   return new ReadableStream<AxChatResponse>({
     start(controller) {
-      let count = 0
+      let count = 0;
 
       const processChunks = async () => {
         if (count >= chunks.length || controller.desiredSize === null) {
           if (controller.desiredSize !== null) {
-            controller.close()
+            controller.close();
           }
-          return
+          return;
         }
 
-        const chunk = chunks[count]
+        const chunk = chunks[count];
         if (!chunk) {
-          return
+          return;
         }
 
         const response: AxChatResponse = {
@@ -39,33 +39,33 @@ function createStreamingResponse(
               totalTokens: 15 + 2 * count,
             },
           },
-        }
+        };
 
         if (!controller.desiredSize || controller.desiredSize <= 0) {
-          return
+          return;
         }
 
-        controller.enqueue(response)
-        count++
+        controller.enqueue(response);
+        count++;
 
         if (count < chunks.length) {
-          setTimeout(processChunks, 10)
+          setTimeout(processChunks, 10);
         } else {
           if (controller.desiredSize !== null) {
-            controller.close()
+            controller.close();
           }
         }
-      }
+      };
 
-      setTimeout(processChunks, 10)
+      setTimeout(processChunks, 10);
     },
     cancel() {},
-  })
+  });
 }
 
 describe('AxGen Validation - Missing Required Fields', () => {
   const signature =
-    'userInput:string -> requiredField:string, optionalField:string'
+    'userInput:string -> requiredField:string, optionalField:string';
 
   it('should throw validation error when required field is completely missing in strict mode', async () => {
     const ai = new AxMockAIService({
@@ -84,17 +84,17 @@ describe('AxGen Validation - Missing Required Fields', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<
       { userInput: string },
       { requiredField: string; optionalField: string }
-    >(signature)
+    >(signature);
 
     await expect(
       gen.forward(ai, { userInput: 'test input' }, { strictMode: true })
-    ).rejects.toThrow(/Generate failed/)
-  })
+    ).rejects.toThrow(/Generate failed/);
+  });
 
   it('should handle missing first required field in strict mode', async () => {
     const ai = new AxMockAIService({
@@ -113,20 +113,20 @@ describe('AxGen Validation - Missing Required Fields', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<
       { userInput: string },
       { requiredField: string; optionalField: string }
-    >(signature)
+    >(signature);
 
     await expect(
       gen.forward(ai, { userInput: 'test input' }, { strictMode: true })
-    ).rejects.toThrow(/Generate failed/)
-  })
+    ).rejects.toThrow(/Generate failed/);
+  });
 
   it('should assume first field when no prefix is provided in non-strict mode with single output field', async () => {
-    const singleFieldSignature = 'userInput:string -> requiredField:string'
+    const singleFieldSignature = 'userInput:string -> requiredField:string';
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: {
@@ -143,25 +143,25 @@ describe('AxGen Validation - Missing Required Fields', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { requiredField: string }>(
       singleFieldSignature
-    )
+    );
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { strictMode: false }
-    )
+    );
 
     expect(response.requiredField).toBe(
       'This content should be assigned to the first field'
-    )
-  })
+    );
+  });
 
   it('should throw in strict mode when no prefix is provided even with single output field', async () => {
-    const singleFieldSignature = 'userInput:string -> requiredField:string'
+    const singleFieldSignature = 'userInput:string -> requiredField:string';
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: {
@@ -178,21 +178,21 @@ describe('AxGen Validation - Missing Required Fields', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { requiredField: string }>(
       singleFieldSignature
-    )
+    );
 
     await expect(
       gen.forward(ai, { userInput: 'test input' }, { strictMode: true })
-    ).rejects.toThrow(/Generate failed/)
-  })
-})
+    ).rejects.toThrow(/Generate failed/);
+  });
+});
 
 describe('AxGen Validation - Multiple Output Field Prefix Handling', () => {
   const multiOutputSignature =
-    'userQuestion:string -> fieldA:string, fieldB:string, fieldC:string'
+    'userQuestion:string -> fieldA:string, fieldB:string, fieldC:string';
 
   it('should handle missing first field prefix in multiple output scenario', async () => {
     const ai = new AxMockAIService({
@@ -211,17 +211,17 @@ describe('AxGen Validation - Multiple Output Field Prefix Handling', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<
       { userQuestion: string },
       { fieldA: string; fieldB: string; fieldC: string }
-    >(multiOutputSignature)
+    >(multiOutputSignature);
 
     await expect(
       gen.forward(ai, { userQuestion: 'test input' }, { strictMode: true })
-    ).rejects.toThrow(/Generate failed/)
-  })
+    ).rejects.toThrow(/Generate failed/);
+  });
 
   it('should throw validation error for missing required fields with multiple outputs', async () => {
     const ai = new AxMockAIService({
@@ -241,17 +241,17 @@ describe('AxGen Validation - Multiple Output Field Prefix Handling', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<
       { userQuestion: string },
       { fieldA: string; fieldB: string; fieldC: string }
-    >(multiOutputSignature)
+    >(multiOutputSignature);
 
     await expect(
       gen.forward(ai, { userQuestion: 'test input' }, { strictMode: false })
-    ).rejects.toThrow(/Generate failed/)
-  })
+    ).rejects.toThrow(/Generate failed/);
+  });
 
   it('should throw validation error when required fields are missing prefixes', async () => {
     const ai = new AxMockAIService({
@@ -271,21 +271,21 @@ describe('AxGen Validation - Multiple Output Field Prefix Handling', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<
       { userQuestion: string },
       { fieldA: string; fieldB: string; fieldC: string }
-    >(multiOutputSignature)
+    >(multiOutputSignature);
 
     await expect(
       gen.forward(ai, { userQuestion: 'test input' }, { strictMode: false })
-    ).rejects.toThrow(/Generate failed/)
-  })
-})
+    ).rejects.toThrow(/Generate failed/);
+  });
+});
 
 describe('AxGen Validation - Empty and Error Responses', () => {
-  const signature = 'userQuery:string -> assistantOutput:string'
+  const signature = 'userQuery:string -> assistantOutput:string';
 
   it('should handle completely empty response', async () => {
     const ai = new AxMockAIService({
@@ -304,20 +304,20 @@ describe('AxGen Validation - Empty and Error Responses', () => {
           tokens: { promptTokens: 10, completionTokens: 0, totalTokens: 10 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
       signature
-    )
+    );
 
     const response = await gen.forward(
       ai,
       { userQuery: 'test input' },
       { strictMode: false }
-    )
+    );
 
-    expect(response.assistantOutput).toBeUndefined()
-  })
+    expect(response.assistantOutput).toBeUndefined();
+  });
 
   it('should return undefined for empty response even in strict mode', async () => {
     const ai = new AxMockAIService({
@@ -336,20 +336,20 @@ describe('AxGen Validation - Empty and Error Responses', () => {
           tokens: { promptTokens: 10, completionTokens: 0, totalTokens: 10 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
       signature
-    )
+    );
 
     const response = await gen.forward(
       ai,
       { userQuery: 'test input' },
       { strictMode: true }
-    )
+    );
 
-    expect(response.assistantOutput).toBeUndefined()
-  })
+    expect(response.assistantOutput).toBeUndefined();
+  });
 
   it('should throw validation error for whitespace-only response', async () => {
     const ai = new AxMockAIService({
@@ -368,20 +368,20 @@ describe('AxGen Validation - Empty and Error Responses', () => {
           tokens: { promptTokens: 10, completionTokens: 1, totalTokens: 11 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
       signature
-    )
+    );
 
     await expect(
       gen.forward(ai, { userQuery: 'test input' }, { strictMode: false })
-    ).rejects.toThrow(/Generate failed/)
-  })
-})
+    ).rejects.toThrow(/Generate failed/);
+  });
+});
 
 describe('AxGen Validation - Function Call Failures', () => {
-  const signature = 'userQuery:string -> assistantOutput:string'
+  const signature = 'userQuery:string -> assistantOutput:string';
 
   it('should handle function that throws an error', async () => {
     const failingFunction: AxFunction = {
@@ -395,9 +395,9 @@ describe('AxGen Validation - Function Call Failures', () => {
         required: ['input'],
       },
       func: async () => {
-        throw new Error('Function execution failed')
+        throw new Error('Function execution failed');
       },
-    }
+    };
 
     const ai = new AxMockAIService({
       features: { functions: true, streaming: false },
@@ -425,19 +425,19 @@ describe('AxGen Validation - Function Call Failures', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
       signature,
       {
         functions: [failingFunction],
       }
-    )
+    );
 
     await expect(gen.forward(ai, { userQuery: 'test input' })).rejects.toThrow(
       /Generate failed/
-    )
-  })
+    );
+  });
 
   it('should handle function that returns empty result and add to memory', async () => {
     const emptyFunction: AxFunction = {
@@ -451,15 +451,15 @@ describe('AxGen Validation - Function Call Failures', () => {
         required: ['input'],
       },
       func: async () => {
-        return ''
+        return '';
       },
-    }
+    };
 
-    let callCount = 0
+    let callCount = 0;
     const ai = new AxMockAIService({
       features: { functions: true, streaming: false },
       chatResponse: async () => {
-        callCount++
+        callCount++;
         if (callCount === 1) {
           // First call: provide function call
           return {
@@ -489,57 +489,56 @@ describe('AxGen Validation - Function Call Failures', () => {
                 totalTokens: 30,
               },
             },
-          }
-        } else {
-          // Second call: provide final response
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Assistant Output: Function returned empty result',
-                finishReason: 'stop' as const,
-              },
-            ],
-            modelUsage: {
-              ai: 'test-ai',
-              model: 'test-model',
-              tokens: {
-                promptTokens: 10,
-                completionTokens: 20,
-                totalTokens: 30,
-              },
-            },
-          }
+          };
         }
+        // Second call: provide final response
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Assistant Output: Function returned empty result',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-model',
+            tokens: {
+              promptTokens: 10,
+              completionTokens: 20,
+              totalTokens: 30,
+            },
+          },
+        };
       },
-    })
+    });
 
     const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
       signature,
       {
         functions: [emptyFunction],
       }
-    )
+    );
 
     // Create memory instance to track function calls
-    const memory = new AxMemory()
+    const memory = new AxMemory();
 
     const response = await gen.forward(
       ai,
       { userQuery: 'test input' },
       { mem: memory }
-    )
+    );
 
-    expect(response.assistantOutput).toBe('Function returned empty result')
+    expect(response.assistantOutput).toBe('Function returned empty result');
 
     // Check that function result was added to memory with empty string
-    const history = memory.history(0)
-    const functionMessage = history.find((msg) => msg.role === 'function')
+    const history = memory.history(0);
+    const functionMessage = history.find((msg) => msg.role === 'function');
 
-    expect(functionMessage).toBeDefined()
-    expect(functionMessage?.functionId).toBe('call_1')
-    expect(functionMessage?.result).toBe('')
-  })
+    expect(functionMessage).toBeDefined();
+    expect(functionMessage?.functionId).toBe('call_1');
+    expect(functionMessage?.result).toBe('');
+  });
 
   it('should handle multiple parallel function calls with variety of return values', async () => {
     const emptyFunction: AxFunction = {
@@ -553,9 +552,9 @@ describe('AxGen Validation - Function Call Failures', () => {
         required: ['input'],
       },
       func: async () => {
-        return ''
+        return '';
       },
-    }
+    };
 
     const textFunction: AxFunction = {
       name: 'textFunction',
@@ -568,9 +567,9 @@ describe('AxGen Validation - Function Call Failures', () => {
         required: ['input'],
       },
       func: async () => {
-        return 'Normal text response'
+        return 'Normal text response';
       },
-    }
+    };
 
     const jsonFunction: AxFunction = {
       name: 'jsonFunction',
@@ -583,9 +582,9 @@ describe('AxGen Validation - Function Call Failures', () => {
         required: ['input'],
       },
       func: async () => {
-        return { status: 'success', data: [1, 2, 3] }
+        return { status: 'success', data: [1, 2, 3] };
       },
-    }
+    };
 
     const nullFunction: AxFunction = {
       name: 'nullFunction',
@@ -598,15 +597,15 @@ describe('AxGen Validation - Function Call Failures', () => {
         required: ['input'],
       },
       func: async () => {
-        return null
+        return null;
       },
-    }
+    };
 
-    let callCount = 0
+    let callCount = 0;
     const ai = new AxMockAIService({
       features: { functions: true, streaming: false },
       chatResponse: async () => {
-        callCount++
+        callCount++;
         if (callCount === 1) {
           // First call: provide multiple function calls in parallel
           return {
@@ -660,83 +659,83 @@ describe('AxGen Validation - Function Call Failures', () => {
                 totalTokens: 40,
               },
             },
-          }
-        } else {
-          // Second call: provide final response
-          return {
-            results: [
-              {
-                index: 0,
-                content:
-                  'Assistant Output: All functions executed successfully',
-                finishReason: 'stop' as const,
-              },
-            ],
-            modelUsage: {
-              ai: 'test-ai',
-              model: 'test-model',
-              tokens: {
-                promptTokens: 10,
-                completionTokens: 20,
-                totalTokens: 30,
-              },
-            },
-          }
+          };
         }
+        // Second call: provide final response
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Assistant Output: All functions executed successfully',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-model',
+            tokens: {
+              promptTokens: 10,
+              completionTokens: 20,
+              totalTokens: 30,
+            },
+          },
+        };
       },
-    })
+    });
 
     const gen = new AxGen<{ userQuery: string }, { assistantOutput: string }>(
       signature,
       {
         functions: [emptyFunction, textFunction, jsonFunction, nullFunction],
       }
-    )
+    );
 
     // Create memory instance to track function calls
-    const memory = new AxMemory()
+    const memory = new AxMemory();
 
     const response = await gen.forward(
       ai,
       { userQuery: 'test multiple functions' },
       { mem: memory }
-    )
+    );
 
-    expect(response.assistantOutput).toBe('All functions executed successfully')
+    expect(response.assistantOutput).toBe(
+      'All functions executed successfully'
+    );
 
     // Check that all function results were added to memory
-    const history = memory.history(0)
-    const functionMessages = history.filter((msg) => msg.role === 'function')
+    const history = memory.history(0);
+    const functionMessages = history.filter((msg) => msg.role === 'function');
 
-    expect(functionMessages).toHaveLength(4)
+    expect(functionMessages).toHaveLength(4);
 
     // Verify each function result
     const emptyFunctionMessage = functionMessages.find(
       (msg) => msg.functionId === 'call_1'
-    )
-    expect(emptyFunctionMessage).toBeDefined()
-    expect(emptyFunctionMessage?.result).toBe('')
+    );
+    expect(emptyFunctionMessage).toBeDefined();
+    expect(emptyFunctionMessage?.result).toBe('');
 
     const textFunctionMessage = functionMessages.find(
       (msg) => msg.functionId === 'call_2'
-    )
-    expect(textFunctionMessage).toBeDefined()
-    expect(textFunctionMessage?.result).toBe('Normal text response')
+    );
+    expect(textFunctionMessage).toBeDefined();
+    expect(textFunctionMessage?.result).toBe('Normal text response');
 
     const jsonFunctionMessage = functionMessages.find(
       (msg) => msg.functionId === 'call_3'
-    )
-    expect(jsonFunctionMessage).toBeDefined()
+    );
+    expect(jsonFunctionMessage).toBeDefined();
     expect(jsonFunctionMessage?.result).toBe(
       '{\n  "status": "success",\n  "data": [\n    1,\n    2,\n    3\n  ]\n}'
-    )
+    );
 
     const nullFunctionMessage = functionMessages.find(
       (msg) => msg.functionId === 'call_4'
-    )
-    expect(nullFunctionMessage).toBeDefined()
-    expect(nullFunctionMessage?.result).toBe('')
-  })
+    );
+    expect(nullFunctionMessage).toBeDefined();
+    expect(nullFunctionMessage?.result).toBe('');
+  });
 
   // it('should handle function that returns null or undefined', async () => {
   //     const nullFunction: AxFunction = {
@@ -786,10 +785,10 @@ describe('AxGen Validation - Function Call Failures', () => {
   //     const response = await gen.forward(ai, { userQuery: 'test input' })
   //     expect(response.assistantOutput).toBe('Function returned null value')
   // })
-})
+});
 
 describe('AxGen Validation - Streaming Edge Cases', () => {
-  const signature = 'userInput:string -> outputA:string, outputB:string'
+  const signature = 'userInput:string -> outputA:string, outputB:string';
 
   it('should handle streaming response with missing field in middle', async () => {
     const chunks: AxChatResponse['results'] = [
@@ -797,47 +796,47 @@ describe('AxGen Validation - Streaming Edge Cases', () => {
       { index: 0, content: 'continued first part\n' },
       { index: 0, content: 'Some content without prefix\n' },
       { index: 0, content: 'Output B: Second part', finishReason: 'stop' },
-    ]
-    const streamingResponse = createStreamingResponse(chunks)
+    ];
+    const streamingResponse = createStreamingResponse(chunks);
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
       chatResponse: streamingResponse,
-    })
+    });
 
     const gen = new AxGen<
       { userInput: string },
       { outputA: string; outputB: string }
-    >(signature)
+    >(signature);
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { stream: true, strictMode: false }
-    )
+    );
 
     expect(response.outputA).toBe(
       'First part continued first part\nSome content without prefix'
-    )
-    expect(response.outputB).toBe('Second part')
-  })
+    );
+    expect(response.outputB).toBe('Second part');
+  });
 
   it('should handle streaming with completely missing required field in strict mode', async () => {
     const chunks: AxChatResponse['results'] = [
       { index: 0, content: 'Output B: Only second field content' },
       { index: 0, content: ' with more content', finishReason: 'stop' },
-    ]
-    const streamingResponse = createStreamingResponse(chunks)
+    ];
+    const streamingResponse = createStreamingResponse(chunks);
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
       chatResponse: streamingResponse,
-    })
+    });
 
     const gen = new AxGen<
       { userInput: string },
       { outputA: string; outputB: string }
-    >(signature)
+    >(signature);
 
     await expect(
       gen.forward(
@@ -845,8 +844,8 @@ describe('AxGen Validation - Streaming Edge Cases', () => {
         { userInput: 'test input' },
         { stream: true, strictMode: true }
       )
-    ).rejects.toThrow(/Generate failed/)
-  })
+    ).rejects.toThrow(/Generate failed/);
+  });
 
   it('should throw validation error for empty streaming chunks', async () => {
     const chunks: AxChatResponse['results'] = [
@@ -857,18 +856,18 @@ describe('AxGen Validation - Streaming Edge Cases', () => {
         content: 'Output A: Finally some content',
         finishReason: 'stop',
       },
-    ]
-    const streamingResponse = createStreamingResponse(chunks)
+    ];
+    const streamingResponse = createStreamingResponse(chunks);
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
       chatResponse: streamingResponse,
-    })
+    });
 
     const gen = new AxGen<
       { userInput: string },
       { outputA: string; outputB: string }
-    >(signature)
+    >(signature);
 
     await expect(
       gen.forward(
@@ -876,13 +875,13 @@ describe('AxGen Validation - Streaming Edge Cases', () => {
         { userInput: 'test input' },
         { stream: true, strictMode: false }
       )
-    ).rejects.toThrow(/Generate failed/)
-  })
-})
+    ).rejects.toThrow(/Generate failed/);
+  });
+});
 
 describe('AxGen Validation - Field Name Case Sensitivity', () => {
   const signature =
-    'userInput:string -> camelCaseField:string, snake_case:string'
+    'userInput:string -> camelCaseField:string, snake_case:string';
 
   it('should handle case-insensitive field matching in non-strict mode', async () => {
     const ai = new AxMockAIService({
@@ -902,24 +901,24 @@ describe('AxGen Validation - Field Name Case Sensitivity', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<
       { userInput: string },
       { camelCaseField: string; snake_case: string }
-    >(signature)
+    >(signature);
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { strictMode: false }
-    )
+    );
 
     expect(response.camelCaseField).toBe(
       'Content with correct english field name'
-    )
-    expect(response.snake_case).toBe('Content with correct field name')
-  })
+    );
+    expect(response.snake_case).toBe('Content with correct field name');
+  });
 
   it('should be strict about field name matching in strict mode', async () => {
     const ai = new AxMockAIService({
@@ -939,18 +938,18 @@ describe('AxGen Validation - Field Name Case Sensitivity', () => {
           tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<
       { userInput: string },
       { camelCaseField: string; snake_case: string }
-    >(signature)
+    >(signature);
 
     await expect(
       gen.forward(ai, { userInput: 'test input' }, { strictMode: true })
-    ).rejects.toThrow(/Generate failed/)
-  })
-})
+    ).rejects.toThrow(/Generate failed/);
+  });
+});
 
 describe('AxGen Validation - Complex Field Scenarios', () => {
   // it('should handle response with only field separators but no content', async () => {
@@ -989,7 +988,7 @@ describe('AxGen Validation - Complex Field Scenarios', () => {
   // })
 
   it('should handle malformed field prefixes with extra characters', async () => {
-    const signature = 'userInput:string -> answer:string'
+    const signature = 'userInput:string -> answer:string';
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: {
@@ -1007,24 +1006,24 @@ describe('AxGen Validation - Complex Field Scenarios', () => {
           tokens: { promptTokens: 10, completionTokens: 15, totalTokens: 25 },
         },
       },
-    })
+    });
 
-    const gen = new AxGen<{ userInput: string }, { answer: string }>(signature)
+    const gen = new AxGen<{ userInput: string }, { answer: string }>(signature);
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { strictMode: false }
-    )
+    );
 
     // Should handle the first valid-looking prefix
     expect(response.answer).toBe(
       ': This has extra colon\nAnswer - This has dash instead'
-    )
-  })
+    );
+  });
 
   it('should handle response with field prefix but no colon separator', async () => {
-    const signature = 'userInput:string -> finalResult:string'
+    const signature = 'userInput:string -> finalResult:string';
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: {
@@ -1042,34 +1041,34 @@ describe('AxGen Validation - Complex Field Scenarios', () => {
           tokens: { promptTokens: 10, completionTokens: 15, totalTokens: 25 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { finalResult: string }>(
       signature
-    )
+    );
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { strictMode: false }
-    )
+    );
 
     // Without proper colon separator, should treat entire content as first field
     expect(response.finalResult).toBe(
       'Result This should be treated as content without proper separator'
-    )
-  })
-})
+    );
+  });
+});
 
 describe('AxGen Validation - Retry Mechanism Tests', () => {
   it('should exhaust max retries when validation keeps failing', async () => {
-    const signature = 'userInput:string -> responseOutput:string'
-    let callCount = 0
+    const signature = 'userInput:string -> responseOutput:string';
+    let callCount = 0;
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async () => {
-        callCount++
+        callCount++;
         return {
           results: [
             {
@@ -1083,34 +1082,34 @@ describe('AxGen Validation - Retry Mechanism Tests', () => {
             model: 'test-model',
             tokens: { promptTokens: 10, completionTokens: 0, totalTokens: 10 },
           },
-        }
+        };
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { responseOutput: string }>(
       signature
-    )
+    );
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { strictMode: true, maxRetries: 3 }
-    )
+    );
 
     // Framework doesn't throw on retry exhaustion, returns undefined
-    expect(response.responseOutput).toBeUndefined()
+    expect(response.responseOutput).toBeUndefined();
     // Framework doesn't retry on validation failures for empty content
-    expect(callCount).toBe(1)
-  })
+    expect(callCount).toBe(1);
+  });
 
   it('should succeed on retry when validation passes', async () => {
-    const signature = 'userInput:string -> responseOutput:string'
-    let callCount = 0
+    const signature = 'userInput:string -> responseOutput:string';
+    let callCount = 0;
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async () => {
-        callCount++
+        callCount++;
         return {
           results: [
             {
@@ -1128,24 +1127,24 @@ describe('AxGen Validation - Retry Mechanism Tests', () => {
               totalTokens: callCount === 1 ? 10 : 20,
             },
           },
-        }
+        };
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { responseOutput: string }>(
       signature
-    )
+    );
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { strictMode: true, maxRetries: 3 }
-    )
+    );
 
-    expect(response.responseOutput).toBeUndefined()
-    expect(callCount).toBe(1) // Framework doesn't retry in this scenario
-  })
-})
+    expect(response.responseOutput).toBeUndefined();
+    expect(callCount).toBe(1); // Framework doesn't retry in this scenario
+  });
+});
 
 describe('AxGen Validation - Edge Cases with Special Characters', () => {
   // it('should handle field names with special characters in response', async () => {
@@ -1185,7 +1184,7 @@ describe('AxGen Validation - Edge Cases with Special Characters', () => {
   // })
 
   it('should handle unicode characters in field content', async () => {
-    const signature = 'userInput:string -> responseOutput:string'
+    const signature = 'userInput:string -> responseOutput:string';
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -1203,23 +1202,23 @@ describe('AxGen Validation - Edge Cases with Special Characters', () => {
           tokens: { promptTokens: 10, completionTokens: 15, totalTokens: 25 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { responseOutput: string }>(
       signature
-    )
+    );
 
-    const response = await gen.forward(ai, { userInput: 'test input' })
+    const response = await gen.forward(ai, { userInput: 'test input' });
 
     expect(response.responseOutput).toBe(
       'Output: 🚀 Unicode content with émojis and accénts 中文'
-    )
-  })
-})
+    );
+  });
+});
 
 describe('AxGen Validation - Multiple Sample Count Scenarios', () => {
   it('should handle validation errors across multiple samples', async () => {
-    const signature = 'userInput:string -> responseOutput:string'
+    const signature = 'userInput:string -> responseOutput:string';
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -1242,11 +1241,11 @@ describe('AxGen Validation - Multiple Sample Count Scenarios', () => {
           tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { responseOutput: string }>(
       signature
-    )
+    );
 
     // Even with multiple samples, strictMode should still validate each one
     await expect(
@@ -1255,11 +1254,11 @@ describe('AxGen Validation - Multiple Sample Count Scenarios', () => {
         { userInput: 'test input' },
         { strictMode: true, sampleCount: 2 }
       )
-    ).rejects.toThrow(/Generate failed/)
-  })
+    ).rejects.toThrow(/Generate failed/);
+  });
 
   it('should return first valid sample when multiple samples provided', async () => {
-    const signature = 'userInput:string -> responseOutput:string'
+    const signature = 'userInput:string -> responseOutput:string';
 
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -1282,26 +1281,26 @@ describe('AxGen Validation - Multiple Sample Count Scenarios', () => {
           tokens: { promptTokens: 10, completionTokens: 15, totalTokens: 25 },
         },
       },
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { responseOutput: string }>(
       signature
-    )
+    );
 
     const response = await gen.forward(
       ai,
       { userInput: 'test input' },
       { sampleCount: 2 }
-    )
+    );
 
     // Should return the first sample
-    expect(response.responseOutput).toBe('Output: First sample content')
-  })
-})
+    expect(response.responseOutput).toBe('Output: First sample content');
+  });
+});
 
 describe('AxGen Validation - Streaming Function Call Failures', () => {
   it('should handle function call failures during streaming', async () => {
-    const signature = 'userInput:string -> responseOutput:string'
+    const signature = 'userInput:string -> responseOutput:string';
 
     const failingFunction: AxFunction = {
       name: 'failingStreamFunction',
@@ -1314,9 +1313,9 @@ describe('AxGen Validation - Streaming Function Call Failures', () => {
         required: ['input'],
       },
       func: async () => {
-        throw new Error('Streaming function failed')
+        throw new Error('Streaming function failed');
       },
-    }
+    };
 
     const chunks: AxChatResponse['results'] = [
       {
@@ -1338,23 +1337,23 @@ describe('AxGen Validation - Streaming Function Call Failures', () => {
         content: 'Output: This should not be reached',
         finishReason: 'stop',
       },
-    ]
-    const streamingResponse = createStreamingResponse(chunks)
+    ];
+    const streamingResponse = createStreamingResponse(chunks);
 
     const ai = new AxMockAIService({
       features: { functions: true, streaming: true },
       chatResponse: streamingResponse,
-    })
+    });
 
     const gen = new AxGen<{ userInput: string }, { responseOutput: string }>(
       signature,
       {
         functions: [failingFunction],
       }
-    )
+    );
 
     await expect(
       gen.forward(ai, { userInput: 'test input' }, { stream: true })
-    ).rejects.toThrow(/Generate failed/)
-  })
-})
+    ).rejects.toThrow(/Generate failed/);
+  });
+});

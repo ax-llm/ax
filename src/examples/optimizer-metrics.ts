@@ -1,9 +1,9 @@
-import { ax, AxAI, AxBootstrapFewShot, type AxMetricFn, f } from '@ax-llm/ax'
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import { NodeSDK } from '@opentelemetry/sdk-node'
-import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
+import { AxAI, AxBootstrapFewShot, type AxMetricFn, ax, f } from '@ax-llm/ax';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 
-console.log('=== Optimizer Metrics Demo ===')
+console.log('=== Optimizer Metrics Demo ===');
 
 // Set up OpenTelemetry for metrics collection
 const sdk = new NodeSDK({
@@ -12,19 +12,19 @@ const sdk = new NodeSDK({
       url: 'http://localhost:4318/v1/traces',
     })
   ),
-})
+});
 
-sdk.start()
+sdk.start();
 
 // Create AI service
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! })
+const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Define a simple program to optimize
 const emailClassifier = ax`
   emailText:${f.string('Email content')} -> 
   category:${f.class(['urgent', 'normal', 'low'], 'Priority level')},
   confidence:${f.number('Confidence score 0-1')}
-`
+`;
 
 // Training examples
 const examples = [
@@ -53,7 +53,7 @@ const examples = [
     category: 'normal',
     confidence: 0.6,
   },
-]
+];
 
 // Validation examples
 const validationExamples = [
@@ -67,17 +67,17 @@ const validationExamples = [
     category: 'normal',
     confidence: 0.75,
   },
-]
+];
 
 // Metric function to evaluate program performance
 const metricFn: AxMetricFn = async ({ prediction, example }) => {
   // Simple accuracy metric
-  const categoryMatch = prediction.category === example.category ? 1 : 0
+  const categoryMatch = prediction.category === example.category ? 1 : 0;
   const confidenceAccuracy =
-    1 - Math.abs(Number(prediction.confidence) - Number(example.confidence))
+    1 - Math.abs(Number(prediction.confidence) - Number(example.confidence));
 
-  return (categoryMatch + confidenceAccuracy) / 2
-}
+  return (categoryMatch + confidenceAccuracy) / 2;
+};
 
 // Create optimizer with metrics enabled
 const optimizer = new AxBootstrapFewShot({
@@ -90,64 +90,66 @@ const optimizer = new AxBootstrapFewShot({
     maxRounds: 5,
   },
   // Metrics will be automatically collected via OpenTelemetry
-})
+});
 
 // Main execution function
 const main = async () => {
-  console.log('Starting optimization with metrics collection...')
+  console.log('Starting optimization with metrics collection...');
 
   // Run optimization
-  const startTime = Date.now()
-  const result = await optimizer.compile(emailClassifier, metricFn)
-  const duration = Date.now() - startTime
+  const startTime = Date.now();
+  const result = await optimizer.compile(emailClassifier, metricFn);
+  const duration = Date.now() - startTime;
 
-  console.log('\n=== Optimization Results ===')
-  console.log(`Duration: ${duration}ms`)
-  console.log(`Best Score: ${result.bestScore}`)
-  console.log(`Total Calls: ${result.stats.totalCalls}`)
-  console.log(`Successful Demos: ${result.stats.successfulDemos}`)
-  console.log(`Estimated Token Usage: ${result.stats.estimatedTokenUsage}`)
-  console.log(`Early Stopped: ${result.stats.earlyStopped}`)
+  console.log('\n=== Optimization Results ===');
+  console.log(`Duration: ${duration}ms`);
+  console.log(`Best Score: ${result.bestScore}`);
+  console.log(`Total Calls: ${result.stats.totalCalls}`);
+  console.log(`Successful Demos: ${result.stats.successfulDemos}`);
+  console.log(`Estimated Token Usage: ${result.stats.estimatedTokenUsage}`);
+  console.log(`Early Stopped: ${result.stats.earlyStopped}`);
 
   if (result.stats.earlyStopping) {
-    console.log(`Early Stopping Reason: ${result.stats.earlyStopping.reason}`)
+    console.log(`Early Stopping Reason: ${result.stats.earlyStopping.reason}`);
   }
 
-  console.log('\n=== Resource Usage ===')
-  console.log(`Total Tokens: ${result.stats.resourceUsage.totalTokens}`)
-  console.log(`Total Time: ${result.stats.resourceUsage.totalTime}ms`)
+  console.log('\n=== Resource Usage ===');
+  console.log(`Total Tokens: ${result.stats.resourceUsage.totalTokens}`);
+  console.log(`Total Time: ${result.stats.resourceUsage.totalTime}ms`);
   console.log(
     `Avg Latency per Eval: ${result.stats.resourceUsage.avgLatencyPerEval}ms`
-  )
+  );
 
-  console.log('\n=== Convergence Info ===')
-  console.log(`Converged: ${result.stats.convergenceInfo.converged}`)
+  console.log('\n=== Convergence Info ===');
+  console.log(`Converged: ${result.stats.convergenceInfo.converged}`);
   console.log(
     `Final Improvement: ${result.stats.convergenceInfo.finalImprovement}`
-  )
+  );
   console.log(
     `Stagnation Rounds: ${result.stats.convergenceInfo.stagnationRounds}`
-  )
+  );
 
   if (result.demos) {
-    console.log(`\nGenerated ${result.demos.length} demos`)
+    console.log(`\nGenerated ${result.demos.length} demos`);
   }
 
   // Test the optimized program
-  console.log('\n=== Testing Optimized Program ===')
-  const testEmail = 'URGENT: Payment processing failed'
-  const prediction = await emailClassifier.forward(ai, { emailText: testEmail })
+  console.log('\n=== Testing Optimized Program ===');
+  const testEmail = 'URGENT: Payment processing failed';
+  const prediction = await emailClassifier.forward(ai, {
+    emailText: testEmail,
+  });
 
-  console.log(`Test Email: "${testEmail}"`)
-  console.log(`Predicted Category: ${prediction.category}`)
-  console.log(`Confidence: ${prediction.confidence}`)
+  console.log(`Test Email: "${testEmail}"`);
+  console.log(`Predicted Category: ${prediction.category}`);
+  console.log(`Confidence: ${prediction.confidence}`);
 
   // Shutdown OpenTelemetry
-  await sdk.shutdown()
+  await sdk.shutdown();
 
-  console.log('\n=== Metrics Demo Complete ===')
-  console.log('Check your OpenTelemetry collector for detailed metrics!')
-}
+  console.log('\n=== Metrics Demo Complete ===');
+  console.log('Check your OpenTelemetry collector for detailed metrics!');
+};
 
 // Run the main function
-main().catch(console.error)
+main().catch(console.error);

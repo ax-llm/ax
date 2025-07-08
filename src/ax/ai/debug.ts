@@ -1,14 +1,14 @@
-import { axCreateDefaultLogger } from '../dsp/loggers.js'
+import { axCreateDefaultLogger } from '../dsp/loggers.js';
 
 import type {
   AxChatRequest,
   AxChatResponse,
   AxLoggerFunction,
   AxLoggerTag,
-} from './types.js'
+} from './types.js';
 
 // Default logger instance
-const defaultLogger: AxLoggerFunction = axCreateDefaultLogger()
+const defaultLogger: AxLoggerFunction = axCreateDefaultLogger();
 
 const formatChatMessage = (
   msg: AxChatRequest['chatPrompt'][number],
@@ -18,26 +18,26 @@ const formatChatMessage = (
   switch (msg.role) {
     case 'system':
       if (hideSystemPrompt) {
-        return ''
+        return '';
       }
-      return `\nSystem:\n${msg.content}`
+      return `\nSystem:\n${msg.content}`;
     case 'function':
-      return `\nFunction Result:\n${msg.result}`
+      return `\nFunction Result:\n${msg.result}`;
     case 'user': {
       if (typeof msg.content === 'string') {
-        return `\nUser:\n${msg.content}`
+        return `\nUser:\n${msg.content}`;
       }
       const items = msg.content.map((v) => {
         switch (v.type) {
           case 'text':
-            return v.text
+            return v.text;
           case 'image':
-            return `(Image, ${v.mimeType}) ${v.image.substring(0, 10)}`
+            return `(Image, ${v.mimeType}) ${v.image.substring(0, 10)}`;
           default:
-            throw new Error('Invalid content type')
+            throw new Error('Invalid content type');
         }
-      })
-      return `\nUser:\n${items.join('\n')}`
+      });
+      return `\nUser:\n${items.join('\n')}`;
     }
     case 'assistant': {
       if (msg.functionCalls) {
@@ -45,24 +45,24 @@ const formatChatMessage = (
           const args =
             typeof fn.params !== 'string'
               ? JSON.stringify(fn.params, null, 2)
-              : fn.params
-          return `${fn.name}(${args})`
-        })
-        return `\nFunctions:\n${fns.join('\n')}`
+              : fn.params;
+          return `${fn.name}(${args})`;
+        });
+        return `\nFunctions:\n${fns.join('\n')}`;
       }
-      return `\nAssistant:\n${hideContent ? '' : (msg.content ?? '<empty>')}`
+      return `\nAssistant:\n${hideContent ? '' : (msg.content ?? '<empty>')}`;
     }
     default:
-      throw new Error('Invalid role')
+      throw new Error('Invalid role');
   }
-}
+};
 
 export const logChatRequestMessage = (
   msg: AxChatRequest['chatPrompt'][number],
   hideSystemPrompt?: boolean,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  const formattedMessage = formatChatMessage(msg, false, hideSystemPrompt)
+  const formattedMessage = formatChatMessage(msg, false, hideSystemPrompt);
   if (formattedMessage) {
     const tags: AxLoggerTag[] =
       msg.role === 'system'
@@ -71,11 +71,11 @@ export const logChatRequestMessage = (
           ? ['functionName']
           : msg.role === 'user'
             ? ['userStart', 'userContent']
-            : []
-    logger(formattedMessage, { tags })
+            : [];
+    logger(formattedMessage, { tags });
   }
-  logger('Assistant:', { tags: ['assistantStart'] })
-}
+  logger('Assistant:', { tags: ['assistantStart'] });
+};
 
 export const logChatRequest = (
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
@@ -83,7 +83,7 @@ export const logChatRequest = (
   logger: AxLoggerFunction = defaultLogger
 ) => {
   for (const msg of chatPrompt ?? []) {
-    const formattedMessage = formatChatMessage(msg, false, hideSystemPrompt)
+    const formattedMessage = formatChatMessage(msg, false, hideSystemPrompt);
     if (formattedMessage) {
       const tags: AxLoggerTag[] =
         msg.role === 'system'
@@ -92,73 +92,73 @@ export const logChatRequest = (
             ? ['functionName']
             : msg.role === 'user'
               ? ['userContent']
-              : []
-      logger(formattedMessage, { tags })
+              : [];
+      logger(formattedMessage, { tags });
     }
   }
 
-  logger('Assistant:', { tags: ['assistantStart'] })
-}
+  logger('Assistant:', { tags: ['assistantStart'] });
+};
 
 export const logResponseResult = (
   r: Readonly<AxChatResponse['results'][number] & { index: number }>,
   logger: AxLoggerFunction = defaultLogger
 ) => {
   if (r.content) {
-    logger(r.content, { tags: ['responseContent'] })
+    logger(r.content, { tags: ['responseContent'] });
   }
 
-  const loggedFunctionCalls = new Set<string>()
+  const loggedFunctionCalls = new Set<string>();
 
   if (r.functionCalls && r.functionCalls.length > 0) {
     for (const [i, f] of r.functionCalls.entries()) {
       if (f.id) {
         if (loggedFunctionCalls.has(f.id)) {
-          continue
+          continue;
         }
-        loggedFunctionCalls.add(f.id)
+        loggedFunctionCalls.add(f.id);
 
-        const tags: AxLoggerTag[] = ['functionName']
+        const tags: AxLoggerTag[] = ['functionName'];
         if (i === 0) {
-          tags.push('firstFunction')
+          tags.push('firstFunction');
         }
         if (r.functionCalls.length > 1) {
-          tags.push('multipleFunctions')
+          tags.push('multipleFunctions');
         }
-        logger(`[${i + 1}] ${f.function.name}[${f.id}]`, { tags })
+        logger(`[${i + 1}] ${f.function.name}[${f.id}]`, { tags });
       }
 
       if (f.function.params) {
         const params =
           typeof f.function.params === 'string'
             ? f.function.params
-            : JSON.stringify(f.function.params, null, 2)
-        logger(params, { tags: ['functionArg'] })
+            : JSON.stringify(f.function.params, null, 2);
+        logger(params, { tags: ['functionArg'] });
       }
     }
     // Add function end marker for the last function
-    logger('', { tags: ['functionEnd'] })
+    logger('', { tags: ['functionEnd'] });
   }
-}
+};
 
 export const logResponse = (
   resp: Readonly<AxChatResponse>,
   logger: AxLoggerFunction = defaultLogger
 ) => {
   if (!resp.results) {
-    return
+    return;
   }
   for (const r of resp.results) {
-    logResponseResult(r, logger)
+    logResponseResult(r, logger);
   }
-}
+};
 
 export const logResponseDelta = (
   delta: string,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  logger(delta, { tags: ['responseContent', 'responseDelta'] })
-}
+  logger(delta, { tags: ['responseContent', 'responseDelta'] });
+};
 
 export const logFunctionResults = (
   results: Readonly<
@@ -169,13 +169,13 @@ export const logFunctionResults = (
   for (const result of results) {
     logger(`Function Result [${result.functionId}]:`, {
       tags: ['functionName'],
-    })
+    });
 
     if (result.isError) {
-      logger(result.result, { tags: ['functionResult', 'error'] })
+      logger(result.result, { tags: ['functionResult', 'error'] });
     } else {
-      logger(result.result, { tags: ['functionResult'] })
+      logger(result.result, { tags: ['functionResult'] });
     }
   }
-  logger('', { tags: ['functionEnd'] })
-}
+  logger('', { tags: ['functionEnd'] });
+};

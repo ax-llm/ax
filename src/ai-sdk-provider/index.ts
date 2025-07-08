@@ -1,3 +1,3 @@
-import { AxAgentProvider , AxAIProvider } from './provider.js'
+import { AxAgentProvider, AxAIProvider } from './provider.js';
 
-export { AxAgentProvider, AxAIProvider }
+export { AxAgentProvider, AxAIProvider };

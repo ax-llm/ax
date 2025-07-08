@@ -1,7 +1,7 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js'
-import { AxAIOpenAIResponsesModel } from './responses_types.js'
+import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js';
+import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
 /**
  * OpenAI: Model information
@@ -106,7 +106,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 0.13,
     completionTokenCostPer1M: 0.13,
   },
-]
+];
 
 /**
  * OpenAI: Model information
@@ -212,4 +212,4 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     hasThinkingBudget: true,
     hasShowThoughts: true,
   },
-]
+];

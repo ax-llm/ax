@@ -2,39 +2,39 @@ import type {
   AxAIService,
   AxAIServiceActionOptions,
   AxFunction,
-} from '../ai/types.js'
+} from '../ai/types.js';
 
 export class AxEmbeddingAdapter {
-  private aiService: AxAIService
+  private aiService: AxAIService;
   private info: {
-    name: string
-    description: string
-    argumentDescription: string
-  }
+    name: string;
+    description: string;
+    argumentDescription: string;
+  };
   private func: (
     args: readonly number[],
     extra?: Readonly<AxAIServiceActionOptions>
-  ) => Promise<unknown>
+  ) => Promise<unknown>;
 
   constructor({
     ai,
     info,
     func,
   }: Readonly<{
-    ai: AxAIService
+    ai: AxAIService;
     info: Readonly<{
-      name: string
-      description: string
-      argumentDescription: string
-    }>
+      name: string;
+      description: string;
+      argumentDescription: string;
+    }>;
     func: (
       args: readonly number[],
       extra?: Readonly<AxAIServiceActionOptions>
-    ) => Promise<unknown>
+    ) => Promise<unknown>;
   }>) {
-    this.aiService = ai
-    this.info = info
-    this.func = func
+    this.aiService = ai;
+    this.info = info;
+    this.func = func;
   }
 
   private async embedAdapter(
@@ -47,14 +47,16 @@ export class AxEmbeddingAdapter {
         sessionId: extra?.sessionId,
         abortSignal: extra?.abortSignal,
       }
-    )
-    const embeds = embedRes.embeddings.at(0)
+    );
+    const embeds = embedRes.embeddings.at(0);
 
     if (!embeds) {
-      throw new Error('Failed to embed text')
+      throw new Error('Failed to embed text');
     }
 
-    return this.func.length === 2 ? this.func(embeds, extra) : this.func(embeds)
+    return this.func.length === 2
+      ? this.func(embeds, extra)
+      : this.func(embeds);
   }
 
   public toFunction(): AxFunction {
@@ -73,6 +75,6 @@ export class AxEmbeddingAdapter {
       },
       func: ({ text }: Readonly<{ text: string }>, options) =>
         this.embedAdapter(text, options),
-    }
+    };
   }
 }

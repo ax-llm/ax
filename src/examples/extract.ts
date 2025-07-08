@@ -1,8 +1,9 @@
-import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax';
 
-const chatMessage = `Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!`
+const chatMessage =
+  'Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!';
 
-const currentDate = new Date()
+const currentDate = new Date();
 
 // Example with OpenAI using custom labels in place of model names
 // const ai = new AxAI({
@@ -30,19 +31,19 @@ const ai = new AxAI({
       description: 'A model that is good for general purpose',
     },
   ],
-})
+});
 // ai.setOptions({ debug: true })
 
 const gen = new AxGen<{ chatMessage: string; currentDate: Date }>(
   `chatMessage, currentDate:datetime -> subject, thinking, reasoning, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[], shortSummary, messageType:class "reminder, follow-up, meeting, other"`
-)
+);
 
-const stream = await gen.streamingForward(ai, { chatMessage, currentDate })
+const stream = await gen.streamingForward(ai, { chatMessage, currentDate });
 
-console.log('# Streaming')
+console.log('# Streaming');
 
 for await (const chunk of stream) {
-  console.log('>', chunk)
+  console.log('>', chunk);
 }
 
 // console.log('\n\n# Not Streaming')

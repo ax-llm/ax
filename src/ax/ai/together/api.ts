@@ -1,19 +1,19 @@
-import { axBaseAIDefaultConfig } from '../base.js'
-import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
-import type { AxAIOpenAIConfig } from '../openai/chat_types.js'
+import { axBaseAIDefaultConfig } from '../base.js';
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
+import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
 
-import { axModelInfoTogether } from './info.js'
+import { axModelInfoTogether } from './info.js';
 
-type TogetherAIConfig = AxAIOpenAIConfig<string, unknown>
+type TogetherAIConfig = AxAIOpenAIConfig<string, unknown>;
 
 export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
   structuredClone({
     // cspell:disable-next-line
     model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
-export type AxAITogetherArgs = AxAIOpenAIArgs<'together', string, unknown>
+export type AxAITogetherArgs = AxAIOpenAIArgs<'together', string, unknown>;
 
 export class AxAITogether extends AxAIOpenAIBase<string, unknown> {
   constructor({
@@ -24,32 +24,32 @@ export class AxAITogether extends AxAIOpenAIBase<string, unknown> {
     modelInfo,
   }: Readonly<Omit<AxAITogetherArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('Together API key not set')
+      throw new Error('Together API key not set');
     }
-    const _config = {
+    const Config = {
       ...axAITogetherDefaultConfig(),
       ...config,
-    }
+    };
 
-    modelInfo = [...axModelInfoTogether, ...(modelInfo ?? [])]
+    modelInfo = [...axModelInfoTogether, ...(modelInfo ?? [])];
 
     const supportFor = {
       functions: true,
       streaming: true,
       hasThinkingBudget: false,
       hasShowThoughts: false,
-    }
+    };
 
     super({
       apiKey,
-      config: _config,
+      config: Config,
       options,
       apiURL: 'https://api.together.xyz/v1',
       modelInfo,
       models,
       supportFor,
-    })
+    });
 
-    super.setName('Together')
+    super.setName('Together');
   }
 }

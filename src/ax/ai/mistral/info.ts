@@ -1,8 +1,8 @@
 // cspell:ignore mistral, mixtral, codestral, nemo
 
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIMistralModel } from './types.js'
+import { AxAIMistralModel } from './types.js';
 
 export const axModelInfoMistral: AxModelInfo[] = [
   {
@@ -53,4 +53,4 @@ export const axModelInfoMistral: AxModelInfo[] = [
     promptTokenCostPer1M: 0.3,
     completionTokenCostPer1M: 0.3,
   },
-]
+];

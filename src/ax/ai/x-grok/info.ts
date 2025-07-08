@@ -1,8 +1,8 @@
 // cspell:ignore grok
 
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIGrokModel } from './types.js'
+import { AxAIGrokModel } from './types.js';
 
 export const axModelInfoGrok: AxModelInfo[] = [
   {
@@ -31,4 +31,4 @@ export const axModelInfoGrok: AxModelInfo[] = [
     completionTokenCostPer1M: 4.0,
     hasThinkingBudget: true,
   },
-]
+];

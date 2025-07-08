@@ -1,4 +1,4 @@
-import { AxAI, AxGen } from '@ax-llm/ax'
+import { AxAI, AxGen } from '@ax-llm/ax';
 
 // Create a text classifier with multiple output fields
 const classifier = new AxGen<
@@ -9,11 +9,11 @@ const classifier = new AxGen<
    category:class "news, tech, sports, entertainment" "The category of the text",
    confidence:number "Confidence score between 0 and 1",
    reasoning?:string "Optional reasoning for the classification"`
-)
+);
 
 console.log(
   JSON.stringify(classifier.getSignature().getOutputFields(), null, 2)
-)
+);
 
 // Examples can have missing fields - all fields are now optional in examples
 classifier.setExamples([
@@ -42,18 +42,18 @@ classifier.setExamples([
     confidence: 0.96,
     reasoning: 'Entertainment industry news about movie performance',
   },
-])
+]);
 
 // Initialize AI
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   options: { debug: true },
-})
+});
 
 // Test the classification
 const result = await classifier.forward(ai, {
   contentToClassify: 'Scientists discover quantum computing breakthrough',
-})
+});
 
-console.log('Classification result:', result)
+console.log('Classification result:', result);

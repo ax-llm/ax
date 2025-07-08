@@ -1,6 +1,6 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIGroqModel } from './types.js'
+import { AxAIGroqModel } from './types.js';
 
 /**
  * AxAIGroq: Model information
@@ -34,4 +34,4 @@ export const axModelInfoGroq: AxModelInfo[] = [
     promptTokenCostPer1M: 0.24,
     completionTokenCostPer1M: 0.24,
   },
-]
+];

@@ -1,49 +1,49 @@
-import type { AxAIService } from '../ai/types.js'
-import { AxDBMemory, type AxDBState } from '../db/memory.js'
-import { ColorLog } from '../util/log.js'
+import type { AxAIService } from '../ai/types.js';
+import { AxDBMemory, type AxDBState } from '../db/memory.js';
+import { ColorLog } from '../util/log.js';
 
-const colorLog = new ColorLog()
+const colorLog = new ColorLog();
 
 export interface AxSimpleClassifierForwardOptions {
-  cutoff?: number
-  abortSignal?: AbortSignal
+  cutoff?: number;
+  abortSignal?: AbortSignal;
 }
 
 export class AxSimpleClassifierClass {
-  private readonly name: string
-  private readonly context: readonly string[]
+  private readonly name: string;
+  private readonly context: readonly string[];
 
   constructor(name: string, context: readonly string[]) {
-    this.name = name
-    this.context = context
+    this.name = name;
+    this.context = context;
   }
 
   public getName(): string {
-    return this.name
+    return this.name;
   }
 
   public getContext(): readonly string[] {
-    return this.context
+    return this.context;
   }
 }
 
 export class AxSimpleClassifier {
-  private readonly ai: AxAIService
+  private readonly ai: AxAIService;
 
-  private db: AxDBMemory
-  private debug?: boolean
+  private db: AxDBMemory;
+  private debug?: boolean;
 
   public constructor(ai: AxAIService) {
-    this.db = new AxDBMemory()
-    this.ai = ai
+    this.db = new AxDBMemory();
+    this.ai = ai;
   }
 
   public getState(): AxDBState | undefined {
-    return this.db.getDB()
+    return this.db.getDB();
   }
 
   public setState(state: AxDBState) {
-    this.db.setDB(state)
+    this.db.setDB(state);
   }
 
   public setClasses = async (
@@ -56,14 +56,14 @@ export class AxSimpleClassifier {
         {
           abortSignal: options?.abortSignal,
         }
-      )
+      );
       await this.db.upsert({
         id: c.getName(),
         table: 'classes',
         values: ret.embeddings[0],
-      })
+      });
     }
-  }
+  };
 
   public async forward(
     text: string,
@@ -74,40 +74,38 @@ export class AxSimpleClassifier {
       {
         abortSignal: options?.abortSignal,
       }
-    )
+    );
 
     const matches = await this.db.query({
       table: 'classes',
       values: embeddings[0],
-    })
+    });
 
-    let m = matches.matches
+    let m = matches.matches;
     if (typeof options?.cutoff === 'number') {
-      const { cutoff } = options
-      m = m.filter((m) => m.score <= cutoff)
+      const { cutoff } = options;
+      m = m.filter((m) => m.score <= cutoff);
     }
 
     if (this.debug) {
       console.log(
-        colorLog.whiteBright(`query: ${text}`) +
-          '\n' +
-          colorLog.greenBright(
-            JSON.stringify(m.map((m) => `${m.id}, ${m.score}`))
-          )
-      )
+        `${colorLog.whiteBright(`query: ${text}`)}\n${colorLog.greenBright(
+          JSON.stringify(m.map((m) => `${m.id}, ${m.score}`))
+        )}`
+      );
     }
 
-    const matchedClass = m.at(0)
+    const matchedClass = m.at(0);
     if (!matchedClass) {
-      return ''
+      return '';
     }
 
-    return matchedClass.id
+    return matchedClass.id;
   }
 
   public setOptions(options: Readonly<{ debug?: boolean }>): void {
     if (typeof options.debug === 'boolean') {
-      this.debug = options.debug
+      this.debug = options.debug;
     }
   }
 }

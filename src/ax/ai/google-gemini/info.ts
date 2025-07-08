@@ -1,6 +1,6 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIGoogleGeminiModel } from './types.js'
+import { AxAIGoogleGeminiModel } from './types.js';
 
 /**
  * AxAIGoogleGemini: Model information
@@ -76,4 +76,4 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
   },
-]
+];

@@ -1,6 +1,6 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIDeepSeekModel } from './types.js'
+import { AxAIDeepSeekModel } from './types.js';
 
 export const axModelInfoDeepSeek: AxModelInfo[] = [
   {
@@ -15,4 +15,4 @@ export const axModelInfoDeepSeek: AxModelInfo[] = [
     promptTokenCostPer1M: 0.55,
     completionTokenCostPer1M: 2.19,
   },
-]
+];

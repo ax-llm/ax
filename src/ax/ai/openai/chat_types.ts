@@ -1,4 +1,4 @@
-import type { AxModelConfig } from '../types.js'
+import type { AxModelConfig } from '../types.js';
 
 export enum AxAIOpenAIModel {
   // Non-reasoning models
@@ -30,234 +30,234 @@ export enum AxAIOpenAIEmbedModel {
 
 // Web search annotation types
 export type AxAIOpenAIUrlCitation = {
-  url: string
-  title?: string
-  description?: string
-}
+  url: string;
+  title?: string;
+  description?: string;
+};
 
 export type AxAIOpenAIAnnotation = {
-  type: 'url_citation'
-  url_citation: AxAIOpenAIUrlCitation
-}
+  type: 'url_citation';
+  url_citation: AxAIOpenAIUrlCitation;
+};
 
 export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   AxModelConfig,
   'topK'
 > & {
-  model: TModel
-  embedModel?: TEmbedModel
-  user?: string
-  responseFormat?: 'json_object'
-  bestOf?: number
-  logitBias?: Map<string, number>
-  suffix?: string | null
-  stop?: string[]
-  logprobs?: number
-  echo?: boolean
-  dimensions?: number
-  reasoningEffort?: 'low' | 'medium' | 'high'
-  store?: boolean
-  serviceTier?: 'auto' | 'default' | 'flex'
+  model: TModel;
+  embedModel?: TEmbedModel;
+  user?: string;
+  responseFormat?: 'json_object';
+  bestOf?: number;
+  logitBias?: Map<string, number>;
+  suffix?: string | null;
+  stop?: string[];
+  logprobs?: number;
+  echo?: boolean;
+  dimensions?: number;
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  store?: boolean;
+  serviceTier?: 'auto' | 'default' | 'flex';
   webSearchOptions?: {
-    searchContextSize?: 'low' | 'medium' | 'high'
+    searchContextSize?: 'low' | 'medium' | 'high';
     userLocation?: {
       approximate: {
-        type: 'approximate'
-        city?: string
-        country?: string
-        region?: string
-        timezone?: string
-      }
-    } | null
-  }
-}
+        type: 'approximate';
+        city?: string;
+        country?: string;
+        region?: string;
+        timezone?: string;
+      };
+    } | null;
+  };
+};
 
 export type AxAIOpenAILogprob = {
-  tokens: string[]
-  token_logprobs: number[]
-  top_logprobs: Map<string, number>
-  text_offset: number[]
-}
+  tokens: string[];
+  token_logprobs: number[];
+  top_logprobs: Map<string, number>;
+  text_offset: number[];
+};
 
 export type AxAIOpenAIUsage = {
-  prompt_tokens: number
-  completion_tokens: number
-  total_tokens: number
-}
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+};
 
 export interface AxAIOpenAIResponseDelta<T> {
-  id: string
-  object: string
-  created: number
-  model: string
+  id: string;
+  object: string;
+  created: number;
+  model: string;
   choices: {
-    index: number
-    delta: T
-    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls'
-  }[]
-  usage?: AxAIOpenAIUsage
-  system_fingerprint: string
+    index: number;
+    delta: T;
+    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
+  }[];
+  usage?: AxAIOpenAIUsage;
+  system_fingerprint: string;
 }
 
 export type AxAIOpenAIChatRequest<TModel> = {
-  model: TModel
-  reasoning_effort?: 'low' | 'medium' | 'high'
-  store?: boolean
+  model: TModel;
+  reasoning_effort?: 'low' | 'medium' | 'high';
+  store?: boolean;
   messages: (
     | { role: 'system'; content: string }
     | {
-        role: 'user'
+        role: 'user';
         content:
           | string
           | (
               | {
-                  type: string
-                  text: string
+                  type: string;
+                  text: string;
                 }
               | {
-                  type: 'image_url'
-                  image_url: { url: string; details?: 'high' | 'low' | 'auto' }
+                  type: 'image_url';
+                  image_url: { url: string; details?: 'high' | 'low' | 'auto' };
                 }
               | {
-                  type: 'input_audio'
-                  input_audio: { data: string; format?: 'wav' }
+                  type: 'input_audio';
+                  input_audio: { data: string; format?: 'wav' };
                 }
               | {
-                  type: 'file'
+                  type: 'file';
                   file: {
-                    file_data: string
-                    filename: string
-                  }
+                    file_data: string;
+                    filename: string;
+                  };
                 }
-            )[]
-        name?: string
+            )[];
+        name?: string;
       }
     | {
-        role: 'assistant'
+        role: 'assistant';
         content:
           | string
           | {
-              type: string
-              text: string
-            }
-        name?: string
+              type: string;
+              text: string;
+            };
+        name?: string;
       }
     | {
-        role: 'assistant'
+        role: 'assistant';
         content?:
           | string
           | {
-              type: string
-              text: string
-            }
-        name?: string
+              type: string;
+              text: string;
+            };
+        name?: string;
         tool_calls: {
-          type: 'function'
+          type: 'function';
           function: {
-            name: string
+            name: string;
             // eslint-disable-next-line functional/functional-parameters
-            arguments?: string
-          }
-        }[]
+            arguments?: string;
+          };
+        }[];
       }
     | { role: 'tool'; content: string; tool_call_id: string }
-  )[]
+  )[];
   tools?: {
-    type: 'function'
+    type: 'function';
     function: {
-      name: string
-      description: string
-      parameters?: object
-    }
-  }[]
+      name: string;
+      description: string;
+      parameters?: object;
+    };
+  }[];
   tool_choice?:
     | 'none'
     | 'auto'
     | 'required'
-    | { type: 'function'; function: { name: string } }
-  response_format?: { type: string }
-  max_completion_tokens?: number
-  temperature?: number
-  top_p?: number
-  n?: number
-  stream?: boolean
-  stop?: readonly string[]
-  presence_penalty?: number
-  frequency_penalty?: number
-  logit_bias?: Map<string, number>
-  user?: string
-  organization?: string
+    | { type: 'function'; function: { name: string } };
+  response_format?: { type: string };
+  max_completion_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  n?: number;
+  stream?: boolean;
+  stop?: readonly string[];
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  logit_bias?: Map<string, number>;
+  user?: string;
+  organization?: string;
   web_search_options?: {
-    search_context_size?: 'low' | 'medium' | 'high'
+    search_context_size?: 'low' | 'medium' | 'high';
     user_location?: {
       approximate: {
-        type: 'approximate'
-        city?: string
-        country?: string
-        region?: string
-        timezone?: string
-      }
-    } | null
-  }
-}
+        type: 'approximate';
+        city?: string;
+        country?: string;
+        region?: string;
+        timezone?: string;
+      };
+    } | null;
+  };
+};
 
 export type AxAIOpenAIChatResponse = {
-  id: string
-  object: 'chat.completion'
-  created: number
-  model: string
+  id: string;
+  object: 'chat.completion';
+  created: number;
+  model: string;
   choices: {
-    index: number
+    index: number;
     message: {
-      role: string
-      content: string | null
-      refusal: string | null
-      reasoning_content?: string
-      annotations?: AxAIOpenAIAnnotation[]
+      role: string;
+      content: string | null;
+      refusal: string | null;
+      reasoning_content?: string;
+      annotations?: AxAIOpenAIAnnotation[];
       tool_calls?: {
-        id: string
-        type: 'function'
+        id: string;
+        type: 'function';
         // eslint-disable-next-line functional/functional-parameters
-        function: { name: string; arguments: string }
-      }[]
-    }
-    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls'
-  }[]
-  usage?: AxAIOpenAIUsage
+        function: { name: string; arguments: string };
+      }[];
+    };
+    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
+  }[];
+  usage?: AxAIOpenAIUsage;
   error?: {
-    message: string
-    type: string
-    param: string
-    code: number
-  }
-  system_fingerprint: string
-}
+    message: string;
+    type: string;
+    param: string;
+    code: number;
+  };
+  system_fingerprint: string;
+};
 
 export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
-  content: string | null
-  refusal?: string | null
-  reasoning_content?: string
-  role?: string
-  annotations?: AxAIOpenAIAnnotation[]
+  content: string | null;
+  refusal?: string | null;
+  reasoning_content?: string;
+  role?: string;
+  annotations?: AxAIOpenAIAnnotation[];
   tool_calls?: (NonNullable<
     AxAIOpenAIChatResponse['choices'][0]['message']['tool_calls']
   >[0] & {
-    index: number
-  })[]
-}>
+    index: number;
+  })[];
+}>;
 
 export type AxAIOpenAIEmbedRequest<TEmbedModel> = {
-  input: readonly string[]
-  model: TEmbedModel
-  dimensions?: number
-  user?: string
-}
+  input: readonly string[];
+  model: TEmbedModel;
+  dimensions?: number;
+  user?: string;
+};
 
 export type AxAIOpenAIEmbedResponse = {
-  model: string
+  model: string;
   data: {
-    embedding: readonly number[]
-    index: number
-  }[]
-  usage: AxAIOpenAIUsage
-}
+    embedding: readonly number[];
+    index: number;
+  }[];
+  usage: AxAIOpenAIUsage;
+};

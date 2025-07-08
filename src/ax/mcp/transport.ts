@@ -2,7 +2,7 @@ import type {
   JSONRPCNotification,
   JSONRPCRequest,
   JSONRPCResponse,
-} from './types.js'
+} from './types.js';
 
 export interface AxMCPTransport {
   /**
@@ -12,17 +12,17 @@ export interface AxMCPTransport {
    */
   send(
     message: Readonly<JSONRPCRequest<unknown>>
-  ): Promise<JSONRPCResponse<unknown>>
+  ): Promise<JSONRPCResponse<unknown>>;
 
   /**
    * Sends a JSON-RPC notification
    * @param message The JSON-RPC notification to send
    */
-  sendNotification(message: Readonly<JSONRPCNotification>): Promise<void>
+  sendNotification(message: Readonly<JSONRPCNotification>): Promise<void>;
 
   /**
    * Connects to the transport if needed
    * This method is optional and only required for transports that need connection setup
    */
-  connect?(): Promise<void>
+  connect?(): Promise<void>;
 }

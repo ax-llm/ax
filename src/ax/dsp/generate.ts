@@ -1,38 +1,38 @@
-import { ReadableStream } from 'node:stream/web'
+import { ReadableStream } from 'node:stream/web';
 
 import {
-  context,
   type Context,
+  context,
   type Meter,
   type Span,
   SpanKind,
   trace,
-} from '@opentelemetry/api'
+} from '@opentelemetry/api';
 
-import { validateAxMessageArray } from '../ai/base.js'
+import { validateAxMessageArray } from '../ai/base.js';
 import type {
   AxAIService,
   AxChatRequest,
   AxChatResponseResult,
   AxFunction,
-} from '../ai/types.js'
-import { AxMemory } from '../mem/memory.js'
-import type { AxAIMemory } from '../mem/types.js'
-import { AxAIServiceStreamTerminatedError } from '../util/apicall.js'
+} from '../ai/types.js';
+import { AxMemory } from '../mem/memory.js';
+import type { AxAIMemory } from '../mem/types.js';
+import { AxAIServiceStreamTerminatedError } from '../util/apicall.js';
 
 import {
   type AxAssertion,
   AxAssertionError,
   type AxStreamingAssertion,
-} from './asserts.js'
-import { ValidationError } from './errors.js'
-import { type extractionState } from './extract.js'
-import { type AxFieldProcessor } from './fieldProcessor.js'
+} from './asserts.js';
+import { ValidationError } from './errors.js';
+import type { extractionState } from './extract.js';
+import type { AxFieldProcessor } from './fieldProcessor.js';
 import {
   type AxChatResponseFunctionCall,
   createFunctionConfig,
   parseFunctions,
-} from './functions.js'
+} from './functions.js';
 import {
   type AxGenMetricsInstruments,
   getOrCreateGenMetricsInstruments,
@@ -46,12 +46,12 @@ import {
   recordSignatureComplexityMetrics,
   recordStreamingMetric,
   recordValidationErrorMetric,
-} from './metrics.js'
+} from './metrics.js';
 import {
   processResponse,
   processStreamingResponse,
   shouldContinueSteps,
-} from './processResponse.js'
+} from './processResponse.js';
 import {
   type AsyncGenDeltaOut,
   type AxGenDeltaOut,
@@ -62,68 +62,68 @@ import {
   type AxProgramStreamingForwardOptions,
   type AxResultPickerFunction,
   type AxSetExamplesOptions,
-} from './program.js'
-import { AxPromptTemplate } from './prompt.js'
-import { selectFromSamples, selectFromSamplesInMemory } from './samples.js'
-import type { AxIField, AxSignature } from './sig.js'
+} from './program.js';
+import { AxPromptTemplate } from './prompt.js';
+import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
+import type { AxIField, AxSignature } from './sig.js';
 import type {
   AxGenIn,
   AxGenIn as AxGenInType,
   AxGenOut,
   AxGenOut as AxGenOutType,
   AxMessage,
-} from './types.js'
-import { mergeDeltas } from './util.js'
-import { handleValidationError } from './validate.js'
+} from './types.js';
+import { mergeDeltas } from './util.js';
+import { handleValidationError } from './validate.js';
 
 export type AxGenerateResult<OUT extends AxGenOutType> = OUT & {
-  thought?: string
-}
+  thought?: string;
+};
 
 export interface AxResponseHandlerArgs<T> {
-  ai: Readonly<AxAIService>
-  model?: string
-  res: T
-  mem: AxAIMemory
-  sessionId?: string
-  traceId?: string
-  functions: Readonly<AxFunction[]>
-  strictMode?: boolean
-  span?: Span
+  ai: Readonly<AxAIService>;
+  model?: string;
+  res: T;
+  mem: AxAIMemory;
+  sessionId?: string;
+  traceId?: string;
+  functions: Readonly<AxFunction[]>;
+  strictMode?: boolean;
+  span?: Span;
 }
 
 export interface AxStreamingEvent<T> {
-  event: 'delta' | 'done' | 'error'
+  event: 'delta' | 'done' | 'error';
   data: {
-    contentDelta?: string
-    partialValues?: Partial<T>
-    error?: string
-    functions?: AxChatResponseFunctionCall[]
-  }
+    contentDelta?: string;
+    partialValues?: Partial<T>;
+    error?: string;
+    functions?: AxChatResponseFunctionCall[];
+  };
 }
 
 export type InternalAxGenState = {
-  index: number
-  values: AxGenOutType
-  content: string
-  functionsExecuted: Set<string>
-  functionCalls: NonNullable<AxChatResponseResult['functionCalls']>
-  xstate: extractionState
-}
+  index: number;
+  values: AxGenOutType;
+  content: string;
+  functionsExecuted: Set<string>;
+  functionCalls: NonNullable<AxChatResponseResult['functionCalls']>;
+  xstate: extractionState;
+};
 
 export class AxGen<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenOut = AxGenOut,
 > extends AxProgram<IN, OUT> {
-  private promptTemplate: AxPromptTemplate
-  private asserts: AxAssertion[]
-  private streamingAsserts: AxStreamingAssertion[]
-  private options?: Omit<AxProgramForwardOptions, 'functions'>
-  private functions?: AxFunction[]
-  private fieldProcessors: AxFieldProcessor[] = []
-  private streamingFieldProcessors: AxFieldProcessor[] = []
-  private excludeContentFromTrace: boolean = false
-  private thoughtFieldName: string
+  private promptTemplate: AxPromptTemplate;
+  private asserts: AxAssertion[];
+  private streamingAsserts: AxStreamingAssertion[];
+  private options?: Omit<AxProgramForwardOptions, 'functions'>;
+  private functions?: AxFunction[];
+  private fieldProcessors: AxFieldProcessor[] = [];
+  private streamingFieldProcessors: AxFieldProcessor[] = [];
+  private excludeContentFromTrace = false;
+  private thoughtFieldName: string;
 
   constructor(
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
@@ -132,39 +132,39 @@ export class AxGen<
     super(signature, {
       description: options?.description,
       traceLabel: options?.traceLabel,
-    })
+    });
 
-    this.options = options
-    this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
+    this.options = options;
+    this.thoughtFieldName = options?.thoughtFieldName ?? 'thought';
     const promptTemplateOptions = {
       functions: options?.functions,
       thoughtFieldName: this.thoughtFieldName,
-    }
+    };
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
       promptTemplateOptions
-    )
-    this.asserts = this.options?.asserts ?? []
-    this.streamingAsserts = this.options?.streamingAsserts ?? []
-    this.excludeContentFromTrace = options?.excludeContentFromTrace ?? false
-    this.usage = []
+    );
+    this.asserts = this.options?.asserts ?? [];
+    this.streamingAsserts = this.options?.streamingAsserts ?? [];
+    this.excludeContentFromTrace = options?.excludeContentFromTrace ?? false;
+    this.usage = [];
 
     if (options?.functions) {
-      this.functions = parseFunctions(options.functions)
+      this.functions = parseFunctions(options.functions);
     }
   }
 
   private getSignatureName(): string {
-    return this.signature.getDescription() || 'unknown_signature'
+    return this.signature.getDescription() || 'unknown_signature';
   }
 
   private getMetricsInstruments(): AxGenMetricsInstruments | undefined {
-    return getOrCreateGenMetricsInstruments()
+    return getOrCreateGenMetricsInstruments();
   }
 
   public updateMeter(meter?: Meter): void {
     // This now just updates the global singleton, no need to store locally
-    getOrCreateGenMetricsInstruments(meter)
+    getOrCreateGenMetricsInstruments(meter);
   }
 
   private createStates(n: number) {
@@ -179,20 +179,20 @@ export class AxGen<
         streamedIndex: {},
         s: -1,
       },
-    }))
+    }));
   }
 
   public addAssert = (fn: AxAssertion['fn'], message?: string) => {
-    this.asserts.push({ fn, message })
-  }
+    this.asserts.push({ fn, message });
+  };
 
   public addStreamingAssert = (
     fieldName: string,
     fn: AxStreamingAssertion['fn'],
     message?: string
   ) => {
-    this.streamingAsserts.push({ fieldName, fn, message })
-  }
+    this.streamingAsserts.push({ fieldName, fn, message });
+  };
 
   private addFieldProcessorInternal = (
     fieldName: string,
@@ -201,40 +201,40 @@ export class AxGen<
   ) => {
     const field = this.signature
       .getOutputFields()
-      .find((f) => f.name === fieldName)
+      .find((f) => f.name === fieldName);
 
     if (!field) {
-      throw new Error(`addFieldProcessor: field ${fieldName} not found`)
+      throw new Error(`addFieldProcessor: field ${fieldName} not found`);
     }
 
     if (streaming) {
-      const ft = field.type?.name
-      const isText = !ft || ft === 'string' || ft === 'code'
+      const ft = field.type?.name;
+      const isText = !ft || ft === 'string' || ft === 'code';
 
       if (!isText) {
         throw new Error(
           `addFieldProcessor: field ${fieldName} is must be a text field`
-        )
+        );
       }
-      this.streamingFieldProcessors.push({ field, process: fn })
+      this.streamingFieldProcessors.push({ field, process: fn });
     } else {
-      this.fieldProcessors.push({ field, process: fn })
+      this.fieldProcessors.push({ field, process: fn });
     }
-  }
+  };
 
   public addStreamingFieldProcessor = (
     fieldName: string,
     fn: AxFieldProcessor['process']
   ) => {
-    this.addFieldProcessorInternal(fieldName, fn, true)
-  }
+    this.addFieldProcessorInternal(fieldName, fn, true);
+  };
 
   public addFieldProcessor = (
     fieldName: string,
     fn: AxFieldProcessor['process']
   ) => {
-    this.addFieldProcessorInternal(fieldName, fn, false)
-  }
+    this.addFieldProcessorInternal(fieldName, fn, false);
+  };
 
   private async forwardSendRequest({
     ai,
@@ -244,12 +244,12 @@ export class AxGen<
     functions,
     functionCall,
   }: Readonly<{
-    ai: Readonly<AxAIService>
-    mem: AxAIMemory
-    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
-    traceContext?: Context
-    functions: AxFunction[]
-    functionCall: AxChatRequest['functionCall'] | undefined
+    ai: Readonly<AxAIService>;
+    mem: AxAIMemory;
+    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+    traceContext?: Context;
+    functions: AxFunction[];
+    functionCall: AxChatRequest['functionCall'] | undefined;
   }>) {
     const {
       sessionId,
@@ -259,27 +259,27 @@ export class AxGen<
       stream,
       thinkingTokenBudget,
       showThoughts,
-    } = options ?? {}
+    } = options ?? {};
 
     // Use selectFromSamplesInMemory to choose the best sample before getting history
     const selectedIndex = await selectFromSamplesInMemory<OUT>(mem, sessionId, {
       resultPicker: options?.resultPicker as
         | AxResultPickerFunction<OUT>
         | undefined,
-    })
+    });
 
-    const chatPrompt = mem?.history(selectedIndex, sessionId) ?? []
+    const chatPrompt = mem?.history(selectedIndex, sessionId) ?? [];
 
     if (chatPrompt.length === 0) {
-      throw new Error('No chat prompt found')
+      throw new Error('No chat prompt found');
     }
     const modelConfig = {
       ...options?.modelConfig,
       ...(options?.sampleCount ? { n: options.sampleCount } : {}),
-      ...(options?.sampleCount && options?.modelConfig?.temperature == 1
+      ...(options?.sampleCount && options?.modelConfig?.temperature === 1
         ? { temperature: 0.8 }
         : {}),
-    }
+    };
 
     const res = await ai.chat(
       {
@@ -300,9 +300,9 @@ export class AxGen<
         traceContext,
         abortSignal: options?.abortSignal,
       }
-    )
+    );
 
-    return res
+    return res;
   }
 
   private async *forwardCore({
@@ -313,26 +313,26 @@ export class AxGen<
     span,
     traceContext,
   }: Readonly<{
-    ai: Readonly<AxAIService>
-    mem: AxAIMemory
-    options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>
-    firstStep: boolean
-    span?: Span
-    traceContext?: Context
+    ai: Readonly<AxAIService>;
+    mem: AxAIMemory;
+    options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+    firstStep: boolean;
+    span?: Span;
+    traceContext?: Context;
   }>): AsyncGenDeltaOut<OUT> {
-    const { sessionId, traceId, functions: functionList } = options ?? {}
+    const { sessionId, traceId, functions: functionList } = options ?? {};
     const definedFunctionCall =
-      options?.functionCall ?? this.options?.functionCall
-    const strictMode = options?.strictMode ?? false
-    const model = options.model
-    const states = this.createStates(options.sampleCount ?? 1)
-    const usage = this.usage
+      options?.functionCall ?? this.options?.functionCall;
+    const strictMode = options?.strictMode ?? false;
+    const model = options.model;
+    const states = this.createStates(options.sampleCount ?? 1);
+    const usage = this.usage;
 
     const { functions, functionCall } = createFunctionConfig(
       functionList,
       definedFunctionCall,
       firstStep
-    )
+    );
 
     const res = await this.forwardSendRequest({
       ai,
@@ -341,7 +341,7 @@ export class AxGen<
       traceContext,
       functions,
       functionCall,
-    })
+    });
 
     if (res instanceof ReadableStream) {
       yield* processStreamingResponse({
@@ -363,9 +363,9 @@ export class AxGen<
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
-      })
+      });
 
-      this.getLogger(ai, options)?.('', { tags: ['responseEnd'] })
+      this.getLogger(ai, options)?.('', { tags: ['responseEnd'] });
     } else {
       yield* processResponse({
         ai,
@@ -384,7 +384,7 @@ export class AxGen<
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
-      })
+      });
     }
   }
 
@@ -398,42 +398,42 @@ export class AxGen<
   ): AxGenStreamingOut<OUT> {
     const stopFunction = (
       options?.stopFunction ?? this.options?.stopFunction
-    )?.toLowerCase()
+    )?.toLowerCase();
 
-    const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10
-    const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10
-    const debugHideSystemPrompt = options.debugHideSystemPrompt
+    const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10;
+    const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10;
+    const debugHideSystemPrompt = options.debugHideSystemPrompt;
     const memOptions = {
       debug: this.isDebug(ai, options),
       debugHideSystemPrompt,
-    }
+    };
 
-    const mem = options.mem ?? this.options?.mem ?? new AxMemory(memOptions)
+    const mem = options.mem ?? this.options?.mem ?? new AxMemory(memOptions);
 
-    let err: ValidationError | AxAssertionError | undefined
+    let err: ValidationError | AxAssertionError | undefined;
 
     if (options?.functions && options.functions.length > 0) {
       const promptTemplateClass =
-        this.options?.promptTemplate ?? AxPromptTemplate
+        this.options?.promptTemplate ?? AxPromptTemplate;
       const currentPromptTemplateOptions = {
         functions: options.functions,
         thoughtFieldName: this.thoughtFieldName,
-      }
+      };
       this.promptTemplate = new promptTemplateClass(
         this.signature,
         currentPromptTemplateOptions
-      )
+      );
     }
 
     // New logic:
-    let prompt
+    let prompt: AxChatRequest['chatPrompt'];
 
     // Track prompt rendering performance
-    const promptRenderStart = performance.now()
+    const promptRenderStart = performance.now();
 
     if (Array.isArray(values)) {
       // Validate AxMessage array items
-      validateAxMessageArray(values)
+      validateAxMessageArray(values);
 
       // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
       // For now, assume render will handle the array directly.
@@ -442,33 +442,33 @@ export class AxGen<
       prompt = this.promptTemplate.render(values, {
         examples: this.examples,
         demos: this.demos,
-      })
+      });
     } else {
       // Ensure `values` here is correctly inferred as AxGenInType
       prompt = this.promptTemplate.render(values as AxGenInType, {
         // Cast if necessary
         examples: this.examples,
         demos: this.demos,
-      })
+      });
     }
 
-    const promptRenderDuration = performance.now() - promptRenderStart
+    const promptRenderDuration = performance.now() - promptRenderStart;
 
     // Record prompt render performance metric
-    const metricsInstruments = this.getMetricsInstruments()
+    const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       recordPerformanceMetric(
         metricsInstruments,
         'prompt_render',
         promptRenderDuration,
         this.getSignatureName()
-      )
+      );
     }
 
     // Track memory update performance
-    const memoryUpdateStart = performance.now()
-    mem.addRequest(prompt, options.sessionId)
-    const memoryUpdateDuration = performance.now() - memoryUpdateStart
+    const memoryUpdateStart = performance.now();
+    mem.addRequest(prompt, options.sessionId);
+    const memoryUpdateDuration = performance.now() - memoryUpdateStart;
 
     // Record memory update performance metric
     if (metricsInstruments) {
@@ -477,11 +477,11 @@ export class AxGen<
         'memory_update',
         memoryUpdateDuration,
         this.getSignatureName()
-      )
+      );
     }
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
-      const firstStep = n === 0
+      const firstStep = n === 0;
       for (let errCount = 0; errCount < maxRetries; errCount++) {
         try {
           const generator = this.forwardCore({
@@ -491,7 +491,7 @@ export class AxGen<
             firstStep,
             span,
             traceContext,
-          })
+          });
 
           for await (const result of generator) {
             if (result !== undefined) {
@@ -499,7 +499,7 @@ export class AxGen<
                 version: errCount,
                 index: result.index,
                 delta: result.delta,
-              }
+              };
             }
           }
 
@@ -508,39 +508,39 @@ export class AxGen<
             stopFunction,
             states,
             options?.sessionId
-          )
+          );
 
           if (shouldContinue) {
             // Record multi-step generation metric
-            const metricsInstruments = this.getMetricsInstruments()
+            const metricsInstruments = this.getMetricsInstruments();
             if (metricsInstruments) {
               recordMultiStepMetric(
                 metricsInstruments,
                 n + 1,
                 maxSteps,
                 this.getSignatureName()
-              )
+              );
             }
-            continue multiStepLoop
+            continue multiStepLoop;
           }
 
           // Record successful completion metrics
-          const metricsInstruments = this.getMetricsInstruments()
+          const metricsInstruments = this.getMetricsInstruments();
           if (metricsInstruments) {
             recordMultiStepMetric(
               metricsInstruments,
               n + 1,
               maxSteps,
               this.getSignatureName()
-            )
+            );
 
             // Count unique functions executed across all states
-            const allFunctionsExecuted = new Set<string>()
+            const allFunctionsExecuted = new Set<string>();
             states.forEach((state) => {
               state.functionsExecuted.forEach((func) =>
                 allFunctionsExecuted.add(func)
-              )
-            })
+              );
+            });
 
             // Record function metrics if functions were used
             if (allFunctionsExecuted.size > 0) {
@@ -551,7 +551,7 @@ export class AxGen<
                 true,
                 false,
                 this.getSignatureName()
-              )
+              );
             }
 
             // Record field processing metrics
@@ -560,28 +560,28 @@ export class AxGen<
               this.fieldProcessors.length,
               this.streamingFieldProcessors.length,
               this.getSignatureName()
-            )
+            );
           }
 
-          this.getLogger(ai, options)?.('', { tags: ['responseEnd'] })
-          return
+          this.getLogger(ai, options)?.('', { tags: ['responseEnd'] });
+          return;
         } catch (e) {
-          let errorFields: AxIField[] | undefined
+          let errorFields: AxIField[] | undefined;
 
-          span?.recordException(e as Error)
+          span?.recordException(e as Error);
 
           if (e instanceof ValidationError) {
-            errorFields = e.getFixingInstructions()
-            err = e
+            errorFields = e.getFixingInstructions();
+            err = e;
 
             // Record validation error metric
-            const metricsInstruments = this.getMetricsInstruments()
+            const metricsInstruments = this.getMetricsInstruments();
             if (metricsInstruments) {
               recordValidationErrorMetric(
                 metricsInstruments,
                 'validation',
                 this.getSignatureName()
-              )
+              );
             }
 
             // Add telemetry event for validation error
@@ -590,21 +590,21 @@ export class AxGen<
                 message: e.toString(),
                 fixing_instructions:
                   errorFields?.map((f) => f.title).join(', ') ?? '',
-              })
+              });
             }
           } else if (e instanceof AxAssertionError) {
-            const e1 = e as AxAssertionError
-            errorFields = e1.getFixingInstructions()
-            err = e
+            const e1 = e as AxAssertionError;
+            errorFields = e1.getFixingInstructions();
+            err = e;
 
             // Record assertion error metric
-            const assertionMetricsInstruments = this.getMetricsInstruments()
+            const assertionMetricsInstruments = this.getMetricsInstruments();
             if (assertionMetricsInstruments) {
               recordValidationErrorMetric(
                 assertionMetricsInstruments,
                 'assertion',
                 this.getSignatureName()
-              )
+              );
             }
 
             // Add telemetry event for assertion error
@@ -613,12 +613,12 @@ export class AxGen<
                 message: e1.toString(),
                 fixing_instructions:
                   errorFields?.map((f) => f.title).join(', ') ?? '',
-              })
+              });
             }
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
-            throw enhanceError(e, ai, this.signature)
+            throw enhanceError(e, ai, this.signature);
           }
 
           if (errorFields) {
@@ -628,13 +628,13 @@ export class AxGen<
               ai,
               this.promptTemplate,
               options.sessionId
-            )
+            );
           }
         }
       }
 
       // Record max retries reached
-      const metricsInstruments = this.getMetricsInstruments()
+      const metricsInstruments = this.getMetricsInstruments();
       if (metricsInstruments) {
         recordErrorCorrectionMetric(
           metricsInstruments,
@@ -642,14 +642,14 @@ export class AxGen<
           false, // failed
           maxRetries,
           this.getSignatureName()
-        )
+        );
       }
 
       throw enhanceError(
         new Error(`Unable to fix validation error: ${err?.toString()}`),
         ai,
         this.signature
-      )
+      );
     }
 
     // Record max steps reached
@@ -659,14 +659,14 @@ export class AxGen<
         maxSteps,
         maxSteps,
         this.getSignatureName()
-      )
+      );
     }
 
     throw enhanceError(
       new Error(`Max steps reached: ${maxSteps}`),
       ai,
       this.signature
-    )
+    );
   }
 
   public async *_forward1(
@@ -675,39 +675,39 @@ export class AxGen<
     options: Readonly<AxProgramForwardOptions>
   ): AxGenStreamingOut<OUT> {
     // Track state creation performance
-    const stateCreationStart = performance.now()
-    const states = this.createStates(options.sampleCount ?? 1)
-    const stateCreationDuration = performance.now() - stateCreationStart
+    const stateCreationStart = performance.now();
+    const states = this.createStates(options.sampleCount ?? 1);
+    const stateCreationDuration = performance.now() - stateCreationStart;
 
     // Record state creation performance metric
-    const metricsInstruments = this.getMetricsInstruments()
+    const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       recordPerformanceMetric(
         metricsInstruments,
         'state_creation',
         stateCreationDuration,
         this.getSignatureName()
-      )
+      );
     }
 
     const tracer =
-      options?.tracer ?? this.options?.tracer ?? ai.getOptions().tracer
+      options?.tracer ?? this.options?.tracer ?? ai.getOptions().tracer;
 
-    let functions: AxFunction[] | undefined = this.functions
+    let functions: AxFunction[] | undefined = this.functions;
 
     if (options?.functions) {
-      functions = parseFunctions(options.functions, this.functions)
+      functions = parseFunctions(options.functions, this.functions);
     }
 
     if (!tracer) {
       yield* this._forward2(ai, values, states, {
         ...options,
         functions,
-      })
-      return
+      });
+      return;
     }
 
-    const funcNames = functions?.map((f) => f.name).join(',')
+    const funcNames = functions?.map((f) => f.name).join(',');
 
     const attributes = {
       signature: JSON.stringify(this.signature.toJSON(), null, 2),
@@ -722,25 +722,25 @@ export class AxGen<
       ...(options?.showThoughts ? { show_thoughts: options.showThoughts } : {}),
       ...(options?.maxSteps ? { max_steps: options.maxSteps } : {}),
       ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
-    }
+    };
 
     const traceLabel =
       this.traceLabel && options.traceLabel
         ? `${this.traceLabel} > ${options.traceLabel}`
-        : (options.traceLabel ?? this.traceLabel)
-    const spanName = traceLabel ? `AxGen > ${traceLabel}` : 'AxGen'
+        : (options.traceLabel ?? this.traceLabel);
+    const spanName = traceLabel ? `AxGen > ${traceLabel}` : 'AxGen';
 
     const span = tracer.startSpan(spanName, {
       kind: SpanKind.SERVER,
       attributes,
-    })
+    });
 
-    const currentContext = context.active()
-    const traceContext = trace.setSpan(currentContext, span)
+    const currentContext = context.active();
+    const traceContext = trace.setSpan(currentContext, span);
 
     try {
       if (!this.excludeContentFromTrace) {
-        span.addEvent('input', { content: JSON.stringify(values, null, 2) })
+        span.addEvent('input', { content: JSON.stringify(values, null, 2) });
       }
 
       yield* this._forward2(
@@ -753,17 +753,17 @@ export class AxGen<
         },
         span,
         traceContext
-      )
+      );
 
       if (!this.excludeContentFromTrace) {
-        const valuesList = states.map((s) => s.values)
-        const values = valuesList.length === 1 ? valuesList[0] : valuesList
+        const valuesList = states.map((s) => s.values);
+        const values = valuesList.length === 1 ? valuesList[0] : valuesList;
         span.addEvent('output', {
           content: JSON.stringify(values, null, 2),
-        })
+        });
       }
     } finally {
-      span.end()
+      span.end();
     }
   }
 
@@ -772,18 +772,18 @@ export class AxGen<
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const startTime = performance.now()
-    const signatureName = this.getSignatureName()
-    const isStreaming = options?.stream ?? false
-    let success = false
-    let errorCorrectionAttempts = 0
-    let functionsEnabled = false
-    let functionsExecuted = 0
-    let resultPickerUsed = false
+    const startTime = performance.now();
+    const signatureName = this.getSignatureName();
+    const isStreaming = options?.stream ?? false;
+    let success = false;
+    let errorCorrectionAttempts = 0;
+    let functionsEnabled = false;
+    const functionsExecuted = 0;
+    let resultPickerUsed = false;
 
     try {
       // Record signature complexity metrics
-      const metricsInstruments = this.getMetricsInstruments()
+      const metricsInstruments = this.getMetricsInstruments();
       if (metricsInstruments) {
         recordSignatureComplexityMetrics(
           metricsInstruments,
@@ -792,33 +792,33 @@ export class AxGen<
           this.examples?.length ?? 0,
           this.demos?.length ?? 0,
           signatureName
-        )
+        );
       }
 
       // Check if functions are enabled
-      functionsEnabled = !!(options?.functions || this.functions)
+      functionsEnabled = !!(options?.functions || this.functions);
 
-      const generator = this._forward1(ai, values, options ?? {})
+      const generator = this._forward1(ai, values, options ?? {});
 
-      let buffer: AxGenDeltaOut<OUT>[] = []
-      let currentVersion = 0
-      let deltasEmitted = 0
+      let buffer: AxGenDeltaOut<OUT>[] = [];
+      let currentVersion = 0;
+      let deltasEmitted = 0;
 
       for await (const delta of generator) {
         if (delta.version !== currentVersion) {
-          buffer = []
+          buffer = [];
         }
-        currentVersion = delta.version
-        buffer = mergeDeltas<OUT>(buffer, delta)
-        deltasEmitted++
+        currentVersion = delta.version;
+        buffer = mergeDeltas<OUT>(buffer, delta);
+        deltasEmitted++;
       }
 
       // Track error correction attempts from the version count
-      errorCorrectionAttempts = currentVersion
+      errorCorrectionAttempts = currentVersion;
 
       // Use result picker to select from multiple samples
-      const resultPickerStart = performance.now()
-      resultPickerUsed = !!options?.resultPicker
+      const resultPickerStart = performance.now();
+      resultPickerUsed = !!options?.resultPicker;
 
       const selectedIndex = await selectFromSamples(
         buffer,
@@ -830,15 +830,15 @@ export class AxGen<
         // Pass memory to enable function result selection
         options?.mem,
         options?.sessionId
-      )
+      );
 
-      const resultPickerLatency = performance.now() - resultPickerStart
+      const resultPickerLatency = performance.now() - resultPickerStart;
 
-      const selectedResult = buffer[selectedIndex]
-      const result = selectedResult?.delta ?? {}
-      this.trace = { ...values, ...result } as unknown as OUT
+      const selectedResult = buffer[selectedIndex];
+      const result = selectedResult?.delta ?? {};
+      this.trace = { ...values, ...result } as unknown as OUT;
 
-      success = true
+      success = true;
 
       // Record samples metrics
       if (metricsInstruments) {
@@ -848,7 +848,7 @@ export class AxGen<
           resultPickerUsed,
           resultPickerUsed ? resultPickerLatency : undefined,
           signatureName
-        )
+        );
 
         // Record streaming metrics
         recordStreamingMetric(
@@ -857,18 +857,18 @@ export class AxGen<
           deltasEmitted,
           undefined, // finalization latency not applicable here
           signatureName
-        )
+        );
       }
 
-      return result as unknown as OUT
+      return result as unknown as OUT;
     } catch (error) {
-      success = false
-      throw error
+      success = false;
+      throw error;
     } finally {
-      const duration = performance.now() - startTime
+      const duration = performance.now() - startTime;
 
       // Record generation metrics
-      const finalMetricsInstruments = this.getMetricsInstruments()
+      const finalMetricsInstruments = this.getMetricsInstruments();
       if (finalMetricsInstruments) {
         recordGenerationMetric(
           finalMetricsInstruments,
@@ -877,7 +877,7 @@ export class AxGen<
           signatureName,
           ai.getName(),
           options?.model
-        )
+        );
 
         // Record function calling metrics if functions were used
         if (functionsEnabled) {
@@ -888,7 +888,7 @@ export class AxGen<
             functionsExecuted > 0,
             false, // function error correction tracking would need more complex logic
             signatureName
-          )
+          );
         }
 
         // Record error correction metrics
@@ -899,7 +899,7 @@ export class AxGen<
             success,
             options?.maxRetries ?? 10,
             signatureName
-          )
+          );
         }
       }
     }
@@ -915,25 +915,25 @@ export class AxGen<
       yield* this._forward1(ai, values, {
         ...options,
         stream: true,
-      })
-      return
+      });
+      return;
     }
 
     // For result picker, we need to buffer all results first
     const generator = this._forward1(ai, values, {
       ...options,
       stream: true,
-    })
+    });
 
-    let buffer: AxGenDeltaOut<OUT>[] = []
-    let currentVersion = 0
+    let buffer: AxGenDeltaOut<OUT>[] = [];
+    let currentVersion = 0;
 
     for await (const delta of generator) {
       if (delta.version !== currentVersion) {
-        buffer = []
+        buffer = [];
       }
-      currentVersion = delta.version
-      buffer = mergeDeltas<OUT>(buffer, delta)
+      currentVersion = delta.version;
+      buffer = mergeDeltas<OUT>(buffer, delta);
     }
 
     // Use result picker to select from samples
@@ -947,16 +947,16 @@ export class AxGen<
       // Pass memory to enable function result selection
       options?.mem,
       options?.sessionId
-    )
+    );
 
     // Yield the selected result
-    const selectedResult = buffer[selectedIndex]
+    const selectedResult = buffer[selectedIndex];
     if (selectedResult) {
       yield {
         version: currentVersion,
         index: selectedIndex,
         delta: selectedResult.delta,
-      }
+      };
     }
   }
 
@@ -964,7 +964,7 @@ export class AxGen<
     examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
-    super.setExamples(examples, options)
+    super.setExamples(examples, options);
     // No need to update prompt template - all fields can be missing in examples
   }
 
@@ -974,44 +974,44 @@ export class AxGen<
   ) {
     return (
       options?.debug ?? this.options?.debug ?? ai.getOptions().debug ?? false
-    )
+    );
   }
 
   private getLogger(
     ai: Readonly<AxAIService>,
     options?: Readonly<AxProgramForwardOptions>
   ) {
-    return options?.logger ?? this.options?.logger ?? ai.getLogger()
+    return options?.logger ?? this.options?.logger ?? ai.getLogger();
   }
 }
 
 export type AxGenerateErrorDetails = {
-  model?: string
-  maxTokens?: number
-  streaming: boolean
+  model?: string;
+  maxTokens?: number;
+  streaming: boolean;
   signature: {
-    input: Readonly<AxIField[]>
-    output: Readonly<AxIField[]>
-    description?: string
-  }
-}
+    input: Readonly<AxIField[]>;
+    output: Readonly<AxIField[]>;
+    description?: string;
+  };
+};
 
-type ErrorOptions = { cause?: Error }
+type ErrorOptions = { cause?: Error };
 
 export class AxGenerateError extends Error {
-  public readonly details: AxGenerateErrorDetails
+  public readonly details: AxGenerateErrorDetails;
 
   constructor(
     message: string,
     details: Readonly<AxGenerateErrorDetails>,
     options?: ErrorOptions
   ) {
-    super(message)
-    this.name = 'AxGenerateError'
-    this.details = details
+    super(message);
+    this.name = 'AxGenerateError';
+    this.details = details;
     // Set cause property dynamically to avoid TypeScript issues
     if (options?.cause) {
-      ;(this as ErrorOptions).cause = options.cause
+      (this as ErrorOptions).cause = options.cause;
     }
   }
 }
@@ -1021,9 +1021,9 @@ function enhanceError(
   ai: Readonly<AxAIService>,
   signature: Readonly<AxSignature>
 ): Error {
-  const originalError = e instanceof Error ? e : new Error(String(e))
-  const model = ai.getLastUsedChatModel() as string | undefined
-  const modelConfig = ai.getLastUsedModelConfig()
+  const originalError = e instanceof Error ? e : new Error(String(e));
+  const model = ai.getLastUsedChatModel() as string | undefined;
+  const modelConfig = ai.getLastUsedModelConfig();
 
   const details = {
     model: model,
@@ -1034,10 +1034,10 @@ function enhanceError(
       output: signature.getOutputFields(),
       description: signature.getDescription(),
     },
-  }
+  };
 
   // Return custom error with short message and details as object property
   return new AxGenerateError('Generate failed', details, {
     cause: originalError,
-  })
+  });
 }

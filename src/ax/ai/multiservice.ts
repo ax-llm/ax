@@ -1,4 +1,4 @@
-import type { ReadableStream } from 'stream/web'
+import type { ReadableStream } from 'node:stream/web';
 
 import type {
   AxAIModelList,
@@ -13,29 +13,29 @@ import type {
   AxEmbedResponse,
   AxLoggerFunction,
   AxModelConfig,
-} from './types.js'
+} from './types.js';
 
 type AxAIServiceListItem<TModel = unknown, TEmbedModel = unknown> = {
-  key: string
-  service: AxAIService<TModel, TEmbedModel>
-  description: string
-  isInternal?: boolean
-}
+  key: string;
+  service: AxAIService<TModel, TEmbedModel>;
+  description: string;
+  isInternal?: boolean;
+};
 
 export class AxMultiServiceRouter implements AxAIService<string, string> {
-  private options?: AxAIServiceOptions
-  private lastUsedService?: AxAIService<string, string>
+  private options?: AxAIServiceOptions;
+  private lastUsedService?: AxAIService<string, string>;
 
   private services: Map<
     string,
     {
-      isInternal?: boolean
-      description: string
-      model?: string
-      embedModel?: string
-      service: AxAIService<string, string>
+      isInternal?: boolean;
+      description: string;
+      model?: string;
+      embedModel?: string;
+      service: AxAIService<string, string>;
     }
-  > = new Map()
+  > = new Map();
   /**
    * Constructs a new multi-service router.
    * It validates that each service provides a unique set of model keys,
@@ -48,72 +48,71 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
     )[]
   ) {
     if (services.length === 0) {
-      throw new Error('No AI services provided.')
+      throw new Error('No AI services provided.');
     }
 
     // Determine input type based on first element (assuming homogeneous array)
 
     for (const [index, item] of services.entries()) {
-      const isKeyBased = 'key' in item
+      const isKeyBased = 'key' in item;
 
       if (isKeyBased) {
         if (this.services.has(item.key)) {
-          throw new Error(`Duplicate model key: ${item.key}`)
+          throw new Error(`Duplicate model key: ${item.key}`);
         }
 
-        const { service, description, isInternal } = item
+        const { service, description, isInternal } = item;
 
         this.services.set(item.key, {
           service: service as AxAIService<string, string>,
           description,
           isInternal,
-        })
+        });
       } else {
-        const modelList = item.getModelList() as AxAIModelList | undefined
+        const modelList = item.getModelList() as AxAIModelList | undefined;
 
         if (!modelList) {
           throw new Error(
             `Service ${index} \`${item.getName()}\` has no model list.`
-          )
+          );
         }
 
         for (const v of modelList) {
           if (this.services.has(v.key)) {
-            const otherService = this.services.get(v.key)?.service
+            const otherService = this.services.get(v.key)?.service;
             throw new Error(
               `Service ${index} \`${item.getName()}\` has duplicate model key: ${v.key} as service ${otherService?.getName()}`
-            )
+            );
+          }
+          if ('model' in v && typeof v.model) {
+            this.services.set(v.key, {
+              description: v.description,
+              service: item as AxAIService<string, string>,
+              model: v.model,
+            });
+          } else if ('embedModel' in v && v.embedModel) {
+            this.services.set(v.key, {
+              description: v.description,
+              service: item as AxAIService<string, string>,
+              embedModel: v.embedModel,
+            });
           } else {
-            if ('model' in v && typeof v.model) {
-              this.services.set(v.key, {
-                description: v.description,
-                service: item as AxAIService<string, string>,
-                model: v.model,
-              })
-            } else if ('embedModel' in v && v.embedModel) {
-              this.services.set(v.key, {
-                description: v.description,
-                service: item as AxAIService<string, string>,
-                embedModel: v.embedModel,
-              })
-            } else {
-              throw new Error(
-                `Key ${v.key} in model list for service ${index} \`${item.getName()}\` is missing a model or embedModel property.`
-              )
-            }
+            throw new Error(
+              `Key ${v.key} in model list for service ${index} \`${item.getName()}\` is missing a model or embedModel property.`
+            );
           }
         }
       }
     }
   }
   getLastUsedChatModel(): string | undefined {
-    return this.lastUsedService?.getLastUsedChatModel()
+    return this.lastUsedService?.getLastUsedChatModel();
   }
   getLastUsedEmbedModel(): string | undefined {
-    return this.lastUsedService?.getLastUsedEmbedModel()
+    return this.lastUsedService?.getLastUsedEmbedModel();
   }
   getLastUsedModelConfig(): AxModelConfig | undefined {
-    return this.lastUsedService?.getLastUsedModelConfig()
+    return this.lastUsedService?.getLastUsedModelConfig();
   }
 
   /**
@@ -125,25 +124,24 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
       AxAIPromptConfig & AxAIServiceActionOptions<string, string>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const modelKey = req.model
+    const modelKey = req.model;
     if (!modelKey) {
-      throw new Error('Model key must be specified for multi-service')
+      throw new Error('Model key must be specified for multi-service');
     }
 
-    const item = this.services.get(modelKey)
+    const item = this.services.get(modelKey);
     if (!item) {
-      throw new Error(`No service found for model key: ${modelKey}`)
+      throw new Error(`No service found for model key: ${modelKey}`);
     }
 
-    this.lastUsedService = item.service
+    this.lastUsedService = item.service;
 
     if (!item.model) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { model, ...reqWithoutModel } = req
-      return await item.service.chat(reqWithoutModel, options)
+      const { model: _, ...reqWithoutModel } = req;
+      return await item.service.chat(reqWithoutModel, options);
     }
 
-    return await item.service.chat({ model: modelKey, ...req }, options)
+    return await item.service.chat({ model: modelKey, ...req }, options);
   }
 
   /**
@@ -153,47 +151,43 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
     req: Readonly<AxEmbedRequest<string>>,
     options?: Readonly<AxAIServiceActionOptions<string, string>>
   ): Promise<AxEmbedResponse> {
-    const embedModelKey = req.embedModel
+    const embedModelKey = req.embedModel;
     if (!embedModelKey) {
-      throw new Error('Embed model key must be specified for multi-service')
+      throw new Error('Embed model key must be specified for multi-service');
     }
 
-    const item = this.services.get(embedModelKey)
+    const item = this.services.get(embedModelKey);
     if (!item) {
-      throw new Error(`No service found for embed model key: ${embedModelKey}`)
+      throw new Error(`No service found for embed model key: ${embedModelKey}`);
     }
 
-    this.lastUsedService = item.service
+    this.lastUsedService = item.service;
 
     if (!item.model) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { embedModel, ...reqWithoutEmbedModel } = req
-      return await item.service.embed(reqWithoutEmbedModel, options)
+      const { embedModel: _, ...reqWithoutEmbedModel } = req;
+      return await item.service.embed(reqWithoutEmbedModel, options);
     }
 
     return await item.service.embed(
       { embedModel: embedModelKey, ...req },
       options
-    )
+    );
   }
 
   /**
    * Returns a composite ID built from the IDs of the underlying services.
    */
   getId(): string {
-    return (
-      'MultiServiceRouter:' +
-      Array.from(this.services.values())
-        .map((s) => s.service.getId())
-        .join(',')
-    )
+    return `MultiServiceRouter:${Array.from(this.services.values())
+      .map((s) => s.service.getId())
+      .join(',')}`;
   }
 
   /**
    * Returns the name of this router.
    */
   getName(): string {
-    return 'MultiServiceRouter'
+    return 'MultiServiceRouter';
   }
 
   /**
@@ -204,13 +198,13 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
       .filter(([, value]) => !value.isInternal)
       .map(([key, v]) => {
         if (v.model) {
-          return { key, description: v.description, model: v.model }
-        } else if (v.embedModel) {
-          return { key, description: v.description, embedModel: v.embedModel }
-        } else {
-          throw new Error(`Service ${key} has no model or embedModel`)
+          return { key, description: v.description, model: v.model };
         }
-      })
+        if (v.embedModel) {
+          return { key, description: v.description, embedModel: v.embedModel };
+        }
+        throw new Error(`Service ${key} has no model or embedModel`);
+      });
   }
 
   /**
@@ -218,17 +212,17 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * Otherwise, returns a default feature set.
    */
   getFeatures(model?: string): {
-    functions: boolean
-    streaming: boolean
-    functionCot?: boolean
+    functions: boolean;
+    streaming: boolean;
+    functionCot?: boolean;
   } {
     if (model) {
-      const service = this.services.get(model)
+      const service = this.services.get(model);
       if (service) {
-        return service.service.getFeatures(model)
+        return service.service.getFeatures(model);
       }
     }
-    return { functions: false, streaming: false }
+    return { functions: false, streaming: false };
   }
 
   /**
@@ -237,22 +231,22 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * or falls back to the first service if none has been used.
    */
   getMetrics(): AxAIServiceMetrics {
-    let serviceInstance = this.lastUsedService
+    let serviceInstance = this.lastUsedService;
     if (!serviceInstance) {
-      const firstServiceEntry = this.services.values().next().value
+      const firstServiceEntry = this.services.values().next().value;
       if (firstServiceEntry) {
         // Check if it's the service directly or the wrapped object
         serviceInstance =
           'service' in firstServiceEntry
             ? firstServiceEntry.service
-            : firstServiceEntry
+            : firstServiceEntry;
       }
     }
 
     if (!serviceInstance) {
-      throw new Error('No service available to get metrics.')
+      throw new Error('No service available to get metrics.');
     }
-    return serviceInstance.getMetrics()
+    return serviceInstance.getMetrics();
   }
 
   /**
@@ -260,9 +254,9 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    */
   setOptions(options: Readonly<AxAIServiceOptions>): void {
     for (const service of this.services.values()) {
-      service.service.setOptions(options)
+      service.service.setOptions(options);
     }
-    this.options = options
+    this.options = options;
   }
 
   /**
@@ -270,7 +264,7 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * or falls back to the first service if none has been used.
    */
   getOptions(): Readonly<AxAIServiceOptions> {
-    return this.options ?? {}
+    return this.options ?? {};
   }
 
   /**
@@ -278,20 +272,38 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * or falls back to the first service if none has been used.
    */
   getLogger(): AxLoggerFunction {
-    let serviceInstance = this.lastUsedService
+    let serviceInstance = this.lastUsedService;
     if (!serviceInstance) {
-      const firstServiceEntry = this.services.values().next().value
+      const firstServiceEntry = this.services.values().next().value;
       if (firstServiceEntry) {
-        serviceInstance = firstServiceEntry.service
+        serviceInstance = firstServiceEntry.service;
       }
     }
 
     if (!serviceInstance) {
       // Return a default logger if no service is available
       return (message: string) => {
-        process.stdout.write(message)
-      }
+        process.stdout.write(message);
+      };
     }
-    return serviceInstance.getLogger()
+    return serviceInstance.getLogger();
+  }
+
+  /**
+   * Sets a service entry for a given key. This method is intended for testing purposes.
+   * @param key - The model key
+   * @param entry - The service entry to set
+   */
+  setServiceEntry(
+    key: string,
+    entry: {
+      isInternal?: boolean;
+      description: string;
+      model?: string;
+      embedModel?: string;
+      service: AxAIService<string, string>;
+    }
+  ): void {
+    this.services.set(key, entry);
   }
 }

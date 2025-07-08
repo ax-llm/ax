@@ -1,58 +1,58 @@
-import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api'
+import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
 // Utility function to sanitize metric labels
 const sanitizeLabels = (
   labels: Record<string, unknown>
 ): Record<string, string> => {
-  const sanitized: Record<string, string> = {}
+  const sanitized: Record<string, string> = {};
   for (const [key, value] of Object.entries(labels)) {
     if (value !== undefined && value !== null) {
-      const stringValue = String(value)
+      const stringValue = String(value);
       // Limit label length to prevent excessive memory usage
       sanitized[key] =
-        stringValue.length > 100 ? stringValue.substring(0, 100) : stringValue
+        stringValue.length > 100 ? stringValue.substring(0, 100) : stringValue;
     }
   }
-  return sanitized
-}
+  return sanitized;
+};
 
 export interface AxAIMetricsInstruments {
-  latencyHistogram?: Histogram
-  errorCounter?: Counter
-  requestCounter?: Counter
-  tokenCounter?: Counter
-  inputTokenCounter?: Counter
-  outputTokenCounter?: Counter
-  errorRateGauge?: Gauge
-  meanLatencyGauge?: Gauge
-  p95LatencyGauge?: Gauge
-  p99LatencyGauge?: Gauge
+  latencyHistogram?: Histogram;
+  errorCounter?: Counter;
+  requestCounter?: Counter;
+  tokenCounter?: Counter;
+  inputTokenCounter?: Counter;
+  outputTokenCounter?: Counter;
+  errorRateGauge?: Gauge;
+  meanLatencyGauge?: Gauge;
+  p95LatencyGauge?: Gauge;
+  p99LatencyGauge?: Gauge;
 
-  streamingRequestsCounter?: Counter
+  streamingRequestsCounter?: Counter;
 
-  functionCallsCounter?: Counter
-  functionCallLatencyHistogram?: Histogram
+  functionCallsCounter?: Counter;
+  functionCallLatencyHistogram?: Histogram;
 
-  requestSizeHistogram?: Histogram
-  responseSizeHistogram?: Histogram
+  requestSizeHistogram?: Histogram;
+  responseSizeHistogram?: Histogram;
 
-  temperatureGauge?: Gauge
-  maxTokensGauge?: Gauge
+  temperatureGauge?: Gauge;
+  maxTokensGauge?: Gauge;
 
-  estimatedCostCounter?: Counter
+  estimatedCostCounter?: Counter;
 
-  promptLengthHistogram?: Histogram
-  contextWindowUsageGauge?: Gauge
+  promptLengthHistogram?: Histogram;
+  contextWindowUsageGauge?: Gauge;
 
-  timeoutsCounter?: Counter
-  abortsCounter?: Counter
+  timeoutsCounter?: Counter;
+  abortsCounter?: Counter;
 
-  thinkingBudgetUsageCounter?: Counter
-  multimodalRequestsCounter?: Counter
+  thinkingBudgetUsageCounter?: Counter;
+  multimodalRequestsCounter?: Counter;
 }
 
 // Singleton instance for AI metrics instruments
-let globalAIMetricsInstruments: AxAIMetricsInstruments | undefined
+let globalAIMetricsInstruments: AxAIMetricsInstruments | undefined;
 
 // Function to get or create AI metrics instruments (singleton pattern)
 export const getOrCreateAIMetricsInstruments = (
@@ -60,21 +60,21 @@ export const getOrCreateAIMetricsInstruments = (
 ): AxAIMetricsInstruments | undefined => {
   // Return existing instance if available
   if (globalAIMetricsInstruments) {
-    return globalAIMetricsInstruments
+    return globalAIMetricsInstruments;
   }
 
   if (meter) {
-    globalAIMetricsInstruments = createMetricsInstruments(meter)
-    return globalAIMetricsInstruments
+    globalAIMetricsInstruments = createMetricsInstruments(meter);
+    return globalAIMetricsInstruments;
   }
 
-  return undefined
-}
+  return undefined;
+};
 
 // Function to reset the AI metrics singleton (useful for testing)
 export const resetAIMetricsInstruments = (): void => {
-  globalAIMetricsInstruments = undefined
-}
+  globalAIMetricsInstruments = undefined;
+};
 
 export const createMetricsInstruments = (
   meter: Meter
@@ -198,8 +198,8 @@ export const createMetricsInstruments = (
         description: 'Total number of multimodal requests (with images/audio)',
       }
     ),
-  }
-}
+  };
+};
 
 export const recordLatencyMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -214,13 +214,13 @@ export const recordLatencyMetric = (
         operation: type,
         ai_service: aiService,
         ...(model ? { model } : {}),
-      })
-      instruments.latencyHistogram.record(duration, labels)
+      });
+      instruments.latencyHistogram.record(duration, labels);
     }
   } catch (error) {
-    console.warn('Failed to record latency metric:', error)
+    console.warn('Failed to record latency metric:', error);
   }
-}
+};
 
 export const recordLatencyStatsMetrics = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -235,20 +235,20 @@ export const recordLatencyStatsMetrics = (
     operation: type,
     ai_service: aiService,
     ...(model ? { model } : {}),
-  }
+  };
 
   if (instruments.meanLatencyGauge) {
-    instruments.meanLatencyGauge.record(meanLatency, labels)
+    instruments.meanLatencyGauge.record(meanLatency, labels);
   }
 
   if (instruments.p95LatencyGauge) {
-    instruments.p95LatencyGauge.record(p95Latency, labels)
+    instruments.p95LatencyGauge.record(p95Latency, labels);
   }
 
   if (instruments.p99LatencyGauge) {
-    instruments.p99LatencyGauge.record(p99Latency, labels)
+    instruments.p99LatencyGauge.record(p99Latency, labels);
   }
-}
+};
 
 export const recordErrorMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -262,13 +262,13 @@ export const recordErrorMetric = (
         operation: type,
         ai_service: aiService,
         ...(model ? { model } : {}),
-      })
-      instruments.errorCounter.add(1, labels)
+      });
+      instruments.errorCounter.add(1, labels);
     }
   } catch (error) {
-    console.warn('Failed to record error metric:', error)
+    console.warn('Failed to record error metric:', error);
   }
-}
+};
 
 export const recordErrorRateMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -283,9 +283,9 @@ export const recordErrorRateMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordRequestMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -298,9 +298,9 @@ export const recordRequestMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordTokenMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -313,28 +313,28 @@ export const recordTokenMetric = (
     const labels = sanitizeLabels({
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
 
     // Record in the general token counter with type label
     if (instruments.tokenCounter) {
       instruments.tokenCounter.add(tokens, {
         token_type: type,
         ...labels,
-      })
+      });
     }
 
     // Also record in specific counters for input/output
     if (type === 'input' && instruments.inputTokenCounter) {
-      instruments.inputTokenCounter.add(tokens, labels)
+      instruments.inputTokenCounter.add(tokens, labels);
     }
 
     if (type === 'output' && instruments.outputTokenCounter) {
-      instruments.outputTokenCounter.add(tokens, labels)
+      instruments.outputTokenCounter.add(tokens, labels);
     }
   } catch (error) {
-    console.warn('Failed to record token metric:', error)
+    console.warn('Failed to record token metric:', error);
   }
-}
+};
 
 export const recordStreamingRequestMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -348,9 +348,9 @@ export const recordStreamingRequestMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordFunctionCallMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -363,16 +363,16 @@ export const recordFunctionCallMetric = (
     function_name: functionName,
     ...(aiService ? { ai_service: aiService } : {}),
     ...(model ? { model } : {}),
-  }
+  };
 
   if (instruments.functionCallsCounter) {
-    instruments.functionCallsCounter.add(1, labels)
+    instruments.functionCallsCounter.add(1, labels);
   }
 
   if (latency && instruments.functionCallLatencyHistogram) {
-    instruments.functionCallLatencyHistogram.record(latency, labels)
+    instruments.functionCallLatencyHistogram.record(latency, labels);
   }
-}
+};
 
 export const recordRequestSizeMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -386,9 +386,9 @@ export const recordRequestSizeMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordResponseSizeMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -402,9 +402,9 @@ export const recordResponseSizeMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordModelConfigMetrics = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -416,16 +416,16 @@ export const recordModelConfigMetrics = (
   const labels = {
     ...(aiService ? { ai_service: aiService } : {}),
     ...(model ? { model } : {}),
-  }
+  };
 
   if (temperature !== undefined && instruments.temperatureGauge) {
-    instruments.temperatureGauge.record(temperature, labels)
+    instruments.temperatureGauge.record(temperature, labels);
   }
 
   if (maxTokens !== undefined && instruments.maxTokensGauge) {
-    instruments.maxTokensGauge.record(maxTokens, labels)
+    instruments.maxTokensGauge.record(maxTokens, labels);
   }
-}
+};
 
 export const recordEstimatedCostMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -439,9 +439,9 @@ export const recordEstimatedCostMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordPromptLengthMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -453,9 +453,9 @@ export const recordPromptLengthMetric = (
     instruments.promptLengthHistogram.record(lengthChars, {
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordContextWindowUsageMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -467,9 +467,9 @@ export const recordContextWindowUsageMetric = (
     instruments.contextWindowUsageGauge.record(usageRatio, {
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordTimeoutMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -482,9 +482,9 @@ export const recordTimeoutMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordAbortMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -497,9 +497,9 @@ export const recordAbortMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordThinkingBudgetUsageMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -511,9 +511,9 @@ export const recordThinkingBudgetUsageMetric = (
     instruments.thinkingBudgetUsageCounter.add(tokensUsed, {
       ai_service: aiService,
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};
 
 export const recordMultimodalRequestMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
@@ -528,6 +528,6 @@ export const recordMultimodalRequestMetric = (
       has_images: hasImages.toString(),
       has_audio: hasAudio.toString(),
       ...(model ? { model } : {}),
-    })
+    });
   }
-}
+};

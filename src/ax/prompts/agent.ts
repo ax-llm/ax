@@ -4,9 +4,9 @@ import type {
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
-} from '../ai/types.js'
-import type { AxInputFunctionType } from '../dsp/functions.js'
-import { AxGen } from '../dsp/generate.js'
+} from '../ai/types.js';
+import type { AxInputFunctionType } from '../dsp/functions.js';
+import { AxGen } from '../dsp/generate.js';
 import type {
   AxGenStreamingOut,
   AxProgram,
@@ -17,9 +17,9 @@ import type {
   AxSetExamplesOptions,
   AxTunable,
   AxUsable,
-} from '../dsp/program.js'
-import type { AxSignature } from '../dsp/sig.js'
-import type { AxGenIn, AxGenOut, AxMessage } from '../dsp/types.js'
+} from '../dsp/program.js';
+import type { AxSignature } from '../dsp/sig.js';
+import type { AxGenIn, AxGenOut, AxMessage } from '../dsp/types.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -28,22 +28,22 @@ import type { AxGenIn, AxGenOut, AxMessage } from '../dsp/types.js'
 export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
   extends AxTunable<IN, OUT>,
     AxUsable {
-  getFunction(): AxFunction
-  getFeatures(): AxAgentFeatures
+  getFunction(): AxFunction;
+  getFeatures(): AxAgentFeatures;
 }
 
 export type AxAgentOptions = Omit<AxProgramForwardOptions, 'functions'> & {
-  disableSmartModelRouting?: boolean
+  disableSmartModelRouting?: boolean;
   /** List of field names that should not be automatically passed from parent to child agents */
-  excludeFieldsFromPassthrough?: string[]
-  debug?: boolean
-}
+  excludeFieldsFromPassthrough?: string[];
+  debug?: boolean;
+};
 
 export interface AxAgentFeatures {
   /** Whether this agent can use smart model routing (requires an AI service) */
-  canConfigureSmartModelRouting: boolean
+  canConfigureSmartModelRouting: boolean;
   /** List of fields that this agent excludes from parent->child value passing */
-  excludeFieldsFromPassthrough: string[]
+  excludeFieldsFromPassthrough: string[];
 }
 
 /**
@@ -56,78 +56,78 @@ function processChildAgentFunction<IN extends AxGenIn>(
   parentInputKeys: string[],
   modelList: AxAIModelList | undefined,
   options: Readonly<{
-    debug: boolean
-    disableSmartModelRouting: boolean
-    excludeFieldsFromPassthrough: string[]
-    canConfigureSmartModelRouting: boolean
+    debug: boolean;
+    disableSmartModelRouting: boolean;
+    excludeFieldsFromPassthrough: string[];
+    canConfigureSmartModelRouting: boolean;
   }>
 ): AxFunction {
-  const processedFunction = { ...childFunction }
+  const processedFunction = { ...childFunction };
 
   // Process input field injection
   if (processedFunction.parameters) {
     const childKeys = processedFunction.parameters.properties
       ? Object.keys(processedFunction.parameters.properties)
-      : []
+      : [];
 
     // Find common keys between parent and child, excluding 'model' and specified exclusions
     const commonKeys = parentInputKeys
       .filter((key) => childKeys.includes(key))
-      .filter((key) => key !== 'model')
+      .filter((key) => key !== 'model');
     const injectionKeys = commonKeys.filter(
       (key) => !options.excludeFieldsFromPassthrough.includes(key)
-    )
+    );
 
     if (injectionKeys.length > 0) {
       // Remove injected fields from child schema
       processedFunction.parameters = removePropertiesFromSchema(
         processedFunction.parameters,
         injectionKeys
-      )
+      );
 
       // Wrap function to inject parent values
-      const originalFunc = processedFunction.func
+      const originalFunc = processedFunction.func;
       // add debug logging if enabled
       processedFunction.func = async (childArgs, funcOptions) => {
         // Extract values from parentValues - handle both IN and AxMessage<IN>[] cases
-        let valuesToInject: Partial<IN> = {}
+        let valuesToInject: Partial<IN> = {};
         if (Array.isArray(parentValues)) {
           // If parentValues is an array of messages, find the most recent user message
           const lastUserMessage = parentValues
             .filter((msg) => msg.role === 'user')
-            .pop()
+            .pop();
           if (lastUserMessage) {
             valuesToInject = pick(
               lastUserMessage.values,
               injectionKeys as (keyof IN)[]
-            )
+            );
           }
         } else {
           // If parentValues is a single IN object
-          valuesToInject = pick(parentValues, injectionKeys as (keyof IN)[])
+          valuesToInject = pick(parentValues, injectionKeys as (keyof IN)[]);
         }
 
         const updatedChildArgs = {
           ...childArgs,
           ...valuesToInject,
-        }
+        };
 
         if (options.debug && injectionKeys.length > 0) {
-          const ai = funcOptions?.ai
+          const ai = funcOptions?.ai;
           if (ai) {
-            const logger = ai.getLogger()
+            const logger = ai.getLogger();
             logger(
               `Function Params: ${JSON.stringify(updatedChildArgs, null, 2)}`,
               { tags: ['functionArg'] }
-            )
+            );
           }
         }
 
-        return await originalFunc(updatedChildArgs, funcOptions)
-      }
+        return await originalFunc(updatedChildArgs, funcOptions);
+      };
     }
 
-    return processedFunction
+    return processedFunction;
   }
 
   // Apply smart model routing if enabled
@@ -139,19 +139,19 @@ function processChildAgentFunction<IN extends AxGenIn>(
     processedFunction.parameters = addModelParameter(
       processedFunction.parameters,
       modelList
-    )
+    );
   }
 
-  return processedFunction
+  return processedFunction;
 }
 
 const descriptionError = new Error(
   'Agent description must be at least 20 characters (explain in detail what the agent does)'
-)
+);
 
 const definitionError = new Error(
   'Agent definition is the prompt you give to the LLM for the agent. It must be detailed and at least 100 characters'
-)
+);
 
 /**
  * An AI agent that can process inputs using an AI service and coordinate with child agents.
@@ -160,17 +160,17 @@ const definitionError = new Error(
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
-  private ai?: AxAIService
-  private program: AxProgram<IN, OUT>
-  private functions?: AxInputFunctionType
-  private agents?: AxAgentic<IN, OUT>[]
-  private disableSmartModelRouting?: boolean
-  private excludeFieldsFromPassthrough: string[]
-  private debug?: boolean
+  private ai?: AxAIService;
+  private program: AxProgram<IN, OUT>;
+  private functions?: AxInputFunctionType;
+  private agents?: AxAgentic<IN, OUT>[];
+  private disableSmartModelRouting?: boolean;
+  private excludeFieldsFromPassthrough: string[];
+  private debug?: boolean;
 
-  private name: string
+  private name: string;
   //   private subAgentList?: string
-  private func: AxFunction
+  private func: AxFunction;
 
   constructor(
     {
@@ -182,52 +182,52 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       agents,
       functions,
     }: Readonly<{
-      ai?: Readonly<AxAIService>
-      name: string
-      description: string
-      definition?: string
-      signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-      agents?: AxAgentic<IN, OUT>[]
-      functions?: AxInputFunctionType
+      ai?: Readonly<AxAIService>;
+      name: string;
+      description: string;
+      definition?: string;
+      signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>;
+      agents?: AxAgentic<IN, OUT>[];
+      functions?: AxInputFunctionType;
     }>,
     options?: Readonly<AxAgentOptions>
   ) {
     const { disableSmartModelRouting, excludeFieldsFromPassthrough, debug } =
-      options ?? {}
+      options ?? {};
 
-    this.ai = ai
-    this.agents = agents
-    this.functions = functions
-    this.disableSmartModelRouting = disableSmartModelRouting
-    this.excludeFieldsFromPassthrough = excludeFieldsFromPassthrough ?? []
-    this.debug = debug
+    this.ai = ai;
+    this.agents = agents;
+    this.functions = functions;
+    this.disableSmartModelRouting = disableSmartModelRouting;
+    this.excludeFieldsFromPassthrough = excludeFieldsFromPassthrough ?? [];
+    this.debug = debug;
 
     if (!name || name.length < 5) {
       throw new Error(
         'Agent name must be at least 10 characters (more descriptive)'
-      )
+      );
     }
 
     if (!description || description.length < 20) {
-      throw descriptionError
+      throw descriptionError;
     }
 
     if (definition && definition.length < 100) {
-      throw definitionError
+      throw definitionError;
     }
 
     this.program = new AxGen<IN, OUT>(signature, {
       ...options,
       description: definition ?? description,
-    })
+    });
 
     for (const agent of agents ?? []) {
       this.program.register(
         agent as unknown as Readonly<AxTunable<IN, OUT> & AxUsable>
-      )
+      );
     }
 
-    this.name = name
+    this.name = name;
     // this.subAgentList = agents?.map((a) => a.getFunction().name).join(', ')
 
     this.func = {
@@ -235,12 +235,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       description,
       parameters: this.program.getSignature().toJSONSchema(),
       func: () => this.forward,
-    }
+    };
 
-    const mm = ai?.getModelList()
+    const mm = ai?.getModelList();
     // Only add model parameter if smart routing is enabled and model list exists
     if (mm && !this.disableSmartModelRouting) {
-      this.func.parameters = addModelParameter(this.func.parameters, mm)
+      this.func.parameters = addModelParameter(this.func.parameters, mm);
     }
   }
 
@@ -248,92 +248,92 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
-    this.program.setExamples(examples, options)
+    this.program.setExamples(examples, options);
   }
 
   public setId(id: string) {
-    this.program.setId(id)
+    this.program.setId(id);
   }
 
   public setParentId(parentId: string) {
-    this.program.setParentId(parentId)
+    this.program.setParentId(parentId);
   }
 
   public getTraces() {
-    return this.program.getTraces()
+    return this.program.getTraces();
   }
 
   public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
-    this.program.setDemos(demos)
+    this.program.setDemos(demos);
   }
 
   public getUsage() {
-    return this.program.getUsage()
+    return this.program.getUsage();
   }
 
   public resetUsage() {
-    this.program.resetUsage()
+    this.program.resetUsage();
   }
 
   public getFunction(): AxFunction {
-    const boundFunc = this.forward.bind(this)
+    const boundFunc = this.forward.bind(this);
 
     // Create a wrapper function that excludes the 'ai' parameter
     const wrappedFunc: AxFunctionHandler = async (
       valuesAndModel: IN & { model: string },
       options?
     ): Promise<string> => {
-      const { model, ...values } = valuesAndModel
+      const { model, ...values } = valuesAndModel;
 
-      const ai = this.ai ?? options?.ai
+      const ai = this.ai ?? options?.ai;
       if (!ai) {
-        throw new Error('AI service is required to run the agent')
+        throw new Error('AI service is required to run the agent');
       }
-      const debug = this.getDebug(ai, options)
+      const debug = this.getDebug(ai, options);
 
       if (debug) {
-        const logger = ai.getLogger()
+        const logger = ai.getLogger();
         logger(`🤖 Agent ${this.name} starting...`, {
           tags: ['assistantStart'],
-        })
+        });
       }
 
       const ret = await boundFunc(ai, values as unknown as IN, {
         ...options,
         model,
-      })
+      });
 
       if (debug) {
-        const logger = ai.getLogger()
-        logger(`🤖 Agent ${this.name} completed.`, { tags: ['assistantEnd'] })
+        const logger = ai.getLogger();
+        logger(`🤖 Agent ${this.name} completed.`, { tags: ['assistantEnd'] });
       }
 
-      const sig = this.program.getSignature()
-      const outFields = sig.getOutputFields()
+      const sig = this.program.getSignature();
+      const outFields = sig.getOutputFields();
       const result = Object.keys(ret)
         .map((k) => {
-          const field = outFields.find((f) => f.name === k)
+          const field = outFields.find((f) => f.name === k);
           if (field) {
-            return `${field.title}: ${ret[k]}`
+            return `${field.title}: ${ret[k]}`;
           }
-          return `${k}: ${ret[k]}`
+          return `${k}: ${ret[k]}`;
         })
-        .join('\n')
+        .join('\n');
 
-      return result
-    }
+      return result;
+    };
 
     return {
       ...this.func,
       func: wrappedFunc,
-    }
+    };
   }
 
   public getFeatures(): AxAgentFeatures {
     return {
       canConfigureSmartModelRouting: this.ai === undefined,
       excludeFieldsFromPassthrough: this.excludeFieldsFromPassthrough,
-    }
+    };
   }
 
   /**
@@ -344,24 +344,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions> | undefined
   ) {
-    const ai = this.ai ?? parentAi
-    const mm = ai?.getModelList()
+    const ai = this.ai ?? parentAi;
+    const mm = ai?.getModelList();
 
     // Get parent's input schema and keys
-    const parentSchema = this.program.getSignature().getInputFields()
-    const parentKeys = parentSchema.map((p) => p.name)
-    const debug = this.getDebug(ai, options)
+    const parentSchema = this.program.getSignature().getInputFields();
+    const parentKeys = parentSchema.map((p) => p.name);
+    const debug = this.getDebug(ai, options);
 
     // Process each child agent's function
     const agentFuncs = this.agents?.map((agent) => {
-      const f = agent.getFeatures()
+      const f = agent.getFeatures();
 
       const processOptions = {
         debug,
         disableSmartModelRouting: !!this.disableSmartModelRouting,
         excludeFieldsFromPassthrough: f.excludeFieldsFromPassthrough,
         canConfigureSmartModelRouting: f.canConfigureSmartModelRouting,
-      }
+      };
 
       return processChildAgentFunction(
         agent.getFunction(),
@@ -369,16 +369,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         parentKeys,
         mm,
         processOptions
-      )
-    })
+      );
+    });
 
     // Combine all functions
     const functions: AxInputFunctionType = [
       ...(options?.functions ?? this.functions ?? []),
       ...(agentFuncs ?? []),
-    ]
+    ];
 
-    return { ai, functions, debug }
+    return { ai, functions, debug };
   }
 
   public async forward(
@@ -386,12 +386,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
-    const { ai, functions, debug } = this.init(parentAi, values, options)
+    const { ai, functions, debug } = this.init(parentAi, values, options);
     return await this.program.forward(ai, values, {
       ...options,
       debug,
       functions,
-    })
+    });
   }
 
   public async *streamingForward(
@@ -399,12 +399,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
-    const { ai, functions, debug } = this.init(parentAi, values, options)
+    const { ai, functions, debug } = this.init(parentAi, values, options);
     return yield* this.program.streamingForward(ai, values, {
       ...options,
       debug,
       functions,
-    })
+    });
   }
 
   /**
@@ -416,49 +416,49 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    */
   public setDescription(description: string): void {
     if (!description || description.length < 20) {
-      throw descriptionError
+      throw descriptionError;
     }
 
-    this.program.getSignature().setDescription(description)
-    this.func.description = description
+    this.program.getSignature().setDescription(description);
+    this.func.description = description;
   }
 
   public setDefinition(definition: string): void {
     if (!definition || definition.length < 100) {
-      throw definitionError
+      throw definitionError;
     }
 
-    this.program.getSignature().setDescription(definition)
+    this.program.getSignature().setDescription(definition);
   }
 
   private getDebug(
     ai: AxAIService,
     options?: Readonly<AxProgramForwardOptions>
   ): boolean {
-    return options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false
+    return options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
   }
 }
 
 function toCamelCase(inputString: string): string {
   // Split the string by any non-alphanumeric character (including underscores, spaces, hyphens)
-  const words = inputString.split(/[^a-zA-Z0-9]/)
+  const words = inputString.split(/[^a-zA-Z0-9]/);
 
   // Map through each word, capitalize the first letter of each word except the first word
   const camelCaseString = words
     .map((word, index) => {
       // Lowercase the word to handle cases like uppercase letters in input
-      const lowerWord = word.toLowerCase()
+      const lowerWord = word.toLowerCase();
 
       // Capitalize the first letter of each word except the first one
       if (index > 0 && lowerWord && lowerWord[0]) {
-        return lowerWord[0].toUpperCase() + lowerWord.slice(1)
+        return lowerWord[0].toUpperCase() + lowerWord.slice(1);
       }
 
-      return lowerWord
+      return lowerWord;
     })
-    .join('')
+    .join('');
 
-  return camelCaseString
+  return camelCaseString;
 }
 
 /**
@@ -480,40 +480,40 @@ export function addModelParameter(
         type: 'object',
         properties: {},
         required: [],
-      }
+      };
 
   // Check if model parameter already exists
   if (baseSchema.properties?.model) {
-    return baseSchema
+    return baseSchema;
   }
 
   // Create the model property schema
   const modelProperty: AxFunctionJSONSchema & {
-    enum: string[]
-    description: string
+    enum: string[];
+    description: string;
   } = {
     type: 'string',
     enum: models.map((m) => m.key),
     description: `The AI model to use for this function call. Available options: ${models
       .map((m) => `\`${m.key}\` ${m.description}`)
       .join(', ')}`,
-  }
+  };
 
   // Create new properties object with model parameter
   const newProperties = {
     ...(baseSchema.properties ?? {}),
     model: modelProperty,
-  }
+  };
 
   // Add model to required fields
-  const newRequired = [...(baseSchema.required ?? []), 'model']
+  const newRequired = [...(baseSchema.required ?? []), 'model'];
 
   // Return updated schema
   return {
     ...baseSchema,
     properties: newProperties,
     required: newRequired,
-  }
+  };
 }
 
 // New helper: removePropertiesFromSchema
@@ -522,23 +522,23 @@ function removePropertiesFromSchema(
   schema: Readonly<AxFunctionJSONSchema>,
   keys: string[]
 ): AxFunctionJSONSchema {
-  const newSchema = structuredClone(schema)
+  const newSchema = structuredClone(schema);
   if (newSchema.properties) {
     for (const key of keys) {
-      delete newSchema.properties[key]
+      delete newSchema.properties[key];
     }
   }
   if (Array.isArray(newSchema.required)) {
     const filteredRequired = newSchema.required.filter(
       (r: string) => !keys.includes(r)
-    )
+    );
     Object.defineProperty(newSchema, 'required', {
       value: filteredRequired,
       writable: true,
       configurable: true,
-    })
+    });
   }
-  return newSchema
+  return newSchema;
 }
 
 // New helper: pick
@@ -547,11 +547,11 @@ function pick<T extends object, K extends keyof T>(
   obj: T,
   keys: K[]
 ): Pick<T, K> {
-  const result = {} as Pick<T, K>
+  const result = {} as Pick<T, K>;
   for (const key of keys) {
     if (key in obj) {
-      result[key] = obj[key]
+      result[key] = obj[key];
     }
   }
-  return result
+  return result;
 }

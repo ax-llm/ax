@@ -1,18 +1,18 @@
-import { ax, f } from '@ax-llm/ax'
-import { AxAIGoogleGemini } from '@ax-llm/ax/ai/google-gemini/api.js'
+import { ax, f } from '@ax-llm/ax';
+import { AxAIGoogleGemini } from '@ax-llm/ax/ai/google-gemini/api.js';
 
-console.log('=== Configurable Thinking Token Budget Levels Demo ===\n')
+console.log('=== Configurable Thinking Token Budget Levels Demo ===\n');
 
 // Example 1: Default thinking token budget levels
-console.log('1. Default thinking token budget levels:')
+console.log('1. Default thinking token budget levels:');
 const defaultAI = new AxAIGoogleGemini({
   apiKey: process.env.GOOGLE_APIKEY!,
-})
+});
 
 const reasoningGenerator = ax`
   question:${f.string('Complex reasoning question')} -> 
   answer:${f.string('Detailed answer with reasoning')}
-`
+`;
 
 try {
   const defaultResult = await reasoningGenerator.forward(
@@ -22,18 +22,18 @@ try {
         'Explain the concept of recursion in programming with examples.',
     },
     { thinkingTokenBudget: 'medium' }
-  )
+  );
   console.log(
     'Default medium level result length:',
     (defaultResult.answer as string)?.length || 0
-  )
+  );
 } catch {
-  console.log('Default levels example skipped (no API key)')
+  console.log('Default levels example skipped (no API key)');
 }
-console.log()
+console.log();
 
 // Example 2: Custom thinking token budget levels
-console.log('2. Custom thinking token budget levels:')
+console.log('2. Custom thinking token budget levels:');
 const customAI = new AxAIGoogleGemini({
   apiKey: process.env.GOOGLE_APIKEY!,
   config: {
@@ -45,7 +45,7 @@ const customAI = new AxAIGoogleGemini({
       highest: 15000, // Maximum reasoning (within limits)
     },
   },
-})
+});
 
 try {
   const customResult = await reasoningGenerator.forward(
@@ -55,18 +55,18 @@ try {
         'Explain the concept of recursion in programming with examples.',
     },
     { thinkingTokenBudget: 'medium' }
-  )
+  );
   console.log(
     'Custom medium level result length:',
     (customResult.answer as string)?.length || 0
-  )
+  );
 } catch {
-  console.log('Custom levels example skipped (no API key)')
+  console.log('Custom levels example skipped (no API key)');
 }
-console.log()
+console.log();
 
 // Example 3: Comparing different levels
-console.log('3. Comparing different thinking levels:')
+console.log('3. Comparing different thinking levels:');
 const comparisonAI = new AxAIGoogleGemini({
   apiKey: process.env.GOOGLE_APIKEY!,
   config: {
@@ -78,39 +78,39 @@ const comparisonAI = new AxAIGoogleGemini({
       highest: 20000,
     },
   },
-})
+});
 
-const simpleQuestion = 'What is 2 + 2?'
+const simpleQuestion = 'What is 2 + 2?';
 
 try {
-  console.log('Testing different thinking levels for the same question...')
+  console.log('Testing different thinking levels for the same question...');
 
   const minimalResult = await reasoningGenerator.forward(
     comparisonAI,
     { question: simpleQuestion },
     { thinkingTokenBudget: 'minimal' }
-  )
+  );
   console.log(
     '- Minimal level answer length:',
     (minimalResult.answer as string)?.length || 0
-  )
+  );
 
   const highResult = await reasoningGenerator.forward(
     comparisonAI,
     { question: simpleQuestion },
     { thinkingTokenBudget: 'high' }
-  )
+  );
   console.log(
     '- High level answer length:',
     (highResult.answer as string)?.length || 0
-  )
+  );
 } catch {
-  console.log('Level comparison example skipped (no API key)')
+  console.log('Level comparison example skipped (no API key)');
 }
-console.log()
+console.log();
 
 // Example 4: Using with showThoughts
-console.log('4. Using with showThoughts:')
+console.log('4. Using with showThoughts:');
 const thoughtsAI = new AxAIGoogleGemini({
   apiKey: process.env.GOOGLE_APIKEY!,
   config: {
@@ -122,7 +122,7 @@ const thoughtsAI = new AxAIGoogleGemini({
       highest: 24000,
     },
   },
-})
+});
 
 try {
   const thoughtsResult = await reasoningGenerator.forward(
@@ -132,20 +132,20 @@ try {
       thinkingTokenBudget: 'high',
       showThoughts: true,
     }
-  )
-  console.log('High level with thoughts enabled')
+  );
+  console.log('High level with thoughts enabled');
   console.log(
     '- Answer length:',
     (thoughtsResult.answer as string)?.length || 0
-  )
-  console.log('- Has reasoning thoughts:', !!thoughtsResult.thought)
+  );
+  console.log('- Has reasoning thoughts:', !!thoughtsResult.thought);
 } catch {
-  console.log('ShowThoughts example skipped (no API key)')
+  console.log('ShowThoughts example skipped (no API key)');
 }
-console.log()
+console.log();
 
 // Example 5: Disabling thinking with 'none'
-console.log('5. Disabling thinking with "none":')
+console.log('5. Disabling thinking with "none":');
 try {
   const noThinkingResult = await reasoningGenerator.forward(
     thoughtsAI,
@@ -154,33 +154,33 @@ try {
       thinkingTokenBudget: 'none',
       showThoughts: true, // This will be overridden to false
     }
-  )
-  console.log('No thinking level result')
+  );
+  console.log('No thinking level result');
   console.log(
     '- Answer length:',
     (noThinkingResult.answer as string)?.length || 0
-  )
-  console.log('- Has reasoning thoughts:', !!noThinkingResult.thought)
-  console.log('- Note: showThoughts was automatically disabled')
+  );
+  console.log('- Has reasoning thoughts:', !!noThinkingResult.thought);
+  console.log('- Note: showThoughts was automatically disabled');
 } catch {
-  console.log('No thinking example skipped (no API key)')
+  console.log('No thinking example skipped (no API key)');
 }
-console.log()
+console.log();
 
-console.log('=== Configurable Thinking Token Budget Levels Demo Complete ===')
-console.log('')
-console.log('Usage examples:')
-console.log('- const ai = new AxAIGoogleGemini({')
-console.log('    config: {')
-console.log('      thinkingTokenBudgetLevels: {')
-console.log('        minimal: 100,')
-console.log('        low: 500,')
-console.log('        medium: 2000,')
-console.log('        high: 8000,')
-console.log('        highest: 20000,')
-console.log('      }')
-console.log('    }')
-console.log('  })')
+console.log('=== Configurable Thinking Token Budget Levels Demo Complete ===');
+console.log('');
+console.log('Usage examples:');
+console.log('- const ai = new AxAIGoogleGemini({');
+console.log('    config: {');
+console.log('      thinkingTokenBudgetLevels: {');
+console.log('        minimal: 100,');
+console.log('        low: 500,');
+console.log('        medium: 2000,');
+console.log('        high: 8000,');
+console.log('        highest: 20000,');
+console.log('      }');
+console.log('    }');
+console.log('  })');
 console.log(
   '- await generator.forward(ai, input, { thinkingTokenBudget: "medium" })'
-)
+);

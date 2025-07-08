@@ -1,4 +1,4 @@
-import type { AxModelConfig } from '../types.js'
+import type { AxModelConfig } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
   Gemini25Pro = 'gemini-2.5-pro',
@@ -47,104 +47,104 @@ export enum AxAIGoogleGeminiEmbedTypes {
 }
 
 export type AxAIGoogleGeminiContent = {
-  role: 'user' | 'model'
-  parts: AxAIGoogleGeminiContentPart[]
-}
+  role: 'user' | 'model';
+  parts: AxAIGoogleGeminiContentPart[];
+};
 
 // Part type with common fields intersected with a union of data fields
 export type AxAIGoogleGeminiContentPart = {
-  thought?: boolean
-  metadata?: { videoMetadata: object }
+  thought?: boolean;
+  metadata?: { videoMetadata: object };
 } & (
   | { text: string }
   | {
       inlineData: {
-        mimeType: string
-        data: string
-      }
+        mimeType: string;
+        data: string;
+      };
     }
   | {
       functionCall: {
-        name: string
-        args: object
-      }
+        name: string;
+        args: object;
+      };
     }
   | {
       functionResponse: {
-        name: string
-        response: object
-      }
+        name: string;
+        response: object;
+      };
     }
   | {
       fileData: {
-        mimeType: string
-        fileUri: string
-      }
+        mimeType: string;
+        fileUri: string;
+      };
     }
   | { executableCode: object }
   | { codeExecutionResult: object }
-)
+);
 
 export type AxAIGoogleGeminiToolFunctionDeclaration = {
-  name: string
-  description?: string
-  parameters?: object
-}
+  name: string;
+  description?: string;
+  parameters?: object;
+};
 
 export type AxAIGoogleGeminiToolGoogleSearchRetrieval = {
   dynamic_retrieval_config: {
-    mode?: 'MODE_DYNAMIC'
-    dynamic_threshold?: number
-  }
-}
+    mode?: 'MODE_DYNAMIC';
+    dynamic_threshold?: number;
+  };
+};
 
 export type AxAIGoogleGeminiTool = {
-  function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[]
-  code_execution?: object
-  google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval
-  google_search?: object
-  url_context?: object
-}
+  function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
+  code_execution?: object;
+  google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval;
+  google_search?: object;
+  url_context?: object;
+};
 
 export type AxAIGoogleGeminiToolConfig = {
   function_calling_config: {
-    mode: 'ANY' | 'NONE' | 'AUTO'
-    allowed_function_names?: string[]
-  }
-}
+    mode: 'ANY' | 'NONE' | 'AUTO';
+    allowed_function_names?: string[];
+  };
+};
 
 export type AxAIGoogleGeminiGenerationConfig = {
-  temperature?: number
-  topP?: number
-  topK?: number
-  frequencyPenalty?: number
-  candidateCount?: number
-  maxOutputTokens?: number
-  stopSequences?: readonly string[]
-  responseMimeType?: string
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  candidateCount?: number;
+  maxOutputTokens?: number;
+  stopSequences?: readonly string[];
+  responseMimeType?: string;
   thinkingConfig?: {
-    thinkingBudget?: number
-    includeThoughts?: boolean
-  }
-}
+    thinkingBudget?: number;
+    includeThoughts?: boolean;
+  };
+};
 
 export type AxAIGoogleGeminiSafetySettings = {
-  category: AxAIGoogleGeminiSafetyCategory
-  threshold: AxAIGoogleGeminiSafetyThreshold
-}[]
+  category: AxAIGoogleGeminiSafetyCategory;
+  threshold: AxAIGoogleGeminiSafetyThreshold;
+}[];
 
 export type AxAIGoogleGeminiChatRequest = {
-  contents: AxAIGoogleGeminiContent[]
-  tools?: AxAIGoogleGeminiTool[]
-  toolConfig?: AxAIGoogleGeminiToolConfig
-  systemInstruction?: AxAIGoogleGeminiContent
-  generationConfig: AxAIGoogleGeminiGenerationConfig
-  safetySettings?: AxAIGoogleGeminiSafetySettings
-}
+  contents: AxAIGoogleGeminiContent[];
+  tools?: AxAIGoogleGeminiTool[];
+  toolConfig?: AxAIGoogleGeminiToolConfig;
+  systemInstruction?: AxAIGoogleGeminiContent;
+  generationConfig: AxAIGoogleGeminiGenerationConfig;
+  safetySettings?: AxAIGoogleGeminiSafetySettings;
+};
 
 export type AxAIGoogleGeminiChatResponse = {
   candidates: {
-    content: AxAIGoogleGeminiContent
+    content: AxAIGoogleGeminiContent;
 
     finishReason:
       | 'STOP'
@@ -157,94 +157,94 @@ export type AxAIGoogleGeminiChatResponse = {
       | 'SPII'
       | 'MALFORMED_FUNCTION_CALL'
       | 'UNEXPECTED_TOOL_CALL'
-      | 'FINISH_REASON_UNSPECIFIED'
+      | 'FINISH_REASON_UNSPECIFIED';
     citationMetadata: {
       citations: {
-        startIndex: number
-        endIndex: number
-        uri: string
-        title: string
-        license: string
+        startIndex: number;
+        endIndex: number;
+        uri: string;
+        title: string;
+        license: string;
         publicationDate: {
-          year: number
-          month: number
-          day: number
-        }
-      }[]
-    }
-  }[]
+          year: number;
+          month: number;
+          day: number;
+        };
+      }[];
+    };
+  }[];
   usageMetadata: {
-    promptTokenCount: number
-    candidatesTokenCount: number
-    totalTokenCount: number
-    thoughtsTokenCount: number
-  }
-}
+    promptTokenCount: number;
+    candidatesTokenCount: number;
+    totalTokenCount: number;
+    thoughtsTokenCount: number;
+  };
+};
 
-export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse
+export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse;
 
 export type AxAIGoogleGeminiThinkingConfig = {
-  thinkingTokenBudget?: number
-  includeThoughts?: boolean
-}
+  thinkingTokenBudget?: number;
+  includeThoughts?: boolean;
+};
 
 export type AxAIGoogleGeminiThinkingTokenBudgetLevels = {
-  minimal?: number
-  low?: number
-  medium?: number
-  high?: number
-  highest?: number
-}
+  minimal?: number;
+  low?: number;
+  medium?: number;
+  high?: number;
+  highest?: number;
+};
 
 /**
  * AxAIGoogleGeminiConfig: Configuration options for Google Gemini API
  */
 export type AxAIGoogleGeminiConfig = AxModelConfig & {
-  model: AxAIGoogleGeminiModel
-  embedModel?: AxAIGoogleGeminiEmbedModel
-  safetySettings?: AxAIGoogleGeminiSafetySettings
-  embedType?: AxAIGoogleGeminiEmbedTypes
-  dimensions?: number
-  autoTruncate?: boolean
-  thinking?: AxAIGoogleGeminiThinkingConfig
-  thinkingTokenBudgetLevels?: AxAIGoogleGeminiThinkingTokenBudgetLevels
-  urlContext?: string
-}
+  model: AxAIGoogleGeminiModel;
+  embedModel?: AxAIGoogleGeminiEmbedModel;
+  safetySettings?: AxAIGoogleGeminiSafetySettings;
+  embedType?: AxAIGoogleGeminiEmbedTypes;
+  dimensions?: number;
+  autoTruncate?: boolean;
+  thinking?: AxAIGoogleGeminiThinkingConfig;
+  thinkingTokenBudgetLevels?: AxAIGoogleGeminiThinkingTokenBudgetLevels;
+  urlContext?: string;
+};
 
 /**
  * AxAIGoogleGeminiEmbedRequest: Structure for making an embedding request to the Google Gemini API.
  */
 export type AxAIGoogleGeminiBatchEmbedRequest = {
   requests: {
-    model: string
+    model: string;
     content: {
-      parts: { text: string }[]
-    }
-  }[]
-}
+      parts: { text: string }[];
+    };
+  }[];
+};
 
 /**
  * AxAIGoogleGeminiEmbedResponse: Structure for handling responses from the Google Gemini API embedding requests.
  */
 export type AxAIGoogleGeminiBatchEmbedResponse = {
   embeddings: {
-    values: number[]
-  }[]
-}
+    values: number[];
+  }[];
+};
 
 /**
  * AxAIGoogleVertexBatchEmbedRequest: Structure for making an embedding request to the Google Vertex API.
  */
 export type AxAIGoogleVertexBatchEmbedRequest = {
   instances: {
-    content: string
-    task_type?: AxAIGoogleGeminiEmbedTypes
-  }[]
+    content: string;
+    task_type?: AxAIGoogleGeminiEmbedTypes;
+  }[];
   parameters: {
-    autoTruncate?: boolean
-    outputDimensionality?: number
-  }
-}
+    autoTruncate?: boolean;
+    outputDimensionality?: number;
+  };
+};
 
 /**
  * AxAIGoogleVertexBatchEmbedResponse: Structure for handling responses from the Google Vertex API embedding requests.
@@ -252,7 +252,7 @@ export type AxAIGoogleVertexBatchEmbedRequest = {
 export type AxAIGoogleVertexBatchEmbedResponse = {
   predictions: {
     embeddings: {
-      values: number[]
-    }
-  }[]
-}
+      values: number[];
+    };
+  }[];
+};

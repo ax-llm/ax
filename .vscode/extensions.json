@@ -1,8 +1,3 @@
 {
-  "recommendations": [
-    "dbaeumer.vscode-eslint",
-    "esbenp.prettier-vscode",
-    "eamodio.gitlens",
-    "streetsidesoftware.code-spell-checker",
-  ]
+  "recommendations": ["biomejs.biome", "streetsidesoftware.code-spell-checker"]
 }

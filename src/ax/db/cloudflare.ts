@@ -1,49 +1,49 @@
-import { apiCall } from '../util/apicall.js'
+import { apiCall } from '../util/apicall.js';
 
-import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js'
+import { AxDBBase, type AxDBBaseArgs, type AxDBBaseOpOptions } from './base.js';
 import type {
   AxDBQueryRequest,
   AxDBQueryResponse,
   AxDBUpsertRequest,
   AxDBUpsertResponse,
-} from './types.js'
+} from './types.js';
 
-const baseURL = 'https://api.cloudflare.com/client/v4/accounts/'
+const baseURL = 'https://api.cloudflare.com/client/v4/accounts/';
 
-export type AxDBCloudflareOpOptions = AxDBBaseOpOptions
+export type AxDBCloudflareOpOptions = AxDBBaseOpOptions;
 
 type AxCloudflareUpsertResponse = {
-  success: boolean
-  errors?: { message: string }[]
-  result: { ids: string[] }
-}
+  success: boolean;
+  errors?: { message: string }[];
+  result: { ids: string[] };
+};
 
 type AxCloudflareQueryResponse = {
-  success: boolean
-  errors?: { message: string }[]
+  success: boolean;
+  errors?: { message: string }[];
   result: {
     matches: {
-      id: string
-      score: number
-      values: number[]
-      metadata: object
-    }[]
-  }
-}
+      id: string;
+      score: number;
+      values: number[];
+      metadata: object;
+    }[];
+  };
+};
 
 export interface AxDBCloudflareArgs extends AxDBBaseArgs {
-  name: 'cloudflare'
-  apiKey: string
-  accountId: string
-  fetch?: typeof fetch
+  name: 'cloudflare';
+  apiKey: string;
+  accountId: string;
+  fetch?: typeof fetch;
 }
 
 /**
  * Cloudflare: DB Service
  */
 export class AxDBCloudflare extends AxDBBase {
-  private apiKey: string
-  private accountId: string
+  private apiKey: string;
+  private accountId: string;
 
   constructor({
     apiKey,
@@ -52,11 +52,11 @@ export class AxDBCloudflare extends AxDBBase {
     tracer,
   }: Readonly<Omit<AxDBCloudflareArgs, 'name'>>) {
     if (!apiKey || !accountId) {
-      throw new Error('Cloudflare credentials not set')
+      throw new Error('Cloudflare credentials not set');
     }
-    super({ name: 'Cloudflare', fetch, tracer })
-    this.apiKey = apiKey
-    this.accountId = accountId
+    super({ name: 'Cloudflare', fetch, tracer });
+    this.apiKey = apiKey;
+    this.accountId = accountId;
   }
 
   override _upsert = async (
@@ -82,18 +82,18 @@ export class AxDBCloudflare extends AxDBBase {
         namespace: req.namespace,
         metadata: req.metadata,
       }
-    )) as AxCloudflareUpsertResponse
+    )) as AxCloudflareUpsertResponse;
 
     if (res.errors) {
       throw new Error(
         `Cloudflare upsert failed: ${res.errors.map(({ message }) => message).join(', ')}`
-      )
+      );
     }
 
     return {
       ids: res.result.ids,
-    }
-  }
+    };
+  };
 
   override batchUpsert = async (
     batchReq: Readonly<AxDBUpsertRequest[]>,
@@ -101,15 +101,15 @@ export class AxDBCloudflare extends AxDBBase {
     options?: Readonly<AxDBCloudflareOpOptions>
   ): Promise<AxDBUpsertResponse> => {
     if (update) {
-      throw new Error('Weaviate does not support batch update')
+      throw new Error('Weaviate does not support batch update');
     }
     if (batchReq.length < 1) {
-      throw new Error('Batch request is empty')
+      throw new Error('Batch request is empty');
     }
     if (!batchReq[0] || !batchReq[0].table) {
-      throw new Error('Table name is empty')
+      throw new Error('Table name is empty');
     }
-    const table = batchReq[0].table
+    const table = batchReq[0].table;
 
     const res = (await apiCall(
       {
@@ -129,20 +129,20 @@ export class AxDBCloudflare extends AxDBBase {
         namespace: req.namespace,
         metadata: req.metadata,
       }))
-    )) as AxCloudflareUpsertResponse
+    )) as AxCloudflareUpsertResponse;
 
     if (res.errors) {
       throw new Error(
         `Cloudflare batch upsert failed: ${res.errors
           .map(({ message }) => message)
           .join(', ')}`
-      )
+      );
     }
 
     return {
       ids: res.result.ids,
-    }
-  }
+    };
+  };
 
   override query = async (
     req: Readonly<AxDBQueryRequest>,
@@ -165,12 +165,12 @@ export class AxDBCloudflare extends AxDBBase {
         topK: req.limit || 10,
         returnValues: true,
       }
-    )) as AxCloudflareQueryResponse
+    )) as AxCloudflareQueryResponse;
 
     if (res.errors) {
       throw new Error(
         `Cloudflare query failed: ${res.errors.map(({ message }) => message).join(', ')}`
-      )
+      );
     }
 
     const matches = res.result.matches.map(
@@ -180,7 +180,7 @@ export class AxDBCloudflare extends AxDBBase {
         values,
         metadata,
       })
-    )
-    return { matches } as AxDBQueryResponse
-  }
+    );
+    return { matches } as AxDBQueryResponse;
+  };
 }

@@ -1,6 +1,6 @@
-import { type Span, SpanKind, type Tracer } from '@opentelemetry/api'
+import { type Span, SpanKind, type Tracer } from '@opentelemetry/api';
 
-import { axSpanAttributes } from '../trace/trace.js'
+import { axSpanAttributes } from '../trace/trace.js';
 
 import type {
   AxDBQueryRequest,
@@ -8,47 +8,47 @@ import type {
   AxDBService,
   AxDBUpsertRequest,
   AxDBUpsertResponse,
-} from './types.js'
+} from './types.js';
 
 export interface AxDBBaseArgs {
-  fetch?: typeof fetch
-  tracer?: Tracer
+  fetch?: typeof fetch;
+  tracer?: Tracer;
 }
 
 export interface AxDBBaseOpOptions {
-  span?: Span
+  span?: Span;
 }
 
 export class AxDBBase implements AxDBService {
-  protected name: string
-  protected fetch?: typeof fetch
-  private tracer?: Tracer
+  protected name: string;
+  protected fetch?: typeof fetch;
+  private tracer?: Tracer;
 
   _upsert?: (
     req: Readonly<AxDBUpsertRequest>,
     update?: boolean,
     options?: Readonly<AxDBBaseOpOptions>
-  ) => Promise<AxDBUpsertResponse>
+  ) => Promise<AxDBUpsertResponse>;
 
   _batchUpsert?: (
     batchReq: Readonly<AxDBUpsertRequest[]>,
     update?: boolean,
     options?: Readonly<AxDBBaseOpOptions>
-  ) => Promise<AxDBUpsertResponse>
+  ) => Promise<AxDBUpsertResponse>;
 
   _query?: (
     req: Readonly<AxDBQueryRequest>,
     options?: Readonly<AxDBBaseOpOptions>
-  ) => Promise<AxDBQueryResponse>
+  ) => Promise<AxDBQueryResponse>;
 
   constructor({
     name,
     fetch,
     tracer,
   }: Readonly<AxDBBaseArgs & { name: string }>) {
-    this.name = name
-    this.fetch = fetch
-    this.tracer = tracer
+    this.name = name;
+    this.fetch = fetch;
+    this.tracer = tracer;
   }
 
   async upsert(
@@ -56,11 +56,11 @@ export class AxDBBase implements AxDBService {
     update?: boolean
   ): Promise<AxDBUpsertResponse> {
     if (!this._upsert) {
-      throw new Error('upsert() not implemented')
+      throw new Error('upsert() not implemented');
     }
 
     if (!this.tracer) {
-      return await this._upsert(req, update)
+      return await this._upsert(req, update);
     }
 
     return await this.tracer.startActiveSpan(
@@ -77,12 +77,12 @@ export class AxDBBase implements AxDBService {
       },
       async (span) => {
         try {
-          return await this._upsert!(req, update, { span })
+          return await this._upsert!(req, update, { span });
         } finally {
-          span.end()
+          span.end();
         }
       }
-    )
+    );
   }
 
   async batchUpsert(
@@ -90,17 +90,17 @@ export class AxDBBase implements AxDBService {
     update?: boolean
   ): Promise<AxDBUpsertResponse> {
     if (!this._batchUpsert) {
-      throw new Error('batchUpsert() not implemented')
+      throw new Error('batchUpsert() not implemented');
     }
-    if (req.length == 0) {
-      throw new Error('Batch request is empty')
+    if (req.length === 0) {
+      throw new Error('Batch request is empty');
     }
     if (!req[0]) {
-      throw new Error('Batch request is invalid first element is undefined')
+      throw new Error('Batch request is invalid first element is undefined');
     }
 
     if (!this.tracer) {
-      return await this._batchUpsert(req, update)
+      return await this._batchUpsert(req, update);
     }
 
     return await this.tracer.startActiveSpan(
@@ -117,20 +117,20 @@ export class AxDBBase implements AxDBService {
       },
       async (span) => {
         try {
-          return await this._batchUpsert!(req, update, { span })
+          return await this._batchUpsert!(req, update, { span });
         } finally {
-          span.end()
+          span.end();
         }
       }
-    )
+    );
   }
 
   async query(req: Readonly<AxDBQueryRequest>): Promise<AxDBQueryResponse> {
     if (!this._query) {
-      throw new Error('query() not implemented')
+      throw new Error('query() not implemented');
     }
     if (!this.tracer) {
-      return await this._query(req)
+      return await this._query(req);
     }
 
     return await this.tracer.startActiveSpan(
@@ -147,11 +147,11 @@ export class AxDBBase implements AxDBService {
       },
       async (span) => {
         try {
-          return await this._query!(req, { span })
+          return await this._query!(req, { span });
         } finally {
-          span.end()
+          span.end();
         }
       }
-    )
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
 import {
   type AxAIOpenAIArgs,
   AxAIOpenAIBase,
@@ -5,37 +6,35 @@ import {
   axAIOpenAICreativeConfig,
   axAIOpenAIDefaultConfig,
   axAIOpenAIFastConfig,
-} from '../openai/api.js'
+} from '../openai/api.js';
 import type {
   AxAIOpenAIConfig,
   AxAIOpenAIEmbedModel,
   AxAIOpenAIModel,
-} from '../openai/chat_types.js'
-import { axModelInfoOpenAI } from '../openai/info.js'
+} from '../openai/chat_types.js';
+import { axModelInfoOpenAI } from '../openai/info.js';
 
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+export const axAIAzureOpenAIDefaultConfig = axAIOpenAIDefaultConfig;
 
-export const axAIAzureOpenAIDefaultConfig = axAIOpenAIDefaultConfig
+export const axAIAzureOpenAICreativeConfig = axAIOpenAICreativeConfig;
 
-export const axAIAzureOpenAICreativeConfig = axAIOpenAICreativeConfig
+export const axAIAzureOpenAIFastConfig = axAIOpenAIFastConfig;
 
-export const axAIAzureOpenAIFastConfig = axAIOpenAIFastConfig
-
-export const axAIAzureOpenAIBestConfig = axAIOpenAIBestConfig
+export const axAIAzureOpenAIBestConfig = axAIOpenAIBestConfig;
 
 export type AxAIAzureOpenAIConfig = AxAIOpenAIConfig<
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel
->
+>;
 export type AxAIAzureOpenAIArgs = AxAIOpenAIArgs<
   'azure-openai',
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel
 > & {
-  resourceName: string
-  deploymentName: string
-  version?: string
-}
+  resourceName: string;
+  deploymentName: string;
+  version?: string;
+};
 
 export class AxAIAzureOpenAI extends AxAIOpenAIBase<
   AxAIOpenAIModel,
@@ -52,58 +51,58 @@ export class AxAIAzureOpenAI extends AxAIOpenAIBase<
     modelInfo,
   }: Readonly<Omit<AxAIAzureOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('Azure OpenAPI API key not set')
+      throw new Error('Azure OpenAPI API key not set');
     }
     if (!resourceName || resourceName === '') {
-      throw new Error('Azure OpenAPI resource name not set')
+      throw new Error('Azure OpenAPI resource name not set');
     }
     if (!deploymentName || deploymentName === '') {
-      throw new Error('Azure OpenAPI deployment id not set')
+      throw new Error('Azure OpenAPI deployment id not set');
     }
 
-    const _config = {
+    const Config = {
       ...axAIAzureOpenAIDefaultConfig(),
       ...config,
-    }
+    };
 
-    modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])]
+    modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIOpenAIModel) => {
       const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel>({
         model,
         modelInfo,
         models,
-      })
+      });
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
-      }
-    }
+      };
+    };
 
     super({
       apiKey,
-      config: _config,
+      config: Config,
       options,
       models,
       modelInfo,
       supportFor,
-    })
+    });
 
     const host = resourceName.includes('://')
       ? resourceName
-      : `https://${resourceName}.openai.azure.com/`
+      : `https://${resourceName}.openai.azure.com/`;
 
-    super.setName('Azure OpenAI')
+    super.setName('Azure OpenAI');
 
     super.setAPIURL(
       new URL(
         `/openai/deployments/${deploymentName}?api-version=${version}`,
         host
       ).href
-    )
+    );
 
-    super.setHeaders(async () => ({ 'api-key': apiKey }))
+    super.setHeaders(async () => ({ 'api-key': apiKey }));
   }
 }

@@ -1,19 +1,19 @@
-import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api'
+import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
-import { axGlobals } from './globals.js'
+import { axGlobals } from './globals.js';
 
 // Metrics configuration interface
 export interface AxMetricsConfig {
-  enabled: boolean
+  enabled: boolean;
   enabledCategories: (
     | 'generation'
     | 'streaming'
     | 'functions'
     | 'errors'
     | 'performance'
-  )[]
-  maxLabelLength: number
-  samplingRate: number
+  )[];
+  maxLabelLength: number;
+  samplingRate: number;
 }
 
 // Default metrics configuration
@@ -28,7 +28,7 @@ export const axDefaultMetricsConfig: AxMetricsConfig = {
   ],
   maxLabelLength: 100,
   samplingRate: 1.0,
-}
+};
 
 // Standardized error categories for consistent error classification
 export type AxErrorCategory =
@@ -41,65 +41,65 @@ export type AxErrorCategory =
   | 'rate_limit_error'
   | 'function_error'
   | 'parsing_error'
-  | 'unknown_error'
+  | 'unknown_error';
 
 export interface AxGenMetricsInstruments {
   // Generation flow metrics
-  generationLatencyHistogram?: Histogram
-  generationRequestsCounter?: Counter
-  generationErrorsCounter?: Counter
+  generationLatencyHistogram?: Histogram;
+  generationRequestsCounter?: Counter;
+  generationErrorsCounter?: Counter;
 
   // Multi-step flow metrics
-  multiStepGenerationsCounter?: Counter
-  stepsPerGenerationHistogram?: Histogram
-  maxStepsReachedCounter?: Counter
+  multiStepGenerationsCounter?: Counter;
+  stepsPerGenerationHistogram?: Histogram;
+  maxStepsReachedCounter?: Counter;
 
   // Error correction metrics
-  validationErrorsCounter?: Counter
-  assertionErrorsCounter?: Counter
-  errorCorrectionAttemptsHistogram?: Histogram
-  errorCorrectionSuccessCounter?: Counter
-  errorCorrectionFailureCounter?: Counter
-  maxRetriesReachedCounter?: Counter
+  validationErrorsCounter?: Counter;
+  assertionErrorsCounter?: Counter;
+  errorCorrectionAttemptsHistogram?: Histogram;
+  errorCorrectionSuccessCounter?: Counter;
+  errorCorrectionFailureCounter?: Counter;
+  maxRetriesReachedCounter?: Counter;
 
   // Function calling metrics
-  functionsEnabledGenerationsCounter?: Counter
-  functionCallStepsCounter?: Counter
-  functionsExecutedPerGenerationHistogram?: Histogram
-  functionErrorCorrectionCounter?: Counter
+  functionsEnabledGenerationsCounter?: Counter;
+  functionCallStepsCounter?: Counter;
+  functionsExecutedPerGenerationHistogram?: Histogram;
+  functionErrorCorrectionCounter?: Counter;
 
   // Field processing metrics
-  fieldProcessorsExecutedCounter?: Counter
-  streamingFieldProcessorsExecutedCounter?: Counter
+  fieldProcessorsExecutedCounter?: Counter;
+  streamingFieldProcessorsExecutedCounter?: Counter;
 
   // Streaming specific metrics
-  streamingGenerationsCounter?: Counter
-  streamingDeltasEmittedCounter?: Counter
-  streamingFinalizationLatencyHistogram?: Histogram
+  streamingGenerationsCounter?: Counter;
+  streamingDeltasEmittedCounter?: Counter;
+  streamingFinalizationLatencyHistogram?: Histogram;
 
   // Memory and samples metrics
-  samplesGeneratedHistogram?: Histogram
-  resultPickerUsageCounter?: Counter
-  resultPickerLatencyHistogram?: Histogram
+  samplesGeneratedHistogram?: Histogram;
+  resultPickerUsageCounter?: Counter;
+  resultPickerLatencyHistogram?: Histogram;
 
   // Signature complexity metrics
-  inputFieldsGauge?: Gauge
-  outputFieldsGauge?: Gauge
-  examplesUsedGauge?: Gauge
-  demosUsedGauge?: Gauge
+  inputFieldsGauge?: Gauge;
+  outputFieldsGauge?: Gauge;
+  examplesUsedGauge?: Gauge;
+  demosUsedGauge?: Gauge;
 
   // Performance metrics
-  promptRenderLatencyHistogram?: Histogram
-  extractionLatencyHistogram?: Histogram
-  assertionLatencyHistogram?: Histogram
+  promptRenderLatencyHistogram?: Histogram;
+  extractionLatencyHistogram?: Histogram;
+  assertionLatencyHistogram?: Histogram;
 
   // State management
-  stateCreationLatencyHistogram?: Histogram
-  memoryUpdateLatencyHistogram?: Histogram
+  stateCreationLatencyHistogram?: Histogram;
+  memoryUpdateLatencyHistogram?: Histogram;
 }
 
 // Singleton instance for metrics instruments
-let globalGenMetricsInstruments: AxGenMetricsInstruments | undefined
+let globalGenMetricsInstruments: AxGenMetricsInstruments | undefined;
 
 // Function to get or create metrics instruments (singleton pattern)
 export const getOrCreateGenMetricsInstruments = (
@@ -107,44 +107,44 @@ export const getOrCreateGenMetricsInstruments = (
 ): AxGenMetricsInstruments | undefined => {
   // Return existing instance if available
   if (globalGenMetricsInstruments) {
-    return globalGenMetricsInstruments
+    return globalGenMetricsInstruments;
   }
 
   // Try to use provided meter or fall back to global
-  const activeMeter = meter ?? axGlobals.meter
+  const activeMeter = meter ?? axGlobals.meter;
   if (activeMeter) {
-    globalGenMetricsInstruments = createGenMetricsInstruments(activeMeter)
-    return globalGenMetricsInstruments
+    globalGenMetricsInstruments = createGenMetricsInstruments(activeMeter);
+    return globalGenMetricsInstruments;
   }
 
-  return undefined
-}
+  return undefined;
+};
 
 // Function to reset the singleton (useful for testing)
 export const resetGenMetricsInstruments = (): void => {
-  globalGenMetricsInstruments = undefined
-}
+  globalGenMetricsInstruments = undefined;
+};
 
 // Health check for metrics system
 export const axCheckMetricsHealth = (): {
-  healthy: boolean
-  issues: string[]
+  healthy: boolean;
+  issues: string[];
 } => {
-  const issues: string[] = []
+  const issues: string[] = [];
 
   if (!axGlobals.meter) {
-    issues.push('Global meter not initialized')
+    issues.push('Global meter not initialized');
   }
 
   if (!globalGenMetricsInstruments && axGlobals.meter) {
-    issues.push('Metrics instruments not created despite available meter')
+    issues.push('Metrics instruments not created despite available meter');
   }
 
   return {
     healthy: issues.length === 0,
     issues,
-  }
-}
+  };
+};
 
 export const createGenMetricsInstruments = (
   meter: Meter
@@ -388,42 +388,42 @@ export const createGenMetricsInstruments = (
         unit: 'ms',
       }
     ),
-  }
-}
+  };
+};
 
 // Global metrics configuration
-let currentMetricsConfig: AxMetricsConfig = axDefaultMetricsConfig
+let currentMetricsConfig: AxMetricsConfig = axDefaultMetricsConfig;
 
 // Function to update metrics configuration
 export const axUpdateMetricsConfig = (
   config: Readonly<Partial<AxMetricsConfig>>
 ): void => {
-  currentMetricsConfig = { ...currentMetricsConfig, ...config }
-}
+  currentMetricsConfig = { ...currentMetricsConfig, ...config };
+};
 
 // Function to get current metrics configuration
 export const axGetMetricsConfig = (): AxMetricsConfig => {
-  return { ...currentMetricsConfig }
-}
+  return { ...currentMetricsConfig };
+};
 
 // Utility function to sanitize metric labels
 const sanitizeLabels = (
   labels: Record<string, unknown>
 ): Record<string, string> => {
-  const sanitized: Record<string, string> = {}
+  const sanitized: Record<string, string> = {};
   for (const [key, value] of Object.entries(labels)) {
     if (value !== undefined && value !== null) {
-      const stringValue = String(value)
+      const stringValue = String(value);
       // Limit label length based on configuration
-      const maxLength = currentMetricsConfig.maxLabelLength
+      const maxLength = currentMetricsConfig.maxLabelLength;
       sanitized[key] =
         stringValue.length > maxLength
           ? stringValue.substring(0, maxLength)
-          : stringValue
+          : stringValue;
     }
   }
-  return sanitized
-}
+  return sanitized;
+};
 
 // Recording functions for generation flow metrics
 export const recordGenerationMetric = (
@@ -440,24 +440,24 @@ export const recordGenerationMetric = (
       ...(signatureName ? { signature: signatureName } : {}),
       ...(aiService ? { ai_service: aiService } : {}),
       ...(model ? { model } : {}),
-    })
+    });
 
     if (instruments.generationLatencyHistogram) {
-      instruments.generationLatencyHistogram.record(duration, labels)
+      instruments.generationLatencyHistogram.record(duration, labels);
     }
 
     if (instruments.generationRequestsCounter) {
-      instruments.generationRequestsCounter.add(1, labels)
+      instruments.generationRequestsCounter.add(1, labels);
     }
 
     if (!success && instruments.generationErrorsCounter) {
-      instruments.generationErrorsCounter.add(1, labels)
+      instruments.generationErrorsCounter.add(1, labels);
     }
   } catch (error) {
     // Log error but don't propagate to avoid breaking the main flow
-    console.warn('Failed to record generation metric:', error)
+    console.warn('Failed to record generation metric:', error);
   }
-}
+};
 
 // Recording functions for multi-step metrics
 export const recordMultiStepMetric = (
@@ -469,23 +469,23 @@ export const recordMultiStepMetric = (
   try {
     const labels = sanitizeLabels({
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (stepsUsed > 1 && instruments.multiStepGenerationsCounter) {
-      instruments.multiStepGenerationsCounter.add(1, labels)
+      instruments.multiStepGenerationsCounter.add(1, labels);
     }
 
     if (instruments.stepsPerGenerationHistogram) {
-      instruments.stepsPerGenerationHistogram.record(stepsUsed, labels)
+      instruments.stepsPerGenerationHistogram.record(stepsUsed, labels);
     }
 
     if (stepsUsed >= maxSteps && instruments.maxStepsReachedCounter) {
-      instruments.maxStepsReachedCounter.add(1, labels)
+      instruments.maxStepsReachedCounter.add(1, labels);
     }
   } catch (error) {
-    console.warn('Failed to record multi-step metric:', error)
+    console.warn('Failed to record multi-step metric:', error);
   }
-}
+};
 
 // Recording functions for error correction metrics
 export const recordValidationErrorMetric = (
@@ -497,19 +497,19 @@ export const recordValidationErrorMetric = (
     const labels = sanitizeLabels({
       error_type: errorType,
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (errorType === 'validation' && instruments.validationErrorsCounter) {
-      instruments.validationErrorsCounter.add(1, labels)
+      instruments.validationErrorsCounter.add(1, labels);
     }
 
     if (errorType === 'assertion' && instruments.assertionErrorsCounter) {
-      instruments.assertionErrorsCounter.add(1, labels)
+      instruments.assertionErrorsCounter.add(1, labels);
     }
   } catch (error) {
-    console.warn('Failed to record validation error metric:', error)
+    console.warn('Failed to record validation error metric:', error);
   }
-}
+};
 
 export const recordErrorCorrectionMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
@@ -522,28 +522,28 @@ export const recordErrorCorrectionMetric = (
     const labels = sanitizeLabels({
       success: success.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (instruments.errorCorrectionAttemptsHistogram) {
-      instruments.errorCorrectionAttemptsHistogram.record(attempts, labels)
+      instruments.errorCorrectionAttemptsHistogram.record(attempts, labels);
     }
 
     if (success && instruments.errorCorrectionSuccessCounter) {
-      instruments.errorCorrectionSuccessCounter.add(1, labels)
+      instruments.errorCorrectionSuccessCounter.add(1, labels);
     }
 
     if (!success) {
       if (instruments.errorCorrectionFailureCounter) {
-        instruments.errorCorrectionFailureCounter.add(1, labels)
+        instruments.errorCorrectionFailureCounter.add(1, labels);
       }
       if (attempts >= maxRetries && instruments.maxRetriesReachedCounter) {
-        instruments.maxRetriesReachedCounter.add(1, labels)
+        instruments.maxRetriesReachedCounter.add(1, labels);
       }
     }
   } catch (error) {
-    console.warn('Failed to record error correction metric:', error)
+    console.warn('Failed to record error correction metric:', error);
   }
-}
+};
 
 // Recording functions for function calling metrics
 export const recordFunctionCallingMetric = (
@@ -551,7 +551,7 @@ export const recordFunctionCallingMetric = (
   functionsEnabled: boolean,
   functionsExecuted: number,
   hadFunctionCalls: boolean,
-  functionErrorCorrection: boolean = false,
+  functionErrorCorrection = false,
   signatureName?: string
 ): void => {
   try {
@@ -559,14 +559,14 @@ export const recordFunctionCallingMetric = (
       functions_enabled: functionsEnabled.toString(),
       had_function_calls: hadFunctionCalls.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (functionsEnabled && instruments.functionsEnabledGenerationsCounter) {
-      instruments.functionsEnabledGenerationsCounter.add(1, labels)
+      instruments.functionsEnabledGenerationsCounter.add(1, labels);
     }
 
     if (hadFunctionCalls && instruments.functionCallStepsCounter) {
-      instruments.functionCallStepsCounter.add(1, labels)
+      instruments.functionCallStepsCounter.add(1, labels);
     }
 
     if (
@@ -576,16 +576,16 @@ export const recordFunctionCallingMetric = (
       instruments.functionsExecutedPerGenerationHistogram.record(
         functionsExecuted,
         labels
-      )
+      );
     }
 
     if (functionErrorCorrection && instruments.functionErrorCorrectionCounter) {
-      instruments.functionErrorCorrectionCounter.add(1, labels)
+      instruments.functionErrorCorrectionCounter.add(1, labels);
     }
   } catch (error) {
-    console.warn('Failed to record function calling metric:', error)
+    console.warn('Failed to record function calling metric:', error);
   }
-}
+};
 
 // Recording functions for field processing metrics
 export const recordFieldProcessingMetric = (
@@ -597,7 +597,7 @@ export const recordFieldProcessingMetric = (
   try {
     const labels = sanitizeLabels({
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (
       fieldProcessorsExecuted > 0 &&
@@ -606,7 +606,7 @@ export const recordFieldProcessingMetric = (
       instruments.fieldProcessorsExecutedCounter.add(
         fieldProcessorsExecuted,
         labels
-      )
+      );
     }
 
     if (
@@ -616,12 +616,12 @@ export const recordFieldProcessingMetric = (
       instruments.streamingFieldProcessorsExecutedCounter.add(
         streamingFieldProcessorsExecuted,
         labels
-      )
+      );
     }
   } catch (error) {
-    console.warn('Failed to record field processing metric:', error)
+    console.warn('Failed to record field processing metric:', error);
   }
-}
+};
 
 // Recording functions for streaming metrics
 export const recordStreamingMetric = (
@@ -635,14 +635,14 @@ export const recordStreamingMetric = (
     const labels = sanitizeLabels({
       is_streaming: isStreaming.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (isStreaming && instruments.streamingGenerationsCounter) {
-      instruments.streamingGenerationsCounter.add(1, labels)
+      instruments.streamingGenerationsCounter.add(1, labels);
     }
 
     if (deltasEmitted > 0 && instruments.streamingDeltasEmittedCounter) {
-      instruments.streamingDeltasEmittedCounter.add(deltasEmitted, labels)
+      instruments.streamingDeltasEmittedCounter.add(deltasEmitted, labels);
     }
 
     if (
@@ -652,12 +652,12 @@ export const recordStreamingMetric = (
       instruments.streamingFinalizationLatencyHistogram.record(
         finalizationDuration,
         labels
-      )
+      );
     }
   } catch (error) {
-    console.warn('Failed to record streaming metric:', error)
+    console.warn('Failed to record streaming metric:', error);
   }
-}
+};
 
 // Recording functions for samples metrics
 export const recordSamplesMetric = (
@@ -671,26 +671,26 @@ export const recordSamplesMetric = (
     const labels = sanitizeLabels({
       result_picker_used: resultPickerUsed.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (instruments.samplesGeneratedHistogram) {
-      instruments.samplesGeneratedHistogram.record(samplesCount, labels)
+      instruments.samplesGeneratedHistogram.record(samplesCount, labels);
     }
 
     if (resultPickerUsed && instruments.resultPickerUsageCounter) {
-      instruments.resultPickerUsageCounter.add(1, labels)
+      instruments.resultPickerUsageCounter.add(1, labels);
     }
 
     if (resultPickerLatency && instruments.resultPickerLatencyHistogram) {
       instruments.resultPickerLatencyHistogram.record(
         resultPickerLatency,
         labels
-      )
+      );
     }
   } catch (error) {
-    console.warn('Failed to record samples metric:', error)
+    console.warn('Failed to record samples metric:', error);
   }
-}
+};
 
 // Recording functions for signature complexity metrics
 export const recordSignatureComplexityMetrics = (
@@ -704,27 +704,27 @@ export const recordSignatureComplexityMetrics = (
   try {
     const labels = sanitizeLabels({
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     if (instruments.inputFieldsGauge) {
-      instruments.inputFieldsGauge.record(inputFields, labels)
+      instruments.inputFieldsGauge.record(inputFields, labels);
     }
 
     if (instruments.outputFieldsGauge) {
-      instruments.outputFieldsGauge.record(outputFields, labels)
+      instruments.outputFieldsGauge.record(outputFields, labels);
     }
 
     if (instruments.examplesUsedGauge) {
-      instruments.examplesUsedGauge.record(examplesCount, labels)
+      instruments.examplesUsedGauge.record(examplesCount, labels);
     }
 
     if (instruments.demosUsedGauge) {
-      instruments.demosUsedGauge.record(demosCount, labels)
+      instruments.demosUsedGauge.record(demosCount, labels);
     }
   } catch (error) {
-    console.warn('Failed to record signature complexity metrics:', error)
+    console.warn('Failed to record signature complexity metrics:', error);
   }
-}
+};
 
 // Recording functions for performance metrics
 export const recordPerformanceMetric = (
@@ -742,36 +742,36 @@ export const recordPerformanceMetric = (
     const labels = sanitizeLabels({
       metric_type: metricType,
       ...(signatureName ? { signature: signatureName } : {}),
-    })
+    });
 
     switch (metricType) {
       case 'prompt_render':
         if (instruments.promptRenderLatencyHistogram) {
-          instruments.promptRenderLatencyHistogram.record(duration, labels)
+          instruments.promptRenderLatencyHistogram.record(duration, labels);
         }
-        break
+        break;
       case 'extraction':
         if (instruments.extractionLatencyHistogram) {
-          instruments.extractionLatencyHistogram.record(duration, labels)
+          instruments.extractionLatencyHistogram.record(duration, labels);
         }
-        break
+        break;
       case 'assertion':
         if (instruments.assertionLatencyHistogram) {
-          instruments.assertionLatencyHistogram.record(duration, labels)
+          instruments.assertionLatencyHistogram.record(duration, labels);
         }
-        break
+        break;
       case 'state_creation':
         if (instruments.stateCreationLatencyHistogram) {
-          instruments.stateCreationLatencyHistogram.record(duration, labels)
+          instruments.stateCreationLatencyHistogram.record(duration, labels);
         }
-        break
+        break;
       case 'memory_update':
         if (instruments.memoryUpdateLatencyHistogram) {
-          instruments.memoryUpdateLatencyHistogram.record(duration, labels)
+          instruments.memoryUpdateLatencyHistogram.record(duration, labels);
         }
-        break
+        break;
     }
   } catch (error) {
-    console.warn('Failed to record performance metric:', error)
+    console.warn('Failed to record performance metric:', error);
   }
-}
+};

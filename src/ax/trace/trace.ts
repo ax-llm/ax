@@ -40,7 +40,7 @@ export const axSpanAttributes = {
   DB_QUERY_RESULT_METADATA: 'db.query.result.metadata',
   DB_QUERY_RESULT_VECTOR: 'db.query.result.vector',
   DB_QUERY_RESULT_DOCUMENT: 'db.query.result.document',
-}
+};
 
 export const axSpanEvents = {
   GEN_AI_USER_MESSAGE: 'gen_ai.user.message',
@@ -49,7 +49,7 @@ export const axSpanEvents = {
   GEN_AI_TOOL_MESSAGE: 'gen_ai.tool.message', // For tool messages in request & response tool calls
   GEN_AI_CHOICE: 'gen_ai.choice',
   GEN_AI_USAGE: 'gen_ai.usage',
-}
+};
 
 export enum AxLLMRequestTypeValues {
   COMPLETION = 'completion',
