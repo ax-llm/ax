@@ -1,6 +1,7 @@
 import {
   logChatRequest,
   logChatRequestMessage,
+  logFunctionResults,
   logResponseDelta,
   logResponseResult,
 } from '../ai/debug.js'
@@ -53,6 +54,10 @@ export class MemoryImpl {
       lastItem.chat.push(...chat)
     } else {
       this.data.push({ role: 'function', chat })
+    }
+
+    if (this.options?.debug) {
+      debugFunctionResults(results)
     }
   }
 
@@ -309,4 +314,8 @@ function debugResponse(
 
 function debugResponseDelta(delta: string) {
   logResponseDelta(delta)
+}
+
+function debugFunctionResults(results: Readonly<AxFunctionResult[]>) {
+  logFunctionResults(results)
 }

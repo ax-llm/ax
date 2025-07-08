@@ -523,6 +523,42 @@ class AxAIGoogleGeminiImpl
               undefined, // model not available in candidate
               undefined // requestId not available
             )
+          case 'UNEXPECTED_TOOL_CALL':
+            throw new AxAIRefusalError(
+              'Unexpected tool call',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
+          case 'FINISH_REASON_UNSPECIFIED':
+            throw new AxAIRefusalError(
+              'Finish reason unspecified',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
+          case 'BLOCKLIST':
+            throw new AxAIRefusalError(
+              'Content was blocked due to blocklist',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
+          case 'PROHIBITED_CONTENT':
+            throw new AxAIRefusalError(
+              'Content was blocked due to prohibited content',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
+          case 'SPII':
+            throw new AxAIRefusalError(
+              'Content was blocked due to SPII',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
+          case 'OTHER':
+            throw new AxAIRefusalError(
+              'Other finish reason',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            )
         }
 
         if (!candidate.content || !candidate.content.parts) {

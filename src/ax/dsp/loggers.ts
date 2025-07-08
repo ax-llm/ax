@@ -16,50 +16,55 @@ export const axCreateDefaultLogger = (
     const tags = options?.tags ?? []
     let formattedMessage = message
 
-    // Apply styling based on semantic tags
-    if (tags.includes('error')) {
-      formattedMessage = colorLog.red(formattedMessage)
+    // Step 1: Pick color function based on semantic tags
+    let colorFunction: (text: string) => string = (text) => text // default no color
+
+    if (tags.includes('warning') || tags.includes('discovery')) {
+      colorFunction = (text) => colorLog.yellow(text)
+    } else if (tags.includes('error')) {
+      colorFunction = (text) => colorLog.red(text)
     } else if (tags.includes('success') || tags.includes('responseContent')) {
-      formattedMessage = colorLog.greenBright(formattedMessage)
-    } else if (tags.includes('functionName')) {
-      if (tags.includes('firstFunction')) {
-        formattedMessage = `\n${colorLog.whiteBright(formattedMessage)}`
-      } else {
-        formattedMessage = `${colorLog.whiteBright(formattedMessage)}`
-      }
+      colorFunction = (text) => colorLog.greenBright(text)
     } else if (
       tags.includes('systemContent') ||
       tags.includes('assistantContent')
     ) {
-      formattedMessage = colorLog.blueBright(formattedMessage)
-    } else if (tags.includes('warning') || tags.includes('discovery')) {
-      formattedMessage = colorLog.yellow(formattedMessage)
+      colorFunction = (text) => colorLog.blueBright(text)
+    } else if (tags.includes('functionName')) {
+      colorFunction = (text) => colorLog.whiteBright(text)
     } else if (tags.includes('functionArg')) {
-      formattedMessage = ''
+      colorFunction = (text) => colorLog.blueBright(text)
+    } else if (tags.includes('functionResult')) {
+      colorFunction = (text) => colorLog.yellow(text)
     }
 
-    // Apply semantic spacing
+    // Step 2: Add prefix based on tag type
     if (
       tags.includes('responseStart') ||
       tags.includes('systemStart') ||
-      tags.includes('userStart')
+      tags.includes('userStart') ||
+      tags.includes('assistantStart') ||
+      tags.includes('error') ||
+      tags.includes('functionName') ||
+      tags.includes('functionArg')
     ) {
       formattedMessage = `\n${formattedMessage}`
-    } else if (
-      tags.includes('responseEnd') ||
-      tags.includes('systemEnd') ||
-      tags.includes('userEnd')
-    ) {
-      formattedMessage = `${formattedMessage}\n`
-    } else if (tags.includes('assistantStart')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('error')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('functionEnd')) {
-      formattedMessage = `\n`
     }
 
-    output(formattedMessage)
+    // Step 3: Add postfix based on tag type
+    if (
+      tags.includes('responseEnd') ||
+      tags.includes('systemEnd') ||
+      tags.includes('userEnd') ||
+      tags.includes('assistantStart') ||
+      tags.includes('error') ||
+      tags.includes('functionEnd')
+    ) {
+      formattedMessage = `${formattedMessage}\n`
+    }
+
+    // Step 4: Apply color function and output
+    output(colorFunction(formattedMessage))
   }
 }
 
@@ -71,27 +76,34 @@ export const axCreateDefaultTextLogger = (
     const tags = options?.tags ?? []
     let formattedMessage = message
 
-    // Apply semantic spacing only (no colors)
+    // Step 1: No color function needed for text logger
+
+    // Step 2: Add prefix based on tag type
     if (
       tags.includes('responseStart') ||
       tags.includes('systemStart') ||
-      tags.includes('userStart')
+      tags.includes('userStart') ||
+      tags.includes('assistantStart') ||
+      tags.includes('error') ||
+      tags.includes('functionName') ||
+      tags.includes('functionArg')
     ) {
       formattedMessage = `\n${formattedMessage}`
-    } else if (
+    }
+
+    // Step 3: Add postfix based on tag type
+    if (
       tags.includes('responseEnd') ||
       tags.includes('systemEnd') ||
-      tags.includes('userEnd')
+      tags.includes('userEnd') ||
+      tags.includes('assistantStart') ||
+      tags.includes('error') ||
+      tags.includes('functionEnd')
     ) {
-      formattedMessage = `${formattedMessage}\n`
-    } else if (tags.includes('assistantStart')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('error')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('functionEnd')) {
       formattedMessage = `${formattedMessage}\n`
     }
 
+    // Step 4: Output without color
     output(formattedMessage)
   }
 }

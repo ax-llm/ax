@@ -152,7 +152,12 @@ export type AxAIGoogleGeminiChatResponse = {
       | 'SAFETY'
       | 'RECITATION'
       | 'OTHER'
+      | 'BLOCKLIST'
+      | 'PROHIBITED_CONTENT'
+      | 'SPII'
       | 'MALFORMED_FUNCTION_CALL'
+      | 'UNEXPECTED_TOOL_CALL'
+      | 'FINISH_REASON_UNSPECIFIED'
     citationMetadata: {
       citations: {
         startIndex: number

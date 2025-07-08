@@ -58,6 +58,7 @@ const ai = new AxAI({
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
     model: AxAIGoogleGeminiModel.Gemini25Flash,
+    stream: true,
   },
   options: {
     debug: true,

@@ -128,7 +128,7 @@ const ai = new AxAI({
 // const ai = new AxAI({
 //     name: 'google-gemini',
 //     apiKey: process.env.GOOGLE_APIKEY as string,
-//     config: { stream: true },
+//     config: { stream: false },
 // })
 
 // const ai = new AxAI({

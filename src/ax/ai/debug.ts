@@ -108,9 +108,16 @@ export const logResponseResult = (
     logger(r.content, { tags: ['responseContent'] })
   }
 
+  const loggedFunctionCalls = new Set<string>()
+
   if (r.functionCalls && r.functionCalls.length > 0) {
     for (const [i, f] of r.functionCalls.entries()) {
-      if (f.function.name) {
+      if (f.id) {
+        if (loggedFunctionCalls.has(f.id)) {
+          continue
+        }
+        loggedFunctionCalls.add(f.id)
+
         const tags: AxLoggerTag[] = ['functionName']
         if (i === 0) {
           tags.push('firstFunction')
@@ -118,8 +125,9 @@ export const logResponseResult = (
         if (r.functionCalls.length > 1) {
           tags.push('multipleFunctions')
         }
-        logger(`[${i + 1}] ${f.function.name}`, { tags })
+        logger(`[${i + 1}] ${f.function.name}[${f.id}]`, { tags })
       }
+
       if (f.function.params) {
         const params =
           typeof f.function.params === 'string'
@@ -149,5 +157,25 @@ export const logResponseDelta = (
   delta: string,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  logger(delta, { tags: ['responseContent'] })
+  logger(delta, { tags: ['responseContent', 'responseDelta'] })
+}
+
+export const logFunctionResults = (
+  results: Readonly<
+    { result: string; functionId: string; isError?: boolean; index: number }[]
+  >,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  for (const result of results) {
+    logger(`Function Result [${result.functionId}]:`, {
+      tags: ['functionName'],
+    })
+
+    if (result.isError) {
+      logger(result.result, { tags: ['functionResult', 'error'] })
+    } else {
+      logger(result.result, { tags: ['functionResult'] })
+    }
+  }
+  logger('', { tags: ['functionEnd'] })
 }
