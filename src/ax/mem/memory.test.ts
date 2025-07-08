@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   AxChatRequest,
@@ -958,7 +958,7 @@ describe('AxMemory', () => {
 
 describe('MemoryImpl Debug Logging', () => {
   it('should handle debug logging when debug option is true', () => {
-    const memory = new MemoryImpl({ debug: true });
+    const memory = new MemoryImpl({ debug: true, logger: () => {} });
     const message: AxChatRequest['chatPrompt'][0] = {
       role: 'user',
       content: 'test message',
@@ -975,7 +975,7 @@ describe('MemoryImpl Debug Logging', () => {
   });
 
   it('should handle debug logging for updateResult with delta vs content paths', () => {
-    const memory = new MemoryImpl({ debug: true });
+    const memory = new MemoryImpl({ debug: true, logger: () => {} });
 
     // Test delta path
     expect(() =>

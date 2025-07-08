@@ -9,6 +9,7 @@ import type {
   AxChatRequest,
   AxChatResponseResult,
   AxFunctionResult,
+  AxLoggerFunction,
 } from '../ai/types.js';
 import {
   axValidateChatRequestMessage,
@@ -24,6 +25,7 @@ export class MemoryImpl {
     private options?: {
       debug?: boolean;
       debugHideSystemPrompt?: boolean;
+      logger?: AxLoggerFunction;
     }
   ) {}
 
@@ -39,7 +41,11 @@ export class MemoryImpl {
     );
 
     if (this.options?.debug) {
-      debugRequest(items, this.options?.debugHideSystemPrompt);
+      debugRequest(
+        items,
+        this.options?.debugHideSystemPrompt,
+        this.options?.logger
+      );
     }
   }
 
@@ -57,7 +63,7 @@ export class MemoryImpl {
     }
 
     if (this.options?.debug) {
-      debugFunctionResults(results);
+      debugFunctionResults(results, this.options?.logger);
     }
   }
 
@@ -71,7 +77,7 @@ export class MemoryImpl {
 
     if (this.options?.debug) {
       for (const result of results) {
-        debugResponse(result);
+        debugResponse(result, this.options?.logger);
       }
     }
   }
@@ -85,12 +91,12 @@ export class MemoryImpl {
   }: Readonly<AxChatResponseResult & { delta?: string; index: number }>): void {
     const lastItem = this.data.at(-1);
 
-    const log = () => {
+    const log = (logger?: AxLoggerFunction) => {
       if (this.options?.debug) {
         if (delta && typeof delta === 'string') {
-          debugResponseDelta(delta);
+          debugResponseDelta(delta, logger);
         } else {
-          debugResponse({ content, name, functionCalls, index });
+          debugResponse({ content, name, functionCalls, index }, logger);
         }
       }
     };
@@ -107,7 +113,7 @@ export class MemoryImpl {
           { index, value: structuredClone({ content, name, functionCalls }) },
         ],
       });
-      log();
+      log(this.options?.logger);
       return;
     }
 
@@ -118,7 +124,7 @@ export class MemoryImpl {
         index,
         value: structuredClone({ content, name, functionCalls }),
       });
-      log();
+      log(this.options?.logger);
       return;
     }
 
@@ -135,7 +141,7 @@ export class MemoryImpl {
         functionCalls;
     }
 
-    log();
+    log(this.options?.logger);
   }
 
   addTag(name: string): void {
@@ -194,7 +200,7 @@ export class MemoryImpl {
         values = chat.find((v) => v.index === index)?.value;
       }
 
-      if (Array.isArray(values)) {
+      if (Array.isArray(values) && values.length > 0) {
         result.push(
           ...values.map(
             (v) => ({ ...v, role }) as AxChatRequest['chatPrompt'][number]
@@ -202,12 +208,8 @@ export class MemoryImpl {
         );
       } else if (typeof values === 'object' && values !== null) {
         result.push({ ...values, role } as AxChatRequest['chatPrompt'][number]);
-      } else {
-        result.push({
-          content: values,
-          role,
-        } as AxChatRequest['chatPrompt'][number]);
       }
+      // Skip when values is undefined (no matching index found)
     }
     return result;
   }
@@ -302,25 +304,30 @@ export class AxMemory implements AxAIMemory {
 
 function debugRequest(
   value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt'],
-  hideSystemPrompt?: boolean
+  hideSystemPrompt?: boolean,
+  logger?: AxLoggerFunction
 ) {
   if (Array.isArray(value)) {
-    logChatRequest(value, hideSystemPrompt);
+    logChatRequest(value, hideSystemPrompt, logger);
   } else {
-    logChatRequestMessage(value, hideSystemPrompt);
+    logChatRequestMessage(value, hideSystemPrompt, logger);
   }
 }
 
 function debugResponse(
-  value: Readonly<AxChatResponseResult & { index: number }>
+  value: Readonly<AxChatResponseResult & { index: number }>,
+  logger?: AxLoggerFunction
 ) {
-  logResponseResult(value);
+  logResponseResult(value, logger);
 }
 
-function debugResponseDelta(delta: string) {
-  logResponseDelta(delta);
+function debugResponseDelta(delta: string, logger?: AxLoggerFunction) {
+  logResponseDelta(delta, logger);
 }
 
-function debugFunctionResults(results: Readonly<AxFunctionResult[]>) {
-  logFunctionResults(results);
+function debugFunctionResults(
+  results: Readonly<AxFunctionResult[]>,
+  logger?: AxLoggerFunction
+) {
+  logFunctionResults(results, logger);
 }

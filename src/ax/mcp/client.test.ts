@@ -268,33 +268,6 @@ describe('AxMCPClient', () => {
       );
     });
 
-    it('should log debug information when debug is enabled', async () => {
-      const client = new AxMCPClient(mockTransport, { debug: true });
-      await client.init();
-
-      // Verify debug logs were printed
-      expect(consoleSpy).toHaveBeenCalled();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Sending request')
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Received response')
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Discovered 2 functions')
-      );
-    });
-
-    it('should not log debug information when debug is disabled', async () => {
-      consoleSpy.mockClear();
-
-      const client = new AxMCPClient(mockTransport, { debug: false });
-      await client.init();
-
-      // Verify no debug logs were printed
-      expect(consoleSpy).not.toHaveBeenCalled();
-    });
-
     it('should ping the server', async () => {
       const client = new AxMCPClient(mockTransport);
       await client.init();

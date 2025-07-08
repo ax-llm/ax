@@ -2,10 +2,10 @@ import { ReadableStream } from 'node:stream/web';
 
 import {
   type Context,
-  context,
   type Meter,
   type Span,
   SpanKind,
+  context,
   trace,
 } from '@opentelemetry/api';
 
@@ -406,6 +406,7 @@ export class AxGen<
     const memOptions = {
       debug: this.isDebug(ai, options),
       debugHideSystemPrompt,
+      logger: this.getLogger(ai, options),
     };
 
     const mem = options.mem ?? this.options?.mem ?? new AxMemory(memOptions);
