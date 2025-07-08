@@ -1,5 +1,12 @@
 # Changelog
 
+## [12.0.25](https://github.com/ax-llm/ax/compare/12.0.23...12.0.24) (2025-07-08)
+
+### Features
+
+* enhance logging and error handling in AI components ([43ae472](https://github.com/ax-llm/ax/commit/43ae47246147c4ab9328c326fb3bdb8216043292))
+## [12.0.24](https://github.com/ax-llm/ax/compare/12.0.23...12.0.24) (2025-07-07)
+
 ## [12.0.24](https://github.com/ax-llm/ax/compare/12.0.23...12.0.24) (2025-07-07)
 
 ### Bug Fixes
