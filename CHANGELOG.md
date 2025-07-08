@@ -1,5 +1,16 @@
 # Changelog
 
+## [12.0.26](https://github.com/ax-llm/ax/compare/12.0.24...12.0.25) (2025-07-08)
+
+### Features
+
+* migrated a lot of tooling to biome ([f9d18f9](https://github.com/ax-llm/ax/commit/f9d18f9a763643edff7f6bdcefb0a01cd9c3195a))
+## [12.0.25](https://github.com/ax-llm/ax/compare/12.0.24...12.0.25) (2025-07-08)
+
+### Features
+
+* enhance logging and error handling in AI components ([43ae472](https://github.com/ax-llm/ax/commit/43ae47246147c4ab9328c326fb3bdb8216043292))
+
 ## [12.0.25](https://github.com/ax-llm/ax/compare/12.0.23...12.0.24) (2025-07-08)
 
 ### Features
