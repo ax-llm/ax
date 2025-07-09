@@ -859,7 +859,7 @@ describe('AxFlow > node definition > new overloads', () => {
       'documentText:string -> summaryText:string'
     );
 
-    flow.node('summarizer', signature, { debug: true });
+    flow.node('summarizer', signature, { debug: true, logger: () => {} });
 
     // Test that the node was registered (we can't easily test execution without proper typing)
     expect(() => {
@@ -902,7 +902,7 @@ describe('AxFlow > node definition > new overloads', () => {
       'documentText:string -> summaryText:string'
     );
 
-    flow.n('summarizer', signature, { debug: true });
+    flow.n('summarizer', signature, { debug: true, logger: () => {} });
 
     // Test that the node was registered (we can't easily test execution without proper typing)
     expect(() => {

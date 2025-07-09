@@ -37,7 +37,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
+    "@biomejs/biome": "^2.1.1",
     "@release-it/bumper": "^7.0.5",
     "@release-it/conventional-changelog": "^10.0.1",
     "@total-typescript/tsconfig": "^1.0.4",
@@ -68,9 +68,7 @@
   "directories": {
     "example": "examples"
   },
-  "workspaces": [
-    "src/*"
-  ],
+  "workspaces": ["src/*"],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
   "version": "13.0.1"
