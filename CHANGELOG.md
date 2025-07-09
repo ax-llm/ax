@@ -1,5 +1,12 @@
 # Changelog
 
+## [13.0.5](https://github.com/ax-llm/ax/compare/13.0.3...13.0.4) (2025-07-09)
+## [13.0.4](https://github.com/ax-llm/ax/compare/13.0.3...13.0.4) (2025-07-09)
+
+### Bug Fixes
+
+* build issue ([5915507](https://github.com/ax-llm/ax/commit/5915507ac085a15a15db6928039c7cf51d9dd89e))
+
 ## [13.0.4](https://github.com/ax-llm/ax/compare/13.0.2...13.0.3) (2025-07-09)
 
 ### Bug Fixes
