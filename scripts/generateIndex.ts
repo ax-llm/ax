@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -329,6 +330,26 @@ function generateIndexContent(exportMap: Map<string, ExportInfo[]>): string {
 }
 
 /**
+ * Runs biome lint and format fix on the generated index.ts file
+ */
+function fixGeneratedFile(filePath: string): void {
+  try {
+    console.log('Running biome lint and format fix on generated file...');
+
+    // Run biome check with write flag to fix both linting and formatting issues
+    execSync(`npx biome check --write "${filePath}"`, {
+      stdio: 'inherit',
+      cwd: path.dirname(filePath),
+    });
+
+    console.log('Biome fixes applied successfully!');
+  } catch (error) {
+    console.warn('Warning: Failed to run biome fixes:', error);
+    // Don't fail the entire process if biome fix fails
+  }
+}
+
+/**
  * Main function to generate the index.ts file
  */
 function generateIndex(): void {
@@ -351,6 +372,9 @@ function generateIndex(): void {
   const indexPath = path.join(currentDir, 'index.ts');
   fs.writeFileSync(indexPath, indexContent);
   console.log(`Generated ${indexPath} successfully!`);
+
+  // Apply biome fixes to the generated file
+  fixGeneratedFile(indexPath);
 }
 
 // Run the script

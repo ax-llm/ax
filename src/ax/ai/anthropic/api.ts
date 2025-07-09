@@ -2,7 +2,6 @@ import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
-import { GoogleVertexAuth } from '../google-vertex/auth.js';
 import type {
   AxAIInputModelList,
   AxAIPromptConfig,
@@ -62,7 +61,7 @@ export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
 
 export interface AxAIAnthropicArgs {
   name: 'anthropic';
-  apiKey?: string;
+  apiKey?: string | (() => Promise<string>);
   projectId?: string;
   region?: string;
   config?: Readonly<Partial<AxAIAnthropicConfig>>;
@@ -113,12 +112,12 @@ class AxAIAnthropicImpl
     } as AxModelConfig;
   }
 
-  createChatReq = (
+  createChatReq = async (
     req: Readonly<
       AxInternalChatRequest<AxAIAnthropicModel | AxAIAnthropicVertexModel>
     >,
     config: Readonly<AxAIPromptConfig>
-  ): [AxAPI, AxAIAnthropicChatRequest] => {
+  ): Promise<[AxAPI, AxAIAnthropicChatRequest]> => {
     // Store config for use in response methods
     this.currentPromptConfig = config;
 
@@ -530,15 +529,13 @@ export class AxAIAnthropic extends AxBaseAI<
     let headers: () => Promise<Record<string, string>>;
 
     if (isVertex) {
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
-      if (apiKey) {
-        headers = async () => ({ Authorization: `Bearer ${apiKey}` });
-      } else {
-        const vertexAuth = new GoogleVertexAuth();
-        headers = async () => ({
-          Authorization: `Bearer ${await vertexAuth.getAccessToken()}`,
-        });
+      if (!apiKey) {
+        throw new Error('Anthropic Vertex API key not set');
       }
+      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
+      headers = async () => ({
+        Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
+      });
     } else {
       if (!apiKey) {
         throw new Error('Anthropic API key not set');
@@ -547,7 +544,7 @@ export class AxAIAnthropic extends AxBaseAI<
       headers = async () => ({
         'anthropic-version': '2023-06-01',
         'anthropic-beta': 'prompt-caching-2024-07-31',
-        'x-api-key': apiKey,
+        'x-api-key': typeof apiKey === 'function' ? await apiKey() : apiKey,
       });
     }
 

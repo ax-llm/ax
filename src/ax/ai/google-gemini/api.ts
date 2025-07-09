@@ -6,7 +6,6 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
-import { GoogleVertexAuth } from '../google-vertex/auth.js';
 import type {
   AxAIInputModelList,
   AxAIPromptConfig,
@@ -106,7 +105,7 @@ export interface AxAIGoogleGeminiOptionsTools {
 
 export interface AxAIGoogleGeminiArgs {
   name: 'google-gemini';
-  apiKey?: string;
+  apiKey?: string | (() => Promise<string>);
   projectId?: string;
   region?: string;
   endpointId?: string;
@@ -137,7 +136,7 @@ class AxAIGoogleGeminiImpl
     private config: AxAIGoogleGeminiConfig,
     private isVertex: boolean,
     private endpointId?: string,
-    private apiKey?: string,
+    private apiKey?: string | (() => Promise<string>),
     private options?: AxAIGoogleGeminiArgs['options']
   ) {
     if (!this.isVertex && this.config.autoTruncate) {
@@ -165,10 +164,10 @@ class AxAIGoogleGeminiImpl
     } as AxModelConfig;
   }
 
-  createChatReq = (
+  createChatReq = async (
     req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
     config: Readonly<AxAIPromptConfig>
-  ): [AxAPI, AxAIGoogleGeminiChatRequest] => {
+  ): Promise<[AxAPI, AxAIGoogleGeminiChatRequest]> => {
     const model = req.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
@@ -193,7 +192,9 @@ class AxAIGoogleGeminiImpl
 
     if (!this.isVertex) {
       const pf = stream ? '&' : '?';
-      apiConfig.name += `${pf}key=${this.apiKey}`;
+      const keyValue =
+        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+      apiConfig.name += `${pf}key=${keyValue}`;
     }
 
     const systemPrompts = req.chatPrompt
@@ -439,12 +440,14 @@ class AxAIGoogleGeminiImpl
     return [apiConfig, reqValue];
   };
 
-  createEmbedReq = (
+  createEmbedReq = async (
     req: Readonly<AxInternalEmbedRequest<AxAIGoogleGeminiEmbedModel>>
-  ): [
-    AxAPI,
-    AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
-  ] => {
+  ): Promise<
+    [
+      AxAPI,
+      AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
+    ]
+  > => {
     const model = req.embedModel;
 
     if (!model) {
@@ -482,8 +485,10 @@ class AxAIGoogleGeminiImpl
         },
       };
     } else {
+      const keyValue =
+        typeof this.apiKey === 'function' ? this.apiKey() : this.apiKey;
       apiConfig = {
-        name: `/models/${model}:batchEmbedContents?key=${this.apiKey}`,
+        name: `/models/${model}:batchEmbedContents?key=${keyValue}`,
       };
 
       reqValue = {
@@ -667,6 +672,10 @@ export class AxAIGoogleGemini extends AxBaseAI<
     let headers: () => Promise<Record<string, string>>;
 
     if (isVertex) {
+      if (!apiKey) {
+        throw new Error('GoogleGemini Vertex API key not set');
+      }
+
       let path: string;
       if (endpointId) {
         path = 'endpoints';
@@ -676,14 +685,9 @@ export class AxAIGoogleGemini extends AxBaseAI<
 
       const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
       apiURL = `https://${tld}.googleapis.com/v1/projects/${projectId}/locations/${region}/${path}`;
-      if (apiKey) {
-        headers = async () => ({ Authorization: `Bearer ${apiKey}` });
-      } else {
-        const vertexAuth = new GoogleVertexAuth();
-        headers = async () => ({
-          Authorization: `Bearer ${await vertexAuth.getAccessToken()}`,
-        });
-      }
+      headers = async () => ({
+        Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
+      });
     } else {
       if (!apiKey) {
         throw new Error('GoogleGemini AI API key not set');

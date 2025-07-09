@@ -1,12 +1,13 @@
 import crypto from 'node:crypto';
 import type { ReadableStream } from 'node:stream/web';
-import { context, type Span, SpanKind } from '@opentelemetry/api';
+import { type Span, SpanKind, context } from '@opentelemetry/api';
 
 import { axGlobals } from '../dsp/globals.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { apiCall } from '../util/apicall.js';
 import { RespTransformStream } from '../util/transform.js';
 
+import { defaultLogger } from '../dsp/loggers.js';
 import { logChatRequest, logResponse } from './debug.js';
 import {
   type AxAIMetricsInstruments,
@@ -81,15 +82,6 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
     topP: 0.7,
     frequencyPenalty: 0.2,
   });
-
-// Default logger function that uses process.stdout.write
-const defaultLogger: AxLoggerFunction = (
-  message: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _options?: { tags?: string[] }
-) => {
-  process.stdout.write(message);
-};
 
 export class AxBaseAI<
   TModel,
@@ -1013,7 +1005,7 @@ export class AxBaseAI<
     this.lastUsedModelConfig = modelConfig;
 
     const fn = async () => {
-      const [apiConfig, reqValue] = this.aiImpl.createChatReq(
+      const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
         req,
         options as AxAIPromptConfig
       );
@@ -1087,10 +1079,6 @@ export class AxBaseAI<
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
-        if (debug) {
-          const logger = options?.logger ?? this.logger;
-          logger('', { tags: ['responseEnd'] });
-        }
         if (span?.isRecording()) {
           span.end();
         }
@@ -1136,10 +1124,6 @@ export class AxBaseAI<
 
     if (debug) {
       logResponse(res, options?.logger ?? this.logger);
-    }
-
-    if (debug) {
-      this.logger('', { tags: ['responseEnd'] });
     }
 
     return res;
@@ -1246,7 +1230,7 @@ export class AxBaseAI<
     this.lastUsedEmbedModel = embedModel;
 
     const fn = async () => {
-      const [apiConfig, reqValue] = this.aiImpl.createEmbedReq!(req);
+      const [apiConfig, reqValue] = await this.aiImpl.createEmbedReq!(req);
 
       const res = await apiCall(
         {

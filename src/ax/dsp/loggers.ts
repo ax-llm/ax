@@ -9,7 +9,7 @@ const defaultOutput = (message: string): void => {
 };
 
 // Factory function to create a default logger with customizable output
-export const axCreateDefaultLogger = (
+export const axCreateDefaultColorLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
   return (message: string, options?: { tags?: AxLoggerTag[] }) => {
@@ -53,14 +53,19 @@ export const axCreateDefaultLogger = (
     }
 
     // Step 3: Add postfix based on tag type
-    if (tags.includes('functionEnd') || tags.includes('functionResult')) {
+    if (tags.includes('functionEnd')) {
       formattedMessage = `${formattedMessage}\n`;
     }
 
+    if (tags.includes('responseEnd')) {
+      formattedMessage = `${formattedMessage}\n───\n`;
+    }
     // Step 4: Apply color function and output
     output(colorFunction(formattedMessage));
   };
 };
+
+export const defaultLogger: AxLoggerFunction = axCreateDefaultColorLogger();
 
 // Factory function to create a text-only logger (no colors) with customizable output
 export const axCreateDefaultTextLogger = (
@@ -84,8 +89,12 @@ export const axCreateDefaultTextLogger = (
     }
 
     // Step 3: Add postfix based on tag type
-    if (tags.includes('functionEnd') || tags.includes('functionResult')) {
+    if (tags.includes('functionEnd')) {
       formattedMessage = `${formattedMessage}\n`;
+    }
+
+    if (tags.includes('responseEnd')) {
+      formattedMessage = `${formattedMessage}───\n`;
     }
 
     // Step 4: Output without color
@@ -100,7 +109,7 @@ export const axCreateDefaultTextLogger = (
 export const axCreateOptimizerLogger = (
   output: (message: string) => void = (msg) => process.stdout.write(msg)
 ): AxLoggerFunction => {
-  const baseLogger = axCreateDefaultLogger(output);
+  const baseLogger = axCreateDefaultColorLogger(output);
 
   // Track state for better visual flow
   let isFirstPhase = true;

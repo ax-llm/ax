@@ -247,8 +247,8 @@ import {
   type AxAIOpenAIResponsesResponseCreatedEvent,
   type AxAIOpenAIResponsesResponseDelta,
   type AxAIOpenAIResponsesResponseFailedEvent,
-  type AxAIOpenAIResponsesResponseIncompleteEvent,
   type AxAIOpenAIResponsesResponseInProgressEvent,
+  type AxAIOpenAIResponsesResponseIncompleteEvent,
   type AxAIOpenAIResponsesResponseQueuedEvent,
   type AxAIOpenAIResponsesStreamEvent,
   type AxAIOpenAIResponsesStreamEventBase,
@@ -420,7 +420,7 @@ import {
 import { axGlobals } from './dsp/globals.js';
 import { type AxDataRow, AxHFDataLoader } from './dsp/loader.js';
 import {
-  axCreateDefaultLogger,
+  axCreateDefaultColorLogger,
   axCreateDefaultTextLogger,
   axCreateOptimizerLogger,
   axDefaultOptimizerLogger,
@@ -528,8 +528,8 @@ import type { AxAIMemory, AxMemoryData } from './mem/types.js';
 import {
   AxAgent,
   type AxAgentFeatures,
-  type AxAgentic,
   type AxAgentOptions,
+  type AxAgentic,
 } from './prompts/agent.js';
 import { AxChainOfThought } from './prompts/cot.js';
 import { AxRAG } from './prompts/rag.js';
@@ -690,7 +690,7 @@ export { axAITogetherDefaultConfig };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axCheckMetricsHealth };
-export { axCreateDefaultLogger };
+export { axCreateDefaultColorLogger };
 export { axCreateDefaultTextLogger };
 export { axCreateOptimizerLogger };
 export { axDefaultMetricsConfig };

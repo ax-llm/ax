@@ -364,8 +364,6 @@ export class AxGen<
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
       });
-
-      this.getLogger(ai, options)?.('', { tags: ['responseEnd'] });
     } else {
       yield* processResponse({
         ai,
@@ -386,6 +384,8 @@ export class AxGen<
         signature: this.signature,
       });
     }
+
+    this.getLogger(ai, options)?.('', { tags: ['responseEnd'] });
   }
 
   private async *_forward2(
@@ -564,7 +564,6 @@ export class AxGen<
             );
           }
 
-          this.getLogger(ai, options)?.('', { tags: ['responseEnd'] });
           return;
         } catch (e) {
           let errorFields: AxIField[] | undefined;

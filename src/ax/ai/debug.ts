@@ -1,14 +1,10 @@
-import { axCreateDefaultLogger } from '../dsp/loggers.js';
-
+import { defaultLogger } from '../dsp/loggers.js';
 import type {
   AxChatRequest,
   AxChatResponse,
   AxLoggerFunction,
   AxLoggerTag,
 } from './types.js';
-
-// Default logger instance
-const defaultLogger: AxLoggerFunction = axCreateDefaultLogger();
 
 const formatChatMessage = (
   msg: AxChatRequest['chatPrompt'][number],

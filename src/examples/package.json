@@ -29,7 +29,8 @@
     "@opentelemetry/resources": "^2.0.1",
     "@opentelemetry/sdk-metrics": "^2.0.1",
     "@opentelemetry/sdk-trace-base": "^2.0.1",
-    "@pipedream/sdk": "^1.6.4"
+    "@pipedream/sdk": "^1.6.4",
+    "google-auth-library": "^9.15.1"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"

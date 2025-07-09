@@ -35,7 +35,6 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "google-auth-library": "^9.15.1",
     "moment-timezone": "^0.5.47"
   },
   "ava": {
@@ -45,19 +44,13 @@
     "extensions": {
       "ts": "module"
     },
-    "nodeArguments": [
-      "--import=tsimp"
-    ],
-    "files": [
-      "!dist/**/*"
-    ]
+    "nodeArguments": ["--import=tsimp"],
+    "files": ["!dist/**/*"]
   },
   "tsd": {
     "directory": "./"
   },
-  "files": [
-    "**/*"
-  ],
+  "files": ["**/*"],
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
   },

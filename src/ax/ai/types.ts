@@ -364,7 +364,7 @@ export interface AxAIServiceImpl<
   createChatReq(
     req: Readonly<AxInternalChatRequest<TModel>>,
     config: Readonly<AxAIPromptConfig>
-  ): [AxAPI, TChatRequest];
+  ): Promise<[AxAPI, TChatRequest]> | [AxAPI, TChatRequest];
 
   createChatResp(resp: Readonly<TChatResponse>): AxChatResponse;
 
@@ -375,7 +375,7 @@ export interface AxAIServiceImpl<
 
   createEmbedReq?(
     req: Readonly<AxInternalEmbedRequest<TEmbedModel>>
-  ): [AxAPI, TEmbedRequest];
+  ): Promise<[AxAPI, TEmbedRequest]> | [AxAPI, TEmbedRequest];
 
   createEmbedResp?(resp: Readonly<TEmbedResponse>): AxEmbedResponse;
 
