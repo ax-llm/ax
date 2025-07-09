@@ -40,13 +40,13 @@ class FakeTransport {
 
 describe('AxMCPClient', () => {
   let mockTransport: AxMCPTransport;
-  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let _consoleSpy: ReturnType<typeof vi.spyOn>;
   let transport: FakeTransport;
   let client: AxMCPClient;
 
   beforeEach(() => {
     mockTransport = createMockTransport();
-    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    _consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     // Setup mock responses
     vi.mocked(mockTransport.send).mockImplementation(async (request) => {

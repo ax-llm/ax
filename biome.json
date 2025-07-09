@@ -6,15 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": false,
-    "include": [
-      "**",
-      "!node_modules",
-      "!dist",
-      "!coverage",
-      "!site",
-      "!.tsimp"
-    ]
+    "ignoreUnknown": false
   },
   "formatter": {
     "enabled": true,
@@ -98,17 +90,5 @@
     "linter": {
       "enabled": true
     }
-  },
-  "overrides": [
-    {
-      "include": ["**/types.ts", "**/api.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useNamingConvention": "off"
-          }
-        }
-      }
-    }
-  ]
+  }
 }

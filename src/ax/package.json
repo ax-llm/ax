@@ -44,19 +44,13 @@
     "extensions": {
       "ts": "module"
     },
-    "nodeArguments": [
-      "--import=tsimp"
-    ],
-    "files": [
-      "!dist/**/*"
-    ]
+    "nodeArguments": ["--import=tsimp"],
+    "files": ["!dist/**/*"]
   },
   "tsd": {
     "directory": "./"
   },
-  "files": [
-    "**/*"
-  ],
+  "files": ["**/*"],
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
   },
