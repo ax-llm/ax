@@ -1,5 +1,16 @@
 # Changelog
 
+## [13.0.3](https://github.com/ax-llm/ax/compare/13.0.1...13.0.2) (2025-07-09)
+
+### Features
+
+* add function result formatter support ([0382a93](https://github.com/ax-llm/ax/commit/0382a933e299db529e2fc7496c04365aa34babe4))
+## [13.0.2](https://github.com/ax-llm/ax/compare/13.0.1...13.0.2) (2025-07-09)
+
+### Bug Fixes
+
+* build fixes ([b19e90a](https://github.com/ax-llm/ax/commit/b19e90abfbfe5ef95455a5cc899346aec0333c83))
+
 ## [13.0.2](https://github.com/ax-llm/ax/compare/13.0.0...13.0.1) (2025-07-09)
 
 ### Bug Fixes
