@@ -1,5 +1,16 @@
 # Changelog
 
+## [13.0.0](https://github.com/ax-llm/ax/compare/12.0.25...12.0.26) (2025-07-09)
+
+### Features
+
+* removed nodejs dependencies to only support web standard apis ([7701cb9](https://github.com/ax-llm/ax/commit/7701cb91afbe9d0a02b4c4886484f00970d14fe4))
+## [12.0.26](https://github.com/ax-llm/ax/compare/12.0.25...12.0.26) (2025-07-08)
+
+### Features
+
+* migrated a lot of tooling to biome ([f9d18f9](https://github.com/ax-llm/ax/commit/f9d18f9a763643edff7f6bdcefb0a01cd9c3195a))
+
 ## [12.0.26](https://github.com/ax-llm/ax/compare/12.0.24...12.0.25) (2025-07-08)
 
 ### Features
