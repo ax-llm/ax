@@ -252,7 +252,6 @@ export type AxLoggerTag =
   | 'warning'
   | 'functionName'
   | 'functionArg'
-  | 'functionEnd'
   | 'functionResult'
   | 'functionError'
   | 'firstFunction'
@@ -323,6 +322,7 @@ export type AxAIServiceActionOptions<
   traceContext?: Context;
   abortSignal?: AbortSignal;
   logger?: AxLoggerFunction;
+  functionResultFormatter?: (result: unknown) => string;
 };
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {

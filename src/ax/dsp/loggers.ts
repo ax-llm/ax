@@ -47,13 +47,16 @@ export const axCreateDefaultColorLogger = (
       tags.includes('userContent') ||
       tags.includes('functionName') ||
       tags.includes('functionArg') ||
-      tags.includes('assistantStart')
+      tags.includes('functionResult') ||
+      tags.includes('assistantStart') ||
+      tags.includes('start') ||
+      tags.includes('end')
     ) {
       formattedMessage = `\n${formattedMessage}`;
     }
 
     // Step 3: Add postfix based on tag type
-    if (tags.includes('functionEnd')) {
+    if (tags.includes('functionEnd') || tags.includes('functionResult')) {
       formattedMessage = `${formattedMessage}\n`;
     }
 
@@ -83,14 +86,12 @@ export const axCreateDefaultTextLogger = (
       tags.includes('userContent') ||
       tags.includes('functionName') ||
       tags.includes('functionArg') ||
-      tags.includes('assistantStart')
+      tags.includes('functionResult') ||
+      tags.includes('assistantStart') ||
+      tags.includes('start') ||
+      tags.includes('end')
     ) {
       formattedMessage = `\n${formattedMessage}`;
-    }
-
-    // Step 3: Add postfix based on tag type
-    if (tags.includes('functionEnd')) {
-      formattedMessage = `${formattedMessage}\n`;
     }
 
     if (tags.includes('responseEnd')) {

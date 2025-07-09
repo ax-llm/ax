@@ -126,8 +126,6 @@ export const logResponseResult = (
         logger(params, { tags: ['functionArg'] });
       }
     }
-    // Add function end marker for the last function
-    logger('', { tags: ['functionEnd'] });
   }
 };
 
@@ -167,5 +165,4 @@ export const logFunctionResults = (
       logger(result.result, { tags: ['functionResult'] });
     }
   }
-  logger('', { tags: ['functionEnd'] });
 };

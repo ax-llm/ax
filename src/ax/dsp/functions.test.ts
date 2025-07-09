@@ -153,3 +153,63 @@ describe('AxFunctionProcessor undefined/null handling', () => {
     expect(result).toBe('');
   });
 });
+
+describe('AxFunctionProcessor functionResultFormatter', () => {
+  it('should use custom formatter from options when provided', async () => {
+    const fn = {
+      name: 'test_function',
+      description: 'A test function',
+      func: async () => ({ message: 'hello', value: 42 }),
+    };
+
+    const processor = new AxFunctionProcessor([fn]);
+    const customFormatter = (result: unknown): string => {
+      return `CUSTOM: ${JSON.stringify(result)}`;
+    };
+
+    const result = await processor.execute(
+      { id: '1', name: 'test_function', args: '{}' },
+      { functionResultFormatter: customFormatter }
+    );
+
+    expect(result).toBe('CUSTOM: {"message":"hello","value":42}');
+  });
+
+  it('should fall back to global formatter when no options formatter provided', async () => {
+    const fn = {
+      name: 'test_function',
+      description: 'A test function',
+      func: async () => ({ message: 'hello', value: 42 }),
+    };
+
+    const processor = new AxFunctionProcessor([fn]);
+
+    // The global formatter should be used (default JSON.stringify with null, 2)
+    const result = await processor.execute(
+      { id: '1', name: 'test_function', args: '{}' },
+      {}
+    );
+
+    expect(result).toBe('{\n  "message": "hello",\n  "value": 42\n}');
+  });
+
+  it('should handle string results without formatting', async () => {
+    const fn = {
+      name: 'test_function',
+      description: 'A test function',
+      func: async () => 'already a string',
+    };
+
+    const processor = new AxFunctionProcessor([fn]);
+    const customFormatter = (result: unknown): string => {
+      return typeof result === 'string' ? result : `FORMATTED: ${result}`;
+    };
+
+    const result = await processor.execute(
+      { id: '1', name: 'test_function', args: '{}' },
+      { functionResultFormatter: customFormatter }
+    );
+
+    expect(result).toBe('already a string');
+  });
+});

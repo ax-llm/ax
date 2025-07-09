@@ -2,10 +2,10 @@
 
 import {
   type Context,
+  context,
   type Meter,
   type Span,
   SpanKind,
-  context,
   trace,
 } from '@opentelemetry/api';
 
@@ -363,6 +363,9 @@ export class AxGen<
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
+        functionResultFormatter:
+          options?.functionResultFormatter ??
+          this.options?.functionResultFormatter,
       });
     } else {
       yield* processResponse({
@@ -382,6 +385,9 @@ export class AxGen<
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
+        functionResultFormatter:
+          options?.functionResultFormatter ??
+          this.options?.functionResultFormatter,
       });
     }
 

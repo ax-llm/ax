@@ -80,6 +80,7 @@ export type AxProgramForwardOptions = {
   functions?: AxInputFunctionType;
   functionCall?: AxChatRequest['functionCall'];
   stopFunction?: string;
+  functionResultFormatter?: (result: unknown) => string;
 
   // Behavior control
   fastFail?: boolean;

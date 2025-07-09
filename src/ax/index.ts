@@ -417,7 +417,7 @@ import {
   type AxResponseHandlerArgs,
   type AxStreamingEvent,
 } from './dsp/generate.js';
-import { axGlobals } from './dsp/globals.js';
+import { type AxFunctionResultFormatter, axGlobals } from './dsp/globals.js';
 import { type AxDataRow, AxHFDataLoader } from './dsp/loader.js';
 import {
   axCreateDefaultColorLogger,
@@ -953,6 +953,7 @@ export type { AxFunction };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxFunctionResult };
+export type { AxFunctionResultFormatter };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
 export type { AxGenMetricsInstruments };

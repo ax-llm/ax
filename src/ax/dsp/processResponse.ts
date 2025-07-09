@@ -12,9 +12,9 @@ import {
 } from './asserts.js';
 import {
   extractValues,
-  streamValues,
   streamingExtractFinalValue,
   streamingExtractValues,
+  streamValues,
 } from './extract.js';
 import {
   type AxFieldProcessor,
@@ -39,6 +39,7 @@ type ProcessStreamingResponseArgs = Readonly<
   thoughtFieldName: string;
   signature: AxSignature;
   excludeContentFromTrace: boolean;
+  functionResultFormatter?: (result: unknown) => string;
 };
 
 export async function* processStreamingResponse<OUT extends AxGenOut>({
@@ -240,6 +241,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   asserts,
   fieldProcessors,
   streamingFieldProcessors,
+  functionResultFormatter,
 }: FinalizeStreamingResponseArgs) {
   const funcs = parseFunctionCalls(
     ai,
@@ -261,6 +263,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       span,
       index: state.index,
       excludeContentFromTrace,
+      functionResultFormatter,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
   } else {
@@ -326,6 +329,7 @@ export async function* processResponse<OUT extends AxGenOut>({
   fieldProcessors,
   thoughtFieldName,
   signature,
+  functionResultFormatter,
 }: Readonly<AxResponseHandlerArgs<AxChatResponse>> & {
   states: InternalAxGenState[];
   usage: AxModelUsage[];
@@ -334,6 +338,7 @@ export async function* processResponse<OUT extends AxGenOut>({
   fieldProcessors: AxFieldProcessor[];
   thoughtFieldName: string;
   signature: AxSignature;
+  functionResultFormatter?: (result: unknown) => string;
 }): AsyncGenDeltaOut<OUT> {
   const results = res.results ?? [];
 
@@ -367,6 +372,7 @@ export async function* processResponse<OUT extends AxGenOut>({
           span,
           excludeContentFromTrace,
           index: result.index,
+          functionResultFormatter,
         });
 
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);

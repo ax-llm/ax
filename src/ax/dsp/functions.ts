@@ -8,6 +8,7 @@ import type {
 } from '../ai/types.js';
 import type { AxMemory } from '../mem/memory.js';
 
+import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonschema.js';
 
 export class AxFunctionError extends Error {
@@ -133,27 +134,21 @@ export class AxFunctionProcessor {
         }
       : undefined;
 
+    let res: unknown;
     if (!fnSpec.parameters) {
-      const res =
+      res =
         fnSpec.func.length === 1 ? await fnSpec.func(opt) : await fnSpec.func();
-
-      return typeof res === 'string'
-        ? res
-        : res === undefined || res === null
-          ? ''
-          : JSON.stringify(res, null, 2);
+    } else {
+      res =
+        fnSpec.func.length === 2
+          ? await fnSpec.func(args, opt)
+          : await fnSpec.func(args);
     }
 
-    const res =
-      fnSpec.func.length === 2
-        ? await fnSpec.func(args, opt)
-        : await fnSpec.func(args);
-
-    return typeof res === 'string'
-      ? res
-      : res === undefined || res === null
-        ? ''
-        : JSON.stringify(res, null, 2);
+    // Use the formatter from options or fall back to globals
+    const formatter =
+      options?.functionResultFormatter ?? axGlobals.functionResultFormatter;
+    return formatter(res);
   };
 
   public execute = async (
@@ -226,6 +221,7 @@ type ProcessFunctionsArgs = {
   span?: import('@opentelemetry/api').Span;
   excludeContentFromTrace?: boolean;
   index: number;
+  functionResultFormatter?: (result: unknown) => string;
 };
 
 export const processFunctions = async ({
@@ -238,6 +234,7 @@ export const processFunctions = async ({
   span,
   excludeContentFromTrace,
   index,
+  functionResultFormatter,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -249,7 +246,7 @@ export const processFunctions = async ({
     }
 
     const promise: Promise<AxFunctionResult | undefined> = funcProc
-      .execute(func, { sessionId, traceId, ai })
+      .execute(func, { sessionId, traceId, ai, functionResultFormatter })
       .then((functionResult) => {
         functionsExecuted.add(func.name.toLowerCase());
 
