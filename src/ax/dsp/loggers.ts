@@ -55,11 +55,6 @@ export const axCreateDefaultColorLogger = (
       formattedMessage = `\n${formattedMessage}`;
     }
 
-    // Step 3: Add postfix based on tag type
-    if (tags.includes('functionEnd') || tags.includes('functionResult')) {
-      formattedMessage = `${formattedMessage}\n`;
-    }
-
     if (tags.includes('responseEnd')) {
       formattedMessage = `${formattedMessage}\n───\n`;
     }
