@@ -247,8 +247,8 @@ import {
   type AxAIOpenAIResponsesResponseCreatedEvent,
   type AxAIOpenAIResponsesResponseDelta,
   type AxAIOpenAIResponsesResponseFailedEvent,
-  type AxAIOpenAIResponsesResponseInProgressEvent,
   type AxAIOpenAIResponsesResponseIncompleteEvent,
+  type AxAIOpenAIResponsesResponseInProgressEvent,
   type AxAIOpenAIResponsesResponseQueuedEvent,
   type AxAIOpenAIResponsesStreamEvent,
   type AxAIOpenAIResponsesStreamEventBase,
@@ -527,8 +527,8 @@ import type { AxAIMemory, AxMemoryData } from './mem/types.js';
 import {
   AxAgent,
   type AxAgentFeatures,
-  type AxAgentOptions,
   type AxAgentic,
+  type AxAgentOptions,
 } from './prompts/agent.js';
 import { AxChainOfThought } from './prompts/cot.js';
 import { AxRAG } from './prompts/rag.js';
