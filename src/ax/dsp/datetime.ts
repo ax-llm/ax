@@ -1,10 +1,7 @@
 import dayjs from 'dayjs';
-// @ts-ignore - Plugin imports work at runtime
-import customParseFormat from 'dayjs/plugin/customParseFormat';
-// @ts-ignore - Plugin imports work at runtime
-import timezone from 'dayjs/plugin/timezone';
-// @ts-ignore - Plugin imports work at runtime
-import utc from 'dayjs/plugin/utc';
+import customParseFormat from 'dayjs/plugin/customParseFormat.js';
+import timezone from 'dayjs/plugin/timezone.js';
+import utc from 'dayjs/plugin/utc.js';
 
 import { ValidationError } from './errors.js';
 import type { AxField } from './sig.js';
