@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { AxAI, AxApacheTika, AxDBManager, AxDBMemory } from '@ax-llm/ax';
 
 const ai = new AxAI({
@@ -9,7 +10,9 @@ const db = new AxDBMemory();
 
 const tika = new AxApacheTika();
 
-const text = await tika.convert(['./README.md']);
+const readme = await fs.promises.readFile('./README.md', 'utf-8');
+
+const text = await tika.convert([new Blob([readme], { type: 'text/plain' })]);
 
 const manager = new AxDBManager({ ai, db });
 await manager.insert(text, {

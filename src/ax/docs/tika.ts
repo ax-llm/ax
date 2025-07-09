@@ -20,31 +20,9 @@ export class AxApacheTika {
   }
 
   private async _convert(
-    file: string | Blob,
+    fileData: ReadableStream | Blob,
     options?: Readonly<AxApacheTikaConvertOptions>
   ): Promise<string> {
-    let fileData: ReadableStream | Blob;
-
-    if (typeof file === 'string') {
-      // In Node.js environment, dynamically import fs
-      if (typeof window === 'undefined' && typeof process !== 'undefined') {
-        try {
-          const fs = await import('node:fs');
-          fileData = fs.createReadStream(file) as any;
-        } catch {
-          throw new Error(
-            'File path input is only supported in Node.js environments'
-          );
-        }
-      } else {
-        throw new Error(
-          'File path input is only supported in Node.js environments. Use Blob in browser.'
-        );
-      }
-    } else {
-      fileData = file;
-    }
-
     if (!fileData) {
       throw new Error('Failed to read file data');
     }
@@ -77,7 +55,7 @@ export class AxApacheTika {
   }
 
   public async convert(
-    files: Readonly<string[] | Blob[]>,
+    files: Readonly<Blob[] | ReadableStream[]>,
     options?: Readonly<{ batchSize?: number; format?: 'html' | 'text' }>
   ): Promise<string[]> {
     const results: string[] = [];

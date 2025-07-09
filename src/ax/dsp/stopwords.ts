@@ -338,7 +338,6 @@ export const stopwords = new Set([
   'fr',
   'from',
   'front',
-  'node:fs',
   'ft',
   'fu',
   'full',

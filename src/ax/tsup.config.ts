@@ -13,7 +13,6 @@ export default defineConfig({
   external: [
     // Keep dependencies external so consumers can choose how to bundle
     '@opentelemetry/api',
-    'dayjs',
   ],
   // Ensure proper module resolution for different environments
   esbuildOptions(options) {

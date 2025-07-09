@@ -1,6 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
-
 import type { AxFunction, AxLoggerFunction } from '../ai/types.js';
+import { randomUUID } from '../util/crypto.js';
 
 import type { AxMCPTransport } from './transport.js';
 import type {
@@ -212,7 +211,7 @@ export class AxMCPClient {
     method: string,
     params: T = {} as T
   ): Promise<{ id: string; result: R }> {
-    const requestId = uuidv4();
+    const requestId = randomUUID();
     const request: JSONRPCRequest<T> = {
       jsonrpc: '2.0',
       id: requestId,

@@ -520,7 +520,6 @@ import {
   type AxMCPStreamableHTTPTransportOptions,
   AxMCPStreambleHTTPTransport,
 } from './mcp/httpTransport.js';
-import { AxMCPStdioTransport } from './mcp/stdioTransport.js';
 import type { AxMCPTransport } from './mcp/transport.js';
 import { AxMemory } from './mem/memory.js';
 import type { AxAIMemory, AxMemoryData } from './mem/types.js';
@@ -635,7 +634,6 @@ export { AxInstanceRegistry };
 export { AxLLMRequestTypeValues };
 export { AxMCPClient };
 export { AxMCPHTTPSSETransport };
-export { AxMCPStdioTransport };
 export { AxMCPStreambleHTTPTransport };
 export { AxMemory };
 export { AxMiPRO };

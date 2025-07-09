@@ -543,7 +543,7 @@ Ax provides seamless integration with the Model Context Protocol (MCP), allowing
 your agents to access external tools, and resources through a standardized
 interface.
 
-### Using AxMCPClient
+<!-- ### Using AxMCPClient
 
 The `AxMCPClient` allows you to connect to any MCP-compatible server and use its
 capabilities within your Ax agents:
@@ -575,7 +575,7 @@ const memoryAgent = new AxAgent({
 const memoryGen = new AxGen("input, userId -> response", {
   functions: [client],
 });
-```
+``` -->
 
 ### Using AxMCPClient with a Remote Server
 
