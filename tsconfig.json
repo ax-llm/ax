@@ -1,10 +1,14 @@
 {
-  "extends": "@total-typescript/tsconfig/tsc/no-dom/library",
   "compilerOptions": {
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
+    "module": "NodeNext",
     "jsx": "react",
     "esModuleInterop": true,
     "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
     "outDir": "build/module",
     "pretty": true,
     "baseUrl": ".",
@@ -12,5 +16,5 @@
       "@ax-llm/*": ["src/*"]
     }
   },
-  "exclude": ["node_modules/**", "dist/**", "src/*/dist/**"]
+  "exclude": ["node_modules/**", "dist/**", "src/*/dist/**", "src/**/*.test.ts"]
 }

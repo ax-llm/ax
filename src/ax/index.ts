@@ -512,7 +512,6 @@ import type {
   AxMessage,
 } from './dsp/types.js';
 import { AxFlow, AxFlowTypedSubContextImpl } from './flow/flow.js';
-import { AxJSInterpreter, AxJSInterpreterPermission } from './funcs/code.js';
 import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import { AxMCPClient } from './mcp/client.js';
@@ -633,8 +632,6 @@ export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
 export { AxInstanceRegistry };
-export { AxJSInterpreter };
-export { AxJSInterpreterPermission };
 export { AxLLMRequestTypeValues };
 export { AxMCPClient };
 export { AxMCPHTTPSSETransport };

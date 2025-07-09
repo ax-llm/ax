@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { createHash } from 'node:crypto';
+import { createHash } from '../util/crypto.js';
 
 import type { AxChatResponseResult, AxModelInfo } from './types.js';
 

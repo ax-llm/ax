@@ -1,10 +1,6 @@
-import crypto from 'node:crypto';
-import {
-  ReadableStream,
-  TextDecoderStream as TextDecoderStreamNative,
-  TransformStream,
-} from 'node:stream/web';
+// Web Streams API types are now available globally via DOM types in tsconfig
 import type { Span } from '@opentelemetry/api';
+import { randomUUID } from './crypto.js';
 
 import { SSEParser } from './sse.js';
 import { TextDecoderStreamPolyfill } from './stream.js';
@@ -69,7 +65,8 @@ export const defaultRetryConfig: RetryConfig = {
 };
 
 const defaultTimeoutMs = 30000;
-const textDecoderStream = TextDecoderStreamNative ?? TextDecoderStreamPolyfill;
+const textDecoderStream =
+  (globalThis as any).TextDecoderStream ?? TextDecoderStreamPolyfill;
 
 // Error Classes
 export class AxAIServiceError extends Error {
@@ -87,7 +84,7 @@ export class AxAIServiceError extends Error {
     super(message);
     this.name = this.constructor.name;
     this.timestamp = new Date().toISOString();
-    this.errorId = crypto.randomUUID();
+    this.errorId = randomUUID();
     this.context = context;
 
     this.stack = this.toString();
@@ -252,7 +249,7 @@ export class AxAIRefusalError extends Error {
     super(`Model refused to fulfill request: ${refusalMessage}`);
     this.name = 'AxAIRefusalError';
     this.timestamp = new Date().toISOString();
-    this.errorId = crypto.randomUUID();
+    this.errorId = randomUUID();
   }
 
   override toString(): string {
@@ -351,7 +348,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     .replace(/\/+/g, '/')}${baseUrl.search}`;
   const apiUrl = new URL(apiPath, baseUrl);
 
-  const requestId = crypto.randomUUID();
+  const requestId = randomUUID();
 
   // Validate request if validator is provided
   if (api.validateRequest) {

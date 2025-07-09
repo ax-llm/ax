@@ -1,6 +1,7 @@
 import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
+import { randomUUID } from '../../util/crypto.js';
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -591,7 +592,7 @@ class AxAIGoogleGeminiImpl
           if ('functionCall' in part) {
             result.functionCalls = [
               {
-                id: crypto.randomUUID(),
+                id: randomUUID(),
                 type: 'function',
                 function: {
                   name: part.functionCall.name,

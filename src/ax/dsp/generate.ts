@@ -1,4 +1,4 @@
-import { ReadableStream } from 'node:stream/web';
+// ReadableStream is available globally in modern browsers and Node.js 16+
 
 import {
   type Context,

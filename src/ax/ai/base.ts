@@ -1,6 +1,6 @@
-import crypto from 'node:crypto';
-import type { ReadableStream } from 'node:stream/web';
+// ReadableStream is available globally in modern browsers and Node.js 16+ via DOM types
 import { type Span, SpanKind, context } from '@opentelemetry/api';
+import { randomUUID } from '../util/crypto.js';
 
 import { axGlobals } from '../dsp/globals.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
@@ -180,7 +180,7 @@ export class AxBaseAI<
     this.meter = options.meter ?? axGlobals.meter;
     this.modelInfo = modelInfo;
     this.models = models;
-    this.id = crypto.randomUUID();
+    this.id = randomUUID();
 
     const model = this.getModel(defaults.model) ?? defaults.model;
     const embedModel =

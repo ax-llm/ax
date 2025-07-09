@@ -1,8 +1,4 @@
-import {
-  type Transformer,
-  TransformStream,
-  type TransformStreamDefaultController,
-} from 'node:stream/web';
+// Web Streams API types are now available globally via DOM types in tsconfig
 
 class TypeTransformer<I, O> implements Transformer<I, O> {
   private buffer?: O[];

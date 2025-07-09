@@ -1,5 +1,5 @@
-import crypto from 'node:crypto';
-import type { ReadableStream } from 'node:stream/web';
+// ReadableStream is available globally in modern browsers and Node.js 16+
+import { randomUUID } from '../../util/crypto.js';
 
 import type {
   AxAIModelList,
@@ -59,7 +59,7 @@ export class AxMockAIService implements AxAIService {
   };
 
   constructor(private readonly config: AxMockAIServiceConfig = {}) {
-    this.config.id = this.config.id ?? crypto.randomUUID();
+    this.config.id = this.config.id ?? randomUUID();
   }
   getLastUsedChatModel(): unknown {
     return this.config.modelInfo?.name ?? 'mock-model';

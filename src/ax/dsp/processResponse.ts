@@ -1,4 +1,4 @@
-import type { ReadableStream } from 'node:stream/web';
+// ReadableStream is available globally in modern browsers and Node.js 16+
 
 import type { AxChatResponse, AxModelUsage } from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
@@ -12,9 +12,9 @@ import {
 } from './asserts.js';
 import {
   extractValues,
+  streamValues,
   streamingExtractFinalValue,
   streamingExtractValues,
-  streamValues,
 } from './extract.js';
 import {
   type AxFieldProcessor,
@@ -52,32 +52,41 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     args.functions !== undefined &&
     args.functions.length > 0;
 
-  for await (const v of res) {
-    if (v.modelUsage) {
-      usage.push(v.modelUsage);
-    }
-
-    for (const result of v.results) {
-      if (
-        result.content === '' &&
-        (!result.thought || result.thought === '') &&
-        (!result.functionCalls || result.functionCalls.length === 0)
-      ) {
-        continue;
+  // Handle ReadableStream async iteration for browser compatibility
+  const reader = res.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const v = value;
+      if (v.modelUsage) {
+        usage.push(v.modelUsage);
       }
 
-      const state = states.find((s) => s.index === result.index);
-      if (!state) {
-        throw new Error(`No state found for result (index: ${result.index})`);
-      }
+      for (const result of v.results) {
+        if (
+          (!result.content || result.content === '') &&
+          (!result.thought || result.thought === '') &&
+          (!result.functionCalls || result.functionCalls.length === 0)
+        ) {
+          continue;
+        }
 
-      yield* ProcessStreamingResponse<OUT>({
-        ...args,
-        result,
-        skipEarlyFail,
-        state,
-      });
+        const state = states.find((s) => s.index === result.index);
+        if (!state) {
+          throw new Error(`No state found for result (index: ${result.index})`);
+        }
+
+        yield* ProcessStreamingResponse<OUT>({
+          ...args,
+          result,
+          skipEarlyFail,
+          state,
+        });
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
 
   // Finalize the streams

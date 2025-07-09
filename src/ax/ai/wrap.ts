@@ -1,4 +1,4 @@
-import type { ReadableStream } from 'node:stream/web';
+// ReadableStream is available globally in modern browsers and Node.js 16+
 
 import { AxAIAnthropic, type AxAIAnthropicArgs } from './anthropic/api.js';
 import type { AxAIAnthropicModel } from './anthropic/types.js';

@@ -305,7 +305,7 @@ export function* yieldDelta<OUT extends AxGenOut>(
   }
 
   if (d3.length > 0) {
-    yield { index, delta: { [fieldName]: d3 } as Partial<OUT> };
+    yield { index, delta: { [fieldName]: d3 } as unknown as Partial<OUT> };
     xstate.streamedIndex[fieldName] = pos + d2.length;
   }
 }
@@ -351,14 +351,14 @@ export function* streamValues<OUT extends AxGenOut>(
       const s = xstate.streamedIndex?.[key] ?? 0;
       const v = value.slice(s);
       if (v && v.length > 0) {
-        yield { index, delta: { [key]: v } as Partial<OUT> };
+        yield { index, delta: { [key]: v } as unknown as Partial<OUT> };
         xstate.streamedIndex[key] = s + v.length;
       }
       continue;
     }
 
     if (!xstate.streamedIndex[key]) {
-      yield { index, delta: { [key]: value } as Partial<OUT> };
+      yield { index, delta: { [key]: value } as unknown as Partial<OUT> };
       xstate.streamedIndex[key] = 1;
     }
   }

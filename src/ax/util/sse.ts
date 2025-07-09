@@ -1,7 +1,4 @@
-import {
-  TransformStream,
-  type TransformStreamDefaultController,
-} from 'node:stream/web';
+// Web Streams API types are now available globally via DOM types in tsconfig
 
 interface CurrentEventState {
   event?: string;

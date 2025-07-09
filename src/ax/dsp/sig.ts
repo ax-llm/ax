@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash } from '../util/crypto.js';
 
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 

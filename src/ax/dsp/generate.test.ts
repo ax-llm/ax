@@ -120,7 +120,7 @@ describe('AxGen forward and streamingForward', () => {
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
       // Provide chatResponse as a function that accepts request params and returns the stream
-      chatResponse: streamingResponse,
+      chatResponse: streamingResponse as any,
     });
 
     const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
@@ -265,7 +265,7 @@ describe('AxGen thoughtFieldName', () => {
     const streamingResponse = createStreamingResponse(chunks);
     const ai = new AxMockAIService({
       features: { functions: false, streaming: true },
-      chatResponse: streamingResponse,
+      chatResponse: streamingResponse as any,
     });
 
     const gen = new AxGen<

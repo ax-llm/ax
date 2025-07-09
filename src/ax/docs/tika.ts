@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+// Dynamic import for Node.js-specific functionality to maintain browser compatibility
 
 export interface AxApacheTikaArgs {
   url?: string | URL;
@@ -23,8 +23,27 @@ export class AxApacheTika {
     file: string | Blob,
     options?: Readonly<AxApacheTikaConvertOptions>
   ): Promise<string> {
-    const fileData =
-      typeof file === 'string' ? createReadStream(file) : file.stream();
+    let fileData: ReadableStream | Blob;
+
+    if (typeof file === 'string') {
+      // In Node.js environment, dynamically import fs
+      if (typeof window === 'undefined' && typeof process !== 'undefined') {
+        try {
+          const fs = await import('node:fs');
+          fileData = fs.createReadStream(file) as any;
+        } catch {
+          throw new Error(
+            'File path input is only supported in Node.js environments'
+          );
+        }
+      } else {
+        throw new Error(
+          'File path input is only supported in Node.js environments. Use Blob in browser.'
+        );
+      }
+    } else {
+      fileData = file;
+    }
 
     if (!fileData) {
       throw new Error('Failed to read file data');
@@ -33,12 +52,18 @@ export class AxApacheTika {
     const acceptValue = options?.format === 'html' ? 'text/html' : 'text/plain';
 
     try {
-      const res = await (this.fetch ?? fetch)(this.tikaUrl, {
-        body: fileData,
+      const fetchOptions: RequestInit = {
+        body: fileData as any,
         headers: { Accept: acceptValue },
-        duplex: 'half',
         method: 'PUT',
-      });
+      };
+
+      // Add duplex option only in Node.js environments
+      if (typeof window === 'undefined' && typeof process !== 'undefined') {
+        (fetchOptions as any).duplex = 'half';
+      }
+
+      const res = await (this.fetch ?? fetch)(this.tikaUrl, fetchOptions);
 
       if (!res.ok) {
         throw new Error(`Failed to upload file: ${res.statusText}`);

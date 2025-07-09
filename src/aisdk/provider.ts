@@ -15,8 +15,8 @@ import type {
   LanguageModelV1StreamPart,
 } from '@ai-sdk/provider';
 import type {
-  AxAgentic,
   AxAIService,
+  AxAgentic,
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
@@ -183,7 +183,7 @@ export class AxAIProvider implements LanguageModelV1 {
     })) as ReadableStream<AxChatResponse>;
 
     return {
-      stream: res.pipeThrough(new AxToSDKTransformer()),
+      stream: res.pipeThrough(new AxToSDKTransformer()) as any,
       rawCall: { rawPrompt: '', rawSettings: req.modelConfig ?? {} },
       warnings,
     };
