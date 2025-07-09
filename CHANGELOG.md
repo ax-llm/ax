@@ -1,5 +1,16 @@
 # Changelog
 
+## [13.0.2](https://github.com/ax-llm/ax/compare/13.0.0...13.0.1) (2025-07-09)
+
+### Bug Fixes
+
+* build fixes ([b19e90a](https://github.com/ax-llm/ax/commit/b19e90abfbfe5ef95455a5cc899346aec0333c83))
+## [13.0.1](https://github.com/ax-llm/ax/compare/13.0.0...13.0.1) (2025-07-09)
+
+### Bug Fixes
+
+* build issues ([51188ac](https://github.com/ax-llm/ax/commit/51188acdd6df1a2b7afa12dc6e002a01b3eed4c5))
+
 ## [13.0.1](https://github.com/ax-llm/ax/compare/12.0.26...13.0.0) (2025-07-09)
 
 ### Bug Fixes
