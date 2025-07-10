@@ -5,7 +5,7 @@ import type {
 } from '../ai/types.js';
 import { ColorLog } from '../util/log.js';
 
-const colorLog = new ColorLog();
+const _colorLog = new ColorLog();
 
 // Default output function that writes to stdout
 const defaultOutput = (message: string): void => {
@@ -15,70 +15,79 @@ const defaultOutput = (message: string): void => {
 // Helper function to format chat message for display
 const formatChatMessage = (
   msg: AxChatRequest['chatPrompt'][number],
-  hideContent?: boolean
+  hideContent?: boolean,
+  cl?: ColorLog
 ) => {
+  const colorize = (text: string, colorMethod?: keyof ColorLog) => {
+    if (cl && colorMethod && colorMethod in cl) {
+      return (cl[colorMethod] as (t: string) => string)(text);
+    }
+    return text;
+  };
+
   switch (msg.role) {
     case 'system':
-      return `─── System: ───\n${msg.content}`;
+      return `${colorize('[ SYSTEM ]', 'magentaBright')}\n${colorize(msg.content, 'magenta')}`;
     case 'function':
-      return `─── Function Result: ───\n${msg.result}`;
+      return `${colorize('[ FUNCTION RESULT ]', 'yellow')}\n${colorize(msg.result ?? '[No result]', 'yellowDim')}`;
     case 'user': {
+      const header = `${colorize('[ USER ]', 'greenBright')}\n`;
       if (typeof msg.content === 'string') {
-        return `─── User: ───\n${msg.content}`;
+        return header + colorize(msg.content, 'green');
       }
       const items = msg.content.map((item) => {
         if (item.type === 'text') {
-          return item.text;
+          return colorize(item.text, 'green');
         }
         if (item.type === 'image') {
-          return hideContent ? '[Image]' : `[Image: ${item.image}]`;
+          const content = hideContent ? '[Image]' : `[Image: ${item.image}]`;
+          return colorize(content, 'green');
         }
         if (item.type === 'audio') {
-          return hideContent ? '[Audio]' : `[Audio: ${item.data}]`;
+          const content = hideContent ? '[Audio]' : `[Audio: ${item.data}]`;
+          return colorize(content, 'green');
         }
-        return '[Unknown content type]';
+        return colorize('[Unknown content type]', 'gray');
       });
-      return `─── User: ───\n${items.join('\n')}`;
+      return header + items.join('\n');
     }
     case 'assistant': {
-      let result = '─── Assistant:';
+      let header = colorize('[ ASSISTANT', 'cyanBright');
       if (msg.name) {
-        result += ` ${msg.name}`;
+        header += ` ${msg.name}`;
       }
-      result += ' ───\n';
-
+      header += ' ]';
+      let result = `${header}\n`;
       if (msg.content) {
-        result += msg.content;
+        result += `${colorize(msg.content, 'cyan')}\n`;
       }
-
       if (msg.functionCalls && msg.functionCalls.length > 0) {
-        if (msg.content) {
-          result += '\n';
-        }
-        result += '─── Function Calls ───\n';
+        result += `${colorize('[ FUNCTION CALLS ]', 'yellow')}\n`;
         msg.functionCalls.forEach((call, i) => {
           const params =
             typeof call.function.params === 'string'
               ? call.function.params
               : JSON.stringify(call.function.params, null, 2);
-          result += `${i + 1}. ${call.function.name}(${params}) [id: ${call.id}]`;
+          result += colorize(
+            `${i + 1}. ${call.function.name}(${params}) [id: ${call.id}]`,
+            'yellowDim'
+          );
           if (i < msg.functionCalls!.length - 1) {
             result += '\n';
           }
         });
+        result += '\n';
       }
-
       if (
         !msg.content &&
         (!msg.functionCalls || msg.functionCalls.length === 0)
       ) {
-        result += '[No content]';
+        result += colorize('[No content]', 'gray');
       }
-
       return result;
     }
     default:
-      return `─── Unknown Role: ───\n${JSON.stringify(msg)}`;
+      return `${colorize('[ UNKNOWN ]', 'redBright')}\n${colorize(JSON.stringify(msg), 'gray')}`;
   }
 };
 
@@ -86,71 +95,85 @@ const formatChatMessage = (
 export const axCreateDefaultColorLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
+  const cl = new ColorLog();
+  const divider = cl.gray('─'.repeat(60));
   return (message: AxLoggerData) => {
     const typedData = message;
     let formattedMessage = '';
 
     switch (typedData.name) {
       case 'ChatRequestChatPrompt':
-        formattedMessage = `${typedData.step > 0 ? '\n\n' : ''}─── [Step ${typedData.step}] Chat Request ───\n`;
+        formattedMessage = `${typedData.step > 0 ? `\n${divider}\n` : ''}${cl.blueBright(`[ CHAT REQUEST Step ${typedData.step} ]`)}\n${divider}\n`;
         typedData.value.forEach((msg, i) => {
-          formattedMessage += formatChatMessage(msg);
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          formattedMessage += formatChatMessage(msg, undefined, cl);
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
+        formattedMessage += `\n${divider}`; // Keep closing for steps
         break;
       case 'FunctionResults':
-        formattedMessage = '\n─── Function Results ───\n';
+        formattedMessage = `\n${cl.yellow('[ FUNCTION RESULTS ]')}\n${divider}\n`;
         typedData.value.forEach((result, i) => {
-          formattedMessage += `Function: ${result.functionId}\nResult: ${result.result}`;
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          formattedMessage += cl.yellowDim(
+            `Function: ${result.functionId}\nResult: ${result.result}`
+          );
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       case 'ChatResponseResults':
-        formattedMessage = '\n─── Chat Response ───\n';
+        formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n${divider}\n`;
         typedData.value.forEach((result, i) => {
-          formattedMessage += result.content || '[No content]';
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          formattedMessage += cl.cyan(result.content || '[No content]');
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       case 'ChatResponseStreamingResult':
-        // Don't show streaming markers inline with content - just show the content
-        formattedMessage =
-          typedData.value.delta || typedData.value.content || '';
+        formattedMessage = cl.cyanBright(
+          typedData.value.delta || typedData.value.content || ''
+        );
         break;
       case 'FunctionError':
-        formattedMessage = `\n─── Function Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        formattedMessage = `\n${cl.redBright(`[ FUNCTION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
         break;
       case 'ValidationError':
-        formattedMessage = `\n─── Validation Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        formattedMessage = `\n${cl.redBright(`[ VALIDATION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
         break;
       case 'AssertionError':
-        formattedMessage = `\n─── Assertion Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        formattedMessage = `\n${cl.redBright(`[ ASSERTION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
         break;
       case 'ResultPickerUsed':
-        formattedMessage = `─── Result Picker ───\nSelected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`;
+        formattedMessage = `${cl.greenBright('[ RESULT PICKER ]')}\n${divider}\n${cl.green(`Selected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`)}`;
         break;
       case 'Notification':
-        formattedMessage = `─── Notification [${typedData.id}] ───\n${typedData.value}`;
+        formattedMessage = `${cl.gray(`[ NOTIFICATION ${typedData.id} ]`)}\n${divider}\n${cl.white(typedData.value)}`;
         break;
       case 'EmbedRequest':
-        formattedMessage = `─── Embed Request [${typedData.embedModel}] ───\n`;
+        formattedMessage = `${cl.orange(`[ EMBED REQUEST ${typedData.embedModel} ]`)}\n${divider}\n`;
         typedData.value.forEach((text, i) => {
-          formattedMessage += `Text ${i + 1}: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          formattedMessage += cl.white(
+            `Text ${i + 1}: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`
+          );
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       case 'EmbedResponse':
-        formattedMessage = `─── Embed Response (${typedData.totalEmbeddings} embeddings) ───\n`;
+        formattedMessage = `${cl.orange(`[ EMBED RESPONSE (${typedData.totalEmbeddings} embeddings) ]`)}\n${divider}\n`;
         typedData.value.forEach((embedding, i) => {
-          formattedMessage += `Embedding ${i + 1}: [${embedding.sample.join(', ')}${embedding.truncated ? ', ...' : ''}] (length: ${embedding.length})`;
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          formattedMessage += cl.white(
+            `Embedding ${i + 1}: [${embedding.sample.join(', ')}${embedding.truncated ? ', ...' : ''}] (length: ${embedding.length})`
+          );
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       default:
-        formattedMessage = JSON.stringify(typedData, null, 2);
+        formattedMessage = cl.gray(JSON.stringify(typedData, null, 2));
     }
 
-    output(colorLog.white(formattedMessage));
+    output(formattedMessage);
   };
 };
 
@@ -160,64 +183,70 @@ export const defaultLogger: AxLoggerFunction = axCreateDefaultColorLogger();
 export const axCreateDefaultTextLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
+  const divider = '─'.repeat(60);
   return (message: AxLoggerData) => {
     const typedData = message;
     let formattedMessage = '';
 
     switch (typedData.name) {
       case 'ChatRequestChatPrompt':
-        formattedMessage = `${typedData.step > 0 ? '\n\n' : ''}─── [Step ${typedData.step}] Chat Request ───\n`;
+        formattedMessage = `${typedData.step > 0 ? `\n${divider}\n` : ''}[ CHAT REQUEST Step ${typedData.step} ]\n${divider}\n`;
         typedData.value.forEach((msg, i) => {
           formattedMessage += formatChatMessage(msg);
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
+        formattedMessage += `\n${divider}`; // Keep closing for steps
         break;
       case 'FunctionResults':
-        formattedMessage = '─── Function Results ───\n';
+        formattedMessage = `\n[ FUNCTION RESULTS ]\n${divider}\n`;
         typedData.value.forEach((result, i) => {
           formattedMessage += `Function: ${result.functionId}\nResult: ${result.result}`;
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       case 'ChatResponseResults':
-        formattedMessage = '\n─── Chat Response ───\n';
+        formattedMessage = `\n[ CHAT RESPONSE ]\n${divider}\n`;
         typedData.value.forEach((result, i) => {
           formattedMessage += result.content || '[No content]';
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       case 'ChatResponseStreamingResult':
-        // Don't show streaming markers inline with content - just show the content
         formattedMessage =
           typedData.value.delta || typedData.value.content || '';
         break;
       case 'FunctionError':
-        formattedMessage = `\n─── Function Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        formattedMessage = `\n[ FUNCTION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
         break;
       case 'ValidationError':
-        formattedMessage = `\n─── Validation Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        formattedMessage = `\n[ VALIDATION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
         break;
       case 'AssertionError':
-        formattedMessage = `\n─── Assertion Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        formattedMessage = `\n[ ASSERTION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
         break;
       case 'ResultPickerUsed':
-        formattedMessage = `─── Result Picker ───\nSelected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`;
+        formattedMessage = `[ RESULT PICKER ]\n${divider}\nSelected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`;
         break;
       case 'Notification':
-        formattedMessage = `─── Notification [${typedData.id}] ───\n${typedData.value}`;
+        formattedMessage = `[ NOTIFICATION ${typedData.id} ]\n${divider}\n${typedData.value}`;
         break;
       case 'EmbedRequest':
-        formattedMessage = `─── Embed Request [${typedData.embedModel}] ───\n`;
+        formattedMessage = `[ EMBED REQUEST ${typedData.embedModel} ]\n${divider}\n`;
         typedData.value.forEach((text, i) => {
           formattedMessage += `Text ${i + 1}: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       case 'EmbedResponse':
-        formattedMessage = `─── Embed Response (${typedData.totalEmbeddings} embeddings) ───\n`;
+        formattedMessage = `[ EMBED RESPONSE (${typedData.totalEmbeddings} embeddings) ]\n${divider}\n`;
         typedData.value.forEach((embedding, i) => {
           formattedMessage += `Embedding ${i + 1}: [${embedding.sample.join(', ')}${embedding.truncated ? ', ...' : ''}] (length: ${embedding.length})`;
-          if (i < typedData.value.length - 1) formattedMessage += '\n';
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
         });
         break;
       default:
