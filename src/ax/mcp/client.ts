@@ -1,4 +1,8 @@
-import type { AxFunction, AxLoggerFunction } from '../ai/types.js';
+import type {
+  AxFunction,
+  AxLoggerData,
+  AxLoggerFunction,
+} from '../ai/types.js';
 import { randomUUID } from '../util/crypto.js';
 
 import type { AxMCPTransport } from './transport.js';
@@ -69,7 +73,15 @@ export class AxMCPClient {
     private readonly transport: AxMCPTransport,
     private readonly options: Readonly<AxMCPClientOptions> = {}
   ) {
-    this.logger = options.logger ?? ((message: string) => console.log(message));
+    this.logger =
+      options.logger ??
+      ((message: string | AxLoggerData) => {
+        if (typeof message === 'string') {
+          console.log(message);
+        } else {
+          console.log(JSON.stringify(message, null, 2));
+        }
+      });
   }
 
   async init(): Promise<void> {
@@ -155,17 +167,6 @@ export class AxMCPClient {
         },
       };
     });
-
-    if (this.options.debug) {
-      this.logger(`> Discovered ${this.functions.length} functions:`, {
-        tags: ['discovery'],
-      });
-      for (const fn of this.functions) {
-        this.logger(`  - ${fn.name}: ${fn.description}`, {
-          tags: ['discovery'],
-        });
-      }
-    }
   }
 
   async ping(timeout = 3000): Promise<void> {
@@ -264,11 +265,14 @@ export class AxMCPClient {
       params,
     };
 
-    if (this.options.debug) {
-      this.logger(
-        `➡️ Sending notification: ${JSON.stringify(notification, null, 2)}`,
-        { tags: ['requestStart'] }
-      );
+    const { debug } = this.options;
+    if (debug) {
+      const loggerData: AxLoggerData = {
+        name: 'Notification',
+        id: 'mcp_notification',
+        value: `Sending notification: ${JSON.stringify(notification, null, 2)}`,
+      };
+      this.logger(loggerData);
     }
 
     await this.transport.sendNotification(notification);

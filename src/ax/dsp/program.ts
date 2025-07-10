@@ -85,7 +85,6 @@ export type AxProgramForwardOptions = {
   // Behavior control
   fastFail?: boolean;
   debug?: boolean;
-  debugHideSystemPrompt?: boolean;
 
   // Thinking model controls
   thinkingTokenBudget?:

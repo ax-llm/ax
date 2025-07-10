@@ -12,6 +12,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerData,
   AxLoggerFunction,
   AxModelConfig,
   AxModelInfoWithProvider,
@@ -194,8 +195,13 @@ export class AxMockAIService implements AxAIService {
   getLogger(): AxLoggerFunction {
     return (
       this.config.options?.logger ??
-      ((message: string) => {
-        process.stdout.write(message);
+      ((message: string | AxLoggerData) => {
+        if (typeof message === 'string') {
+          process.stdout.write(message);
+        } else {
+          // For typed logger data, convert to string representation
+          process.stdout.write(JSON.stringify(message, null, 2));
+        }
       })
     );
   }

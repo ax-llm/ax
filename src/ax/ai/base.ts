@@ -1,14 +1,18 @@
 // ReadableStream is available globally in modern browsers and Node.js 16+ via DOM types
-import { type Span, SpanKind, context } from '@opentelemetry/api';
-import { randomUUID } from '../util/crypto.js';
-
+import { context, type Span, SpanKind } from '@opentelemetry/api';
 import { axGlobals } from '../dsp/globals.js';
+import { defaultLogger } from '../dsp/loggers.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { apiCall } from '../util/apicall.js';
+import { randomUUID } from '../util/crypto.js';
 import { RespTransformStream } from '../util/transform.js';
-
-import { defaultLogger } from '../dsp/loggers.js';
-import { logChatRequest, logResponse } from './debug.js';
+import {
+  logChatRequest,
+  logEmbedRequest,
+  logEmbedResponse,
+  logResponse,
+  logResponseStreamingResult,
+} from './debug.js';
 import {
   type AxAIMetricsInstruments,
   getOrCreateAIMetricsInstruments,
@@ -1034,6 +1038,7 @@ export class AxBaseAI<
     if (debug) {
       logChatRequest(
         req.chatPrompt,
+        options?.stepIndex ?? 0,
         options?.debugHideSystemPrompt,
         options?.logger ?? this.logger
       );
@@ -1072,7 +1077,14 @@ export class AxBaseAI<
           }
 
           if (debug) {
-            logResponse(res, options?.logger ?? this.logger);
+            // Log individual streaming results
+            for (const result of res.results) {
+              logResponseStreamingResult(
+                result,
+                result.index,
+                options?.logger ?? this.logger
+              );
+            }
           }
           return res;
         };
@@ -1229,6 +1241,14 @@ export class AxBaseAI<
     // Store the last used embed model
     this.lastUsedEmbedModel = embedModel;
 
+    if (debug) {
+      logEmbedRequest(
+        req.texts ?? [],
+        embedModel as string,
+        options?.logger ?? this.logger
+      );
+    }
+
     const fn = async () => {
       const [apiConfig, reqValue] = await this.aiImpl.createEmbedReq!(req);
 
@@ -1278,6 +1298,10 @@ export class AxBaseAI<
         [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
           res.modelUsage.tokens.totalTokens,
       });
+    }
+
+    if (debug) {
+      logEmbedResponse(res.embeddings, options?.logger ?? this.logger);
     }
 
     span?.end();

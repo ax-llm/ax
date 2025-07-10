@@ -1,4 +1,8 @@
-import type { AxLoggerFunction, AxLoggerTag } from '../ai/types.js';
+import type {
+  AxChatRequest,
+  AxLoggerData,
+  AxLoggerFunction,
+} from '../ai/types.js';
 import { ColorLog } from '../util/log.js';
 
 const colorLog = new ColorLog();
@@ -8,58 +12,145 @@ const defaultOutput = (message: string): void => {
   process.stdout.write(message);
 };
 
+// Helper function to format chat message for display
+const formatChatMessage = (
+  msg: AxChatRequest['chatPrompt'][number],
+  hideContent?: boolean
+) => {
+  switch (msg.role) {
+    case 'system':
+      return `─── System: ───\n${msg.content}`;
+    case 'function':
+      return `─── Function Result: ───\n${msg.result}`;
+    case 'user': {
+      if (typeof msg.content === 'string') {
+        return `─── User: ───\n${msg.content}`;
+      }
+      const items = msg.content.map((item) => {
+        if (item.type === 'text') {
+          return item.text;
+        }
+        if (item.type === 'image') {
+          return hideContent ? '[Image]' : `[Image: ${item.image}]`;
+        }
+        if (item.type === 'audio') {
+          return hideContent ? '[Audio]' : `[Audio: ${item.data}]`;
+        }
+        return '[Unknown content type]';
+      });
+      return `─── User: ───\n${items.join('\n')}`;
+    }
+    case 'assistant': {
+      let result = '─── Assistant:';
+      if (msg.name) {
+        result += ` ${msg.name}`;
+      }
+      result += ' ───\n';
+
+      if (msg.content) {
+        result += msg.content;
+      }
+
+      if (msg.functionCalls && msg.functionCalls.length > 0) {
+        if (msg.content) {
+          result += '\n';
+        }
+        result += '─── Function Calls ───\n';
+        msg.functionCalls.forEach((call, i) => {
+          const params =
+            typeof call.function.params === 'string'
+              ? call.function.params
+              : JSON.stringify(call.function.params, null, 2);
+          result += `${i + 1}. ${call.function.name}(${params}) [id: ${call.id}]`;
+          if (i < msg.functionCalls!.length - 1) {
+            result += '\n';
+          }
+        });
+      }
+
+      if (
+        !msg.content &&
+        (!msg.functionCalls || msg.functionCalls.length === 0)
+      ) {
+        result += '[No content]';
+      }
+
+      return result;
+    }
+    default:
+      return `─── Unknown Role: ───\n${JSON.stringify(msg)}`;
+  }
+};
+
 // Factory function to create a default logger with customizable output
 export const axCreateDefaultColorLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
-  return (message: string, options?: { tags?: AxLoggerTag[] }) => {
-    const tags = options?.tags ?? [];
-    let formattedMessage = message;
+  return (message: AxLoggerData) => {
+    const typedData = message;
+    let formattedMessage = '';
 
-    // Step 1: Pick color function based on semantic tags
-    let colorFunction: (text: string) => string = (text) => text; // default no color
-
-    if (tags.includes('systemContent')) {
-      colorFunction = (text) => colorLog.white(text);
-    } else if (tags.includes('userContent')) {
-      colorFunction = (text) => colorLog.white(text);
-    } else if (tags.includes('functionName')) {
-      colorFunction = (text) => colorLog.greenBright(text);
-    } else if (tags.includes('functionArg')) {
-      colorFunction = (text) => colorLog.greenBright(text);
-    } else if (tags.includes('assistantContent')) {
-      colorFunction = (text) => colorLog.white(text);
-    } else if (tags.includes('responseContent')) {
-      colorFunction = (text) => colorLog.greenBright(text);
-    } else if (tags.includes('functionResult')) {
-      colorFunction = (text) => colorLog.blueBright(text);
+    switch (typedData.name) {
+      case 'ChatRequestChatPrompt':
+        formattedMessage = `${typedData.step > 0 ? '\n\n' : ''}─── [Step ${typedData.step}] Chat Request ───\n`;
+        typedData.value.forEach((msg, i) => {
+          formattedMessage += formatChatMessage(msg);
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'FunctionResults':
+        formattedMessage = '\n─── Function Results ───\n';
+        typedData.value.forEach((result, i) => {
+          formattedMessage += `Function: ${result.functionId}\nResult: ${result.result}`;
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'ChatResponseResults':
+        formattedMessage = '\n─── Chat Response ───\n';
+        typedData.value.forEach((result, i) => {
+          formattedMessage += result.content || '[No content]';
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'ChatResponseStreamingResult':
+        // Don't show streaming markers inline with content - just show the content
+        formattedMessage =
+          typedData.value.delta || typedData.value.content || '';
+        break;
+      case 'FunctionError':
+        formattedMessage = `\n─── Function Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'ValidationError':
+        formattedMessage = `\n─── Validation Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'AssertionError':
+        formattedMessage = `\n─── Assertion Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'ResultPickerUsed':
+        formattedMessage = `─── Result Picker ───\nSelected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`;
+        break;
+      case 'Notification':
+        formattedMessage = `─── Notification [${typedData.id}] ───\n${typedData.value}`;
+        break;
+      case 'EmbedRequest':
+        formattedMessage = `─── Embed Request [${typedData.embedModel}] ───\n`;
+        typedData.value.forEach((text, i) => {
+          formattedMessage += `Text ${i + 1}: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'EmbedResponse':
+        formattedMessage = `─── Embed Response (${typedData.totalEmbeddings} embeddings) ───\n`;
+        typedData.value.forEach((embedding, i) => {
+          formattedMessage += `Embedding ${i + 1}: [${embedding.sample.join(', ')}${embedding.truncated ? ', ...' : ''}] (length: ${embedding.length})`;
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      default:
+        formattedMessage = JSON.stringify(typedData, null, 2);
     }
 
-    if (tags.includes('error')) {
-      colorFunction = (text) => colorLog.redBright(text);
-    } else if (tags.includes('warning')) {
-      colorFunction = (text) => colorLog.red(text);
-    }
-
-    // Step 2: Add prefix based on tag type
-    if (
-      tags.includes('systemContent') ||
-      tags.includes('userContent') ||
-      tags.includes('functionName') ||
-      tags.includes('functionArg') ||
-      tags.includes('functionResult') ||
-      tags.includes('assistantStart') ||
-      tags.includes('start') ||
-      tags.includes('end')
-    ) {
-      formattedMessage = `\n${formattedMessage}`;
-    }
-
-    if (tags.includes('responseEnd')) {
-      formattedMessage = `${formattedMessage}\n───\n`;
-    }
-    // Step 4: Apply color function and output
-    output(colorFunction(formattedMessage));
+    output(colorLog.white(formattedMessage));
   };
 };
 
@@ -69,31 +160,70 @@ export const defaultLogger: AxLoggerFunction = axCreateDefaultColorLogger();
 export const axCreateDefaultTextLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
-  return (message: string, options?: { tags?: AxLoggerTag[] }) => {
-    const tags = options?.tags ?? [];
-    let formattedMessage = message;
+  return (message: AxLoggerData) => {
+    const typedData = message;
+    let formattedMessage = '';
 
-    // Step 1: No color function needed for text logger
-
-    // Step 2: Add prefix based on tag type
-    if (
-      tags.includes('systemContent') ||
-      tags.includes('userContent') ||
-      tags.includes('functionName') ||
-      tags.includes('functionArg') ||
-      tags.includes('functionResult') ||
-      tags.includes('assistantStart') ||
-      tags.includes('start') ||
-      tags.includes('end')
-    ) {
-      formattedMessage = `\n${formattedMessage}`;
+    switch (typedData.name) {
+      case 'ChatRequestChatPrompt':
+        formattedMessage = `${typedData.step > 0 ? '\n\n' : ''}─── [Step ${typedData.step}] Chat Request ───\n`;
+        typedData.value.forEach((msg, i) => {
+          formattedMessage += formatChatMessage(msg);
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'FunctionResults':
+        formattedMessage = '─── Function Results ───\n';
+        typedData.value.forEach((result, i) => {
+          formattedMessage += `Function: ${result.functionId}\nResult: ${result.result}`;
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'ChatResponseResults':
+        formattedMessage = '\n─── Chat Response ───\n';
+        typedData.value.forEach((result, i) => {
+          formattedMessage += result.content || '[No content]';
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'ChatResponseStreamingResult':
+        // Don't show streaming markers inline with content - just show the content
+        formattedMessage =
+          typedData.value.delta || typedData.value.content || '';
+        break;
+      case 'FunctionError':
+        formattedMessage = `\n─── Function Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'ValidationError':
+        formattedMessage = `\n─── Validation Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'AssertionError':
+        formattedMessage = `\n─── Assertion Error #${typedData.index} ───\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'ResultPickerUsed':
+        formattedMessage = `─── Result Picker ───\nSelected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`;
+        break;
+      case 'Notification':
+        formattedMessage = `─── Notification [${typedData.id}] ───\n${typedData.value}`;
+        break;
+      case 'EmbedRequest':
+        formattedMessage = `─── Embed Request [${typedData.embedModel}] ───\n`;
+        typedData.value.forEach((text, i) => {
+          formattedMessage += `Text ${i + 1}: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      case 'EmbedResponse':
+        formattedMessage = `─── Embed Response (${typedData.totalEmbeddings} embeddings) ───\n`;
+        typedData.value.forEach((embedding, i) => {
+          formattedMessage += `Embedding ${i + 1}: [${embedding.sample.join(', ')}${embedding.truncated ? ', ...' : ''}] (length: ${embedding.length})`;
+          if (i < typedData.value.length - 1) formattedMessage += '\n';
+        });
+        break;
+      default:
+        formattedMessage = JSON.stringify(typedData, null, 2);
     }
 
-    if (tags.includes('responseEnd')) {
-      formattedMessage = `${formattedMessage}───\n`;
-    }
-
-    // Step 4: Output without color
     output(formattedMessage);
   };
 };
@@ -107,117 +237,9 @@ export const axCreateOptimizerLogger = (
 ): AxLoggerFunction => {
   const baseLogger = axCreateDefaultColorLogger(output);
 
-  // Track state for better visual flow
-  let isFirstPhase = true;
-
-  return (message: string, options) => {
-    const tags = options?.tags ?? [];
-    let formattedMessage = message;
-
-    // Use tags for semantic formatting instead of string pattern matching
-    if (tags.includes('optimizer')) {
-      if (tags.includes('start')) {
-        const trialsMatch =
-          message.match(/with (\d+) trials?/) || message.match(/(\d+) trials?/);
-        const optimizerMatch = message.match(
-          /(MIPROv2|BootstrapFewshot|[A-Z][a-zA-Z]+)/
-        );
-        const optimizerName = optimizerMatch ? optimizerMatch[1] : 'Optimizer';
-
-        if (trialsMatch?.[1]) {
-          formattedMessage = `\n┌─ ${optimizerName} optimization (${trialsMatch[1]} trials)\n`;
-        } else {
-          formattedMessage = `\n┌─ ${optimizerName} optimization\n`;
-        }
-        isFirstPhase = true;
-      } else if (tags.includes('config')) {
-        if (message.includes('examples') && message.includes('training')) {
-          const match =
-            message.match(
-              /(\d+) examples for training and (\d+) for validation/
-            ) || message.match(/(\d+) training.*?(\d+) validation/);
-          if (match?.[1] && match[2]) {
-            formattedMessage = `│  Dataset: ${match[1]} training, ${match[2]} validation\n`;
-          } else {
-            const simpleMatch = message.match(/(\d+) examples/);
-            if (simpleMatch?.[1]) {
-              formattedMessage = `│  Dataset: ${simpleMatch[1]} examples\n`;
-            }
-          }
-        } else if (message.includes('teacher')) {
-          formattedMessage = '│  Using teacher model\n';
-        } else {
-          formattedMessage = `│  ${message}\n`;
-        }
-      } else if (tags.includes('phase')) {
-        if (isFirstPhase) {
-          formattedMessage = `├─ ${message}\n`;
-          isFirstPhase = false;
-        } else {
-          formattedMessage = `├─ ${message}\n`;
-        }
-      } else if (tags.includes('result')) {
-        if (message.includes('Generated') || message.includes('Selected')) {
-          const match = message.match(/(\d+)/);
-          if (match?.[1]) {
-            formattedMessage = `│  ✓ ${message}\n`;
-          } else {
-            formattedMessage = `│  ✓ ${message}\n`;
-          }
-        } else if (message.includes('configuration')) {
-          formattedMessage = '│  Applied best configuration\n';
-        } else {
-          formattedMessage = `│  ${message}\n`;
-        }
-      } else if (tags.includes('progress')) {
-        formattedMessage = `│  ${message}\n`;
-      } else if (tags.includes('complete')) {
-        const scoreMatch = message.match(/(score|performance):\s*([\d.]+)/);
-        if (scoreMatch?.[2]) {
-          const score = Number.parseFloat(scoreMatch[2]);
-          const percentage =
-            score <= 1 ? `${(score * 100).toFixed(1)}%` : score.toFixed(3);
-          formattedMessage = `├─ Complete! Best: ${percentage}\n`;
-        } else if (message.includes('Bootstrap')) {
-          formattedMessage = `├─ ${message}\n`;
-        } else {
-          formattedMessage = '├─ Optimization complete\n';
-        }
-      } else if (tags.includes('checkpoint')) {
-        if (message.includes('Resuming')) {
-          formattedMessage = `│  ${message}\n`;
-        } else {
-          const match =
-            message.match(/checkpoint:\s*(.+)/) ||
-            message.match(/Saved\s+(.+)/);
-          if (match?.[1]) {
-            formattedMessage = `└─ Saved: ${match[1]}\n`;
-          } else {
-            formattedMessage = '└─ Checkpoint saved\n';
-          }
-        }
-      }
-    }
-
-    // Handle non-optimizer messages with basic formatting
-    else if (tags.includes('discovery')) {
-      if (message.includes('Found') && message.includes('examples')) {
-        const match = message.match(/Found (\d+)/);
-        if (match?.[1]) {
-          formattedMessage = `│  Found ${match[1]} examples\n`;
-        }
-      }
-    }
-
-    // Handle errors and warnings
-    if (tags.includes('error')) {
-      formattedMessage = `\n✗ ${message}\n`;
-    } else if (tags.includes('warning')) {
-      formattedMessage = `\n⚠ ${message}\n`;
-    }
-
-    // Use the base logger for color formatting and output
-    baseLogger(formattedMessage, options);
+  return (message: AxLoggerData) => {
+    // Handle typed logger data by delegating to base logger
+    baseLogger(message);
   };
 };
 

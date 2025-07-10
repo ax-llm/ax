@@ -112,17 +112,6 @@ function processChildAgentFunction<IN extends AxGenIn>(
           ...valuesToInject,
         };
 
-        if (options.debug && injectionKeys.length > 0) {
-          const ai = funcOptions?.ai;
-          if (ai) {
-            const logger = ai.getLogger();
-            logger(
-              `Function Params: ${JSON.stringify(updatedChildArgs, null, 2)}`,
-              { tags: ['functionArg'] }
-            );
-          }
-        }
-
         return await originalFunc(updatedChildArgs, funcOptions);
       };
     }
@@ -289,24 +278,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (!ai) {
         throw new Error('AI service is required to run the agent');
       }
-      const debug = this.getDebug(ai, options);
-
-      if (debug) {
-        const logger = ai.getLogger();
-        logger(`🤖 Agent ${this.name} starting...`, {
-          tags: ['start'],
-        });
-      }
-
       const ret = await boundFunc(ai, values as unknown as IN, {
         ...options,
         model,
       });
-
-      if (debug) {
-        const logger = ai.getLogger();
-        logger(`🤖 Agent ${this.name} completed.`, { tags: ['end'] });
-      }
 
       const sig = this.program.getSignature();
       const outFields = sig.getOutputFields();

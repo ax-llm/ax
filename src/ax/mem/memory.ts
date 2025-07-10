@@ -1,15 +1,8 @@
-import {
-  logChatRequest,
-  logChatRequestMessage,
-  logFunctionResults,
-  logResponseDelta,
-  logResponseResult,
-} from '../ai/debug.js';
+// Removed debug imports - logging now handled in base.ts
 import type {
   AxChatRequest,
   AxChatResponseResult,
   AxFunctionResult,
-  AxLoggerFunction,
 } from '../ai/types.js';
 import {
   axValidateChatRequestMessage,
@@ -21,14 +14,6 @@ import type { AxAIMemory, AxMemoryData } from './types.js';
 export class MemoryImpl {
   private data: AxMemoryData = [];
 
-  constructor(
-    private options?: {
-      debug?: boolean;
-      debugHideSystemPrompt?: boolean;
-      logger?: AxLoggerFunction;
-    }
-  ) {}
-
   addRequest(items: AxChatRequest['chatPrompt'], index: number): void {
     this.data.push(
       ...items.map((item) => {
@@ -39,14 +24,6 @@ export class MemoryImpl {
         };
       })
     );
-
-    if (this.options?.debug) {
-      debugRequest(
-        items,
-        this.options?.debugHideSystemPrompt,
-        this.options?.logger
-      );
-    }
   }
 
   addFunctionResults(results: Readonly<AxFunctionResult[]>): void {
@@ -61,10 +38,6 @@ export class MemoryImpl {
     } else {
       this.data.push({ role: 'function', chat });
     }
-
-    if (this.options?.debug) {
-      debugFunctionResults(results, this.options?.logger);
-    }
   }
 
   addResponse(results: Readonly<AxChatResponseResult[]>): void {
@@ -74,32 +47,15 @@ export class MemoryImpl {
     }));
 
     this.data.push({ role: 'assistant', chat });
-
-    if (this.options?.debug) {
-      for (const result of results) {
-        debugResponse(result, this.options?.logger);
-      }
-    }
   }
 
   updateResult({
     content,
     name,
     functionCalls,
-    delta,
     index,
-  }: Readonly<AxChatResponseResult & { delta?: string; index: number }>): void {
+  }: Readonly<AxChatResponseResult & { index: number }>): void {
     const lastItem = this.data.at(-1);
-
-    const log = (logger?: AxLoggerFunction) => {
-      if (this.options?.debug) {
-        if (delta && typeof delta === 'string') {
-          debugResponseDelta(delta, logger);
-        } else {
-          debugResponse({ content, name, functionCalls, index }, logger);
-        }
-      }
-    };
 
     if (
       !lastItem ||
@@ -113,7 +69,6 @@ export class MemoryImpl {
           { index, value: structuredClone({ content, name, functionCalls }) },
         ],
       });
-      log(this.options?.logger);
       return;
     }
 
@@ -124,7 +79,6 @@ export class MemoryImpl {
         index,
         value: structuredClone({ content, name, functionCalls }),
       });
-      log(this.options?.logger);
       return;
     }
 
@@ -140,8 +94,6 @@ export class MemoryImpl {
       (chat.value as { functionCalls: typeof functionCalls }).functionCalls =
         functionCalls;
     }
-
-    log(this.options?.logger);
   }
 
   addTag(name: string): void {
@@ -227,13 +179,8 @@ export class AxMemory implements AxAIMemory {
   private memories = new Map<string, MemoryImpl>();
   private defaultMemory: MemoryImpl;
 
-  constructor(
-    private options?: {
-      debug?: boolean;
-      debugHideSystemPrompt?: boolean;
-    }
-  ) {
-    this.defaultMemory = new MemoryImpl(options);
+  constructor() {
+    this.defaultMemory = new MemoryImpl();
   }
 
   private getMemory(sessionId?: string): MemoryImpl {
@@ -242,7 +189,7 @@ export class AxMemory implements AxAIMemory {
     }
 
     if (!this.memories.has(sessionId)) {
-      this.memories.set(sessionId, new MemoryImpl(this.options));
+      this.memories.set(sessionId, new MemoryImpl());
     }
 
     return this.memories.get(sessionId) as MemoryImpl;
@@ -297,37 +244,9 @@ export class AxMemory implements AxAIMemory {
     if (!sessionId) {
       this.defaultMemory.reset();
     } else {
-      this.memories.set(sessionId, new MemoryImpl(this.options));
+      this.memories.set(sessionId, new MemoryImpl());
     }
   }
 }
 
-function debugRequest(
-  value: AxChatRequest['chatPrompt'][number] | AxChatRequest['chatPrompt'],
-  hideSystemPrompt?: boolean,
-  logger?: AxLoggerFunction
-) {
-  if (Array.isArray(value)) {
-    logChatRequest(value, hideSystemPrompt, logger);
-  } else {
-    logChatRequestMessage(value, hideSystemPrompt, logger);
-  }
-}
-
-function debugResponse(
-  value: Readonly<AxChatResponseResult & { index: number }>,
-  logger?: AxLoggerFunction
-) {
-  logResponseResult(value, logger);
-}
-
-function debugResponseDelta(delta: string, logger?: AxLoggerFunction) {
-  logResponseDelta(delta, logger);
-}
-
-function debugFunctionResults(
-  results: Readonly<AxFunctionResult[]>,
-  logger?: AxLoggerFunction
-) {
-  logFunctionResults(results, logger);
-}
+// Debug functions removed - logging now handled in base.ts

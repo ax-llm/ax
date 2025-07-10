@@ -2,131 +2,42 @@ import { defaultLogger } from '../dsp/loggers.js';
 import type {
   AxChatRequest,
   AxChatResponse,
+  AxChatResponseResult,
+  AxFunctionResult,
+  AxLoggerData,
   AxLoggerFunction,
-  AxLoggerTag,
 } from './types.js';
-
-const formatChatMessage = (
-  msg: AxChatRequest['chatPrompt'][number],
-  hideContent?: boolean,
-  hideSystemPrompt?: boolean
-) => {
-  switch (msg.role) {
-    case 'system':
-      if (hideSystemPrompt) {
-        return '';
-      }
-      return `─── System: ───\n${msg.content}`;
-    case 'function':
-      return `─── Function Result: ───\n${msg.result}`;
-    case 'user': {
-      if (typeof msg.content === 'string') {
-        return `─── User: ───\n${msg.content}`;
-      }
-      const items = msg.content.map((v) => {
-        switch (v.type) {
-          case 'text':
-            return v.text;
-          case 'image':
-            return `(Image, ${v.mimeType}) ${v.image.substring(0, 10)}`;
-          default:
-            throw new Error('Invalid content type');
-        }
-      });
-      return `─── User: ───\n${items.join('\n')}`;
-    }
-    case 'assistant': {
-      if (msg.functionCalls) {
-        const fns = msg.functionCalls?.map(({ function: fn }) => {
-          const args =
-            typeof fn.params !== 'string'
-              ? JSON.stringify(fn.params, null, 2)
-              : fn.params;
-          return `${fn.name}(${args})`;
-        });
-        return `─── Functions: ───\n${fns.join('\n')}`;
-      }
-      return `─── Assistant: ───\n${hideContent ? '' : (msg.content ?? '<empty>')}`;
-    }
-    default:
-      throw new Error('Invalid role');
-  }
-};
-
-export const logChatRequestMessage = (
-  msg: AxChatRequest['chatPrompt'][number],
-  hideSystemPrompt?: boolean,
-  logger: AxLoggerFunction = defaultLogger
-) => {
-  logChatRequest([msg], hideSystemPrompt, logger);
-};
 
 export const logChatRequest = (
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
+  step: number,
   hideSystemPrompt?: boolean,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  for (const msg of chatPrompt ?? []) {
-    const formattedMessage = formatChatMessage(msg, false, hideSystemPrompt);
-    if (formattedMessage) {
-      const tags: AxLoggerTag[] = [];
+  // Filter out system messages if hideSystemPrompt is true
+  const filteredPrompt = hideSystemPrompt
+    ? chatPrompt.filter((msg) => msg.role !== 'system')
+    : [...chatPrompt]; // Create a mutable copy
 
-      switch (msg.role) {
-        case 'system':
-          tags.push('systemContent');
-          break;
-        case 'function':
-          tags.push('functionName');
-          break;
-        case 'user':
-          tags.push('userContent');
-          break;
-      }
+  const loggerData: AxLoggerData = {
+    name: 'ChatRequestChatPrompt',
+    step,
+    value: filteredPrompt as AxChatRequest['chatPrompt'],
+  };
 
-      logger(formattedMessage, { tags });
-    }
-  }
-
-  logger('─── Assistant: ───', { tags: ['assistantStart'] });
+  logger(loggerData);
 };
 
 export const logResponseResult = (
   r: Readonly<AxChatResponse['results'][number] & { index: number }>,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  if (r.content) {
-    logger(r.content, { tags: ['responseContent'] });
-  }
+  const loggerData: AxLoggerData = {
+    name: 'ChatResponseResults',
+    value: [r],
+  };
 
-  const loggedFunctionCalls = new Set<string>();
-
-  if (r.functionCalls && r.functionCalls.length > 0) {
-    for (const [i, f] of r.functionCalls.entries()) {
-      if (f.id) {
-        if (loggedFunctionCalls.has(f.id)) {
-          continue;
-        }
-        loggedFunctionCalls.add(f.id);
-
-        const tags: AxLoggerTag[] = ['functionName'];
-        if (i === 0) {
-          tags.push('firstFunction');
-        }
-        if (r.functionCalls.length > 1) {
-          tags.push('multipleFunctions');
-        }
-        logger(`[${i + 1}] ${f.function.name} [${f.id}]`, { tags });
-      }
-
-      if (f.function.params) {
-        const params =
-          typeof f.function.params === 'string'
-            ? f.function.params
-            : JSON.stringify(f.function.params, null, 2);
-        logger(params, { tags: ['functionArg'] });
-      }
-    }
-  }
+  logger(loggerData);
 };
 
 export const logResponse = (
@@ -136,33 +47,149 @@ export const logResponse = (
   if (!resp.results) {
     return;
   }
-  for (const r of resp.results) {
-    logResponseResult(r, logger);
-  }
+
+  const loggerData: AxLoggerData = {
+    name: 'ChatResponseResults',
+    value: resp.results as AxChatResponseResult[],
+  };
+
+  logger(loggerData);
 };
 
-export const logResponseDelta = (
-  delta: string,
+export const logResponseStreamingResult = (
+  result: AxChatResponseResult & { delta?: string },
+  index: number,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  logger(delta, { tags: ['responseContent', 'responseDelta'] });
+  const loggerData: AxLoggerData = {
+    name: 'ChatResponseStreamingResult',
+    index,
+    value: result,
+  };
+
+  logger(loggerData);
 };
 
 export const logFunctionResults = (
-  results: Readonly<
-    { result: string; functionId: string; isError?: boolean; index: number }[]
-  >,
+  results: Readonly<AxFunctionResult[]>,
   logger: AxLoggerFunction = defaultLogger
 ) => {
-  for (const result of results) {
-    logger(`Function Result [${result.functionId}]:`, {
-      tags: ['functionResult'],
-    });
+  const loggerData: AxLoggerData = {
+    name: 'FunctionResults',
+    value: results as AxFunctionResult[],
+  };
 
-    if (result.isError) {
-      logger(result.result, { tags: ['functionResult', 'error'] });
-    } else {
-      logger(result.result, { tags: ['functionResult'] });
-    }
-  }
+  logger(loggerData);
+};
+
+export const logFunctionError = (
+  error: unknown,
+  index: number,
+  fixingInstructions: string,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  const loggerData: AxLoggerData = {
+    name: 'FunctionError',
+    index,
+    fixingInstructions,
+    error,
+  };
+
+  logger(loggerData);
+};
+
+export const logValidationError = (
+  error: unknown,
+  index: number,
+  fixingInstructions: string,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  const loggerData: AxLoggerData = {
+    name: 'ValidationError',
+    index,
+    fixingInstructions,
+    error,
+  };
+
+  logger(loggerData);
+};
+
+export const logAssertionError = (
+  error: unknown,
+  index: number,
+  fixingInstructions: string,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  const loggerData: AxLoggerData = {
+    name: 'AssertionError',
+    index,
+    fixingInstructions,
+    error,
+  };
+
+  logger(loggerData);
+};
+
+export const logNotification = (
+  id: string,
+  value: string,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  const loggerData: AxLoggerData = {
+    name: 'Notification',
+    id,
+    value,
+  };
+
+  logger(loggerData);
+};
+
+export const logEmbedRequest = (
+  texts: readonly string[],
+  embedModel: string,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  const loggerData: AxLoggerData = {
+    name: 'EmbedRequest',
+    embedModel,
+    value: texts,
+  };
+
+  logger(loggerData);
+};
+
+export const logEmbedResponse = (
+  embeddings: readonly (readonly number[])[],
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  // Show only a few embeddings for effect, not all
+  const sampleEmbeddings = embeddings.slice(0, 3).map((embedding) => ({
+    length: embedding.length,
+    sample: embedding.slice(0, 5), // Show first 5 values
+    truncated: embedding.length > 5,
+  }));
+
+  const loggerData: AxLoggerData = {
+    name: 'EmbedResponse',
+    totalEmbeddings: embeddings.length,
+    value: sampleEmbeddings,
+  };
+
+  logger(loggerData);
+};
+
+export const logResultPickerUsed = (
+  sampleCount: number,
+  selectedIndex: number,
+  latency: number,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  const loggerData: AxLoggerData = {
+    name: 'ResultPickerUsed',
+    sampleCount,
+    selectedIndex,
+    latency,
+  };
+
+  logger(loggerData);
 };

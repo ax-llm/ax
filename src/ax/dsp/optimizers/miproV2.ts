@@ -297,12 +297,12 @@ Instruction:`;
           return instruction;
         }
       }
-    } catch (error) {
-      if (this.isLoggingEnabled()) {
-        this.getLogger()?.(`Failed to generate AI instruction: ${error}`, {
-          tags: ['optimizer', 'warning'],
-        });
-      }
+    } catch (_error) {
+      // if (this.isLoggingEnabled()) {
+      //   this.getLogger()?.(`Failed to generate AI instruction: ${error}`, {
+      //     tags: ['optimizer', 'warning'],
+      //   });
+      // }
     }
 
     // Fallback to enhanced templates if AI generation fails
@@ -331,7 +331,7 @@ Instruction:`;
    * @returns Array of generated instruction candidates
    */
   private async proposeInstructionCandidates(
-    program: Readonly<AxProgram<IN, OUT>>,
+    _program: Readonly<AxProgram<IN, OUT>>,
     options?: AxCompileOptions
   ): Promise<string[]> {
     const instructions: string[] = [];
@@ -341,25 +341,25 @@ Instruction:`;
     let programSummary: string | undefined;
     let datasetSummary: string | undefined;
 
-    if (this.programAwareProposer) {
-      programSummary = await this.generateProgramSummary(program, aiToUse);
-      if (this.isLoggingEnabled(options)) {
-        this.getLogger(options)?.(`Program summary: ${programSummary}`, {
-          tags: ['optimizer', 'config'],
-        });
-      }
-    }
+    // if (this.programAwareProposer) {
+    //   programSummary = await this.generateProgramSummary(program, aiToUse);
+    //   if (this.isLoggingEnabled(options)) {
+    //     this.getLogger(options)?.(`Program summary: ${programSummary}`, {
+    //       tags: ['optimizer', 'config'],
+    //     });
+    //   }
+    // }
 
     if (this.dataAwareProposer) {
       datasetSummary = await this.generateDatasetSummary(
         this.examples,
         aiToUse
       );
-      if (this.isLoggingEnabled(options)) {
-        this.getLogger(options)?.(`Dataset summary: ${datasetSummary}`, {
-          tags: ['optimizer', 'config'],
-        });
-      }
+      // if (this.isLoggingEnabled(options)) {
+      //   this.getLogger(options)?.(`Dataset summary: ${datasetSummary}`, {
+      //     tags: ['optimizer', 'config'],
+      //   });
+      // }
     }
 
     // Generate creative tips for tip-aware proposing
@@ -392,11 +392,11 @@ Instruction:`;
     program: Readonly<AxProgram<IN, OUT>>,
     metricFn: AxMetricFn
   ): Promise<AxProgramDemos<IN, OUT>[]> {
-    if (this.isLoggingEnabled()) {
-      this.getLogger()?.('Bootstrapping few-shot examples...', {
-        tags: ['optimizer', 'phase'],
-      });
-    }
+    // if (this.isLoggingEnabled()) {
+    //   this.getLogger()?.('Bootstrapping few-shot examples...', {
+    //     tags: ['optimizer', 'phase'],
+    //   });
+    // }
 
     // Initialize the bootstrapper for this program
     const bootstrapper = new AxBootstrapFewShot<IN, OUT>({
@@ -470,12 +470,12 @@ Instruction:`;
         options
       );
       if (checkpoint && checkpoint.optimizerType === 'MiPRO') {
-        if (this.isLoggingEnabled(options)) {
-          this.getLogger(options)?.(
-            `Resuming from checkpoint at round ${checkpoint.currentRound}`,
-            { tags: ['optimizer', 'checkpoint'] }
-          );
-        }
+        // if (this.isLoggingEnabled(options)) {
+        //   this.getLogger(options)?.(
+        //     `Resuming from checkpoint at round ${checkpoint.currentRound}`,
+        //     { tags: ['optimizer', 'checkpoint'] }
+        //   );
+        // }
 
         this.restoreFromCheckpoint(checkpoint);
         startRound = checkpoint.currentRound;
@@ -487,12 +487,12 @@ Instruction:`;
     }
 
     // Optimization loop with early stopping and checkpointing
-    if (this.isLoggingEnabled(options)) {
-      this.getLogger(options)?.(
-        `Running optimization trials (${this.numTrials} total)`,
-        { tags: ['optimizer', 'phase'] }
-      );
-    }
+    // if (this.isLoggingEnabled(options)) {
+    //   this.getLogger(options)?.(
+    //     `Running optimization trials (${this.numTrials} total)`,
+    //     { tags: ['optimizer', 'phase'] }
+    //   );
+    // }
 
     for (let i = startRound; i < this.numTrials; i++) {
       let config: ConfigType;
@@ -542,12 +542,12 @@ Instruction:`;
         bestConfig = config;
         stagnationRounds = 0;
 
-        if (this.isLoggingEnabled(options)) {
-          this.getLogger(options)?.(
-            `Trial ${i + 1}/${this.numTrials}: New best score ${bestScore.toFixed(3)}`,
-            { tags: ['optimizer', 'progress'] }
-          );
-        }
+        // if (this.isLoggingEnabled(options)) {
+        //   this.getLogger(options)?.(
+        //     `Trial ${i + 1}/${this.numTrials}: New best score ${bestScore.toFixed(3)}`,
+        //     { tags: ['optimizer', 'progress'] }
+        //   );
+        // }
       } else {
         stagnationRounds++;
       }
@@ -763,22 +763,22 @@ Instruction:`;
       (miproOptions?.validationExamples ??
         this.examples.slice(0, Math.floor(this.examples.length * 0.2)));
 
-    if (this.isLoggingEnabled(options)) {
-      this.getLogger(options)?.(
-        `Starting MIPROv2 optimization with ${this.numTrials} trials`,
-        { tags: ['optimizer', 'start'] }
-      );
-      this.getLogger(options)?.(
-        `Using ${this.examples.length} examples for training and ${validationExamples.length} for validation`,
-        { tags: ['optimizer', 'config'] }
-      );
-      if (this.teacherAI) {
-        this.getLogger(options)?.(
-          'Using separate teacher model for instruction generation',
-          { tags: ['optimizer', 'config'] }
-        );
-      }
-    }
+    // if (this.isLoggingEnabled(options)) {
+    //   this.getLogger(options)?.(
+    //     `Starting MIPROv2 optimization with ${this.numTrials} trials`,
+    //     { tags: ['optimizer', 'start'] }
+    //   );
+    //   this.getLogger(options)?.(
+    //     `Using ${this.examples.length} examples for training and ${validationExamples.length} for validation`,
+    //     { tags: ['optimizer', 'config'] }
+    //   );
+    //   if (this.teacherAI) {
+    //     this.getLogger(options)?.(
+    //       'Using separate teacher model for instruction generation',
+    //       { tags: ['optimizer', 'config'] }
+    //     );
+    //   }
+    // }
 
     // Step 1: Bootstrap few-shot examples
     let bootstrappedDemos: AxProgramDemos<IN, OUT>[] = [];
@@ -788,12 +788,12 @@ Instruction:`;
         metricFn
       );
 
-      if (this.isLoggingEnabled(options)) {
-        this.getLogger(options)?.(
-          `Generated ${bootstrappedDemos.length} bootstrapped demonstrations`,
-          { tags: ['optimizer', 'result'] }
-        );
-      }
+      // if (this.isLoggingEnabled(options)) {
+      //   this.getLogger(options)?.(
+      //     `Generated ${bootstrappedDemos.length} bootstrapped demonstrations`,
+      //     { tags: ['optimizer', 'result'] }
+      //   );
+      // }
     }
 
     // Step 2: Select labeled examples from training set
@@ -801,12 +801,12 @@ Instruction:`;
     if (this.maxLabeledDemos > 0) {
       labeledExamples = this.selectLabeledExamples();
 
-      if (this.isLoggingEnabled(options)) {
-        this.getLogger(options)?.(
-          `Selected ${labeledExamples.length} labeled examples from training set`,
-          { tags: ['optimizer', 'result'] }
-        );
-      }
+      // if (this.isLoggingEnabled(options)) {
+      //   this.getLogger(options)?.(
+      //     `Selected ${labeledExamples.length} labeled examples from training set`,
+      //     { tags: ['optimizer', 'result'] }
+      //   );
+      // }
     }
 
     // Step 3: Generate instruction candidates
@@ -815,18 +815,18 @@ Instruction:`;
       options
     );
 
-    if (this.isLoggingEnabled(options)) {
-      this.getLogger(options)?.(
-        `Generated ${instructions.length} instruction candidates`,
-        { tags: ['optimizer', 'result'] }
-      );
-      if (this.hasTeacherAI(options)) {
-        this.getLogger(options)?.(
-          'Using teacher AI for instruction generation',
-          { tags: ['optimizer', 'config'] }
-        );
-      }
-    }
+    // if (this.isLoggingEnabled(options)) {
+    //   this.getLogger(options)?.(
+    //     `Generated ${instructions.length} instruction candidates`,
+    //     { tags: ['optimizer', 'result'] }
+    //   );
+    //   if (this.hasTeacherAI(options)) {
+    //     this.getLogger(options)?.(
+    //       'Using teacher AI for instruction generation',
+    //       { tags: ['optimizer', 'config'] }
+    //     );
+    //   }
+    // }
 
     // Step 4: Run optimization to find the best configuration
     const { bestConfig, bestScore } = await this.runOptimization(
@@ -839,16 +839,16 @@ Instruction:`;
       options
     );
 
-    if (this.isLoggingEnabled(options)) {
-      this.getLogger(options)?.(
-        `Optimization complete. Best score: ${bestScore}`,
-        { tags: ['optimizer', 'complete'] }
-      );
-      this.getLogger(options)?.(
-        `Best configuration: ${JSON.stringify(bestConfig)}`,
-        { tags: ['optimizer', 'result'] }
-      );
-    }
+    // if (this.isLoggingEnabled(options)) {
+    //   this.getLogger(options)?.(
+    //     `Optimization complete. Best score: ${bestScore}`,
+    //     { tags: ['optimizer', 'complete'] }
+    //   );
+    //   this.getLogger(options)?.(
+    //     `Best configuration: ${JSON.stringify(bestConfig)}`,
+    //     { tags: ['optimizer', 'result'] }
+    //   );
+    // }
 
     // Check if target score was reached
     if (this.checkTargetScore(bestScore)) {

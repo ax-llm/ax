@@ -1477,17 +1477,6 @@ export abstract class AxBaseOptimizer<
   ): Promise<AxParetoResult<OUT>> {
     const startTime = Date.now();
 
-    if (options?.verbose) {
-      this.getLogger(options)?.(
-        'Starting Pareto optimization using base implementation',
-        { tags: ['discovery'] }
-      );
-      this.getLogger(options)?.(
-        'This will run multiple single-objective optimizations',
-        { tags: ['discovery'] }
-      );
-    }
-
     // Strategy 1: Generate different weighted combinations of objectives
     const solutions = await this.generateWeightedSolutions(
       program,
@@ -1505,12 +1494,12 @@ export abstract class AxBaseOptimizer<
     // Combine all solutions
     const allSolutions = [...solutions, ...constraintSolutions];
 
-    if (options?.verbose) {
-      this.getLogger(options)?.(
-        `Generated ${allSolutions.length} candidate solutions`,
-        { tags: ['discovery'] }
-      );
-    }
+    // if (options?.verbose) {
+    //   this.getLogger(options)?.(
+    //     `Generated ${allSolutions.length} candidate solutions`,
+    //     { tags: ['discovery'] }
+    //   );
+    // }
 
     // Find Pareto frontier
     const paretoFront = this.findParetoFrontier(allSolutions);
@@ -1518,16 +1507,16 @@ export abstract class AxBaseOptimizer<
     // Calculate hypervolume if possible
     const hypervolume = this.calculateHypervolume(paretoFront);
 
-    if (options?.verbose) {
-      this.getLogger(options)?.(
-        `Found ${paretoFront.length} non-dominated solutions`,
-        { tags: ['discovery'] }
-      );
-      this.getLogger(options)?.(
-        `Hypervolume: ${hypervolume?.toFixed(4) || 'N/A'}`,
-        { tags: ['discovery'] }
-      );
-    }
+    // if (options?.verbose) {
+    //   this.getLogger(options)?.(
+    //     `Found ${paretoFront.length} non-dominated solutions`,
+    //     { tags: ['discovery'] }
+    //   );
+    //   this.getLogger(options)?.(
+    //     `Hypervolume: ${hypervolume?.toFixed(4) || 'N/A'}`,
+    //     { tags: ['discovery'] }
+    //   );
+    // }
 
     // Update stats
     this.updateResourceUsage(startTime);
@@ -1597,12 +1586,12 @@ export abstract class AxBaseOptimizer<
     });
     const objectives = Object.keys(sampleScores);
 
-    if (options?.verbose) {
-      this.getLogger(options)?.(
-        `Detected objectives: ${objectives.join(', ')}`,
-        { tags: ['discovery'] }
-      );
-    }
+    // if (options?.verbose) {
+    //   this.getLogger(options)?.(
+    //     `Detected objectives: ${objectives.join(', ')}`,
+    //     { tags: ['discovery'] }
+    //   );
+    // }
 
     // Generate different weight combinations
     const weightCombinations = this.generateWeightCombinations(objectives);
@@ -1610,12 +1599,12 @@ export abstract class AxBaseOptimizer<
     for (let i = 0; i < weightCombinations.length; i++) {
       const weights = weightCombinations[i]!;
 
-      if (options?.verbose) {
-        this.getLogger(options)?.(
-          `Optimizing with weights: ${JSON.stringify(weights)}`,
-          { tags: ['discovery'] }
-        );
-      }
+      // if (options?.verbose) {
+      //   this.getLogger(options)?.(
+      //     `Optimizing with weights: ${JSON.stringify(weights)}`,
+      //     { tags: ['discovery'] }
+      //   );
+      // }
 
       // Create a weighted single-objective metric
       const weightedMetric: AxMetricFn = async ({ prediction, example }) => {
@@ -1650,13 +1639,13 @@ export abstract class AxBaseOptimizer<
             strategy: 'weighted_combination',
           },
         });
-      } catch (error) {
-        if (options?.verbose) {
-          this.getLogger(options)?.(
-            `Failed optimization with weights ${JSON.stringify(weights)}: ${error}`,
-            { tags: ['warning'] }
-          );
-        }
+      } catch (_error) {
+        // if (options?.verbose) {
+        //   this.getLogger(options)?.(
+        //     `Failed optimization with weights ${JSON.stringify(weights)}: ${error}`,
+        //     { tags: ['warning'] }
+        //   );
+        // }
       }
     }
 
@@ -1697,12 +1686,12 @@ export abstract class AxBaseOptimizer<
 
     // For each objective, optimize it while constraining others
     for (const primaryObjective of objectives) {
-      if (options?.verbose) {
-        this.getLogger(options)?.(
-          `Optimizing ${primaryObjective} with constraints on other objectives`,
-          { tags: ['discovery'] }
-        );
-      }
+      // if (options?.verbose) {
+      //   this.getLogger(options)?.(
+      //     `Optimizing ${primaryObjective} with constraints on other objectives`,
+      //     { tags: ['discovery'] }
+      //   );
+      // }
 
       // Create a constraint-based metric
       const constraintMetric: AxMetricFn = async ({ prediction, example }) => {
@@ -1747,13 +1736,13 @@ export abstract class AxBaseOptimizer<
             strategy: 'constraint_based',
           },
         });
-      } catch (error) {
-        if (options?.verbose) {
-          this.getLogger(options)?.(
-            `Failed constraint optimization for ${primaryObjective}: ${error}`,
-            { tags: ['warning'] }
-          );
-        }
+      } catch (_error) {
+        // if (options?.verbose) {
+        //   this.getLogger(options)?.(
+        //     `Failed constraint optimization for ${primaryObjective}: ${error}`,
+        //     { tags: ['warning'] }
+        //   );
+        // }
       }
     }
 

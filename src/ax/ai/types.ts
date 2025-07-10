@@ -247,41 +247,71 @@ export type AxRateLimiterFunction = <T = unknown>(
   info: Readonly<{ modelUsage?: AxModelUsage }>
 ) => Promise<T | ReadableStream<T>>;
 
-export type AxLoggerTag =
-  | 'error'
-  | 'warning'
-  | 'functionName'
-  | 'functionArg'
-  | 'functionResult'
-  | 'functionError'
-  | 'firstFunction'
-  | 'multipleFunctions'
-  | 'responseContent'
-  | 'responseDelta'
-  | 'responseEnd'
-  | 'requestStart'
-  | 'requestContent'
-  | 'systemContent'
-  | 'userStart'
-  | 'userContent'
-  | 'assistantStart'
-  | 'assistantContent'
-  | 'assistantEnd'
-  | 'discovery'
-  | 'optimizer'
-  | 'start'
-  | 'end'
-  | 'config'
-  | 'phase'
-  | 'progress'
-  | 'result'
-  | 'complete'
-  | 'checkpoint';
+// Typed logging objects for structured logging
+export type AxLoggerData =
+  | {
+      name: 'ChatRequestChatPrompt';
+      step: number;
+      value: AxChatRequest['chatPrompt'];
+    }
+  | {
+      name: 'FunctionResults';
+      value: AxFunctionResult[];
+    }
+  | {
+      name: 'ChatResponseResults';
+      value: AxChatResponseResult[];
+    }
+  | {
+      name: 'ChatResponseStreamingResult';
+      index: number;
+      value: AxChatResponseResult & { delta?: string };
+    }
+  | {
+      name: 'FunctionError';
+      index: number;
+      fixingInstructions: string;
+      error: unknown;
+    }
+  | {
+      name: 'ValidationError';
+      index: number;
+      fixingInstructions: string;
+      error: unknown; // Using unknown since ValidationError is defined in dsp/errors.ts
+    }
+  | {
+      name: 'AssertionError';
+      index: number;
+      fixingInstructions: string;
+      error: unknown; // Using unknown since AxAssertionError is defined in dsp/asserts.ts
+    }
+  | {
+      name: 'ResultPickerUsed';
+      sampleCount: number;
+      selectedIndex: number;
+      latency: number;
+    }
+  | {
+      name: 'Notification';
+      id: string;
+      value: string;
+    }
+  | {
+      name: 'EmbedRequest';
+      embedModel: string;
+      value: readonly string[];
+    }
+  | {
+      name: 'EmbedResponse';
+      totalEmbeddings: number;
+      value: {
+        length: number;
+        sample: number[];
+        truncated: boolean;
+      }[];
+    };
 
-export type AxLoggerFunction = (
-  message: string,
-  options?: { tags?: AxLoggerTag[] }
-) => void;
+export type AxLoggerFunction = (message: AxLoggerData) => void;
 
 export type AxAIPromptConfig = {
   stream?: boolean;
@@ -314,7 +344,7 @@ export type AxAIServiceActionOptions<
 > = {
   ai?: Readonly<AxAIService<TModel, TEmbedModel>>;
   sessionId?: string;
-  traceId?: string;
+  traceId?: string | undefined;
   timeout?: number;
   rateLimiter?: AxRateLimiterFunction;
   debug?: boolean;
@@ -322,6 +352,7 @@ export type AxAIServiceActionOptions<
   traceContext?: Context;
   abortSignal?: AbortSignal;
   logger?: AxLoggerFunction;
+  stepIndex?: number;
   functionResultFormatter?: (result: unknown) => string;
 };
 

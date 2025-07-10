@@ -1,3 +1,4 @@
+import { logFunctionError, logFunctionResults } from '../ai/debug.js';
 import type {
   AxAIService,
   AxAIServiceActionOptions,
@@ -7,7 +8,6 @@ import type {
   AxFunctionResult,
 } from '../ai/types.js';
 import type { AxMemory } from '../mem/memory.js';
-
 import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonschema.js';
 
@@ -295,9 +295,7 @@ export const processFunctions = async ({
 
         if (ai.getOptions().debug) {
           const logger = ai.getLogger();
-          logger(`❌ Function Error Correction:\n${result}`, {
-            tags: ['error'],
-          });
+          logFunctionError(e, index, result, logger);
         }
 
         return {
@@ -317,6 +315,17 @@ export const processFunctions = async ({
   const functionResults = results.filter((result) => result !== undefined);
 
   mem.addFunctionResults(functionResults, sessionId);
+
+  // Log successful function results if debug is enabled
+  if (ai.getOptions().debug) {
+    const successfulResults = functionResults.filter(
+      (result) => !result.isError
+    );
+    if (successfulResults.length > 0) {
+      const logger = ai.getLogger();
+      logFunctionResults(successfulResults, logger);
+    }
+  }
 
   if (functionResults.some((result) => result.isError)) {
     mem.addTag('error', sessionId);

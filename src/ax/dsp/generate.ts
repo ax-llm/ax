@@ -10,6 +10,11 @@ import {
 } from '@opentelemetry/api';
 
 import { validateAxMessageArray } from '../ai/base.js';
+import {
+  logAssertionError,
+  logResultPickerUsed,
+  logValidationError,
+} from '../ai/debug.js';
 import type {
   AxAIService,
   AxChatRequest,
@@ -243,6 +248,7 @@ export class AxGen<
     traceContext,
     functions,
     functionCall,
+    stepIndex,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
@@ -250,6 +256,7 @@ export class AxGen<
     traceContext?: Context;
     functions: AxFunction[];
     functionCall: AxChatRequest['functionCall'] | undefined;
+    stepIndex?: number;
   }>) {
     const {
       sessionId,
@@ -281,6 +288,9 @@ export class AxGen<
         : {}),
     };
 
+    const debug = this.isDebug(ai, options);
+    const firstStep = stepIndex === 0;
+
     const res = await ai.chat(
       {
         chatPrompt,
@@ -294,11 +304,14 @@ export class AxGen<
         traceId,
         rateLimiter,
         stream,
-        debug: false, // we do our own debug logging
+        debug,
+        // Hide system prompt in debug logging for steps > 0 to reduce noise in multi-step workflows
+        debugHideSystemPrompt: !firstStep,
         thinkingTokenBudget,
         showThoughts,
         traceContext,
         abortSignal: options?.abortSignal,
+        stepIndex,
       }
     );
 
@@ -309,14 +322,14 @@ export class AxGen<
     ai,
     mem,
     options,
-    firstStep,
+    stepIndex,
     span,
     traceContext,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
     options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
-    firstStep: boolean;
+    stepIndex?: number;
     span?: Span;
     traceContext?: Context;
   }>): AsyncGenDeltaOut<OUT> {
@@ -327,6 +340,7 @@ export class AxGen<
     const model = options.model;
     const states = this.createStates(options.sampleCount ?? 1);
     const usage = this.usage;
+    const firstStep = stepIndex === 0;
 
     const { functions, functionCall } = createFunctionConfig(
       functionList,
@@ -341,6 +355,7 @@ export class AxGen<
       traceContext,
       functions,
       functionCall,
+      stepIndex,
     });
 
     if (res instanceof ReadableStream) {
@@ -390,8 +405,6 @@ export class AxGen<
           this.options?.functionResultFormatter,
       });
     }
-
-    this.getLogger(ai, options)?.('', { tags: ['responseEnd'] });
   }
 
   private async *_forward2(
@@ -408,14 +421,8 @@ export class AxGen<
 
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10;
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10;
-    const debugHideSystemPrompt = options.debugHideSystemPrompt;
-    const memOptions = {
-      debug: this.isDebug(ai, options),
-      debugHideSystemPrompt,
-      logger: this.getLogger(ai, options),
-    };
 
-    const mem = options.mem ?? this.options?.mem ?? new AxMemory(memOptions);
+    const mem = options.mem ?? this.options?.mem ?? new AxMemory();
 
     let err: ValidationError | AxAssertionError | undefined;
 
@@ -488,14 +495,13 @@ export class AxGen<
     }
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
-      const firstStep = n === 0;
       for (let errCount = 0; errCount < maxRetries; errCount++) {
         try {
           const generator = this.forwardCore({
             options,
             ai,
             mem,
-            firstStep,
+            stepIndex: n,
             span,
             traceContext,
           });
@@ -580,6 +586,15 @@ export class AxGen<
             errorFields = e.getFixingInstructions();
             err = e;
 
+            // Log validation error with proper structured logging
+            const debug = this.isDebug(ai, options);
+            if (debug) {
+              const logger = this.getLogger(ai, options);
+              const fixingInstructions =
+                errorFields?.map((f) => f.title).join(', ') ?? '';
+              logValidationError(e, errCount, fixingInstructions, logger);
+            }
+
             // Record validation error metric
             const metricsInstruments = this.getMetricsInstruments();
             if (metricsInstruments) {
@@ -602,6 +617,15 @@ export class AxGen<
             const e1 = e as AxAssertionError;
             errorFields = e1.getFixingInstructions();
             err = e;
+
+            // Log assertion error with proper structured logging
+            const debug = this.isDebug(ai, options);
+            if (debug) {
+              const logger = this.getLogger(ai, options);
+              const fixingInstructions =
+                errorFields?.map((f) => f.title).join(', ') ?? '';
+              logAssertionError(e1, errCount, fixingInstructions, logger);
+            }
 
             // Record assertion error metric
             const assertionMetricsInstruments = this.getMetricsInstruments();
@@ -843,6 +867,17 @@ export class AxGen<
       const selectedResult = buffer[selectedIndex];
       const result = selectedResult?.delta ?? {};
       this.trace = { ...values, ...result } as unknown as OUT;
+
+      // Log result picker usage if it was used and debug is enabled
+      if (resultPickerUsed && this.isDebug(ai, options)) {
+        const logger = this.getLogger(ai, options);
+        logResultPickerUsed(
+          buffer.length,
+          selectedIndex,
+          resultPickerLatency,
+          logger
+        );
+      }
 
       success = true;
 

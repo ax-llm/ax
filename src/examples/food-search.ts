@@ -1,10 +1,4 @@
-import {
-  AxAI,
-  AxAIGoogleGeminiModel,
-  AxAgent,
-  type AxFunction,
-  AxSignature,
-} from '@ax-llm/ax';
+import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax';
 
 const goodDay = {
   temperature: '27C',
@@ -135,8 +129,8 @@ const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25Pro,
-    stream: true,
+    // model: AxAIGoogleGeminiModel.Gemini25Pro,
+    stream: false,
     thinking: { thinkingTokenBudget: 200 },
   },
 });
@@ -187,4 +181,4 @@ const gen = new AxAgent<
 
 const res = await gen.forward(ai, { customerQuery });
 
-console.log('\n>', res);
+console.log('\n\n>', res);

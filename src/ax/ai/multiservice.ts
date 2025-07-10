@@ -11,6 +11,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerData,
   AxLoggerFunction,
   AxModelConfig,
 } from './types.js';
@@ -282,8 +283,13 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
 
     if (!serviceInstance) {
       // Return a default logger if no service is available
-      return (message: string) => {
-        process.stdout.write(message);
+      return (message: string | AxLoggerData) => {
+        if (typeof message === 'string') {
+          process.stdout.write(message);
+        } else {
+          // For typed logger data, convert to string representation
+          process.stdout.write(JSON.stringify(message, null, 2));
+        }
       };
     }
     return serviceInstance.getLogger();

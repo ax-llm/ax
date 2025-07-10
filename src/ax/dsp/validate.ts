@@ -7,7 +7,7 @@ import type { AxIField } from './sig.js';
 export function handleValidationError(
   mem: AxAIMemory,
   errorFields: AxIField[],
-  ai: Readonly<AxAIService>,
+  _ai: Readonly<AxAIService>,
   promptTemplate: Readonly<AxPromptTemplate>,
   sessionId?: string
 ) {
@@ -22,14 +22,5 @@ export function handleValidationError(
   );
   mem.addTag('error', sessionId);
 
-  if (ai.getOptions().debug) {
-    const errors = errorFields
-      .map((field) => `- ${field.title}: ${field.description}`)
-      .join('\n');
-
-    const logger = ai.getLogger();
-    logger(`❌ Error Correction:\n${errors}`, {
-      tags: ['error'],
-    });
-  }
+  // Debug logging is now handled in generate.ts through proper structured logging
 }
