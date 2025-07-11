@@ -256,23 +256,3 @@ export const axCreateDefaultTextLogger = (
     output(formattedMessage);
   };
 };
-
-/**
- * Factory function to create an enhanced optimizer logger with clean visual formatting
- * that works for all optimizer types using semantic tags for proper categorization
- */
-export const axCreateOptimizerLogger = (
-  output: (message: string) => void = (msg) => process.stdout.write(msg)
-): AxLoggerFunction => {
-  const baseLogger = axCreateDefaultColorLogger(output);
-
-  return (message: AxLoggerData) => {
-    // Handle typed logger data by delegating to base logger
-    baseLogger(message);
-  };
-};
-
-/**
- * Default optimizer logger instance
- */
-export const axDefaultOptimizerLogger = axCreateOptimizerLogger();

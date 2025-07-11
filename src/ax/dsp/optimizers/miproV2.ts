@@ -16,7 +16,6 @@ import type {
   AxResultPickerFunction,
 } from '../program.js';
 import type { AxGenIn, AxGenOut } from '../types.js';
-import { updateProgressBar } from '../util.js';
 
 import { AxBootstrapFewShot } from './bootstrapFewshot.js';
 
@@ -392,12 +391,6 @@ Instruction:`;
     program: Readonly<AxProgram<IN, OUT>>,
     metricFn: AxMetricFn
   ): Promise<AxProgramDemos<IN, OUT>[]> {
-    // if (this.isLoggingEnabled()) {
-    //   this.getLogger()?.('Bootstrapping few-shot examples...', {
-    //     tags: ['optimizer', 'phase'],
-    //   });
-    // }
-
     // Initialize the bootstrapper for this program
     const bootstrapper = new AxBootstrapFewShot<IN, OUT>({
       studentAI: this.studentAI,
@@ -470,13 +463,6 @@ Instruction:`;
         options
       );
       if (checkpoint && checkpoint.optimizerType === 'MiPRO') {
-        // if (this.isLoggingEnabled(options)) {
-        //   this.getLogger(options)?.(
-        //     `Resuming from checkpoint at round ${checkpoint.currentRound}`,
-        //     { tags: ['optimizer', 'checkpoint'] }
-        //   );
-        // }
-
         this.restoreFromCheckpoint(checkpoint);
         startRound = checkpoint.currentRound;
         bestScore = checkpoint.bestScore;
@@ -487,12 +473,6 @@ Instruction:`;
     }
 
     // Optimization loop with early stopping and checkpointing
-    // if (this.isLoggingEnabled(options)) {
-    //   this.getLogger(options)?.(
-    //     `Running optimization trials (${this.numTrials} total)`,
-    //     { tags: ['optimizer', 'phase'] }
-    //   );
-    // }
 
     for (let i = startRound; i < this.numTrials; i++) {
       let config: ConfigType;
@@ -589,16 +569,6 @@ Instruction:`;
           },
         });
       }
-
-      // Update progress bar
-      updateProgressBar(
-        i + 1,
-        this.numTrials,
-        Math.round(bestScore * 100),
-        0,
-        'Running MIPROv2 optimization',
-        30
-      );
 
       // Cost tracking check (handles token/time/cost budgets)
       if (this.checkCostLimits()) {
@@ -1032,25 +1002,26 @@ Instruction:`;
    * @param program Program to validate
    * @returns Validation result with any issues found
    */
-  public override validateProgram(program: Readonly<AxProgram<IN, OUT>>): {
+  public validateProgram(_program: Readonly<AxProgram<IN, OUT>>): {
     isValid: boolean;
     issues: string[];
     suggestions: string[];
   } {
-    // Start with base validation
-    const result = super.validateProgram(program);
+    // Start with empty validation result
+    const issues: string[] = [];
+    const suggestions: string[] = [];
 
     // Add MiPRO-specific validation
     if (
       this.examples.length <
       this.maxBootstrappedDemos + this.maxLabeledDemos
     ) {
-      result.issues.push(
+      issues.push(
         `Not enough examples: need at least ${
           this.maxBootstrappedDemos + this.maxLabeledDemos
         }, got ${this.examples.length}`
       );
-      result.suggestions.push(
+      suggestions.push(
         'Reduce maxBootstrappedDemos or maxLabeledDemos, or provide more examples'
       );
     }
@@ -1058,18 +1029,14 @@ Instruction:`;
     // Check if validation set is reasonable for MiPRO
     const validationSetSize = this.getValidationSet().length;
     if (validationSetSize < 5) {
-      result.issues.push(
-        'Validation set too small for reliable MiPRO optimization'
-      );
-      result.suggestions.push(
-        'Provide more examples or a larger validation set'
-      );
+      issues.push('Validation set too small for reliable MiPRO optimization');
+      suggestions.push('Provide more examples or a larger validation set');
     }
 
     return {
-      isValid: result.issues.length === 0,
-      issues: result.issues,
-      suggestions: result.suggestions,
+      isValid: issues.length === 0,
+      issues,
+      suggestions,
     };
   }
 

@@ -422,8 +422,6 @@ import { type AxDataRow, AxHFDataLoader } from './dsp/loader.js';
 import {
   axCreateDefaultColorLogger,
   axCreateDefaultTextLogger,
-  axCreateOptimizerLogger,
-  axDefaultOptimizerLogger,
 } from './dsp/loggers.js';
 import {
   type AxErrorCategory,
@@ -463,8 +461,17 @@ import {
   axGetOptimizerMetricsConfig,
   axUpdateOptimizerMetricsConfig,
 } from './dsp/optimizer.js';
+import {
+  axCreateDefaultOptimizerColorLogger,
+  axCreateDefaultOptimizerTextLogger,
+  axDefaultOptimizerLogger,
+} from './dsp/optimizerLogging.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
 import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
+import type {
+  AxOptimizerLoggerData,
+  AxOptimizerLoggerFunction,
+} from './dsp/optimizerTypes.js';
 import {
   type AxGenDeltaOut,
   type AxGenStreamingOut,
@@ -686,8 +693,9 @@ export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axCheckMetricsHealth };
 export { axCreateDefaultColorLogger };
+export { axCreateDefaultOptimizerColorLogger };
+export { axCreateDefaultOptimizerTextLogger };
 export { axCreateDefaultTextLogger };
-export { axCreateOptimizerLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
 export { axDefaultOptimizerMetricsConfig };
@@ -986,6 +994,8 @@ export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
 export type { AxOptimizer };
 export type { AxOptimizerArgs };
+export type { AxOptimizerLoggerData };
+export type { AxOptimizerLoggerFunction };
 export type { AxOptimizerMetricsConfig };
 export type { AxOptimizerMetricsInstruments };
 export type { AxOptimizerResult };

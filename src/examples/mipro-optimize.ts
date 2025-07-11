@@ -6,7 +6,7 @@ import {
   AxMiPRO,
   type AxMiPROCompileOptions,
   ax,
-  axCreateOptimizerLogger,
+  axDefaultOptimizerLogger,
   f,
 } from '@ax-llm/ax';
 
@@ -105,16 +105,18 @@ console.log('Teacher Model: GPT-4o-mini (high reasoning capability)');
 console.log('Examples:', complexReasoningExamples.length);
 
 // Create enhanced logger for better output
-const enhancedLogger = axCreateOptimizerLogger();
+const enhancedLogger = axDefaultOptimizerLogger;
 
 const optimizer = new AxMiPRO({
   studentAI: teacherAI,
   examples: complexReasoningExamples,
-  logger: enhancedLogger, // Use enhanced logger explicitly
+  optimizerLogger: enhancedLogger, // Use optimizer logger for optimizer-specific events
+  debugOptimizer: true, // Enable optimizer logging
+  verbose: false, // Disable verbose to avoid mixed output
   options: {
     numCandidates: 3,
     numTrials: 8,
-    verbose: true,
+    verbose: false, // Also disable verbose in options
   },
 });
 

@@ -8,7 +8,6 @@ import {
 } from '../optimizer.js';
 import type { AxProgram, AxProgramDemos, AxProgramTrace } from '../program.js';
 import type { AxFieldValue, AxGenIn, AxGenOut } from '../types.js';
-import { updateDetailedProgress, updateProgressBar } from '../util.js';
 
 // Define model config interface
 interface ModelConfig {
@@ -60,7 +59,7 @@ export class AxBootstrapFewShot<
     metricFn: AxMetricFn,
     options?: { maxRounds?: number; maxDemos?: number } | undefined
   ) {
-    const st = Date.now();
+    const _st = Date.now();
     const maxDemos = options?.maxDemos ?? this.maxDemos;
     const aiOpt = {
       modelConfig: {
@@ -99,7 +98,6 @@ export class AxBootstrapFewShot<
 
         this.stats.totalCalls++;
         let res: OUT;
-        let error: Error | undefined;
 
         try {
           res = await program.forward(aiService, ex as IN, aiOpt);
@@ -117,50 +115,11 @@ export class AxBootstrapFewShot<
             this.traces = [...this.traces, ...program.getTraces()];
             this.stats.successfulDemos++;
           }
-        } catch (err) {
-          error = err as Error;
+        } catch (_err) {
           res = {} as OUT;
         }
 
-        const current =
-          i + examples.length * roundIndex + (batch.indexOf(ex) + 1);
-        const total = examples.length * this.maxRounds;
-        const et = Date.now() - st;
-
-        // Use enhanced progress reporting if verbose or debug mode is enabled
-        if (this.verboseMode || this.debugMode) {
-          // Create a configuration object to pass to updateDetailedProgress
-          const configInfo = {
-            maxRounds: this.maxRounds,
-            batchSize: this.batchSize,
-            earlyStoppingPatience: this.earlyStoppingPatience,
-            costMonitoring: this.costMonitoring,
-            verboseMode: this.verboseMode,
-            debugMode: this.debugMode,
-          };
-
-          updateDetailedProgress(
-            roundIndex,
-            current,
-            total,
-            et,
-            ex,
-            this.stats,
-            configInfo,
-            res,
-            error
-          );
-        } else {
-          // Use the standard progress bar for normal mode
-          updateProgressBar(
-            current,
-            total,
-            this.traces.length,
-            et,
-            'Tuning Prompt',
-            30
-          );
-        }
+        // Remove progress bars - now handled by the optimizer logging system
 
         if (this.traces.length >= maxDemos) {
           return;
@@ -188,13 +147,6 @@ export class AxBootstrapFewShot<
         this.stats.earlyStopping.patienceExhausted = true;
         this.stats.earlyStopped = true;
         this.stats.earlyStopping.reason = `No improvement for ${this.earlyStoppingPatience} rounds`;
-
-        // if (this.verboseMode || this.debugMode) {
-        //   this.getLogger()?.(
-        //     `Early stopping after ${roundIndex + 1} rounds (no improvement for ${this.earlyStoppingPatience} rounds)`,
-        //     { tags: ['optimizer', 'warning'] }
-        //   );
-        // }
 
         return;
       }

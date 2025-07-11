@@ -3,7 +3,8 @@ import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
 
 import { axGlobals } from './globals.js';
-import { axDefaultOptimizerLogger } from './loggers.js';
+import { axDefaultOptimizerLogger } from './optimizerLogging.js';
+import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
 import type { AxProgram, AxProgramDemos } from './program.js';
 import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js';
 
@@ -34,6 +35,7 @@ export interface AxOptimizationProgress {
   successfulExamples: number;
   totalExamples: number;
   currentConfiguration?: Record<string, unknown>;
+  bestConfiguration?: Record<string, unknown>;
   convergenceInfo?: {
     improvement: number;
     stagnationRounds: number;
@@ -127,6 +129,10 @@ export type AxOptimizerArgs = {
 
   // Reproducibility
   seed?: number;
+
+  // Optimizer logging
+  debugOptimizer?: boolean;
+  optimizerLogger?: AxOptimizerLoggerFunction;
 };
 
 // Enhanced optimization statistics
@@ -140,6 +146,8 @@ export interface AxOptimizationStats {
     patienceExhausted: boolean;
     reason: string;
   };
+  bestScore: number;
+  bestConfiguration?: Record<string, unknown>;
 
   // Resource usage tracking
   resourceUsage: {
@@ -1191,6 +1199,10 @@ export abstract class AxBaseOptimizer<
   protected readonly logger?: AxLoggerFunction;
   protected readonly verbose?: boolean;
 
+  // Optimizer logging
+  protected readonly debugOptimizer: boolean;
+  protected readonly optimizerLogger?: AxOptimizerLoggerFunction;
+
   // Checkpoint state
   private currentRound = 0;
   private scoreHistory: number[] = [];
@@ -1241,6 +1253,10 @@ export abstract class AxBaseOptimizer<
 
     // Initialize common stats structure
     this.stats = this.initializeStats();
+
+    // Set up optimizer logging
+    this.debugOptimizer = args.debugOptimizer ?? false;
+    this.optimizerLogger = args.optimizerLogger;
   }
 
   /**
@@ -1264,6 +1280,8 @@ export abstract class AxBaseOptimizer<
         stagnationRounds: 0,
         convergenceThreshold: 0.01,
       },
+      bestScore: 0,
+      bestConfiguration: {},
     };
   }
 
@@ -1327,6 +1345,15 @@ export abstract class AxBaseOptimizer<
     if (this.onEarlyStop) {
       this.onEarlyStop(reason, this.stats);
     }
+    const optLogger = this.getOptimizerLogger();
+    optLogger?.({
+      name: 'EarlyStopping',
+      value: {
+        reason,
+        finalScore: this.stats.bestScore ?? 0,
+        round: bestScoreRound,
+      },
+    });
   }
 
   /**
@@ -1409,56 +1436,112 @@ export abstract class AxBaseOptimizer<
   ): Promise<AxOptimizerResult<OUT>>;
 
   /**
-   * Get current optimization statistics
+   * Optimize a program with real-time streaming updates
+   * @param program The program to optimize
+   * @param metricFn Evaluation metric function
+   * @param options Optional configuration options
+   * @returns Async iterator yielding optimization progress
    */
-  public getStats(): AxOptimizationStats {
-    return { ...this.stats };
-  }
+  public async *compileStream(
+    program: Readonly<AxProgram<IN, OUT>>,
+    metricFn: AxMetricFn,
+    options?: AxCompileOptions
+  ): AsyncIterableIterator<AxOptimizationProgress> {
+    const startTime = Date.now();
+    const optimizerType = this.constructor.name;
+    const programSignature = program.getSignature().toString();
 
-  /**
-   * Reset optimizer state for reuse with different programs
-   */
-  public reset(): void {
-    this.stats = this.initializeStats();
-    this.costTracker?.reset();
-    this.currentRound = 0;
-    this.scoreHistory = [];
-    this.configurationHistory = [];
-  }
+    this.recordOptimizationStart(optimizerType, programSignature);
 
-  /**
-   * Basic program validation that can be extended by concrete optimizers
-   */
-  public validateProgram(program: Readonly<AxProgram<IN, OUT>>): {
-    isValid: boolean;
-    issues: string[];
-    suggestions: string[];
-  } {
-    const issues: string[] = [];
-    const suggestions: string[] = [];
+    let earlyStopReason: string | undefined;
 
-    // Check if program has required methods for optimization
-    if (!('forward' in program) || typeof program.forward !== 'function') {
-      issues.push('Program must have a forward method');
-    }
+    const updateProgress = (
+      round: number,
+      score: number,
+      configuration: Record<string, unknown>,
+      optimizerType: string,
+      optimizerConfig: Record<string, unknown>,
+      bestScore: number,
+      bestConfiguration: Record<string, unknown> | undefined,
+      optimizerState: Record<string, unknown> = {},
+      options?: AxCompileOptions
+    ) => {
+      const optLogger = this.getOptimizerLogger(options);
+      optLogger?.({
+        name: 'RoundProgress',
+        value: {
+          round,
+          totalRounds: options?.maxIterations ?? 0,
+          currentScore: score,
+          bestScore,
+          configuration,
+        },
+      });
+      this.updateOptimizationProgress(
+        round,
+        score,
+        configuration,
+        optimizerType,
+        optimizerConfig,
+        bestScore,
+        bestConfiguration,
+        optimizerState,
+        options
+      );
+    };
 
-    // Check if we have enough examples
-    if (this.examples.length < 2) {
-      issues.push('Need at least 2 examples for optimization');
-      suggestions.push('Provide more training examples');
-    }
+    const onEarlyStop = (
+      reason: string,
+      _stats: Readonly<AxOptimizationStats>
+    ) => {
+      earlyStopReason = reason;
+      this.triggerEarlyStopping(reason, this.currentRound);
+    };
 
-    // Check if validation set is reasonable
-    const valSetSize = this.getValidationSet().length;
-    if (valSetSize < 1) {
-      issues.push('Validation set is empty');
-      suggestions.push('Provide examples or a validation set');
+    const onProgress = (progress: Readonly<AxOptimizationProgress>) => {
+      this.onProgress?.(progress);
+      updateProgress(
+        progress.round,
+        progress.currentScore,
+        progress.currentConfiguration || {},
+        optimizerType,
+        {}, // No optimizerConfig here, it's part of the progress object
+        progress.bestScore,
+        progress.bestConfiguration,
+        progress.convergenceInfo,
+        options
+      );
+    };
+
+    const compileResult = await this.compile(program, metricFn, {
+      ...options,
+      overrideOnProgress: onProgress,
+      overrideOnEarlyStop: onEarlyStop,
+    });
+
+    const duration = Date.now() - startTime;
+    this.recordOptimizationComplete(
+      duration,
+      true,
+      optimizerType,
+      programSignature
+    );
+
+    if (earlyStopReason) {
+      this.getLogger(options)?.({
+        name: 'Notification',
+        id: 'optimization_early_stop',
+        value: `Optimization stopped early due to ${earlyStopReason}`,
+      });
     }
 
     return {
-      isValid: issues.length === 0,
-      issues,
-      suggestions,
+      demos: compileResult.demos,
+      stats: compileResult.stats,
+      bestScore: compileResult.bestScore,
+      finalConfiguration: compileResult.finalConfiguration,
+      scoreHistory: compileResult.scoreHistory,
+      configurationHistory: compileResult.configurationHistory,
     };
   }
 
@@ -2110,6 +2193,17 @@ export abstract class AxBaseOptimizer<
         options
       );
     }
+    const optLogger = this.getOptimizerLogger(options);
+    optLogger?.({
+      name: 'RoundProgress',
+      value: {
+        round,
+        totalRounds: options?.maxIterations ?? 0,
+        currentScore: score,
+        bestScore,
+        configuration,
+      },
+    });
   }
 
   /**
@@ -2139,8 +2233,7 @@ export abstract class AxBaseOptimizer<
    * Get the logger function with fallback hierarchy:
    * 1. Explicit logger passed to optimizer
    * 2. Logger from student AI service
-   * 3. Default optimizer logger
-   * 4. undefined if verbose is false
+   * 3. undefined if verbose is false
    */
   protected getLogger(
     options?: AxCompileOptions
@@ -2156,8 +2249,8 @@ export abstract class AxBaseOptimizer<
       return this.logger;
     }
 
-    // Fall back to default optimizer logger
-    return axDefaultOptimizerLogger;
+    // Fall back to student AI logger
+    return this.studentAI.getLogger();
   }
 
   /**
@@ -2351,5 +2444,29 @@ export abstract class AxBaseOptimizer<
       duration,
       optimizerType
     );
+  }
+
+  // Optimizer logging methods
+  protected isOptimizerLoggingEnabled(options?: AxCompileOptions): boolean {
+    return this.debugOptimizer || (options?.verbose ?? this.verbose ?? false);
+  }
+
+  protected getOptimizerLogger(
+    options?: AxCompileOptions
+  ): AxOptimizerLoggerFunction | undefined {
+    if (!this.isOptimizerLoggingEnabled(options)) return undefined;
+    return this.optimizerLogger ?? axDefaultOptimizerLogger;
+  }
+
+  public getStats(): AxOptimizationStats {
+    return { ...this.stats };
+  }
+
+  public reset(): void {
+    this.stats = this.initializeStats();
+    this.costTracker?.reset();
+    this.currentRound = 0;
+    this.scoreHistory = [];
+    this.configurationHistory = [];
   }
 }

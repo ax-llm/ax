@@ -1,9 +1,7 @@
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
 import type { Context, Meter, Tracer } from '@opentelemetry/api';
-
 import type { AxAPI } from '../util/apicall.js';
-
 import type { AxAIFeatures } from './base.js';
 
 export type AxAIInputModelList<TModel, TEmbedModel> = (AxAIModelListBase & {
