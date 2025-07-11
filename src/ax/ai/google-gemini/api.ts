@@ -191,13 +191,6 @@ class AxAIGoogleGeminiImpl
       };
     }
 
-    if (!this.isVertex) {
-      const pf = stream ? '&' : '?';
-      const keyValue =
-        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
-      apiConfig.name += `${pf}key=${keyValue}`;
-    }
-
     const systemPrompts = req.chatPrompt
       .filter((p) => p.role === 'system')
       .map((p) => p.content);
@@ -676,6 +669,11 @@ export class AxAIGoogleGemini extends AxBaseAI<
       if (!apiKey) {
         throw new Error('GoogleGemini Vertex API key not set');
       }
+      if (typeof apiKey !== 'function') {
+        throw new Error(
+          'GoogleGemini Vertex API key must be a function for token-based authentication'
+        );
+      }
 
       let path: string;
       if (endpointId) {
@@ -694,7 +692,6 @@ export class AxAIGoogleGemini extends AxBaseAI<
         throw new Error('GoogleGemini AI API key not set');
       }
       apiURL = 'https://generativelanguage.googleapis.com/v1beta';
-      headers = async () => ({});
     }
 
     const Config = {
