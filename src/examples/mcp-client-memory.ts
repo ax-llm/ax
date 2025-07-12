@@ -1,9 +1,4 @@
-import {
-  AxAgent,
-  AxAI,
-  AxAIOpenAIModel,
-  AxMCPClient,
-} from '@ax-llm/ax';
+import { AxAgent, AxAI, AxAIOpenAIModel, AxMCPClient } from '@ax-llm/ax';
 import { AxMCPStdioTransport } from '@ax-llm/ax-tools';
 
 // Initialize the MCP client with server-memory

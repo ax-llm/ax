@@ -1,44 +1,16 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import readline from 'node:readline';
-import type { AxMCPTransport } from '@ax-llm/ax';
+import type {
+  AxMCPTransport,
+  JSONRPCRequest,
+  JSONRPCResponse,
+  JSONRPCNotification,
+} from '@ax-llm/ax';
 
 export interface StdioTransportConfig {
   command: string;
   args?: string[];
   env?: NodeJS.ProcessEnv;
-}
-
-interface JSONRPCRequest<T = unknown> {
-  jsonrpc: '2.0';
-  id: string | number;
-  method: string;
-  params?: T;
-}
-
-interface JSONRPCSuccessResponse<T = unknown> {
-  jsonrpc: '2.0';
-  id: string | number;
-  result: T;
-}
-
-interface JSONRPCErrorResponse {
-  jsonrpc: '2.0';
-  id: string | number;
-  error: {
-    code: number;
-    message: string;
-    data?: unknown;
-  };
-}
-
-type JSONRPCResponse<T = unknown> =
-  | JSONRPCSuccessResponse<T>
-  | JSONRPCErrorResponse;
-
-interface JSONRPCNotification {
-  jsonrpc: '2.0';
-  method: string;
-  params?: Record<string, unknown>;
 }
 
 export class AxMCPStdioTransport implements AxMCPTransport {

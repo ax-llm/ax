@@ -528,6 +528,11 @@ import {
   AxMCPStreambleHTTPTransport,
 } from './mcp/httpTransport.js';
 import type { AxMCPTransport } from './mcp/transport.js';
+import type {
+  JSONRPCNotification,
+  JSONRPCRequest,
+  JSONRPCResponse,
+} from './mcp/types.js';
 import { AxMemory } from './mem/memory.js';
 import type { AxAIMemory, AxMemoryData } from './mem/types.js';
 import {
@@ -1029,3 +1034,6 @@ export type { AxStreamingFieldProcessorProcess };
 export type { AxTokenUsage };
 export type { AxTunable };
 export type { AxUsable };
+export type { JSONRPCNotification };
+export type { JSONRPCRequest };
+export type { JSONRPCResponse };
