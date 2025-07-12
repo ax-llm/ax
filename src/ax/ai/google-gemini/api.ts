@@ -692,6 +692,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
         throw new Error('GoogleGemini AI API key not set');
       }
       apiURL = 'https://generativelanguage.googleapis.com/v1beta';
+      headers = async () => ({});
     }
 
     const Config = {

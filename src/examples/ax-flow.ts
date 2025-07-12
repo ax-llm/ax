@@ -7,8 +7,23 @@ const ai = new AxAI({
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
 });
 
-// Full method example - Document analysis pipeline
-const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>()
+// Full method example - Document analysis pipeline with production configuration
+const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>(
+  'documentContent:string -> analysis:string',
+  {
+    autoParallel: true,
+    maxConcurrency: 2, // Limit to 2 concurrent operations
+    errorHandling: {
+      defaultRetries: 2,
+      exponentialBackoff: true,
+      circuitBreaker: {
+        enabled: true,
+        failureThreshold: 3,
+        resetTimeout: 30000,
+      },
+    },
+  }
+)
   .node('summarizer', 'documentContent:string -> documentSummary:string')
   .node('keywordExtractor', 'documentSummary:string -> keywords:string[]')
   .node(
@@ -33,8 +48,17 @@ const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>()
     };
   });
 
-// Aliases example 1 - Customer support ticket processing
-const flowAlias1 = new AxFlow<{ ticketMessage: string }, { response: string }>()
+// Aliases example 1 - Customer support ticket processing with error handling
+const flowAlias1 = new AxFlow<
+  { ticketMessage: string },
+  { supportResponse: string }
+>('ticketMessage:string -> supportResponse:string', {
+  errorHandling: {
+    defaultRetries: 3,
+    retryDelay: 1000,
+    exponentialBackoff: true,
+  },
+})
   .n(
     'classifier',
     'customerMessage:string -> ticketCategory:string, urgencyLevel:string'
@@ -48,10 +72,16 @@ const flowAlias1 = new AxFlow<{ ticketMessage: string }, { response: string }>()
     ticketCategory: state.classifierResult.ticketCategory,
     urgencyLevel: state.classifierResult.urgencyLevel,
   }))
-  .m((state) => ({ response: state.responderResult.supportResponse }));
+  .m((state) => ({ supportResponse: state.responderResult.supportResponse }));
 
-// Aliases example 2 - Simplified code review system
-const flowAlias2 = new AxFlow<{ codeSnippet: string }, { review: string }>()
+// Aliases example 2 - Simplified code review system with auto-parallelization
+const flowAlias2 = new AxFlow<{ codeSnippet: string }, { codeReview: string }>(
+  'codeSnippet:string -> codeReview:string',
+  {
+    autoParallel: true,
+    maxConcurrency: 3, // Allow up to 3 concurrent code analysis operations
+  }
+)
   .n(
     'codeAnalyzer',
     'sourceCode:string -> codeAnalysis:string, qualityScore:number'
@@ -65,13 +95,13 @@ const flowAlias2 = new AxFlow<{ codeSnippet: string }, { review: string }>()
     codeAnalysis: s.codeAnalyzerResult.codeAnalysis,
     qualityScore: s.codeAnalyzerResult.qualityScore,
   }))
-  .m((s) => ({ review: s.reviewGeneratorResult.codeReview }));
+  .m((s) => ({ codeReview: s.reviewGeneratorResult.codeReview }));
 
 // Branch example - Content moderation system
 const flowBranch = new AxFlow<
   { userPost: string; postType: string },
   { moderationAction: string }
->()
+>('userPost:string, postType:string -> moderationAction:string')
   .node(
     'socialMediaModerator',
     'postContent:string -> moderationDecision:string, reasoning:string'
@@ -93,11 +123,11 @@ const flowBranch = new AxFlow<
       'No decision made',
   }));
 
-// Parallel example - Research paper analysis
+// Parallel example - Research paper analysis with manual parallelization
 const flowParallel = new AxFlow<
   { paperAbstract: string },
   { combinedScore: number }
->()
+>('paperAbstract:string -> combinedScore:number')
   .node('noveltyScorer', 'researchAbstract:string -> noveltyScore:number')
   .node('clarityScorer', 'researchAbstract:string -> clarityScore:number')
   .parallel([
@@ -122,14 +152,23 @@ const flowParallel = new AxFlow<
     return (noveltyScore + clarityScore) / 2;
   });
 
-// While example - Iterative writing improvement
+// While example - Iterative writing improvement with circuit breaker
 const flowWhile = new AxFlow<
   { draftArticle: string },
   { finalArticle: string }
->()
+>('draftArticle:string -> finalArticle:string', {
+  errorHandling: {
+    defaultRetries: 2,
+    circuitBreaker: {
+      enabled: true,
+      failureThreshold: 2,
+      resetTimeout: 20000,
+    },
+  },
+})
   .node(
     'qualityEvaluator',
-    'articleDraft:string -> qualityScore:number, feedback:string'
+    'articleDraft:string -> qualityScore:number, qualityFeedback:string'
   )
   .node(
     'articleImprover',
@@ -142,7 +181,7 @@ const flowWhile = new AxFlow<
   }))
   .execute('articleImprover', (state) => ({
     articleDraft: state.currentDraft,
-    improvementFeedback: state.qualityEvaluatorResult.feedback,
+    improvementFeedback: state.qualityEvaluatorResult.qualityFeedback,
   }))
   .map((state) => ({
     currentDraft: state.articleImproverResult.improvedArticle,
@@ -151,16 +190,25 @@ const flowWhile = new AxFlow<
   .endWhile()
   .map((state) => ({ finalArticle: state.currentDraft }));
 
-// Multi-hop RAG example - Research question answering (simplified)
+// Multi-hop RAG example - Research question answering with concurrency control
 const flowRAG = new AxFlow<
   { researchQuestion: string },
   { finalAnswer: string }
->()
+>('researchQuestion:string -> finalAnswer:string', {
+  autoParallel: true,
+  maxConcurrency: 4, // Process up to 4 retrieval operations concurrently
+  errorHandling: {
+    defaultRetries: 2,
+    retryDelay: 2000,
+    exponentialBackoff: true,
+    maxRetryDelay: 10000,
+  },
+})
   .node('queryGenerator', 'researchQuestion:string -> searchQuery:string')
   .node('retriever', 'searchQuery:string -> retrievedDocument:string')
   .node(
     'answerGenerator',
-    'retrievedDocument:string, researchQuestion:string -> answer:string'
+    'retrievedDocument:string, researchQuestion:string -> researchAnswer:string'
   )
   .execute('queryGenerator', (state) => ({
     researchQuestion: state.researchQuestion,
@@ -172,13 +220,48 @@ const flowRAG = new AxFlow<
     retrievedDocument: state.retrieverResult.retrievedDocument,
     researchQuestion: state.researchQuestion,
   }))
-  .map((state) => ({ finalAnswer: state.answerGeneratorResult.answer }));
+  .map((state) => ({
+    finalAnswer: state.answerGeneratorResult.researchAnswer,
+  }));
+
+// Batched parallel example - Processing multiple documents with concurrency control
+const flowBatchedParallel = new AxFlow<
+  { documentBatch: string },
+  { processedBatch: string }
+>('documentBatch:string -> processedBatch:string', {
+  maxConcurrency: 2, // Only process 2 operations at a time
+})
+  .node('processor1', 'batchData:string -> processedResult1:string')
+  .node('processor2', 'batchData:string -> processedResult2:string')
+  .node('processor3', 'batchData:string -> processedResult3:string')
+  .parallel([
+    // These 3 operations will be batched: only 2 run concurrently
+    (subFlow: any) =>
+      subFlow.execute('processor1', (state: any) => ({
+        batchData: state.documentBatch,
+      })),
+    (subFlow: any) =>
+      subFlow.execute('processor2', (state: any) => ({
+        batchData: state.documentBatch,
+      })),
+    (subFlow: any) =>
+      subFlow.execute('processor3', (state: any) => ({
+        batchData: state.documentBatch,
+      })),
+  ])
+  .merge('processedBatch', (res1: any, res2: any, res3: any) => {
+    return `Combined: ${res1.processedResult1}, ${res2.processedResult2}, ${res3.processedResult3}`;
+  });
 
 console.log('=== Document Analysis Pipeline ===');
-const resultFull = await flowFull.forward(ai, {
-  documentContent:
-    'This is a sample business document about quarterly earnings.',
-});
+const resultFull = await flowFull.forward(
+  ai,
+  {
+    documentContent:
+      'This is a sample business document about quarterly earnings.',
+  },
+  { debug: true }
+);
 console.log('Document analysis complete:', resultFull);
 
 console.log('\n=== Customer Support Ticket Processing ===');
@@ -219,3 +302,9 @@ const resultRAG = await flowRAG.forward(ai, {
     'What are the latest developments in quantum computing applications?',
 });
 console.log('Research complete:', resultRAG);
+
+console.log('\n=== Batched Parallel Processing ===');
+const resultBatched = await flowBatchedParallel.forward(ai, {
+  documentBatch: 'Sample document content for parallel processing',
+});
+console.log('Batched processing complete:', resultBatched);

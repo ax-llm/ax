@@ -26,7 +26,7 @@ describe('AxFlow', () => {
 
   describe('constructor', () => {
     it('should create an AxFlow instance with default signature', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> flowOutput:string');
       expect(flow).toBeInstanceOf(AxFlow);
     });
 
@@ -38,14 +38,14 @@ describe('AxFlow', () => {
 
   describe('node definition', () => {
     it('should define a node with simple signature', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> responseText:string');
       expect(() => {
         flow.node('testNode', 'userInput:string -> responseText:string');
       }).not.toThrow();
     });
 
     it('should define a node with complex field types', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('documentText:string -> finalResult:string');
       expect(() => {
         flow.node(
           'complexNode',
@@ -55,14 +55,14 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for invalid signature', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
       expect(() => {
         flow.node('badNode', '');
       }).toThrow('Invalid signature for node');
     });
 
     it('should throw error when executing non-existent node', async () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
       // The type system now prevents this at compile time, but we test runtime behavior
       // by casting to bypass type checking
       expect(() => {
@@ -78,7 +78,7 @@ describe('AxFlow', () => {
 
   describe('fluent interface', () => {
     it('should support method chaining', () => {
-      const flow = new AxFlow()
+      const flow = new AxFlow('userInput:string -> responseText:string')
         .node('testNode', 'userInput:string -> responseText:string')
         .map((state) => state)
         .execute('testNode', () => ({ userInput: 'test' }));
@@ -227,7 +227,7 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for unmatched endWhile', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       expect(() => {
         flow.endWhile();
@@ -321,7 +321,7 @@ describe('AxFlow', () => {
 
   describe('integration with dspy-ts ecosystem', () => {
     it('should be compatible with AxProgram interface', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       // Should have all required methods from AxProgram
       expect(typeof flow.forward).toBe('function');
@@ -364,7 +364,7 @@ describe('AxFlow', () => {
 
   describe('error handling', () => {
     it('should handle execution errors gracefully', async () => {
-      const flow = new AxFlow()
+      const flow = new AxFlow('input:string -> result:string')
         .node('processor', 'inputText:string -> outputResult:string')
         .execute('processor', (state) => ({ inputText: state.input }));
 
@@ -378,7 +378,7 @@ describe('AxFlow', () => {
     });
 
     it('should validate node existence before execution', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       expect(() => {
         // Type assertion to test runtime behavior when TypeScript types are bypassed
@@ -458,7 +458,7 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for nested branches', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       expect(() => {
         flow
@@ -469,7 +469,7 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for when() without branch()', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       expect(() => {
         flow.when(true);
@@ -477,7 +477,7 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for merge() without branch()', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       expect(() => {
         flow.merge();
@@ -690,7 +690,7 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for invalid label', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       expect(() => {
         flow.feedback(() => true, 'nonexistent-label');
@@ -698,7 +698,7 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for labels inside branch blocks', () => {
-      const flow = new AxFlow();
+      const flow = new AxFlow('userInput:string -> result:string');
 
       expect(() => {
         flow
@@ -837,8 +837,9 @@ describe('AxFlow', () => {
         }
       }
 
+      const customProgram = new CustomUppercaseProgram();
       const flow = new AxFlow<{ topic: string }, { result: string }>()
-        .node('custom', CustomUppercaseProgram)
+        .node('custom', customProgram)
         // @ts-expect-error - testing runtime behavior with custom typing
         .execute('custom', () => ({ userInput: 'hello world' }))
         // @ts-expect-error - testing runtime behavior with custom typing
@@ -887,7 +888,8 @@ describe('AxFlow > node definition > new overloads', () => {
 
     const flow = new AxFlow<{ topic: string }, { result: string }>();
 
-    flow.node('custom', CustomProgram);
+    const customProgram = new CustomProgram();
+    flow.node('custom', customProgram);
 
     // Test that the node was registered (we can't easily test execution without proper typing)
     expect(() => {
@@ -930,7 +932,8 @@ describe('AxFlow > node definition > new overloads', () => {
 
     const flow = new AxFlow<{ topic: string }, { result: string }>();
 
-    flow.n('custom', CustomProgram);
+    const customProgram2 = new CustomProgram();
+    flow.n('custom', customProgram2);
 
     // Test that the node was registered (we can't easily test execution without proper typing)
     expect(() => {
