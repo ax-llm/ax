@@ -1,0 +1,46 @@
+{
+  "name": "@ax-llm/ax-tools",
+  "version": "13.0.6",
+  "type": "module",
+  "description": "Ax tools package",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ax-llm/ax.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "Apache-2.0",
+  "keywords": [],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "test": "run-s test:*",
+    "test:type-check": "tsc --noEmit",
+    "test:unit": "vitest run",
+    "test:lint": "biome lint .",
+    "test:format": "biome format .",
+    "fix": "run-s fix:*",
+    "fix:lint": "biome lint --write .",
+    "fix:format": "biome format --write .",
+    "coverage": "c8 ava",
+    "prepare": "husky install",
+    "tsx": "node --env-file=.env --import=tsx",
+    "release": "release-it",
+    "publish": "npm run build && cd dist && npm publish",
+    "postbuild": "node ../../scripts/postbuild.js"
+  },
+  "dependencies": {
+    "@ax-llm/ax": "13.0.6"
+  },
+  "files": [
+    "**/*"
+  ],
+  "bugs": {
+    "url": "https://github.com/@ax-llm/ax/issues"
+  },
+  "homepage": "https://github.com/@ax-llm/ax#readme",
+  "author": "Vikram <https://twitter.com/dosco>",
+  "devDependencies": {}
+}

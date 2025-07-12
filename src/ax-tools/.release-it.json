@@ -1,0 +1,24 @@
+{
+  "npm": {
+    "publish": false
+  },
+  "git": false,
+  "plugins": {
+    "@release-it/bumper": {
+      "out": [
+        {
+          "file": "../../package.json",
+          "path": ["version"]
+        },
+        {
+          "file": "../examples/package.json",
+          "path": ["dependencies.@ax-llm/ax"]
+        },
+        {
+          "file": "../aisdk/package.json",
+          "path": ["dependencies.@ax-llm/ax"]
+        }
+      ]
+    }
+  }
+}
