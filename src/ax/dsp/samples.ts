@@ -1,11 +1,10 @@
 import type { AxAIMemory } from '../mem/types.js';
-
 import type {
   AxGenDeltaOut,
+  AxGenOut,
   AxResultPickerFunction,
   AxResultPickerFunctionFunctionResults,
-} from './program.js';
-import type { AxGenOut } from './types.js';
+} from './types.js';
 
 export interface AxSamplePickerOptions<OUT extends AxGenOut> {
   resultPicker?: AxResultPickerFunction<OUT>;

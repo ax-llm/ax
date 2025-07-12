@@ -1,15 +1,21 @@
 import type { AxAIService } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
-import type { AxProgram, AxProgramForwardOptions } from '../dsp/program.js';
-import type { AxFieldValue, AxGenIn, AxGenOut } from '../dsp/types.js';
+import type { AxProgram } from '../dsp/program.js';
+import type {
+  AxFieldValue,
+  AxForwardable,
+  AxGenIn,
+  AxGenOut,
+  AxProgramForwardOptions,
+  AxTunable,
+  AxUsable,
+} from '../dsp/types.js';
 import type {
   AddNodeResult,
   AxFlowDynamicContext,
-  AxFlowParallelBranch,
   AxFlowState,
   AxFlowStepFunction,
   AxFlowSubContext,
-  AxFlowTypedParallelBranch,
   AxFlowTypedSubContext,
   GetGenIn,
   GetGenOut,
@@ -24,7 +30,7 @@ export class AxFlowSubContextImpl implements AxFlowSubContext {
   constructor(
     private readonly nodeGenerators: Map<
       string,
-      AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
+      AxForwardable<AxGenIn, AxGenOut> & AxTunable<AxGenIn, AxGenOut> & AxUsable
     >
   ) {}
 
@@ -49,10 +55,21 @@ export class AxFlowSubContextImpl implements AxFlowSubContext {
         : `Node:${nodeName}`;
 
       // Execute the node with updated trace label
-      const result = await nodeProgram.forward(ai, nodeInputs, {
-        ...options,
-        traceLabel,
-      });
+      // Handle both AxGen and AxProgram types
+      let result: any;
+      if (
+        'forward' in nodeProgram &&
+        typeof nodeProgram.forward === 'function'
+      ) {
+        result = await nodeProgram.forward(ai, nodeInputs, {
+          ...options,
+          traceLabel,
+        });
+      } else {
+        throw new Error(
+          `Node program for '${nodeName}' does not have a forward method`
+        );
+      }
 
       return {
         ...state,
@@ -128,10 +145,21 @@ export class AxFlowTypedSubContextImpl<
         : `Node:${nodeName}`;
 
       // Execute the node with updated trace label
-      const result = await nodeProgram.forward(ai, nodeInputs, {
-        ...options,
-        traceLabel,
-      });
+      // Handle both AxGen and AxProgram types
+      let result: any;
+      if (
+        'forward' in nodeProgram &&
+        typeof nodeProgram.forward === 'function'
+      ) {
+        result = await nodeProgram.forward(ai, nodeInputs, {
+          ...options,
+          traceLabel,
+        });
+      } else {
+        throw new Error(
+          `Node program for '${nodeName}' does not have a forward method`
+        );
+      }
 
       return {
         ...state,
@@ -170,6 +198,3 @@ export class AxFlowTypedSubContextImpl<
     return currentState;
   }
 }
-
-// Type exports for parallel branch functions
-export type { AxFlowParallelBranch, AxFlowTypedParallelBranch };

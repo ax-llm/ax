@@ -28,7 +28,7 @@ const flow = new AxFlow()
 // Before execution: The flow will infer its signature based on the dependencies
 console.log(
   'Flow signature before execution (temporary):',
-  flow.getSignature()
+  flow.getSignature().toString()
 );
 
 // Execute the flow - this will trigger signature inference
@@ -38,7 +38,10 @@ const result = await flow.forward(ai, {
 });
 
 // After execution: The signature has been inferred from the flow structure
-console.log('Flow signature after execution (inferred):', flow.getSignature());
+console.log(
+  'Flow signature after execution (inferred):',
+  flow.getSignature().toString()
+);
 console.log('Final result:', result);
 
 // Demonstrate with a more complex flow
@@ -72,14 +75,8 @@ const complexResult = await complexFlow.forward(ai, {
     'The new AI features are revolutionary and will change how we approach automation in healthcare and education sectors.',
 });
 
-console.log('Complex flow inferred signature:', complexFlow.getSignature());
+console.log(
+  'Complex flow inferred signature:',
+  complexFlow.getSignature().toString()
+);
 console.log('Complex flow result:', complexResult);
-
-// Example: Manual signature override still works
-console.log('\n=== Manual Signature Override ===');
-
-const manualFlow = new AxFlow({
-  signature: 'customInput:string -> customOutput:string',
-}).node('processor', 'dataIn:string -> dataOut:string');
-
-console.log('Manual flow signature (override):', manualFlow.getSignature());

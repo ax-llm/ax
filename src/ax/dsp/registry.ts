@@ -1,5 +1,4 @@
-import type { AxTunable, AxUsable } from './program.js';
-import type { AxGenIn, AxGenOut } from './types.js';
+import type { AxGenIn, AxGenOut, AxTunable, AxUsable } from './types.js';
 
 type AxInstanceRegistryItem<
   T extends AxTunable<IN, OUT>,

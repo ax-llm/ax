@@ -1,5 +1,5 @@
 // import { AxGen } from '../dsp/generate.js'
-// import type { AxProgramForwardOptions } from '../dsp/program.js'
+// import type { AxProgramForwardOptions } from '../dsp/types.js'
 
 // import { type AxRewriteIn, type AxRewriteOut } from './manager.js'
 

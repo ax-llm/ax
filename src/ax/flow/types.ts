@@ -1,7 +1,16 @@
 import type { AxAIService } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
-import type { AxProgramForwardOptions } from '../dsp/program.js';
-import type { AxFieldValue, AxGenIn, AxGenOut } from '../dsp/types.js';
+import type {
+  AxFieldValue,
+  AxGenIn,
+  AxGenOut,
+  AxProgramForwardOptions,
+  AxProgrammable,
+} from '../dsp/types.js';
+
+// =============================================================================
+// BASIC FLOW TYPES
+// =============================================================================
 
 // Type for state object that flows through the pipeline
 export type AxFlowState = Record<string, unknown>;
@@ -25,67 +34,7 @@ export type AxFlowStepFunction = (
 export interface AxFlowDynamicContext {
   ai?: AxAIService;
   options?: AxProgramForwardOptions;
-  retries?: number;
-  onError?: (error: Error, attempt: number) => boolean | Promise<boolean>; // Return true to retry, false to fail
-  fallback?: () => any | Promise<any>; // Fallback value/function if all retries fail
 }
-
-// Type for branch context
-export interface AxFlowBranchContext {
-  predicate: (state: AxFlowState) => unknown;
-  branches: Map<unknown, AxFlowStepFunction[]>;
-  currentBranchValue?: unknown;
-}
-
-// Configuration for automatic parallelization
-export interface AxFlowAutoParallelConfig {
-  enabled: boolean;
-}
-
-// Configuration for error handling
-export interface AxFlowErrorHandlingConfig {
-  maxRetries: number;
-  retryDelay: number;
-  exponentialBackoff: boolean;
-}
-
-// Type for execution step metadata
-export interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'merge' | 'other';
-  nodeName?: string;
-  dependencies: string[];
-  produces: string[];
-  stepFunction: AxFlowStepFunction;
-  stepIndex: number;
-}
-
-// Type for parallel execution groups
-export interface AxFlowParallelGroup {
-  level: number;
-  steps: AxFlowExecutionStep[];
-}
-
-// Type for sub-context interfaces
-export interface AxFlowSubContext {
-  execute(
-    nodeName: string,
-    mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
-    dynamicContext?: AxFlowDynamicContext
-  ): AxFlowSubContext;
-  map(transform: (state: AxFlowState) => AxFlowState): AxFlowSubContext;
-  executeSteps(
-    initialState: AxFlowState,
-    context: Readonly<{
-      mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
-    }>
-  ): Promise<AxFlowState>;
-}
-
-// Type for parallel branch functions
-export type AxFlowParallelBranch = (
-  subFlow: AxFlowSubContext
-) => AxFlowSubContext;
 
 // =============================================================================
 // ADVANCED TYPE SYSTEM FOR TYPE-SAFE CHAINING
@@ -122,6 +71,17 @@ export type AddNodeResult<
   TNodeName extends string,
   TNodeOut extends AxGenOut,
 > = TState & { [K in NodeResultKey<TNodeName>]: TNodeOut };
+
+// =============================================================================
+// AXFLOWABLE INTERFACE
+// =============================================================================
+
+/**
+ * Interface for flows that can be tuned, executed, and used in compositions.
+ * Provides methods for building and executing complex AI workflows.
+ */
+export interface AxFlowable<IN extends AxGenIn, OUT extends AxGenOut>
+  extends AxProgrammable<IN, OUT> {}
 
 // =============================================================================
 // TYPED SUB-CONTEXT INTERFACES
@@ -162,4 +122,57 @@ export interface AxFlowTypedSubContext<
       mainOptions?: AxProgramForwardOptions;
     }>
   ): Promise<AxFlowState>;
+}
+
+// Legacy untyped interfaces for backward compatibility
+export type AxFlowParallelBranch = (
+  subFlow: AxFlowSubContext
+) => AxFlowSubContext;
+
+export interface AxFlowSubContext {
+  execute(
+    nodeName: string,
+    mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
+    dynamicContext?: AxFlowDynamicContext
+  ): this;
+  map(transform: (state: AxFlowState) => AxFlowState): this;
+  executeSteps(
+    initialState: AxFlowState,
+    context: Readonly<{
+      mainAi: AxAIService;
+      mainOptions?: AxProgramForwardOptions;
+    }>
+  ): Promise<AxFlowState>;
+}
+
+// Type for branch context
+export interface AxFlowBranchContext {
+  predicate: (state: AxFlowState) => unknown;
+  branches: Map<unknown, AxFlowStepFunction[]>;
+  currentBranchValue?: unknown;
+}
+
+// =============================================================================
+// AUTOMATIC DEPENDENCY ANALYSIS AND PARALLELIZATION
+// =============================================================================
+
+// Type for execution step metadata
+export interface AxFlowExecutionStep {
+  type: 'execute' | 'map' | 'merge' | 'other';
+  nodeName?: string;
+  dependencies: string[];
+  produces: string[];
+  stepFunction: AxFlowStepFunction;
+  stepIndex: number;
+}
+
+// Type for parallel execution groups
+export interface AxFlowParallelGroup {
+  level: number;
+  steps: AxFlowExecutionStep[];
+}
+
+// Configuration for automatic parallelization
+export interface AxFlowAutoParallelConfig {
+  enabled: boolean;
 }

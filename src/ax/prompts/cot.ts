@@ -1,7 +1,10 @@
 import { AxGen } from '../dsp/generate.js';
-import type { AxProgramForwardOptions } from '../dsp/program.js';
 import { AxSignature } from '../dsp/sig.js';
-import type { AxGenIn, AxGenOut } from '../dsp/types.js';
+import type {
+  AxGenIn,
+  AxGenOut,
+  AxProgramForwardOptions,
+} from '../dsp/types.js';
 
 export class AxChainOfThought<
   IN extends AxGenIn = AxGenIn,

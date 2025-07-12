@@ -57,26 +57,25 @@ import {
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
-import {
-  type AsyncGenDeltaOut,
-  type AxGenDeltaOut,
-  type AxGenStreamingOut,
-  AxProgram,
-  type AxProgramExamples,
-  type AxProgramForwardOptions,
-  type AxProgramStreamingForwardOptions,
-  type AxResultPickerFunction,
-  type AxSetExamplesOptions,
-} from './program.js';
+import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
 import type { AxIField, AxSignature } from './sig.js';
 import type {
+  AsyncGenDeltaOut,
+  AxGenDeltaOut,
   AxGenIn,
   AxGenIn as AxGenInType,
   AxGenOut,
   AxGenOut as AxGenOutType,
+  AxGenStreamingOut,
   AxMessage,
+  AxProgramExamples,
+  AxProgramForwardOptions,
+  AxProgrammable,
+  AxProgramStreamingForwardOptions,
+  AxResultPickerFunction,
+  AxSetExamplesOptions,
 } from './types.js';
 import { mergeDeltas } from './util.js';
 import { handleValidationError } from './validate.js';
@@ -117,9 +116,12 @@ export type InternalAxGenState = {
 };
 
 export class AxGen<
-  IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenOut = AxGenOut,
-> extends AxProgram<IN, OUT> {
+    IN extends AxGenIn = AxGenIn,
+    OUT extends AxGenOut = AxGenOut,
+  >
+  extends AxProgram<IN, OUT>
+  implements AxProgrammable<IN, OUT>
+{
   private promptTemplate: AxPromptTemplate;
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
@@ -797,7 +799,7 @@ export class AxGen<
     }
   }
 
-  public override async forward(
+  public async forward(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions>
@@ -946,7 +948,7 @@ export class AxGen<
     }
   }
 
-  override async *streamingForward(
+  async *streamingForward(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptions>

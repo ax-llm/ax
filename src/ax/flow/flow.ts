@@ -1,606 +1,43 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, functional/prefer-immutable-types */
 import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
-import { AxProgram, type AxProgramForwardOptions } from '../dsp/program.js';
+import { AxProgram } from '../dsp/program.js';
 import { type AxField, AxSignature } from '../dsp/sig.js';
-import type { AxFieldValue, AxGenIn, AxGenOut } from '../dsp/types.js';
-
-// Type for state object that flows through the pipeline
-type AxFlowState = Record<string, unknown>;
-
-// Type for node definitions in the flow
-interface AxFlowNodeDefinition {
-  inputs: Record<string, unknown>;
-  outputs: Record<string, unknown>;
-}
-
-// Type for flow step functions
-type AxFlowStepFunction = (
-  state: AxFlowState,
-  context: Readonly<{
-    mainAi: AxAIService;
-    mainOptions?: AxProgramForwardOptions;
-  }>
-) => Promise<AxFlowState> | AxFlowState;
-
-// Type for dynamic context overrides
-interface AxFlowDynamicContext {
-  ai?: AxAIService;
-  options?: AxProgramForwardOptions;
-}
-
-// =============================================================================
-// ADVANCED TYPE SYSTEM FOR TYPE-SAFE CHAINING
-// =============================================================================
-
-// Helper type to extract input type from an AxGen instance
-type GetGenIn<T extends AxGen<AxGenIn, AxGenOut>> = T extends AxGen<
-  infer IN,
-  AxGenOut
->
-  ? IN
-  : never;
-
-// Helper type to extract output type from an AxGen instance
-type GetGenOut<T extends AxGen<AxGenIn, AxGenOut>> = T extends AxGen<
+import type {
   AxGenIn,
-  infer OUT
->
-  ? OUT
-  : never;
-
-// Helper type to create an AxGen type from a signature string
-// This is a simplified version - in practice, you'd need more sophisticated parsing
-type InferAxGen<TSig extends string> = TSig extends string
-  ? AxGen<AxGenIn, AxGenOut>
-  : never;
-
-// Helper type to create result key name from node name
-type NodeResultKey<TNodeName extends string> = `${TNodeName}Result`;
-
-// Helper type to add node result to state
-type AddNodeResult<
-  TState extends AxFlowState,
-  TNodeName extends string,
-  TNodeOut extends AxGenOut,
-> = TState & { [K in NodeResultKey<TNodeName>]: TNodeOut };
-
-// =============================================================================
-// TYPED SUB-CONTEXT INTERFACES
-// =============================================================================
-
-// Type for parallel branch functions with typed context
-// NOTE: The `any` here is necessary because we need to support AxGen with any input/output types
-type AxFlowTypedParallelBranch<
-  TNodes extends Record<string, AxGen<any, any>>,
-  TState extends AxFlowState,
-> = (
-  subFlow: AxFlowTypedSubContext<TNodes, TState>
-) => AxFlowTypedSubContext<TNodes, AxFlowState>;
-
-// Type for typed sub-flow context used in parallel execution
-// NOTE: The `any` here is necessary for the same reason as above
-interface AxFlowTypedSubContext<
-  TNodes extends Record<string, AxGen<any, any>>,
-  TState extends AxFlowState,
-> {
-  execute<TNodeName extends keyof TNodes & string>(
-    nodeName: TNodeName,
-    mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
-    dynamicContext?: AxFlowDynamicContext
-  ): AxFlowTypedSubContext<
-    TNodes,
-    AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
-  >;
-
-  map<TNewState extends AxFlowState>(
-    transform: (state: TState) => TNewState
-  ): AxFlowTypedSubContext<TNodes, TNewState>;
-
-  executeSteps(
-    initialState: TState,
-    context: Readonly<{
-      mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
-    }>
-  ): Promise<AxFlowState>;
-}
-
-// Legacy untyped interfaces for backward compatibility
-type AxFlowParallelBranch = (subFlow: AxFlowSubContext) => AxFlowSubContext;
-
-interface AxFlowSubContext {
-  execute(
-    nodeName: string,
-    mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
-    dynamicContext?: AxFlowDynamicContext
-  ): this;
-  map(transform: (state: AxFlowState) => AxFlowState): this;
-  executeSteps(
-    initialState: AxFlowState,
-    context: Readonly<{
-      mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
-    }>
-  ): Promise<AxFlowState>;
-}
-
-// Type for branch context
-interface AxFlowBranchContext {
-  predicate: (state: AxFlowState) => unknown;
-  branches: Map<unknown, AxFlowStepFunction[]>;
-  currentBranchValue?: unknown;
-}
-
-// =============================================================================
-// AUTOMATIC DEPENDENCY ANALYSIS AND PARALLELIZATION
-// =============================================================================
-
-// Type for execution step metadata
-interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'merge' | 'other';
-  nodeName?: string;
-  dependencies: string[];
-  produces: string[];
-  stepFunction: AxFlowStepFunction;
-  stepIndex: number;
-}
-
-// Type for parallel execution groups
-interface AxFlowParallelGroup {
-  level: number;
-  steps: AxFlowExecutionStep[];
-}
-
-// Configuration for automatic parallelization
-interface AxFlowAutoParallelConfig {
-  enabled: boolean;
-}
-
-/**
- * Analyzes mapping functions to extract state dependencies
- */
-class AxFlowDependencyAnalyzer {
-  /**
-   * Analyzes a mapping function to determine which state fields it depends on
-   */
-  analyzeMappingDependencies(
-    mapping: (state: any) => any,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _nodeName: string
-  ): string[] {
-    const dependencies: string[] = [];
-
-    // Method 1: Static analysis of function source
-    const source = mapping.toString();
-    const stateAccessMatches = Array.from(source.matchAll(/state\.(\w+)/g));
-    for (const match of stateAccessMatches) {
-      if (match[1] && !dependencies.includes(match[1])) {
-        dependencies.push(match[1]);
-      }
-    }
-
-    // Method 2: Proxy-based tracking (fallback for complex cases)
-    if (dependencies.length === 0) {
-      try {
-        const tracker = this.createDependencyTracker(dependencies);
-        mapping(tracker);
-      } catch {
-        // Expected - we're just tracking access patterns
-      }
-    }
-
-    return dependencies;
-  }
-
-  private createDependencyTracker(dependencies: string[]): any {
-    return new Proxy(
-      {},
-      {
-        get(_target, prop) {
-          if (typeof prop === 'string' && !dependencies.includes(prop)) {
-            dependencies.push(prop);
-          }
-          // Return another proxy for nested access
-          return new Proxy(
-            {},
-            {
-              get: () => undefined,
-            }
-          );
-        },
-      }
-    );
-  }
-}
-
-/**
- * Builds and manages the execution plan with automatic parallelization
- */
-class AxFlowExecutionPlanner {
-  private steps: AxFlowExecutionStep[] = [];
-  private parallelGroups: AxFlowParallelGroup[] = [];
-  private readonly analyzer = new AxFlowDependencyAnalyzer();
-  private initialFields: Set<string> = new Set();
-
-  /**
-   * Adds an execution step to the planner for dependency analysis and parallel optimization.
-   * This method analyzes different types of steps (execute, map, merge, other) and determines
-   * what fields they depend on and what fields they produce.
-   *
-   * The analysis is critical for:
-   * - Automatic parallelization of independent steps
-   * - Signature inference to determine flow inputs/outputs
-   * - Dependency tracking to ensure correct execution order
-   *
-   * Step type analysis:
-   * - 'execute': Node execution steps that run LLM operations
-   * - 'map': Transformation steps that modify the state object
-   * - 'merge': Branch merge operations that combine results from conditional branches
-   * - 'other': Generic steps that don't fit other categories
-   *
-   * @param stepFunction - The actual function to execute for this step
-   * @param nodeName - Name of the node (for execute steps)
-   * @param mapping - Function that maps state to node inputs (for execute steps)
-   * @param stepType - Type of step for specialized analysis
-   * @param mapTransform - Transformation function (for map steps)
-   * @param mergeOptions - Options for merge operations (result key, merge function)
-   */
-  addExecutionStep(
-    stepFunction: AxFlowStepFunction,
-    nodeName?: string,
-    mapping?: (state: any) => any,
-    stepType?: 'execute' | 'map' | 'merge' | 'other',
-    mapTransform?: (state: any) => any,
-    mergeOptions?: {
-      resultKey?: string;
-      mergeFunction?: (...args: any[]) => any;
-    }
-  ): void {
-    let dependencies: string[] = [];
-    let produces: string[] = [];
-    let type: 'execute' | 'map' | 'merge' | 'other' = stepType || 'other';
-
-    // Analyze execute steps (node operations)
-    // These are the core LLM operations that process data through defined nodes
-    if (nodeName && mapping) {
-      type = 'execute';
-      // Analyze the mapping function to determine what fields it accesses
-      dependencies = this.analyzer.analyzeMappingDependencies(
-        mapping,
-        nodeName
-      );
-      // Execute steps produce a result field named after the node
-      produces = [`${nodeName}Result`];
-    } else if (type === 'map' && mapTransform) {
-      // Analyze map transformation steps
-      // These modify the state object and can produce new fields
-
-      // Try to determine what fields the map transformation produces
-      // by running it on a mock state and seeing what keys are in the result
-      const mapOutputFields = this.analyzeMapTransformation(mapTransform);
-      produces = mapOutputFields;
-
-      // Map steps typically depend on all previously produced fields
-      // since they have access to the entire state object
-      dependencies = this.getAllProducedFields();
-    } else if (type === 'merge') {
-      // Analyze merge operations (branch merging)
-      // These combine results from conditional branches or parallel operations
-
-      if (mergeOptions?.resultKey) {
-        // Parallel merge with explicit result key
-        // Produces a single field with the merged result
-        produces = [mergeOptions.resultKey];
-      } else {
-        // Conditional branch merge
-        // Analyze what fields the branches actually produce
-        const branchFields = this.analyzeBranchMergeFields();
-        produces = branchFields.length > 0 ? branchFields : ['_mergedResult'];
-      }
-
-      // Merge steps depend on all previously produced fields
-      // since they need to access branch results
-      dependencies = this.getAllProducedFields();
-    } else if (stepFunction.toString().includes('transform(')) {
-      // Fallback detection for map-like steps
-      // This catches transformation steps that weren't explicitly marked as 'map'
-      type = 'map';
-
-      // Map steps are harder to analyze statically, assume they depend on all previous steps
-      dependencies = this.getAllProducedFields();
-      produces = ['_mapResult'];
-    }
-
-    // Create the execution step record
-    const step: AxFlowExecutionStep = {
-      type,
-      nodeName,
-      dependencies,
-      produces,
-      stepFunction,
-      stepIndex: this.steps.length,
-    };
-
-    this.steps.push(step);
-    // Note: Don't rebuild parallel groups during construction - only after initial fields are set
-    // This optimization prevents unnecessary rebuilds during flow construction
-    // this.rebuildParallelGroups()
-  }
-
-  /**
-   * Analyzes a map transformation function to determine what fields it produces
-   */
-  private analyzeMapTransformation(
-    mapTransform: (state: any) => any
-  ): string[] {
-    try {
-      // Create a mock state with sample data to analyze the transformation
-      const mockState = this.createMockState();
-      const result = mapTransform(mockState);
-
-      if (result && typeof result === 'object' && !Array.isArray(result)) {
-        return Object.keys(result);
-      }
-    } catch (error) {
-      // If analysis fails, return a generic field name
-      console.debug('Map transformation analysis failed:', error);
-    }
-
-    return ['_mapResult'];
-  }
-
-  /**
-   * Analyzes what fields are produced by conditional merge operations.
-   *
-   * Conditional merges are complex because they don't transform data like map operations,
-   * but instead select which branch's results to use based on a condition.
-   * The challenge is determining what fields will be available after the merge
-   * without knowing which branch will be taken at runtime.
-   *
-   * This method uses heuristics to determine the likely output fields:
-   * 1. Look at recent execute steps (likely branch operations)
-   * 2. If found, use their output fields as potential merge results
-   * 3. Fallback to all execute step fields if no recent pattern is found
-   *
-   * The analysis assumes that branches in a conditional merge will produce
-   * similar types of fields, so we can use any branch's fields as representative
-   * of what the merge might produce.
-   *
-   * @returns string[] - Array of field names that the merge operation might produce
-   */
-  private analyzeBranchMergeFields(): string[] {
-    // Look at the last few steps to find execute steps that would be merged
-    // We focus on recent steps because they're more likely to be part of the
-    // current branch structure being merged
-    const recentExecuteSteps = this.steps
-      .slice(-5) // Look at last 5 steps
-      .filter((step) => step.type === 'execute' && step.nodeName)
-      .flatMap((step) => step.produces);
-
-    if (recentExecuteSteps.length > 0) {
-      return recentExecuteSteps;
-    }
-
-    // Fallback: return all execute step fields
-    // This is a broader approach when we can't identify recent branch patterns
-    // It includes all possible fields that could be produced by any node
-    return this.steps
-      .filter((step) => step.type === 'execute' && step.nodeName)
-      .flatMap((step) => step.produces);
-  }
-
-  /**
-   * Creates a mock state with sample data for analysis
-   */
-  private createMockState(): any {
-    const mockState: any = {};
-
-    // Add initial fields
-    for (const field of this.initialFields) {
-      mockState[field] = 'mockValue';
-    }
-
-    // Add produced fields from previous steps
-    for (const step of this.steps) {
-      for (const field of step.produces) {
-        if (field.endsWith('Result')) {
-          mockState[field] = {
-            // Add common result field patterns
-            text: 'mockText',
-            value: 'mockValue',
-            result: 'mockResult',
-            data: 'mockData',
-            processedData: 'mockProcessedData',
-          };
-        } else {
-          mockState[field] = 'mockValue';
-        }
-      }
-    }
-
-    return mockState;
-  }
-
-  /**
-   * Sets the initial fields and rebuilds parallel groups
-   */
-  setInitialFields(fields: string[]): void {
-    this.initialFields = new Set(fields);
-    this.rebuildParallelGroups();
-  }
-
-  /**
-   * Rebuilds the parallel execution groups based on step dependencies.
-   *
-   * This is a critical optimization method that analyzes the dependency graph
-   * of all execution steps and groups them into parallel execution levels.
-   * Steps that don't depend on each other can be executed simultaneously,
-   * significantly improving performance for complex flows.
-   *
-   * The algorithm works as follows:
-   * 1. Start with initial fields (flow inputs) as available
-   * 2. For each level, find all steps whose dependencies are satisfied
-   * 3. Group these independent steps together for parallel execution
-   * 4. Add their produced fields to the available fields set
-   * 5. Repeat until all steps are processed
-   *
-   * Example:
-   * - Level 0: Steps A, B, C (no dependencies) -> run in parallel
-   * - Level 1: Step D (depends on A), Step E (depends on B) -> run in parallel
-   * - Level 2: Step F (depends on D and E) -> run alone
-   *
-   * This creates a DAG (Directed Acyclic Graph) execution plan that maximizes
-   * parallelism while respecting data dependencies.
-   */
-  private rebuildParallelGroups(): void {
-    this.parallelGroups = [];
-    const processedSteps = new Set<number>();
-    const availableFields = new Set<string>(this.initialFields);
-    let currentLevel = 0;
-
-    // Continue until all steps are processed
-    while (processedSteps.size < this.steps.length) {
-      const currentLevelSteps: AxFlowExecutionStep[] = [];
-
-      // Find all steps that can run at this level
-      // A step can run if all its dependencies are satisfied by available fields
-      for (const step of this.steps) {
-        if (processedSteps.has(step.stepIndex)) continue;
-
-        // Check if all dependencies are available
-        // Steps with no dependencies can always run
-        const canRun =
-          step.dependencies.length === 0 ||
-          step.dependencies.every((dep) => availableFields.has(dep));
-
-        if (canRun) {
-          currentLevelSteps.push(step);
-          processedSteps.add(step.stepIndex);
-        }
-      }
-
-      if (currentLevelSteps.length > 0) {
-        // Add all produced fields from this level to available fields
-        // This makes them available for steps in the next level
-        for (const step of currentLevelSteps) {
-          step.produces.forEach((field) => availableFields.add(field));
-        }
-
-        // Create a parallel group for this level
-        this.parallelGroups.push({
-          level: currentLevel,
-          steps: currentLevelSteps,
-        });
-        currentLevel++;
-      } else {
-        // No progress made - this indicates a circular dependency or bug
-        // Break to avoid infinite loop
-        console.warn(
-          'No progress made in parallel group building - possible circular dependency'
-        );
-        break;
-      }
-    }
-  }
-
-  /**
-   * Gets all fields produced by previous steps
-   */
-  private getAllProducedFields(): string[] {
-    const fields: string[] = [];
-    for (const step of this.steps) {
-      fields.push(...step.produces);
-    }
-    return fields;
-  }
-
-  /**
-   * Creates optimized execution functions that implement the parallel execution plan.
-   *
-   * This method converts the parallel groups into actual executable functions.
-   * It creates a series of steps where:
-   * - Single-step groups execute directly
-   * - Multi-step groups execute in parallel using Promise.all()
-   * - Results are properly merged to maintain state consistency
-   *
-   * The optimized execution can significantly improve performance for flows
-   * with independent operations, especially I/O-bound operations like LLM calls.
-   *
-   * Performance benefits:
-   * - Reduces total execution time for independent operations
-   * - Maximizes CPU and I/O utilization
-   * - Maintains correctness through dependency management
-   *
-   * @returns Array of optimized step functions ready for execution
-   */
-  createOptimizedExecution(): AxFlowStepFunction[] {
-    const optimizedSteps: AxFlowStepFunction[] = [];
-
-    for (const group of this.parallelGroups) {
-      if (group.steps.length === 1) {
-        // Single step - execute directly
-        const step = group.steps[0];
-        if (step) {
-          optimizedSteps.push(step.stepFunction);
-        }
-      } else if (group.steps.length > 1) {
-        // Multiple steps - execute in parallel
-        const parallelStep: AxFlowStepFunction = async (state, context) => {
-          const promises = group.steps.map((step) =>
-            step.stepFunction(state, context)
-          );
-
-          const results = await Promise.all(promises);
-
-          // Merge all results
-          let mergedState = state;
-          for (const result of results) {
-            mergedState = { ...mergedState, ...result };
-          }
-
-          return mergedState;
-        };
-
-        optimizedSteps.push(parallelStep);
-      }
-    }
-
-    return optimizedSteps;
-  }
-
-  /**
-   * Gets detailed execution plan information for debugging and analysis.
-   *
-   * This method provides comprehensive information about the execution plan,
-   * including step counts, parallel grouping details, and the complete
-   * dependency structure. It's particularly useful for:
-   * - Debugging execution flow issues
-   * - Performance analysis and optimization
-   * - Understanding parallelization effectiveness
-   * - Monitoring execution plan complexity
-   *
-   * @returns Object containing detailed execution plan metrics and data
-   */
-  getExecutionPlan(): {
-    totalSteps: number;
-    parallelGroups: number;
-    maxParallelism: number;
-    steps: AxFlowExecutionStep[];
-    groups: AxFlowParallelGroup[];
-  } {
-    return {
-      totalSteps: this.steps.length,
-      parallelGroups: this.parallelGroups.length,
-      maxParallelism: Math.max(
-        ...this.parallelGroups.map((g) => g.steps.length),
-        0
-      ),
-      steps: this.steps,
-      groups: this.parallelGroups,
-    };
-  }
-}
+  AxGenOut,
+  AxGenStreamingOut,
+  AxMessage,
+  AxProgramDemos,
+  AxProgramExamples,
+  AxProgramForwardOptions,
+  AxProgrammable,
+  AxProgramStreamingForwardOptions,
+  AxProgramTrace,
+  AxProgramUsage,
+  AxSetExamplesOptions,
+} from '../dsp/types.js';
+import { AxFlowExecutionPlanner } from './executionPlanner.js';
+import { AxFlowSubContextImpl } from './subContext.js';
+import type {
+  AddNodeResult,
+  AxFlowAutoParallelConfig,
+  AxFlowable,
+  AxFlowBranchContext,
+  AxFlowDynamicContext,
+  AxFlowExecutionStep,
+  AxFlowNodeDefinition,
+  AxFlowParallelBranch,
+  AxFlowParallelGroup,
+  AxFlowState,
+  AxFlowStepFunction,
+  AxFlowSubContext,
+  AxFlowTypedParallelBranch,
+  AxFlowTypedSubContext,
+  GetGenIn,
+  GetGenOut,
+  InferAxGen,
+} from './types.js';
 
 /**
  * AxFlow - A fluent, chainable API for building and orchestrating complex, stateful AI programs.
@@ -626,12 +63,13 @@ export class AxFlow<
   // NOTE: The `any` here is necessary because TNodes must accommodate AxGen instances with various input/output types
   TNodes extends Record<string, AxGen<any, any>> = Record<string, never>, // Node registry for type tracking
   TState extends AxFlowState = IN, // Current evolving state type
-> extends AxProgram<IN, OUT> {
+> implements AxFlowable<IN, OUT>
+{
   private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map();
   private readonly flowDefinition: AxFlowStepFunction[] = [];
   private readonly nodeGenerators: Map<
     string,
-    AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
+    AxProgrammable<AxGenIn, AxGenOut>
   > = new Map();
   private readonly loopStack: number[] = [];
   private readonly stepLabels: Map<string, number> = new Map();
@@ -640,6 +78,9 @@ export class AxFlow<
   // Automatic parallelization components
   private readonly autoParallelConfig: AxFlowAutoParallelConfig;
   private readonly executionPlanner = new AxFlowExecutionPlanner();
+
+  // Program field that gets initialized when something is added to the graph
+  private program?: AxProgram<IN, OUT>;
 
   /**
    * Converts a string to camelCase for valid field names
@@ -670,7 +111,7 @@ export class AxFlow<
   private inferSignatureFromFlow(): AxSignature {
     // If no nodes are defined, use a default signature
     if (this.nodeGenerators.size === 0) {
-      return new AxSignature('userInput:string -> flowOutput:string');
+      throw new Error('No flow (or nodes) defined');
     }
 
     // Get execution plan to identify dependencies and field flow
@@ -866,12 +307,191 @@ export class AxFlow<
   constructor(options?: {
     autoParallel?: boolean;
   }) {
-    // No signature provided - will be inferred from flow structure
-    super();
-
+    // Initialize configuration
     this.autoParallelConfig = {
       enabled: options?.autoParallel !== false, // Default to true
     };
+  }
+
+  /**
+   * Initializes the program field everytime something is  added to the graph
+   */
+  private ensureProgram(): void {
+    // Create program with inferred signature
+    const signature = this.inferSignatureFromFlow();
+    this.program = new AxProgram<IN, OUT>(signature);
+  }
+
+  // =============================================================================
+  // AXTUNABLE INTERFACE METHODS
+  // =============================================================================
+
+  public setExamples(
+    examples: Readonly<AxProgramExamples<IN, OUT>>,
+    options?: Readonly<AxSetExamplesOptions>
+  ): void {
+    this.ensureProgram();
+    this.program!.setExamples(examples, options);
+  }
+
+  public setId(id: string): void {
+    this.ensureProgram();
+    this.program!.setId(id);
+  }
+
+  public setParentId(parentId: string): void {
+    this.ensureProgram();
+    this.program!.setParentId(parentId);
+  }
+
+  public getTraces(): AxProgramTrace<IN, OUT>[] {
+    this.ensureProgram();
+    return this.program!.getTraces();
+  }
+
+  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]): void {
+    this.ensureProgram();
+    this.program!.setDemos(demos);
+  }
+
+  // =============================================================================
+  // AXUSABLE INTERFACE METHODS
+  // =============================================================================
+
+  public getUsage(): AxProgramUsage[] {
+    this.ensureProgram();
+    return this.program!.getUsage();
+  }
+
+  public resetUsage(): void {
+    this.ensureProgram();
+    this.program!.resetUsage();
+  }
+
+  // =============================================================================
+  // AXFORWARDABLE INTERFACE METHODS
+  // =============================================================================
+
+  public async *streamingForward(
+    ai: Readonly<AxAIService>,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramStreamingForwardOptions>
+  ): AxGenStreamingOut<OUT> {
+    // For now, we'll implement streaming by converting the regular forward result
+    // This is a simplified implementation - full streaming would require more work
+    const result = await this.forward(ai, values, options);
+
+    // Yield the final result with correct AxGenDeltaOut structure
+    yield {
+      version: 1,
+      index: 0,
+      delta: result,
+    };
+  }
+
+  /**
+   * Executes the flow with the given AI service and input values.
+   *
+   * This is the main execution method that orchestrates the entire flow execution.
+   * It handles several complex aspects:
+   *
+   * 1. **Dynamic Signature Inference**: If the flow was created with a default signature
+   *    but has nodes defined, it will infer the actual signature from the flow structure.
+   *
+   * 2. **Execution Mode Selection**: Chooses between optimized parallel execution
+   *    (when auto-parallel is enabled) or sequential execution based on configuration.
+   *
+   * 3. **State Management**: Maintains the evolving state object as it flows through
+   *    each step, accumulating results and transformations.
+   *
+   * 4. **Performance Optimization**: Uses the execution planner to identify
+   *    independent operations that can run in parallel, reducing total execution time.
+   *
+   * Execution Flow:
+   * - Initialize state with input values
+   * - Infer signature if needed (based on nodes and current signature)
+   * - Choose execution strategy (parallel vs sequential)
+   * - Execute all steps while maintaining state consistency
+   * - Return final state cast to expected output type
+   *
+   * @param ai - The AI service to use as the default for all steps
+   * @param values - The input values for the flow
+   * @param options - Optional forward options to use as defaults (includes autoParallel override)
+   * @returns Promise that resolves to the final output
+   */
+  public async forward(
+    ai: Readonly<AxAIService>,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramForwardOptions & { autoParallel?: boolean }>
+  ): Promise<OUT> {
+    // Extract values from input - handle both IN and AxMessage<IN>[] cases
+    let inputValues: IN;
+    if (Array.isArray(values)) {
+      // If values is an array of messages, find the most recent user message
+      const lastUserMessage = values.filter((msg) => msg.role === 'user').pop();
+      if (!lastUserMessage) {
+        throw new Error('No user message found in values array');
+      }
+      inputValues = lastUserMessage.values;
+    } else {
+      // If values is a single IN object
+      inputValues = values;
+    }
+
+    // Dynamic signature inference - only if using default signature and have nodes
+    // This allows flows to be created with a simple signature and then have it
+    // automatically refined based on the actual nodes and operations defined
+    if (this.nodeGenerators.size > 0) {
+      // Initialize program with inferred signature
+      this.ensureProgram();
+    }
+
+    // Initialize state with input values
+    // This creates the initial state object that will flow through all steps
+    let state: AxFlowState = { ...inputValues };
+
+    // Create execution context object
+    // This provides consistent access to AI service and options for all steps
+    const context = {
+      mainAi: ai,
+      mainOptions: options,
+    } as const;
+
+    // Determine execution strategy based on configuration
+    // Auto-parallel can be disabled globally or overridden per execution
+    const useAutoParallel =
+      options?.autoParallel !== false && this.autoParallelConfig.enabled;
+
+    if (useAutoParallel) {
+      // OPTIMIZED PARALLEL EXECUTION PATH
+      // This path uses the execution planner to identify independent operations
+      // and execute them in parallel for better performance
+
+      // Set initial fields for dependency analysis
+      // This tells the planner what fields are available at the start
+      this.executionPlanner.setInitialFields(Object.keys(inputValues));
+
+      // Get optimized execution plan with parallel groups
+      const optimizedSteps = this.executionPlanner.createOptimizedExecution();
+
+      // Execute optimized steps sequentially (parallel groups are handled internally)
+      for (const step of optimizedSteps) {
+        state = await step(state, context);
+      }
+    } else {
+      // SEQUENTIAL EXECUTION PATH
+      // This path executes all steps in the order they were defined
+      // It's simpler but potentially slower for independent operations
+
+      // Execute all steps sequentially
+      for (const step of this.flowDefinition) {
+        state = await step(state, context);
+      }
+    }
+
+    // Return the final state cast to the expected output type
+    // The type system ensures this is safe based on the signature inference
+    return state as OUT;
   }
 
   /**
@@ -927,30 +547,6 @@ export class AxFlow<
   >;
 
   /**
-   * Declares a reusable computational node using an existing AxGen instance.
-   * This allows reusing pre-configured generators in the flow.
-   *
-   * @param name - The name of the node
-   * @param axgenInstance - Existing AxGen instance to use for this node
-   * @returns New AxFlow instance with updated TNodes type
-   *
-   * @example
-   * ```typescript
-   * const summarizer = new AxGen('text:string -> summary:string', { temperature: 0.1 })
-   * flow.node('summarizer', summarizer)
-   * ```
-   */
-  public node<TName extends string, TGen extends AxGen<any, any>>(
-    name: TName,
-    axgenInstance: TGen
-  ): AxFlow<
-    IN,
-    OUT,
-    TNodes & { [K in TName]: TGen }, // Add new node to registry with exact type
-    TState // State unchanged
-  >;
-
-  /**
    * Declares a reusable computational node using a class that extends AxProgram.
    * This allows using custom program classes in the flow.
    *
@@ -968,7 +564,7 @@ export class AxFlow<
    */
   public node<
     TName extends string,
-    TProgram extends new () => AxProgram<any, any>,
+    TProgram extends new () => AxProgrammable<any, any>,
   >(
     name: TName,
     programClass: TProgram
@@ -982,11 +578,11 @@ export class AxFlow<
   // Implementation
   public node<TName extends string>(
     name: TName,
-    signatureOrAxGenOrClass:
+    nodeValue:
       | string
       | AxSignature
-      | AxGen<any, any>
-      | (new () => AxProgram<any, any>),
+      | AxProgrammable<any, any>
+      | (new () => AxProgrammable<any, any>),
     options?: Readonly<AxProgramForwardOptions>
   ): AxFlow<
     IN,
@@ -994,46 +590,9 @@ export class AxFlow<
     TNodes & { [K in TName]: any }, // Using any here as the implementation handles all cases
     TState
   > {
-    if (signatureOrAxGenOrClass instanceof AxGen) {
-      // Using existing AxGen instance
-      this.nodes.set(name, {
-        inputs: {},
-        outputs: {},
-      });
-
-      // Store the existing AxGen instance
-      this.nodeGenerators.set(
-        name,
-        signatureOrAxGenOrClass as AxGen<AxGenIn, AxGenOut>
-      );
-    } else if (signatureOrAxGenOrClass instanceof AxSignature) {
-      // Using AxSignature instance
-      this.nodes.set(name, {
-        inputs: {},
-        outputs: {},
-      });
-
-      // Create and store the AxGen instance for this node using the signature
-      this.nodeGenerators.set(
-        name,
-        new AxGen(signatureOrAxGenOrClass, options)
-      );
-    } else if (
-      typeof signatureOrAxGenOrClass === 'function' &&
-      signatureOrAxGenOrClass.prototype instanceof AxProgram
-    ) {
-      // Using a class that extends AxProgram
-      this.nodes.set(name, {
-        inputs: {},
-        outputs: {},
-      });
-
-      // Create an instance of the program class and store it directly
-      const programInstance = new signatureOrAxGenOrClass();
-      this.nodeGenerators.set(name, programInstance);
-    } else if (typeof signatureOrAxGenOrClass === 'string') {
+    if (typeof nodeValue === 'string' || nodeValue instanceof AxSignature) {
       // Using signature string (original behavior)
-      const signature = signatureOrAxGenOrClass;
+      const signature = nodeValue;
 
       // Validate that signature is provided
       if (!signature) {
@@ -1050,11 +609,35 @@ export class AxFlow<
 
       // Create and store the AxGen instance for this node with the same arguments as AxGen
       this.nodeGenerators.set(name, new AxGen(signature, options));
+    } else if (typeof nodeValue === 'function') {
+      // Using program class
+      this.nodes.set(name, {
+        inputs: {},
+        outputs: {},
+      });
+
+      // Create an instance of the program class and store it directly
+      const programInstance = new nodeValue() as AxProgrammable<
+        AxGenIn,
+        AxGenOut
+      >;
+      this.nodeGenerators.set(name, programInstance);
     } else {
-      throw new Error(
-        `Invalid second argument for node '${name}': expected string, AxSignature, AxGen instance, or class extending AxProgram`
+      // Using existing AxGen instance or AxProgrammable instance
+      this.nodes.set(name, {
+        inputs: {},
+        outputs: {},
+      });
+
+      // Store the existing AxGen instance
+      this.nodeGenerators.set(
+        name,
+        nodeValue as AxProgrammable<AxGenIn, AxGenOut>
       );
     }
+
+    // Initialize program after the node is added
+    this.ensureProgram();
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
     // The runtime value is the same object, but TypeScript can't track the evolving generic types
@@ -1081,26 +664,26 @@ export class AxFlow<
     TState
   >;
 
-  public n<TName extends string, TGen extends AxGen<any, any>>(
-    name: TName,
-    axgenInstance: TGen
-  ): AxFlow<IN, OUT, TNodes & { [K in TName]: TGen }, TState>;
-
   public n<
     TName extends string,
-    TProgram extends new () => AxProgram<any, any>,
+    TProgram extends new () => AxProgrammable<any, any>,
   >(
     name: TName,
     programClass: TProgram
   ): AxFlow<IN, OUT, TNodes & { [K in TName]: InstanceType<TProgram> }, TState>;
+
+  public n<TName extends string, TProgram extends AxProgrammable<any, any>>(
+    name: TName,
+    programInstance: TProgram
+  ): AxFlow<IN, OUT, TNodes & { [K in TName]: TProgram }, TState>;
 
   public n<TName extends string>(
     name: TName,
     signatureOrAxGenOrClass:
       | string
       | AxSignature
-      | AxGen<any, any>
-      | (new () => AxProgram<any, any>),
+      | AxProgrammable<any, any>
+      | (new () => AxProgrammable<any, any>),
     options?: Readonly<AxProgramForwardOptions>
   ): any {
     return this.node(name, signatureOrAxGenOrClass as any, options);
@@ -1119,7 +702,7 @@ export class AxFlow<
    * ```
    */
   public map<TNewState extends AxFlowState>(
-    transform: (state: TState) => TNewState
+    transform: (_state: TState) => TNewState
   ): AxFlow<IN, OUT, TNodes, TNewState> {
     const step = (state: AxFlowState) => {
       return transform(state as TState);
@@ -1152,6 +735,11 @@ export class AxFlow<
       }
     }
 
+    // Initialize program when flow structure is updated (only if we have nodes)
+    if (this.nodeGenerators.size > 0) {
+      this.ensureProgram();
+    }
+
     // NOTE: This type assertion is necessary for the type-level programming pattern
     return this as unknown as AxFlow<IN, OUT, TNodes, TNewState>;
   }
@@ -1160,7 +748,7 @@ export class AxFlow<
    * Short alias for map()
    */
   public m<TNewState extends AxFlowState>(
-    transform: (state: TState) => TNewState
+    transform: (_state: TState) => TNewState
   ): AxFlow<IN, OUT, TNodes, TNewState> {
     return this.map(transform);
   }
@@ -1208,7 +796,7 @@ export class AxFlow<
    */
   public execute<TNodeName extends keyof TNodes & string>(
     nodeName: TNodeName,
-    mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
+    mapping: (_state: TState) => GetGenIn<TNodes[TNodeName]>,
     dynamicContext?: AxFlowDynamicContext
   ): AxFlow<
     IN,
@@ -1247,10 +835,21 @@ export class AxFlow<
         : `Node:${nodeName}`;
 
       // Execute the node with updated trace label
-      const result = await nodeProgram.forward(ai, nodeInputs, {
-        ...options,
-        traceLabel,
-      });
+      // Handle both AxGen and AxProgram types
+      let result: any;
+      if (
+        'forward' in nodeProgram &&
+        typeof nodeProgram.forward === 'function'
+      ) {
+        result = await nodeProgram.forward(ai, nodeInputs, {
+          ...options,
+          traceLabel,
+        });
+      } else {
+        throw new Error(
+          `Node program for '${nodeName}' does not have a forward method`
+        );
+      }
 
       // Merge result back into state under a key like `${nodeName}Result`
       return {
@@ -1280,6 +879,9 @@ export class AxFlow<
       }
     }
 
+    // Initialize program when flow structure is updated
+    this.ensureProgram();
+
     // NOTE: This type assertion is necessary for the type-level programming pattern
     return this as AxFlow<
       IN,
@@ -1294,7 +896,7 @@ export class AxFlow<
    */
   public e<TNodeName extends keyof TNodes & string>(
     nodeName: TNodeName,
-    mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
+    mapping: (_state: TState) => GetGenIn<TNodes[TNodeName]>,
     dynamicContext?: AxFlowDynamicContext
   ): AxFlow<
     IN,
@@ -1321,7 +923,7 @@ export class AxFlow<
    *   .merge()
    * ```
    */
-  public branch(predicate: (state: TState) => unknown): this {
+  public branch(predicate: (_state: TState) => unknown): this {
     if (this.branchContext) {
       throw new Error('Nested branches are not supported');
     }
@@ -1338,7 +940,7 @@ export class AxFlow<
   /**
    * Short alias for branch()
    */
-  public b(predicate: (state: TState) => unknown): this {
+  public b(predicate: (_state: TState) => unknown): this {
     return this.branch(predicate);
   }
 
@@ -1448,6 +1050,9 @@ export class AxFlow<
       );
     }
 
+    // Initialize program when flow structure is updated
+    this.ensureProgram();
+
     // Type-level cast to update the state type while preserving the runtime object
     // This allows TypeScript to track what fields should be available after the merge
     return this as unknown as AxFlow<IN, OUT, TNodes, TMergedState>;
@@ -1505,7 +1110,7 @@ export class AxFlow<
   ): {
     merge<T, TResultKey extends string>(
       resultKey: TResultKey,
-      mergeFunction: (...results: unknown[]) => T
+      mergeFunction: (..._results: unknown[]) => T
     ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>;
   } {
     // Create the parallel execution step
@@ -1558,6 +1163,9 @@ export class AxFlow<
       );
     }
 
+    // Initialize program when flow structure is updated
+    this.ensureProgram();
+
     // Return an object with the merge method for combining parallel results
     return {
       /**
@@ -1604,6 +1212,9 @@ export class AxFlow<
           );
         }
 
+        // Initialize program when flow structure is updated
+        this.ensureProgram();
+
         // Type-level cast to include the new merged field in the state type
         return this as AxFlow<
           IN,
@@ -1626,7 +1237,7 @@ export class AxFlow<
   ): {
     merge<T, TResultKey extends string>(
       resultKey: TResultKey,
-      mergeFunction: (...results: unknown[]) => T
+      mergeFunction: (..._results: unknown[]) => T
     ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>;
   } {
     return this.parallel(branches);
@@ -1649,7 +1260,7 @@ export class AxFlow<
    * ```
    */
   public feedback(
-    condition: (state: TState) => boolean,
+    condition: (_state: TState) => boolean,
     targetLabel: string,
     maxIterations = 10
   ): this {
@@ -1693,6 +1304,11 @@ export class AxFlow<
       return currentState;
     });
 
+    // Initialize program when flow structure is updated (only if we have nodes)
+    if (this.nodeGenerators.size > 0) {
+      this.ensureProgram();
+    }
+
     return this;
   }
 
@@ -1700,7 +1316,7 @@ export class AxFlow<
    * Short alias for feedback()
    */
   public fb(
-    condition: (state: TState) => boolean,
+    condition: (_state: TState) => boolean,
     targetLabel: string,
     maxIterations = 10
   ): this {
@@ -1748,13 +1364,18 @@ export class AxFlow<
 
     this.flowDefinition.push(placeholderStep);
 
+    // Initialize program when flow structure is updated (only if we have nodes)
+    if (this.nodeGenerators.size > 0) {
+      this.ensureProgram();
+    }
+
     return this;
   }
 
   /**
    * Short alias for while()
    */
-  public wh(condition: (state: TState) => boolean, maxIterations = 100): this {
+  public wh(condition: (_state: TState) => boolean, maxIterations = 100): this {
     return this.while(condition, maxIterations);
   }
 
@@ -1818,6 +1439,11 @@ export class AxFlow<
       return currentState;
     };
 
+    // Initialize program when flow structure is updated (only if we have nodes)
+    if (this.nodeGenerators.size > 0) {
+      this.ensureProgram();
+    }
+
     return this;
   }
 
@@ -1826,101 +1452,6 @@ export class AxFlow<
    */
   public end(): this {
     return this.endWhile();
-  }
-
-  /**
-   * Executes the flow with the given AI service and input values.
-   *
-   * This is the main execution method that orchestrates the entire flow execution.
-   * It handles several complex aspects:
-   *
-   * 1. **Dynamic Signature Inference**: If the flow was created with a default signature
-   *    but has nodes defined, it will infer the actual signature from the flow structure.
-   *
-   * 2. **Execution Mode Selection**: Chooses between optimized parallel execution
-   *    (when auto-parallel is enabled) or sequential execution based on configuration.
-   *
-   * 3. **State Management**: Maintains the evolving state object as it flows through
-   *    each step, accumulating results and transformations.
-   *
-   * 4. **Performance Optimization**: Uses the execution planner to identify
-   *    independent operations that can run in parallel, reducing total execution time.
-   *
-   * Execution Flow:
-   * - Initialize state with input values
-   * - Infer signature if needed (based on nodes and current signature)
-   * - Choose execution strategy (parallel vs sequential)
-   * - Execute all steps while maintaining state consistency
-   * - Return final state cast to expected output type
-   *
-   * @param ai - The AI service to use as the default for all steps
-   * @param values - The input values for the flow
-   * @param options - Optional forward options to use as defaults (includes autoParallel override)
-   * @returns Promise that resolves to the final output
-   */
-  public override async forward(
-    ai: Readonly<AxAIService>,
-    values: IN,
-    options?: Readonly<AxProgramForwardOptions & { autoParallel?: boolean }>
-  ): Promise<OUT> {
-    // Dynamic signature inference - only if using default signature and have nodes
-    // This allows flows to be created with a simple signature and then have it
-    // automatically refined based on the actual nodes and operations defined
-    if (
-      this.nodeGenerators.size > 0 &&
-      this.signature.toString() === 'userInput:string -> flowOutput:string'
-    ) {
-      const inferredSignature = this.inferSignatureFromFlow();
-      this.signature = inferredSignature;
-      this.sigHash = inferredSignature.hash();
-    }
-
-    // Initialize state with input values
-    // This creates the initial state object that will flow through all steps
-    let state: AxFlowState = { ...values };
-
-    // Create execution context object
-    // This provides consistent access to AI service and options for all steps
-    const context = {
-      mainAi: ai,
-      mainOptions: options,
-    } as const;
-
-    // Determine execution strategy based on configuration
-    // Auto-parallel can be disabled globally or overridden per execution
-    const useAutoParallel =
-      options?.autoParallel !== false && this.autoParallelConfig.enabled;
-
-    if (useAutoParallel) {
-      // OPTIMIZED PARALLEL EXECUTION PATH
-      // This path uses the execution planner to identify independent operations
-      // and execute them in parallel for better performance
-
-      // Set initial fields for dependency analysis
-      // This tells the planner what fields are available at the start
-      this.executionPlanner.setInitialFields(Object.keys(values));
-
-      // Get optimized execution plan with parallel groups
-      const optimizedSteps = this.executionPlanner.createOptimizedExecution();
-
-      // Execute optimized steps sequentially (parallel groups are handled internally)
-      for (const step of optimizedSteps) {
-        state = await step(state, context);
-      }
-    } else {
-      // SEQUENTIAL EXECUTION PATH
-      // This path executes all steps in the order they were defined
-      // It's simpler but potentially slower for independent operations
-
-      // Execute all steps sequentially
-      for (const step of this.flowDefinition) {
-        state = await step(state, context);
-      }
-    }
-
-    // Return the final state cast to the expected output type
-    // The type system ensures this is safe based on the signature inference
-    return state as OUT;
   }
 
   /**
@@ -1946,160 +1477,9 @@ export class AxFlow<
       groups: planInfo.groups,
     };
   }
-}
 
-/**
- * Implementation of the sub-context for parallel execution
- */
-class AxFlowSubContextImpl implements AxFlowSubContext {
-  private readonly steps: AxFlowStepFunction[] = [];
-
-  constructor(
-    private readonly nodeGenerators: Map<
-      string,
-      AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
-    >
-  ) {}
-
-  execute(
-    nodeName: string,
-    mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
-    dynamicContext?: AxFlowDynamicContext
-  ): this {
-    const nodeProgram = this.nodeGenerators.get(nodeName);
-    if (!nodeProgram) {
-      throw new Error(`Node program for '${nodeName}' not found.`);
-    }
-
-    this.steps.push(async (state, context) => {
-      const ai = dynamicContext?.ai ?? context.mainAi;
-      const options = dynamicContext?.options ?? context.mainOptions;
-      const nodeInputs = mapping(state);
-
-      // Create trace label for the node execution
-      const traceLabel = options?.traceLabel
-        ? `Node:${nodeName} (${options.traceLabel})`
-        : `Node:${nodeName}`;
-
-      // Execute the node with updated trace label
-      const result = await nodeProgram.forward(ai, nodeInputs, {
-        ...options,
-        traceLabel,
-      });
-
-      return {
-        ...state,
-        [`${nodeName}Result`]: result,
-      };
-    });
-
-    return this;
-  }
-
-  map(transform: (state: AxFlowState) => AxFlowState): this {
-    this.steps.push((state) => transform(state));
-    return this;
-  }
-
-  async executeSteps(
-    initialState: AxFlowState,
-    context: Readonly<{
-      mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
-    }>
-  ): Promise<AxFlowState> {
-    let currentState = initialState;
-
-    for (const step of this.steps) {
-      currentState = await step(currentState, context);
-    }
-
-    return currentState;
-  }
-}
-
-/**
- * Typed implementation of the sub-context for parallel execution with full type safety
- */
-// This class is used by the type system but not directly instantiated in this file
-// NOTE: The `any` here is necessary for the same reason as in the interfaces above
-export class AxFlowTypedSubContextImpl<
-  TNodes extends Record<string, AxGen<any, any>>,
-  TState extends AxFlowState,
-> implements AxFlowTypedSubContext<TNodes, TState>
-{
-  private readonly steps: AxFlowStepFunction[] = [];
-
-  constructor(
-    private readonly nodeGenerators: Map<
-      string,
-      AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
-    >
-  ) {}
-
-  execute<TNodeName extends keyof TNodes & string>(
-    nodeName: TNodeName,
-    mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
-    dynamicContext?: AxFlowDynamicContext
-  ): AxFlowTypedSubContext<
-    TNodes,
-    AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
-  > {
-    const nodeProgram = this.nodeGenerators.get(nodeName);
-    if (!nodeProgram) {
-      throw new Error(`Node program for '${nodeName}' not found.`);
-    }
-
-    this.steps.push(async (state, context) => {
-      const ai = dynamicContext?.ai ?? context.mainAi;
-      const options = dynamicContext?.options ?? context.mainOptions;
-      const nodeInputs = mapping(state as TState);
-
-      // Create trace label for the node execution
-      const traceLabel = options?.traceLabel
-        ? `Node:${nodeName} (${options.traceLabel})`
-        : `Node:${nodeName}`;
-
-      // Execute the node with updated trace label
-      const result = await nodeProgram.forward(ai, nodeInputs, {
-        ...options,
-        traceLabel,
-      });
-
-      return {
-        ...state,
-        [`${nodeName}Result`]: result,
-      };
-    });
-
-    // NOTE: This type assertion is necessary for the type-level programming pattern
-    return this as AxFlowTypedSubContext<
-      TNodes,
-      AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
-    >;
-  }
-
-  map<TNewState extends AxFlowState>(
-    transform: (state: TState) => TNewState
-  ): AxFlowTypedSubContext<TNodes, TNewState> {
-    this.steps.push((state) => transform(state as TState));
-    // NOTE: This type assertion is necessary for the type-level programming pattern
-    return this as unknown as AxFlowTypedSubContext<TNodes, TNewState>;
-  }
-
-  async executeSteps(
-    initialState: TState,
-    context: Readonly<{
-      mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
-    }>
-  ): Promise<AxFlowState> {
-    let currentState: AxFlowState = initialState;
-
-    for (const step of this.steps) {
-      currentState = await step(currentState, context);
-    }
-
-    return currentState;
+  public getSignature(): AxSignature {
+    this.ensureProgram();
+    return this.program!.getSignature();
   }
 }

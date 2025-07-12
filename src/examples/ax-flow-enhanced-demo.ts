@@ -1,5 +1,4 @@
-import { AxAI } from '@ax-llm/ax';
-import { AxProgram } from '../ax/dsp/program.js';
+import { AxAI, AxGen } from '@ax-llm/ax';
 import { AxFlow } from '../ax/flow/flow.js';
 
 const ai = new AxAI({
@@ -7,35 +6,22 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY || '',
 });
 
-console.log('=== Enhanced AxFlow Demo ===\n');
-
-// Example of a custom program that can fail occasionally
-export class ReliableProcessor extends AxProgram<
-  { inputText: string },
-  { processedOutput: string }
-> {
-  constructor() {
-    super('inputText:string -> processedOutput:string');
-  }
-
-  override async forward(
-    _ai: any,
-    values: { inputText: string }
-  ): Promise<{ processedOutput: string }> {
-    // Simulate processing
-    return {
-      processedOutput: `Processed: ${values.inputText}`,
-    };
-  }
-}
-
 // Example 1: Instance-Based Node Definition (replaces class support)
 console.log('1. Instance-Based Node Definition:');
 
-const processor1 = new ReliableProcessor();
-const processor2 = new ReliableProcessor();
+const processor1 = new AxGen<
+  { inputText: string },
+  { processedOutput: string }
+>('inputText:string -> processedOutput:string');
+const processor2 = new AxGen<
+  { inputText: string },
+  { processedOutput: string }
+>('inputText:string -> processedOutput:string');
 
-const instanceFlow = new AxFlow('userInput:string -> finalOutput:string')
+const instanceFlow = new AxFlow<
+  { userInput: string },
+  { finalOutput: string }
+>()
   .node('primary', processor1) // Pass instance, not class
   .node('secondary', processor2) // Pass instance, not class
   .execute('primary', (state) => ({ inputText: state.userInput }))
@@ -56,21 +42,10 @@ console.log();
 // Example 2: Error Handling Configuration
 console.log('2. Error Handling Configuration:');
 
-const errorHandlingFlow = new AxFlow(
-  'userQuery:string -> queryResponse:string',
-  {
-    errorHandling: {
-      defaultRetries: 2,
-      retryDelay: 1000,
-      exponentialBackoff: true,
-      circuitBreaker: {
-        enabled: true,
-        failureThreshold: 3,
-        resetTimeout: 5000,
-      },
-    },
-  }
-)
+const errorHandlingFlow = new AxFlow<
+  { userQuery: string },
+  { queryResponse: string }
+>()
   .node('processor', 'queryText:string -> responseText:string')
   .execute('processor', (state) => ({ queryText: state.userQuery }))
   .map((state) => ({ queryResponse: state.processorResult.responseText }));
@@ -85,15 +60,11 @@ console.log();
 // Example 3: Performance Optimization Configuration
 console.log('3. Performance Optimization Configuration:');
 
-const performanceFlow = new AxFlow('inputData:string -> outputData:string', {
+const performanceFlow = new AxFlow<
+  { inputData: string },
+  { outputData: string }
+>({
   autoParallel: true,
-  errorHandling: {
-    circuitBreaker: {
-      enabled: true,
-      failureThreshold: 2,
-      resetTimeout: 3000,
-    },
-  },
 })
   .node('analyzer', 'dataInput:string -> analysis:string')
   .node('formatter', 'analysisData:string -> formattedOutput:string')
@@ -113,9 +84,11 @@ console.log();
 // Example 3.5: Concurrency Control with Batching
 console.log('3.5. Concurrency Control with Batching:');
 
-const concurrencyFlow = new AxFlow('batchInput:string -> batchOutput:string', {
+const concurrencyFlow = new AxFlow<
+  { batchInput: string },
+  { batchOutput: string }
+>({
   autoParallel: true,
-  maxConcurrency: 2, // Only 2 operations run simultaneously
 })
   .node('worker1', 'workData:string -> workResult:string')
   .node('worker2', 'workData:string -> workResult:string')
@@ -160,7 +133,10 @@ console.log();
 // Example 4: Enhanced Type Safety with Explicit Merge Types
 console.log('4. Enhanced Type Safety with Explicit Merge Types:');
 
-const typeSafeFlow = new AxFlow('inputValue:string -> outputValue:string')
+const typeSafeFlow = new AxFlow<
+  { inputValue: string },
+  { outputValue: string }
+>()
   .node('classifier', 'inputValue:string -> categoryType:string')
   .node('simpleHandler', 'inputValue:string -> processedValue:string')
   .node('complexHandler', 'inputValue:string -> processedValue:string')
@@ -169,12 +145,16 @@ const typeSafeFlow = new AxFlow('inputValue:string -> outputValue:string')
   .when('simple')
   .execute('simpleHandler', (state) => ({ inputValue: state.inputValue }))
   .map((state) => ({
+    ...(state as any),
     result: state.simpleHandlerResult.processedValue,
     method: 'simple' as const,
   }))
   .when('complex')
-  .execute('complexHandler', (state) => ({ inputValue: state.inputValue }))
+  .execute('complexHandler', (state) => ({
+    inputValue: (state as any).inputValue,
+  }))
   .map((state) => ({
+    ...(state as any),
     result: state.complexHandlerResult.processedValue,
     method: 'complex' as const,
   }))
@@ -194,7 +174,7 @@ console.log();
 // Example 5: Execution Plan Analysis
 console.log('5. Execution Plan Analysis:');
 
-const complexFlow = new AxFlow('inputText:string -> finalOutput:string')
+const complexFlow = new AxFlow<{ inputText: string }, { finalOutput: string }>()
   .node('tokenizer', 'inputText:string -> tokenCount:number')
   .node('processor1', 'tokens:number -> processedResult1:string')
   .node('processor2', 'tokens:number -> processedResult2:string')

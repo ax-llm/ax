@@ -191,6 +191,13 @@ class AxAIGoogleGeminiImpl
       };
     }
 
+    if (!this.isVertex) {
+      const pf = stream ? '&' : '?';
+      const keyValue =
+        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+      apiConfig.name += `${pf}key=${keyValue}`;
+    }
+
     const systemPrompts = req.chatPrompt
       .filter((p) => p.role === 'system')
       .map((p) => p.content);
