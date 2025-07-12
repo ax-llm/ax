@@ -8,6 +8,7 @@ import type {
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
 import type {
+  AxForwardable,
   AxGenStreamingOut,
   AxProgram,
   AxProgramDemos,
@@ -27,6 +28,7 @@ import type { AxGenIn, AxGenOut, AxMessage } from '../dsp/types.js';
  */
 export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
   extends AxTunable<IN, OUT>,
+    AxForwardable<IN, OUT>,
     AxUsable {
   getFunction(): AxFunction;
   getFeatures(): AxAgentFeatures;

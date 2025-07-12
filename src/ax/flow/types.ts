@@ -51,7 +51,7 @@ export interface AxFlowErrorHandlingConfig {
 
 // Type for execution step metadata
 export interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'other';
+  type: 'execute' | 'map' | 'merge' | 'other';
   nodeName?: string;
   dependencies: string[];
   produces: string[];

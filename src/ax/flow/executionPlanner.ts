@@ -6,7 +6,22 @@ import type {
 } from './types.js';
 
 /**
- * Builds and manages the execution plan with automatic parallelization
+ * Builds and manages the execution plan with automatic parallelization.
+ *
+ * This class is the core of AxFlow's performance optimization system.
+ * It analyzes the dependency relationships between steps and creates
+ * an optimized execution plan that maximizes parallelism while ensuring
+ * correct execution order.
+ *
+ * Key responsibilities:
+ * 1. **Dependency Analysis**: Tracks what fields each step depends on and produces
+ * 2. **Parallel Grouping**: Groups independent steps that can run simultaneously
+ * 3. **Execution Optimization**: Creates optimized execution functions that
+ *    run parallel groups concurrently
+ * 4. **Signature Inference**: Provides data for automatic signature generation
+ *
+ * The planner works by building a directed acyclic graph (DAG) of dependencies
+ * and then creating execution levels where all steps in a level can run in parallel.
  */
 export class AxFlowExecutionPlanner {
   private steps: AxFlowExecutionStep[] = [];
@@ -15,16 +30,39 @@ export class AxFlowExecutionPlanner {
   private initialFields: Set<string> = new Set();
 
   /**
-   * Adds an execution step to the plan
+   * Adds an execution step to the plan for analysis and optimization.
+   *
+   * This method is called for every operation in the flow (execute, map, merge, etc.)
+   * and performs dependency analysis to understand what the step needs and produces.
+   * This information is crucial for building the parallel execution plan.
+   *
+   * The method handles different types of steps:
+   * - **Execute steps**: LLM node operations that depend on specific state fields
+   * - **Map steps**: Transformations that modify the state object
+   * - **Merge steps**: Operations that combine results from branches or parallel operations
+   * - **Other steps**: Generic operations that don't fit other categories
+   *
+   * @param stepFunction - The actual function to execute for this step
+   * @param nodeName - Name of the node (for execute steps)
+   * @param mapping - Function that maps state to node inputs (for execute steps)
+   * @param stepType - Type of step for specialized analysis
+   * @param mapTransform - Transformation function (for map steps)
+   * @param mergeOptions - Options for merge operations (result key, merge function)
    */
   addExecutionStep(
     stepFunction: AxFlowStepFunction,
     nodeName?: string,
-    mapping?: (state: any) => any
+    mapping?: (state: any) => any,
+    stepType?: 'execute' | 'map' | 'merge' | 'other',
+    mapTransform?: (state: any) => any,
+    mergeOptions?: {
+      resultKey?: string;
+      mergeFunction?: (...args: any[]) => any;
+    }
   ): void {
     let dependencies: string[] = [];
     let produces: string[] = [];
-    let type: 'execute' | 'map' | 'other' = 'other';
+    let type: 'execute' | 'map' | 'merge' | 'other' = stepType || 'other';
 
     if (nodeName && mapping) {
       type = 'execute';
@@ -33,10 +71,26 @@ export class AxFlowExecutionPlanner {
         nodeName
       );
       produces = [`${nodeName}Result`];
+    } else if (type === 'map' && mapTransform) {
+      // Analyze map transformation to determine what fields it produces
+      const mapOutputFields = this.analyzeMapTransformation(mapTransform);
+      produces = mapOutputFields;
+      dependencies = this.getAllProducedFields();
+    } else if (type === 'merge') {
+      // Merge operations produce their result key or merge all previous results
+      if (mergeOptions?.resultKey) {
+        produces = [mergeOptions.resultKey];
+      } else {
+        // Branch merge - analyze what fields the branches produce
+        const branchFields = this.analyzeBranchMergeFields();
+        produces = branchFields.length > 0 ? branchFields : ['_mergedResult'];
+      }
+      dependencies = this.getAllProducedFields();
     } else if (stepFunction.toString().includes('transform(')) {
       type = 'map';
-      // Map steps are harder to analyze statically, assume they depend on all previous steps
+      // Fallback: Map steps are harder to analyze statically, assume they depend on all previous steps
       dependencies = this.getAllProducedFields();
+      produces = ['_mapResult'];
     }
 
     const step: AxFlowExecutionStep = {
@@ -54,7 +108,128 @@ export class AxFlowExecutionPlanner {
   }
 
   /**
-   * Sets the initial fields and rebuilds parallel groups
+   * Analyzes a map transformation function to determine what fields it produces.
+   *
+   * This is a challenging problem because map transformations can produce arbitrary
+   * new fields based on complex logic. The method uses a mock state approach:
+   * 1. Creates a mock state with sample data
+   * 2. Runs the transformation on the mock state
+   * 3. Analyzes the result to see what fields were produced
+   *
+   * This approach works for most common transformation patterns but may miss
+   * edge cases where the transformation behavior depends on specific data values.
+   *
+   * @param mapTransform - The map transformation function to analyze
+   * @returns Array of field names that the transformation produces
+   */
+  private analyzeMapTransformation(
+    mapTransform: (state: any) => any
+  ): string[] {
+    try {
+      // Create a mock state with sample data to analyze the transformation
+      const mockState = this.createMockState();
+      const result = mapTransform(mockState);
+
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        return Object.keys(result);
+      }
+    } catch (error) {
+      // If analysis fails, return a generic field name
+      console.debug('Map transformation analysis failed:', error);
+    }
+
+    return ['_mapResult'];
+  }
+
+  /**
+   * Creates a mock state with sample data for transformation analysis.
+   *
+   * This method builds a representative state object that includes:
+   * - Initial fields from the flow input
+   * - Result fields from previous steps with realistic structure
+   * - Sample data that allows transformations to execute
+   *
+   * The mock state is used to run map transformations in a controlled
+   * environment to determine what fields they produce.
+   *
+   * @returns Mock state object with sample data
+   */
+  private createMockState(): any {
+    const mockState: any = {};
+
+    // Add initial fields
+    for (const field of this.initialFields) {
+      mockState[field] = 'mockValue';
+    }
+
+    // Add produced fields from previous steps
+    for (const step of this.steps) {
+      for (const field of step.produces) {
+        if (field.endsWith('Result')) {
+          mockState[field] = {
+            // Add common result field patterns
+            text: 'mockText',
+            value: 'mockValue',
+            result: 'mockResult',
+            data: 'mockData',
+          };
+        } else {
+          mockState[field] = 'mockValue';
+        }
+      }
+    }
+
+    return mockState;
+  }
+
+  /**
+   * Analyzes what fields are produced by conditional merge operations.
+   *
+   * Conditional merges are complex because they don't transform data like map operations,
+   * but instead select which branch's results to use based on a condition.
+   * The challenge is determining what fields will be available after the merge
+   * without knowing which branch will be taken at runtime.
+   *
+   * This method uses heuristics to determine the likely output fields:
+   * 1. Look at recent execute steps (likely branch operations)
+   * 2. If found, use their output fields as potential merge results
+   * 3. Fallback to all execute step fields if no recent pattern is found
+   *
+   * The analysis assumes that branches in a conditional merge will produce
+   * similar types of fields, so we can use any branch's fields as representative
+   * of what the merge might produce.
+   *
+   * @returns string[] - Array of field names that the merge operation might produce
+   */
+  private analyzeBranchMergeFields(): string[] {
+    // Look at the last few steps to find execute steps that would be merged
+    // We focus on recent steps because they're more likely to be part of the
+    // current branch structure being merged
+    const recentExecuteSteps = this.steps
+      .slice(-5) // Look at last 5 steps
+      .filter((step) => step.type === 'execute' && step.nodeName)
+      .flatMap((step) => step.produces);
+
+    if (recentExecuteSteps.length > 0) {
+      return recentExecuteSteps;
+    }
+
+    // Fallback: return all execute step fields
+    // This is a broader approach when we can't identify recent branch patterns
+    // It includes all possible fields that could be produced by any node
+    return this.steps
+      .filter((step) => step.type === 'execute' && step.nodeName)
+      .flatMap((step) => step.produces);
+  }
+
+  /**
+   * Sets the initial fields and triggers parallel group rebuilding.
+   *
+   * This method is called once the flow knows what input fields are available.
+   * It triggers the parallel group analysis which determines the optimal
+   * execution strategy for the entire flow.
+   *
+   * @param fields - Array of field names available at the start of execution
    */
   setInitialFields(fields: string[]): void {
     this.initialFields = new Set(fields);
@@ -62,7 +237,25 @@ export class AxFlowExecutionPlanner {
   }
 
   /**
-   * Rebuilds the parallel execution groups based on dependencies
+   * Rebuilds the parallel execution groups based on step dependencies.
+   *
+   * This is the core algorithm that creates the parallel execution plan.
+   * It uses a level-by-level approach:
+   *
+   * 1. **Level 0**: Steps with no dependencies (can run immediately)
+   * 2. **Level 1**: Steps that depend only on Level 0 outputs
+   * 3. **Level N**: Steps that depend on outputs from previous levels
+   *
+   * Steps within the same level can run in parallel because they don't
+   * depend on each other's outputs.
+   *
+   * The algorithm ensures:
+   * - Correct execution order (dependencies are satisfied)
+   * - Maximum parallelism (independent steps run simultaneously)
+   * - Deadlock prevention (circular dependencies are detected)
+   *
+   * Time complexity: O(n²) where n is the number of steps
+   * Space complexity: O(n) for tracking processed steps and available fields
    */
   private rebuildParallelGroups(): void {
     this.parallelGroups = [];
@@ -100,14 +293,23 @@ export class AxFlowExecutionPlanner {
         });
         currentLevel++;
       } else {
-        // No progress made - break to avoid infinite loop
+        // No progress made - this indicates a circular dependency or bug
+        // Break to avoid infinite loop
+        console.warn(
+          'No progress made in parallel group building - possible circular dependency'
+        );
         break;
       }
     }
   }
 
   /**
-   * Gets all fields produced by previous steps
+   * Gets all fields produced by previous steps.
+   *
+   * This is used by steps that depend on "everything produced so far"
+   * such as map transformations and merge operations.
+   *
+   * @returns Array of all field names produced by previous steps
    */
   private getAllProducedFields(): string[] {
     const fields: string[] = [];
@@ -118,7 +320,23 @@ export class AxFlowExecutionPlanner {
   }
 
   /**
-   * Creates optimized execution function
+   * Creates optimized execution functions that implement the parallel execution plan.
+   *
+   * This method converts the parallel groups into actual executable functions.
+   * It creates a series of steps where:
+   * - Single-step groups execute directly
+   * - Multi-step groups execute in parallel using Promise.all()
+   * - Results are properly merged to maintain state consistency
+   *
+   * The optimized execution can significantly improve performance for flows
+   * with independent operations, especially I/O-bound operations like LLM calls.
+   *
+   * Performance benefits:
+   * - Reduces total execution time for independent operations
+   * - Maximizes CPU and I/O utilization
+   * - Maintains correctness through dependency management
+   *
+   * @returns Array of optimized step functions ready for execution
    */
   createOptimizedExecution(): AxFlowStepFunction[] {
     const optimizedSteps: AxFlowStepFunction[] = [];
@@ -156,7 +374,17 @@ export class AxFlowExecutionPlanner {
   }
 
   /**
-   * Gets execution plan info for debugging
+   * Gets detailed execution plan information for debugging and analysis.
+   *
+   * This method provides comprehensive information about the execution plan,
+   * including step counts, parallel grouping details, and the complete
+   * dependency structure. It's particularly useful for:
+   * - Debugging execution flow issues
+   * - Performance analysis and optimization
+   * - Understanding parallelization effectiveness
+   * - Monitoring execution plan complexity
+   *
+   * @returns Object containing detailed execution plan metrics and data
    */
   getExecutionPlan(): {
     totalSteps: number;

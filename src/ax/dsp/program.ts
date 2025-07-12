@@ -152,6 +152,20 @@ export type AxSetExamplesOptions = {
   // No options needed - all fields can be missing in examples
 };
 
+export interface AxForwardable<IN extends AxGenIn, OUT extends AxGenOut> {
+  forward(
+    ai: Readonly<AxAIService>,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramForwardOptions>
+  ): Promise<OUT>;
+
+  streamingForward(
+    ai: Readonly<AxAIService>,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramStreamingForwardOptions>
+  ): AxGenStreamingOut<OUT>;
+}
+
 export interface AxTunable<IN extends AxGenIn, OUT extends AxGenOut> {
   setExamples: (
     examples: Readonly<AxProgramExamples<IN, OUT>>,
@@ -179,7 +193,7 @@ export interface AxProgramOptions {
 }
 
 export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxTunable<IN, OUT>, AxUsable
+  implements AxUsable
 {
   protected signature: AxSignature;
   protected sigHash: string;
@@ -195,7 +209,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
   private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT>>, IN, OUT>;
 
   constructor(
-    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
+    signature: ConstructorParameters<typeof AxSignature>[0],
     options?: Readonly<AxProgramOptions>
   ) {
     this.signature = new AxSignature(signature);
@@ -208,16 +222,33 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
       this.traceLabel = options.traceLabel;
     }
 
-    // Validate full signature consistency for use in generation
-    this.signature.validate();
+    // Only validate if signature is provided
+    if (signature) {
+      this.signature.validate();
+    }
 
     this.sigHash = this.signature?.hash();
     this.children = new AxInstanceRegistry();
     this.key = { id: this.signature.hash() };
   }
 
-  public getSignature() {
-    return this.signature;
+  public getSignature(): AxSignature {
+    return new AxSignature(this.signature);
+  }
+
+  public setSignature(
+    signature: ConstructorParameters<typeof AxSignature>[0]
+  ): void {
+    this.signature = new AxSignature(signature);
+
+    // Validate the new signature if it's provided
+    if (signature) {
+      this.signature.validate();
+    }
+
+    // Update the signature hash and key
+    this.sigHash = this.signature.hash();
+    this.key = { id: this.signature.hash() };
   }
 
   public register(prog: Readonly<AxTunable<IN, OUT> & AxUsable>) {
@@ -225,29 +256,6 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
       prog.setParentId(this.key.id);
     }
     this.children.register(prog);
-  }
-
-  public async forward(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _ai: Readonly<AxAIService>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN | AxMessage<IN>[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxProgramForwardOptions>
-  ): Promise<OUT> {
-    throw new Error('forward() not implemented');
-  }
-
-  // biome-ignore lint/correctness/useYield: just a placeholder
-  public async *streamingForward(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _ai: Readonly<AxAIService>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN | AxMessage<IN>[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxProgramStreamingForwardOptions>
-  ): AxGenStreamingOut<OUT> {
-    throw new Error('streamingForward() not implemented');
   }
 
   public setId(id: string) {

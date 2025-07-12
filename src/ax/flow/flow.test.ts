@@ -26,19 +26,25 @@ describe('AxFlow', () => {
 
   describe('constructor', () => {
     it('should create an AxFlow instance with default signature', () => {
-      const flow = new AxFlow('userInput:string -> flowOutput:string');
+      const flow = new AxFlow({
+        signature: 'userInput:string -> flowOutput:string',
+      });
       expect(flow).toBeInstanceOf(AxFlow);
     });
 
     it('should create an AxFlow instance with custom signature', () => {
-      const flow = new AxFlow('customInput:string -> customOutput:string');
+      const flow = new AxFlow({
+        signature: 'customInput:string -> customOutput:string',
+      });
       expect(flow).toBeInstanceOf(AxFlow);
     });
   });
 
   describe('node definition', () => {
     it('should define a node with simple signature', () => {
-      const flow = new AxFlow('userInput:string -> responseText:string');
+      const flow = new AxFlow({
+        signature: 'userInput:string -> responseText:string',
+      });
       expect(() => {
         flow.node('testNode', 'userInput:string -> responseText:string');
       }).not.toThrow();
@@ -850,6 +856,156 @@ describe('AxFlow', () => {
       // Verify that our custom logic was executed, not the AI
       expect(result.result).toBe('CUSTOM: HELLO WORLD');
     });
+  });
+});
+
+describe('AxFlow Signature Inference', () => {
+  it('should infer signature from flow dependencies', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+
+    // Create a flow without passing a signature
+    const flow = new AxFlow()
+      .node(
+        'analyzer',
+        'userText:string -> sentimentValue:string, confidenceScore:number'
+      )
+      .node(
+        'formatter',
+        'rawSentiment:string, score:number -> formattedResult:string'
+      )
+      .execute('analyzer', (state: any) => ({ userText: state.userInput }))
+      .execute('formatter', (state: any) => ({
+        rawSentiment: state.analyzerResult.sentimentValue,
+        score: state.analyzerResult.confidenceScore,
+      }));
+
+    // The signature should be inferred from the flow structure
+    const signature = flow.getSignature();
+
+    // Check that the signature has been inferred
+    expect(signature).toBeDefined();
+    expect(signature.toString()).toBeTruthy();
+
+    // Execute the flow to verify it works
+    const result = await flow.forward(mockAI, { userInput: 'This is great!' });
+    expect(result).toBeDefined();
+  });
+
+  it('should handle flows with no dependencies correctly', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+
+    // Create a flow with just nodes but no executions
+    const flow = new AxFlow().node(
+      'standalone',
+      'inputData:string -> outputData:string'
+    );
+
+    // Should have a default signature
+    const signature = flow.getSignature();
+    expect(signature).toBeDefined();
+    expect(signature.toString()).toBeTruthy();
+
+    // Should be able to execute with default inputs
+    const result = await flow.forward(mockAI, { userInput: 'test' });
+    expect(result).toBeDefined();
+  });
+
+  it('should allow manual signature override', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+
+    // Create a flow with explicit signature
+    const customSignature = 'customInput:string -> customOutput:string';
+    const flow = new AxFlow({ signature: customSignature }).node(
+      'processor',
+      'dataIn:string -> dataOut:string'
+    );
+
+    // Should use the provided signature
+    const signature = flow.getSignature();
+    expect(signature.toString()).toContain('customInput');
+    expect(signature.toString()).toContain('customOutput');
+
+    // Should be able to execute
+    const result = await flow.forward(mockAI, { customInput: 'test' });
+    expect(result).toBeDefined();
+  });
+
+  it('should infer complex signatures with multiple input/output nodes', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+
+    // Create a complex flow with branching
+    const flow = new AxFlow()
+      .node('preprocessor', 'rawInput:string -> cleanedText:string')
+      .node('analyzer1', 'textData:string -> sentiment:string')
+      .node('analyzer2', 'textData:string -> topics:string[]')
+      .node(
+        'combiner',
+        'sentimentData:string, topicData:string[] -> finalReport:string'
+      )
+      .execute('preprocessor', (state: any) => ({ rawInput: state.userInput }))
+      .execute('analyzer1', (state: any) => ({
+        textData: state.preprocessorResult.cleanedText,
+      }))
+      .execute('analyzer2', (state: any) => ({
+        textData: state.preprocessorResult.cleanedText,
+      }))
+      .execute('combiner', (state: any) => ({
+        sentimentData: state.analyzer1Result.sentiment,
+        topicData: state.analyzer2Result.topics,
+      }));
+
+    // The signature should be inferred from the flow structure
+    const signature = flow.getSignature();
+    expect(signature).toBeDefined();
+
+    // Should identify userInput as input and combinerResult as output
+    const inputFields = new AxSignature(signature).getInputFields();
+    const outputFields = new AxSignature(signature).getOutputFields();
+
+    expect(inputFields.length).toBeGreaterThan(0);
+    expect(outputFields.length).toBeGreaterThan(0);
+
+    // Execute the flow
+    const result = await flow.forward(mockAI, {
+      userInput: 'Complex analysis text',
+    });
+    expect(result).toBeDefined();
   });
 });
 

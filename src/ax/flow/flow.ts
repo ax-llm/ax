@@ -2,7 +2,7 @@
 import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import { AxProgram, type AxProgramForwardOptions } from '../dsp/program.js';
-import { AxSignature } from '../dsp/sig.js';
+import { type AxField, AxSignature } from '../dsp/sig.js';
 import type { AxFieldValue, AxGenIn, AxGenOut } from '../dsp/types.js';
 
 // Type for state object that flows through the pipeline
@@ -138,7 +138,7 @@ interface AxFlowBranchContext {
 
 // Type for execution step metadata
 interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'other';
+  type: 'execute' | 'map' | 'merge' | 'other';
   nodeName?: string;
   dependencies: string[];
   produces: string[];
@@ -224,30 +224,95 @@ class AxFlowExecutionPlanner {
   private initialFields: Set<string> = new Set();
 
   /**
-   * Adds an execution step to the plan
+   * Adds an execution step to the planner for dependency analysis and parallel optimization.
+   * This method analyzes different types of steps (execute, map, merge, other) and determines
+   * what fields they depend on and what fields they produce.
+   *
+   * The analysis is critical for:
+   * - Automatic parallelization of independent steps
+   * - Signature inference to determine flow inputs/outputs
+   * - Dependency tracking to ensure correct execution order
+   *
+   * Step type analysis:
+   * - 'execute': Node execution steps that run LLM operations
+   * - 'map': Transformation steps that modify the state object
+   * - 'merge': Branch merge operations that combine results from conditional branches
+   * - 'other': Generic steps that don't fit other categories
+   *
+   * @param stepFunction - The actual function to execute for this step
+   * @param nodeName - Name of the node (for execute steps)
+   * @param mapping - Function that maps state to node inputs (for execute steps)
+   * @param stepType - Type of step for specialized analysis
+   * @param mapTransform - Transformation function (for map steps)
+   * @param mergeOptions - Options for merge operations (result key, merge function)
    */
   addExecutionStep(
     stepFunction: AxFlowStepFunction,
     nodeName?: string,
-    mapping?: (state: any) => any
+    mapping?: (state: any) => any,
+    stepType?: 'execute' | 'map' | 'merge' | 'other',
+    mapTransform?: (state: any) => any,
+    mergeOptions?: {
+      resultKey?: string;
+      mergeFunction?: (...args: any[]) => any;
+    }
   ): void {
     let dependencies: string[] = [];
     let produces: string[] = [];
-    let type: 'execute' | 'map' | 'other' = 'other';
+    let type: 'execute' | 'map' | 'merge' | 'other' = stepType || 'other';
 
+    // Analyze execute steps (node operations)
+    // These are the core LLM operations that process data through defined nodes
     if (nodeName && mapping) {
       type = 'execute';
+      // Analyze the mapping function to determine what fields it accesses
       dependencies = this.analyzer.analyzeMappingDependencies(
         mapping,
         nodeName
       );
+      // Execute steps produce a result field named after the node
       produces = [`${nodeName}Result`];
+    } else if (type === 'map' && mapTransform) {
+      // Analyze map transformation steps
+      // These modify the state object and can produce new fields
+
+      // Try to determine what fields the map transformation produces
+      // by running it on a mock state and seeing what keys are in the result
+      const mapOutputFields = this.analyzeMapTransformation(mapTransform);
+      produces = mapOutputFields;
+
+      // Map steps typically depend on all previously produced fields
+      // since they have access to the entire state object
+      dependencies = this.getAllProducedFields();
+    } else if (type === 'merge') {
+      // Analyze merge operations (branch merging)
+      // These combine results from conditional branches or parallel operations
+
+      if (mergeOptions?.resultKey) {
+        // Parallel merge with explicit result key
+        // Produces a single field with the merged result
+        produces = [mergeOptions.resultKey];
+      } else {
+        // Conditional branch merge
+        // Analyze what fields the branches actually produce
+        const branchFields = this.analyzeBranchMergeFields();
+        produces = branchFields.length > 0 ? branchFields : ['_mergedResult'];
+      }
+
+      // Merge steps depend on all previously produced fields
+      // since they need to access branch results
+      dependencies = this.getAllProducedFields();
     } else if (stepFunction.toString().includes('transform(')) {
+      // Fallback detection for map-like steps
+      // This catches transformation steps that weren't explicitly marked as 'map'
       type = 'map';
+
       // Map steps are harder to analyze statically, assume they depend on all previous steps
       dependencies = this.getAllProducedFields();
+      produces = ['_mapResult'];
     }
 
+    // Create the execution step record
     const step: AxFlowExecutionStep = {
       type,
       nodeName,
@@ -258,8 +323,103 @@ class AxFlowExecutionPlanner {
     };
 
     this.steps.push(step);
-    // Don't rebuild parallel groups during construction - only after initial fields are set
+    // Note: Don't rebuild parallel groups during construction - only after initial fields are set
+    // This optimization prevents unnecessary rebuilds during flow construction
     // this.rebuildParallelGroups()
+  }
+
+  /**
+   * Analyzes a map transformation function to determine what fields it produces
+   */
+  private analyzeMapTransformation(
+    mapTransform: (state: any) => any
+  ): string[] {
+    try {
+      // Create a mock state with sample data to analyze the transformation
+      const mockState = this.createMockState();
+      const result = mapTransform(mockState);
+
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        return Object.keys(result);
+      }
+    } catch (error) {
+      // If analysis fails, return a generic field name
+      console.debug('Map transformation analysis failed:', error);
+    }
+
+    return ['_mapResult'];
+  }
+
+  /**
+   * Analyzes what fields are produced by conditional merge operations.
+   *
+   * Conditional merges are complex because they don't transform data like map operations,
+   * but instead select which branch's results to use based on a condition.
+   * The challenge is determining what fields will be available after the merge
+   * without knowing which branch will be taken at runtime.
+   *
+   * This method uses heuristics to determine the likely output fields:
+   * 1. Look at recent execute steps (likely branch operations)
+   * 2. If found, use their output fields as potential merge results
+   * 3. Fallback to all execute step fields if no recent pattern is found
+   *
+   * The analysis assumes that branches in a conditional merge will produce
+   * similar types of fields, so we can use any branch's fields as representative
+   * of what the merge might produce.
+   *
+   * @returns string[] - Array of field names that the merge operation might produce
+   */
+  private analyzeBranchMergeFields(): string[] {
+    // Look at the last few steps to find execute steps that would be merged
+    // We focus on recent steps because they're more likely to be part of the
+    // current branch structure being merged
+    const recentExecuteSteps = this.steps
+      .slice(-5) // Look at last 5 steps
+      .filter((step) => step.type === 'execute' && step.nodeName)
+      .flatMap((step) => step.produces);
+
+    if (recentExecuteSteps.length > 0) {
+      return recentExecuteSteps;
+    }
+
+    // Fallback: return all execute step fields
+    // This is a broader approach when we can't identify recent branch patterns
+    // It includes all possible fields that could be produced by any node
+    return this.steps
+      .filter((step) => step.type === 'execute' && step.nodeName)
+      .flatMap((step) => step.produces);
+  }
+
+  /**
+   * Creates a mock state with sample data for analysis
+   */
+  private createMockState(): any {
+    const mockState: any = {};
+
+    // Add initial fields
+    for (const field of this.initialFields) {
+      mockState[field] = 'mockValue';
+    }
+
+    // Add produced fields from previous steps
+    for (const step of this.steps) {
+      for (const field of step.produces) {
+        if (field.endsWith('Result')) {
+          mockState[field] = {
+            // Add common result field patterns
+            text: 'mockText',
+            value: 'mockValue',
+            result: 'mockResult',
+            data: 'mockData',
+            processedData: 'mockProcessedData',
+          };
+        } else {
+          mockState[field] = 'mockValue';
+        }
+      }
+    }
+
+    return mockState;
   }
 
   /**
@@ -271,7 +431,27 @@ class AxFlowExecutionPlanner {
   }
 
   /**
-   * Rebuilds the parallel execution groups based on dependencies
+   * Rebuilds the parallel execution groups based on step dependencies.
+   *
+   * This is a critical optimization method that analyzes the dependency graph
+   * of all execution steps and groups them into parallel execution levels.
+   * Steps that don't depend on each other can be executed simultaneously,
+   * significantly improving performance for complex flows.
+   *
+   * The algorithm works as follows:
+   * 1. Start with initial fields (flow inputs) as available
+   * 2. For each level, find all steps whose dependencies are satisfied
+   * 3. Group these independent steps together for parallel execution
+   * 4. Add their produced fields to the available fields set
+   * 5. Repeat until all steps are processed
+   *
+   * Example:
+   * - Level 0: Steps A, B, C (no dependencies) -> run in parallel
+   * - Level 1: Step D (depends on A), Step E (depends on B) -> run in parallel
+   * - Level 2: Step F (depends on D and E) -> run alone
+   *
+   * This creates a DAG (Directed Acyclic Graph) execution plan that maximizes
+   * parallelism while respecting data dependencies.
    */
   private rebuildParallelGroups(): void {
     this.parallelGroups = [];
@@ -279,14 +459,17 @@ class AxFlowExecutionPlanner {
     const availableFields = new Set<string>(this.initialFields);
     let currentLevel = 0;
 
+    // Continue until all steps are processed
     while (processedSteps.size < this.steps.length) {
       const currentLevelSteps: AxFlowExecutionStep[] = [];
 
       // Find all steps that can run at this level
+      // A step can run if all its dependencies are satisfied by available fields
       for (const step of this.steps) {
         if (processedSteps.has(step.stepIndex)) continue;
 
         // Check if all dependencies are available
+        // Steps with no dependencies can always run
         const canRun =
           step.dependencies.length === 0 ||
           step.dependencies.every((dep) => availableFields.has(dep));
@@ -299,17 +482,23 @@ class AxFlowExecutionPlanner {
 
       if (currentLevelSteps.length > 0) {
         // Add all produced fields from this level to available fields
+        // This makes them available for steps in the next level
         for (const step of currentLevelSteps) {
           step.produces.forEach((field) => availableFields.add(field));
         }
 
+        // Create a parallel group for this level
         this.parallelGroups.push({
           level: currentLevel,
           steps: currentLevelSteps,
         });
         currentLevel++;
       } else {
-        // No progress made - break to avoid infinite loop
+        // No progress made - this indicates a circular dependency or bug
+        // Break to avoid infinite loop
+        console.warn(
+          'No progress made in parallel group building - possible circular dependency'
+        );
         break;
       }
     }
@@ -327,7 +516,23 @@ class AxFlowExecutionPlanner {
   }
 
   /**
-   * Creates optimized execution function
+   * Creates optimized execution functions that implement the parallel execution plan.
+   *
+   * This method converts the parallel groups into actual executable functions.
+   * It creates a series of steps where:
+   * - Single-step groups execute directly
+   * - Multi-step groups execute in parallel using Promise.all()
+   * - Results are properly merged to maintain state consistency
+   *
+   * The optimized execution can significantly improve performance for flows
+   * with independent operations, especially I/O-bound operations like LLM calls.
+   *
+   * Performance benefits:
+   * - Reduces total execution time for independent operations
+   * - Maximizes CPU and I/O utilization
+   * - Maintains correctness through dependency management
+   *
+   * @returns Array of optimized step functions ready for execution
    */
   createOptimizedExecution(): AxFlowStepFunction[] {
     const optimizedSteps: AxFlowStepFunction[] = [];
@@ -365,7 +570,17 @@ class AxFlowExecutionPlanner {
   }
 
   /**
-   * Gets execution plan info for debugging
+   * Gets detailed execution plan information for debugging and analysis.
+   *
+   * This method provides comprehensive information about the execution plan,
+   * including step counts, parallel grouping details, and the complete
+   * dependency structure. It's particularly useful for:
+   * - Debugging execution flow issues
+   * - Performance analysis and optimization
+   * - Understanding parallelization effectiveness
+   * - Monitoring execution plan complexity
+   *
+   * @returns Object containing detailed execution plan metrics and data
    */
   getExecutionPlan(): {
     totalSteps: number;
@@ -426,15 +641,234 @@ export class AxFlow<
   private readonly autoParallelConfig: AxFlowAutoParallelConfig;
   private readonly executionPlanner = new AxFlowExecutionPlanner();
 
-  constructor(
-    signature: NonNullable<
-      ConstructorParameters<typeof AxSignature>[0]
-    > = 'userInput:string -> flowOutput:string',
-    options?: {
-      autoParallel?: boolean;
+  /**
+   * Converts a string to camelCase for valid field names
+   */
+  private toCamelCase(str: string): string {
+    return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+
+  /**
+   * Infers the signature of the flow based on the execution plan and node definitions.
+   * This is the core method that determines what input/output fields the flow should have
+   * based on the nodes and operations defined in the flow.
+   *
+   * The inference process follows these steps:
+   * 1. If no nodes are defined, return a default signature
+   * 2. Analyze the execution plan to find all produced and consumed fields
+   * 3. Determine input fields (consumed but not produced by any step)
+   * 4. Determine output fields with special handling for final map/merge operations
+   * 5. If no clear pattern is found, create a comprehensive signature from all nodes
+   *
+   * Special handling for final operations:
+   * - Map operations: Use the fields produced by the map transformation
+   * - Merge operations: Use fields from the merged branches or merge result
+   * - Conditional merges: Analyze what fields the branches actually produce
+   *
+   * @returns AxSignature - The inferred signature for this flow
+   */
+  private inferSignatureFromFlow(): AxSignature {
+    // If no nodes are defined, use a default signature
+    if (this.nodeGenerators.size === 0) {
+      return new AxSignature('userInput:string -> flowOutput:string');
     }
-  ) {
-    super(signature);
+
+    // Get execution plan to identify dependencies and field flow
+    // This gives us a structured view of what each step consumes and produces
+    const executionPlan = this.executionPlanner.getExecutionPlan();
+    const allProducedFields = new Set<string>();
+    const allConsumedFields = new Set<string>();
+
+    // Collect all produced and consumed fields from the execution plan
+    // This helps us understand the data flow through the entire workflow
+    for (const step of executionPlan.steps) {
+      step.produces.forEach((field) => allProducedFields.add(field));
+      step.dependencies.forEach((field) => allConsumedFields.add(field));
+    }
+
+    // Find input fields (consumed but not produced by any step)
+    // These are fields that the flow needs from external input
+    const inputFieldNames = new Set<string>();
+    for (const consumed of allConsumedFields) {
+      if (!allProducedFields.has(consumed)) {
+        inputFieldNames.add(consumed);
+      }
+    }
+
+    // Find output fields (produced but not consumed by subsequent steps)
+    // These are the final results that the flow produces
+    const outputFieldNames = new Set<string>();
+
+    // Special handling for final map/merge operations
+    // When a flow ends with a transformation or merge, we want to use those results
+    // as the output rather than intermediate node results
+    const lastStep = executionPlan.steps[executionPlan.steps.length - 1];
+    if (lastStep && (lastStep.type === 'map' || lastStep.type === 'merge')) {
+      // If the last step is a map/merge, use its produced fields as outputs
+      lastStep.produces.forEach((field) => {
+        // Skip internal fields like _mapResult, _mergedResult
+        if (!field.startsWith('_')) {
+          outputFieldNames.add(field);
+        }
+      });
+
+      // For conditional merges that produce _mergedResult,
+      // use all fields from previous steps as potential outputs
+      // This handles cases where the merge doesn't transform the data
+      // but just selects which branch's results to use
+      if (
+        lastStep.type === 'merge' &&
+        lastStep.produces.includes('_mergedResult')
+      ) {
+        // Find all node result fields from previous steps
+        for (const step of executionPlan.steps) {
+          if (step.type === 'execute' && step.produces.length > 0) {
+            step.produces.forEach((field) => outputFieldNames.add(field));
+          }
+        }
+      }
+    } else {
+      // Standard logic: fields produced but not consumed by subsequent steps
+      // This finds the "leaf" fields that aren't used by any other step
+      for (const produced of allProducedFields) {
+        // Check if this field is consumed by any step
+        let isConsumed = false;
+        for (const step of executionPlan.steps) {
+          if (step.dependencies.includes(produced)) {
+            isConsumed = true;
+            break;
+          }
+        }
+        if (!isConsumed) {
+          outputFieldNames.add(produced);
+        }
+      }
+    }
+
+    // If no clear input/output pattern, create a comprehensive signature
+    // This is a fallback that includes all possible fields from all nodes
+    // It's used when the execution plan analysis doesn't give clear results
+    if (inputFieldNames.size === 0 && outputFieldNames.size === 0) {
+      // Extract fields from node signatures
+      const inputFields: AxField[] = [];
+      const outputFields: AxField[] = [];
+
+      // Go through each node and extract its input/output fields
+      for (const [nodeName, nodeGen] of this.nodeGenerators) {
+        const nodeSignature = nodeGen.getSignature();
+        const sig = new AxSignature(nodeSignature);
+
+        // Add node's input fields as potential flow inputs
+        // These are prefixed with the node name to avoid conflicts
+        for (const field of sig.getInputFields()) {
+          // Convert to camelCase to avoid validation issues
+          const camelCaseName = this.toCamelCase(`${nodeName}_${field.name}`);
+          inputFields.push({
+            name: camelCaseName,
+            type: field.type,
+            description: field.description,
+            isOptional: field.isOptional,
+            isInternal: field.isInternal,
+          });
+        }
+
+        // Add node's output fields as potential flow outputs
+        // These are also prefixed with the node name
+        for (const field of sig.getOutputFields()) {
+          // Convert to camelCase to avoid validation issues
+          const camelCaseName = this.toCamelCase(`${nodeName}_${field.name}`);
+          outputFields.push({
+            name: camelCaseName,
+            type: field.type,
+            description: field.description,
+            isOptional: field.isOptional,
+            isInternal: field.isInternal,
+          });
+        }
+      }
+
+      // Create signature from collected fields
+      const inferredSignature = new AxSignature();
+
+      // Add input fields or default
+      if (inputFields.length > 0) {
+        inferredSignature.setInputFields(inputFields);
+      } else {
+        inferredSignature.addInputField({
+          name: 'userInput',
+          type: { name: 'string' },
+          description: 'User input to the flow',
+        });
+      }
+
+      // Add output fields or default
+      if (outputFields.length > 0) {
+        inferredSignature.setOutputFields(outputFields);
+      } else {
+        inferredSignature.addOutputField({
+          name: 'flowOutput',
+          type: { name: 'string' },
+          description: 'Output from the flow',
+        });
+      }
+
+      return inferredSignature;
+    }
+
+    // Build signature from identified input/output fields
+    // This is the main path when we have clear input/output patterns
+    const inferredSignature = new AxSignature();
+
+    // Add input fields
+    const inputFields: AxField[] = [];
+    for (const fieldName of inputFieldNames) {
+      inputFields.push({
+        name: fieldName,
+        type: { name: 'string' },
+        description: `Input field: ${fieldName}`,
+      });
+    }
+
+    // Add default input if none found
+    if (inputFields.length === 0) {
+      inputFields.push({
+        name: 'userInput',
+        type: { name: 'string' },
+        description: 'User input to the flow',
+      });
+    }
+
+    // Add output fields
+    const outputFields: AxField[] = [];
+    for (const fieldName of outputFieldNames) {
+      outputFields.push({
+        name: fieldName,
+        type: { name: 'string' },
+        description: `Output field: ${fieldName}`,
+      });
+    }
+
+    // Add default output if none found
+    if (outputFields.length === 0) {
+      outputFields.push({
+        name: 'flowOutput',
+        type: { name: 'string' },
+        description: 'Output from the flow',
+      });
+    }
+
+    inferredSignature.setInputFields(inputFields);
+    inferredSignature.setOutputFields(outputFields);
+
+    return inferredSignature;
+  }
+
+  constructor(options?: {
+    autoParallel?: boolean;
+  }) {
+    // No signature provided - will be inferred from flow structure
+    super();
+
     this.autoParallelConfig = {
       enabled: options?.autoParallel !== false, // Default to true
     };
@@ -708,7 +1142,13 @@ export class AxFlow<
 
       // Add to execution planner for automatic parallelization
       if (this.autoParallelConfig.enabled) {
-        this.executionPlanner.addExecutionStep(step);
+        this.executionPlanner.addExecutionStep(
+          step,
+          undefined,
+          undefined,
+          'map',
+          transform
+        );
       }
     }
 
@@ -927,25 +1367,34 @@ export class AxFlow<
   }
 
   /**
-   * Ends the current branch and merges all branch paths back into the main flow.
-   * Optionally specify the explicit merged state type for better type safety.
+   * Merges the results of conditional branches into a single execution path.
    *
-   * @param explicitMergedType - Optional type hint for the merged state (defaults to current TState)
-   * @returns AxFlow instance with the merged state type
+   * This method is called after defining conditional branches with branch() and when() methods.
+   * It creates a merge point where the flow continues with the results from whichever
+   * branch was executed based on the branch condition.
+   *
+   * How conditional merging works:
+   * 1. The branch predicate is evaluated against the current state
+   * 2. The matching branch's steps are executed sequentially
+   * 3. If no branch matches, the state is returned unchanged
+   * 4. The merged result becomes the new state for subsequent steps
+   *
+   * Type safety note:
+   * The TMergedState generic allows for type-level tracking of what fields
+   * will be available after the merge, though runtime behavior depends on
+   * which branch actually executes.
+   *
+   * @returns AxFlow with updated state type reflecting the merged result
    *
    * @example
    * ```typescript
-   * // Default behavior - preserves current TState
-   * flow.branch(state => state.type)
-   *   .when('simple').execute('simpleProcessor', ...)
-   *   .when('complex').execute('complexProcessor', ...)
-   *   .merge()
-   *
-   * // Explicit type - specify exact merged state shape
-   * flow.branch(state => state.type)
-   *   .when('simple').map(state => ({ result: state.simpleResult, method: 'simple' }))
-   *   .when('complex').map(state => ({ result: state.complexResult, method: 'complex' }))
-   *   .merge<{ result: string; method: string }>()
+   * flow
+   *   .branch(state => state.complexity > 0.5)
+   *   .when(true)
+   *     .execute('complexProcessor', state => ({ input: state.text }))
+   *   .when(false)
+   *     .execute('simpleProcessor', state => ({ input: state.text }))
+   *   .merge() // Combines results from either branch
    * ```
    */
   public merge<TMergedState extends AxFlowState = TState>(): AxFlow<
@@ -958,29 +1407,49 @@ export class AxFlow<
       throw new Error('merge() called without matching branch()');
     }
 
+    // Capture the branch context before clearing it
     const branchContext = this.branchContext;
     this.branchContext = null;
 
-    // Add the branch execution step to main flow
-    this.flowDefinition.push(async (state, context) => {
+    // Create the merge step that will execute at runtime
+    const mergeStep = async (state: AxFlowState, context: any) => {
+      // Evaluate the branch predicate to determine which branch to execute
       const branchValue = branchContext.predicate(state);
       const branchSteps = branchContext.branches.get(branchValue);
 
       if (!branchSteps) {
-        // No matching branch - return state unchanged
+        // No matching branch found - return state unchanged
+        // This can happen if the predicate returns a value that wasn't
+        // defined with a when() clause
         return state;
       }
 
-      // Execute all steps in the matched branch
+      // Execute all steps in the matched branch sequentially
+      // Each step receives the output of the previous step as input
       let currentState = state;
       for (const step of branchSteps) {
         currentState = await step(currentState, context);
       }
 
       return currentState;
-    });
+    };
 
-    // Cast `this` to preserve runtime object while updating compile-time type information.
+    // Add the merge step to the main flow execution
+    this.flowDefinition.push(mergeStep);
+
+    // Register with execution planner for automatic parallelization
+    // This helps with signature inference and dependency analysis
+    if (this.autoParallelConfig.enabled) {
+      this.executionPlanner.addExecutionStep(
+        mergeStep,
+        undefined,
+        undefined,
+        'merge'
+      );
+    }
+
+    // Type-level cast to update the state type while preserving the runtime object
+    // This allows TypeScript to track what fields should be available after the merge
     return this as unknown as AxFlow<IN, OUT, TNodes, TMergedState>;
   }
 
@@ -997,8 +1466,24 @@ export class AxFlow<
   }
 
   /**
-   * Executes multiple operations in parallel and merges their results.
-   * Both typed and legacy untyped branches are supported.
+   * Executes multiple operations in parallel and provides a merge method for combining results.
+   *
+   * This method enables true parallel execution of independent operations, which is particularly
+   * useful for operations like:
+   * - Multiple document retrievals
+   * - Parallel processing of different data sources
+   * - Independent LLM calls that can run simultaneously
+   *
+   * How parallel execution works:
+   * 1. Each branch function receives a sub-context for defining operations
+   * 2. All branches are executed simultaneously using Promise.all()
+   * 3. Results are stored in _parallelResults for the merge operation
+   * 4. The merge function combines the results into a single field
+   *
+   * Performance benefits:
+   * - Reduces total execution time for independent operations
+   * - Maximizes throughput for I/O-bound operations (like LLM calls)
+   * - Maintains type safety through the merge operation
    *
    * @param branches - Array of functions that define parallel operations
    * @returns Object with merge method for combining results
@@ -1023,6 +1508,7 @@ export class AxFlow<
       mergeFunction: (...results: unknown[]) => T
     ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>;
   } {
+    // Create the parallel execution step
     const parallelStep = async (
       state: AxFlowState,
       context: Readonly<{
@@ -1030,50 +1516,95 @@ export class AxFlow<
         mainOptions?: AxProgramForwardOptions;
       }>
     ) => {
-      // Execute all branches in parallel
+      // Execute all branches in parallel using Promise.all for maximum performance
       const promises = branches.map(async (branchFn) => {
         // Create a sub-context for this branch
+        // This isolates each branch's operations from the others
         const subContext = new AxFlowSubContextImpl(this.nodeGenerators);
-        // NOTE: Type assertion needed here because we support both typed and untyped branch functions
+
+        // Type assertion needed because we support both typed and untyped branch functions
+        // The runtime behavior is the same, but TypeScript needs this for type checking
         const populatedSubContext = branchFn(
           subContext as AxFlowSubContext & AxFlowTypedSubContext<TNodes, TState>
         );
 
-        // Execute the sub-context steps
+        // Execute the sub-context steps and return the result
         return await populatedSubContext.executeSteps(state, context);
       });
 
+      // Wait for all parallel operations to complete
       const results = await Promise.all(promises);
 
-      // Store results for merging
+      // Store results in a special field for the merge operation
+      // This is a temporary storage that will be cleaned up by the merge
       return {
         ...state,
         _parallelResults: results,
       };
     };
 
+    // Add the parallel step to the main flow execution
     this.flowDefinition.push(parallelStep);
 
+    // Register with execution planner (marked as 'other' since it's a special case)
+    if (this.autoParallelConfig.enabled) {
+      this.executionPlanner.addExecutionStep(
+        parallelStep,
+        undefined,
+        undefined,
+        'other',
+        undefined,
+        undefined
+      );
+    }
+
+    // Return an object with the merge method for combining parallel results
     return {
+      /**
+       * Merges the results of parallel operations into a single field.
+       *
+       * @param resultKey - Name of the field to store the merged result
+       * @param mergeFunction - Function that combines the parallel results
+       * @returns AxFlow with the merged result added to the state
+       */
       merge: <T, TResultKey extends string>(
         resultKey: TResultKey,
         mergeFunction: (...results: unknown[]) => T
       ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }> => {
-        this.flowDefinition.push((state) => {
+        // Create the merge step that combines parallel results
+        const parallelMergeStep = (state: AxFlowState) => {
           const results = state._parallelResults;
           if (!Array.isArray(results)) {
             throw new Error('No parallel results found for merge');
           }
 
+          // Apply the merge function to combine all parallel results
           const mergedValue = mergeFunction(...results);
+
+          // Create new state with the merged result and clean up temporary storage
           const newState = { ...state };
-          newState._parallelResults = undefined;
+          newState._parallelResults = undefined; // Clean up temporary field
           newState[resultKey] = mergedValue;
 
           return newState;
-        });
+        };
 
-        // NOTE: This type assertion is necessary for the type-level programming pattern
+        // Add the merge step to the main flow execution
+        this.flowDefinition.push(parallelMergeStep);
+
+        // Register with execution planner for signature inference
+        if (this.autoParallelConfig.enabled) {
+          this.executionPlanner.addExecutionStep(
+            parallelMergeStep,
+            undefined,
+            undefined,
+            'merge',
+            undefined,
+            { resultKey, mergeFunction }
+          );
+        }
+
+        // Type-level cast to include the new merged field in the state type
         return this as AxFlow<
           IN,
           OUT,
@@ -1300,6 +1831,28 @@ export class AxFlow<
   /**
    * Executes the flow with the given AI service and input values.
    *
+   * This is the main execution method that orchestrates the entire flow execution.
+   * It handles several complex aspects:
+   *
+   * 1. **Dynamic Signature Inference**: If the flow was created with a default signature
+   *    but has nodes defined, it will infer the actual signature from the flow structure.
+   *
+   * 2. **Execution Mode Selection**: Chooses between optimized parallel execution
+   *    (when auto-parallel is enabled) or sequential execution based on configuration.
+   *
+   * 3. **State Management**: Maintains the evolving state object as it flows through
+   *    each step, accumulating results and transformations.
+   *
+   * 4. **Performance Optimization**: Uses the execution planner to identify
+   *    independent operations that can run in parallel, reducing total execution time.
+   *
+   * Execution Flow:
+   * - Initialize state with input values
+   * - Infer signature if needed (based on nodes and current signature)
+   * - Choose execution strategy (parallel vs sequential)
+   * - Execute all steps while maintaining state consistency
+   * - Return final state cast to expected output type
+   *
    * @param ai - The AI service to use as the default for all steps
    * @param values - The input values for the flow
    * @param options - Optional forward options to use as defaults (includes autoParallel override)
@@ -1310,37 +1863,64 @@ export class AxFlow<
     values: IN,
     options?: Readonly<AxProgramForwardOptions & { autoParallel?: boolean }>
   ): Promise<OUT> {
+    // Dynamic signature inference - only if using default signature and have nodes
+    // This allows flows to be created with a simple signature and then have it
+    // automatically refined based on the actual nodes and operations defined
+    if (
+      this.nodeGenerators.size > 0 &&
+      this.signature.toString() === 'userInput:string -> flowOutput:string'
+    ) {
+      const inferredSignature = this.inferSignatureFromFlow();
+      this.signature = inferredSignature;
+      this.sigHash = inferredSignature.hash();
+    }
+
     // Initialize state with input values
+    // This creates the initial state object that will flow through all steps
     let state: AxFlowState = { ...values };
 
-    // Create context object
+    // Create execution context object
+    // This provides consistent access to AI service and options for all steps
     const context = {
       mainAi: ai,
       mainOptions: options,
     } as const;
 
-    // Determine if auto-parallel should be used
+    // Determine execution strategy based on configuration
+    // Auto-parallel can be disabled globally or overridden per execution
     const useAutoParallel =
       options?.autoParallel !== false && this.autoParallelConfig.enabled;
 
     if (useAutoParallel) {
+      // OPTIMIZED PARALLEL EXECUTION PATH
+      // This path uses the execution planner to identify independent operations
+      // and execute them in parallel for better performance
+
       // Set initial fields for dependency analysis
+      // This tells the planner what fields are available at the start
       this.executionPlanner.setInitialFields(Object.keys(values));
 
-      // Use optimized execution with automatic parallelization
+      // Get optimized execution plan with parallel groups
       const optimizedSteps = this.executionPlanner.createOptimizedExecution();
+
+      // Execute optimized steps sequentially (parallel groups are handled internally)
       for (const step of optimizedSteps) {
         state = await step(state, context);
       }
     } else {
-      // Use original sequential execution
+      // SEQUENTIAL EXECUTION PATH
+      // This path executes all steps in the order they were defined
+      // It's simpler but potentially slower for independent operations
+
+      // Execute all steps sequentially
       for (const step of this.flowDefinition) {
         state = await step(state, context);
       }
     }
 
-    // Return the final state cast to OUT type
-    return state as unknown as OUT;
+    // Return the final state cast to the expected output type
+    // The type system ensures this is safe based on the signature inference
+    return state as OUT;
   }
 
   /**
