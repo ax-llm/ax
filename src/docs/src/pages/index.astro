@@ -1,16 +1,16 @@
 ---
-import { getEntry, render } from 'astro:content'
-import Layout from '../layouts/Layout.astro'
+import { getEntry, render } from 'astro:content';
+import Layout from '../layouts/Layout.astro';
 
 // Get the readme document
-const doc = await getEntry('docs', 'readme')
+const doc = await getEntry('docs', 'readme');
 
 if (!doc) {
-  return Astro.redirect('/docs')
+  return Astro.redirect('/docs');
 }
 
 // Render the content
-const { Content } = await render(doc)
+const { Content } = await render(doc);
 ---
 
 <Layout title={doc.data.title}>

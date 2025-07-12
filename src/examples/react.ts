@@ -1,8 +1,8 @@
-import { AxAI, AxChainOfThought } from '@ax-llm/ax'
+import { AxAI, AxChainOfThought } from '@ax-llm/ax';
 
 const values = {
   question: 'What is the weather like in tokyo?',
-}
+};
 
 const functions = [
   {
@@ -26,19 +26,19 @@ const functions = [
     },
 
     func: async (args: Readonly<{ location: string; units: string }>) => {
-      return `The weather in ${args.location} is 72 degrees`
+      return `The weather in ${args.location} is 72 degrees`;
     },
   },
-]
+];
 
-const cot = new AxChainOfThought(`question:string -> answer:string`, {
+const cot = new AxChainOfThought('question:string -> answer:string', {
   functions,
-})
+});
 
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
-})
+});
 
-const res = await cot.forward(ai, values)
-console.log(res)
+const res = await cot.forward(ai, values);
+console.log(res);

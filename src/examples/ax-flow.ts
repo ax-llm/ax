@@ -1,11 +1,11 @@
 // AxFlow usage examples: full method names and aliases
-import { AxAI, AxAIGoogleGeminiModel, AxFlow } from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxFlow } from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
-})
+});
 
 // Full method example - Document analysis pipeline
 const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>()
@@ -27,11 +27,11 @@ const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>()
   .map((state) => {
     const keywords = Array.isArray(state.keywordExtractorResult.keywords)
       ? state.keywordExtractorResult.keywords
-      : []
+      : [];
     return {
       analysis: `Summary: ${state.summarizerResult.documentSummary}, Keywords: ${keywords.join(', ')}, Sentiment: ${state.sentimentAnalyzerResult.sentiment} (${state.sentimentAnalyzerResult.confidence})`,
-    }
-  })
+    };
+  });
 
 // Aliases example 1 - Customer support ticket processing
 const flowAlias1 = new AxFlow<{ ticketMessage: string }, { response: string }>()
@@ -48,7 +48,7 @@ const flowAlias1 = new AxFlow<{ ticketMessage: string }, { response: string }>()
     ticketCategory: state.classifierResult.ticketCategory,
     urgencyLevel: state.classifierResult.urgencyLevel,
   }))
-  .m((state) => ({ response: state.responderResult.supportResponse }))
+  .m((state) => ({ response: state.responderResult.supportResponse }));
 
 // Aliases example 2 - Simplified code review system
 const flowAlias2 = new AxFlow<{ codeSnippet: string }, { review: string }>()
@@ -65,7 +65,7 @@ const flowAlias2 = new AxFlow<{ codeSnippet: string }, { review: string }>()
     codeAnalysis: s.codeAnalyzerResult.codeAnalysis,
     qualityScore: s.codeAnalyzerResult.qualityScore,
   }))
-  .m((s) => ({ review: s.reviewGeneratorResult.codeReview }))
+  .m((s) => ({ review: s.reviewGeneratorResult.codeReview }));
 
 // Branch example - Content moderation system
 const flowBranch = new AxFlow<
@@ -91,7 +91,7 @@ const flowBranch = new AxFlow<
       state.socialMediaModeratorResult?.moderationDecision ??
       state.forumModeratorResult?.moderationDecision ??
       'No decision made',
-  }))
+  }));
 
 // Parallel example - Research paper analysis
 const flowParallel = new AxFlow<
@@ -115,12 +115,12 @@ const flowParallel = new AxFlow<
       })),
   ])
   .merge('combinedScore', (noveltyRes: unknown, clarityRes: unknown) => {
-    const noveltyResult = noveltyRes as { noveltyScore: number }
-    const clarityResult = clarityRes as { clarityScore: number }
-    const noveltyScore = Number(noveltyResult.noveltyScore) || 0
-    const clarityScore = Number(clarityResult.clarityScore) || 0
-    return (noveltyScore + clarityScore) / 2
-  })
+    const noveltyResult = noveltyRes as { noveltyScore: number };
+    const clarityResult = clarityRes as { clarityScore: number };
+    const noveltyScore = Number(noveltyResult.noveltyScore) || 0;
+    const clarityScore = Number(clarityResult.clarityScore) || 0;
+    return (noveltyScore + clarityScore) / 2;
+  });
 
 // While example - Iterative writing improvement
 const flowWhile = new AxFlow<
@@ -149,7 +149,7 @@ const flowWhile = new AxFlow<
     iterationCount: state.iterationCount + 1,
   }))
   .endWhile()
-  .map((state) => ({ finalArticle: state.currentDraft }))
+  .map((state) => ({ finalArticle: state.currentDraft }));
 
 // Multi-hop RAG example - Research question answering (simplified)
 const flowRAG = new AxFlow<
@@ -172,50 +172,50 @@ const flowRAG = new AxFlow<
     retrievedDocument: state.retrieverResult.retrievedDocument,
     researchQuestion: state.researchQuestion,
   }))
-  .map((state) => ({ finalAnswer: state.answerGeneratorResult.answer }))
+  .map((state) => ({ finalAnswer: state.answerGeneratorResult.answer }));
 
-console.log('=== Document Analysis Pipeline ===')
+console.log('=== Document Analysis Pipeline ===');
 const resultFull = await flowFull.forward(ai, {
   documentContent:
     'This is a sample business document about quarterly earnings.',
-})
-console.log('Document analysis complete:', resultFull)
+});
+console.log('Document analysis complete:', resultFull);
 
-console.log('\n=== Customer Support Ticket Processing ===')
+console.log('\n=== Customer Support Ticket Processing ===');
 const resultAlias1 = await flowAlias1.forward(ai, {
   ticketMessage: 'My order is delayed and I need urgent help!',
-})
-console.log('Support ticket processed:', resultAlias1)
+});
+console.log('Support ticket processed:', resultAlias1);
 
-console.log('\n=== Code Review System ===')
+console.log('\n=== Code Review System ===');
 const resultAlias2 = await flowAlias2.forward(ai, {
   codeSnippet: 'function add(a, b) { return a + b; }',
-})
-console.log('Code review complete:', resultAlias2)
+});
+console.log('Code review complete:', resultAlias2);
 
-console.log('\n=== Content Moderation System ===')
+console.log('\n=== Content Moderation System ===');
 const resultBranch = await flowBranch.forward(ai, {
   userPost: 'Great product recommendation!',
   postType: 'social',
-})
-console.log('Moderation decision:', resultBranch)
+});
+console.log('Moderation decision:', resultBranch);
 
-console.log('\n=== Research Paper Analysis ===')
+console.log('\n=== Research Paper Analysis ===');
 const resultParallel = await flowParallel.forward(ai, {
   paperAbstract:
     'This paper presents a novel approach to machine learning optimization.',
-})
-console.log('Paper scoring complete:', resultParallel)
+});
+console.log('Paper scoring complete:', resultParallel);
 
-console.log('\n=== Iterative Writing Improvement ===')
+console.log('\n=== Iterative Writing Improvement ===');
 const resultWhile = await flowWhile.forward(ai, {
   draftArticle: 'AI is changing the world in many ways.',
-})
-console.log('Writing improvement complete:', resultWhile)
+});
+console.log('Writing improvement complete:', resultWhile);
 
-console.log('\n=== Multi-hop RAG Research ===')
+console.log('\n=== Multi-hop RAG Research ===');
 const resultRAG = await flowRAG.forward(ai, {
   researchQuestion:
     'What are the latest developments in quantum computing applications?',
-})
-console.log('Research complete:', resultRAG)
+});
+console.log('Research complete:', resultRAG);

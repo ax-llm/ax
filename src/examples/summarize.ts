@@ -1,16 +1,16 @@
-import { AxAI, AxAIGoogleGeminiModel, AxGen, AxSignature } from '@ax-llm/ax'
+import { AxAI, AxAIGoogleGeminiModel, AxGen, AxSignature } from '@ax-llm/ax';
 
 // const ai = new AxAI({ name: 'ollama', model: 'nous-hermes2' });
 
 const signature = new AxSignature(`\
     updates:string[] \
     -> \
-    summary:string, summaryTitle:string, shortSummary:string`)
+    summary:string, summaryTitle:string, shortSummary:string`);
 
 const gen = new AxGen<
   { updates: string[] },
   { summary: string; summaryTitle: string; shortSummary: string }
->(signature)
+>(signature);
 gen.setExamples([
   {
     updates: [
@@ -25,7 +25,7 @@ gen.setExamples([
     shortSummary:
       'Ping Pong For Good (PPG) announces updates affecting their Santa Monica Class, MLTT Pomona Matches, & Open Play Session',
   },
-])
+]);
 
 // gen.addAssert(({ reason }: Readonly<{ reason: string }>) => {
 //   if (!reason) return true
@@ -56,7 +56,7 @@ const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { maxTokens: 1000, model: AxAIGoogleGeminiModel.Gemini25Flash },
-})
+});
 
 const updates = [
   `Title: Purrfect Playtime Schedule Change at Cat Cafe
@@ -67,25 +67,25 @@ Summary: The National Feline Agility Competition (NFAC) is hosting its champions
 
   `Title: Open Cat Social Hour at Westwood Animal Shelter
 Summary: Open cat social hour at the Westwood Animal Shelter on Sunday, February 2, 2025 from 2:00 PM to 3:30 PM. A $5 donation is requested (cash donations preferred).`,
-]
+];
 
-console.log('## Streaming')
+console.log('## Streaming');
 
 const generator = gen.streamingForward(
   ai,
   { updates },
   { showThoughts: true, thinkingTokenBudget: 'minimal' }
-)
+);
 
 for await (const res of generator) {
-  console.log(res)
+  console.log(res);
 }
 
-console.log('\n\n## Not Streaming')
+console.log('\n\n## Not Streaming');
 
 const res = await gen.forward(
   ai,
   { updates },
   { showThoughts: true, thinkingTokenBudget: 'low' }
-)
-console.log(res)
+);
+console.log(res);

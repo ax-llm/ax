@@ -1,32 +1,32 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, functional/prefer-immutable-types */
-import type { AxAIService } from '../ai/types.js'
-import { AxGen } from '../dsp/generate.js'
-import { AxProgram, type AxProgramForwardOptions } from '../dsp/program.js'
-import { AxSignature } from '../dsp/sig.js'
-import type { AxFieldValue, AxGenIn, AxGenOut } from '../dsp/types.js'
+import type { AxAIService } from '../ai/types.js';
+import { AxGen } from '../dsp/generate.js';
+import { AxProgram, type AxProgramForwardOptions } from '../dsp/program.js';
+import { AxSignature } from '../dsp/sig.js';
+import type { AxFieldValue, AxGenIn, AxGenOut } from '../dsp/types.js';
 
 // Type for state object that flows through the pipeline
-type AxFlowState = Record<string, unknown>
+type AxFlowState = Record<string, unknown>;
 
 // Type for node definitions in the flow
 interface AxFlowNodeDefinition {
-  inputs: Record<string, unknown>
-  outputs: Record<string, unknown>
+  inputs: Record<string, unknown>;
+  outputs: Record<string, unknown>;
 }
 
 // Type for flow step functions
 type AxFlowStepFunction = (
   state: AxFlowState,
   context: Readonly<{
-    mainAi: AxAIService
-    mainOptions?: AxProgramForwardOptions
+    mainAi: AxAIService;
+    mainOptions?: AxProgramForwardOptions;
   }>
-) => Promise<AxFlowState> | AxFlowState
+) => Promise<AxFlowState> | AxFlowState;
 
 // Type for dynamic context overrides
 interface AxFlowDynamicContext {
-  ai?: AxAIService
-  options?: AxProgramForwardOptions
+  ai?: AxAIService;
+  options?: AxProgramForwardOptions;
 }
 
 // =============================================================================
@@ -34,28 +34,36 @@ interface AxFlowDynamicContext {
 // =============================================================================
 
 // Helper type to extract input type from an AxGen instance
-type GetGenIn<T extends AxGen<AxGenIn, AxGenOut>> =
-  T extends AxGen<infer IN, AxGenOut> ? IN : never
+type GetGenIn<T extends AxGen<AxGenIn, AxGenOut>> = T extends AxGen<
+  infer IN,
+  AxGenOut
+>
+  ? IN
+  : never;
 
 // Helper type to extract output type from an AxGen instance
-type GetGenOut<T extends AxGen<AxGenIn, AxGenOut>> =
-  T extends AxGen<AxGenIn, infer OUT> ? OUT : never
+type GetGenOut<T extends AxGen<AxGenIn, AxGenOut>> = T extends AxGen<
+  AxGenIn,
+  infer OUT
+>
+  ? OUT
+  : never;
 
 // Helper type to create an AxGen type from a signature string
 // This is a simplified version - in practice, you'd need more sophisticated parsing
 type InferAxGen<TSig extends string> = TSig extends string
   ? AxGen<AxGenIn, AxGenOut>
-  : never
+  : never;
 
 // Helper type to create result key name from node name
-type NodeResultKey<TNodeName extends string> = `${TNodeName}Result`
+type NodeResultKey<TNodeName extends string> = `${TNodeName}Result`;
 
 // Helper type to add node result to state
 type AddNodeResult<
   TState extends AxFlowState,
   TNodeName extends string,
   TNodeOut extends AxGenOut,
-> = TState & { [K in NodeResultKey<TNodeName>]: TNodeOut }
+> = TState & { [K in NodeResultKey<TNodeName>]: TNodeOut };
 
 // =============================================================================
 // TYPED SUB-CONTEXT INTERFACES
@@ -68,7 +76,7 @@ type AxFlowTypedParallelBranch<
   TState extends AxFlowState,
 > = (
   subFlow: AxFlowTypedSubContext<TNodes, TState>
-) => AxFlowTypedSubContext<TNodes, AxFlowState>
+) => AxFlowTypedSubContext<TNodes, AxFlowState>;
 
 // Type for typed sub-flow context used in parallel execution
 // NOTE: The `any` here is necessary for the same reason as above
@@ -83,45 +91,45 @@ interface AxFlowTypedSubContext<
   ): AxFlowTypedSubContext<
     TNodes,
     AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
-  >
+  >;
 
   map<TNewState extends AxFlowState>(
     transform: (state: TState) => TNewState
-  ): AxFlowTypedSubContext<TNodes, TNewState>
+  ): AxFlowTypedSubContext<TNodes, TNewState>;
 
   executeSteps(
     initialState: TState,
     context: Readonly<{
-      mainAi: AxAIService
-      mainOptions?: AxProgramForwardOptions
+      mainAi: AxAIService;
+      mainOptions?: AxProgramForwardOptions;
     }>
-  ): Promise<AxFlowState>
+  ): Promise<AxFlowState>;
 }
 
 // Legacy untyped interfaces for backward compatibility
-type AxFlowParallelBranch = (subFlow: AxFlowSubContext) => AxFlowSubContext
+type AxFlowParallelBranch = (subFlow: AxFlowSubContext) => AxFlowSubContext;
 
 interface AxFlowSubContext {
   execute(
     nodeName: string,
     mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
     dynamicContext?: AxFlowDynamicContext
-  ): this
-  map(transform: (state: AxFlowState) => AxFlowState): this
+  ): this;
+  map(transform: (state: AxFlowState) => AxFlowState): this;
   executeSteps(
     initialState: AxFlowState,
     context: Readonly<{
-      mainAi: AxAIService
-      mainOptions?: AxProgramForwardOptions
+      mainAi: AxAIService;
+      mainOptions?: AxProgramForwardOptions;
     }>
-  ): Promise<AxFlowState>
+  ): Promise<AxFlowState>;
 }
 
 // Type for branch context
 interface AxFlowBranchContext {
-  predicate: (state: AxFlowState) => unknown
-  branches: Map<unknown, AxFlowStepFunction[]>
-  currentBranchValue?: unknown
+  predicate: (state: AxFlowState) => unknown;
+  branches: Map<unknown, AxFlowStepFunction[]>;
+  currentBranchValue?: unknown;
 }
 
 // =============================================================================
@@ -130,23 +138,23 @@ interface AxFlowBranchContext {
 
 // Type for execution step metadata
 interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'other'
-  nodeName?: string
-  dependencies: string[]
-  produces: string[]
-  stepFunction: AxFlowStepFunction
-  stepIndex: number
+  type: 'execute' | 'map' | 'other';
+  nodeName?: string;
+  dependencies: string[];
+  produces: string[];
+  stepFunction: AxFlowStepFunction;
+  stepIndex: number;
 }
 
 // Type for parallel execution groups
 interface AxFlowParallelGroup {
-  level: number
-  steps: AxFlowExecutionStep[]
+  level: number;
+  steps: AxFlowExecutionStep[];
 }
 
 // Configuration for automatic parallelization
 interface AxFlowAutoParallelConfig {
-  enabled: boolean
+  enabled: boolean;
 }
 
 /**
@@ -161,37 +169,37 @@ class AxFlowDependencyAnalyzer {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _nodeName: string
   ): string[] {
-    const dependencies: string[] = []
+    const dependencies: string[] = [];
 
     // Method 1: Static analysis of function source
-    const source = mapping.toString()
-    const stateAccessMatches = Array.from(source.matchAll(/state\.(\w+)/g))
+    const source = mapping.toString();
+    const stateAccessMatches = Array.from(source.matchAll(/state\.(\w+)/g));
     for (const match of stateAccessMatches) {
       if (match[1] && !dependencies.includes(match[1])) {
-        dependencies.push(match[1])
+        dependencies.push(match[1]);
       }
     }
 
     // Method 2: Proxy-based tracking (fallback for complex cases)
     if (dependencies.length === 0) {
       try {
-        const tracker = this.createDependencyTracker(dependencies)
-        mapping(tracker)
+        const tracker = this.createDependencyTracker(dependencies);
+        mapping(tracker);
       } catch {
         // Expected - we're just tracking access patterns
       }
     }
 
-    return dependencies
+    return dependencies;
   }
 
   private createDependencyTracker(dependencies: string[]): any {
     return new Proxy(
       {},
       {
-        get(target, prop) {
+        get(_target, prop) {
           if (typeof prop === 'string' && !dependencies.includes(prop)) {
-            dependencies.push(prop)
+            dependencies.push(prop);
           }
           // Return another proxy for nested access
           return new Proxy(
@@ -199,10 +207,10 @@ class AxFlowDependencyAnalyzer {
             {
               get: () => undefined,
             }
-          )
+          );
         },
       }
-    )
+    );
   }
 }
 
@@ -210,10 +218,10 @@ class AxFlowDependencyAnalyzer {
  * Builds and manages the execution plan with automatic parallelization
  */
 class AxFlowExecutionPlanner {
-  private steps: AxFlowExecutionStep[] = []
-  private parallelGroups: AxFlowParallelGroup[] = []
-  private readonly analyzer = new AxFlowDependencyAnalyzer()
-  private initialFields: Set<string> = new Set()
+  private steps: AxFlowExecutionStep[] = [];
+  private parallelGroups: AxFlowParallelGroup[] = [];
+  private readonly analyzer = new AxFlowDependencyAnalyzer();
+  private initialFields: Set<string> = new Set();
 
   /**
    * Adds an execution step to the plan
@@ -223,18 +231,21 @@ class AxFlowExecutionPlanner {
     nodeName?: string,
     mapping?: (state: any) => any
   ): void {
-    let dependencies: string[] = []
-    let produces: string[] = []
-    let type: 'execute' | 'map' | 'other' = 'other'
+    let dependencies: string[] = [];
+    let produces: string[] = [];
+    let type: 'execute' | 'map' | 'other' = 'other';
 
     if (nodeName && mapping) {
-      type = 'execute'
-      dependencies = this.analyzer.analyzeMappingDependencies(mapping, nodeName)
-      produces = [`${nodeName}Result`]
+      type = 'execute';
+      dependencies = this.analyzer.analyzeMappingDependencies(
+        mapping,
+        nodeName
+      );
+      produces = [`${nodeName}Result`];
     } else if (stepFunction.toString().includes('transform(')) {
-      type = 'map'
+      type = 'map';
       // Map steps are harder to analyze statically, assume they depend on all previous steps
-      dependencies = this.getAllProducedFields()
+      dependencies = this.getAllProducedFields();
     }
 
     const step: AxFlowExecutionStep = {
@@ -244,9 +255,9 @@ class AxFlowExecutionPlanner {
       produces,
       stepFunction,
       stepIndex: this.steps.length,
-    }
+    };
 
-    this.steps.push(step)
+    this.steps.push(step);
     // Don't rebuild parallel groups during construction - only after initial fields are set
     // this.rebuildParallelGroups()
   }
@@ -255,51 +266,51 @@ class AxFlowExecutionPlanner {
    * Sets the initial fields and rebuilds parallel groups
    */
   setInitialFields(fields: string[]): void {
-    this.initialFields = new Set(fields)
-    this.rebuildParallelGroups()
+    this.initialFields = new Set(fields);
+    this.rebuildParallelGroups();
   }
 
   /**
    * Rebuilds the parallel execution groups based on dependencies
    */
   private rebuildParallelGroups(): void {
-    this.parallelGroups = []
-    const processedSteps = new Set<number>()
-    const availableFields = new Set<string>(this.initialFields)
-    let currentLevel = 0
+    this.parallelGroups = [];
+    const processedSteps = new Set<number>();
+    const availableFields = new Set<string>(this.initialFields);
+    let currentLevel = 0;
 
     while (processedSteps.size < this.steps.length) {
-      const currentLevelSteps: AxFlowExecutionStep[] = []
+      const currentLevelSteps: AxFlowExecutionStep[] = [];
 
       // Find all steps that can run at this level
       for (const step of this.steps) {
-        if (processedSteps.has(step.stepIndex)) continue
+        if (processedSteps.has(step.stepIndex)) continue;
 
         // Check if all dependencies are available
         const canRun =
           step.dependencies.length === 0 ||
-          step.dependencies.every((dep) => availableFields.has(dep))
+          step.dependencies.every((dep) => availableFields.has(dep));
 
         if (canRun) {
-          currentLevelSteps.push(step)
-          processedSteps.add(step.stepIndex)
+          currentLevelSteps.push(step);
+          processedSteps.add(step.stepIndex);
         }
       }
 
       if (currentLevelSteps.length > 0) {
         // Add all produced fields from this level to available fields
         for (const step of currentLevelSteps) {
-          step.produces.forEach((field) => availableFields.add(field))
+          step.produces.forEach((field) => availableFields.add(field));
         }
 
         this.parallelGroups.push({
           level: currentLevel,
           steps: currentLevelSteps,
-        })
-        currentLevel++
+        });
+        currentLevel++;
       } else {
         // No progress made - break to avoid infinite loop
-        break
+        break;
       }
     }
   }
@@ -308,60 +319,60 @@ class AxFlowExecutionPlanner {
    * Gets all fields produced by previous steps
    */
   private getAllProducedFields(): string[] {
-    const fields: string[] = []
+    const fields: string[] = [];
     for (const step of this.steps) {
-      fields.push(...step.produces)
+      fields.push(...step.produces);
     }
-    return fields
+    return fields;
   }
 
   /**
    * Creates optimized execution function
    */
   createOptimizedExecution(): AxFlowStepFunction[] {
-    const optimizedSteps: AxFlowStepFunction[] = []
+    const optimizedSteps: AxFlowStepFunction[] = [];
 
     for (const group of this.parallelGroups) {
       if (group.steps.length === 1) {
         // Single step - execute directly
-        const step = group.steps[0]
+        const step = group.steps[0];
         if (step) {
-          optimizedSteps.push(step.stepFunction)
+          optimizedSteps.push(step.stepFunction);
         }
       } else if (group.steps.length > 1) {
         // Multiple steps - execute in parallel
         const parallelStep: AxFlowStepFunction = async (state, context) => {
           const promises = group.steps.map((step) =>
             step.stepFunction(state, context)
-          )
+          );
 
-          const results = await Promise.all(promises)
+          const results = await Promise.all(promises);
 
           // Merge all results
-          let mergedState = state
+          let mergedState = state;
           for (const result of results) {
-            mergedState = { ...mergedState, ...result }
+            mergedState = { ...mergedState, ...result };
           }
 
-          return mergedState
-        }
+          return mergedState;
+        };
 
-        optimizedSteps.push(parallelStep)
+        optimizedSteps.push(parallelStep);
       }
     }
 
-    return optimizedSteps
+    return optimizedSteps;
   }
 
   /**
    * Gets execution plan info for debugging
    */
   getExecutionPlan(): {
-    totalSteps: number
-    parallelGroups: number
-    maxParallelism: number
-    steps: AxFlowExecutionStep[]
-    groups: AxFlowParallelGroup[]
+    totalSteps: number;
+    parallelGroups: number;
+    maxParallelism: number;
+    steps: AxFlowExecutionStep[];
+    groups: AxFlowParallelGroup[];
   } {
     return {
       totalSteps: this.steps.length,
@@ -372,7 +383,7 @@ class AxFlowExecutionPlanner {
       ),
       steps: this.steps,
       groups: this.parallelGroups,
-    }
+    };
   }
 }
 
@@ -401,32 +412,32 @@ export class AxFlow<
   TNodes extends Record<string, AxGen<any, any>> = Record<string, never>, // Node registry for type tracking
   TState extends AxFlowState = IN, // Current evolving state type
 > extends AxProgram<IN, OUT> {
-  private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map()
-  private readonly flowDefinition: AxFlowStepFunction[] = []
+  private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map();
+  private readonly flowDefinition: AxFlowStepFunction[] = [];
   private readonly nodeGenerators: Map<
     string,
     AxGen<AxGenIn, AxGenOut> | AxProgram<AxGenIn, AxGenOut>
-  > = new Map()
-  private readonly loopStack: number[] = []
-  private readonly stepLabels: Map<string, number> = new Map()
-  private branchContext: AxFlowBranchContext | null = null
+  > = new Map();
+  private readonly loopStack: number[] = [];
+  private readonly stepLabels: Map<string, number> = new Map();
+  private branchContext: AxFlowBranchContext | null = null;
 
   // Automatic parallelization components
-  private readonly autoParallelConfig: AxFlowAutoParallelConfig
-  private readonly executionPlanner = new AxFlowExecutionPlanner()
+  private readonly autoParallelConfig: AxFlowAutoParallelConfig;
+  private readonly executionPlanner = new AxFlowExecutionPlanner();
 
   constructor(
     signature: NonNullable<
       ConstructorParameters<typeof AxSignature>[0]
     > = 'userInput:string -> flowOutput:string',
     options?: {
-      autoParallel?: boolean
+      autoParallel?: boolean;
     }
   ) {
-    super(signature)
+    super(signature);
     this.autoParallelConfig = {
       enabled: options?.autoParallel !== false, // Default to true
-    }
+    };
   }
 
   /**
@@ -453,7 +464,7 @@ export class AxFlow<
     OUT,
     TNodes & { [K in TName]: InferAxGen<TSig> }, // Add new node to registry
     TState // State unchanged
-  >
+  >;
 
   /**
    * Declares a reusable computational node using an AxSignature instance.
@@ -479,7 +490,7 @@ export class AxFlow<
     OUT,
     TNodes & { [K in TName]: AxGen<AxGenIn, AxGenOut> }, // Add new node to registry
     TState // State unchanged
-  >
+  >;
 
   /**
    * Declares a reusable computational node using an existing AxGen instance.
@@ -503,7 +514,7 @@ export class AxFlow<
     OUT,
     TNodes & { [K in TName]: TGen }, // Add new node to registry with exact type
     TState // State unchanged
-  >
+  >;
 
   /**
    * Declares a reusable computational node using a class that extends AxProgram.
@@ -532,7 +543,7 @@ export class AxFlow<
     OUT,
     TNodes & { [K in TName]: InstanceType<TProgram> }, // Add new node to registry with exact type
     TState // State unchanged
-  >
+  >;
 
   // Implementation
   public node<TName extends string>(
@@ -554,22 +565,25 @@ export class AxFlow<
       this.nodes.set(name, {
         inputs: {},
         outputs: {},
-      })
+      });
 
       // Store the existing AxGen instance
       this.nodeGenerators.set(
         name,
         signatureOrAxGenOrClass as AxGen<AxGenIn, AxGenOut>
-      )
+      );
     } else if (signatureOrAxGenOrClass instanceof AxSignature) {
       // Using AxSignature instance
       this.nodes.set(name, {
         inputs: {},
         outputs: {},
-      })
+      });
 
       // Create and store the AxGen instance for this node using the signature
-      this.nodeGenerators.set(name, new AxGen(signatureOrAxGenOrClass, options))
+      this.nodeGenerators.set(
+        name,
+        new AxGen(signatureOrAxGenOrClass, options)
+      );
     } else if (
       typeof signatureOrAxGenOrClass === 'function' &&
       signatureOrAxGenOrClass.prototype instanceof AxProgram
@@ -578,39 +592,39 @@ export class AxFlow<
       this.nodes.set(name, {
         inputs: {},
         outputs: {},
-      })
+      });
 
       // Create an instance of the program class and store it directly
-      const programInstance = new signatureOrAxGenOrClass()
-      this.nodeGenerators.set(name, programInstance)
+      const programInstance = new signatureOrAxGenOrClass();
+      this.nodeGenerators.set(name, programInstance);
     } else if (typeof signatureOrAxGenOrClass === 'string') {
       // Using signature string (original behavior)
-      const signature = signatureOrAxGenOrClass
+      const signature = signatureOrAxGenOrClass;
 
       // Validate that signature is provided
       if (!signature) {
         throw new Error(
           `Invalid signature for node '${name}': signature cannot be empty`
-        )
+        );
       }
 
       // Store node definition (simplified since we're using standard signatures)
       this.nodes.set(name, {
         inputs: {},
         outputs: {},
-      })
+      });
 
       // Create and store the AxGen instance for this node with the same arguments as AxGen
-      this.nodeGenerators.set(name, new AxGen(signature, options))
+      this.nodeGenerators.set(name, new AxGen(signature, options));
     } else {
       throw new Error(
         `Invalid second argument for node '${name}': expected string, AxSignature, AxGen instance, or class extending AxProgram`
-      )
+      );
     }
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
     // The runtime value is the same object, but TypeScript can't track the evolving generic types
-    return this as any
+    return this as any;
   }
 
   /**
@@ -620,7 +634,7 @@ export class AxFlow<
     name: TName,
     signature: TSig,
     options?: Readonly<AxProgramForwardOptions>
-  ): AxFlow<IN, OUT, TNodes & { [K in TName]: InferAxGen<TSig> }, TState>
+  ): AxFlow<IN, OUT, TNodes & { [K in TName]: InferAxGen<TSig> }, TState>;
 
   public n<TName extends string>(
     name: TName,
@@ -631,12 +645,12 @@ export class AxFlow<
     OUT,
     TNodes & { [K in TName]: AxGen<AxGenIn, AxGenOut> },
     TState
-  >
+  >;
 
   public n<TName extends string, TGen extends AxGen<any, any>>(
     name: TName,
     axgenInstance: TGen
-  ): AxFlow<IN, OUT, TNodes & { [K in TName]: TGen }, TState>
+  ): AxFlow<IN, OUT, TNodes & { [K in TName]: TGen }, TState>;
 
   public n<
     TName extends string,
@@ -644,7 +658,7 @@ export class AxFlow<
   >(
     name: TName,
     programClass: TProgram
-  ): AxFlow<IN, OUT, TNodes & { [K in TName]: InstanceType<TProgram> }, TState>
+  ): AxFlow<IN, OUT, TNodes & { [K in TName]: InstanceType<TProgram> }, TState>;
 
   public n<TName extends string>(
     name: TName,
@@ -655,7 +669,7 @@ export class AxFlow<
       | (new () => AxProgram<any, any>),
     options?: Readonly<AxProgramForwardOptions>
   ): any {
-    return this.node(name, signatureOrAxGenOrClass as any, options)
+    return this.node(name, signatureOrAxGenOrClass as any, options);
   }
 
   /**
@@ -674,32 +688,32 @@ export class AxFlow<
     transform: (state: TState) => TNewState
   ): AxFlow<IN, OUT, TNodes, TNewState> {
     const step = (state: AxFlowState) => {
-      return transform(state as TState)
-    }
+      return transform(state as TState);
+    };
 
     if (this.branchContext?.currentBranchValue !== undefined) {
       // We're inside a branch - add to current branch
       const currentBranch =
         this.branchContext.branches.get(
           this.branchContext.currentBranchValue
-        ) || []
-      currentBranch.push(step)
+        ) || [];
+      currentBranch.push(step);
       this.branchContext.branches.set(
         this.branchContext.currentBranchValue,
         currentBranch
-      )
+      );
     } else {
       // Normal execution - add to main flow
-      this.flowDefinition.push(step)
+      this.flowDefinition.push(step);
 
       // Add to execution planner for automatic parallelization
       if (this.autoParallelConfig.enabled) {
-        this.executionPlanner.addExecutionStep(step)
+        this.executionPlanner.addExecutionStep(step);
       }
     }
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
-    return this as unknown as AxFlow<IN, OUT, TNodes, TNewState>
+    return this as unknown as AxFlow<IN, OUT, TNodes, TNewState>;
   }
 
   /**
@@ -708,7 +722,7 @@ export class AxFlow<
   public m<TNewState extends AxFlowState>(
     transform: (state: TState) => TNewState
   ): AxFlow<IN, OUT, TNodes, TNewState> {
-    return this.map(transform)
+    return this.map(transform);
   }
 
   /**
@@ -725,17 +739,17 @@ export class AxFlow<
    */
   public label(label: string): this {
     if (this.branchContext?.currentBranchValue !== undefined) {
-      throw new Error('Cannot create labels inside branch blocks')
+      throw new Error('Cannot create labels inside branch blocks');
     }
-    this.stepLabels.set(label, this.flowDefinition.length)
-    return this
+    this.stepLabels.set(label, this.flowDefinition.length);
+    return this;
   }
 
   /**
    * Short alias for label()
    */
   public l(label: string): this {
-    return this.label(label)
+    return this.label(label);
   }
 
   /**
@@ -765,64 +779,64 @@ export class AxFlow<
     if (!this.nodes.has(nodeName)) {
       throw new Error(
         `Node '${nodeName}' not found. Make sure to define it with .node() first.`
-      )
+      );
     }
 
-    const nodeProgram = this.nodeGenerators.get(nodeName)
+    const nodeProgram = this.nodeGenerators.get(nodeName);
     if (!nodeProgram) {
-      throw new Error(`Node program for '${nodeName}' not found.`)
+      throw new Error(`Node program for '${nodeName}' not found.`);
     }
 
     const step = async (
       state: AxFlowState,
       context: Readonly<{
-        mainAi: AxAIService
-        mainOptions?: AxProgramForwardOptions
+        mainAi: AxAIService;
+        mainOptions?: AxProgramForwardOptions;
       }>
     ) => {
       // Determine AI service and options using fallback logic
-      const ai = dynamicContext?.ai ?? context.mainAi
-      const options = dynamicContext?.options ?? context.mainOptions
+      const ai = dynamicContext?.ai ?? context.mainAi;
+      const options = dynamicContext?.options ?? context.mainOptions;
 
       // Map the state to node inputs (with type safety)
-      const nodeInputs = mapping(state as TState)
+      const nodeInputs = mapping(state as TState);
 
       // Create trace label for the node execution
       const traceLabel = options?.traceLabel
         ? `Node:${nodeName} (${options.traceLabel})`
-        : `Node:${nodeName}`
+        : `Node:${nodeName}`;
 
       // Execute the node with updated trace label
       const result = await nodeProgram.forward(ai, nodeInputs, {
         ...options,
         traceLabel,
-      })
+      });
 
       // Merge result back into state under a key like `${nodeName}Result`
       return {
         ...state,
         [`${nodeName}Result`]: result,
-      }
-    }
+      };
+    };
 
     if (this.branchContext?.currentBranchValue !== undefined) {
       // We're inside a branch - add to current branch
       const currentBranch =
         this.branchContext.branches.get(
           this.branchContext.currentBranchValue
-        ) || []
-      currentBranch.push(step)
+        ) || [];
+      currentBranch.push(step);
       this.branchContext.branches.set(
         this.branchContext.currentBranchValue,
         currentBranch
-      )
+      );
     } else {
       // Normal execution - add to main flow
-      this.flowDefinition.push(step)
+      this.flowDefinition.push(step);
 
       // Add to execution planner for automatic parallelization
       if (this.autoParallelConfig.enabled) {
-        this.executionPlanner.addExecutionStep(step, nodeName, mapping)
+        this.executionPlanner.addExecutionStep(step, nodeName, mapping);
       }
     }
 
@@ -832,7 +846,7 @@ export class AxFlow<
       OUT,
       TNodes,
       AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
-    >
+    >;
   }
 
   /**
@@ -848,7 +862,7 @@ export class AxFlow<
     TNodes,
     AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
   > {
-    return this.execute(nodeName, mapping, dynamicContext)
+    return this.execute(nodeName, mapping, dynamicContext);
   }
 
   /**
@@ -869,23 +883,23 @@ export class AxFlow<
    */
   public branch(predicate: (state: TState) => unknown): this {
     if (this.branchContext) {
-      throw new Error('Nested branches are not supported')
+      throw new Error('Nested branches are not supported');
     }
 
     this.branchContext = {
       predicate: (state: AxFlowState) => predicate(state as TState),
       branches: new Map(),
       currentBranchValue: undefined,
-    }
+    };
 
-    return this
+    return this;
   }
 
   /**
    * Short alias for branch()
    */
   public b(predicate: (state: TState) => unknown): this {
-    return this.branch(predicate)
+    return this.branch(predicate);
   }
 
   /**
@@ -896,20 +910,20 @@ export class AxFlow<
    */
   public when(value: unknown): this {
     if (!this.branchContext) {
-      throw new Error('when() called without matching branch()')
+      throw new Error('when() called without matching branch()');
     }
 
-    this.branchContext.currentBranchValue = value
-    this.branchContext.branches.set(value, [])
+    this.branchContext.currentBranchValue = value;
+    this.branchContext.branches.set(value, []);
 
-    return this
+    return this;
   }
 
   /**
    * Short alias for when()
    */
   public w(value: unknown): this {
-    return this.when(value)
+    return this.when(value);
   }
 
   /**
@@ -941,33 +955,33 @@ export class AxFlow<
     TMergedState
   > {
     if (!this.branchContext) {
-      throw new Error('merge() called without matching branch()')
+      throw new Error('merge() called without matching branch()');
     }
 
-    const branchContext = this.branchContext
-    this.branchContext = null
+    const branchContext = this.branchContext;
+    this.branchContext = null;
 
     // Add the branch execution step to main flow
     this.flowDefinition.push(async (state, context) => {
-      const branchValue = branchContext.predicate(state)
-      const branchSteps = branchContext.branches.get(branchValue)
+      const branchValue = branchContext.predicate(state);
+      const branchSteps = branchContext.branches.get(branchValue);
 
       if (!branchSteps) {
         // No matching branch - return state unchanged
-        return state
+        return state;
       }
 
       // Execute all steps in the matched branch
-      let currentState = state
+      let currentState = state;
       for (const step of branchSteps) {
-        currentState = await step(currentState, context)
+        currentState = await step(currentState, context);
       }
 
-      return currentState
-    })
+      return currentState;
+    });
 
     // Cast `this` to preserve runtime object while updating compile-time type information.
-    return this as unknown as AxFlow<IN, OUT, TNodes, TMergedState>
+    return this as unknown as AxFlow<IN, OUT, TNodes, TMergedState>;
   }
 
   /**
@@ -979,7 +993,7 @@ export class AxFlow<
     TNodes,
     TMergedState
   > {
-    return this.merge<TMergedState>()
+    return this.merge<TMergedState>();
   }
 
   /**
@@ -1007,38 +1021,38 @@ export class AxFlow<
     merge<T, TResultKey extends string>(
       resultKey: TResultKey,
       mergeFunction: (...results: unknown[]) => T
-    ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>
+    ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>;
   } {
     const parallelStep = async (
       state: AxFlowState,
       context: Readonly<{
-        mainAi: AxAIService
-        mainOptions?: AxProgramForwardOptions
+        mainAi: AxAIService;
+        mainOptions?: AxProgramForwardOptions;
       }>
     ) => {
       // Execute all branches in parallel
       const promises = branches.map(async (branchFn) => {
         // Create a sub-context for this branch
-        const subContext = new AxFlowSubContextImpl(this.nodeGenerators)
+        const subContext = new AxFlowSubContextImpl(this.nodeGenerators);
         // NOTE: Type assertion needed here because we support both typed and untyped branch functions
         const populatedSubContext = branchFn(
           subContext as AxFlowSubContext & AxFlowTypedSubContext<TNodes, TState>
-        )
+        );
 
         // Execute the sub-context steps
-        return await populatedSubContext.executeSteps(state, context)
-      })
+        return await populatedSubContext.executeSteps(state, context);
+      });
 
-      const results = await Promise.all(promises)
+      const results = await Promise.all(promises);
 
       // Store results for merging
       return {
         ...state,
         _parallelResults: results,
-      }
-    }
+      };
+    };
 
-    this.flowDefinition.push(parallelStep)
+    this.flowDefinition.push(parallelStep);
 
     return {
       merge: <T, TResultKey extends string>(
@@ -1046,18 +1060,18 @@ export class AxFlow<
         mergeFunction: (...results: unknown[]) => T
       ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }> => {
         this.flowDefinition.push((state) => {
-          const results = state._parallelResults
+          const results = state._parallelResults;
           if (!Array.isArray(results)) {
-            throw new Error('No parallel results found for merge')
+            throw new Error('No parallel results found for merge');
           }
 
-          const mergedValue = mergeFunction(...results)
-          const newState = { ...state }
-          delete newState._parallelResults
-          newState[resultKey] = mergedValue
+          const mergedValue = mergeFunction(...results);
+          const newState = { ...state };
+          newState._parallelResults = undefined;
+          newState[resultKey] = mergedValue;
 
-          return newState
-        })
+          return newState;
+        });
 
         // NOTE: This type assertion is necessary for the type-level programming pattern
         return this as AxFlow<
@@ -1065,9 +1079,9 @@ export class AxFlow<
           OUT,
           TNodes,
           TState & { [K in TResultKey]: T }
-        >
+        >;
       },
-    }
+    };
   }
 
   /**
@@ -1082,9 +1096,9 @@ export class AxFlow<
     merge<T, TResultKey extends string>(
       resultKey: TResultKey,
       mergeFunction: (...results: unknown[]) => T
-    ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>
+    ): AxFlow<IN, OUT, TNodes, TState & { [K in TResultKey]: T }>;
   } {
-    return this.parallel(branches)
+    return this.parallel(branches);
   }
 
   /**
@@ -1106,49 +1120,49 @@ export class AxFlow<
   public feedback(
     condition: (state: TState) => boolean,
     targetLabel: string,
-    maxIterations: number = 10
+    maxIterations = 10
   ): this {
     if (!this.stepLabels.has(targetLabel)) {
       throw new Error(
         `Label '${targetLabel}' not found. Make sure to define it with .label() before the feedback point.`
-      )
+      );
     }
 
-    const targetIndex = this.stepLabels.get(targetLabel)!
+    const targetIndex = this.stepLabels.get(targetLabel)!;
 
     // Capture the current flow definition length before adding the feedback step
     // This prevents the feedback step from executing itself recursively
-    const feedbackStepIndex = this.flowDefinition.length
+    const feedbackStepIndex = this.flowDefinition.length;
 
     this.flowDefinition.push(async (state, context) => {
-      let currentState = state
-      let iterations = 1 // Start at 1 since we've already executed once before reaching feedback
+      let currentState = state;
+      let iterations = 1; // Start at 1 since we've already executed once before reaching feedback
 
       // Add iteration tracking to state if not present
-      const iterationKey = `_feedback_${targetLabel}_iterations`
+      const iterationKey = `_feedback_${targetLabel}_iterations`;
       if (typeof currentState[iterationKey] !== 'number') {
-        currentState = { ...currentState, [iterationKey]: 1 } // Initial execution counts as iteration 1
+        currentState = { ...currentState, [iterationKey]: 1 }; // Initial execution counts as iteration 1
       }
 
       // Check if we should loop back (iterations < maxIterations since initial execution counts as 1)
       while (condition(currentState as TState) && iterations < maxIterations) {
-        iterations++
-        currentState = { ...currentState, [iterationKey]: iterations }
+        iterations++;
+        currentState = { ...currentState, [iterationKey]: iterations };
 
         // Execute steps from target index to just before the feedback step
         // Use feedbackStepIndex to avoid including the feedback step itself
         for (let i = targetIndex; i < feedbackStepIndex; i++) {
-          const step = this.flowDefinition[i]
+          const step = this.flowDefinition[i];
           if (step) {
-            currentState = await step(currentState, context)
+            currentState = await step(currentState, context);
           }
         }
       }
 
-      return currentState
-    })
+      return currentState;
+    });
 
-    return this
+    return this;
   }
 
   /**
@@ -1157,9 +1171,9 @@ export class AxFlow<
   public fb(
     condition: (state: TState) => boolean,
     targetLabel: string,
-    maxIterations: number = 10
+    maxIterations = 10
   ): this {
-    return this.feedback(condition, targetLabel, maxIterations)
+    return this.feedback(condition, targetLabel, maxIterations);
   }
 
   /**
@@ -1178,18 +1192,18 @@ export class AxFlow<
    */
   public while(
     condition: (state: TState) => boolean,
-    maxIterations: number = 100
+    maxIterations = 100
   ): this {
     // Store the condition and mark the start of the loop
-    const loopStartIndex = this.flowDefinition.length
-    this.loopStack.push(loopStartIndex)
+    const loopStartIndex = this.flowDefinition.length;
+    this.loopStack.push(loopStartIndex);
 
     // Add a placeholder step that will be replaced in endWhile()
     // We store the condition and maxIterations in the placeholder for later use
     interface LoopPlaceholder extends AxFlowStepFunction {
-      _condition: (state: TState) => boolean
-      _maxIterations: number
-      _isLoopStart: boolean
+      _condition: (state: TState) => boolean;
+      _maxIterations: number;
+      _isLoopStart: boolean;
     }
 
     const placeholderStep: LoopPlaceholder = Object.assign(
@@ -1199,21 +1213,18 @@ export class AxFlow<
         _maxIterations: maxIterations,
         _isLoopStart: true,
       }
-    )
+    );
 
-    this.flowDefinition.push(placeholderStep)
+    this.flowDefinition.push(placeholderStep);
 
-    return this
+    return this;
   }
 
   /**
    * Short alias for while()
    */
-  public wh(
-    condition: (state: TState) => boolean,
-    maxIterations: number = 100
-  ): this {
-    return this.while(condition, maxIterations)
+  public wh(condition: (state: TState) => boolean, maxIterations = 100): this {
+    return this.while(condition, maxIterations);
   }
 
   /**
@@ -1223,68 +1234,67 @@ export class AxFlow<
    */
   public endWhile(): this {
     if (this.loopStack.length === 0) {
-      throw new Error('endWhile() called without matching while()')
+      throw new Error('endWhile() called without matching while()');
     }
 
-    const loopStartIndex = this.loopStack.pop()!
+    const loopStartIndex = this.loopStack.pop()!;
 
     // Get the condition from the placeholder step
-    const placeholderStep = this.flowDefinition[loopStartIndex]
+    const placeholderStep = this.flowDefinition[loopStartIndex];
     if (!placeholderStep || !('_isLoopStart' in placeholderStep)) {
-      throw new Error('Loop start step not found or invalid')
+      throw new Error('Loop start step not found or invalid');
     }
 
     const condition = (
       placeholderStep as unknown as {
-        _condition: (state: TState) => boolean
-        _maxIterations: number
+        _condition: (state: TState) => boolean;
+        _maxIterations: number;
       }
-    )._condition
+    )._condition;
 
     const maxIterations = (
       placeholderStep as unknown as {
-        _condition: (state: TState) => boolean
-        _maxIterations: number
+        _condition: (state: TState) => boolean;
+        _maxIterations: number;
       }
-    )._maxIterations
+    )._maxIterations;
 
     // Extract the loop body steps (everything between while and endWhile)
-    const loopBodySteps = this.flowDefinition.splice(loopStartIndex + 1)
+    const loopBodySteps = this.flowDefinition.splice(loopStartIndex + 1);
 
     // Replace the placeholder with the actual loop implementation
     this.flowDefinition[loopStartIndex] = async (state, context) => {
-      let currentState = state
-      let iterations = 0
+      let currentState = state;
+      let iterations = 0;
 
       // Execute the loop while condition is true and within iteration limit
       while (condition(currentState as TState) && iterations < maxIterations) {
-        iterations++
+        iterations++;
 
         // Execute all steps in the loop body
         for (const step of loopBodySteps) {
-          currentState = await step(currentState, context)
+          currentState = await step(currentState, context);
         }
       }
 
       // Check if we exceeded the maximum iterations
       if (iterations >= maxIterations && condition(currentState as TState)) {
         throw new Error(
-          `While loop exceeded maximum iterations (${maxIterations}). ` +
-            `Consider increasing maxIterations or ensuring the loop condition eventually becomes false.`
-        )
+          `While loop exceeded maximum iterations (${maxIterations}). Consider increasing maxIterations or ensuring the loop condition eventually becomes false.`
+        );
       }
 
-      return currentState
-    }
+      return currentState;
+    };
 
-    return this
+    return this;
   }
 
   /**
    * Short alias for endWhile()
    */
   public end(): this {
-    return this.endWhile()
+    return this.endWhile();
   }
 
   /**
@@ -1301,36 +1311,36 @@ export class AxFlow<
     options?: Readonly<AxProgramForwardOptions & { autoParallel?: boolean }>
   ): Promise<OUT> {
     // Initialize state with input values
-    let state: AxFlowState = { ...values }
+    let state: AxFlowState = { ...values };
 
     // Create context object
     const context = {
       mainAi: ai,
       mainOptions: options,
-    } as const
+    } as const;
 
     // Determine if auto-parallel should be used
     const useAutoParallel =
-      options?.autoParallel !== false && this.autoParallelConfig.enabled
+      options?.autoParallel !== false && this.autoParallelConfig.enabled;
 
     if (useAutoParallel) {
       // Set initial fields for dependency analysis
-      this.executionPlanner.setInitialFields(Object.keys(values))
+      this.executionPlanner.setInitialFields(Object.keys(values));
 
       // Use optimized execution with automatic parallelization
-      const optimizedSteps = this.executionPlanner.createOptimizedExecution()
+      const optimizedSteps = this.executionPlanner.createOptimizedExecution();
       for (const step of optimizedSteps) {
-        state = await step(state, context)
+        state = await step(state, context);
       }
     } else {
       // Use original sequential execution
       for (const step of this.flowDefinition) {
-        state = await step(state, context)
+        state = await step(state, context);
       }
     }
 
     // Return the final state cast to OUT type
-    return state as unknown as OUT
+    return state as unknown as OUT;
   }
 
   /**
@@ -1339,14 +1349,14 @@ export class AxFlow<
    * @returns Object with execution plan details
    */
   public getExecutionPlan(): {
-    totalSteps: number
-    parallelGroups: number
-    maxParallelism: number
-    autoParallelEnabled: boolean
-    steps?: AxFlowExecutionStep[]
-    groups?: AxFlowParallelGroup[]
+    totalSteps: number;
+    parallelGroups: number;
+    maxParallelism: number;
+    autoParallelEnabled: boolean;
+    steps?: AxFlowExecutionStep[];
+    groups?: AxFlowParallelGroup[];
   } {
-    const planInfo = this.executionPlanner.getExecutionPlan()
+    const planInfo = this.executionPlanner.getExecutionPlan();
     return {
       totalSteps: planInfo.totalSteps,
       parallelGroups: planInfo.parallelGroups,
@@ -1354,7 +1364,7 @@ export class AxFlow<
       autoParallelEnabled: this.autoParallelConfig.enabled,
       steps: planInfo.steps,
       groups: planInfo.groups,
-    }
+    };
   }
 }
 
@@ -1362,7 +1372,7 @@ export class AxFlow<
  * Implementation of the sub-context for parallel execution
  */
 class AxFlowSubContextImpl implements AxFlowSubContext {
-  private readonly steps: AxFlowStepFunction[] = []
+  private readonly steps: AxFlowStepFunction[] = [];
 
   constructor(
     private readonly nodeGenerators: Map<
@@ -1376,55 +1386,55 @@ class AxFlowSubContextImpl implements AxFlowSubContext {
     mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
     dynamicContext?: AxFlowDynamicContext
   ): this {
-    const nodeProgram = this.nodeGenerators.get(nodeName)
+    const nodeProgram = this.nodeGenerators.get(nodeName);
     if (!nodeProgram) {
-      throw new Error(`Node program for '${nodeName}' not found.`)
+      throw new Error(`Node program for '${nodeName}' not found.`);
     }
 
     this.steps.push(async (state, context) => {
-      const ai = dynamicContext?.ai ?? context.mainAi
-      const options = dynamicContext?.options ?? context.mainOptions
-      const nodeInputs = mapping(state)
+      const ai = dynamicContext?.ai ?? context.mainAi;
+      const options = dynamicContext?.options ?? context.mainOptions;
+      const nodeInputs = mapping(state);
 
       // Create trace label for the node execution
       const traceLabel = options?.traceLabel
         ? `Node:${nodeName} (${options.traceLabel})`
-        : `Node:${nodeName}`
+        : `Node:${nodeName}`;
 
       // Execute the node with updated trace label
       const result = await nodeProgram.forward(ai, nodeInputs, {
         ...options,
         traceLabel,
-      })
+      });
 
       return {
         ...state,
         [`${nodeName}Result`]: result,
-      }
-    })
+      };
+    });
 
-    return this
+    return this;
   }
 
   map(transform: (state: AxFlowState) => AxFlowState): this {
-    this.steps.push((state) => transform(state))
-    return this
+    this.steps.push((state) => transform(state));
+    return this;
   }
 
   async executeSteps(
     initialState: AxFlowState,
     context: Readonly<{
-      mainAi: AxAIService
-      mainOptions?: AxProgramForwardOptions
+      mainAi: AxAIService;
+      mainOptions?: AxProgramForwardOptions;
     }>
   ): Promise<AxFlowState> {
-    let currentState = initialState
+    let currentState = initialState;
 
     for (const step of this.steps) {
-      currentState = await step(currentState, context)
+      currentState = await step(currentState, context);
     }
 
-    return currentState
+    return currentState;
   }
 }
 
@@ -1438,7 +1448,7 @@ export class AxFlowTypedSubContextImpl<
   TState extends AxFlowState,
 > implements AxFlowTypedSubContext<TNodes, TState>
 {
-  private readonly steps: AxFlowStepFunction[] = []
+  private readonly steps: AxFlowStepFunction[] = [];
 
   constructor(
     private readonly nodeGenerators: Map<
@@ -1455,61 +1465,61 @@ export class AxFlowTypedSubContextImpl<
     TNodes,
     AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
   > {
-    const nodeProgram = this.nodeGenerators.get(nodeName)
+    const nodeProgram = this.nodeGenerators.get(nodeName);
     if (!nodeProgram) {
-      throw new Error(`Node program for '${nodeName}' not found.`)
+      throw new Error(`Node program for '${nodeName}' not found.`);
     }
 
     this.steps.push(async (state, context) => {
-      const ai = dynamicContext?.ai ?? context.mainAi
-      const options = dynamicContext?.options ?? context.mainOptions
-      const nodeInputs = mapping(state as TState)
+      const ai = dynamicContext?.ai ?? context.mainAi;
+      const options = dynamicContext?.options ?? context.mainOptions;
+      const nodeInputs = mapping(state as TState);
 
       // Create trace label for the node execution
       const traceLabel = options?.traceLabel
         ? `Node:${nodeName} (${options.traceLabel})`
-        : `Node:${nodeName}`
+        : `Node:${nodeName}`;
 
       // Execute the node with updated trace label
       const result = await nodeProgram.forward(ai, nodeInputs, {
         ...options,
         traceLabel,
-      })
+      });
 
       return {
         ...state,
         [`${nodeName}Result`]: result,
-      }
-    })
+      };
+    });
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
     return this as AxFlowTypedSubContext<
       TNodes,
       AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
-    >
+    >;
   }
 
   map<TNewState extends AxFlowState>(
     transform: (state: TState) => TNewState
   ): AxFlowTypedSubContext<TNodes, TNewState> {
-    this.steps.push((state) => transform(state as TState))
+    this.steps.push((state) => transform(state as TState));
     // NOTE: This type assertion is necessary for the type-level programming pattern
-    return this as unknown as AxFlowTypedSubContext<TNodes, TNewState>
+    return this as unknown as AxFlowTypedSubContext<TNodes, TNewState>;
   }
 
   async executeSteps(
     initialState: TState,
     context: Readonly<{
-      mainAi: AxAIService
-      mainOptions?: AxProgramForwardOptions
+      mainAi: AxAIService;
+      mainOptions?: AxProgramForwardOptions;
     }>
   ): Promise<AxFlowState> {
-    let currentState: AxFlowState = initialState
+    let currentState: AxFlowState = initialState;
 
     for (const step of this.steps) {
-      currentState = await step(currentState, context)
+      currentState = await step(currentState, context);
     }
 
-    return currentState
+    return currentState;
   }
 }

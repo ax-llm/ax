@@ -1,21 +1,21 @@
-import { ax, AxAI, AxAIOpenAIModel, AxMiPRO, f } from '@ax-llm/ax'
-import type { AxExample, AxMetricFn, AxMiPROCompileOptions } from '@ax-llm/ax'
+import type { AxExample, AxMetricFn, AxMiPROCompileOptions } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, AxMiPRO, ax, f } from '@ax-llm/ax';
 
 // Example: Enhanced Email Classification with MIPRO v2
-console.log('=== Enhanced MIPRO v2 Demo ===')
+console.log('=== Enhanced MIPRO v2 Demo ===');
 
 // 1. Setup AI models
 const studentAI = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini }, // Cheaper model for optimization
-})
+});
 
 const teacherAI = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4O }, // More capable model for instruction generation
-})
+});
 
 // 2. Create a complex classification program using modern template literals
 export const emailClassifier = ax`
@@ -23,7 +23,7 @@ export const emailClassifier = ax`
   category:${f.class(['urgent', 'important', 'normal', 'spam'], 'Email priority category')},
   confidence:${f.number('Confidence score 0-1')},
   reasoning:${f.string('Brief explanation for the classification')}
-`
+`;
 
 // 3. Training examples with diverse email types
 const trainingExamples: AxExample[] = [
@@ -65,7 +65,7 @@ const trainingExamples: AxExample[] = [
     confidence: 0.6,
     reasoning: 'Routine project communication',
   },
-]
+];
 
 const validationExamples: AxExample[] = [
   {
@@ -80,25 +80,25 @@ const validationExamples: AxExample[] = [
     confidence: 0.6,
     reasoning: 'Social work event, not urgent',
   },
-]
+];
 
 // 4. Define evaluation metric
 const classificationMetric: AxMetricFn = ({ prediction, example }) => {
   // Multi-criteria evaluation
-  const categoryMatch = prediction.category === example.category ? 1 : 0
+  const categoryMatch = prediction.category === example.category ? 1 : 0;
   const confidenceAccuracy =
     1 -
     Math.abs(
       ((prediction.confidence as number) || 0.5) -
         ((example.confidence as number) || 0.5)
-    )
+    );
 
   // Weighted score emphasizing category correctness
-  return categoryMatch * 0.7 + confidenceAccuracy * 0.3
-}
+  return categoryMatch * 0.7 + confidenceAccuracy * 0.3;
+};
 
 // 5. Create enhanced MIPRO optimizer with all new features
-console.log('\n🚀 Initializing Enhanced MIPRO v2 Optimizer...')
+console.log('\n🚀 Initializing Enhanced MIPRO v2 Optimizer...');
 
 const optimizer = new AxMiPRO({
   studentAI,
@@ -132,67 +132,69 @@ const optimizer = new AxMiPRO({
     minImprovementThreshold: 0.02,
     verbose: true,
   },
-})
+});
 
 // 6. Run the enhanced optimization
-console.log('\n⚡ Running Enhanced MIPRO Optimization...')
-console.log('Features enabled:')
-console.log('  ✅ AI-powered instruction generation with context')
-console.log('  ✅ Bayesian optimization with acquisition functions')
-console.log('  ✅ Program & data aware proposal generation')
-console.log('  ✅ Adaptive minibatch evaluation')
-console.log('  ✅ Surrogate model for efficient exploration\n')
+console.log('\n⚡ Running Enhanced MIPRO Optimization...');
+console.log('Features enabled:');
+console.log('  ✅ AI-powered instruction generation with context');
+console.log('  ✅ Bayesian optimization with acquisition functions');
+console.log('  ✅ Program & data aware proposal generation');
+console.log('  ✅ Adaptive minibatch evaluation');
+console.log('  ✅ Surrogate model for efficient exploration\n');
 
 const result = await optimizer.compile(emailClassifier, classificationMetric, {
   validationExamples: validationExamples,
   auto: 'medium', // Balanced optimization approach
-} as AxMiPROCompileOptions)
+} as AxMiPROCompileOptions);
 
 // 7. Display results
-console.log('\n🎯 Optimization Results:')
-console.log(`Best Score: ${result.bestScore.toFixed(3)}`)
-console.log(`Total Trials: ${result.stats.totalCalls}`)
-console.log(`Successful Demos: ${result.stats.successfulDemos}`)
-console.log(`Converged: ${result.stats.convergenceInfo.converged}`)
+console.log('\n🎯 Optimization Results:');
+console.log(`Best Score: ${result.bestScore.toFixed(3)}`);
+console.log(`Total Trials: ${result.stats.totalCalls}`);
+console.log(`Successful Demos: ${result.stats.successfulDemos}`);
+console.log(`Converged: ${result.stats.convergenceInfo.converged}`);
 
 if (result.finalConfiguration) {
-  console.log('\n📋 Optimized Configuration:')
-  console.log(JSON.stringify(result.finalConfiguration, null, 2))
+  console.log('\n📋 Optimized Configuration:');
+  console.log(JSON.stringify(result.finalConfiguration, null, 2));
 }
 
 // 8. Test the optimized classifier
 if (result.optimizedGen) {
-  console.log('\n🧪 Testing Optimized Classifier:')
+  console.log('\n🧪 Testing Optimized Classifier:');
 
   const testEmails = [
     'EMERGENCY: Security breach detected in production environment',
     'Weekly team standup moved to Thursday 10 AM',
     "Congratulations! You've been selected for our exclusive offer!",
-  ]
+  ];
 
   for (const email of testEmails) {
     try {
       const classification = await result.optimizedGen.forward(studentAI, {
         emailText: email,
-      })
-      console.log(`\n📧 Email: "${email.substring(0, 50)}..."`)
-      console.log(`   Category: ${classification.category}`)
+      });
+      console.log(`\n📧 Email: "${email.substring(0, 50)}..."`);
+      console.log(`   Category: ${classification.category}`);
       console.log(
         `   Confidence: ${(classification.confidence as number)?.toFixed(2)}`
-      )
-      console.log(`   Reasoning: ${classification.reasoning}`)
+      );
+      console.log(`   Reasoning: ${classification.reasoning}`);
     } catch (error) {
-      console.log(`   Error: ${error}`)
+      console.log(`   Error: ${error}`);
     }
   }
 }
 
-console.log('\n✨ Enhanced MIPRO Demo Complete!')
-console.log('\nKey Improvements Demonstrated:')
+console.log('\n✨ Enhanced MIPRO Demo Complete!');
+console.log('\nKey Improvements Demonstrated:');
 console.log(
   '1. AI generates contextual instructions based on program structure'
-)
-console.log('2. Dataset analysis informs instruction generation')
-console.log('3. Bayesian optimization efficiently explores configuration space')
-console.log('4. Adaptive evaluation balances speed and accuracy')
-console.log('5. Surrogate model predicts performance without full evaluation')
+);
+console.log('2. Dataset analysis informs instruction generation');
+console.log(
+  '3. Bayesian optimization efficiently explores configuration space'
+);
+console.log('4. Adaptive evaluation balances speed and accuracy');
+console.log('5. Surrogate model predicts performance without full evaluation');

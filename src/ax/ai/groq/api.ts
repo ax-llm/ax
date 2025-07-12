@@ -1,28 +1,28 @@
-import { AxRateLimiterTokenUsage } from '../../util/rate-limit.js'
-import { axBaseAIDefaultConfig } from '../base.js'
-import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
-import type { AxAIOpenAIConfig } from '../openai/chat_types.js'
+import { AxRateLimiterTokenUsage } from '../../util/rate-limit.js';
+import { axBaseAIDefaultConfig } from '../base.js';
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
+import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
 import type {
   AxAIServiceOptions,
   AxModelInfo,
   AxRateLimiterFunction,
-} from '../types.js'
+} from '../types.js';
 
-import { axModelInfoGroq } from './info.js'
-import { AxAIGroqModel } from './types.js'
+import { axModelInfoGroq } from './info.js';
+import { AxAIGroqModel } from './types.js';
 
-type AxAIGroqAIConfig = AxAIOpenAIConfig<AxAIGroqModel, undefined>
+type AxAIGroqAIConfig = AxAIOpenAIConfig<AxAIGroqModel, undefined>;
 
 const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
   structuredClone({
     model: AxAIGroqModel.Llama33_70B,
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
 export type AxAIGroqArgs = AxAIOpenAIArgs<'groq', AxAIGroqModel, undefined> & {
-  options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number }
-  modelInfo?: AxModelInfo[]
-}
+  options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number };
+  modelInfo?: AxModelInfo[];
+};
 
 export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
   constructor({
@@ -33,62 +33,62 @@ export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
     modelInfo,
   }: Readonly<Omit<AxAIGroqArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('Groq API key not set')
+      throw new Error('Groq API key not set');
     }
-    const _config = {
+    const Config = {
       ...axAIGroqDefaultConfig(),
       ...config,
-    }
+    };
 
-    const _options = {
+    const Options = {
       ...options,
       streamingUsage: false,
-    }
+    };
 
-    modelInfo = [...axModelInfoGroq, ...(modelInfo ?? [])]
+    modelInfo = [...axModelInfoGroq, ...(modelInfo ?? [])];
 
     const supportFor = {
       functions: true,
       streaming: true,
       hasThinkingBudget: false,
       hasShowThoughts: false,
-    }
+    };
 
     super({
       apiKey,
-      config: _config,
-      options: _options,
+      config: Config,
+      options: Options,
       modelInfo,
       apiURL: 'https://api.groq.com/openai/v1',
       models,
       supportFor,
-    })
+    });
 
-    super.setName('Groq')
-    this.setOptions(_options)
+    super.setName('Groq');
+    this.setOptions(Options);
   }
 
   override setOptions = (options: Readonly<AxAIServiceOptions>) => {
-    const rateLimiter = this.newRateLimiter(options)
-    super.setOptions({ ...options, rateLimiter })
-  }
+    const rateLimiter = this.newRateLimiter(options);
+    super.setOptions({ ...options, rateLimiter });
+  };
 
   private newRateLimiter = (options: Readonly<AxAIGroqArgs['options']>) => {
     if (options?.rateLimiter) {
-      return options.rateLimiter
+      return options.rateLimiter;
     }
 
-    const tokensPerMin = options?.tokensPerMinute ?? 4800
+    const tokensPerMin = options?.tokensPerMinute ?? 4800;
     const rt = new AxRateLimiterTokenUsage(tokensPerMin, tokensPerMin / 60, {
       debug: options?.debug,
-    })
+    });
 
     const rtFunc: AxRateLimiterFunction = async (func, info) => {
-      const totalTokens = info.modelUsage?.tokens?.totalTokens || 0
-      await rt.acquire(totalTokens)
-      return await func()
-    }
+      const totalTokens = info.modelUsage?.tokens?.totalTokens || 0;
+      await rt.acquire(totalTokens);
+      return await func();
+    };
 
-    return rtFunc
-  }
+    return rtFunc;
+  };
 }

@@ -1,9 +1,9 @@
 ---
-import { getCollection } from 'astro:content'
-import Layout from '../layouts/Layout.astro'
+import { getCollection } from 'astro:content';
+import Layout from '../layouts/Layout.astro';
 
 // Get all documents from the docs collection
-const allDocs = await getCollection('docs')
+const allDocs = await getCollection('docs');
 ---
 
 <Layout title="Documentation">

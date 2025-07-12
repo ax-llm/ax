@@ -1,14 +1,18 @@
-import crypto from 'crypto'
-import type { ReadableStream } from 'stream/web'
-
-import { context, type Span, SpanKind } from '@opentelemetry/api'
-
-import { axGlobals } from '../dsp/globals.js'
-import { axSpanAttributes, axSpanEvents } from '../trace/trace.js'
-import { apiCall } from '../util/apicall.js'
-import { RespTransformStream } from '../util/transform.js'
-
-import { logChatRequest, logResponse } from './debug.js'
+// ReadableStream is available globally in modern browsers and Node.js 16+ via DOM types
+import { context, type Span, SpanKind } from '@opentelemetry/api';
+import { axGlobals } from '../dsp/globals.js';
+import { defaultLogger } from '../dsp/loggers.js';
+import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
+import { apiCall } from '../util/apicall.js';
+import { randomUUID } from '../util/crypto.js';
+import { RespTransformStream } from '../util/transform.js';
+import {
+  logChatRequest,
+  logEmbedRequest,
+  logEmbedResponse,
+  logResponse,
+  logResponseStreamingResult,
+} from './debug.js';
 import {
   type AxAIMetricsInstruments,
   getOrCreateAIMetricsInstruments,
@@ -30,7 +34,7 @@ import {
   recordThinkingBudgetUsageMetric,
   recordTimeoutMetric,
   recordTokenMetric,
-} from './metrics.js'
+} from './metrics.js';
 import type {
   AxAIInputModelList,
   AxAIModelList,
@@ -48,25 +52,25 @@ import type {
   AxModelConfig,
   AxModelInfo,
   AxModelUsage,
-} from './types.js'
+} from './types.js';
 
 export interface AxAIFeatures {
-  functions: boolean
-  streaming: boolean
-  functionCot?: boolean
-  hasThinkingBudget?: boolean
-  hasShowThoughts?: boolean
+  functions: boolean;
+  streaming: boolean;
+  functionCot?: boolean;
+  hasThinkingBudget?: boolean;
+  hasShowThoughts?: boolean;
 }
 
 export interface AxBaseAIArgs<TModel, TEmbedModel> {
-  name: string
-  apiURL: string
-  headers: () => Promise<Record<string, string>>
-  modelInfo: Readonly<AxModelInfo[]>
-  defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>
-  options?: Readonly<AxAIServiceOptions>
-  supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
-  models?: AxAIInputModelList<TModel, TEmbedModel>
+  name: string;
+  apiURL: string;
+  headers: () => Promise<Record<string, string>>;
+  modelInfo: Readonly<AxModelInfo[]>;
+  defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>;
+  options?: Readonly<AxAIServiceOptions>;
+  supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
+  models?: AxAIInputModelList<TModel, TEmbedModel>;
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -74,23 +78,14 @@ export const axBaseAIDefaultConfig = (): AxModelConfig =>
     temperature: 0,
     topK: 40,
     topP: 0.9,
-  })
+  });
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
     temperature: 0.4,
     topP: 0.7,
     frequencyPenalty: 0.2,
-  })
-
-// Default logger function that uses process.stdout.write
-const defaultLogger: AxLoggerFunction = (
-  message: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _options?: { tags?: string[] }
-) => {
-  process.stdout.write(message)
-}
+  });
 
 export class AxBaseAI<
   TModel,
@@ -102,31 +97,31 @@ export class AxBaseAI<
   TEmbedResponse,
 > implements AxAIService<TModel, TEmbedModel>
 {
-  private debug = false
+  private debug = false;
 
-  private rt?: AxAIServiceOptions['rateLimiter']
-  private fetch?: AxAIServiceOptions['fetch']
-  private tracer?: AxAIServiceOptions['tracer']
-  private meter?: AxAIServiceOptions['meter']
-  private timeout?: AxAIServiceOptions['timeout']
-  private excludeContentFromTrace?: boolean
-  private models?: AxAIInputModelList<TModel, TEmbedModel>
-  private abortSignal?: AbortSignal
-  private logger: AxLoggerFunction = defaultLogger
+  private rt?: AxAIServiceOptions['rateLimiter'];
+  private fetch?: AxAIServiceOptions['fetch'];
+  private tracer?: AxAIServiceOptions['tracer'];
+  private meter?: AxAIServiceOptions['meter'];
+  private timeout?: AxAIServiceOptions['timeout'];
+  private excludeContentFromTrace?: boolean;
+  private models?: AxAIInputModelList<TModel, TEmbedModel>;
+  private abortSignal?: AbortSignal;
+  private logger: AxLoggerFunction = defaultLogger;
 
-  private modelInfo: readonly AxModelInfo[]
-  private modelUsage?: AxModelUsage
-  private embedModelUsage?: AxModelUsage
-  private defaults: AxBaseAIArgs<TModel, TEmbedModel>['defaults']
-  private lastUsedModelConfig?: AxModelConfig
-  private lastUsedChatModel?: TModel
-  private lastUsedEmbedModel?: TEmbedModel
+  private modelInfo: readonly AxModelInfo[];
+  private modelUsage?: AxModelUsage;
+  private embedModelUsage?: AxModelUsage;
+  private defaults: AxBaseAIArgs<TModel, TEmbedModel>['defaults'];
+  private lastUsedModelConfig?: AxModelConfig;
+  private lastUsedChatModel?: TModel;
+  private lastUsedEmbedModel?: TEmbedModel;
 
-  protected apiURL: string
-  protected name: string
-  protected id: string
-  protected headers: () => Promise<Record<string, string>>
-  protected supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
+  protected apiURL: string;
+  protected name: string;
+  protected id: string;
+  protected headers: () => Promise<Record<string, string>>;
+  protected supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 
   // Add private metrics tracking properties
   private metrics: AxAIServiceMetrics = {
@@ -156,7 +151,7 @@ export class AxBaseAI<
         total: 0,
       },
     },
-  }
+  };
 
   constructor(
     private readonly aiImpl: Readonly<
@@ -181,67 +176,67 @@ export class AxBaseAI<
       models,
     }: Readonly<AxBaseAIArgs<TModel, TEmbedModel>>
   ) {
-    this.name = name
-    this.apiURL = apiURL
-    this.headers = headers
-    this.supportFor = supportFor
-    this.tracer = options.tracer ?? axGlobals.tracer
-    this.meter = options.meter ?? axGlobals.meter
-    this.modelInfo = modelInfo
-    this.models = models
-    this.id = crypto.randomUUID()
+    this.name = name;
+    this.apiURL = apiURL;
+    this.headers = headers;
+    this.supportFor = supportFor;
+    this.tracer = options.tracer ?? axGlobals.tracer;
+    this.meter = options.meter ?? axGlobals.meter;
+    this.modelInfo = modelInfo;
+    this.models = models;
+    this.id = randomUUID();
 
-    const model = this.getModel(defaults.model) ?? defaults.model
+    const model = this.getModel(defaults.model) ?? defaults.model;
     const embedModel =
-      this.getEmbedModel(defaults.embedModel) ?? defaults.embedModel
+      this.getEmbedModel(defaults.embedModel) ?? defaults.embedModel;
 
-    this.defaults = { model, embedModel }
+    this.defaults = { model, embedModel };
 
     if (
       !defaults.model ||
       typeof defaults.model !== 'string' ||
       defaults.model === ''
     ) {
-      throw new Error('No model defined')
+      throw new Error('No model defined');
     }
 
-    this.setOptions(options)
+    this.setOptions(options);
 
     if (models) {
-      validateModels(models)
+      validateModels(models);
     }
   }
 
   private getMetricsInstruments(): AxAIMetricsInstruments | undefined {
-    return getOrCreateAIMetricsInstruments(this.meter)
+    return getOrCreateAIMetricsInstruments(this.meter);
   }
 
   public setName(name: string): void {
-    this.name = name
+    this.name = name;
   }
 
   public getId(): string {
-    return this.id
+    return this.id;
   }
 
   public setAPIURL(apiURL: string): void {
-    this.apiURL = apiURL
+    this.apiURL = apiURL;
   }
 
   public setHeaders(headers: () => Promise<Record<string, string>>): void {
-    this.headers = headers
+    this.headers = headers;
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
-    this.debug = options.debug ?? false
-    this.rt = options.rateLimiter
-    this.fetch = options.fetch
-    this.timeout = options.timeout
-    this.tracer = options.tracer ?? axGlobals.tracer
-    this.meter = options.meter ?? axGlobals.meter
-    this.excludeContentFromTrace = options.excludeContentFromTrace
-    this.abortSignal = options.abortSignal
-    this.logger = options.logger ?? defaultLogger
+    this.debug = options.debug ?? false;
+    this.rt = options.rateLimiter;
+    this.fetch = options.fetch;
+    this.timeout = options.timeout;
+    this.tracer = options.tracer ?? axGlobals.tracer;
+    this.meter = options.meter ?? axGlobals.meter;
+    this.excludeContentFromTrace = options.excludeContentFromTrace;
+    this.abortSignal = options.abortSignal;
+    this.logger = options.logger ?? defaultLogger;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -255,18 +250,18 @@ export class AxBaseAI<
       excludeContentFromTrace: this.excludeContentFromTrace,
       abortSignal: this.abortSignal,
       logger: this.logger,
-    }
+    };
   }
 
   getLogger(): AxLoggerFunction {
-    return this.logger
+    return this.logger;
   }
 
   getModelList(): AxAIModelList | undefined {
-    const models: AxAIModelList = []
+    const models: AxAIModelList = [];
     for (const model of this.models ?? []) {
       if (model.isInternal) {
-        continue
+        continue;
       }
 
       if ('model' in model && model.model) {
@@ -274,7 +269,7 @@ export class AxBaseAI<
           key: model.key,
           description: model.description,
           model: model.model as string,
-        })
+        });
       }
 
       if ('embedModel' in model && model.embedModel) {
@@ -282,33 +277,33 @@ export class AxBaseAI<
           key: model.key,
           description: model.description,
           embedModel: model.embedModel as string,
-        })
+        });
       }
     }
 
-    return models
+    return models;
   }
 
   getName(): string {
-    return this.name
+    return this.name;
   }
 
   getFeatures(model?: TModel): AxAIFeatures {
     return typeof this.supportFor === 'function'
       ? this.supportFor(model ?? this.defaults.model)
-      : this.supportFor
+      : this.supportFor;
   }
 
   getLastUsedChatModel(): TModel | undefined {
-    return this.lastUsedChatModel
+    return this.lastUsedChatModel;
   }
 
   getLastUsedEmbedModel(): TEmbedModel | undefined {
-    return this.lastUsedEmbedModel
+    return this.lastUsedEmbedModel;
   }
 
   getLastUsedModelConfig(): AxModelConfig | undefined {
-    return this.lastUsedModelConfig
+    return this.lastUsedModelConfig;
   }
 
   // Method to calculate percentiles
@@ -316,38 +311,38 @@ export class AxBaseAI<
     samples: readonly number[],
     percentile: number
   ): number {
-    if (samples.length === 0) return 0
-    const sorted = [...samples].sort((a, b) => a - b)
-    const index = Math.ceil((percentile / 100) * sorted.length) - 1
-    return sorted[index] ?? 0
+    if (samples.length === 0) return 0;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const index = Math.ceil((percentile / 100) * sorted.length) - 1;
+    return sorted[index] ?? 0;
   }
 
   // Method to update latency metrics
   private updateLatencyMetrics(type: 'chat' | 'embed', duration: number): void {
-    const metrics = this.metrics.latency[type]
-    metrics.samples.push(duration)
+    const metrics = this.metrics.latency[type];
+    metrics.samples.push(duration);
 
     // Keep only last 1000 samples to prevent memory issues
     if (metrics.samples.length > 1000) {
-      metrics.samples.shift()
+      metrics.samples.shift();
     }
 
     // Update statistics
     metrics.mean =
-      metrics.samples.reduce((a, b) => a + b, 0) / metrics.samples.length
-    metrics.p95 = this.calculatePercentile(metrics.samples, 95)
-    metrics.p99 = this.calculatePercentile(metrics.samples, 99)
+      metrics.samples.reduce((a, b) => a + b, 0) / metrics.samples.length;
+    metrics.p95 = this.calculatePercentile(metrics.samples, 95);
+    metrics.p99 = this.calculatePercentile(metrics.samples, 99);
 
     // Export to OpenTelemetry metrics
-    const metricsInstruments = this.getMetricsInstruments()
+    const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
-          : (this.lastUsedEmbedModel as string)
+          : (this.lastUsedEmbedModel as string);
 
       // Record individual latency measurement
-      recordLatencyMetric(metricsInstruments, type, duration, this.name, model)
+      recordLatencyMetric(metricsInstruments, type, duration, this.name, model);
 
       // Record latency statistics as gauges
       recordLatencyStatsMetrics(
@@ -358,33 +353,33 @@ export class AxBaseAI<
         metrics.p99,
         this.name,
         model
-      )
+      );
     }
   }
 
   // Method to update error metrics
   private updateErrorMetrics(type: 'chat' | 'embed', isError: boolean): void {
-    const metrics = this.metrics.errors[type]
-    metrics.total++
+    const metrics = this.metrics.errors[type];
+    metrics.total++;
     if (isError) {
-      metrics.count++
+      metrics.count++;
     }
-    metrics.rate = metrics.count / metrics.total
+    metrics.rate = metrics.count / metrics.total;
 
     // Export to OpenTelemetry metrics
-    const metricsInstruments = this.getMetricsInstruments()
+    const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
-          : (this.lastUsedEmbedModel as string)
+          : (this.lastUsedEmbedModel as string);
 
       // Always record request count
-      recordRequestMetric(metricsInstruments, type, this.name, model)
+      recordRequestMetric(metricsInstruments, type, this.name, model);
 
       // Record error count if there was an error
       if (isError) {
-        recordErrorMetric(metricsInstruments, type, this.name, model)
+        recordErrorMetric(metricsInstruments, type, this.name, model);
       }
 
       // Record current error rate as a gauge
@@ -394,16 +389,16 @@ export class AxBaseAI<
         metrics.rate,
         this.name,
         model
-      )
+      );
     }
   }
 
   // Method to record token usage metrics
   private recordTokenUsage(modelUsage?: AxModelUsage): void {
-    const metricsInstruments = this.getMetricsInstruments()
+    const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments && modelUsage?.tokens) {
       const { promptTokens, completionTokens, totalTokens, thoughtsTokens } =
-        modelUsage.tokens
+        modelUsage.tokens;
 
       if (promptTokens) {
         recordTokenMetric(
@@ -412,7 +407,7 @@ export class AxBaseAI<
           promptTokens,
           this.name,
           modelUsage.model
-        )
+        );
       }
 
       if (completionTokens) {
@@ -422,7 +417,7 @@ export class AxBaseAI<
           completionTokens,
           this.name,
           modelUsage.model
-        )
+        );
       }
 
       if (totalTokens) {
@@ -432,7 +427,7 @@ export class AxBaseAI<
           totalTokens,
           this.name,
           modelUsage.model
-        )
+        );
       }
 
       if (thoughtsTokens) {
@@ -442,7 +437,7 @@ export class AxBaseAI<
           thoughtsTokens,
           this.name,
           modelUsage.model
-        )
+        );
       }
     }
   }
@@ -450,75 +445,75 @@ export class AxBaseAI<
   // Helper method to calculate request size in bytes
   private calculateRequestSize(req: unknown): number {
     try {
-      return new TextEncoder().encode(JSON.stringify(req)).length
+      return new TextEncoder().encode(JSON.stringify(req)).length;
     } catch {
-      return 0
+      return 0;
     }
   }
 
   // Helper method to calculate response size in bytes
   private calculateResponseSize(response: unknown): number {
     try {
-      return new TextEncoder().encode(JSON.stringify(response)).length
+      return new TextEncoder().encode(JSON.stringify(response)).length;
     } catch {
-      return 0
+      return 0;
     }
   }
 
   // Helper method to detect multimodal content
   private detectMultimodalContent(req: Readonly<AxChatRequest<TModel>>): {
-    hasImages: boolean
-    hasAudio: boolean
+    hasImages: boolean;
+    hasAudio: boolean;
   } {
-    let hasImages = false
-    let hasAudio = false
+    let hasImages = false;
+    let hasAudio = false;
 
     if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
       for (const message of req.chatPrompt) {
         if (message.role === 'user' && Array.isArray(message.content)) {
           for (const part of message.content) {
             if (part.type === 'image') {
-              hasImages = true
+              hasImages = true;
             } else if (part.type === 'audio') {
-              hasAudio = true
+              hasAudio = true;
             }
           }
         }
       }
     }
 
-    return { hasImages, hasAudio }
+    return { hasImages, hasAudio };
   }
 
   // Helper method to calculate prompt length
   private calculatePromptLength(req: Readonly<AxChatRequest<TModel>>): number {
-    let totalLength = 0
+    let totalLength = 0;
 
     if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
       for (const message of req.chatPrompt) {
         if (message.role === 'system' || message.role === 'assistant') {
           if (message.content) {
-            totalLength += message.content.length
+            totalLength += message.content.length;
           }
         } else if (message.role === 'user') {
           if (typeof message.content === 'string') {
-            totalLength += message.content.length
+            totalLength += message.content.length;
           } else if (Array.isArray(message.content)) {
             for (const part of message.content) {
               if (part.type === 'text') {
-                totalLength += part.text.length
+                totalLength += part.text.length;
               }
             }
           }
         } else if (message.role === 'function') {
           if (message.result) {
-            totalLength += message.result.length
+            totalLength += message.result.length;
           }
         }
       }
     }
 
-    return totalLength
+    return totalLength;
   }
 
   // Helper method to calculate context window usage
@@ -526,39 +521,39 @@ export class AxBaseAI<
     model: TModel,
     modelUsage?: AxModelUsage
   ): number {
-    if (!modelUsage?.tokens?.promptTokens) return 0
+    if (!modelUsage?.tokens?.promptTokens) return 0;
 
     // Get model info to find context window size
     const modelInfo = this.modelInfo.find(
       (info) => info.name === (model as string)
-    )
-    if (!modelInfo?.contextWindow) return 0
+    );
+    if (!modelInfo?.contextWindow) return 0;
 
-    return modelUsage.tokens.promptTokens / modelInfo.contextWindow
+    return modelUsage.tokens.promptTokens / modelInfo.contextWindow;
   }
 
   // Helper method to estimate cost
   private estimateCost(model: TModel, modelUsage?: AxModelUsage): number {
-    if (!modelUsage?.tokens) return 0
+    if (!modelUsage?.tokens) return 0;
 
     // Get model info to find pricing
     const modelInfo = this.modelInfo.find(
       (info) => info.name === (model as string)
-    )
+    );
     if (
       !modelInfo ||
       (!modelInfo.promptTokenCostPer1M && !modelInfo.completionTokenCostPer1M)
     )
-      return 0
+      return 0;
 
-    const { promptTokens = 0, completionTokens = 0 } = modelUsage.tokens
-    const promptCostPer1M = modelInfo.promptTokenCostPer1M || 0
-    const completionCostPer1M = modelInfo.completionTokenCostPer1M || 0
+    const { promptTokens = 0, completionTokens = 0 } = modelUsage.tokens;
+    const promptCostPer1M = modelInfo.promptTokenCostPer1M || 0;
+    const completionCostPer1M = modelInfo.completionTokenCostPer1M || 0;
 
     return (
       (promptTokens * promptCostPer1M) / 1000000 +
       (completionTokens * completionCostPer1M) / 1000000
-    )
+    );
   }
 
   // Helper method to estimate cost by model name
@@ -566,24 +561,24 @@ export class AxBaseAI<
     modelName: string,
     modelUsage?: AxModelUsage
   ): number {
-    if (!modelUsage?.tokens) return 0
+    if (!modelUsage?.tokens) return 0;
 
     // Get model info to find pricing
-    const modelInfo = this.modelInfo.find((info) => info.name === modelName)
+    const modelInfo = this.modelInfo.find((info) => info.name === modelName);
     if (
       !modelInfo ||
       (!modelInfo.promptTokenCostPer1M && !modelInfo.completionTokenCostPer1M)
     )
-      return 0
+      return 0;
 
-    const { promptTokens = 0, completionTokens = 0 } = modelUsage.tokens
-    const promptCostPer1M = modelInfo.promptTokenCostPer1M || 0
-    const completionCostPer1M = modelInfo.completionTokenCostPer1M || 0
+    const { promptTokens = 0, completionTokens = 0 } = modelUsage.tokens;
+    const promptCostPer1M = modelInfo.promptTokenCostPer1M || 0;
+    const completionCostPer1M = modelInfo.completionTokenCostPer1M || 0;
 
     return (
       (promptTokens * promptCostPer1M) / 1000000 +
       (completionTokens * completionCostPer1M) / 1000000
-    )
+    );
   }
 
   // Helper method to record function call metrics
@@ -591,8 +586,8 @@ export class AxBaseAI<
     functionCalls?: readonly unknown[],
     model?: TModel
   ): void {
-    const metricsInstruments = this.getMetricsInstruments()
-    if (!metricsInstruments || !functionCalls) return
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments || !functionCalls) return;
 
     for (const call of functionCalls) {
       if (
@@ -609,32 +604,32 @@ export class AxBaseAI<
           undefined, // latency would need to be tracked separately
           this.name,
           model as string
-        )
+        );
       }
     }
   }
 
   // Helper method to record timeout metrics
   private recordTimeoutMetric(type: 'chat' | 'embed'): void {
-    const metricsInstruments = this.getMetricsInstruments()
+    const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
-          : (this.lastUsedEmbedModel as string)
-      recordTimeoutMetric(metricsInstruments, type, this.name, model)
+          : (this.lastUsedEmbedModel as string);
+      recordTimeoutMetric(metricsInstruments, type, this.name, model);
     }
   }
 
   // Helper method to record abort metrics
   private recordAbortMetric(type: 'chat' | 'embed'): void {
-    const metricsInstruments = this.getMetricsInstruments()
+    const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
-          : (this.lastUsedEmbedModel as string)
-      recordAbortMetric(metricsInstruments, type, this.name, model)
+          : (this.lastUsedEmbedModel as string);
+      recordAbortMetric(metricsInstruments, type, this.name, model);
     }
   }
 
@@ -646,35 +641,40 @@ export class AxBaseAI<
     >,
     result?: AxChatResponse | ReadableStream<AxChatResponse>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments()
-    if (!metricsInstruments) return
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
-    const model = this.lastUsedChatModel as string
-    const modelConfig = this.lastUsedModelConfig
+    const model = this.lastUsedChatModel as string;
+    const modelConfig = this.lastUsedModelConfig;
 
     // Record streaming request metric
-    const isStreaming = modelConfig?.stream ?? false
+    const isStreaming = modelConfig?.stream ?? false;
     recordStreamingRequestMetric(
       metricsInstruments,
       'chat',
       isStreaming,
       this.name,
       model
-    )
+    );
 
     // Record multimodal request metric
-    const { hasImages, hasAudio } = this.detectMultimodalContent(req)
+    const { hasImages, hasAudio } = this.detectMultimodalContent(req);
     recordMultimodalRequestMetric(
       metricsInstruments,
       hasImages,
       hasAudio,
       this.name,
       model
-    )
+    );
 
     // Record prompt length metric
-    const promptLength = this.calculatePromptLength(req)
-    recordPromptLengthMetric(metricsInstruments, promptLength, this.name, model)
+    const promptLength = this.calculatePromptLength(req);
+    recordPromptLengthMetric(
+      metricsInstruments,
+      promptLength,
+      this.name,
+      model
+    );
 
     // Record model configuration metrics
     recordModelConfigMetrics(
@@ -683,7 +683,7 @@ export class AxBaseAI<
       modelConfig?.maxTokens,
       this.name,
       model
-    )
+    );
 
     // Record thinking budget usage if applicable
     if (
@@ -695,30 +695,30 @@ export class AxBaseAI<
         this.modelUsage.tokens.thoughtsTokens,
         this.name,
         model
-      )
+      );
     }
 
     // Record request size
-    const requestSize = this.calculateRequestSize(req)
+    const requestSize = this.calculateRequestSize(req);
     recordRequestSizeMetric(
       metricsInstruments,
       'chat',
       requestSize,
       this.name,
       model
-    )
+    );
 
     // Record response size and function calls for non-streaming responses
     if (result && !isStreaming) {
-      const chatResponse = result as AxChatResponse
-      const responseSize = this.calculateResponseSize(chatResponse)
+      const chatResponse = result as AxChatResponse;
+      const responseSize = this.calculateResponseSize(chatResponse);
       recordResponseSizeMetric(
         metricsInstruments,
         'chat',
         responseSize,
         this.name,
         model
-      )
+      );
 
       // Record function call metrics
       if (chatResponse.results) {
@@ -727,7 +727,7 @@ export class AxBaseAI<
             this.recordFunctionCallMetrics(
               chatResult.functionCalls,
               this.lastUsedChatModel
-            )
+            );
           }
         }
       }
@@ -736,21 +736,21 @@ export class AxBaseAI<
       const contextUsage = this.calculateContextWindowUsage(
         this.lastUsedChatModel!,
         chatResponse.modelUsage
-      )
+      );
       if (contextUsage > 0) {
         recordContextWindowUsageMetric(
           metricsInstruments,
           contextUsage,
           this.name,
           model
-        )
+        );
       }
 
       // Record estimated cost
       const estimatedCost = this.estimateCost(
         this.lastUsedChatModel!,
         chatResponse.modelUsage
-      )
+      );
       if (estimatedCost > 0) {
         recordEstimatedCostMetric(
           metricsInstruments,
@@ -758,7 +758,7 @@ export class AxBaseAI<
           estimatedCost,
           this.name,
           model
-        )
+        );
       }
     }
   }
@@ -768,33 +768,33 @@ export class AxBaseAI<
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
     result: Readonly<AxEmbedResponse>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments()
-    if (!metricsInstruments) return
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
-    const model = this.lastUsedEmbedModel as string
+    const model = this.lastUsedEmbedModel as string;
 
     // Record request size
-    const requestSize = this.calculateRequestSize(req)
+    const requestSize = this.calculateRequestSize(req);
     recordRequestSizeMetric(
       metricsInstruments,
       'embed',
       requestSize,
       this.name,
       model
-    )
+    );
 
     // Record response size
-    const responseSize = this.calculateResponseSize(result)
+    const responseSize = this.calculateResponseSize(result);
     recordResponseSizeMetric(
       metricsInstruments,
       'embed',
       responseSize,
       this.name,
       model
-    )
+    );
 
     // Record estimated cost
-    const estimatedCost = this.estimateCostByName(model, result.modelUsage)
+    const estimatedCost = this.estimateCostByName(model, result.modelUsage);
     if (estimatedCost > 0) {
       recordEstimatedCostMetric(
         metricsInstruments,
@@ -802,13 +802,13 @@ export class AxBaseAI<
         estimatedCost,
         this.name,
         model
-      )
+      );
     }
   }
 
   // Public method to get metrics
   public getMetrics(): AxAIServiceMetrics {
-    return structuredClone(this.metrics)
+    return structuredClone(this.metrics);
   }
 
   async chat(
@@ -817,38 +817,38 @@ export class AxBaseAI<
       AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const startTime = performance.now()
-    let isError = false
-    let result: AxChatResponse | ReadableStream<AxChatResponse>
+    const startTime = performance.now();
+    let isError = false;
+    let result: AxChatResponse | ReadableStream<AxChatResponse>;
 
     try {
-      result = await this._chat1(req, options)
-      return result
+      result = await this._chat1(req, options);
+      return result;
     } catch (error) {
-      isError = true
+      isError = true;
       // Check for specific error types
       if (error instanceof Error) {
         if (
           error.message.includes('timeout') ||
           error.name === 'TimeoutError'
         ) {
-          this.recordTimeoutMetric('chat')
+          this.recordTimeoutMetric('chat');
         } else if (
           error.message.includes('abort') ||
           error.name === 'AbortError'
         ) {
-          this.recordAbortMetric('chat')
+          this.recordAbortMetric('chat');
         }
       }
-      throw error
+      throw error;
     } finally {
-      const duration = performance.now() - startTime
-      this.updateLatencyMetrics('chat', duration)
-      this.updateErrorMetrics('chat', isError)
+      const duration = performance.now() - startTime;
+      this.updateLatencyMetrics('chat', duration);
+      this.updateErrorMetrics('chat', isError);
 
       // Record additional metrics if successful
       if (!isError) {
-        this.recordChatMetrics(req, options, result!)
+        this.recordChatMetrics(req, options, result!);
       }
     }
   }
@@ -859,17 +859,17 @@ export class AxBaseAI<
       AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const model = this.getModel(req.model) ?? req.model ?? this.defaults.model
+    const model = this.getModel(req.model) ?? req.model ?? this.defaults.model;
 
     // Validate chat prompt messages for empty content
     if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
-      validateAxMessageArray(req.chatPrompt)
+      validateAxMessageArray(req.chatPrompt);
     }
 
     const modelConfig = {
       ...this.aiImpl.getModelConfig(),
       ...req.modelConfig,
-    }
+    };
 
     // Check for thinkingTokenBudget support
     if (
@@ -878,32 +878,34 @@ export class AxBaseAI<
     ) {
       throw new Error(
         `Model ${model as string} does not support thinkingTokenBudget.`
-      )
+      );
     }
 
     // Check for showThoughts support
     if (options?.showThoughts && !this.getFeatures(model).hasShowThoughts) {
-      throw new Error(`Model ${model as string} does not support showThoughts.`)
+      throw new Error(
+        `Model ${model as string} does not support showThoughts.`
+      );
     }
 
     // Check for expensive model usage
     const modelInfo = this.modelInfo.find(
       (info) => info.name === (model as string)
-    )
+    );
     if (modelInfo?.isExpensive && options?.useExpensiveModel !== 'yes') {
       throw new Error(
         `Model ${model as string} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: "yes" to proceed.`
-      )
+      );
     }
 
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
       (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
-      true
+      true;
 
-    const canStream = this.getFeatures(model).streaming
+    const canStream = this.getFeatures(model).streaming;
     if (!canStream) {
-      modelConfig.stream = false
+      modelConfig.stream = false;
     }
 
     if (this.tracer) {
@@ -932,27 +934,26 @@ export class AxBaseAI<
         },
         options?.traceContext ?? context.active(),
         async (span) => {
-          return await this._chat2(model, modelConfig, req, options, span)
+          return await this._chat2(model, modelConfig, req, options, span);
         }
-      )
+      );
     }
-    return await this._chat2(model, modelConfig, req, options)
+    return await this._chat2(model, modelConfig, req, options);
   }
 
   private cleanupFunctionSchema(
     fn: Readonly<NonNullable<AxChatRequest['functions']>[number]>
   ): NonNullable<AxChatRequest['functions']>[number] {
-    const cleanFn = { ...fn }
+    const cleanFn = { ...fn };
     if (cleanFn.parameters) {
-      const cleanParams = { ...cleanFn.parameters }
+      const cleanParams = { ...cleanFn.parameters };
 
       // Remove empty required array
       if (
         Array.isArray(cleanParams.required) &&
         cleanParams.required.length === 0
       ) {
-        // biome-ignore lint/performance/noDelete: <explanation>
-        delete cleanParams.required
+        delete cleanParams.required;
       }
 
       // Remove empty properties object
@@ -960,8 +961,7 @@ export class AxBaseAI<
         cleanParams.properties &&
         Object.keys(cleanParams.properties).length === 0
       ) {
-        // biome-ignore lint/performance/noDelete: <explanation>
-        delete cleanParams.properties
+        delete cleanParams.properties;
       }
 
       // After cleaning, remove the entire parameters object if it's effectively empty
@@ -970,13 +970,12 @@ export class AxBaseAI<
         Object.keys(cleanParams).length === 0 ||
         (Object.keys(cleanParams).length === 1 && cleanParams.type === 'object')
       ) {
-        // biome-ignore lint/performance/noDelete: <explanation>
-        delete cleanFn.parameters
+        delete cleanFn.parameters;
       } else {
-        cleanFn.parameters = cleanParams
+        cleanFn.parameters = cleanParams;
       }
     }
-    return cleanFn
+    return cleanFn;
   }
 
   private async _chat2(
@@ -987,15 +986,15 @@ export class AxBaseAI<
     span?: Span
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.aiImpl.createChatReq) {
-      throw new Error('generateChatReq not implemented')
+      throw new Error('generateChatReq not implemented');
     }
 
-    const debug = options?.debug ?? this.debug
+    const debug = options?.debug ?? this.debug;
 
-    let functions: NonNullable<AxChatRequest['functions']> | undefined
+    let functions: NonNullable<AxChatRequest['functions']> | undefined;
 
     if (chatReq.functions && chatReq.functions.length > 0) {
-      functions = chatReq.functions.map((fn) => this.cleanupFunctionSchema(fn))
+      functions = chatReq.functions.map((fn) => this.cleanupFunctionSchema(fn));
     }
 
     const req = {
@@ -1003,20 +1002,20 @@ export class AxBaseAI<
       model,
       functions,
       modelConfig,
-    }
+    };
 
     // Store the last used model and config
-    this.lastUsedChatModel = model
-    this.lastUsedModelConfig = modelConfig
+    this.lastUsedChatModel = model;
+    this.lastUsedModelConfig = modelConfig;
 
     const fn = async () => {
-      const [apiConfig, reqValue] = this.aiImpl.createChatReq(
+      const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
         req,
         options as AxAIPromptConfig
-      )
+      );
 
       if (span?.isRecording()) {
-        setChatRequestEvents(chatReq, span, this.excludeContentFromTrace)
+        setChatRequestEvents(chatReq, span, this.excludeContentFromTrace);
       }
 
       const res = await apiCall(
@@ -1032,152 +1031,152 @@ export class AxBaseAI<
           abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
-      )
-      return res
-    }
+      );
+      return res;
+    };
 
     if (debug) {
       logChatRequest(
         req.chatPrompt,
+        options?.stepIndex ?? 0,
         options?.debugHideSystemPrompt,
         options?.logger ?? this.logger
-      )
+      );
     }
 
-    const rt = options?.rateLimiter ?? this.rt
-    const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn()
+    const rt = options?.rateLimiter ?? this.rt;
+    const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
 
     if (modelConfig.stream) {
       if (!this.aiImpl.createChatStreamResp) {
-        throw new Error('generateChatResp not implemented')
+        throw new Error('generateChatResp not implemented');
       }
 
-      const respFn = this.aiImpl.createChatStreamResp.bind(this)
+      const respFn = this.aiImpl.createChatStreamResp.bind(this);
       const wrappedRespFn =
         (state: object) => (resp: Readonly<TChatResponseDelta>) => {
-          const res = respFn(resp, state)
-          res.sessionId = options?.sessionId
+          const res = respFn(resp, state);
+          res.sessionId = options?.sessionId;
 
           // Only call getTokenUsage if modelUsage is not already provided by the service
           if (!res.modelUsage) {
-            const tokenUsage = this.aiImpl.getTokenUsage()
+            const tokenUsage = this.aiImpl.getTokenUsage();
             if (tokenUsage) {
               res.modelUsage = {
                 ai: this.name,
                 model: model as string,
                 tokens: tokenUsage,
-              }
+              };
             }
           }
-          this.modelUsage = res.modelUsage
-          this.recordTokenUsage(res.modelUsage)
+          this.modelUsage = res.modelUsage;
+          this.recordTokenUsage(res.modelUsage);
 
           if (span?.isRecording()) {
-            setChatResponseEvents(res, span, this.excludeContentFromTrace)
+            setChatResponseEvents(res, span, this.excludeContentFromTrace);
           }
 
           if (debug) {
-            logResponse(res, options?.logger ?? this.logger)
+            // Log individual streaming results
+            for (const result of res.results) {
+              logResponseStreamingResult(
+                result,
+                result.index,
+                options?.logger ?? this.logger
+              );
+            }
           }
-          return res
-        }
+          return res;
+        };
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
-        if (debug) {
-          const logger = options?.logger ?? this.logger
-          logger('', { tags: ['responseEnd'] })
-        }
         if (span?.isRecording()) {
-          span.end()
+          span.end();
         }
-      }
+      };
 
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
         new RespTransformStream<TChatResponseDelta, AxChatResponse>(
           wrappedRespFn({}),
           doneCb
         )
-      )
-      return st
+      );
+      return st;
     }
 
     if (!this.aiImpl.createChatResp) {
-      throw new Error('generateChatResp not implemented')
+      throw new Error('generateChatResp not implemented');
     }
 
-    const res = this.aiImpl.createChatResp(rv as TChatResponse)
-    res.sessionId = options?.sessionId
+    const res = this.aiImpl.createChatResp(rv as TChatResponse);
+    res.sessionId = options?.sessionId;
 
     // Only call getTokenUsage if modelUsage is not already provided by the service
     if (!res.modelUsage) {
-      const tokenUsage = this.aiImpl.getTokenUsage()
+      const tokenUsage = this.aiImpl.getTokenUsage();
       if (tokenUsage) {
         res.modelUsage = {
           ai: this.name,
           model: model as string,
           tokens: tokenUsage,
-        }
+        };
       }
     }
 
     if (res.modelUsage) {
-      this.modelUsage = res.modelUsage
-      this.recordTokenUsage(res.modelUsage)
+      this.modelUsage = res.modelUsage;
+      this.recordTokenUsage(res.modelUsage);
     }
 
     if (span?.isRecording()) {
-      setChatResponseEvents(res, span, this.excludeContentFromTrace)
-      span.end()
+      setChatResponseEvents(res, span, this.excludeContentFromTrace);
+      span.end();
     }
 
     if (debug) {
-      logResponse(res, options?.logger ?? this.logger)
+      logResponse(res, options?.logger ?? this.logger);
     }
 
-    if (debug) {
-      this.logger('', { tags: ['responseEnd'] })
-    }
-
-    return res
+    return res;
   }
 
   async embed(
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
     options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
   ): Promise<AxEmbedResponse> {
-    const startTime = performance.now()
-    let isError = false
-    let result: AxEmbedResponse
+    const startTime = performance.now();
+    let isError = false;
+    let result: AxEmbedResponse;
 
     try {
-      result = await this._embed1(req, options)
-      return result
+      result = await this._embed1(req, options);
+      return result;
     } catch (error) {
-      isError = true
+      isError = true;
       // Check for specific error types
       if (error instanceof Error) {
         if (
           error.message.includes('timeout') ||
           error.name === 'TimeoutError'
         ) {
-          this.recordTimeoutMetric('embed')
+          this.recordTimeoutMetric('embed');
         } else if (
           error.message.includes('abort') ||
           error.name === 'AbortError'
         ) {
-          this.recordAbortMetric('embed')
+          this.recordAbortMetric('embed');
         }
       }
-      throw error
+      throw error;
     } finally {
-      const duration = performance.now() - startTime
-      this.updateLatencyMetrics('embed', duration)
-      this.updateErrorMetrics('embed', isError)
+      const duration = performance.now() - startTime;
+      this.updateLatencyMetrics('embed', duration);
+      this.updateErrorMetrics('embed', isError);
 
       // Record additional metrics if successful
       if (!isError) {
-        this.recordEmbedMetrics(req, result!)
+        this.recordEmbedMetrics(req, result!);
       }
     }
   }
@@ -1189,10 +1188,10 @@ export class AxBaseAI<
     const embedModel =
       this.getEmbedModel(req.embedModel) ??
       req.embedModel ??
-      this.defaults.embedModel
+      this.defaults.embedModel;
 
     if (!embedModel) {
-      throw new Error('No embed model defined')
+      throw new Error('No embed model defined');
     }
 
     if (this.tracer) {
@@ -1209,14 +1208,14 @@ export class AxBaseAI<
         options?.traceContext ?? context.active(),
         async (span) => {
           try {
-            return await this._embed2(embedModel, req, options, span)
+            return await this._embed2(embedModel, req, options, span);
           } finally {
-            span.end()
+            span.end();
           }
         }
-      )
+      );
     }
-    return this._embed2(embedModel, req, options)
+    return this._embed2(embedModel, req, options);
   }
 
   private async _embed2(
@@ -1226,24 +1225,32 @@ export class AxBaseAI<
     span?: Span
   ): Promise<AxEmbedResponse> {
     if (!this.aiImpl.createEmbedReq) {
-      throw new Error('generateEmbedReq not implemented')
+      throw new Error('generateEmbedReq not implemented');
     }
     if (!this.aiImpl.createEmbedResp) {
-      throw new Error('generateEmbedResp not implemented')
+      throw new Error('generateEmbedResp not implemented');
     }
 
-    const debug = options?.debug ?? this.debug
+    const debug = options?.debug ?? this.debug;
 
     const req = {
       ...embedReq,
       embedModel,
-    }
+    };
 
     // Store the last used embed model
-    this.lastUsedEmbedModel = embedModel
+    this.lastUsedEmbedModel = embedModel;
+
+    if (debug) {
+      logEmbedRequest(
+        req.texts ?? [],
+        embedModel as string,
+        options?.logger ?? this.logger
+      );
+    }
 
     const fn = async () => {
-      const [apiConfig, reqValue] = this.aiImpl.createEmbedReq!(req)
+      const [apiConfig, reqValue] = await this.aiImpl.createEmbedReq!(req);
 
       const res = await apiCall(
         {
@@ -1257,30 +1264,30 @@ export class AxBaseAI<
           abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
-      )
-      return res
-    }
+      );
+      return res;
+    };
 
     const resValue = this.rt
       ? await this.rt(fn, { modelUsage: this.embedModelUsage })
-      : await fn()
-    const res = this.aiImpl.createEmbedResp!(resValue as TEmbedResponse)
+      : await fn();
+    const res = this.aiImpl.createEmbedResp!(resValue as TEmbedResponse);
 
-    res.sessionId = options?.sessionId
+    res.sessionId = options?.sessionId;
 
     // Only call getTokenUsage if modelUsage is not already provided by the service
     if (!res.modelUsage) {
-      const tokenUsage = this.aiImpl.getTokenUsage()
+      const tokenUsage = this.aiImpl.getTokenUsage();
       if (tokenUsage) {
         res.modelUsage = {
           ai: this.name,
           model: embedModel as string,
           tokens: tokenUsage,
-        }
+        };
       }
     }
-    this.embedModelUsage = res.modelUsage
-    this.recordTokenUsage(res.modelUsage)
+    this.embedModelUsage = res.modelUsage;
+    this.recordTokenUsage(res.modelUsage);
 
     if (span?.isRecording() && res.modelUsage?.tokens) {
       span.addEvent(axSpanEvents.GEN_AI_USAGE, {
@@ -1290,37 +1297,41 @@ export class AxBaseAI<
           res.modelUsage.tokens.completionTokens ?? 0,
         [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
           res.modelUsage.tokens.totalTokens,
-      })
+      });
     }
 
-    span?.end()
-    return res
+    if (debug) {
+      logEmbedResponse(res.embeddings, options?.logger ?? this.logger);
+    }
+
+    span?.end();
+    return res;
   }
 
   private async buildHeaders(
     headers: Record<string, string> = {}
   ): Promise<Record<string, string>> {
-    return { ...headers, ...(await this.headers()) }
+    return { ...headers, ...(await this.headers()) };
   }
 
   private getModelByKey(
     modelName?: TModel | TEmbedModel
   ): AxAIInputModelList<TModel, TEmbedModel>[number] | undefined {
     if (!modelName) {
-      return undefined
+      return undefined;
     }
-    const item = this.models?.find((v) => v.key === modelName)
-    return item
+    const item = this.models?.find((v) => v.key === modelName);
+    return item;
   }
 
   private getModel(modelName?: TModel): TModel | undefined {
-    const item = this.getModelByKey(modelName)
-    return item && 'model' in item ? item.model : undefined
+    const item = this.getModelByKey(modelName);
+    return item && 'model' in item ? item.model : undefined;
   }
 
   private getEmbedModel(modelName?: TEmbedModel): TEmbedModel | undefined {
-    const item = this.getModelByKey(modelName)
-    return item && 'embedModel' in item ? item.embedModel : undefined
+    const item = this.getModelByKey(modelName);
+    return item && 'embedModel' in item ? item.embedModel : undefined;
   }
 }
 
@@ -1329,7 +1340,7 @@ export function setChatRequestEvents(
   span: Span,
   excludeContentFromTrace?: boolean
 ): void {
-  const userMessages: string[] = []
+  const userMessages: string[] = [];
 
   if (
     req.chatPrompt &&
@@ -1340,70 +1351,72 @@ export function setChatRequestEvents(
       switch (prompt.role) {
         case 'system':
           if (prompt.content) {
-            const eventData: { content?: string } = {}
+            const eventData: { content?: string } = {};
             if (!excludeContentFromTrace) {
-              eventData.content = prompt.content
+              eventData.content = prompt.content;
             }
-            span.addEvent(axSpanEvents.GEN_AI_SYSTEM_MESSAGE, eventData)
+            span.addEvent(axSpanEvents.GEN_AI_SYSTEM_MESSAGE, eventData);
           }
-          break
+          break;
         case 'user':
           if (typeof prompt.content === 'string') {
-            userMessages.push(prompt.content)
+            userMessages.push(prompt.content);
           } else if (Array.isArray(prompt.content)) {
             for (const part of prompt.content) {
               if (part.type === 'text') {
-                userMessages.push(part.text)
+                userMessages.push(part.text);
               }
             }
           }
-          break
-        case 'assistant':
+          break;
+        case 'assistant': {
           const functionCalls = prompt.functionCalls?.map((call) => {
             return {
               id: call.id,
               type: call.type,
               function: call.function.name,
               arguments: call.function.params,
-            }
-          })
+            };
+          });
 
           if (functionCalls && functionCalls.length > 0) {
             const eventData: { content?: string; function_calls: string } = {
               function_calls: JSON.stringify(functionCalls, null, 2),
-            }
+            };
             if (!excludeContentFromTrace && prompt.content) {
-              eventData.content = prompt.content
+              eventData.content = prompt.content;
             }
-            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData)
+            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData);
           } else if (prompt.content) {
-            const eventData: { content?: string } = {}
+            const eventData: { content?: string } = {};
             if (!excludeContentFromTrace) {
-              eventData.content = prompt.content
+              eventData.content = prompt.content;
             }
-            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData)
+            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData);
           }
-          break
+          break;
+        }
 
-        case 'function':
+        case 'function': {
           const eventData: { content?: string; id: string } = {
             id: prompt.functionId,
-          }
+          };
           if (!excludeContentFromTrace) {
-            eventData.content = prompt.result
+            eventData.content = prompt.result;
           }
-          span.addEvent(axSpanEvents.GEN_AI_TOOL_MESSAGE, eventData)
-          break
+          span.addEvent(axSpanEvents.GEN_AI_TOOL_MESSAGE, eventData);
+          break;
+        }
       }
     }
   }
 
   // Always add user message event, even if empty
-  const userEventData: { content?: string } = {}
+  const userEventData: { content?: string } = {};
   if (!excludeContentFromTrace) {
-    userEventData.content = userMessages.join('\n')
+    userEventData.content = userMessages.join('\n');
   }
-  span.addEvent(axSpanEvents.GEN_AI_USER_MESSAGE, userEventData)
+  span.addEvent(axSpanEvents.GEN_AI_USER_MESSAGE, userEventData);
 }
 
 export function setChatResponseEvents(
@@ -1417,7 +1430,7 @@ export function setChatResponseEvents(
           [axSpanAttributes.LLM_USAGE_THOUGHTS_TOKENS]:
             res.modelUsage.tokens.thoughtsTokens,
         }
-      : {}
+      : {};
     span.addEvent(axSpanEvents.GEN_AI_USAGE, {
       [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
         res.modelUsage.tokens.promptTokens,
@@ -1426,17 +1439,17 @@ export function setChatResponseEvents(
       [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
         res.modelUsage.tokens.totalTokens,
       ...thoughTokens,
-    })
+    });
   }
 
   if (!res.results) {
-    return
+    return;
   }
 
   for (let index = 0; index < res.results.length; index++) {
-    const result = res.results[index]
+    const result = res.results[index];
     if (!result) {
-      continue
+      continue;
     }
 
     // Skip empty results that have no meaningful content to avoid empty GEN_AI_CHOICE events
@@ -1446,7 +1459,7 @@ export function setChatResponseEvents(
       !result.functionCalls?.length &&
       !result.finishReason
     ) {
-      continue
+      continue;
     }
 
     const toolCalls = result.functionCalls?.map((call) => {
@@ -1455,19 +1468,19 @@ export function setChatResponseEvents(
         type: call.type,
         function: call.function.name,
         arguments: call.function.params,
-      }
-    })
+      };
+    });
 
-    let message: { content?: string; tool_calls?: unknown[] } = {}
+    const message: { content?: string; tool_calls?: unknown[] } = {};
 
     if (toolCalls && toolCalls.length > 0) {
       if (!excludeContentFromTrace) {
-        message.content = result.content
+        message.content = result.content;
       }
-      message.tool_calls = toolCalls
+      message.tool_calls = toolCalls;
     } else {
       if (!excludeContentFromTrace) {
-        message.content = result.content ?? ''
+        message.content = result.content ?? '';
       }
     }
 
@@ -1475,18 +1488,18 @@ export function setChatResponseEvents(
       finish_reason: result.finishReason,
       index,
       message: JSON.stringify(message, null, 2),
-    })
+    });
   }
 }
 
 export function validateAxMessageArray<T>(values: T[]): void {
   // Validate AxMessage array items
   for (let i = 0; i < values.length; i++) {
-    const message = values[i]
+    const message = values[i];
     if (!message || typeof message !== 'object') {
       throw new Error(
         `AxMessage array validation failed: Item at index ${i} is not a valid message object`
-      )
+      );
     }
     if (
       'content' in message &&
@@ -1495,7 +1508,7 @@ export function validateAxMessageArray<T>(values: T[]): void {
     ) {
       throw new Error(
         `AxMessage array validation failed: Item at index ${i} has empty content`
-      )
+      );
     }
   }
 }
@@ -1504,13 +1517,13 @@ function validateModels<TModel, TEmbedModel>(
   models: Readonly<AxAIInputModelList<TModel, TEmbedModel>>
 ): void {
   // Validate duplicate keys in models.
-  const keys = new Set<string>()
+  const keys = new Set<string>();
   for (const model of models) {
     if (keys.has(model.key)) {
       throw new Error(
         `Duplicate model key detected: "${model.key}". Each model key must be unique.`
-      )
+      );
     }
-    keys.add(model.key)
+    keys.add(model.key);
   }
 }

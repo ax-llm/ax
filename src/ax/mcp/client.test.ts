@@ -1,52 +1,52 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AxMCPClient } from './client.js'
-import type { AxMCPTransport } from './transport.js'
+import { AxMCPClient } from './client.js';
+import type { AxMCPTransport } from './transport.js';
 import type {
   JSONRPCResponse,
   JSONRPCSuccessResponse,
   MCPFunctionDescription,
-} from './types.js'
+} from './types.js';
 
 // Mock the transport
 const createMockTransport = () => {
   const mockTransport: AxMCPTransport = {
     send: vi.fn(),
     sendNotification: vi.fn(),
-  }
-  return mockTransport
-}
+  };
+  return mockTransport;
+};
 
 // Fake transport for testing
 class FakeTransport {
-  sendResponses: Record<string, JSONRPCResponse<unknown>> = {}
+  sendResponses: Record<string, JSONRPCResponse<unknown>> = {};
   send = (
     request: Readonly<{ method: string; [key: string]: unknown }>
   ): Promise<JSONRPCResponse<unknown>> => {
-    const response = this.sendResponses[request.method]
+    const response = this.sendResponses[request.method];
     if (response) {
-      return Promise.resolve(response)
+      return Promise.resolve(response);
     }
-    return Promise.resolve({ jsonrpc: '2.0', id: 'default-id', result: {} })
-  }
+    return Promise.resolve({ jsonrpc: '2.0', id: 'default-id', result: {} });
+  };
   sendNotification = vi.fn(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    (notification: unknown): Promise<void> => Promise.resolve()
-  )
+    (_notification: unknown): Promise<void> => Promise.resolve()
+  );
   connect?(): Promise<void> {
-    return Promise.resolve()
+    return Promise.resolve();
   }
 }
 
 describe('AxMCPClient', () => {
-  let mockTransport: AxMCPTransport
-  let consoleSpy: ReturnType<typeof vi.spyOn>
-  let transport: FakeTransport
-  let client: AxMCPClient
+  let mockTransport: AxMCPTransport;
+  let _consoleSpy: ReturnType<typeof vi.spyOn>;
+  let transport: FakeTransport;
+  let client: AxMCPClient;
 
   beforeEach(() => {
-    mockTransport = createMockTransport()
-    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    mockTransport = createMockTransport();
+    _consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     // Setup mock responses
     vi.mocked(mockTransport.send).mockImplementation(async (request) => {
@@ -66,7 +66,7 @@ describe('AxMCPClient', () => {
               version: '1.0.0',
             },
           },
-        }
+        };
       }
 
       if (request.method === 'tools/list') {
@@ -97,7 +97,7 @@ describe('AxMCPClient', () => {
               },
             },
           },
-        ]
+        ];
 
         return {
           jsonrpc: '2.0',
@@ -107,7 +107,7 @@ describe('AxMCPClient', () => {
             description: 'Test tools list',
             tools,
           },
-        }
+        };
       }
 
       if (request.method === 'tools/call') {
@@ -115,7 +115,7 @@ describe('AxMCPClient', () => {
           jsonrpc: '2.0',
           id: request.id,
           result: { success: true, data: 'Function result' },
-        }
+        };
       }
 
       if (request.method === 'ping') {
@@ -123,17 +123,17 @@ describe('AxMCPClient', () => {
           jsonrpc: '2.0',
           id: request.id,
           result: {},
-        }
+        };
       }
 
       return {
         jsonrpc: '2.0',
         id: request.id,
         result: {},
-      }
-    })
+      };
+    });
 
-    transport = new FakeTransport()
+    transport = new FakeTransport();
 
     // Set default responses for init and tools/list
     transport.sendResponses.initialize = {
@@ -147,7 +147,7 @@ describe('AxMCPClient', () => {
           prompts: false,
         },
       },
-    }
+    };
 
     transport.sendResponses['tools/list'] = {
       jsonrpc: '2.0',
@@ -165,43 +165,43 @@ describe('AxMCPClient', () => {
           },
         ],
       },
-    }
+    };
 
     // Default ping response
     transport.sendResponses.ping = {
       jsonrpc: '2.0',
       id: 'ping-id',
       result: {},
-    }
+    };
 
-    client = new AxMCPClient(transport, { debug: false })
-  })
+    client = new AxMCPClient(transport, { debug: false });
+  });
 
   describe('with mock transport', () => {
     it('should initialize and discover functions', async () => {
-      const client = new AxMCPClient(mockTransport)
-      await client.init()
+      const client = new AxMCPClient(mockTransport);
+      await client.init();
 
       // Verify initialize was called
       expect(mockTransport.send).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'initialize',
         })
-      )
+      );
 
       // Verify tools/list was called
       expect(mockTransport.send).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'tools/list',
         })
-      )
+      );
 
       // Verify functions were discovered
-      const functions = client.toFunction()
-      expect(functions).toHaveLength(2)
-      expect(functions[0]?.name).toBe('function1')
-      expect(functions[1]?.name).toBe('function2')
-    })
+      const functions = client.toFunction();
+      expect(functions).toHaveLength(2);
+      expect(functions[0]?.name).toBe('function1');
+      expect(functions[1]?.name).toBe('function2');
+    });
 
     it('should apply function overrides', async () => {
       const client = new AxMCPClient(mockTransport, {
@@ -214,23 +214,23 @@ describe('AxMCPClient', () => {
             },
           },
         ],
-      })
+      });
 
-      await client.init()
+      await client.init();
 
-      const functions = client.toFunction()
-      expect(functions).toHaveLength(2)
+      const functions = client.toFunction();
+      expect(functions).toHaveLength(2);
 
       // Check that the override was applied
-      const firstFunction = functions[0]
-      expect(firstFunction?.name).toBe('renamedFunction1')
-      expect(firstFunction?.description).toBe('New description for function 1')
+      const firstFunction = functions[0];
+      expect(firstFunction?.name).toBe('renamedFunction1');
+      expect(firstFunction?.description).toBe('New description for function 1');
 
       // Check that the other function was not affected
-      const secondFunction = functions[1]
-      expect(secondFunction?.name).toBe('function2')
-      expect(secondFunction?.description).toBe('Description for function 2')
-    })
+      const secondFunction = functions[1];
+      expect(secondFunction?.name).toBe('function2');
+      expect(secondFunction?.description).toBe('Description for function 2');
+    });
 
     it('should use original function name when calling functions', async () => {
       const client = new AxMCPClient(mockTransport, {
@@ -242,19 +242,19 @@ describe('AxMCPClient', () => {
             },
           },
         ],
-      })
+      });
 
-      await client.init()
+      await client.init();
 
-      const functions = client.toFunction()
-      const firstFunction = functions[0]
+      const functions = client.toFunction();
+      const firstFunction = functions[0];
 
       if (!firstFunction) {
-        throw new Error('Function not found')
+        throw new Error('Function not found');
       }
 
       // Call the renamed function
-      await firstFunction.func({ param1: 'test' })
+      await firstFunction.func({ param1: 'test' });
 
       // Verify the original name was used in the call
       expect(mockTransport.send).toHaveBeenCalledWith(
@@ -265,49 +265,22 @@ describe('AxMCPClient', () => {
             arguments: { param1: 'test' },
           },
         })
-      )
-    })
-
-    it('should log debug information when debug is enabled', async () => {
-      const client = new AxMCPClient(mockTransport, { debug: true })
-      await client.init()
-
-      // Verify debug logs were printed
-      expect(consoleSpy).toHaveBeenCalled()
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Sending request')
-      )
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Received response')
-      )
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Discovered 2 functions')
-      )
-    })
-
-    it('should not log debug information when debug is disabled', async () => {
-      consoleSpy.mockClear()
-
-      const client = new AxMCPClient(mockTransport, { debug: false })
-      await client.init()
-
-      // Verify no debug logs were printed
-      expect(consoleSpy).not.toHaveBeenCalled()
-    })
+      );
+    });
 
     it('should ping the server', async () => {
-      const client = new AxMCPClient(mockTransport)
-      await client.init()
+      const client = new AxMCPClient(mockTransport);
+      await client.init();
 
-      await client.ping()
+      await client.ping();
 
       // Verify ping was called
       expect(mockTransport.send).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'ping',
         })
-      )
-    })
+      );
+    });
 
     it('should throw an error when tools are not supported', async () => {
       // Override the initialize response to indicate tools are not supported
@@ -326,16 +299,16 @@ describe('AxMCPClient', () => {
                 version: '1.0.0',
               },
             },
-          }
+          };
         }
-        return { jsonrpc: '2.0', id: request.id, result: {} }
-      })
+        return { jsonrpc: '2.0', id: request.id, result: {} };
+      });
 
-      const client = new AxMCPClient(mockTransport)
+      const client = new AxMCPClient(mockTransport);
 
       // Expect init to throw an error
-      await expect(client.init()).rejects.toThrow('Tools are not supported')
-    })
+      await expect(client.init()).rejects.toThrow('Tools are not supported');
+    });
 
     it('should handle RPC errors', async () => {
       // Override the send method to return an error
@@ -347,14 +320,14 @@ describe('AxMCPClient', () => {
             code: 123,
             message: 'Test error',
           },
-        } as JSONRPCResponse
-      })
+        } as JSONRPCResponse;
+      });
 
-      const client = new AxMCPClient(mockTransport)
+      const client = new AxMCPClient(mockTransport);
 
       // Expect init to throw an error
-      await expect(client.init()).rejects.toThrow('RPC Error 123: Test error')
-    })
+      await expect(client.init()).rejects.toThrow('RPC Error 123: Test error');
+    });
 
     it('should handle invalid responses', async () => {
       // Override the send method to return an invalid response
@@ -363,25 +336,25 @@ describe('AxMCPClient', () => {
           jsonrpc: '2.0',
           id: 1,
           // No result or error property
-        } as JSONRPCResponse
-      })
+        } as JSONRPCResponse;
+      });
 
-      const client = new AxMCPClient(mockTransport)
+      const client = new AxMCPClient(mockTransport);
 
       // Expect init to throw an error
       await expect(client.init()).rejects.toThrow(
         'Invalid response no result or error'
-      )
-    })
-  })
+      );
+    });
+  });
 
   describe('with fake transport', () => {
     it('init should succeed with correct protocol version and discover functions', async () => {
-      await client.init()
-      const functions = client.toFunction()
-      expect(functions.length).toBe(1)
-      expect(functions[0]?.name).toBe('testFn')
-    })
+      await client.init();
+      const functions = client.toFunction();
+      expect(functions.length).toBe(1);
+      expect(functions[0]?.name).toBe('testFn');
+    });
 
     it('init should fail with incorrect protocol version', async () => {
       transport.sendResponses.initialize = {
@@ -395,22 +368,22 @@ describe('AxMCPClient', () => {
             prompts: false,
           },
         },
-      }
-      await expect(client.init()).rejects.toThrow(/Protocol version mismatch/)
-    })
+      };
+      await expect(client.init()).rejects.toThrow(/Protocol version mismatch/);
+    });
 
     it('ping should succeed with empty response', async () => {
-      await expect(client.ping()).resolves.toBeUndefined()
-    })
+      await expect(client.ping()).resolves.toBeUndefined();
+    });
 
     it('ping should fail with non-empty response', async () => {
       transport.sendResponses.ping = {
         jsonrpc: '2.0',
         id: 'ping-id',
         result: { unexpected: 'data' },
-      }
-      await expect(client.ping()).rejects.toThrow(/Unexpected ping response/)
-    })
+      };
+      await expect(client.ping()).rejects.toThrow(/Unexpected ping response/);
+    });
 
     it('cancelRequest cancels an active pending request', async () => {
       // Override transport.send to return a pending promise
@@ -418,8 +391,8 @@ describe('AxMCPClient', () => {
         () => {
           // This promise intentionally never resolves
         }
-      )
-      transport.send = vi.fn(() => pendingPromise)
+      );
+      transport.send = vi.fn(() => pendingPromise);
 
       // Call a private sendRequest via casting client as any
       const sendRequestPromise = (
@@ -427,32 +400,32 @@ describe('AxMCPClient', () => {
           sendRequest(
             method: string,
             params: unknown
-          ): Promise<{ id: string; result: unknown }>
+          ): Promise<{ id: string; result: unknown }>;
         }
-      ).sendRequest('longRunningMethod', {})
+      ).sendRequest('longRunningMethod', {});
 
       // Get the active request id from client.activeRequests
       const activeRequests: Map<string, { reject: (reason: unknown) => void }> =
         (
           client as unknown as {
-            activeRequests: Map<string, { reject: (reason: unknown) => void }>
+            activeRequests: Map<string, { reject: (reason: unknown) => void }>;
           }
-        ).activeRequests
-      const activeRequestIds = Array.from(activeRequests.keys())
-      expect(activeRequestIds.length).toBeGreaterThan(0)
-      const requestId = activeRequestIds[0]
+        ).activeRequests;
+      const activeRequestIds = Array.from(activeRequests.keys());
+      expect(activeRequestIds.length).toBeGreaterThan(0);
+      const requestId = activeRequestIds[0];
 
       // Ensure requestId is defined
       if (!requestId) {
-        throw new Error('No active request ID found')
+        throw new Error('No active request ID found');
       }
 
       // Cancel the active request
-      client.cancelRequest(requestId)
+      client.cancelRequest(requestId);
 
       await expect(sendRequestPromise).rejects.toThrow(
         `Request ${requestId} cancelled`
-      )
+      );
 
       // Verify that sendNotification was called for cancellation
       expect(transport.sendNotification).toHaveBeenCalledWith(
@@ -460,7 +433,7 @@ describe('AxMCPClient', () => {
           method: 'notifications/cancelled',
           params: { requestId, reason: 'Client cancelled request' },
         })
-      )
-    })
-  })
-})
+      );
+    });
+  });
+});

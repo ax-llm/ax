@@ -1,11 +1,11 @@
-import type { AxAIService } from '../ai/types.js'
-import { AxGen } from '../dsp/generate.js'
-import { type AxProgramForwardOptions } from '../dsp/program.js'
-import { AxSignature } from '../dsp/sig.js'
-import { AxStringUtil } from '../dsp/strutil.js'
-import type { AxMessage } from '../dsp/types.js'
+import type { AxAIService } from '../ai/types.js';
+import { AxGen } from '../dsp/generate.js';
+import type { AxProgramForwardOptions } from '../dsp/program.js';
+import { AxSignature } from '../dsp/sig.js';
+import { AxStringUtil } from '../dsp/strutil.js';
+import type { AxMessage } from '../dsp/types.js';
 
-import { AxChainOfThought } from './cot.js'
+import { AxChainOfThought } from './cot.js';
 
 export class AxRAG extends AxChainOfThought<
   { context: string[]; question: string },
@@ -14,28 +14,28 @@ export class AxRAG extends AxChainOfThought<
   private genQuery: AxGen<
     { context: string[]; question: string },
     { query: string }
-  >
-  private queryFn: (query: string) => Promise<string>
-  private maxHops: number
+  >;
+  private queryFn: (query: string) => Promise<string>;
+  private maxHops: number;
 
   constructor(
     queryFn: (query: string) => Promise<string>,
     options: Readonly<AxProgramForwardOptions & { maxHops?: number }>
   ) {
     const sig =
-      '"Answer questions with short factoid answers." context:string[] "may contain relevant facts", question -> answer'
-    super(sig, options)
+      '"Answer questions with short factoid answers." context:string[] "may contain relevant facts", question -> answer';
+    super(sig, options);
 
-    this.maxHops = options?.maxHops ?? 3
+    this.maxHops = options?.maxHops ?? 3;
 
     const qsig = new AxSignature(
       '"Write a simple search query that will help answer a complex question." context?:string[] "may contain relevant facts", question -> query "question to further our understanding"'
-    )
+    );
     this.genQuery = new AxGen<
       { context: string[]; question: string },
       { query: string }
-    >(qsig)
-    this.queryFn = queryFn
+    >(qsig);
+    this.queryFn = queryFn;
     // Note: genQuery is not registered as it has a different output signature than the parent
   }
 
@@ -47,31 +47,31 @@ export class AxRAG extends AxChainOfThought<
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<{ answer: string }> {
     // Extract question from values - handle both cases
-    let question: string
+    let question: string;
     if (Array.isArray(values)) {
       // If values is an array of messages, find the most recent user message
-      const lastUserMessage = values.filter((msg) => msg.role === 'user').pop()
+      const lastUserMessage = values.filter((msg) => msg.role === 'user').pop();
       if (!lastUserMessage) {
-        throw new Error('No user message found in values array')
+        throw new Error('No user message found in values array');
       }
-      question = lastUserMessage.values.question
+      question = lastUserMessage.values.question;
     } else {
       // If values is a single object
-      question = values.question
+      question = values.question;
     }
 
-    let hop = 0
-    let context: string[] = []
+    let hop = 0;
+    let context: string[] = [];
 
     while (hop < this.maxHops) {
-      const query = await this.genQuery.forward(ai, { context, question })
-      const queryResult = await this.queryFn(query.query)
-      context = AxStringUtil.dedup([...context, queryResult])
+      const query = await this.genQuery.forward(ai, { context, question });
+      const queryResult = await this.queryFn(query.query);
+      context = AxStringUtil.dedup([...context, queryResult]);
 
-      hop++
+      hop++;
     }
 
-    const res = await super.forward(ai, { context, question }, options)
-    return res
+    const res = await super.forward(ai, { context, question }, options);
+    return res;
   }
 }

@@ -1,6 +1,6 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAICohereEmbedModel, AxAICohereModel } from './types.js'
+import { AxAICohereEmbedModel, AxAICohereModel } from './types.js';
 
 export const axModelInfoCohere: AxModelInfo[] = [
   {
@@ -51,4 +51,4 @@ export const axModelInfoCohere: AxModelInfo[] = [
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.1,
   },
-]
+];

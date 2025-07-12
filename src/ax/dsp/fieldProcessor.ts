@@ -1,28 +1,28 @@
-import type { AxAIMemory } from '../mem/types.js'
+import type { AxAIMemory } from '../mem/types.js';
 
-import type { extractionState } from './extract.js'
-import type { AxField } from './sig.js'
-import type { AxFieldValue, AxGenOut } from './types.js'
+import type { extractionState } from './extract.js';
+import type { AxField } from './sig.js';
+import type { AxFieldValue, AxGenOut } from './types.js';
 
 export type AxFieldProcessorProcess = (
   value: AxFieldValue,
   context?: Readonly<{
-    values?: AxGenOut
-    sessionId?: string
-    done?: boolean
+    values?: AxGenOut;
+    sessionId?: string;
+    done?: boolean;
   }>
-) => unknown | Promise<unknown>
+) => unknown | Promise<unknown>;
 
 export type AxStreamingFieldProcessorProcess = (
   value: string,
   context?: Readonly<{
-    values?: AxGenOut
-    sessionId?: string
-    done?: boolean
+    values?: AxGenOut;
+    sessionId?: string;
+    done?: boolean;
   }>
-) => unknown | Promise<unknown>
+) => unknown | Promise<unknown>;
 export interface AxFieldProcessor {
-  field: Readonly<AxField>
+  field: Readonly<AxField>;
 
   /**
    * Process the field value and return a new value (or undefined if no update is needed).
@@ -30,7 +30,7 @@ export interface AxFieldProcessor {
    * @param value - The current field value.
    * @param context - Additional context (e.g. memory and session id).
    */
-  process: AxFieldProcessorProcess | AxStreamingFieldProcessorProcess
+  process: AxFieldProcessorProcess | AxStreamingFieldProcessorProcess;
 }
 
 /**
@@ -46,16 +46,16 @@ export async function processFieldProcessors(
 ) {
   for (const processor of fieldProcessors) {
     if (values[processor.field.name] === undefined) {
-      continue
+      continue;
     }
 
-    const processFn = processor.process as AxFieldProcessorProcess
+    const processFn = processor.process as AxFieldProcessorProcess;
     const result = await processFn(values[processor.field.name], {
       sessionId,
       values,
       done: true,
-    })
-    addToMemory(processor.field, mem, result, sessionId)
+    });
+    addToMemory(processor.field, mem, result, sessionId);
   }
 }
 
@@ -70,28 +70,28 @@ export async function processStreamingFieldProcessors(
   mem: AxAIMemory,
   values: AxGenOut,
   sessionId: string | undefined,
-  done: boolean = false
+  done = false
 ): Promise<void> {
   for (const processor of fieldProcessors) {
     if (xstate.currField?.name !== processor.field.name) {
-      continue
+      continue;
     }
 
-    let value = content.substring(xstate.s)
+    let value = content.substring(xstate.s);
 
     if (xstate.currField?.type?.name === 'code') {
       // remove markdown block
-      value = value.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '')
-      value = value.replace(/\s*```\s*$/, '')
+      value = value.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '');
+      value = value.replace(/\s*```\s*$/, '');
     }
-    const processFn = processor.process as AxStreamingFieldProcessorProcess
+    const processFn = processor.process as AxStreamingFieldProcessorProcess;
     const result = await processFn(value, {
       sessionId,
       values,
       done,
-    })
+    });
 
-    addToMemory(xstate.currField, mem, result, sessionId)
+    addToMemory(xstate.currField, mem, result, sessionId);
   }
 }
 
@@ -107,33 +107,32 @@ const addToMemory = (
     (typeof result === 'string' &&
       (result === '' || /^(null|undefined)\s*$/i.test(result)))
   ) {
-    return
+    return;
   }
 
-  let resultText = JSON.stringify(
+  const resultText = JSON.stringify(
     result,
-    (key, value) => (typeof value === 'bigint' ? Number(value) : value),
+    (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
     2
-  )
+  );
 
-  const text = getFieldProcessingMessage(field, resultText)
+  const text = getFieldProcessingMessage(field, resultText);
   mem.addRequest(
     [{ role: 'user', content: [{ type: 'text', text }] }],
     sessionId
-  )
-  mem.addTag(`processor`, sessionId)
-}
+  );
+  mem.addTag('processor', sessionId);
+};
 
 function getFieldProcessingMessage(
   field: Readonly<AxField>,
   resultText: string
 ) {
-  const isCodeField = field.type?.name === 'code'
-  const fieldTitle = field.title
+  const isCodeField = field.type?.name === 'code';
+  const fieldTitle = field.title;
 
   if (isCodeField) {
-    return `Code in the field "${fieldTitle}" was executed. The code execution produced the following output: ${resultText}`
-  } else {
-    return `The field "${fieldTitle}" was processed. The field contents were transformed into the following output: ${resultText}`
+    return `Code in the field "${fieldTitle}" was executed. The code execution produced the following output: ${resultText}`;
   }
+  return `The field "${fieldTitle}" was processed. The field contents were transformed into the following output: ${resultText}`;
 }

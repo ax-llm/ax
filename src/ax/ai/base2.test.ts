@@ -1,26 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-import { AxBaseAI } from './base.js'
-import type { AxBaseAIArgs } from './base.js'
-import type { AxAIServiceImpl, AxChatRequest, AxModelInfo } from './types.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AxBaseAIArgs } from './base.js';
+import { AxBaseAI } from './base.js';
+import type { AxAIServiceImpl, AxChatRequest, AxModelInfo } from './types.js';
 
 // Create a mock fetch implementation
 const createMockFetch = (responseFactory: () => Response) => {
   return vi.fn().mockImplementation(async () => {
     // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    return responseFactory()
-  })
-}
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return responseFactory();
+  });
+};
 
 // Create a function that returns a fresh mock response for each call
 const createDefaultMockResponse = () => {
-  const responseBody = JSON.stringify({ results: [] })
+  const responseBody = JSON.stringify({ results: [] });
   return new Response(responseBody, {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
-  })
-}
+  });
+};
 
 describe('AxBaseAI - Expensive Model Safety', () => {
   // Mock implementation of the AI service
@@ -46,15 +45,15 @@ describe('AxBaseAI - Expensive Model Safety', () => {
       promptTokens: 0,
       completionTokens: 0,
     }),
-  }
+  };
 
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   afterEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   // Base configuration for tests
   const baseConfig: AxBaseAIArgs<string, string> = {
@@ -79,7 +78,7 @@ describe('AxBaseAI - Expensive Model Safety', () => {
       { key: 'model1', model: 'test-model-1', description: 'Test Model 1' },
       { key: 'model2', model: 'test-model-2', description: 'Test Model 2' },
     ],
-  }
+  };
 
   // Setup helper to create AI instance with mock fetch
   const createTestAI = (
@@ -100,13 +99,13 @@ describe('AxBaseAI - Expensive Model Safety', () => {
     > = mockImpl,
     config: AxBaseAIArgs<string, string> = baseConfig
   ) => {
-    const mockFetch = createMockFetch(responseFactory)
-    const ai = new AxBaseAI(serviceImpl, config)
+    const mockFetch = createMockFetch(responseFactory);
+    const ai = new AxBaseAI(serviceImpl, config);
     ai.setOptions({
       fetch: mockFetch,
-    })
-    return ai
-  }
+    });
+    return ai;
+  };
 
   it('should throw error for expensive model without useExpensiveModel', async () => {
     const expensiveConfig = {
@@ -127,23 +126,23 @@ describe('AxBaseAI - Expensive Model Safety', () => {
         },
       ],
       defaults: { model: 'regular-model' },
-    }
+    };
 
     const ai = createTestAI(
       createDefaultMockResponse,
       mockImpl,
       expensiveConfig
-    )
+    );
 
     const req: AxChatRequest<string> = {
       chatPrompt: [{ role: 'user', content: 'Hello' }],
       model: 'expensive-model',
-    }
+    };
 
     await expect(ai.chat(req)).rejects.toThrow(
       'Model expensive-model is marked as expensive and requires explicit confirmation. Set useExpensiveModel: "yes" to proceed.'
-    )
-  })
+    );
+  });
 
   it('should allow expensive model with useExpensiveModel: "yes"', async () => {
     const expensiveConfig = {
@@ -158,25 +157,25 @@ describe('AxBaseAI - Expensive Model Safety', () => {
         },
       ],
       defaults: { model: 'expensive-model' },
-    }
+    };
 
     const ai = createTestAI(
       createDefaultMockResponse,
       mockImpl,
       expensiveConfig
-    )
+    );
 
     const req: AxChatRequest<string> = {
       chatPrompt: [{ role: 'user', content: 'Hello' }],
       model: 'expensive-model',
-    }
+    };
 
-    const options = { useExpensiveModel: 'yes' as const }
+    const options = { useExpensiveModel: 'yes' as const };
 
     // Should not throw
-    const response = await ai.chat(req, options)
-    expect(response).toBeDefined()
-  })
+    const response = await ai.chat(req, options);
+    expect(response).toBeDefined();
+  });
 
   it('should allow regular model without useExpensiveModel option', async () => {
     const regularConfig = {
@@ -190,19 +189,19 @@ describe('AxBaseAI - Expensive Model Safety', () => {
         },
       ],
       defaults: { model: 'regular-model' },
-    }
+    };
 
-    const ai = createTestAI(createDefaultMockResponse, mockImpl, regularConfig)
+    const ai = createTestAI(createDefaultMockResponse, mockImpl, regularConfig);
 
     const req: AxChatRequest<string> = {
       chatPrompt: [{ role: 'user', content: 'Hello' }],
       model: 'regular-model',
-    }
+    };
 
     // Should not throw
-    const response = await ai.chat(req)
-    expect(response).toBeDefined()
-  })
+    const response = await ai.chat(req);
+    expect(response).toBeDefined();
+  });
 
   it('should allow expensive model when no modelInfo is provided', async () => {
     // When modelInfo doesn't contain the model, it shouldn't block
@@ -217,23 +216,23 @@ describe('AxBaseAI - Expensive Model Safety', () => {
         },
       ],
       defaults: { model: 'unknown-model' },
-    }
+    };
 
     const ai = createTestAI(
       createDefaultMockResponse,
       mockImpl,
       configWithoutExpensiveInfo
-    )
+    );
 
     const req: AxChatRequest<string> = {
       chatPrompt: [{ role: 'user', content: 'Hello' }],
       model: 'unknown-model',
-    }
+    };
 
     // Should not throw since model info doesn't mark it as expensive
-    const response = await ai.chat(req)
-    expect(response).toBeDefined()
-  })
+    const response = await ai.chat(req);
+    expect(response).toBeDefined();
+  });
 
   it('should block expensive model even with wrong confirmation value', async () => {
     const expensiveConfig = {
@@ -248,22 +247,22 @@ describe('AxBaseAI - Expensive Model Safety', () => {
         },
       ],
       defaults: { model: 'expensive-model' },
-    }
+    };
 
     const ai = createTestAI(
       createDefaultMockResponse,
       mockImpl,
       expensiveConfig
-    )
+    );
 
     const req: AxChatRequest<string> = {
       chatPrompt: [{ role: 'user', content: 'Hello' }],
       model: 'expensive-model',
-    }
+    };
 
     // No useExpensiveModel option provided - should still throw
     await expect(ai.chat(req)).rejects.toThrow(
       'Model expensive-model is marked as expensive and requires explicit confirmation. Set useExpensiveModel: "yes" to proceed.'
-    )
-  })
-})
+    );
+  });
+});

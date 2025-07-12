@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax-ai-sdk-provider",
-  "version": "12.0.23",
+  "version": "13.0.6",
   "type": "module",
   "description": "Ax AI SDK Provider for the Vercel AI SDK",
   "repository": {
@@ -18,11 +18,11 @@
     "clean": "rm -rf dist",
     "test": "run-s test:*",
     "test:type-check": "tsc --noEmit",
-    "test:lint": "eslint",
-    "test:format": "prettier --check \"**/*.{ts,json,md}\"",
+    "test:lint": "biome lint .",
+    "test:format": "biome format .",
     "fix": "run-s fix:*",
-    "fix:lint": "eslint --fix",
-    "fix:format": "prettier --write \"**/*.{ts,json,md}\"",
+    "fix:lint": "biome lint --write .",
+    "fix:format": "biome format --write .",
     "coverage": "c8 ava",
     "prepare": "husky install",
     "tsx": "node --env-file=.env --import=tsx",
@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@ai-sdk/provider-utils": "^2.1.13",
-    "@ax-llm/ax": "12.0.23",
+    "@ax-llm/ax": "13.0.6",
     "ai": "^4.1.61",
     "zod": "^3.23.8"
   },

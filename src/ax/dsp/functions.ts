@@ -1,3 +1,4 @@
+import { logFunctionError, logFunctionResults } from '../ai/debug.js';
 import type {
   AxAIService,
   AxAIServiceActionOptions,
@@ -5,29 +6,29 @@ import type {
   AxChatResponseResult,
   AxFunction,
   AxFunctionResult,
-} from '../ai/types.js'
-import type { AxMemory } from '../mem/memory.js'
-
-import { validateJSONSchema } from './jsonschema.js'
+} from '../ai/types.js';
+import type { AxMemory } from '../mem/memory.js';
+import { axGlobals } from './globals.js';
+import { validateJSONSchema } from './jsonschema.js';
 
 export class AxFunctionError extends Error {
   constructor(
     private fields: {
-      field: string
-      message: string
+      field: string;
+      message: string;
     }[]
   ) {
-    super()
-    this.name = this.constructor.name
+    super();
+    this.name = this.constructor.name;
   }
 
-  getFields = () => this.fields
+  getFields = () => this.fields;
 
   override toString(): string {
     return [
       `${this.name}: Function validation error`,
       ...this.fields.map((field) => `  - ${field.field}: ${field.message}`),
-    ].join('\n')
+    ].join('\n');
   }
 
   [Symbol.for('nodejs.util.inspect.custom')](
@@ -36,11 +37,11 @@ export class AxFunctionError extends Error {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options: Record<string, unknown>
   ) {
-    return this.toString()
+    return this.toString();
   }
 }
 
-type FunctionFieldErrors = ConstructorParameters<typeof AxFunctionError>[0]
+type FunctionFieldErrors = ConstructorParameters<typeof AxFunctionError>[0];
 
 export class FunctionError extends Error {
   constructor(
@@ -48,44 +49,45 @@ export class FunctionError extends Error {
     private readonly func: Readonly<AxFunction>,
     private readonly funcId?: string
   ) {
-    super()
+    super();
   }
 
-  getFunctionId = () => this.funcId
+  getFunctionId = () => this.funcId;
 
   private getFieldDescription(fieldName: string): string {
     if (!this.func.parameters?.properties?.[fieldName]) {
-      return ''
+      return '';
     }
 
-    const fieldSchema = this.func.parameters.properties[fieldName]
-    let description = fieldSchema.description
+    const fieldSchema = this.func.parameters.properties[fieldName];
+    let description = fieldSchema.description;
 
     if (fieldSchema.enum?.length) {
-      description += ` Allowed values are: ${fieldSchema.enum.join(', ')}`
+      description += ` Allowed values are: ${fieldSchema.enum.join(', ')}`;
     }
 
-    return description
+    return description;
   }
 
   public getFixingInstructions = () => {
     const bulletPoints = this.fields.map((fieldError) => {
-      const schemaDescription = this.getFieldDescription(fieldError.field) || ''
-      return `- \`${fieldError.field}\` - ${fieldError.message} (${schemaDescription}).`
-    })
+      const schemaDescription =
+        this.getFieldDescription(fieldError.field) || '';
+      return `- \`${fieldError.field}\` - ${fieldError.message} (${schemaDescription}).`;
+    });
 
-    return `Errors In Function Arguments: Fix the following invalid arguments to '${this.func.name}'\n${bulletPoints.join('\n')}`
-  }
+    return `Errors In Function Arguments: Fix the following invalid arguments to '${this.func.name}'\n${bulletPoints.join('\n')}`;
+  };
 
   override toString(): string {
     return [
       `${this.name}: Function execution error in '${this.func.name}'`,
       ...this.fields.map((field) => {
-        const description = this.getFieldDescription(field.field)
-        return `  - ${field.field}: ${field.message}${description ? ` (${description})` : ''}`
+        const description = this.getFieldDescription(field.field);
+        return `  - ${field.field}: ${field.message}${description ? ` (${description})` : ''}`;
       }),
       this.funcId ? `  Function ID: ${this.funcId}` : '',
-    ].join('\n')
+    ].join('\n');
   }
 
   [Symbol.for('nodejs.util.inspect.custom')](
@@ -94,21 +96,21 @@ export class FunctionError extends Error {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options: Record<string, unknown>
   ) {
-    return this.toString()
+    return this.toString();
   }
 }
 
 export type AxChatResponseFunctionCall = {
-  id: string
-  name: string
-  args: string
-}
+  id: string;
+  name: string;
+  args: string;
+};
 
 export class AxFunctionProcessor {
-  private funcList: Readonly<AxFunction[]> = []
+  private funcList: Readonly<AxFunction[]> = [];
 
   constructor(funcList: Readonly<AxFunction[]>) {
-    this.funcList = funcList
+    this.funcList = funcList;
   }
 
   private executeFunction = async (
@@ -116,12 +118,12 @@ export class AxFunctionProcessor {
     func: Readonly<AxChatResponseFunctionCall>,
     options?: Readonly<AxAIServiceActionOptions>
   ) => {
-    let args: unknown
+    let args: unknown;
 
     if (typeof func.args === 'string' && func.args.length > 0) {
-      args = JSON.parse(func.args)
+      args = JSON.parse(func.args);
     } else {
-      args = func.args
+      args = func.args;
     }
 
     const opt = options
@@ -130,30 +132,24 @@ export class AxFunctionProcessor {
           traceId: options.traceId,
           ai: options.ai,
         }
-      : undefined
+      : undefined;
 
+    let res: unknown;
     if (!fnSpec.parameters) {
-      const res =
-        fnSpec.func.length === 1 ? await fnSpec.func(opt) : await fnSpec.func()
-
-      return typeof res === 'string'
-        ? res
-        : res === undefined || res === null
-          ? ''
-          : JSON.stringify(res, null, 2)
+      res =
+        fnSpec.func.length === 1 ? await fnSpec.func(opt) : await fnSpec.func();
+    } else {
+      res =
+        fnSpec.func.length === 2
+          ? await fnSpec.func(args, opt)
+          : await fnSpec.func(args);
     }
 
-    const res =
-      fnSpec.func.length === 2
-        ? await fnSpec.func(args, opt)
-        : await fnSpec.func(args)
-
-    return typeof res === 'string'
-      ? res
-      : res === undefined || res === null
-        ? ''
-        : JSON.stringify(res, null, 2)
-  }
+    // Use the formatter from options or fall back to globals
+    const formatter =
+      options?.functionResultFormatter ?? axGlobals.functionResultFormatter;
+    return formatter(res);
+  };
 
   public execute = async (
     func: Readonly<AxChatResponseFunctionCall>,
@@ -161,71 +157,72 @@ export class AxFunctionProcessor {
   ) => {
     const fnSpec = this.funcList.find(
       (v) => v.name.localeCompare(func.name) === 0
-    )
+    );
     if (!fnSpec) {
-      throw new Error(`Function not found: ${func.name}`)
+      throw new Error(`Function not found: ${func.name}`);
     }
     if (!fnSpec.func) {
-      throw new Error(`No handler for function: ${func.name}`)
+      throw new Error(`No handler for function: ${func.name}`);
     }
 
     // execute value function calls
     try {
-      return await this.executeFunction(fnSpec, func, options)
+      return await this.executeFunction(fnSpec, func, options);
     } catch (e) {
       if (e instanceof AxFunctionError) {
-        throw new FunctionError(e.getFields(), fnSpec, func.id)
+        throw new FunctionError(e.getFields(), fnSpec, func.id);
       }
-      throw e
+      throw e;
     }
-  }
+  };
 }
 
 export type AxInputFunctionType = (
   | AxFunction
   | {
-      toFunction: () => AxFunction | AxFunction[]
+      toFunction: () => AxFunction | AxFunction[];
     }
-)[]
+)[];
 
 export const parseFunctions = (
   newFuncs: Readonly<AxInputFunctionType>,
   existingFuncs?: readonly AxFunction[]
 ): AxFunction[] => {
   if (newFuncs.length === 0) {
-    return [...(existingFuncs ?? [])]
+    return [...(existingFuncs ?? [])];
   }
 
   // biome-ignore lint/complexity/useFlatMap: cannot use flatMap here
   const functions = newFuncs
     .map((f) => {
       if ('toFunction' in f) {
-        return f.toFunction()
+        return f.toFunction();
       }
-      return f
+      return f;
     })
-    .flat()
+    .flat();
 
   for (const fn of functions.filter((v) => v.parameters)) {
     if (fn.parameters) {
-      validateJSONSchema(fn.parameters)
+      validateJSONSchema(fn.parameters);
     }
   }
 
-  return [...(existingFuncs ?? []), ...functions]
-}
+  return [...(existingFuncs ?? []), ...functions];
+};
 
 type ProcessFunctionsArgs = {
-  ai: Readonly<AxAIService>
-  functionList: Readonly<AxFunction[]>
-  functionCalls: readonly AxChatResponseFunctionCall[]
-  mem: Readonly<AxMemory>
-  sessionId?: string
-  traceId?: string
-  span?: import('@opentelemetry/api').Span
-  excludeContentFromTrace?: boolean
-  index: number
-}
+  ai: Readonly<AxAIService>;
+  functionList: Readonly<AxFunction[]>;
+  functionCalls: readonly AxChatResponseFunctionCall[];
+  mem: Readonly<AxMemory>;
+  sessionId?: string;
+  traceId?: string;
+  span?: import('@opentelemetry/api').Span;
+  excludeContentFromTrace?: boolean;
+  index: number;
+  functionResultFormatter?: (result: unknown) => string;
+};
 
 export const processFunctions = async ({
   ai,
@@ -237,31 +234,32 @@ export const processFunctions = async ({
   span,
   excludeContentFromTrace,
   index,
+  functionResultFormatter,
 }: Readonly<ProcessFunctionsArgs>) => {
-  const funcProc = new AxFunctionProcessor(functionList)
-  const functionsExecuted = new Set<string>()
+  const funcProc = new AxFunctionProcessor(functionList);
+  const functionsExecuted = new Set<string>();
 
   // Map each function call to a promise that resolves to the function result or null
   const promises = functionCalls.map((func) => {
     if (!func.id) {
-      throw new Error(`Function ${func.name} did not return an ID`)
+      throw new Error(`Function ${func.name} did not return an ID`);
     }
 
     const promise: Promise<AxFunctionResult | undefined> = funcProc
-      .execute(func, { sessionId, traceId, ai })
+      .execute(func, { sessionId, traceId, ai, functionResultFormatter })
       .then((functionResult) => {
-        functionsExecuted.add(func.name.toLowerCase())
+        functionsExecuted.add(func.name.toLowerCase());
 
         // Add telemetry event for successful function call
         if (span) {
           const eventData: { name: string; args?: string; result?: string } = {
             name: func.name,
-          }
+          };
           if (!excludeContentFromTrace) {
-            eventData.args = func.args
-            eventData.result = functionResult ?? ''
+            eventData.args = func.args;
+            eventData.result = functionResult ?? '';
           }
-          span.addEvent('function.call', eventData)
+          span.addEvent('function.call', eventData);
         }
 
         return {
@@ -269,37 +267,35 @@ export const processFunctions = async ({
           role: 'function' as const,
           functionId: func.id,
           index,
-        }
+        };
       })
       .catch((e) => {
         if (!(e instanceof FunctionError)) {
-          throw e
+          throw e;
         }
-        const result = e.getFixingInstructions()
+        const result = e.getFixingInstructions();
 
         // Add telemetry event for function error
         if (span) {
           const errorEventData: {
-            name: string
-            args?: string
-            message: string
-            fixing_instructions?: string
+            name: string;
+            args?: string;
+            message: string;
+            fixing_instructions?: string;
           } = {
             name: func.name,
             message: e.toString(),
-          }
+          };
           if (!excludeContentFromTrace) {
-            errorEventData.args = func.args
-            errorEventData.fixing_instructions = result
+            errorEventData.args = func.args;
+            errorEventData.fixing_instructions = result;
           }
-          span.addEvent('function.error', errorEventData)
+          span.addEvent('function.error', errorEventData);
         }
 
         if (ai.getOptions().debug) {
-          const logger = ai.getLogger()
-          logger(`❌ Function Error Correction:\n${result}`, {
-            tags: ['error'],
-          })
+          const logger = ai.getLogger();
+          logFunctionError(e, index, result, logger);
         }
 
         return {
@@ -308,53 +304,64 @@ export const processFunctions = async ({
           index,
           result,
           role: 'function' as const,
-        }
-      })
+        };
+      });
 
-    return promise
-  })
+    return promise;
+  });
 
   // Wait for all promises to resolve
-  const results = await Promise.all(promises)
-  const functionResults = results.filter((result) => result !== undefined)
+  const results = await Promise.all(promises);
+  const functionResults = results.filter((result) => result !== undefined);
 
-  mem.addFunctionResults(functionResults, sessionId)
+  mem.addFunctionResults(functionResults, sessionId);
 
-  if (functionResults.some((result) => result.isError)) {
-    mem.addTag('error', sessionId)
+  // Log successful function results if debug is enabled
+  if (ai.getOptions().debug) {
+    const successfulResults = functionResults.filter(
+      (result) => !result.isError
+    );
+    if (successfulResults.length > 0) {
+      const logger = ai.getLogger();
+      logFunctionResults(successfulResults, logger);
+    }
   }
 
-  return functionsExecuted
-}
+  if (functionResults.some((result) => result.isError)) {
+    mem.addTag('error', sessionId);
+  }
+
+  return functionsExecuted;
+};
 
 export function parseFunctionCalls(
   ai: Readonly<AxAIService>,
   functionCalls: Readonly<AxChatResponseResult['functionCalls']>,
-  values: Record<string, unknown>,
+  _values: Record<string, unknown>,
   model?: string
 ): AxChatResponseFunctionCall[] | undefined {
   if (!functionCalls || functionCalls.length === 0) {
-    return
+    return;
   }
   if (!ai.getFeatures(model).functions) {
-    throw new Error('Functions are not supported by the AI service')
+    throw new Error('Functions are not supported by the AI service');
   }
 
   const funcs: AxChatResponseFunctionCall[] = functionCalls.map((f) => ({
     id: f.id,
     name: f.function.name,
     args: f.function.params as string,
-  }))
+  }));
 
   // for (const [i, f] of funcs.entries()) {
   //   values['functionName' + i] = f.name;
   //   values['functionArguments' + i] =
   //     typeof f.args === 'object' ? JSON.stringify(f.args) : f.args;
   // }
-  return funcs
+  return funcs;
 }
 
-type FunctionCall = AxChatRequest['functionCall'] | undefined
+type FunctionCall = AxChatRequest['functionCall'] | undefined;
 
 /**
  * Utility function to parse a list of functions into AxFunction array
@@ -364,28 +371,28 @@ export function createFunctionConfig(
   definedFunctionCall?: FunctionCall,
   firstStep?: boolean
 ): { functions: AxFunction[]; functionCall: FunctionCall } {
-  let functionCall = definedFunctionCall
+  const functionCall = definedFunctionCall;
 
   if (
     !firstStep &&
     (functionCall === 'required' || typeof functionCall === 'function')
   ) {
-    return { functions: [], functionCall: undefined }
+    return { functions: [], functionCall: undefined };
   }
 
   if (!functionList) {
-    return { functions: [], functionCall: functionCall }
+    return { functions: [], functionCall: functionCall };
   }
 
   // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
   const functions = functionList
     .map((f) => {
       if ('toFunction' in f) {
-        return f.toFunction()
+        return f.toFunction();
       }
-      return f
+      return f;
     })
-    .flat()
+    .flat();
 
-  return { functions, functionCall }
+  return { functions, functionCall };
 }

@@ -1,31 +1,31 @@
 import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
-} from '../base.js'
-import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js'
-import type { AxAIOpenAIConfig } from '../openai/chat_types.js'
+} from '../base.js';
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
+import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
 
-export type AxAIOllamaAIConfig = AxAIOpenAIConfig<string, string>
+export type AxAIOllamaAIConfig = AxAIOpenAIConfig<string, string>;
 
 export const axAIOllamaDefaultConfig = (): AxAIOllamaAIConfig =>
   structuredClone({
     ...axBaseAIDefaultConfig(),
     model: 'nous-hermes2',
     embedModel: 'all-minilm',
-  })
+  });
 
 export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaAIConfig =>
   structuredClone({
     ...axBaseAIDefaultCreativeConfig(),
     model: 'nous-hermes2',
     embedModel: 'all-minilm',
-  })
+  });
 
 export type AxAIOllamaArgs = AxAIOpenAIArgs<'ollama', string, string> & {
-  model?: string
-  embedModel?: string
-  url?: string
-}
+  model?: string;
+  embedModel?: string;
+  url?: string;
+};
 
 /**
  * OllamaAI: AI Service
@@ -38,14 +38,14 @@ export class AxAIOllama extends AxAIOpenAIBase<string, string> {
     options,
     models,
   }: Readonly<Omit<AxAIOllamaArgs, 'name'>>) {
-    const _config = {
+    const Config = {
       ...axAIOllamaDefaultConfig(),
       ...config,
-    }
+    };
     super({
       apiKey,
       options,
-      config: _config,
+      config: Config,
       apiURL: url,
       models,
       modelInfo: [],
@@ -55,8 +55,8 @@ export class AxAIOllama extends AxAIOpenAIBase<string, string> {
         hasThinkingBudget: false,
         hasShowThoughts: false,
       },
-    })
+    });
 
-    super.setName('Ollama')
+    super.setName('Ollama');
   }
 }

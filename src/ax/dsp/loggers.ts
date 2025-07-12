@@ -1,226 +1,258 @@
-import type { AxLoggerFunction, AxLoggerTag } from '../ai/types.js'
-import { ColorLog } from '../util/log.js'
+import type {
+  AxChatRequest,
+  AxLoggerData,
+  AxLoggerFunction,
+} from '../ai/types.js';
+import { ColorLog } from '../util/log.js';
 
-const colorLog = new ColorLog()
+const _colorLog = new ColorLog();
 
 // Default output function that writes to stdout
 const defaultOutput = (message: string): void => {
-  process.stdout.write(message)
-}
+  process.stdout.write(message);
+};
+
+// Helper function to format chat message for display
+const formatChatMessage = (
+  msg: AxChatRequest['chatPrompt'][number],
+  hideContent?: boolean,
+  cl?: ColorLog
+) => {
+  const colorize = (text: string, colorMethod?: keyof ColorLog) => {
+    if (cl && colorMethod && colorMethod in cl) {
+      return (cl[colorMethod] as (t: string) => string)(text);
+    }
+    return text;
+  };
+
+  switch (msg.role) {
+    case 'system':
+      return `${colorize('[ SYSTEM ]', 'magentaBright')}\n${colorize(msg.content, 'magenta')}`;
+    case 'function':
+      return `${colorize('[ FUNCTION RESULT ]', 'yellow')}\n${colorize(msg.result ?? '[No result]', 'yellowDim')}`;
+    case 'user': {
+      const header = `${colorize('[ USER ]', 'greenBright')}\n`;
+      if (typeof msg.content === 'string') {
+        return header + colorize(msg.content, 'green');
+      }
+      const items = msg.content.map((item) => {
+        if (item.type === 'text') {
+          return colorize(item.text, 'green');
+        }
+        if (item.type === 'image') {
+          const content = hideContent ? '[Image]' : `[Image: ${item.image}]`;
+          return colorize(content, 'green');
+        }
+        if (item.type === 'audio') {
+          const content = hideContent ? '[Audio]' : `[Audio: ${item.data}]`;
+          return colorize(content, 'green');
+        }
+        return colorize('[Unknown content type]', 'gray');
+      });
+      return header + items.join('\n');
+    }
+    case 'assistant': {
+      let header = colorize('[ ASSISTANT', 'cyanBright');
+      if (msg.name) {
+        header += ` ${msg.name}`;
+      }
+      header += ' ]';
+      let result = `${header}\n`;
+      if (msg.content) {
+        result += `${colorize(msg.content, 'cyan')}\n`;
+      }
+      if (msg.functionCalls && msg.functionCalls.length > 0) {
+        result += `${colorize('[ FUNCTION CALLS ]', 'yellow')}\n`;
+        msg.functionCalls.forEach((call, i) => {
+          const params =
+            typeof call.function.params === 'string'
+              ? call.function.params
+              : JSON.stringify(call.function.params, null, 2);
+          result += colorize(
+            `${i + 1}. ${call.function.name}(${params}) [id: ${call.id}]`,
+            'yellowDim'
+          );
+          if (i < msg.functionCalls!.length - 1) {
+            result += '\n';
+          }
+        });
+        result += '\n';
+      }
+      if (
+        !msg.content &&
+        (!msg.functionCalls || msg.functionCalls.length === 0)
+      ) {
+        result += colorize('[No content]', 'gray');
+      }
+      return result;
+    }
+    default:
+      return `${colorize('[ UNKNOWN ]', 'redBright')}\n${colorize(JSON.stringify(msg), 'gray')}`;
+  }
+};
 
 // Factory function to create a default logger with customizable output
-export const axCreateDefaultLogger = (
+export const axCreateDefaultColorLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
-  return (message: string, options?: { tags?: AxLoggerTag[] }) => {
-    const tags = options?.tags ?? []
-    let formattedMessage = message
+  const cl = new ColorLog();
+  const divider = cl.gray('─'.repeat(60));
+  return (message: AxLoggerData) => {
+    const typedData = message;
+    let formattedMessage = '';
 
-    // Apply styling based on semantic tags
-    if (tags.includes('error')) {
-      formattedMessage = colorLog.red(formattedMessage)
-    } else if (tags.includes('success') || tags.includes('responseContent')) {
-      formattedMessage = colorLog.greenBright(formattedMessage)
-    } else if (tags.includes('functionName')) {
-      if (tags.includes('firstFunction')) {
-        formattedMessage = `\n${colorLog.whiteBright(formattedMessage)}`
-      } else {
-        formattedMessage = `${colorLog.whiteBright(formattedMessage)}`
-      }
-    } else if (
-      tags.includes('systemContent') ||
-      tags.includes('assistantContent')
-    ) {
-      formattedMessage = colorLog.blueBright(formattedMessage)
-    } else if (tags.includes('warning') || tags.includes('discovery')) {
-      formattedMessage = colorLog.yellow(formattedMessage)
-    } else if (tags.includes('functionArg')) {
-      formattedMessage = ''
+    switch (typedData.name) {
+      case 'ChatRequestChatPrompt':
+        formattedMessage = `${typedData.step > 0 ? `\n${divider}\n` : ''}${cl.blueBright(`[ CHAT REQUEST Step ${typedData.step} ]`)}\n${divider}\n`;
+        typedData.value.forEach((msg, i) => {
+          formattedMessage += formatChatMessage(msg, undefined, cl);
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        formattedMessage += `\n${divider}`; // Keep closing for steps
+        break;
+      case 'FunctionResults':
+        formattedMessage = `\n${cl.yellow('[ FUNCTION RESULTS ]')}\n${divider}\n`;
+        typedData.value.forEach((result, i) => {
+          formattedMessage += cl.yellowDim(
+            `Function: ${result.functionId}\nResult: ${result.result}`
+          );
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      case 'ChatResponseResults':
+        formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n${divider}\n`;
+        typedData.value.forEach((result, i) => {
+          formattedMessage += cl.cyan(result.content || '[No content]');
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      case 'ChatResponseStreamingResult':
+        formattedMessage = cl.cyanBright(
+          typedData.value.delta || typedData.value.content || ''
+        );
+        break;
+      case 'FunctionError':
+        formattedMessage = `\n${cl.redBright(`[ FUNCTION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
+        break;
+      case 'ValidationError':
+        formattedMessage = `\n${cl.redBright(`[ VALIDATION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
+        break;
+      case 'AssertionError':
+        formattedMessage = `\n${cl.redBright(`[ ASSERTION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
+        break;
+      case 'ResultPickerUsed':
+        formattedMessage = `${cl.greenBright('[ RESULT PICKER ]')}\n${divider}\n${cl.green(`Selected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`)}`;
+        break;
+      case 'Notification':
+        formattedMessage = `${cl.gray(`[ NOTIFICATION ${typedData.id} ]`)}\n${divider}\n${cl.white(typedData.value)}`;
+        break;
+      case 'EmbedRequest':
+        formattedMessage = `${cl.orange(`[ EMBED REQUEST ${typedData.embedModel} ]`)}\n${divider}\n`;
+        typedData.value.forEach((text, i) => {
+          formattedMessage += cl.white(
+            `Text ${i + 1}: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`
+          );
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      case 'EmbedResponse':
+        formattedMessage = `${cl.orange(`[ EMBED RESPONSE (${typedData.totalEmbeddings} embeddings) ]`)}\n${divider}\n`;
+        typedData.value.forEach((embedding, i) => {
+          formattedMessage += cl.white(
+            `Embedding ${i + 1}: [${embedding.sample.join(', ')}${embedding.truncated ? ', ...' : ''}] (length: ${embedding.length})`
+          );
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      default:
+        formattedMessage = cl.gray(JSON.stringify(typedData, null, 2));
     }
 
-    // Apply semantic spacing
-    if (
-      tags.includes('responseStart') ||
-      tags.includes('systemStart') ||
-      tags.includes('userStart')
-    ) {
-      formattedMessage = `\n${formattedMessage}`
-    } else if (
-      tags.includes('responseEnd') ||
-      tags.includes('systemEnd') ||
-      tags.includes('userEnd')
-    ) {
-      formattedMessage = `${formattedMessage}\n`
-    } else if (tags.includes('assistantStart')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('error')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('functionEnd')) {
-      formattedMessage = `\n`
-    }
+    output(formattedMessage);
+  };
+};
 
-    output(formattedMessage)
-  }
-}
+export const defaultLogger: AxLoggerFunction = axCreateDefaultColorLogger();
 
 // Factory function to create a text-only logger (no colors) with customizable output
 export const axCreateDefaultTextLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
-  return (message: string, options?: { tags?: AxLoggerTag[] }) => {
-    const tags = options?.tags ?? []
-    let formattedMessage = message
+  const divider = '─'.repeat(60);
+  return (message: AxLoggerData) => {
+    const typedData = message;
+    let formattedMessage = '';
 
-    // Apply semantic spacing only (no colors)
-    if (
-      tags.includes('responseStart') ||
-      tags.includes('systemStart') ||
-      tags.includes('userStart')
-    ) {
-      formattedMessage = `\n${formattedMessage}`
-    } else if (
-      tags.includes('responseEnd') ||
-      tags.includes('systemEnd') ||
-      tags.includes('userEnd')
-    ) {
-      formattedMessage = `${formattedMessage}\n`
-    } else if (tags.includes('assistantStart')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('error')) {
-      formattedMessage = `\n${formattedMessage}\n`
-    } else if (tags.includes('functionEnd')) {
-      formattedMessage = `${formattedMessage}\n`
+    switch (typedData.name) {
+      case 'ChatRequestChatPrompt':
+        formattedMessage = `${typedData.step > 0 ? `\n${divider}\n` : ''}[ CHAT REQUEST Step ${typedData.step} ]\n${divider}\n`;
+        typedData.value.forEach((msg, i) => {
+          formattedMessage += formatChatMessage(msg);
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        formattedMessage += `\n${divider}`; // Keep closing for steps
+        break;
+      case 'FunctionResults':
+        formattedMessage = `\n[ FUNCTION RESULTS ]\n${divider}\n`;
+        typedData.value.forEach((result, i) => {
+          formattedMessage += `Function: ${result.functionId}\nResult: ${result.result}`;
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      case 'ChatResponseResults':
+        formattedMessage = `\n[ CHAT RESPONSE ]\n${divider}\n`;
+        typedData.value.forEach((result, i) => {
+          formattedMessage += result.content || '[No content]';
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      case 'ChatResponseStreamingResult':
+        formattedMessage =
+          typedData.value.delta || typedData.value.content || '';
+        break;
+      case 'FunctionError':
+        formattedMessage = `\n[ FUNCTION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'ValidationError':
+        formattedMessage = `\n[ VALIDATION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'AssertionError':
+        formattedMessage = `\n[ ASSERTION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
+        break;
+      case 'ResultPickerUsed':
+        formattedMessage = `[ RESULT PICKER ]\n${divider}\nSelected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`;
+        break;
+      case 'Notification':
+        formattedMessage = `[ NOTIFICATION ${typedData.id} ]\n${divider}\n${typedData.value}`;
+        break;
+      case 'EmbedRequest':
+        formattedMessage = `[ EMBED REQUEST ${typedData.embedModel} ]\n${divider}\n`;
+        typedData.value.forEach((text, i) => {
+          formattedMessage += `Text ${i + 1}: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      case 'EmbedResponse':
+        formattedMessage = `[ EMBED RESPONSE (${typedData.totalEmbeddings} embeddings) ]\n${divider}\n`;
+        typedData.value.forEach((embedding, i) => {
+          formattedMessage += `Embedding ${i + 1}: [${embedding.sample.join(', ')}${embedding.truncated ? ', ...' : ''}] (length: ${embedding.length})`;
+          if (i < typedData.value.length - 1)
+            formattedMessage += `\n${divider}\n`;
+        });
+        break;
+      default:
+        formattedMessage = JSON.stringify(typedData, null, 2);
     }
 
-    output(formattedMessage)
-  }
-}
-
-/**
- * Factory function to create an enhanced optimizer logger with clean visual formatting
- * that works for all optimizer types using semantic tags for proper categorization
- */
-export const axCreateOptimizerLogger = (
-  output: (message: string) => void = (msg) => process.stdout.write(msg)
-): AxLoggerFunction => {
-  const baseLogger = axCreateDefaultLogger(output)
-
-  // Track state for better visual flow
-  let isFirstPhase = true
-
-  return (message: string, options) => {
-    const tags = options?.tags ?? []
-    let formattedMessage = message
-
-    // Use tags for semantic formatting instead of string pattern matching
-    if (tags.includes('optimizer')) {
-      if (tags.includes('start')) {
-        const trialsMatch =
-          message.match(/with (\d+) trials?/) || message.match(/(\d+) trials?/)
-        const optimizerMatch = message.match(
-          /(MIPROv2|BootstrapFewshot|[A-Z][a-zA-Z]+)/
-        )
-        const optimizerName = optimizerMatch ? optimizerMatch[1] : 'Optimizer'
-
-        if (trialsMatch && trialsMatch[1]) {
-          formattedMessage = `\n┌─ ${optimizerName} optimization (${trialsMatch[1]} trials)\n`
-        } else {
-          formattedMessage = `\n┌─ ${optimizerName} optimization\n`
-        }
-        isFirstPhase = true
-      } else if (tags.includes('config')) {
-        if (message.includes('examples') && message.includes('training')) {
-          const match =
-            message.match(
-              /(\d+) examples for training and (\d+) for validation/
-            ) || message.match(/(\d+) training.*?(\d+) validation/)
-          if (match && match[1] && match[2]) {
-            formattedMessage = `│  Dataset: ${match[1]} training, ${match[2]} validation\n`
-          } else {
-            const simpleMatch = message.match(/(\d+) examples/)
-            if (simpleMatch && simpleMatch[1]) {
-              formattedMessage = `│  Dataset: ${simpleMatch[1]} examples\n`
-            }
-          }
-        } else if (message.includes('teacher')) {
-          formattedMessage = `│  Using teacher model\n`
-        } else {
-          formattedMessage = `│  ${message}\n`
-        }
-      } else if (tags.includes('phase')) {
-        if (isFirstPhase) {
-          formattedMessage = `├─ ${message}\n`
-          isFirstPhase = false
-        } else {
-          formattedMessage = `├─ ${message}\n`
-        }
-      } else if (tags.includes('result')) {
-        if (message.includes('Generated') || message.includes('Selected')) {
-          const match = message.match(/(\d+)/)
-          if (match && match[1]) {
-            formattedMessage = `│  ✓ ${message}\n`
-          } else {
-            formattedMessage = `│  ✓ ${message}\n`
-          }
-        } else if (message.includes('configuration')) {
-          formattedMessage = `│  Applied best configuration\n`
-        } else {
-          formattedMessage = `│  ${message}\n`
-        }
-      } else if (tags.includes('progress')) {
-        formattedMessage = `│  ${message}\n`
-      } else if (tags.includes('complete')) {
-        const scoreMatch = message.match(/(score|performance):\s*([\d.]+)/)
-        if (scoreMatch && scoreMatch[2]) {
-          const score = parseFloat(scoreMatch[2])
-          const percentage =
-            score <= 1 ? (score * 100).toFixed(1) + '%' : score.toFixed(3)
-          formattedMessage = `├─ Complete! Best: ${percentage}\n`
-        } else if (message.includes('Bootstrap')) {
-          formattedMessage = `├─ ${message}\n`
-        } else {
-          formattedMessage = `├─ Optimization complete\n`
-        }
-      } else if (tags.includes('checkpoint')) {
-        if (message.includes('Resuming')) {
-          formattedMessage = `│  ${message}\n`
-        } else {
-          const match =
-            message.match(/checkpoint:\s*(.+)/) || message.match(/Saved\s+(.+)/)
-          if (match && match[1]) {
-            formattedMessage = `└─ Saved: ${match[1]}\n`
-          } else {
-            formattedMessage = `└─ Checkpoint saved\n`
-          }
-        }
-      }
-    }
-
-    // Handle non-optimizer messages with basic formatting
-    else if (tags.includes('discovery')) {
-      if (message.includes('Found') && message.includes('examples')) {
-        const match = message.match(/Found (\d+)/)
-        if (match && match[1]) {
-          formattedMessage = `│  Found ${match[1]} examples\n`
-        }
-      }
-    }
-
-    // Handle errors and warnings
-    if (tags.includes('error')) {
-      formattedMessage = `\n✗ ${message}\n`
-    } else if (tags.includes('warning')) {
-      formattedMessage = `\n⚠ ${message}\n`
-    } else if (tags.includes('success') && !tags.includes('optimizer')) {
-      formattedMessage = `✓ ${message}\n`
-    }
-
-    // Use the base logger for color formatting and output
-    baseLogger(formattedMessage, options)
-  }
-}
-
-/**
- * Default optimizer logger instance
- */
-export const axDefaultOptimizerLogger = axCreateOptimizerLogger()
+    output(formattedMessage);
+  };
+};

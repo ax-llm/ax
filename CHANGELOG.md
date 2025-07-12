@@ -1,5 +1,94 @@
 # Changelog
 
+## [13.0.6](https://github.com/ax-llm/ax/compare/13.0.4...13.0.5) (2025-07-09)
+## [13.0.5](https://github.com/ax-llm/ax/compare/13.0.4...13.0.5) (2025-07-09)
+
+## [13.0.5](https://github.com/ax-llm/ax/compare/13.0.3...13.0.4) (2025-07-09)
+## [13.0.4](https://github.com/ax-llm/ax/compare/13.0.3...13.0.4) (2025-07-09)
+
+### Bug Fixes
+
+* build issue ([5915507](https://github.com/ax-llm/ax/commit/5915507ac085a15a15db6928039c7cf51d9dd89e))
+
+## [13.0.4](https://github.com/ax-llm/ax/compare/13.0.2...13.0.3) (2025-07-09)
+
+### Bug Fixes
+
+* build issue ([5915507](https://github.com/ax-llm/ax/commit/5915507ac085a15a15db6928039c7cf51d9dd89e))
+## [13.0.3](https://github.com/ax-llm/ax/compare/13.0.2...13.0.3) (2025-07-09)
+
+### Features
+
+* add function result formatter support ([0382a93](https://github.com/ax-llm/ax/commit/0382a933e299db529e2fc7496c04365aa34babe4))
+
+## [13.0.3](https://github.com/ax-llm/ax/compare/13.0.1...13.0.2) (2025-07-09)
+
+### Features
+
+* add function result formatter support ([0382a93](https://github.com/ax-llm/ax/commit/0382a933e299db529e2fc7496c04365aa34babe4))
+## [13.0.2](https://github.com/ax-llm/ax/compare/13.0.1...13.0.2) (2025-07-09)
+
+### Bug Fixes
+
+* build fixes ([b19e90a](https://github.com/ax-llm/ax/commit/b19e90abfbfe5ef95455a5cc899346aec0333c83))
+
+## [13.0.2](https://github.com/ax-llm/ax/compare/13.0.0...13.0.1) (2025-07-09)
+
+### Bug Fixes
+
+* build fixes ([b19e90a](https://github.com/ax-llm/ax/commit/b19e90abfbfe5ef95455a5cc899346aec0333c83))
+## [13.0.1](https://github.com/ax-llm/ax/compare/13.0.0...13.0.1) (2025-07-09)
+
+### Bug Fixes
+
+* build issues ([51188ac](https://github.com/ax-llm/ax/commit/51188acdd6df1a2b7afa12dc6e002a01b3eed4c5))
+
+## [13.0.1](https://github.com/ax-llm/ax/compare/12.0.26...13.0.0) (2025-07-09)
+
+### Bug Fixes
+
+* build issues ([51188ac](https://github.com/ax-llm/ax/commit/51188acdd6df1a2b7afa12dc6e002a01b3eed4c5))
+## [13.0.0](https://github.com/ax-llm/ax/compare/12.0.26...13.0.0) (2025-07-09)
+
+### Features
+
+* removed nodejs dependencies to only support web standard apis ([7701cb9](https://github.com/ax-llm/ax/commit/7701cb91afbe9d0a02b4c4886484f00970d14fe4))
+
+## [13.0.0](https://github.com/ax-llm/ax/compare/12.0.25...12.0.26) (2025-07-09)
+
+### Features
+
+* removed nodejs dependencies to only support web standard apis ([7701cb9](https://github.com/ax-llm/ax/commit/7701cb91afbe9d0a02b4c4886484f00970d14fe4))
+## [12.0.26](https://github.com/ax-llm/ax/compare/12.0.25...12.0.26) (2025-07-08)
+
+### Features
+
+* migrated a lot of tooling to biome ([f9d18f9](https://github.com/ax-llm/ax/commit/f9d18f9a763643edff7f6bdcefb0a01cd9c3195a))
+
+## [12.0.26](https://github.com/ax-llm/ax/compare/12.0.24...12.0.25) (2025-07-08)
+
+### Features
+
+* migrated a lot of tooling to biome ([f9d18f9](https://github.com/ax-llm/ax/commit/f9d18f9a763643edff7f6bdcefb0a01cd9c3195a))
+## [12.0.25](https://github.com/ax-llm/ax/compare/12.0.24...12.0.25) (2025-07-08)
+
+### Features
+
+* enhance logging and error handling in AI components ([43ae472](https://github.com/ax-llm/ax/commit/43ae47246147c4ab9328c326fb3bdb8216043292))
+
+## [12.0.25](https://github.com/ax-llm/ax/compare/12.0.23...12.0.24) (2025-07-08)
+
+### Features
+
+* enhance logging and error handling in AI components ([43ae472](https://github.com/ax-llm/ax/commit/43ae47246147c4ab9328c326fb3bdb8216043292))
+## [12.0.24](https://github.com/ax-llm/ax/compare/12.0.23...12.0.24) (2025-07-07)
+
+## [12.0.24](https://github.com/ax-llm/ax/compare/12.0.23...12.0.24) (2025-07-07)
+
+### Bug Fixes
+
+* Use correct TLD for Google Vertex "global" region (#264) [a9d15fb](https://github.com/ax-llm/ax/commit/a9d15fbfceb00501c979836206e3cca5acb75b07)
+
 ## [12.0.23](https://github.com/ax-llm/ax/compare/12.0.21...12.0.22) (2025-07-05)
 
 ### Features

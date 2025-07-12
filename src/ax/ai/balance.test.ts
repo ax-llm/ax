@@ -1,10 +1,10 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest';
 
-import { AxAIServiceNetworkError } from '../util/apicall.js'
+import { AxAIServiceNetworkError } from '../util/apicall.js';
 
-import { AxBalancer } from './balance.js'
-import { AxMockAIService, type AxMockAIServiceConfig } from './mock/api.js'
-import type { AxAIService } from './types.js'
+import { AxBalancer } from './balance.js';
+import { AxMockAIService, type AxMockAIServiceConfig } from './mock/api.js';
+import type { AxAIService } from './types.js';
 
 const createMockService = ({
   name = 'test-service',
@@ -28,9 +28,9 @@ const createMockService = ({
     },
   }),
 }: {
-  name?: string
-  latencyMs?: number
-  chatResponse?: AxMockAIServiceConfig['chatResponse']
+  name?: string;
+  latencyMs?: number;
+  chatResponse?: AxMockAIServiceConfig['chatResponse'];
 } = {}) => {
   return new AxMockAIService({
     name,
@@ -46,17 +46,17 @@ const createMockService = ({
     },
     chatResponse,
     latencyMs,
-  })
-}
+  });
+};
 
 describe('AxBalancer', () => {
   test('first service works', async () => {
-    let calledService: number | undefined
+    let calledService: number | undefined;
     const services: AxAIService[] = [
       createMockService({
         name: 'service-0',
         chatResponse: async () => {
-          calledService = 0
+          calledService = 0;
           return {
             results: [
               {
@@ -74,14 +74,14 @@ describe('AxBalancer', () => {
                 totalTokens: 30,
               },
             },
-          }
+          };
         },
       }),
       createMockService({
         name: 'service-1',
         latencyMs: 200, // Changed: Made service-1 slower
         chatResponse: async () => {
-          calledService = 1
+          calledService = 1;
           return {
             results: [
               {
@@ -99,28 +99,28 @@ describe('AxBalancer', () => {
                 totalTokens: 30,
               },
             },
-          }
+          };
         },
       }),
-    ]
+    ];
 
-    const balancer = new AxBalancer(services)
+    const balancer = new AxBalancer(services);
     await balancer.chat({
       chatPrompt: [{ role: 'user', content: 'test' }],
       model: 'mock',
-    })
+    });
 
-    expect(calledService).toBe(0) // Changed: Now expecting service-0 to be called
-  })
+    expect(calledService).toBe(0); // Changed: Now expecting service-0 to be called
+  });
 
   test('first service fails', async () => {
-    let calledService: number | undefined
+    let calledService: number | undefined;
     const services: AxAIService[] = [
       createMockService({
         name: 'service-0',
         latencyMs: 200,
         chatResponse: async () => {
-          calledService = 0
+          calledService = 0;
           return {
             results: [
               {
@@ -138,7 +138,7 @@ describe('AxBalancer', () => {
                 totalTokens: 30,
               },
             },
-          }
+          };
         },
       }),
       createMockService({
@@ -149,28 +149,28 @@ describe('AxBalancer', () => {
             'test-url',
             {},
             {}
-          )
+          );
         },
       }),
-    ]
+    ];
 
-    const balancer = new AxBalancer(services, { debug: false })
+    const balancer = new AxBalancer(services, { debug: false });
     await balancer.chat({
       chatPrompt: [{ role: 'user', content: 'test' }],
       model: 'mock',
-    })
+    });
 
-    expect(calledService).toBe(0)
-  })
+    expect(calledService).toBe(0);
+  });
 
   test('first service works comparator', async () => {
-    let calledService: number | undefined
+    let calledService: number | undefined;
     const services: AxAIService[] = [
       createMockService({
         name: 'service-0',
         latencyMs: 200,
         chatResponse: async () => {
-          calledService = 0
+          calledService = 0;
           return {
             results: [
               {
@@ -188,13 +188,13 @@ describe('AxBalancer', () => {
                 totalTokens: 30,
               },
             },
-          }
+          };
         },
       }),
       createMockService({
         name: 'service-1',
         chatResponse: async () => {
-          calledService = 1
+          calledService = 1;
           return {
             results: [
               {
@@ -212,26 +212,26 @@ describe('AxBalancer', () => {
                 totalTokens: 30,
               },
             },
-          }
+          };
         },
       }),
-    ]
+    ];
 
     const balancer = new AxBalancer(services, {
       comparator: AxBalancer.inputOrderComparator,
       debug: false,
-    })
+    });
 
     await balancer.chat({
       chatPrompt: [{ role: 'user', content: 'test' }],
       model: 'mock',
-    })
+    });
 
-    expect(calledService).toBe(0)
-  })
+    expect(calledService).toBe(0);
+  });
 
   test('first service fails comparator', async () => {
-    let calledService: number | undefined
+    let calledService: number | undefined;
     const services: AxAIService[] = [
       createMockService({
         name: 'service-0',
@@ -242,13 +242,13 @@ describe('AxBalancer', () => {
             'test-url',
             {},
             {}
-          )
+          );
         },
       }),
       createMockService({
         name: 'service-1',
         chatResponse: async () => {
-          calledService = 1
+          calledService = 1;
           return {
             results: [
               {
@@ -266,21 +266,21 @@ describe('AxBalancer', () => {
                 totalTokens: 30,
               },
             },
-          }
+          };
         },
       }),
-    ]
+    ];
 
     const balancer = new AxBalancer(services, {
       comparator: AxBalancer.inputOrderComparator,
       debug: false,
-    })
+    });
 
     await balancer.chat({
       chatPrompt: [{ role: 'user', content: 'test' }],
       model: 'mock',
-    })
+    });
 
-    expect(calledService).toBe(1)
-  })
-})
+    expect(calledService).toBe(1);
+  });
+});

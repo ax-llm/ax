@@ -1,5 +1,5 @@
-import crypto from 'crypto'
-import type { ReadableStream } from 'stream/web'
+// ReadableStream is available globally in modern browsers and Node.js 16+
+import { randomUUID } from '../../util/crypto.js';
 
 import type {
   AxAIModelList,
@@ -12,19 +12,20 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerData,
   AxLoggerFunction,
   AxModelConfig,
   AxModelInfoWithProvider,
-} from '../types.js'
+} from '../types.js';
 
 export type AxMockAIServiceConfig = {
-  name?: string
-  id?: string
-  modelInfo?: Partial<AxModelInfoWithProvider>
-  embedModelInfo?: AxModelInfoWithProvider
-  features?: { functions?: boolean; streaming?: boolean }
-  models?: AxAIModelList
-  options?: AxAIServiceOptions
+  name?: string;
+  id?: string;
+  modelInfo?: Partial<AxModelInfoWithProvider>;
+  embedModelInfo?: AxModelInfoWithProvider;
+  features?: { functions?: boolean; streaming?: boolean };
+  models?: AxAIModelList;
+  options?: AxAIServiceOptions;
   chatResponse?:
     | AxChatResponse
     | ReadableStream<AxChatResponse>
@@ -34,17 +35,17 @@ export type AxMockAIServiceConfig = {
         options?: Readonly<
           AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown>
         >
-      ) => Promise<AxChatResponse | ReadableStream<AxChatResponse>>)
+      ) => Promise<AxChatResponse | ReadableStream<AxChatResponse>>);
 
   embedResponse?:
     | AxEmbedResponse
     | ((
         req: Readonly<AxEmbedRequest>
-      ) => AxEmbedResponse | Promise<AxEmbedResponse>)
-  shouldError?: boolean
-  errorMessage?: string
-  latencyMs?: number
-}
+      ) => AxEmbedResponse | Promise<AxEmbedResponse>);
+  shouldError?: boolean;
+  errorMessage?: string;
+  latencyMs?: number;
+};
 
 export class AxMockAIService implements AxAIService {
   private metrics: AxAIServiceMetrics = {
@@ -56,16 +57,16 @@ export class AxMockAIService implements AxAIService {
       chat: { count: 0, rate: 0, total: 0 },
       embed: { count: 0, rate: 0, total: 0 },
     },
-  }
+  };
 
   constructor(private readonly config: AxMockAIServiceConfig = {}) {
-    this.config.id = this.config.id ?? crypto.randomUUID()
+    this.config.id = this.config.id ?? randomUUID();
   }
   getLastUsedChatModel(): unknown {
-    return this.config.modelInfo?.name ?? 'mock-model'
+    return this.config.modelInfo?.name ?? 'mock-model';
   }
   getLastUsedEmbedModel(): unknown {
-    return this.config.embedModelInfo?.name ?? 'mock-embed-model'
+    return this.config.embedModelInfo?.name ?? 'mock-embed-model';
   }
   getLastUsedModelConfig(): AxModelConfig | undefined {
     return this.config.modelInfo
@@ -74,15 +75,15 @@ export class AxMockAIService implements AxAIService {
           temperature: 0.7, // Default temperature
           stream: this.config.features?.streaming ?? false,
         }
-      : undefined
+      : undefined;
   }
 
   getName(): string {
-    return this.config.name ?? 'mock-ai-service'
+    return this.config.name ?? 'mock-ai-service';
   }
 
   getId(): string {
-    return this.config.id ?? 'mock-ai-service-id'
+    return this.config.id ?? 'mock-ai-service-id';
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -90,36 +91,38 @@ export class AxMockAIService implements AxAIService {
     return {
       functions: this.config.features?.functions ?? false,
       streaming: this.config.features?.streaming ?? false,
-    }
+    };
   }
 
   getModelList(): AxAIModelList | undefined {
-    return this.config.models
+    return this.config.models;
   }
 
   getMetrics(): AxAIServiceMetrics {
-    return this.metrics
+    return this.metrics;
   }
 
   async chat(
     req: Readonly<AxChatRequest<unknown>>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    options?: Readonly<
+    _options?: Readonly<
       AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown>
     >
   ) {
     if (this.config.latencyMs) {
-      await new Promise((resolve) => setTimeout(resolve, this.config.latencyMs))
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.config.latencyMs)
+      );
     }
 
     if (this.config.shouldError) {
-      throw new Error(this.config.errorMessage ?? 'Mock chat error')
+      throw new Error(this.config.errorMessage ?? 'Mock chat error');
     }
 
-    this.updateMetrics('chat')
+    this.updateMetrics('chat');
 
     if (typeof this.config.chatResponse === 'function') {
-      return await this.config.chatResponse(req)
+      return await this.config.chatResponse(req);
     }
 
     return (
@@ -141,7 +144,7 @@ export class AxMockAIService implements AxAIService {
           },
         },
       }
-    )
+    );
   }
 
   async embed(
@@ -150,17 +153,19 @@ export class AxMockAIService implements AxAIService {
     _options?: Readonly<AxAIServiceActionOptions>
   ): Promise<AxEmbedResponse> {
     if (this.config.latencyMs) {
-      await new Promise((resolve) => setTimeout(resolve, this.config.latencyMs))
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.config.latencyMs)
+      );
     }
 
     if (this.config.shouldError) {
-      throw new Error(this.config.errorMessage ?? 'Mock embed error')
+      throw new Error(this.config.errorMessage ?? 'Mock embed error');
     }
 
-    this.updateMetrics('embed')
+    this.updateMetrics('embed');
 
     if (typeof this.config.embedResponse === 'function') {
-      return this.config.embedResponse(req)
+      return this.config.embedResponse(req);
     }
 
     return (
@@ -176,56 +181,61 @@ export class AxMockAIService implements AxAIService {
           },
         },
       }
-    )
+    );
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
-    this.config.options = options
+    this.config.options = options;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
-    return this.config.options ?? {}
+    return this.config.options ?? {};
   }
 
   getLogger(): AxLoggerFunction {
     return (
       this.config.options?.logger ??
-      ((message: string) => {
-        process.stdout.write(message)
+      ((message: string | AxLoggerData) => {
+        if (typeof message === 'string') {
+          process.stdout.write(message);
+        } else {
+          // For typed logger data, convert to string representation
+          process.stdout.write(JSON.stringify(message, null, 2));
+        }
       })
-    )
+    );
   }
 
   private updateMetrics(type: 'chat' | 'embed'): void {
-    const latency = this.config.latencyMs ?? 0
-    this.metrics.latency[type].samples.push(latency)
-    const samples = this.metrics.latency[type].samples
+    const latency = this.config.latencyMs ?? 0;
+    this.metrics.latency[type].samples.push(latency);
+    const samples = this.metrics.latency[type].samples;
 
     // Update mean
     this.metrics.latency[type].mean =
-      samples.reduce((a, b) => a + b, 0) / samples.length
+      samples.reduce((a, b) => a + b, 0) / samples.length;
 
     // Calculate percentiles only if we have enough samples
     if (samples.length > 0) {
-      const sortedSamples = [...samples].sort((a, b) => a - b)
+      const sortedSamples = [...samples].sort((a, b) => a - b);
 
       // For p95, we need at least 20 samples for meaningful calculation (1/0.05)
-      const p95Index = Math.max(0, Math.floor(sortedSamples.length * 0.95) - 1)
-      this.metrics.latency[type].p95 = sortedSamples[p95Index] ?? latency
+      const p95Index = Math.max(0, Math.floor(sortedSamples.length * 0.95) - 1);
+      this.metrics.latency[type].p95 = sortedSamples[p95Index] ?? latency;
 
       // For p99, we need at least 100 samples for meaningful calculation (1/0.01)
-      const p99Index = Math.max(0, Math.floor(sortedSamples.length * 0.99) - 1)
-      this.metrics.latency[type].p99 = sortedSamples[p99Index] ?? latency
+      const p99Index = Math.max(0, Math.floor(sortedSamples.length * 0.99) - 1);
+      this.metrics.latency[type].p99 = sortedSamples[p99Index] ?? latency;
     }
 
     if (this.config.shouldError) {
-      this.metrics.errors[type].count++
-      this.metrics.errors[type].total++
+      this.metrics.errors[type].count++;
+      this.metrics.errors[type].total++;
 
       // Calculate error rate against total requests, not just samples
-      const totalRequests = this.metrics.latency[type].samples.length
+      const totalRequests = this.metrics.latency[type].samples.length;
       this.metrics.errors[type].rate =
-        totalRequests > 0 ? this.metrics.errors[type].count / totalRequests : 0
+        totalRequests > 0 ? this.metrics.errors[type].count / totalRequests : 0;
     }
   }
 }

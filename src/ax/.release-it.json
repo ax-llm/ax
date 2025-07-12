@@ -15,7 +15,7 @@
           "path": ["dependencies.@ax-llm/ax"]
         },
         {
-          "file": "../ai-sdk-provider/package.json",
+          "file": "../aisdk/package.json",
           "path": ["dependencies.@ax-llm/ax"]
         }
       ]

@@ -1,27 +1,25 @@
-import { AxBaseAI } from '../base.js'
-import type { AxAIFeatures } from '../base.js'
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
+import type { AxAIOpenAIResponsesConfig } from '@ax-llm/ax/index.js';
+import type { AxAIFeatures } from '../base.js';
+import { AxBaseAI } from '../base.js';
 import type {
   AxAIInputModelList,
   AxAIServiceOptions,
   AxModelInfo,
-} from '../types.js'
-
+} from '../types.js';
 import type {
   AxAIOpenAIEmbedRequest,
   AxAIOpenAIEmbedResponse,
-} from './chat_types.js'
-import { AxAIOpenAIEmbedModel } from './chat_types.js'
-import { axModelInfoOpenAIResponses } from './info.js'
-import { AxAIOpenAIResponsesImpl } from './responses_api.js'
+} from './chat_types.js';
+import { AxAIOpenAIEmbedModel } from './chat_types.js';
+import { axModelInfoOpenAIResponses } from './info.js';
+import { AxAIOpenAIResponsesImpl } from './responses_api.js';
 import type {
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
   AxAIOpenAIResponsesResponseDelta,
-} from './responses_types.js'
-import { AxAIOpenAIResponsesModel } from './responses_types.js'
-
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-import { type AxAIOpenAIResponsesConfig } from '@ax-llm/ax/index.js'
+} from './responses_types.js';
+import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
 // Helper functions to create default configurations
 export const axAIOpenAIResponsesDefaultConfig = (): AxAIOpenAIResponsesConfig<
@@ -34,7 +32,7 @@ export const axAIOpenAIResponsesDefaultConfig = (): AxAIOpenAIResponsesConfig<
   topP: 1,
   stream: true,
   //   reasoningEffort: 'medium',
-})
+});
 
 export const axAIOpenAIResponsesBestConfig = (): AxAIOpenAIResponsesConfig<
   AxAIOpenAIResponsesModel,
@@ -43,7 +41,7 @@ export const axAIOpenAIResponsesBestConfig = (): AxAIOpenAIResponsesConfig<
   ...axAIOpenAIResponsesDefaultConfig(),
   model: AxAIOpenAIResponsesModel.GPT4O,
   temperature: 0.5,
-})
+});
 
 export const axAIOpenAIResponsesCreativeConfig = (): AxAIOpenAIResponsesConfig<
   AxAIOpenAIResponsesModel,
@@ -52,7 +50,7 @@ export const axAIOpenAIResponsesCreativeConfig = (): AxAIOpenAIResponsesConfig<
   ...axAIOpenAIResponsesDefaultConfig(),
   model: AxAIOpenAIResponsesModel.GPT4O,
   temperature: 0.9,
-})
+});
 
 // Arguments for AxAIOpenAIResponsesBase constructor
 interface AxAIOpenAIResponsesBaseArgs<
@@ -60,18 +58,18 @@ interface AxAIOpenAIResponsesBaseArgs<
   TEmbedModel,
   TResponsesReq extends AxAIOpenAIResponsesRequest<TModel>,
 > {
-  apiKey: string
-  config: AxAIOpenAIResponsesConfig<TModel, TEmbedModel>
+  apiKey: string;
+  config: AxAIOpenAIResponsesConfig<TModel, TEmbedModel>;
   options?: {
-    streamingUsage?: boolean
-  } & AxAIServiceOptions
-  apiURL?: string
-  modelInfo?: ReadonlyArray<AxModelInfo>
-  models?: AxAIInputModelList<TModel, TEmbedModel>
+    streamingUsage?: boolean;
+  } & AxAIServiceOptions;
+  apiURL?: string;
+  modelInfo?: ReadonlyArray<AxModelInfo>;
+  models?: AxAIInputModelList<TModel, TEmbedModel>;
   responsesReqUpdater?: (
     req: Readonly<TResponsesReq>
-  ) => Readonly<TResponsesReq>
-  supportFor?: AxAIFeatures | ((model: TModel) => AxAIFeatures)
+  ) => Readonly<TResponsesReq>;
+  supportFor?: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 }
 
 /**
@@ -103,19 +101,19 @@ export class AxAIOpenAIResponsesBase<
     AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TResponsesReq>
   >) {
     if (!apiKey || apiKey === '') {
-      throw new Error('OpenAI API key not set')
+      throw new Error('OpenAI API key not set');
     }
 
     const aiImpl = new AxAIOpenAIResponsesImpl<
       TModel,
       TEmbedModel,
       TResponsesReq
-    >(config, options?.streamingUsage ?? true, responsesReqUpdater)
+    >(config, options?.streamingUsage ?? true, responsesReqUpdater);
 
     // Convert models to the expected format if needed
     const formattedModels = models as
       | AxAIInputModelList<TModel, TEmbedModel>
-      | undefined
+      | undefined;
 
     super(aiImpl, {
       name: 'OpenAI',
@@ -129,7 +127,7 @@ export class AxAIOpenAIResponsesBase<
       options,
       supportFor,
       models: formattedModels,
-    })
+    });
   }
 }
 
@@ -148,11 +146,11 @@ export interface AxAIOpenAIResponsesArgs<
     AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TChatReq>,
     'config' | 'supportFor' | 'modelInfo'
   > {
-  name: TName
-  modelInfo?: AxModelInfo[]
+  name: TName;
+  modelInfo?: AxModelInfo[];
   config?: Partial<
     AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TChatReq>['config']
-  >
+  >;
 }
 
 export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
@@ -168,25 +166,25 @@ export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
     modelInfo,
   }: Readonly<Omit<AxAIOpenAIResponsesArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('OpenAI API key not set')
+      throw new Error('OpenAI API key not set');
     }
 
     // Use the original OpenAI model info since it contains both chat and embed models
-    modelInfo = [...axModelInfoOpenAIResponses, ...(modelInfo ?? [])]
+    modelInfo = [...axModelInfoOpenAIResponses, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIOpenAIResponsesModel) => {
       const mi = getModelInfo<AxAIOpenAIResponsesModel, AxAIOpenAIEmbedModel>({
         model,
         modelInfo,
         models,
-      })
+      });
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
-      }
-    }
+      };
+    };
 
     super({
       apiKey,
@@ -198,6 +196,6 @@ export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
       modelInfo,
       models,
       supportFor,
-    })
+    });
   }
 }

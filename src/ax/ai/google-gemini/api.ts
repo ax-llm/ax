@@ -1,11 +1,12 @@
-import type { AxAPI } from '../../util/apicall.js'
-import { AxAIRefusalError } from '../../util/apicall.js'
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
+import type { AxAPI } from '../../util/apicall.js';
+import { AxAIRefusalError } from '../../util/apicall.js';
+import { randomUUID } from '../../util/crypto.js';
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
-} from '../base.js'
-import { GoogleVertexAuth } from '../google-vertex/auth.js'
+} from '../base.js';
 import type {
   AxAIInputModelList,
   AxAIPromptConfig,
@@ -19,9 +20,8 @@ import type {
   AxModelConfig,
   AxModelInfo,
   AxTokenUsage,
-} from '../types.js'
-
-import { axModelInfoGoogleGemini } from './info.js'
+} from '../types.js';
+import { axModelInfoGoogleGemini } from './info.js';
 import {
   type AxAIGoogleGeminiBatchEmbedRequest,
   type AxAIGoogleGeminiBatchEmbedResponse,
@@ -39,9 +39,7 @@ import {
   AxAIGoogleGeminiSafetyThreshold,
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
-} from './types.js'
-
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+} from './types.js';
 
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
   {
@@ -60,7 +58,7 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
     category: AxAIGoogleGeminiSafetyCategory.HarmCategoryDangerousContent,
     threshold: AxAIGoogleGeminiSafetyThreshold.BlockNone,
   },
-]
+];
 
 /**
  * AxAIGoogleGemini: Default Model options for text generation
@@ -78,7 +76,7 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
       highest: 24500,
     },
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
 export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
@@ -94,28 +92,31 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
         highest: 24500,
       },
       ...axBaseAIDefaultCreativeConfig(),
-    })
+    });
 
 export interface AxAIGoogleGeminiOptionsTools {
-  codeExecution?: boolean
+  codeExecution?: boolean;
   googleSearchRetrieval?: {
-    mode?: 'MODE_DYNAMIC'
-    dynamicThreshold?: number
-  }
-  googleSearch?: boolean
-  urlContext?: boolean
+    mode?: 'MODE_DYNAMIC';
+    dynamicThreshold?: number;
+  };
+  googleSearch?: boolean;
+  urlContext?: boolean;
 }
 
 export interface AxAIGoogleGeminiArgs {
-  name: 'google-gemini'
-  apiKey?: string
-  projectId?: string
-  region?: string
-  endpointId?: string
-  config?: Readonly<Partial<AxAIGoogleGeminiConfig>>
-  options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>
-  models?: AxAIInputModelList<AxAIGoogleGeminiModel, AxAIGoogleGeminiEmbedModel>
-  modelInfo?: AxModelInfo[]
+  name: 'google-gemini';
+  apiKey?: string | (() => Promise<string>);
+  projectId?: string;
+  region?: string;
+  endpointId?: string;
+  config?: Readonly<Partial<AxAIGoogleGeminiConfig>>;
+  options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>;
+  models?: AxAIInputModelList<
+    AxAIGoogleGeminiModel,
+    AxAIGoogleGeminiEmbedModel
+  >;
+  modelInfo?: AxModelInfo[];
 }
 
 class AxAIGoogleGeminiImpl
@@ -130,26 +131,26 @@ class AxAIGoogleGeminiImpl
       AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
     >
 {
-  private tokensUsed: AxTokenUsage | undefined
+  private tokensUsed: AxTokenUsage | undefined;
 
   constructor(
     private config: AxAIGoogleGeminiConfig,
     private isVertex: boolean,
     private endpointId?: string,
-    private apiKey?: string,
+    private apiKey?: string | (() => Promise<string>),
     private options?: AxAIGoogleGeminiArgs['options']
   ) {
     if (!this.isVertex && this.config.autoTruncate) {
-      throw new Error('Auto truncate is not supported for GoogleGemini')
+      throw new Error('Auto truncate is not supported for GoogleGemini');
     }
   }
 
   getTokenUsage(): AxTokenUsage | undefined {
-    return this.tokensUsed
+    return this.tokensUsed;
   }
 
   getModelConfig(): AxModelConfig {
-    const { config } = this
+    const { config } = this;
     return {
       maxTokens: config.maxTokens,
       temperature: config.temperature,
@@ -161,43 +162,45 @@ class AxAIGoogleGeminiImpl
       endSequences: config.endSequences,
       stream: config.stream,
       n: config.n,
-    } as AxModelConfig
+    } as AxModelConfig;
   }
 
-  createChatReq = (
+  createChatReq = async (
     req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
     config: Readonly<AxAIPromptConfig>
-  ): [AxAPI, AxAIGoogleGeminiChatRequest] => {
-    const model = req.model
-    const stream = req.modelConfig?.stream ?? this.config.stream
+  ): Promise<[AxAPI, AxAIGoogleGeminiChatRequest]> => {
+    const model = req.model;
+    const stream = req.modelConfig?.stream ?? this.config.stream;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
-      throw new Error('Chat prompt is empty')
+      throw new Error('Chat prompt is empty');
     }
 
-    let apiConfig
+    let apiConfig: AxAPI;
     if (this.endpointId) {
       apiConfig = {
         name: stream
           ? `/${this.endpointId}:streamGenerateContent?alt=sse`
           : `/${this.endpointId}:generateContent`,
-      }
+      };
     } else {
       apiConfig = {
         name: stream
           ? `/models/${model}:streamGenerateContent?alt=sse`
           : `/models/${model}:generateContent`,
-      }
+      };
     }
 
     if (!this.isVertex) {
-      const pf = stream ? '&' : '?'
-      apiConfig.name += `${pf}key=${this.apiKey}`
+      const pf = stream ? '&' : '?';
+      const keyValue =
+        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+      apiConfig.name += `${pf}key=${keyValue}`;
     }
 
     const systemPrompts = req.chatPrompt
       .filter((p) => p.role === 'system')
-      .map((p) => p.content)
+      .map((p) => p.content);
 
     const systemInstruction =
       systemPrompts.length > 0
@@ -205,7 +208,7 @@ class AxAIGoogleGeminiImpl
             role: 'user' as const,
             parts: [{ text: systemPrompts.join(' ') }],
           }
-        : undefined
+        : undefined;
 
     const contents: AxAIGoogleGeminiContent[] = req.chatPrompt
       .filter((p) => p.role !== 'system')
@@ -218,65 +221,65 @@ class AxAIGoogleGeminiImpl
               ? msg.content.map((c, i) => {
                   switch (c.type) {
                     case 'text':
-                      return { text: c.text }
+                      return { text: c.text };
                     case 'image':
                       return {
                         inlineData: { mimeType: c.mimeType, data: c.image },
-                      }
+                      };
                     default:
                       throw new Error(
                         `Chat prompt content type not supported (index: ${i})`
-                      )
+                      );
                   }
                 })
-              : [{ text: msg.content }]
+              : [{ text: msg.content }];
             return {
               role: 'user' as const,
               parts,
-            }
+            };
           }
 
           case 'assistant': {
-            let parts: AxAIGoogleGeminiContentPart[] = []
+            let parts: AxAIGoogleGeminiContentPart[] = [];
 
             if (msg.functionCalls) {
               parts = msg.functionCalls.map((f) => {
                 const args =
                   typeof f.function.params === 'string'
                     ? JSON.parse(f.function.params)
-                    : f.function.params
+                    : f.function.params;
                 return {
                   functionCall: {
                     name: f.function.name,
                     args: args,
                   },
-                }
-              })
+                };
+              });
 
               if (!parts) {
-                throw new Error('Function call is empty')
+                throw new Error('Function call is empty');
               }
 
               return {
                 role: 'model' as const,
                 parts,
-              }
+              };
             }
 
             if (!msg.content) {
-              throw new Error('Assistant content is empty')
+              throw new Error('Assistant content is empty');
             }
 
-            parts = [{ text: msg.content }]
+            parts = [{ text: msg.content }];
             return {
               role: 'model' as const,
               parts,
-            }
+            };
           }
 
           case 'function': {
             if (!('functionId' in msg)) {
-              throw new Error(`Chat prompt functionId is empty (index: ${i})`)
+              throw new Error(`Chat prompt functionId is empty (index: ${i})`);
             }
             const parts: AxAIGoogleGeminiContentPart[] = [
               {
@@ -285,29 +288,29 @@ class AxAIGoogleGeminiImpl
                   response: { result: msg.result },
                 },
               },
-            ]
+            ];
 
             return {
               role: 'user' as const,
               parts,
-            }
+            };
           }
 
           default:
             throw new Error(
               `Invalid role: ${JSON.stringify(msg)} (index: ${i})`
-            )
+            );
         }
-      })
+      });
 
-    let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = []
+    let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
 
     if (req.functions && req.functions.length > 0) {
-      tools.push({ function_declarations: req.functions })
+      tools.push({ function_declarations: req.functions });
     }
 
     if (this.options?.codeExecution) {
-      tools.push({ code_execution: {} })
+      tools.push({ code_execution: {} });
     }
 
     if (this.options?.googleSearchRetrieval) {
@@ -315,90 +318,97 @@ class AxAIGoogleGeminiImpl
         google_search_retrieval: {
           dynamic_retrieval_config: this.options.googleSearchRetrieval,
         },
-      })
+      });
     }
 
     if (this.options?.googleSearch) {
-      tools.push({ google_search: {} })
+      tools.push({ google_search: {} });
     }
 
     if (this.options?.urlContext) {
-      tools.push({ url_context: {} })
+      tools.push({ url_context: {} });
     }
 
     if (tools.length === 0) {
-      tools = undefined
+      tools = undefined;
     }
 
-    let toolConfig
+    let toolConfig:
+      | {
+          function_calling_config: {
+            mode: 'NONE' | 'AUTO' | 'ANY';
+            allowedFunctionNames?: string[];
+          };
+        }
+      | undefined;
 
     if (req.functionCall) {
       if (req.functionCall === 'none') {
-        toolConfig = { function_calling_config: { mode: 'NONE' as const } }
+        toolConfig = { function_calling_config: { mode: 'NONE' as const } };
       } else if (req.functionCall === 'auto') {
-        toolConfig = { function_calling_config: { mode: 'AUTO' as const } }
+        toolConfig = { function_calling_config: { mode: 'AUTO' as const } };
       } else if (req.functionCall === 'required') {
         toolConfig = {
           function_calling_config: { mode: 'ANY' as const },
-        }
+        };
       } else {
         const allowedFunctionNames = req.functionCall.function?.name
           ? {
               allowedFunctionNames: [req.functionCall.function.name],
             }
-          : {}
+          : {};
         toolConfig = {
           function_calling_config: { mode: 'ANY' as const },
           ...allowedFunctionNames,
-        }
+        };
       }
     } else if (tools && tools.length > 0) {
-      toolConfig = { function_calling_config: { mode: 'AUTO' as const } }
+      toolConfig = { function_calling_config: { mode: 'AUTO' as const } };
     }
 
     const thinkingConfig: AxAIGoogleGeminiGenerationConfig['thinkingConfig'] =
-      {}
+      {};
 
     if (this.config.thinking?.includeThoughts) {
-      thinkingConfig.includeThoughts = true
+      thinkingConfig.includeThoughts = true;
     }
 
     if (this.config.thinking?.thinkingTokenBudget) {
-      thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget
+      thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget;
     }
 
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
-      const levels = this.config.thinkingTokenBudgetLevels
+      const levels = this.config.thinkingTokenBudgetLevels;
 
       switch (config.thinkingTokenBudget) {
         case 'none':
-          thinkingConfig.thinkingBudget = 0 // Explicitly set to 0
-          thinkingConfig.includeThoughts = false // When thinkingTokenBudget is 'none', disable showThoughts
-          break
+          thinkingConfig.thinkingBudget = 0; // Explicitly set to 0
+          thinkingConfig.includeThoughts = false; // When thinkingTokenBudget is 'none', disable showThoughts
+          break;
         case 'minimal':
-          thinkingConfig.thinkingBudget = levels?.minimal ?? 200
-          break
+          thinkingConfig.thinkingBudget = levels?.minimal ?? 200;
+          break;
         case 'low':
-          thinkingConfig.thinkingBudget = levels?.low ?? 800
-          break
+          thinkingConfig.thinkingBudget = levels?.low ?? 800;
+          break;
         case 'medium':
-          thinkingConfig.thinkingBudget = levels?.medium ?? 5000
-          break
+          thinkingConfig.thinkingBudget = levels?.medium ?? 5000;
+          break;
         case 'high':
-          thinkingConfig.thinkingBudget = levels?.high ?? 10000
-          break
+          thinkingConfig.thinkingBudget = levels?.high ?? 10000;
+          break;
         case 'highest':
-          thinkingConfig.thinkingBudget = levels?.highest ?? 24500
-          break
+          thinkingConfig.thinkingBudget = levels?.highest ?? 24500;
+          break;
       }
     }
 
     if (config?.showThoughts !== undefined) {
       // Only override includeThoughts if thinkingTokenBudget is not 'none'
       if (config?.thinkingTokenBudget !== 'none') {
-        thinkingConfig.includeThoughts = config.showThoughts
+        thinkingConfig.includeThoughts = config.showThoughts;
       }
     }
 
@@ -415,9 +425,9 @@ class AxAIGoogleGeminiImpl
       responseMimeType: 'text/plain',
 
       ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
-    }
+    };
 
-    const safetySettings = this.config.safetySettings
+    const safetySettings = this.config.safetySettings;
 
     const reqValue: AxAIGoogleGeminiChatRequest = {
       contents,
@@ -426,41 +436,43 @@ class AxAIGoogleGeminiImpl
       systemInstruction,
       generationConfig,
       safetySettings,
-    }
+    };
 
-    return [apiConfig, reqValue]
-  }
+    return [apiConfig, reqValue];
+  };
 
-  createEmbedReq = (
+  createEmbedReq = async (
     req: Readonly<AxInternalEmbedRequest<AxAIGoogleGeminiEmbedModel>>
-  ): [
-    AxAPI,
-    AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
-  ] => {
-    const model = req.embedModel
+  ): Promise<
+    [
+      AxAPI,
+      AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
+    ]
+  > => {
+    const model = req.embedModel;
 
     if (!model) {
-      throw new Error('Embed model not set')
+      throw new Error('Embed model not set');
     }
 
     if (!req.texts || req.texts.length === 0) {
-      throw new Error('Embed texts is empty')
+      throw new Error('Embed texts is empty');
     }
 
-    let apiConfig
+    let apiConfig: AxAPI;
     let reqValue:
       | AxAIGoogleGeminiBatchEmbedRequest
-      | AxAIGoogleVertexBatchEmbedRequest
+      | AxAIGoogleVertexBatchEmbedRequest;
 
     if (this.isVertex) {
       if (this.endpointId) {
         apiConfig = {
           name: `/${this.endpointId}:predict`,
-        }
+        };
       } else {
         apiConfig = {
           name: `/models/${model}:predict`,
-        }
+        };
       }
 
       reqValue = {
@@ -472,89 +484,127 @@ class AxAIGoogleGeminiImpl
           autoTruncate: this.config.autoTruncate,
           outputDimensionality: this.config.dimensions,
         },
-      }
+      };
     } else {
+      const keyValue =
+        typeof this.apiKey === 'function' ? this.apiKey() : this.apiKey;
       apiConfig = {
-        name: `/models/${model}:batchEmbedContents?key=${this.apiKey}`,
-      }
+        name: `/models/${model}:batchEmbedContents?key=${keyValue}`,
+      };
 
       reqValue = {
         requests: req.texts.map((text) => ({
-          model: 'models/' + model,
+          model: `models/${model}`,
           content: { parts: [{ text }] },
           outputDimensionality: this.config.dimensions,
           ...(this.config.embedType && { taskType: this.config.embedType }),
         })),
-      }
+      };
     }
 
-    return [apiConfig, reqValue]
-  }
+    return [apiConfig, reqValue];
+  };
 
   createChatResp = (
     resp: Readonly<AxAIGoogleGeminiChatResponse>
   ): AxChatResponse => {
     const results: AxChatResponseResult[] = resp.candidates?.map(
       (candidate) => {
-        const result: AxChatResponseResult = { index: 0 }
+        const result: AxChatResponseResult = { index: 0 };
 
         switch (candidate.finishReason) {
           case 'MAX_TOKENS':
-            result.finishReason = 'length'
-            break
+            result.finishReason = 'length';
+            break;
           case 'STOP':
-            result.finishReason = 'stop'
-            break
+            result.finishReason = 'stop';
+            break;
           case 'SAFETY':
             throw new AxAIRefusalError(
               'Content was blocked due to safety settings',
               undefined, // model not available in candidate
               undefined // requestId not available
-            )
+            );
           case 'RECITATION':
             throw new AxAIRefusalError(
               'Content was blocked due to recitation policy',
               undefined, // model not available in candidate
               undefined // requestId not available
-            )
+            );
           case 'MALFORMED_FUNCTION_CALL':
             throw new AxAIRefusalError(
               'Function call was malformed and blocked',
               undefined, // model not available in candidate
               undefined // requestId not available
-            )
+            );
+          case 'UNEXPECTED_TOOL_CALL':
+            throw new AxAIRefusalError(
+              'Unexpected tool call',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            );
+          case 'FINISH_REASON_UNSPECIFIED':
+            throw new AxAIRefusalError(
+              'Finish reason unspecified',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            );
+          case 'BLOCKLIST':
+            throw new AxAIRefusalError(
+              'Content was blocked due to blocklist',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            );
+          case 'PROHIBITED_CONTENT':
+            throw new AxAIRefusalError(
+              'Content was blocked due to prohibited content',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            );
+          case 'SPII':
+            throw new AxAIRefusalError(
+              'Content was blocked due to SPII',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            );
+          case 'OTHER':
+            throw new AxAIRefusalError(
+              'Other finish reason',
+              undefined, // model not available in candidate
+              undefined // requestId not available
+            );
         }
 
         if (!candidate.content || !candidate.content.parts) {
-          return result
+          return result;
         }
 
         for (const part of candidate.content.parts) {
           if ('text' in part) {
             if ('thought' in part && part.thought) {
-              result.thought = part.text
+              result.thought = part.text;
             } else {
-              result.content = part.text
+              result.content = part.text;
             }
-            continue
+            continue;
           }
 
           if ('functionCall' in part) {
             result.functionCalls = [
               {
-                id: part.functionCall.name,
+                id: randomUUID(),
                 type: 'function',
                 function: {
                   name: part.functionCall.name,
                   params: part.functionCall.args,
                 },
               },
-            ]
+            ];
           }
         }
-        return result
+        return result;
       }
-    )
+    );
 
     if (resp.usageMetadata) {
       this.tokensUsed = {
@@ -562,37 +612,37 @@ class AxAIGoogleGeminiImpl
         promptTokens: resp.usageMetadata.promptTokenCount,
         completionTokens: resp.usageMetadata.candidatesTokenCount,
         thoughtsTokens: resp.usageMetadata.thoughtsTokenCount,
-      }
+      };
     }
-    return { results }
-  }
+    return { results };
+  };
 
   createChatStreamResp = (
     resp: Readonly<AxAIGoogleGeminiChatResponseDelta>
   ): AxChatResponse => {
-    return this.createChatResp(resp)
-  }
+    return this.createChatResp(resp);
+  };
 
   createEmbedResp = (
     resp: Readonly<
       AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
     >
   ): AxEmbedResponse => {
-    let embeddings: number[][]
+    let embeddings: number[][];
     if (this.isVertex) {
       embeddings = (resp as AxAIGoogleVertexBatchEmbedResponse).predictions.map(
         (prediction) => prediction.embeddings.values
-      )
+      );
     } else {
       embeddings = (resp as AxAIGoogleGeminiBatchEmbedResponse).embeddings.map(
         (embedding) => embedding.values
-      )
+      );
     }
 
     return {
       embeddings,
-    }
-  }
+    };
+  };
 }
 
 /**
@@ -617,50 +667,50 @@ export class AxAIGoogleGemini extends AxBaseAI<
     models,
     modelInfo,
   }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
-    const isVertex = projectId !== undefined && region !== undefined
+    const isVertex = projectId !== undefined && region !== undefined;
 
-    let apiURL
-    let headers
+    let apiURL: string;
+    let headers: () => Promise<Record<string, string>>;
 
     if (isVertex) {
-      let path
-      if (endpointId) {
-        path = 'endpoints'
-      } else {
-        path = 'publishers/google'
+      if (!apiKey) {
+        throw new Error('GoogleGemini Vertex API key not set');
       }
 
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/${path}`
-      if (apiKey) {
-        headers = async () => ({ Authorization: `Bearer ${apiKey}` })
+      let path: string;
+      if (endpointId) {
+        path = 'endpoints';
       } else {
-        const vertexAuth = new GoogleVertexAuth()
-        headers = async () => ({
-          Authorization: `Bearer ${await vertexAuth.getAccessToken()}`,
-        })
+        path = 'publishers/google';
       }
+
+      const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
+      apiURL = `https://${tld}.googleapis.com/v1/projects/${projectId}/locations/${region}/${path}`;
+      headers = async () => ({
+        Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
+      });
     } else {
       if (!apiKey) {
-        throw new Error('GoogleGemini AI API key not set')
+        throw new Error('GoogleGemini AI API key not set');
       }
-      apiURL = 'https://generativelanguage.googleapis.com/v1beta'
-      headers = async () => ({})
+      apiURL = 'https://generativelanguage.googleapis.com/v1beta';
+      headers = async () => ({});
     }
 
-    const _config = {
+    const Config = {
       ...axAIGoogleGeminiDefaultConfig(),
       ...config,
-    }
+    };
 
     const aiImpl = new AxAIGoogleGeminiImpl(
-      _config,
+      Config,
       isVertex,
       endpointId,
       apiKey,
       options
-    )
+    );
 
-    modelInfo = [...axModelInfoGoogleGemini, ...(modelInfo ?? [])]
+    modelInfo = [...axModelInfoGoogleGemini, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIGoogleGeminiModel) => {
       const mi = getModelInfo<
@@ -670,15 +720,15 @@ export class AxAIGoogleGemini extends AxBaseAI<
         model,
         modelInfo,
         models,
-      })
+      });
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
         functionCot: false,
-      }
-    }
+      };
+    };
 
     super(aiImpl, {
       name: 'GoogleGeminiAI',
@@ -686,12 +736,12 @@ export class AxAIGoogleGemini extends AxBaseAI<
       headers,
       modelInfo,
       defaults: {
-        model: _config.model as AxAIGoogleGeminiModel,
-        embedModel: _config.embedModel as AxAIGoogleGeminiEmbedModel,
+        model: Config.model as AxAIGoogleGeminiModel,
+        embedModel: Config.embedModel as AxAIGoogleGeminiEmbedModel,
       },
       options,
       supportFor,
       models,
-    })
+    });
   }
 }

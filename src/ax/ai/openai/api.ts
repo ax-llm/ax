@@ -1,11 +1,12 @@
-import type { AxAPI } from '../../util/apicall.js'
-import { AxAIRefusalError } from '../../util/apicall.js'
+import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
+import type { AxAPI } from '../../util/apicall.js';
+import { AxAIRefusalError } from '../../util/apicall.js';
 import {
   type AxAIFeatures,
   AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
-} from '../base.js'
+} from '../base.js';
 import type {
   AxAIInputModelList,
   AxAIPromptConfig,
@@ -19,8 +20,7 @@ import type {
   AxModelConfig,
   AxModelInfo,
   AxTokenUsage,
-} from '../types.js'
-
+} from '../types.js';
 import {
   type AxAIOpenAIChatRequest,
   type AxAIOpenAIChatResponse,
@@ -30,10 +30,8 @@ import {
   type AxAIOpenAIEmbedRequest,
   type AxAIOpenAIEmbedResponse,
   AxAIOpenAIModel,
-} from './chat_types.js'
-import { axModelInfoOpenAI } from './info.js'
-
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
+} from './chat_types.js';
+import { axModelInfoOpenAI } from './info.js';
 
 /**
  * Checks if the given OpenAI model is a thinking/reasoning model.
@@ -49,12 +47,12 @@ export const isOpenAIThinkingModel = (model: string): boolean => {
     // Pro models (string values since they're not in the regular chat enum)
     'o1-pro',
     'o3-pro',
-  ]
+  ];
   return (
     thinkingModels.includes(model as AxAIOpenAIModel) ||
     thinkingModels.includes(model)
-  )
-}
+  );
+};
 
 export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIModel,
@@ -64,7 +62,7 @@ export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
     model: AxAIOpenAIModel.GPT41,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
 export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIModel,
@@ -73,7 +71,7 @@ export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig<
   structuredClone({
     ...axAIOpenAIDefaultConfig(),
     model: AxAIOpenAIModel.GPT41,
-  })
+  });
 
 export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIModel,
@@ -83,7 +81,7 @@ export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
     model: AxAIOpenAIModel.GPT41,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig(),
-  })
+  });
 
 export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIModel,
@@ -91,7 +89,7 @@ export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig<
 > => ({
   ...axAIOpenAIDefaultConfig(),
   model: AxAIOpenAIModel.GPT41Mini,
-})
+});
 
 export interface AxAIOpenAIArgs<
   TName = 'openai',
@@ -103,28 +101,28 @@ export interface AxAIOpenAIArgs<
     AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>,
     'config' | 'supportFor' | 'modelInfo'
   > {
-  name: TName
-  modelInfo?: AxModelInfo[]
-  config?: Partial<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>['config']>
+  name: TName;
+  modelInfo?: AxModelInfo[];
+  config?: Partial<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>['config']>;
 }
 
 type ChatReqUpdater<TModel, TChatReq extends AxAIOpenAIChatRequest<TModel>> = (
   req: Readonly<TChatReq>
-) => TChatReq
+) => TChatReq;
 
 export interface AxAIOpenAIBaseArgs<
   TModel,
   TEmbedModel,
   TChatReq extends AxAIOpenAIChatRequest<TModel>,
 > {
-  apiKey: string
-  apiURL?: string
-  config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>
-  options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>
-  modelInfo: Readonly<AxModelInfo[]>
-  models?: AxAIInputModelList<TModel, TEmbedModel>
-  chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>
-  supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures)
+  apiKey: string;
+  apiURL?: string;
+  config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>;
+  options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
+  modelInfo: Readonly<AxModelInfo[]>;
+  models?: AxAIInputModelList<TModel, TEmbedModel>;
+  chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>;
+  supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 }
 
 class AxAIOpenAIImpl<
@@ -142,7 +140,7 @@ class AxAIOpenAIImpl<
       AxAIOpenAIEmbedResponse
     >
 {
-  private tokensUsed: AxTokenUsage | undefined
+  private tokensUsed: AxTokenUsage | undefined;
 
   constructor(
     private readonly config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>,
@@ -151,11 +149,11 @@ class AxAIOpenAIImpl<
   ) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
-    return this.tokensUsed
+    return this.tokensUsed;
   }
 
   getModelConfig(): AxModelConfig {
-    const { config } = this
+    const { config } = this;
 
     return {
       maxTokens: config.maxTokens,
@@ -167,7 +165,7 @@ class AxAIOpenAIImpl<
       topP: config.topP,
       n: config.n,
       stream: config.stream,
-    }
+    };
   }
 
   createChatReq(
@@ -175,15 +173,15 @@ class AxAIOpenAIImpl<
 
     config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIOpenAIChatRequest<TModel>] {
-    const model = req.model
+    const model = req.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
-      throw new Error('Chat prompt is empty')
+      throw new Error('Chat prompt is empty');
     }
 
     const apiConfig = {
       name: '/chat/completions',
-    }
+    };
 
     const tools = req.functions?.map((v) => ({
       type: 'function' as const,
@@ -192,23 +190,23 @@ class AxAIOpenAIImpl<
         description: v.description,
         parameters: v.parameters,
       },
-    }))
+    }));
 
     const toolsChoice =
       !req.functionCall && req.functions && req.functions.length > 0
         ? 'auto'
-        : req.functionCall
+        : req.functionCall;
 
-    const messages = createMessages(req)
+    const messages = createMessages(req);
 
     const frequencyPenalty =
-      req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty
+      req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
 
-    const stream = req.modelConfig?.stream ?? this.config.stream
+    const stream = req.modelConfig?.stream ?? this.config.stream;
 
-    const store = this.config.store
+    const store = this.config.store;
 
-    const isThinkingModel = isOpenAIThinkingModel(model as string)
+    const isThinkingModel = isOpenAIThinkingModel(model as string);
 
     let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
@@ -244,10 +242,10 @@ class AxAIOpenAIImpl<
         ? { service_tier: this.config.serviceTier }
         : {}),
       ...(this.config.user ? { user: this.config.user } : {}),
-    }
+    };
 
     if (this.config.reasoningEffort) {
-      reqValue.reasoning_effort = this.config.reasoningEffort
+      reqValue.reasoning_effort = this.config.reasoningEffort;
     }
 
     if (this.config.webSearchOptions) {
@@ -283,71 +281,71 @@ class AxAIOpenAIImpl<
             },
           },
         }),
-      }
+      };
     }
 
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
       switch (config.thinkingTokenBudget) {
         case 'none':
-          reqValue.reasoning_effort = undefined // Explicitly set to undefined
-          break
+          reqValue.reasoning_effort = undefined; // Explicitly set to undefined
+          break;
         case 'minimal':
-          reqValue.reasoning_effort = 'low'
-          break
+          reqValue.reasoning_effort = 'low';
+          break;
         case 'low':
-          reqValue.reasoning_effort = 'medium'
-          break
+          reqValue.reasoning_effort = 'medium';
+          break;
         case 'medium':
-          reqValue.reasoning_effort = 'high'
-          break
+          reqValue.reasoning_effort = 'high';
+          break;
         case 'high':
-          reqValue.reasoning_effort = 'high'
-          break
+          reqValue.reasoning_effort = 'high';
+          break;
         case 'highest':
-          reqValue.reasoning_effort = 'high'
-          break
+          reqValue.reasoning_effort = 'high';
+          break;
       }
     }
 
     if (this.chatReqUpdater) {
-      reqValue = this.chatReqUpdater(reqValue as TChatReq)
+      reqValue = this.chatReqUpdater(reqValue as TChatReq);
     }
 
-    return [apiConfig, reqValue]
+    return [apiConfig, reqValue];
   }
 
   createEmbedReq(
     req: Readonly<AxInternalEmbedRequest<TEmbedModel>>
   ): [AxAPI, AxAIOpenAIEmbedRequest<TEmbedModel>] {
-    const model = req.embedModel
+    const model = req.embedModel;
 
     if (!model) {
-      throw new Error('Embed model not set')
+      throw new Error('Embed model not set');
     }
 
     if (!req.texts || req.texts.length === 0) {
-      throw new Error('Embed texts is empty')
+      throw new Error('Embed texts is empty');
     }
 
     const apiConfig = {
       name: '/embeddings',
-    }
+    };
 
     const reqValue = {
       model: model,
       input: req.texts,
       dimensions: this.config.dimensions,
-    }
+    };
 
-    return [apiConfig, reqValue]
+    return [apiConfig, reqValue];
   }
 
   createChatResp(resp: Readonly<AxAIOpenAIChatResponse>): AxChatResponse {
-    const { id, usage, choices, error } = resp
+    const { id, usage, choices, error } = resp;
 
     if (error) {
-      throw error
+      throw error;
     }
     this.tokensUsed = usage
       ? {
@@ -355,15 +353,15 @@ class AxAIOpenAIImpl<
           completionTokens: usage.completion_tokens,
           totalTokens: usage.total_tokens,
         }
-      : undefined
+      : undefined;
 
     const results = choices.map((choice) => {
       // Check for refusal and throw exception if present
       if (choice.message.refusal) {
-        throw new AxAIRefusalError(choice.message.refusal, resp.model, resp.id)
+        throw new AxAIRefusalError(choice.message.refusal, resp.model, resp.id);
       }
 
-      const finishReason = mapFinishReason(choice.finish_reason)
+      const finishReason = mapFinishReason(choice.finish_reason);
 
       const functionCalls = choice.message.tool_calls?.map(
         ({ id, function: { arguments: params, name } }) => ({
@@ -371,7 +369,7 @@ class AxAIOpenAIImpl<
           type: 'function' as const,
           function: { name, params },
         })
-      )
+      );
 
       return {
         index: choice.index,
@@ -381,20 +379,20 @@ class AxAIOpenAIImpl<
         annotations: choice.message.annotations,
         functionCalls,
         finishReason,
-      }
-    })
+      };
+    });
 
     return {
       results,
       remoteId: id,
-    }
+    };
   }
 
   createChatStreamResp(
     resp: Readonly<AxAIOpenAIChatResponseDelta>,
     state: object
   ): AxChatResponse {
-    const { id, usage, choices } = resp
+    const { id, usage, choices } = resp;
 
     this.tokensUsed = usage
       ? {
@@ -402,14 +400,14 @@ class AxAIOpenAIImpl<
           completionTokens: usage.completion_tokens,
           totalTokens: usage.total_tokens,
         }
-      : undefined
+      : undefined;
 
     const sstate = state as {
-      indexIdMap: Record<number, string>
-    }
+      indexIdMap: Record<number, string>;
+    };
 
     if (!sstate.indexIdMap) {
-      sstate.indexIdMap = {}
+      sstate.indexIdMap = {};
     }
 
     const results = choices.map(
@@ -427,33 +425,33 @@ class AxAIOpenAIImpl<
       }) => {
         // Check for refusal and throw exception if present
         if (refusal) {
-          throw new AxAIRefusalError(refusal, undefined, id)
+          throw new AxAIRefusalError(refusal, undefined, id);
         }
 
-        const finishReason = mapFinishReason(oaiFinishReason)
+        const finishReason = mapFinishReason(oaiFinishReason);
 
         const functionCalls = toolCalls
-          ?.map(({ id: _id, index, function: { name, arguments: params } }) => {
+          ?.map(({ id: Id, index, function: { name, arguments: params } }) => {
             if (
-              typeof _id === 'string' &&
+              typeof Id === 'string' &&
               typeof index === 'number' &&
               !sstate.indexIdMap[index]
             ) {
-              sstate.indexIdMap[index] = _id
+              sstate.indexIdMap[index] = Id;
             }
 
-            const id = sstate.indexIdMap[index]
+            const id = sstate.indexIdMap[index];
             if (!id) {
-              return null
+              return null;
             }
 
             return {
               id,
               type: 'function' as const,
               function: { name, params },
-            }
+            };
           })
-          .filter((v) => v !== null)
+          .filter((v) => v !== null);
 
         return {
           index,
@@ -464,15 +462,15 @@ class AxAIOpenAIImpl<
           functionCalls,
           finishReason,
           id,
-        }
+        };
       }
-    )
+    );
 
-    return { results }
+    return { results };
   }
 
   createEmbedResp(resp: Readonly<AxAIOpenAIEmbedResponse>): AxEmbedResponse {
-    const { data, usage } = resp
+    const { data, usage } = resp;
 
     this.tokensUsed = usage
       ? {
@@ -480,9 +478,9 @@ class AxAIOpenAIImpl<
           completionTokens: usage.completion_tokens,
           totalTokens: usage.total_tokens,
         }
-      : undefined
+      : undefined;
 
-    return { embeddings: data.map((v) => v.embedding) }
+    return { embeddings: data.map((v) => v.embedding) };
   }
 }
 
@@ -491,15 +489,15 @@ const mapFinishReason = (
 ): AxChatResponseResult['finishReason'] => {
   switch (finishReason) {
     case 'stop':
-      return 'stop' as const
+      return 'stop' as const;
     case 'length':
-      return 'length' as const
+      return 'length' as const;
     case 'content_filter':
-      return 'error' as const
+      return 'error' as const;
     case 'tool_calls':
-      return 'function_call' as const
+      return 'function_call' as const;
   }
-}
+};
 
 function createMessages<TModel>(
   req: Readonly<AxInternalChatRequest<TModel>>
@@ -507,45 +505,46 @@ function createMessages<TModel>(
   type UserContent = Extract<
     AxAIOpenAIChatRequest<TModel>['messages'][number],
     { role: 'user' }
-  >['content']
+  >['content'];
 
   const openaiReq = req.chatPrompt.map((msg) => {
     switch (msg.role) {
       case 'system':
-        return { role: 'system' as const, content: msg.content }
+        return { role: 'system' as const, content: msg.content };
 
-      case 'user':
+      case 'user': {
         const content: UserContent = Array.isArray(msg.content)
           ? msg.content.map((c) => {
               switch (c.type) {
                 case 'text':
-                  return { type: 'text' as const, text: c.text }
+                  return { type: 'text' as const, text: c.text };
                 case 'image': {
-                  const url = `data:${c.mimeType};base64,` + c.image
+                  const url = `data:${c.mimeType};base64,${c.image}`;
                   return {
                     type: 'image_url' as const,
                     image_url: { url, details: c.details ?? 'auto' },
-                  }
+                  };
                 }
                 case 'audio': {
-                  const data = c.data
+                  const data = c.data;
                   return {
                     type: 'input_audio' as const,
                     input_audio: { data, format: c.format ?? 'wav' },
-                  }
+                  };
                 }
                 default:
-                  throw new Error('Invalid content type')
+                  throw new Error('Invalid content type');
               }
             })
-          : msg.content
+          : msg.content;
         return {
           role: 'user' as const,
           ...(msg.name ? { name: msg.name } : {}),
           content,
-        }
+        };
+      }
 
-      case 'assistant':
+      case 'assistant': {
         const toolCalls = msg.functionCalls?.map((v) => ({
           id: v.id,
           type: 'function' as const,
@@ -556,7 +555,7 @@ function createMessages<TModel>(
                 ? JSON.stringify(v.function.params)
                 : v.function.params,
           },
-        }))
+        }));
 
         if (toolCalls && toolCalls.length > 0) {
           return {
@@ -564,32 +563,33 @@ function createMessages<TModel>(
             ...(msg.content ? { content: msg.content } : {}),
             name: msg.name,
             tool_calls: toolCalls,
-          }
+          };
         }
 
         if (msg.content === undefined) {
           throw new Error(
             'Assistant content is required when no tool calls are provided'
-          )
+          );
         }
 
         return {
           role: 'assistant' as const,
           content: msg.content,
           ...(msg.name ? { name: msg.name } : {}),
-        }
+        };
+      }
 
       case 'function':
         return {
           role: 'tool' as const,
           content: msg.result,
           tool_call_id: msg.functionId,
-        }
+        };
       default:
-        throw new Error('Invalid role')
+        throw new Error('Invalid role');
     }
-  })
-  return openaiReq
+  });
+  return openaiReq;
 }
 
 export class AxAIOpenAIBase<
@@ -619,14 +619,14 @@ export class AxAIOpenAIBase<
     Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>, 'name'>
   >) {
     if (!apiKey || apiKey === '') {
-      throw new Error('OpenAI API key not set')
+      throw new Error('OpenAI API key not set');
     }
 
     const aiImpl = new AxAIOpenAIImpl<TModel, TEmbedModel, TChatReq>(
       config,
       options?.streamingUsage ?? true,
       chatReqUpdater
-    )
+    );
 
     super(aiImpl, {
       name: 'OpenAI',
@@ -640,7 +640,7 @@ export class AxAIOpenAIBase<
       options,
       supportFor,
       models,
-    })
+    });
   }
 }
 
@@ -656,24 +656,24 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
     modelInfo,
   }: Readonly<Omit<AxAIOpenAIArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('OpenAI API key not set')
+      throw new Error('OpenAI API key not set');
     }
 
-    modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])]
+    modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIOpenAIModel) => {
       const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel>({
         model,
         modelInfo,
         models,
-      })
+      });
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
-      }
-    }
+      };
+    };
 
     super({
       apiKey,
@@ -685,8 +685,8 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
       modelInfo,
       models,
       supportFor,
-    })
+    });
 
-    super.setName('OpenAI')
+    super.setName('OpenAI');
   }
 }

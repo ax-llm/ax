@@ -1,9 +1,9 @@
-import type { AxAPI } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js';
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
-} from '../base.js'
+} from '../base.js';
 import type {
   AxAIInputModelList,
   AxAIPromptConfig,
@@ -13,34 +13,34 @@ import type {
   AxInternalChatRequest,
   AxModelConfig,
   AxTokenUsage,
-} from '../types.js'
+} from '../types.js';
 
-import { axModelInfoHuggingFace } from './info.js'
+import { axModelInfoHuggingFace } from './info.js';
 import {
   type AxAIHuggingFaceConfig,
   AxAIHuggingFaceModel,
   type AxAIHuggingFaceRequest,
   type AxAIHuggingFaceResponse,
-} from './types.js'
+} from './types.js';
 
 export const axAIHuggingFaceDefaultConfig = (): AxAIHuggingFaceConfig =>
   structuredClone({
     model: AxAIHuggingFaceModel.MetaLlama270BChatHF,
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
 export const axAIHuggingFaceCreativeConfig = (): AxAIHuggingFaceConfig =>
   structuredClone({
     model: AxAIHuggingFaceModel.MetaLlama270BChatHF,
     ...axBaseAIDefaultCreativeConfig(),
-  })
+  });
 
 export interface AxAIHuggingFaceArgs {
-  name: 'huggingface'
-  apiKey: string
-  config?: Readonly<Partial<AxAIHuggingFaceConfig>>
-  options?: Readonly<AxAIServiceOptions>
-  models?: AxAIInputModelList<AxAIHuggingFaceModel, undefined>
+  name: 'huggingface';
+  apiKey: string;
+  config?: Readonly<Partial<AxAIHuggingFaceConfig>>;
+  options?: Readonly<AxAIServiceOptions>;
+  models?: AxAIInputModelList<AxAIHuggingFaceModel, undefined>;
 }
 
 class AxAIHuggingFaceImpl
@@ -55,16 +55,16 @@ class AxAIHuggingFaceImpl
       unknown
     >
 {
-  private tokensUsed: AxTokenUsage | undefined
+  private tokensUsed: AxTokenUsage | undefined;
 
   constructor(private config: AxAIHuggingFaceConfig) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
-    return this.tokensUsed
+    return this.tokensUsed;
   }
 
   getModelConfig(): AxModelConfig {
-    const { config } = this
+    const { config } = this;
     return {
       maxTokens: config.maxTokens,
       temperature: config.temperature,
@@ -72,7 +72,7 @@ class AxAIHuggingFaceImpl
       topK: config.topK,
       n: config.n,
       presencePenalty: config.presencePenalty,
-    } as AxModelConfig
+    } as AxModelConfig;
   }
 
   createChatReq = (
@@ -80,50 +80,50 @@ class AxAIHuggingFaceImpl
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAIHuggingFaceRequest] => {
-    const model = req.model
+    const model = req.model;
 
     const functionsList = req.functions
       ? `Functions:\n${JSON.stringify(req.functions, null, 2)}\n`
-      : ''
+      : '';
 
     const prompt = req.chatPrompt
       ?.map((msg) => {
         switch (msg.role) {
           case 'user':
-            return `User: ${msg.content}`
+            return `User: ${msg.content}`;
           case 'system':
-            return `System: ${msg.content}`
+            return `System: ${msg.content}`;
           case 'function':
-            return `Function Result: ${msg.result}`
+            return `Function Result: ${msg.result}`;
           case 'assistant': {
             const fc = msg.functionCalls
               ?.map((fc) => {
                 const args =
                   typeof fc.function.params === 'string'
                     ? fc.function.params
-                    : JSON.stringify(fc.function.params)
+                    : JSON.stringify(fc.function.params);
 
-                return `${fc.function.name}(${args})`
+                return `${fc.function.name}(${args})`;
               })
-              .join('\n')
+              .join('\n');
             if (fc) {
-              return `Assistant: ${msg.content}\n Functions:\n${fc}`
+              return `Assistant: ${msg.content}\n Functions:\n${fc}`;
             }
-            return `Assistant: ${msg.content}`
+            return `Assistant: ${msg.content}`;
           }
           default:
-            throw new Error(`Unknown role`)
+            throw new Error('Unknown role');
         }
 
         //return `${msg.role}: ${msg.content}`;
       })
-      .join('\n')
+      .join('\n');
 
-    const inputs = `${functionsList} ${prompt}`.trim()
+    const inputs = `${functionsList} ${prompt}`.trim();
 
     const apiConfig = {
       name: '/models',
-    }
+    };
 
     const reqValue: AxAIHuggingFaceRequest = {
       model,
@@ -144,10 +144,10 @@ class AxAIHuggingFaceImpl
         use_cache: this.config.useCache,
         wait_for_model: this.config.waitForModel,
       },
-    }
+    };
 
-    return [apiConfig, reqValue]
-  }
+    return [apiConfig, reqValue];
+  };
 
   createChatResp = (
     resp: Readonly<AxAIHuggingFaceResponse>
@@ -159,8 +159,8 @@ class AxAIHuggingFaceImpl
           content: resp.generated_text,
         },
       ],
-    }
-  }
+    };
+  };
 }
 
 export class AxAIHuggingFace extends AxBaseAI<
@@ -179,24 +179,24 @@ export class AxAIHuggingFace extends AxBaseAI<
     models,
   }: Readonly<Omit<AxAIHuggingFaceArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('HuggingFace API key not set')
+      throw new Error('HuggingFace API key not set');
     }
-    const _config = {
+    const Config = {
       ...axAIHuggingFaceDefaultConfig(),
       ...config,
-    }
+    };
 
-    const aiImpl = new AxAIHuggingFaceImpl(_config)
+    const aiImpl = new AxAIHuggingFaceImpl(Config);
 
     super(aiImpl, {
       name: 'HuggingFace',
       apiURL: 'https://api-inference.huggingface.co',
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo: axModelInfoHuggingFace,
-      defaults: { model: _config.model },
+      defaults: { model: Config.model },
       options,
       supportFor: { functions: false, streaming: false },
       models,
-    })
+    });
   }
 }

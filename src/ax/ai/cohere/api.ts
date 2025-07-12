@@ -1,9 +1,9 @@
-import type { AxAPI } from '../../util/apicall.js'
+import type { AxAPI } from '../../util/apicall.js';
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
-} from '../base.js'
+} from '../base.js';
 import type {
   AxAIInputModelList,
   AxAIPromptConfig,
@@ -16,9 +16,9 @@ import type {
   AxInternalEmbedRequest,
   AxModelConfig,
   AxTokenUsage,
-} from '../types.js'
+} from '../types.js';
 
-import { axModelInfoCohere } from './info.js'
+import { axModelInfoCohere } from './info.js';
 import {
   type AxAICohereChatRequest,
   type AxAICohereChatResponse,
@@ -28,28 +28,28 @@ import {
   type AxAICohereEmbedRequest,
   type AxAICohereEmbedResponse,
   AxAICohereModel,
-} from './types.js'
+} from './types.js';
 
 export const axAICohereDefaultConfig = (): AxAICohereConfig =>
   structuredClone({
     model: AxAICohereModel.CommandRPlus,
     embedModel: AxAICohereEmbedModel.EmbedEnglishV30,
     ...axBaseAIDefaultConfig(),
-  })
+  });
 
 export const axAICohereCreativeConfig = (): AxAICohereConfig =>
   structuredClone({
     model: AxAICohereModel.CommandR,
     embedModel: AxAICohereEmbedModel.EmbedEnglishV30,
     ...axBaseAIDefaultCreativeConfig(),
-  })
+  });
 
 export interface AxAICohereArgs {
-  name: 'cohere'
-  apiKey: string
-  config?: Readonly<Partial<AxAICohereConfig>>
-  options?: Readonly<AxAIServiceOptions>
-  models?: AxAIInputModelList<AxAICohereModel, AxAICohereEmbedModel>
+  name: 'cohere';
+  apiKey: string;
+  config?: Readonly<Partial<AxAICohereConfig>>;
+  options?: Readonly<AxAIServiceOptions>;
+  models?: AxAIInputModelList<AxAICohereModel, AxAICohereEmbedModel>;
 }
 
 class AxAICohereImpl
@@ -64,16 +64,16 @@ class AxAICohereImpl
       AxAICohereEmbedResponse
     >
 {
-  private tokensUsed: AxTokenUsage | undefined
+  private tokensUsed: AxTokenUsage | undefined;
 
   constructor(private config: AxAICohereConfig) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
-    return this.tokensUsed
+    return this.tokensUsed;
   }
 
   getModelConfig(): AxModelConfig {
-    const { config } = this
+    const { config } = this;
     return {
       maxTokens: config.maxTokens,
       temperature: config.temperature,
@@ -85,7 +85,7 @@ class AxAICohereImpl
       stopSequences: config.stopSequences,
       stream: config.stream,
       n: config.n,
-    } as AxModelConfig
+    } as AxModelConfig;
   }
 
   createChatReq(
@@ -93,36 +93,36 @@ class AxAICohereImpl
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _config: Readonly<AxAIPromptConfig>
   ): [AxAPI, AxAICohereChatRequest] {
-    const model = req.model
+    const model = req.model;
 
-    const lastChatMsg = req.chatPrompt.at(-1)
-    const restOfChat = req.chatPrompt.slice(0, -1)
+    const lastChatMsg = req.chatPrompt.at(-1);
+    const restOfChat = req.chatPrompt.slice(0, -1);
 
-    let message: AxAICohereChatRequest['message'] | undefined
+    let message: AxAICohereChatRequest['message'] | undefined;
 
     if (
       lastChatMsg &&
       lastChatMsg.role === 'user' &&
       typeof lastChatMsg.content === 'string'
     ) {
-      message = lastChatMsg?.content
+      message = lastChatMsg?.content;
     }
 
-    const chatHistory = createHistory(restOfChat)
+    const chatHistory = createHistory(restOfChat);
 
     type PropValue = NonNullable<
       AxAICohereChatRequest['tools']
-    >[0]['parameter_definitions'][0]
+    >[0]['parameter_definitions'][0];
 
     const tools: AxAICohereChatRequest['tools'] = req.functions?.map((v) => {
-      const props: Record<string, PropValue> = {}
+      const props: Record<string, PropValue> = {};
       if (v.parameters?.properties) {
         for (const [key, value] of Object.entries(v.parameters.properties)) {
           props[key] = {
             description: value.description,
             type: value.type,
             required: v.parameters.required?.includes(key) ?? false,
-          }
+          };
         }
       }
 
@@ -130,29 +130,29 @@ class AxAICohereImpl
         name: v.name,
         description: v.description,
         parameter_definitions: props,
-      }
-    })
+      };
+    });
 
-    type FnType = Extract<AxChatRequest['chatPrompt'][0], { role: 'function' }>
+    type FnType = Extract<AxChatRequest['chatPrompt'][0], { role: 'function' }>;
 
     const toolResults: AxAICohereChatRequest['tool_results'] = (
       req.chatPrompt as FnType[]
     )
       .filter((chat) => chat.role === 'function')
       .map((chat) => {
-        const fn = tools?.find((t) => t.name === chat.functionId)
+        const fn = tools?.find((t) => t.name === chat.functionId);
         if (!fn) {
-          throw new Error('Function not found')
+          throw new Error('Function not found');
         }
         return {
           call: { name: fn.name, parameters: fn.parameter_definitions },
           outputs: [{ result: chat.result ?? '' }],
-        }
-      })
+        };
+      });
 
     const apiConfig = {
       name: '/chat',
-    }
+    };
 
     const reqValue: AxAICohereChatRequest = {
       message,
@@ -171,37 +171,37 @@ class AxAICohereImpl
       end_sequences: this.config.endSequences,
       stop_sequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
-    }
+    };
 
-    return [apiConfig, reqValue]
+    return [apiConfig, reqValue];
   }
 
   createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest<AxAICohereEmbedModel>>
   ): [AxAPI, AxAICohereEmbedRequest] => {
-    const model = req.embedModel
+    const model = req.embedModel;
 
     if (!model) {
-      throw new Error('Embed model not set')
+      throw new Error('Embed model not set');
     }
 
     if (!req.texts || req.texts.length === 0) {
-      throw new Error('Embed texts is empty')
+      throw new Error('Embed texts is empty');
     }
 
     const apiConfig = {
       name: '/embed',
-    }
+    };
 
     const reqValue = {
       model,
       texts: req.texts ?? [],
       input_type: 'classification',
       truncate: '',
-    }
+    };
 
-    return [apiConfig, reqValue]
-  }
+    return [apiConfig, reqValue];
+  };
 
   createChatResp = (resp: Readonly<AxAICohereChatResponse>): AxChatResponse => {
     this.tokensUsed = resp.meta.billed_units
@@ -212,28 +212,28 @@ class AxAICohereImpl
             resp.meta.billed_units.input_tokens +
             resp.meta.billed_units.output_tokens,
         }
-      : undefined
+      : undefined;
 
-    let finishReason: AxChatResponse['results'][0]['finishReason']
+    let finishReason: AxChatResponse['results'][0]['finishReason'];
     if ('finish_reason' in resp) {
       switch (resp.finish_reason) {
         case 'COMPLETE':
-          finishReason = 'stop'
-          break
+          finishReason = 'stop';
+          break;
         case 'MAX_TOKENS':
-          finishReason = 'length'
-          break
+          finishReason = 'length';
+          break;
         case 'ERROR':
-          throw new Error('Finish reason: ERROR')
+          throw new Error('Finish reason: ERROR');
         case 'ERROR_TOXIC':
-          throw new Error('Finish reason: CONTENT_FILTER')
+          throw new Error('Finish reason: CONTENT_FILTER');
         default:
-          finishReason = 'stop'
-          break
+          finishReason = 'stop';
+          break;
       }
     }
 
-    let functionCalls: AxChatResponse['results'][0]['functionCalls']
+    let functionCalls: AxChatResponse['results'][0]['functionCalls'];
 
     if ('tool_calls' in resp) {
       functionCalls = resp.tool_calls?.map(
@@ -242,9 +242,9 @@ class AxAICohereImpl
             id: v.name,
             type: 'function' as const,
             function: { name: v.name, params: v.parameters },
-          }
+          };
         }
-      )
+      );
     }
 
     const results: AxChatResponse['results'] = [
@@ -255,44 +255,44 @@ class AxAICohereImpl
         functionCalls,
         finishReason,
       },
-    ]
+    ];
 
-    return { results, remoteId: resp.response_id }
-  }
+    return { results, remoteId: resp.response_id };
+  };
 
   createChatStreamResp = (
     resp: Readonly<AxAICohereChatResponseDelta>,
     state: object
   ): AxChatResponse => {
     const ss = state as {
-      generation_id?: string
-    }
+      generation_id?: string;
+    };
 
     if (resp.event_type === 'stream-start') {
-      ss.generation_id = resp.generation_id
+      ss.generation_id = resp.generation_id;
     }
 
     this.tokensUsed = {
       promptTokens: 0,
       completionTokens: resp.meta.billed_units?.output_tokens ?? 0,
       totalTokens: resp.meta.billed_units?.output_tokens ?? 0,
-    }
+    };
 
-    const { results } = this.createChatResp(resp)
-    const result = results[0]
+    const { results } = this.createChatResp(resp);
+    const result = results[0];
     if (!result) {
-      throw new Error('No result')
+      throw new Error('No result');
     }
 
-    result.id = ss.generation_id ?? ''
-    return { results }
-  }
+    result.id = ss.generation_id ?? '';
+    return { results };
+  };
 
   createEmbedResp(resp: Readonly<AxAICohereEmbedResponse>): AxEmbedResponse {
     return {
       remoteId: resp.id,
       embeddings: resp.embeddings,
-    }
+    };
   }
 }
 
@@ -312,32 +312,32 @@ export class AxAICohere extends AxBaseAI<
     models,
   }: Readonly<Omit<AxAICohereArgs, 'name'>>) {
     if (!apiKey || apiKey === '') {
-      throw new Error('Cohere API key not set')
+      throw new Error('Cohere API key not set');
     }
-    const _config = {
+    const Config = {
       ...axAICohereDefaultConfig(),
       ...config,
-    }
+    };
 
-    const aiImpl = new AxAICohereImpl(_config)
+    const aiImpl = new AxAICohereImpl(Config);
 
     super(aiImpl, {
       name: 'Cohere',
       apiURL: 'https://api.cohere.ai/v1',
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo: axModelInfoCohere,
-      defaults: { model: _config.model },
+      defaults: { model: Config.model },
       supportFor: { functions: true, streaming: true },
       options,
       models,
-    })
+    });
   }
 }
 function createHistory(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>
 ): AxAICohereChatRequest['chat_history'] {
   return chatPrompt.map((chat) => {
-    let message: string = ''
+    let message = '';
 
     if (
       chat.role === 'system' ||
@@ -345,42 +345,42 @@ function createHistory(
       chat.role === 'user'
     ) {
       if (typeof chat.content === 'string') {
-        message = chat.content
+        message = chat.content;
       } else {
-        throw new Error('Multi-modal content not supported')
+        throw new Error('Multi-modal content not supported');
       }
     }
 
     switch (chat.role) {
       case 'user':
-        return { role: 'USER' as const, message }
+        return { role: 'USER' as const, message };
       case 'system':
-        return { role: 'SYSTEM' as const, message }
+        return { role: 'SYSTEM' as const, message };
       case 'assistant': {
-        const toolCalls = createToolCall(chat.functionCalls)
+        const toolCalls = createToolCall(chat.functionCalls);
         return {
           role: 'CHATBOT' as const,
           message,
           tool_calls: toolCalls,
-        }
+        };
       }
       case 'function': {
         const functionCalls = chatPrompt
           .map((v) => {
             if (v.role === 'assistant') {
-              return v.functionCalls?.find((f) => f.id === chat.functionId)
+              return v.functionCalls?.find((f) => f.id === chat.functionId);
             }
-            return undefined
+            return undefined;
           })
-          .filter((v) => v !== undefined)
+          .filter((v) => v !== undefined);
 
-        const call = createToolCall(functionCalls)?.at(0)
+        const call = createToolCall(functionCalls)?.at(0);
 
         if (!call) {
-          throw new Error('Function call not found')
+          throw new Error('Function call not found');
         }
 
-        const outputs = [{ result: chat.result }]
+        const outputs = [{ result: chat.result }];
         return {
           role: 'TOOL' as const,
           tool_results: [
@@ -389,12 +389,12 @@ function createHistory(
               outputs,
             },
           ],
-        }
+        };
       }
       default:
-        throw new Error('Unknown role')
+        throw new Error('Unknown role');
     }
-  })
+  });
 }
 function createToolCall(
   functionCalls: Readonly<
@@ -408,7 +408,7 @@ function createToolCall(
     const parameters =
       typeof v.function.params === 'string'
         ? JSON.parse(v.function.params)
-        : v.function.params
-    return { name: v.function.name, parameters }
-  })
+        : v.function.params;
+    return { name: v.function.name, parameters };
+  });
 }

@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 
-import type { AxFunction } from '../ai/types.js'
+import type { AxFunction } from '../ai/types.js';
 
-import { AxFunctionProcessor } from './functions.js'
+import { AxFunctionProcessor } from './functions.js';
 
 describe('AxFunctionProcessor undefined/null handling', () => {
   it('should convert undefined return value to empty string', async () => {
@@ -17,20 +17,20 @@ describe('AxFunctionProcessor undefined/null handling', () => {
         required: ['input'],
       },
       func: async () => {
-        return undefined
+        return undefined;
       },
-    }
+    };
 
-    const processor = new AxFunctionProcessor([undefinedFunction])
+    const processor = new AxFunctionProcessor([undefinedFunction]);
 
     const result = await processor.execute({
       id: 'test_id',
       name: 'undefinedFunction',
       args: '{"input": "test"}',
-    })
+    });
 
-    expect(result).toBe('')
-  })
+    expect(result).toBe('');
+  });
 
   it('should convert null return value to empty string', async () => {
     const nullFunction: AxFunction = {
@@ -44,20 +44,20 @@ describe('AxFunctionProcessor undefined/null handling', () => {
         required: ['input'],
       },
       func: async () => {
-        return null
+        return null;
       },
-    }
+    };
 
-    const processor = new AxFunctionProcessor([nullFunction])
+    const processor = new AxFunctionProcessor([nullFunction]);
 
     const result = await processor.execute({
       id: 'test_id',
       name: 'nullFunction',
       args: '{"input": "test"}',
-    })
+    });
 
-    expect(result).toBe('')
-  })
+    expect(result).toBe('');
+  });
 
   it('should preserve string return values', async () => {
     const stringFunction: AxFunction = {
@@ -71,20 +71,20 @@ describe('AxFunctionProcessor undefined/null handling', () => {
         required: ['input'],
       },
       func: async () => {
-        return 'test result'
+        return 'test result';
       },
-    }
+    };
 
-    const processor = new AxFunctionProcessor([stringFunction])
+    const processor = new AxFunctionProcessor([stringFunction]);
 
     const result = await processor.execute({
       id: 'test_id',
       name: 'stringFunction',
       args: '{"input": "test"}',
-    })
+    });
 
-    expect(result).toBe('test result')
-  })
+    expect(result).toBe('test result');
+  });
 
   it('should convert object return values to JSON string', async () => {
     const objectFunction: AxFunction = {
@@ -98,58 +98,118 @@ describe('AxFunctionProcessor undefined/null handling', () => {
         required: ['input'],
       },
       func: async () => {
-        return { success: true, data: 'test' }
+        return { success: true, data: 'test' };
       },
-    }
+    };
 
-    const processor = new AxFunctionProcessor([objectFunction])
+    const processor = new AxFunctionProcessor([objectFunction]);
 
     const result = await processor.execute({
       id: 'test_id',
       name: 'objectFunction',
       args: '{"input": "test"}',
-    })
+    });
 
-    expect(result).toBe('{\n  "success": true,\n  "data": "test"\n}')
-  })
+    expect(result).toBe('{\n  "success": true,\n  "data": "test"\n}');
+  });
 
   it('should handle functions with no parameters returning undefined', async () => {
     const noParamsFunction: AxFunction = {
       name: 'noParamsFunction',
       description: 'A function with no parameters that returns undefined',
       func: async () => {
-        return undefined
+        return undefined;
       },
-    }
+    };
 
-    const processor = new AxFunctionProcessor([noParamsFunction])
+    const processor = new AxFunctionProcessor([noParamsFunction]);
 
     const result = await processor.execute({
       id: 'test_id',
       name: 'noParamsFunction',
       args: '',
-    })
+    });
 
-    expect(result).toBe('')
-  })
+    expect(result).toBe('');
+  });
 
   it('should handle functions with no parameters returning null', async () => {
     const noParamsFunction: AxFunction = {
       name: 'noParamsFunction',
       description: 'A function with no parameters that returns null',
       func: async () => {
-        return null
+        return null;
       },
-    }
+    };
 
-    const processor = new AxFunctionProcessor([noParamsFunction])
+    const processor = new AxFunctionProcessor([noParamsFunction]);
 
     const result = await processor.execute({
       id: 'test_id',
       name: 'noParamsFunction',
       args: '',
-    })
+    });
 
-    expect(result).toBe('')
-  })
-})
+    expect(result).toBe('');
+  });
+});
+
+describe('AxFunctionProcessor functionResultFormatter', () => {
+  it('should use custom formatter from options when provided', async () => {
+    const fn = {
+      name: 'test_function',
+      description: 'A test function',
+      func: async () => ({ message: 'hello', value: 42 }),
+    };
+
+    const processor = new AxFunctionProcessor([fn]);
+    const customFormatter = (result: unknown): string => {
+      return `CUSTOM: ${JSON.stringify(result)}`;
+    };
+
+    const result = await processor.execute(
+      { id: '1', name: 'test_function', args: '{}' },
+      { functionResultFormatter: customFormatter }
+    );
+
+    expect(result).toBe('CUSTOM: {"message":"hello","value":42}');
+  });
+
+  it('should fall back to global formatter when no options formatter provided', async () => {
+    const fn = {
+      name: 'test_function',
+      description: 'A test function',
+      func: async () => ({ message: 'hello', value: 42 }),
+    };
+
+    const processor = new AxFunctionProcessor([fn]);
+
+    // The global formatter should be used (default JSON.stringify with null, 2)
+    const result = await processor.execute(
+      { id: '1', name: 'test_function', args: '{}' },
+      {}
+    );
+
+    expect(result).toBe('{\n  "message": "hello",\n  "value": 42\n}');
+  });
+
+  it('should handle string results without formatting', async () => {
+    const fn = {
+      name: 'test_function',
+      description: 'A test function',
+      func: async () => 'already a string',
+    };
+
+    const processor = new AxFunctionProcessor([fn]);
+    const customFormatter = (result: unknown): string => {
+      return typeof result === 'string' ? result : `FORMATTED: ${result}`;
+    };
+
+    const result = await processor.execute(
+      { id: '1', name: 'test_function', args: '{}' },
+      { functionResultFormatter: customFormatter }
+    );
+
+    expect(result).toBe('already a string');
+  });
+});

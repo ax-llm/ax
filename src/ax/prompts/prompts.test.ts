@@ -1,11 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 
-import { AxAI } from '../ai/wrap.js'
-import { AxSignature } from '../dsp/sig.js'
+import { AxAI } from '../ai/wrap.js';
+import { AxSignature } from '../dsp/sig.js';
 
-import { AxChainOfThought } from './cot.js'
+import { AxChainOfThought } from './cot.js';
 
-const someText = `The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.`
+const someText =
+  'The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.';
 
 const examples = [
   {
@@ -22,7 +23,7 @@ const examples = [
     shortSummary:
       'A phenomenon where particles remain interconnected and the state of one affects the state of another, regardless of distance.',
   },
-]
+];
 
 const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
   const mockRes = {
@@ -35,12 +36,12 @@ const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
         },
       },
     ],
-  }
+  };
 
-  const body = JSON.parse((req as { body: string }).body)
+  const body = JSON.parse((req as { body: string }).body);
 
   if (body.stream !== undefined && body.stream !== true) {
-    throw new Error('stream must be false or undefined')
+    throw new Error('stream must be false or undefined');
   }
 
   return new Promise((resolve) => {
@@ -48,9 +49,9 @@ const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
       ok: true,
       status: 200,
       json: async () => new Promise((resolve) => resolve(mockRes)),
-    } as unknown as Response)
-  })
-}
+    } as unknown as Response);
+  });
+};
 
 describe('AxChainOfThought', () => {
   it('should generate prompt correctly', async () => {
@@ -59,27 +60,27 @@ describe('AxChainOfThought', () => {
       apiKey: 'no-key',
       options: { fetch: mockFetch },
       config: { stream: false },
-    })
+    });
 
     // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
 
     const gen = new AxChainOfThought<{ someText: string }>(
       `someText -> shortSummary "summarize in 5 to 10 words"`,
       { setVisibleReasoning: true }
-    )
-    gen.setExamples(examples)
+    );
+    gen.setExamples(examples);
 
-    const res = await gen.forward(ai, { someText })
+    const res = await gen.forward(ai, { someText });
 
     expect(res).toEqual({
       reason: 'Blah blah blah',
       shortSummary: 'More blah blah blah',
-    })
-  })
-})
+    });
+  });
+});
 
 describe('AxSignature', () => {
   it('should throw error for invalid signature', () => {
-    expect(() => new AxSignature(`someText -> output:image`)).toThrow()
-  })
-})
+    expect(() => new AxSignature('someText -> output:image')).toThrow();
+  });
+});

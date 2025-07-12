@@ -1,7 +1,7 @@
-import { AxGen } from '../dsp/generate.js'
-import type { AxProgramForwardOptions } from '../dsp/program.js'
-import { AxSignature } from '../dsp/sig.js'
-import type { AxGenIn, AxGenOut } from '../dsp/types.js'
+import { AxGen } from '../dsp/generate.js';
+import type { AxProgramForwardOptions } from '../dsp/program.js';
+import { AxSignature } from '../dsp/sig.js';
+import type { AxGenIn, AxGenOut } from '../dsp/types.js';
 
 export class AxChainOfThought<
   IN extends AxGenIn = AxGenIn,
@@ -13,8 +13,8 @@ export class AxChainOfThought<
       AxProgramForwardOptions & { setVisibleReasoning?: boolean }
     >
   ) {
-    const sig = new AxSignature(signature)
-    const description = `Let's work this out in a step by step way in order to ensure we have the right answer.`
+    const sig = new AxSignature(signature);
+    const description = `Let's work this out in a step by step way in order to ensure we have the right answer.`;
 
     sig.setOutputFields([
       {
@@ -23,8 +23,8 @@ export class AxChainOfThought<
         isInternal: options?.setVisibleReasoning !== true,
       },
       ...sig.getOutputFields(),
-    ])
+    ]);
 
-    super(sig, options)
+    super(sig, options);
   }
 }

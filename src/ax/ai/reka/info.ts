@@ -1,6 +1,6 @@
-import type { AxModelInfo } from '../types.js'
+import type { AxModelInfo } from '../types.js';
 
-import { AxAIRekaModel } from './types.js'
+import { AxAIRekaModel } from './types.js';
 /**
  * OpenAI: Model information
  */
@@ -23,4 +23,4 @@ export const axModelInfoReka: AxModelInfo[] = [
     promptTokenCostPer1M: 0.4,
     completionTokenCostPer1M: 1,
   },
-]
+];

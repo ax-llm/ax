@@ -1,43 +1,43 @@
-import type { extractionState } from './extract.js'
+import type { extractionState } from './extract.js';
 
 export interface AxAssertion {
   fn(
     values: Record<string, unknown>
-  ): Promise<boolean | undefined> | boolean | undefined
-  message?: string
+  ): Promise<boolean | undefined> | boolean | undefined;
+  message?: string;
 }
 
 export interface AxStreamingAssertion {
-  fieldName: string
-  fn(content: string, done?: boolean): boolean | undefined
-  message?: string
+  fieldName: string;
+  fn(content: string, done?: boolean): boolean | undefined;
+  message?: string;
 }
 
 export class AxAssertionError extends Error {
   constructor({
     message,
   }: Readonly<{
-    message: string
+    message: string;
   }>) {
-    super(message)
-    this.name = this.constructor.name
+    super(message);
+    this.name = this.constructor.name;
   }
 
   public getFixingInstructions = () => {
-    const extraFields = []
-    const message = this.message.trim()
+    const extraFields = [];
+    const message = this.message.trim();
 
     extraFields.push({
       name: 'error',
       title: 'Follow these instructions',
       description: message + (message.endsWith('.') ? '' : '.'),
-    })
+    });
 
-    return extraFields
-  }
+    return extraFields;
+  };
 
   override toString(): string {
-    return `${this.name}: ${this.message}`
+    return `${this.name}: ${this.message}`;
   }
 
   [Symbol.for('nodejs.util.inspect.custom')](
@@ -46,7 +46,7 @@ export class AxAssertionError extends Error {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options: Record<string, unknown>
   ) {
-    return this.toString()
+    return this.toString();
   }
 }
 
@@ -55,27 +55,27 @@ export const assertAssertions = async (
   values: Record<string, unknown>
 ) => {
   for (const assert of asserts) {
-    const { fn, message } = assert
+    const { fn, message } = assert;
 
-    const res = await fn(values)
+    const res = await fn(values);
     if (res === undefined) {
-      continue
+      continue;
     }
 
     if (!res) {
       if (!message) {
-        throw new Error(`Assertion Failed: No message provided for assertion`)
+        throw new Error('Assertion Failed: No message provided for assertion');
       }
-      throw new AxAssertionError({ message })
+      throw new AxAssertionError({ message });
     }
   }
-}
+};
 
 export const assertStreamingAssertions = async (
   asserts: readonly AxStreamingAssertion[],
   xstate: Readonly<extractionState>,
   content: string,
-  final: boolean = false
+  final = false
 ) => {
   if (
     !xstate.currField ||
@@ -83,29 +83,29 @@ export const assertStreamingAssertions = async (
     !asserts ||
     asserts.length === 0
   ) {
-    return
+    return;
   }
 
   const fieldAsserts = asserts.filter(
     (a) => a.fieldName === xstate.currField?.name
-  )
+  );
 
   if (fieldAsserts.length === 0) {
-    return
+    return;
   }
 
-  const currValue = content.substring(xstate.s)
+  const currValue = content.substring(xstate.s);
 
   for (const assert of fieldAsserts) {
-    const { message, fn } = assert
+    const { message, fn } = assert;
 
-    const res = await fn(currValue, final)
+    const res = await fn(currValue, final);
     if (res === undefined) {
-      continue
+      continue;
     }
 
     if (!res && message) {
-      throw new AxAssertionError({ message })
+      throw new AxAssertionError({ message });
     }
   }
-}
+};

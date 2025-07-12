@@ -1,24 +1,24 @@
-import { ax, AxAI, AxAIOpenAIModel, f } from '@ax-llm/ax'
+import { AxAI, AxAIOpenAIModel, ax, f } from '@ax-llm/ax';
 
 // Create a simple generator for creative writing
 export const creativeGen = ax`
   topic:${f.string('Topic to write about')} ->
   story:${f.string('A creative very short story. 1 line')}
-`
+`;
 
-console.log('=== Sample Count Demo ===')
+console.log('=== Sample Count Demo ===');
 
 const ai = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini, stream: true },
   options: { debug: false },
-})
+});
 
-console.log('AI service created:', ai.getName())
+console.log('AI service created:', ai.getName());
 
 // Test the new samples() method
-console.log('\n=== Multiple Samples (Non-Streaming) ===')
+console.log('\n=== Multiple Samples (Non-Streaming) ===');
 const allSamples = await creativeGen.forward(
   ai,
   {
@@ -30,9 +30,9 @@ const allSamples = await creativeGen.forward(
       temperature: 0.8,
     },
   }
-)
+);
 
-console.log('All samples:', allSamples)
+console.log('All samples:', allSamples);
 
 // const sampleBuffers: Record<number, string> = {}
 

@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest';
 
-import { AxMultiServiceRouter } from './multiservice.js'
+import { AxMultiServiceRouter } from './multiservice.js';
 import type {
   AxAIService,
   AxAIServiceMetrics,
@@ -11,10 +11,10 @@ import type {
   AxEmbedResponse,
   AxLoggerFunction,
   AxModelConfig,
-} from './types.js'
+} from './types.js';
 
 // Mock logger function for tests
-const mockLogger: AxLoggerFunction = (message: string) => console.log(message)
+const mockLogger: AxLoggerFunction = (message: string) => console.log(message);
 
 //
 // Create two dummy AI services.
@@ -29,13 +29,13 @@ const metrics: AxAIServiceMetrics = {
     chat: { count: 1, rate: 0, total: 1 },
     embed: { count: 1, rate: 0, total: 1 },
   },
-}
+};
 
 type AxAIServiceLastUsed = {
-  chatModel?: string
-  embedModel?: string
-  modelConfig?: AxModelConfig
-}
+  chatModel?: string;
+  embedModel?: string;
+  modelConfig?: AxModelConfig;
+};
 
 const testModelConfig: AxModelConfig = {
   maxTokens: 1000,
@@ -44,11 +44,11 @@ const testModelConfig: AxModelConfig = {
   topK: 10,
   presencePenalty: 0.0,
   frequencyPenalty: 0.0,
-}
+};
 
 const serviceALastUsed: AxAIServiceLastUsed = {
   modelConfig: testModelConfig,
-}
+};
 
 const serviceA: AxAIService<string, string> = {
   getId: () => 'serviceA',
@@ -68,25 +68,19 @@ const serviceA: AxAIService<string, string> = {
   ],
   getMetrics: () => metrics,
   getLogger: () => (message: string) => console.log(message),
-  getLastUsedChatModel: function (): string | undefined {
-    return serviceALastUsed.chatModel
-  },
-  getLastUsedEmbedModel: function (): string | undefined {
-    return serviceALastUsed.embedModel
-  },
-  getLastUsedModelConfig: function (): AxModelConfig | undefined {
-    return undefined
-  },
+  getLastUsedChatModel: (): string | undefined => serviceALastUsed.chatModel,
+  getLastUsedEmbedModel: (): string | undefined => serviceALastUsed.embedModel,
+  getLastUsedModelConfig: (): AxModelConfig | undefined => undefined,
   chat: async (
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
-    serviceALastUsed.chatModel = req.model
+    serviceALastUsed.chatModel = req.model;
     return {
       results: [{ index: 0, content: `model ${req.model} from Service A` }],
-    }
+    };
   },
   embed: async (): Promise<AxEmbedResponse> => {
-    serviceALastUsed.embedModel = 'test-model'
+    serviceALastUsed.embedModel = 'test-model';
     return {
       embeddings: [[1, 2, 3]],
       modelUsage: {
@@ -98,15 +92,15 @@ const serviceA: AxAIService<string, string> = {
           totalTokens: 10,
         },
       },
-    }
+    };
   },
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'A' }) as AxAIServiceOptions,
-}
+};
 
 const serviceBLastUsed: AxAIServiceLastUsed = {
   modelConfig: testModelConfig,
-}
+};
 
 const serviceB: AxAIService<string, string> = {
   getId: () => 'serviceB',
@@ -125,26 +119,21 @@ const serviceB: AxAIService<string, string> = {
     },
   ],
   getLogger: () => (message: string) => console.log(message),
-  getLastUsedChatModel: function (): string | undefined {
-    return serviceBLastUsed.chatModel
-  },
-  getLastUsedEmbedModel: function (): string | undefined {
-    return serviceBLastUsed.embedModel
-  },
-  getLastUsedModelConfig: function (): AxModelConfig | undefined {
-    return serviceBLastUsed.modelConfig
-  },
+  getLastUsedChatModel: (): string | undefined => serviceBLastUsed.chatModel,
+  getLastUsedEmbedModel: (): string | undefined => serviceBLastUsed.embedModel,
+  getLastUsedModelConfig: (): AxModelConfig | undefined =>
+    serviceBLastUsed.modelConfig,
   getMetrics: () => metrics,
   chat: async (
     req: Readonly<AxChatRequest<string>>
   ): Promise<AxChatResponse> => {
-    serviceBLastUsed.chatModel = req.model
+    serviceBLastUsed.chatModel = req.model;
     return {
       results: [{ index: 0, content: `model ${req.model} from Service B` }],
-    }
+    };
   },
   embed: async (): Promise<AxEmbedResponse> => {
-    serviceBLastUsed.embedModel = 'test-model'
+    serviceBLastUsed.embedModel = 'test-model';
     return {
       embeddings: [[4, 5, 6]],
       modelUsage: {
@@ -156,11 +145,11 @@ const serviceB: AxAIService<string, string> = {
           totalTokens: 20,
         },
       },
-    }
+    };
   },
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'B' }) as AxAIServiceOptions,
-}
+};
 
 const serviceC: AxAIService<string, string> = {
   getId: () => 'serviceC',
@@ -174,7 +163,7 @@ const serviceC: AxAIService<string, string> = {
   ): Promise<AxChatResponse> => {
     return {
       results: [{ index: 0, content: `model ${req.model} from Service C` }],
-    }
+    };
   },
   embed: async (): Promise<AxEmbedResponse> => {
     return {
@@ -188,20 +177,14 @@ const serviceC: AxAIService<string, string> = {
           totalTokens: 20,
         },
       },
-    }
+    };
   },
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'C' }) as AxAIServiceOptions,
-  getLastUsedChatModel: function (): string | undefined {
-    return undefined
-  },
-  getLastUsedEmbedModel: function (): string | undefined {
-    return undefined
-  },
-  getLastUsedModelConfig: function (): AxModelConfig | undefined {
-    return undefined
-  },
-}
+  getLastUsedChatModel: (): string | undefined => undefined,
+  getLastUsedEmbedModel: (): string | undefined => undefined,
+  getLastUsedModelConfig: (): AxModelConfig | undefined => undefined,
+};
 
 describe('AxMultiServiceRouter', () => {
   it('aggregates the model list from all services', () => {
@@ -213,36 +196,36 @@ describe('AxMultiServiceRouter', () => {
         service: serviceC,
         description: 'Service C',
       },
-    ])
+    ]);
     // Manually add model for key-based service after construction
-    router['services'].set('serviceC', {
+    router.setServiceEntry('serviceC', {
       service: serviceC,
       description: 'Service C',
       model: 'modelC',
-    })
+    });
 
-    const list = router.getModelList()
-    expect(list).toHaveLength(5)
-    expect(list?.map((m) => m.key)).toContain('serviceA-modelA')
-    expect(list?.map((m) => m.key)).toContain('serviceA-modelB')
-    expect(list?.map((m) => m.key)).toContain('serviceB-modelA')
-    expect(list?.map((m) => m.key)).toContain('serviceB-modelB')
-    expect(list?.map((m) => m.key)).toContain('serviceC')
-  })
+    const list = router.getModelList();
+    expect(list).toHaveLength(5);
+    expect(list?.map((m) => m.key)).toContain('serviceA-modelA');
+    expect(list?.map((m) => m.key)).toContain('serviceA-modelB');
+    expect(list?.map((m) => m.key)).toContain('serviceB-modelA');
+    expect(list?.map((m) => m.key)).toContain('serviceB-modelB');
+    expect(list?.map((m) => m.key)).toContain('serviceC');
+  });
 
   it('delegates chat calls with the correct model parameter for key‐based and non‐key–based services', async () => {
     // Create a dummy key–based service.
     const dummyKeyServiceChat = vi.fn(
       async (req: Readonly<AxChatRequest<string>>) => {
         // Echo back the model value received for verification.
-        return { results: [{ index: 0, content: req.model }] }
+        return { results: [{ index: 0, content: req.model }] };
       }
-    )
+    );
     const dummyKeyServiceEmbed = vi.fn(
       async (req: Readonly<AxEmbedRequest>) => {
-        return { embeddings: [[req.embedModel?.length ?? 0]] }
+        return { embeddings: [[req.embedModel?.length ?? 0]] };
       }
-    )
+    );
     const dummyKeyService = {
       getId: () => 'dummy-key-service',
       getName: () => 'Dummy Key Service',
@@ -254,33 +237,27 @@ describe('AxMultiServiceRouter', () => {
       getOptions: () => ({}),
       getLogger: () => mockLogger,
       getMetrics: () => metrics,
-      getLastUsedChatModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedEmbedModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedModelConfig: function (): AxModelConfig | undefined {
-        return undefined
-      },
-    }
+      getLastUsedChatModel: (): string | undefined => undefined,
+      getLastUsedEmbedModel: (): string | undefined => undefined,
+      getLastUsedModelConfig: (): AxModelConfig | undefined => undefined,
+    };
     const keyBasedItem = {
       key: 'A',
       service: dummyKeyService,
       description: 'Key based service',
-    }
+    };
 
     // Create a dummy non–key–based service.
     const dummyNonKeyServiceChat = vi.fn(
       async (req: Readonly<AxChatRequest<string>>) => {
-        return { results: [{ index: 0, content: req.model }] }
+        return { results: [{ index: 0, content: req.model }] };
       }
-    )
+    );
     const dummyNonKeyServiceEmbed = vi.fn(
       async (req: Readonly<AxEmbedRequest>) => {
-        return { embeddings: [[req.embedModel?.length ?? 0]] }
+        return { embeddings: [[req.embedModel?.length ?? 0]] };
       }
-    )
+    );
     const dummyNonKeyService = {
       getId: () => 'dummy-non-key-service',
       getName: () => 'Dummy Non-Key Service',
@@ -294,103 +271,91 @@ describe('AxMultiServiceRouter', () => {
       getOptions: () => ({}),
       getLogger: () => mockLogger,
       getMetrics: () => metrics,
-      getLastUsedChatModel: function (): string | undefined {
-        return 'modelB'
-      },
-      getLastUsedEmbedModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedModelConfig: function (): AxModelConfig | undefined {
-        return {
-          maxTokens: 1000,
-          temperature: 0.5,
-          topP: 0.9,
-          topK: 10,
-          presencePenalty: 0.0,
-          frequencyPenalty: 0.0,
-        }
-      },
-    }
+      getLastUsedChatModel: (): string | undefined => 'modelB',
+      getLastUsedEmbedModel: (): string | undefined => undefined,
+      getLastUsedModelConfig: (): AxModelConfig | undefined => ({
+        maxTokens: 1000,
+        temperature: 0.5,
+        topP: 0.9,
+        topK: 10,
+        presencePenalty: 0.0,
+        frequencyPenalty: 0.0,
+      }),
+    };
 
     // Create a router that wraps both services.
-    const router = new AxMultiServiceRouter([keyBasedItem, dummyNonKeyService])
+    const router = new AxMultiServiceRouter([keyBasedItem, dummyNonKeyService]);
 
     // Manually add model for key-based service after construction
-    router['services'].set('A', {
+    router.setServiceEntry('A', {
       service: dummyKeyService,
       description: 'Key based service',
       model: 'A', // This is crucial - the model must be set to the key for the delegation to work
-    })
+    });
 
     // For key-based service, the router uses the "useDefaultModel" flag so that the delegated
     // chat call passes the request's model (which here is the key "A").
     const chatReqA: AxChatRequest<string> = {
       model: 'A',
       chatPrompt: [{ role: 'user', content: 'Hello from A' }],
-    }
-    await router.chat(chatReqA)
-    expect(dummyKeyServiceChat).toHaveBeenCalledTimes(1)
+    };
+    await router.chat(chatReqA);
+    expect(dummyKeyServiceChat).toHaveBeenCalledTimes(1);
 
     const chatCallArgA = dummyKeyServiceChat.mock
-      .calls[0]![0] as AxChatRequest<string>
-    expect(chatCallArgA.model).toBe('A')
+      .calls[0]![0] as AxChatRequest<string>;
+    expect(chatCallArgA.model).toBe('A');
 
     // For non–key–based service, getModelList produced an entry with key "B".
     const chatReqB: AxChatRequest<string> = {
       model: 'B',
       chatPrompt: [{ role: 'user', content: 'Hello from B' }],
-    }
-    await router.chat(chatReqB)
-    expect(dummyNonKeyServiceChat).toHaveBeenCalledTimes(1)
+    };
+    await router.chat(chatReqB);
+    expect(dummyNonKeyServiceChat).toHaveBeenCalledTimes(1);
 
     const chatCallArgB = dummyNonKeyServiceChat.mock
-      .calls[0]![0] as AxChatRequest<string>
+      .calls[0]![0] as AxChatRequest<string>;
     // For non–key–based services, the delegated "model" is also the key ("B").
-    expect(chatCallArgB.model).toBe('B')
-  })
+    expect(chatCallArgB.model).toBe('B');
+  });
 
   it('delegates embed calls with the correct embed model parameter for key‐based and non‐key–based services', async () => {
     // Create a dummy key-based service.
     const dummyKeyServiceEmbed = vi.fn(
       async (req: Readonly<AxEmbedRequest>) => {
-        return { embeddings: [[req.embedModel?.length ?? 0]] }
+        return { embeddings: [[req.embedModel?.length ?? 0]] };
       }
-    )
+    );
     const dummyKeyService = {
       getId: () => 'dummy-key-service',
       getName: () => 'Dummy Key Service',
       getFeatures: () => ({ functions: false, streaming: false }),
       getModelList: () => [],
       chat: async () => {
-        return { results: [{ index: 0, content: 'dummy key service' }] }
+        return { results: [{ index: 0, content: 'dummy key service' }] };
       },
       embed: dummyKeyServiceEmbed,
       setOptions: () => {},
       getOptions: () => ({}),
       getLogger: () => mockLogger,
       getMetrics: () => metrics,
-      getLastUsedChatModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedEmbedModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedModelConfig: function (): AxModelConfig | undefined {
-        return undefined
-      },
-    }
+      getLastUsedChatModel: (): string | undefined => undefined,
+      getLastUsedEmbedModel: (): string | undefined => undefined,
+      getLastUsedModelConfig: (): AxModelConfig | undefined => undefined,
+    };
     const keyBasedItem = {
       key: 'A',
       service: dummyKeyService,
       description: 'Key based service',
-    }
+    };
 
     // Create a dummy non-key-based service.
     const dummyNonKeyServiceEmbed = vi.fn(
       async (req: Readonly<AxEmbedRequest>) => {
-        return { embeddings: [[req.embedModel?.length ?? 0]] }
+        return { embeddings: [[req.embedModel?.length ?? 0]] };
       }
-    )
+    );
     const dummyNonKeyService = {
       getId: () => 'dummy-non-key-service',
       getName: () => 'Dummy Non-Key Service',
@@ -399,104 +364,98 @@ describe('AxMultiServiceRouter', () => {
         { key: 'B', description: 'Non-key model', model: 'modelB' },
       ],
       chat: async () => {
-        return { results: [{ index: 0, content: 'dummy non-key service' }] }
+        return { results: [{ index: 0, content: 'dummy non-key service' }] };
       },
-      getLastUsedChatModel: function (): string | undefined {
-        return 'modelB'
-      },
-      getLastUsedEmbedModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedModelConfig: function (): AxModelConfig | undefined {
-        return {
-          maxTokens: 1000,
-          temperature: 0.5,
-          topP: 0.9,
-          topK: 10,
-          presencePenalty: 0.0,
-          frequencyPenalty: 0.0,
-        }
-      },
+      getLastUsedChatModel: (): string | undefined => 'modelB',
+      getLastUsedEmbedModel: (): string | undefined => undefined,
+      getLastUsedModelConfig: (): AxModelConfig | undefined => ({
+        maxTokens: 1000,
+        temperature: 0.5,
+        topP: 0.9,
+        topK: 10,
+        presencePenalty: 0.0,
+        frequencyPenalty: 0.0,
+      }),
       getMetrics: () => metrics,
       embed: dummyNonKeyServiceEmbed,
       setOptions: () => {},
       getOptions: () => ({}),
       getLogger: () => mockLogger,
-    }
+    };
 
     // Create a router containing both services.
-    const router = new AxMultiServiceRouter([keyBasedItem, dummyNonKeyService])
+    const router = new AxMultiServiceRouter([keyBasedItem, dummyNonKeyService]);
 
     // Manually add model for key-based service after construction
-    router['services'].set('A', {
+    router.setServiceEntry('A', {
       service: dummyKeyService,
       description: 'Key based service',
       model: 'A', // This is crucial - the model must be set to the key for the delegation to work
-    })
+    });
 
     // For key-based service, when embed is requested with embedModel "A", the delegated
     // call passes "A" as the embed model.
     const embedReqA: AxEmbedRequest<string> = {
       embedModel: 'A',
       texts: ['Embed text A'],
-    }
-    await router.embed(embedReqA)
-    expect(dummyKeyServiceEmbed).toHaveBeenCalledTimes(1)
+    };
+    await router.embed(embedReqA);
+    expect(dummyKeyServiceEmbed).toHaveBeenCalledTimes(1);
 
     const embedCallArgA = dummyKeyServiceEmbed.mock
-      .calls[0]![0] as AxEmbedRequest<string>
-    expect(embedCallArgA.embedModel).toBe('A')
+      .calls[0]![0] as AxEmbedRequest<string>;
+    expect(embedCallArgA.embedModel).toBe('A');
 
     // For non–key–based service (the model list provided an entry with key "B"),
     // when embed is called with embedModel "B", the resulting delegate call passes "B".
     const embedReqB: AxEmbedRequest<string> = {
       embedModel: 'B',
       texts: ['Embed text B'],
-    }
-    await router.embed(embedReqB)
-    expect(dummyNonKeyServiceEmbed).toHaveBeenCalledTimes(1)
+    };
+    await router.embed(embedReqB);
+    expect(dummyNonKeyServiceEmbed).toHaveBeenCalledTimes(1);
 
     const embedCallArgB = dummyNonKeyServiceEmbed.mock
-      .calls[0]![0] as AxEmbedRequest<string>
-    expect(embedCallArgB.embedModel).toBe('B')
-  })
+      .calls[0]![0] as AxEmbedRequest<string>;
+    expect(embedCallArgB.embedModel).toBe('B');
+  });
 
   it('delegates chat calls for non-key-based services (real services)', async () => {
-    const router = new AxMultiServiceRouter([serviceA, serviceB])
+    const router = new AxMultiServiceRouter([serviceA, serviceB]);
     const chatRespA: AxChatResponse = (await router.chat({
       model: 'serviceA-modelA',
       chatPrompt: [{ role: 'user', content: 'Hello' }],
-    })) as AxChatResponse
+    })) as AxChatResponse;
     expect(chatRespA.results[0]!.content!).toBe(
       'model serviceA-modelA from Service A'
-    )
+    );
     const chatRespB: AxChatResponse = (await router.chat({
       model: 'serviceB-modelB',
       chatPrompt: [{ role: 'user', content: 'Hello' }],
-    })) as AxChatResponse
+    })) as AxChatResponse;
     expect(chatRespB.results[0]!.content!).toBe(
       'model serviceB-modelB from Service B'
-    )
-  })
+    );
+  });
 
   it('delegates embed calls for non-key-based services (real services)', async () => {
-    const router = new AxMultiServiceRouter([serviceA, serviceB])
+    const router = new AxMultiServiceRouter([serviceA, serviceB]);
     const embedRespA = await router.embed({
       embedModel: 'serviceA-modelA',
       texts: ['Hello'],
-    })
-    expect(embedRespA.embeddings).toEqual([[1, 2, 3]])
+    });
+    expect(embedRespA.embeddings).toEqual([[1, 2, 3]]);
     const embedRespB = await router.embed({
       embedModel: 'serviceB-modelB',
       texts: ['Hello'],
-    })
-    expect(embedRespB.embeddings).toEqual([[4, 5, 6]])
-  })
+    });
+    expect(embedRespB.embeddings).toEqual([[4, 5, 6]]);
+  });
 
   it('aggregates the model list including embedModel entries', () => {
     const embedOnlyServiceLastUsed: AxAIServiceLastUsed = {
       modelConfig: testModelConfig,
-    }
+    };
     const embedOnlyService: AxAIService<string, string> = {
       getId: () => 'embed-only-service',
       getName: () => 'Embed Only Service',
@@ -510,10 +469,10 @@ describe('AxMultiServiceRouter', () => {
       ],
       getMetrics: () => metrics,
       chat: async () => {
-        throw new Error('chat should not be called')
+        throw new Error('chat should not be called');
       },
       embed: async (): Promise<AxEmbedResponse> => {
-        embedOnlyServiceLastUsed.embedModel = 'test-model'
+        embedOnlyServiceLastUsed.embedModel = 'test-model';
         return {
           embeddings: [[42]],
           modelUsage: {
@@ -525,37 +484,33 @@ describe('AxMultiServiceRouter', () => {
               totalTokens: 0,
             },
           },
-        }
+        };
       },
-      getLastUsedChatModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedEmbedModel: function (): string | undefined {
-        return embedOnlyServiceLastUsed.embedModel
-      },
-      getLastUsedModelConfig: function (): AxModelConfig | undefined {
-        return embedOnlyServiceLastUsed.modelConfig
-      },
+      getLastUsedChatModel: (): string | undefined => undefined,
+      getLastUsedEmbedModel: (): string | undefined =>
+        embedOnlyServiceLastUsed.embedModel,
+      getLastUsedModelConfig: (): AxModelConfig | undefined =>
+        embedOnlyServiceLastUsed.modelConfig,
       setOptions: () => {},
       getOptions: () => ({}),
       getLogger: () => mockLogger,
-    }
-    const router2 = new AxMultiServiceRouter([embedOnlyService])
-    const list = router2.getModelList()
-    expect(list).toHaveLength(1)
-    expect(list[0]).toHaveProperty('key', 'embed-only')
-    expect(list[0]).toHaveProperty('embedModel', 'modelE')
-    expect(list[0]).not.toHaveProperty('model')
-  })
+    };
+    const router2 = new AxMultiServiceRouter([embedOnlyService]);
+    const list = router2.getModelList();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toHaveProperty('key', 'embed-only');
+    expect(list[0]).toHaveProperty('embedModel', 'modelE');
+    expect(list[0]).not.toHaveProperty('model');
+  });
 
   it('delegates embedModel-only service embed calls stripping embedModel', async () => {
     const embedOnlyServiceLastUsed: AxAIServiceLastUsed = {
       modelConfig: testModelConfig,
-    }
+    };
     const embedFn = vi.fn(async (req: Readonly<AxEmbedRequest>) => {
-      embedOnlyServiceLastUsed.embedModel = req.embedModel
-      return { embeddings: [[req.texts?.length ?? 0]] }
-    })
+      embedOnlyServiceLastUsed.embedModel = req.embedModel;
+      return { embeddings: [[req.texts?.length ?? 0]] };
+    });
 
     const embedOnlyService2 = {
       getId: () => 'embed-only-service',
@@ -568,33 +523,29 @@ describe('AxMultiServiceRouter', () => {
           embedModel: 'modelE',
         },
       ],
-      getLastUsedChatModel: function (): string | undefined {
-        return undefined
-      },
-      getLastUsedEmbedModel: function (): string | undefined {
-        return embedOnlyServiceLastUsed.embedModel
-      },
-      getLastUsedModelConfig: function (): AxModelConfig | undefined {
-        return embedOnlyServiceLastUsed.modelConfig
-      },
+      getLastUsedChatModel: (): string | undefined => undefined,
+      getLastUsedEmbedModel: (): string | undefined =>
+        embedOnlyServiceLastUsed.embedModel,
+      getLastUsedModelConfig: (): AxModelConfig | undefined =>
+        embedOnlyServiceLastUsed.modelConfig,
       getMetrics: () => metrics,
       chat: async () => {
-        throw new Error('chat should not be called')
+        throw new Error('chat should not be called');
       },
       embed: embedFn,
       setOptions: () => {},
       getOptions: () => ({}),
       getLogger: () => mockLogger,
-    }
-    const router3 = new AxMultiServiceRouter([embedOnlyService2])
+    };
+    const router3 = new AxMultiServiceRouter([embedOnlyService2]);
     const resp = await router3.embed({
       embedModel: 'embed-only',
       texts: ['a', 'b', 'c'],
-    })
-    expect(embedFn).toHaveBeenCalledTimes(1)
-    const callArg = embedFn.mock.calls[0]![0] as AxEmbedRequest
-    expect(callArg).not.toHaveProperty('embedModel')
-    expect(callArg.texts!).toEqual(['a', 'b', 'c'])
-    expect(resp.embeddings).toEqual([[3]])
-  })
-})
+    });
+    expect(embedFn).toHaveBeenCalledTimes(1);
+    const callArg = embedFn.mock.calls[0]![0] as AxEmbedRequest;
+    expect(callArg).not.toHaveProperty('embedModel');
+    expect(callArg.texts!).toEqual(['a', 'b', 'c']);
+    expect(resp.embeddings).toEqual([[3]]);
+  });
+});
