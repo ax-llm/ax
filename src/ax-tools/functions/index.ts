@@ -1,2 +1,6 @@
-// Future function tools will be exported here
-// export * from './someFunction.js';
+// Function tools for Node.js environments
+export {
+  AxJSInterpreter,
+  AxJSInterpreterPermission,
+  axCreateJSInterpreter,
+} from './jsInterpreter.js';

@@ -1471,8 +1471,7 @@ monitoring your AI applications with OpenTelemetry integration, see our detailed
 | ------------------ | ------------------ | -------------------------------------------- |
 | Docker Sandbox     | AxDockerSession    | Execute commands within a docker environment |
 | Embeddings Adapter | AxEmbeddingAdapter | Fetch and pass embedding to your function    |
-
-<!-- | JS Interpreter     | AxJSInterpreter    | Execute JS code in a sandboxed env           | -->
+| JS Interpreter     | AxJSInterpreter    | Execute JS code in a sandboxed env (Node.js only) |
 
 ## Check out all the examples
 

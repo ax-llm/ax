@@ -7,5 +7,5 @@ export {
   type StdioTransportConfig,
 } from './mcp/index.js';
 
-// TODO: Functions tools will be exported here
-// export * from './functions/index.js';
+// Function Tools
+export * from './functions/index.js';
