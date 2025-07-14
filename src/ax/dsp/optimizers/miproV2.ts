@@ -11,11 +11,11 @@ import {
   type AxOptimizerResult,
 } from '../optimizer.js';
 import type {
-  AxProgram,
+  AxGenIn,
+  AxGenOut,
   AxProgramDemos,
   AxResultPickerFunction,
-} from '../program.js';
-import type { AxGenIn, AxGenOut } from '../types.js';
+} from '../types.js';
 
 import { AxBootstrapFewShot } from './bootstrapFewshot.js';
 
@@ -150,7 +150,7 @@ export class AxMiPRO<
    * Generates program summary for context-aware instruction generation
    */
   private async generateProgramSummary(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     ai: Readonly<AxAIService>
   ): Promise<string> {
     // Extract program structure information
@@ -330,7 +330,7 @@ Instruction:`;
    * @returns Array of generated instruction candidates
    */
   private async proposeInstructionCandidates(
-    _program: Readonly<AxProgram<IN, OUT>>,
+    _program: Readonly<AxGen<IN, OUT>>,
     options?: AxCompileOptions
   ): Promise<string[]> {
     const instructions: string[] = [];
@@ -388,7 +388,7 @@ Instruction:`;
    * Bootstraps few-shot examples for the program
    */
   private async bootstrapFewShotExamples(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn
   ): Promise<AxProgramDemos<IN, OUT>[]> {
     // Initialize the bootstrapper for this program
@@ -438,7 +438,7 @@ Instruction:`;
    * Runs optimization to find the best combination of few-shot examples and instructions
    */
   private async runOptimization(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[],
     instructions: readonly string[],
@@ -606,7 +606,7 @@ Instruction:`;
   }
 
   private async evaluateConfig(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     config: Readonly<ConfigType>,
     bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
     labeledExamples: readonly AxExample[],
@@ -614,8 +614,7 @@ Instruction:`;
     metricFn: AxMetricFn,
     currentTrial = 0
   ): Promise<number> {
-    // Create a copy of the program and apply the configuration
-    const testProgram = { ...program };
+    const testProgram = new AxGen(program.getSignature());
     this.applyConfigToProgram(
       testProgram,
       config,
@@ -712,7 +711,7 @@ Instruction:`;
    * The main compile method to run MIPROv2 optimization
    */
   public async compile(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxMiPROResult<IN, OUT>> {
@@ -1002,7 +1001,7 @@ Instruction:`;
    * @param program Program to validate
    * @returns Validation result with any issues found
    */
-  public validateProgram(_program: Readonly<AxProgram<IN, OUT>>): {
+  public validateProgram(_program: Readonly<AxGen<IN, OUT>>): {
     isValid: boolean;
     issues: string[];
     suggestions: string[];

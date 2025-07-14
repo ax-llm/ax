@@ -36,6 +36,10 @@ const auth = new GoogleAuth({
     region: process.env.GOOGLE_REGION || 'us-central1', // Your preferred region
     config: {
       model: AxAIGoogleGeminiModel.Gemini15Flash,
+      stream: false,
+    },
+    options: {
+      debug: true,
     },
   });
 
@@ -49,9 +53,5 @@ const auth = new GoogleAuth({
     ],
   });
 
-  if ('results' in result) {
-    console.log('Response:', result.results[0]?.content);
-  } else {
-    console.log('Streaming response received');
-  }
+  console.log(result);
 })();

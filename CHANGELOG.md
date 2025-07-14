@@ -1,5 +1,14 @@
 # Changelog
 
+## [13.0.7](https://github.com/ax-llm/ax/compare/13.0.5...13.0.6) (2025-07-14)
+
+### Features
+
+* add comprehensive tests for AxFlowDependencyAnalyzer and AxFlowExecutionPlanner ([db090b2](https://github.com/ax-llm/ax/commit/db090b28ff39b12c2a5bec7f434d90c3289798f4))
+* add refusal error handling and logging capabilities ([0a000ac](https://github.com/ax-llm/ax/commit/0a000ac26470910c976765c0aa56868065b153ea))
+* introduce AxForwardable interface and enhance AxFlow execution capabilities ([c694c91](https://github.com/ax-llm/ax/commit/c694c910ed44f6162556d2f9f2b719b2a65635eb))
+## [13.0.6](https://github.com/ax-llm/ax/compare/13.0.5...13.0.6) (2025-07-09)
+
 ## [13.0.6](https://github.com/ax-llm/ax/compare/13.0.4...13.0.5) (2025-07-09)
 ## [13.0.5](https://github.com/ax-llm/ax/compare/13.0.4...13.0.5) (2025-07-09)
 

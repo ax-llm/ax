@@ -1,6 +1,6 @@
 import type { AxAIService } from '../ai/types.js';
 import type { AxDBQueryResponse, AxDBService } from '../db/types.js';
-import type { AxProgram } from '../dsp/program.js';
+import type { AxGen } from '../dsp/generate.js';
 
 export type AxRewriteIn = { query: string };
 export type AxRewriteOut = { rewrittenQuery: string };
@@ -10,8 +10,8 @@ export type AxRerankerOut = { rankedItems: string[] };
 
 export interface AxDBLoaderOptions {
   chunker?: (text: string) => string[];
-  rewriter?: AxProgram<AxRewriteIn, AxRewriteOut>;
-  reranker?: AxProgram<AxRerankerIn, AxRerankerOut>;
+  rewriter?: AxGen<AxRewriteIn, AxRewriteOut>;
+  reranker?: AxGen<AxRerankerIn, AxRerankerOut>;
 }
 
 export interface AxDBManagerArgs {
@@ -31,8 +31,8 @@ export class AxDBManager {
   private ai: AxAIService;
   private db: AxDBService;
   private chunker: (text: string) => string[];
-  private rewriter?: AxProgram<AxRewriteIn, AxRewriteOut>;
-  private reranker?: AxProgram<AxRerankerIn, AxRerankerOut>;
+  private rewriter?: AxGen<AxRewriteIn, AxRewriteOut>;
+  private reranker?: AxGen<AxRerankerIn, AxRerankerOut>;
 
   constructor({ ai, db, config }: Readonly<AxDBManagerArgs>) {
     this.ai = ai;

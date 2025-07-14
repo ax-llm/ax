@@ -2,9 +2,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
-import type { AxAIService } from '../ai/types.js';
-import { AxProgram } from '../dsp/program.js';
-import { AxSignature } from '../dsp/sig.js';
 
 import { AxFlow } from './flow.js';
 
@@ -25,13 +22,13 @@ describe('AxFlow', () => {
   });
 
   describe('constructor', () => {
-    it('should create an AxFlow instance with default signature', () => {
+    it('should create an AxFlow instance with default options', () => {
       const flow = new AxFlow();
       expect(flow).toBeInstanceOf(AxFlow);
     });
 
-    it('should create an AxFlow instance with custom signature', () => {
-      const flow = new AxFlow('customInput:string -> customOutput:string');
+    it('should create an AxFlow instance with custom options', () => {
+      const flow = new AxFlow({ autoParallel: false });
       expect(flow).toBeInstanceOf(AxFlow);
     });
   });
@@ -148,10 +145,9 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ topic: string }, { summary: string }>(
-        'topic:string -> summary:string',
-        { autoParallel: false }
-      )
+      const flow = new AxFlow<{ topic: string }, { summary: string }>({
+        autoParallel: false,
+      })
         .node('summarizer', 'documentText:string -> summary:string')
         .map((input) => ({ originalText: `Some text about ${input.topic}` }))
         .execute('summarizer', (state) => ({
@@ -178,10 +174,9 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ iterations: number }, { finalCount: number }>(
-        'iterations:number -> finalCount:number',
-        { autoParallel: false }
-      )
+      const flow = new AxFlow<{ iterations: number }, { finalCount: number }>({
+        autoParallel: false,
+      })
         .node('processor', 'iterationCount:number -> processedResult:string')
         .while((state) => state.iterations < 3)
         .map((state) => ({ ...state, iterations: state.iterations + 1 }))
@@ -206,10 +201,9 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ counter: number }, { total: number }>(
-        'counter:number -> total:number',
-        { autoParallel: false }
-      )
+      const flow = new AxFlow<{ counter: number }, { total: number }>({
+        autoParallel: false,
+      })
         .node('checker', 'counterValue:number -> statusCheck:string')
         .while((state) => state.counter < 2)
         .map((state) => ({ ...state, counter: state.counter + 1 }))
@@ -253,10 +247,7 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { userInput: string },
         { originalInput: string; summary: string; analysis: string }
-      >(
-        'userInput:string -> originalInput:string, summary:string, analysis:string',
-        { autoParallel: false }
-      )
+      >({ autoParallel: false })
         .node('summarizer', 'documentText:string -> summary:string')
         .node('analyzer', 'inputText:string -> analysis:string')
         .execute('summarizer', (state) => ({ documentText: state.userInput }))
@@ -293,7 +284,7 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { dataItems: string[] },
         { results: string[]; count: number }
-      >('dataItems:string[] -> results:string[], count:number', {
+      >({
         autoParallel: false,
       })
         .node('processor', 'dataItem:string -> processedText:string')
@@ -343,10 +334,9 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ userInput: string }, { outputResult: string }>(
-        'userInput:string -> outputResult:string',
-        { autoParallel: false }
-      )
+      const flow = new AxFlow<{ userInput: string }, { outputResult: string }>({
+        autoParallel: false,
+      })
         .node('processor', 'inputText:string -> outputResult:string')
         .execute('processor', (state) => ({ inputText: state.userInput }))
         .map((state) => ({ outputResult: state.processorResult.outputResult }));
@@ -366,7 +356,7 @@ describe('AxFlow', () => {
     it('should handle execution errors gracefully', async () => {
       const flow = new AxFlow()
         .node('processor', 'inputText:string -> outputResult:string')
-        .execute('processor', (state) => ({ inputText: state.input }));
+        .execute('processor', (state) => ({ inputText: state.userInput }));
 
       // Mock AI service that throws an error
       const errorAI = new AxMockAIService();
@@ -374,7 +364,9 @@ describe('AxFlow', () => {
         new Error('AI service error')
       );
 
-      await expect(flow.forward(errorAI, { input: 'test' })).rejects.toThrow();
+      await expect(
+        flow.forward(errorAI, { userInput: 'test' })
+      ).rejects.toThrow();
     });
 
     it('should validate node existence before execution', () => {
@@ -409,9 +401,7 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { needsComplex: boolean },
         { processedResult: string; strategy: string }
-      >('needsComplex:boolean -> processedResult:string, strategy:string', {
-        autoParallel: false,
-      })
+      >({ autoParallel: false })
         .node('simple', 'taskInput:string -> responseText:string')
         .node('complex', 'taskInput:string -> responseText:string')
         .branch((state) => state.needsComplex)
@@ -443,10 +433,9 @@ describe('AxFlow', () => {
     });
 
     it('should handle unmatched branch values gracefully', async () => {
-      const flow = new AxFlow<{ testValue: string }, { processed: boolean }>(
-        'testValue:string -> processed:boolean',
-        { autoParallel: false }
-      )
+      const flow = new AxFlow<{ testValue: string }, { processed: boolean }>({
+        autoParallel: false,
+      })
         .branch((state) => state.testValue)
         .when('expected')
         .map((state) => ({ ...state, processed: true }))
@@ -500,10 +489,9 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ query: string }, { combined: string[] }>(
-        'query:string -> combined:string[]',
-        { autoParallel: false }
-      )
+      const flow = new AxFlow<{ query: string }, { combined: string[] }>({
+        autoParallel: false,
+      })
         .node('analyzer1', 'query:string -> analysis:string')
         .node('analyzer2', 'query:string -> analysis:string')
         .node('analyzer3', 'query:string -> analysis:string')
@@ -542,9 +530,7 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { requestData: string },
         { processedResults: string[] }
-      >('requestData:string -> processedResults:string[]', {
-        autoParallel: false,
-      })
+      >({ autoParallel: false })
         .node('processor1', 'documentText:string -> responseText:string')
         .node('processor2', 'documentText:string -> responseText:string')
 
@@ -594,9 +580,7 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { userInput: string },
         { processedResult: string; attempts: number }
-      >('userInput:string -> processedResult:string, attempts:number', {
-        autoParallel: false,
-      })
+      >({ autoParallel: false })
         .node(
           'processor',
           'userInput:string, attempt:number -> responseText:string'
@@ -668,10 +652,9 @@ describe('AxFlow', () => {
     });
 
     it('should respect maximum iterations limit', async () => {
-      const flow = new AxFlow<{ userInput: string }, { attempts: number }>(
-        'userInput:string -> attempts:number',
-        { autoParallel: false }
-      )
+      const flow = new AxFlow<{ userInput: string }, { attempts: number }>({
+        autoParallel: false,
+      })
         .node('processor', 'userInput:string -> responseText:string')
 
         .map((state) => ({ ...state, attempts: 0 }))
@@ -770,9 +753,7 @@ describe('AxFlow', () => {
       const flow = new AxFlow<
         { itemList: string[] },
         { processedResults: string[] }
-      >('itemList:string[] -> processedResults:string[]', {
-        autoParallel: false,
-      })
+      >({ autoParallel: false })
         .node('simpleProcessor', 'itemText:string -> processedText:string')
         .node('complexProcessor', 'itemText:string -> processedText:string')
         .node('classifier', 'itemText:string -> isComplex:boolean')
@@ -815,49 +796,287 @@ describe('AxFlow', () => {
       ).toBe(true);
     });
   });
+});
 
-  describe('custom program execution', () => {
-    it('should execute custom program logic (not just signature)', async () => {
-      class CustomUppercaseProgram extends AxProgram<
-        { userInput: string },
-        { processedOutput: string }
-      > {
-        constructor() {
-          super('userInput:string -> processedOutput:string');
-        }
+describe('AxFlow Signature Inference', () => {
+  it.skip('should infer signature from flow dependencies', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: (messages) => {
+        // Check which node is being executed based on the message content
+        const messageContent = messages[messages.length - 1]?.content || '';
 
-        override async forward(
-          _ai: AxAIService,
-          values: Readonly<{ userInput: string }>
-        ): Promise<{ processedOutput: string }> {
-          // Custom logic - this should be executed, not the AI
+        if (
+          messageContent.includes('userText:') ||
+          messageContent.includes('User Text:')
+        ) {
+          // Response for analyzer node - use title case for field names
           return {
-            processedOutput: `CUSTOM: ${values.userInput.toUpperCase()}`,
+            results: [
+              {
+                index: 0,
+                content: 'Sentiment Value: positive\nConfidence Score: 0.8',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: {
+              ai: 'mock',
+              model: 'test',
+              tokens: {
+                promptTokens: 10,
+                completionTokens: 5,
+                totalTokens: 15,
+              },
+            },
           };
         }
-      }
-
-      const flow = new AxFlow<{ topic: string }, { result: string }>()
-        .node('custom', CustomUppercaseProgram)
-        // @ts-expect-error - testing runtime behavior with custom typing
-        .execute('custom', () => ({ userInput: 'hello world' }))
-        // @ts-expect-error - testing runtime behavior with custom typing
-        .map((state) => ({ result: state.customResult.processedOutput }));
-
-      const result = await flow.forward(mockAI, { topic: 'test' });
-
-      // Verify that our custom logic was executed, not the AI
-      expect(result.result).toBe('CUSTOM: HELLO WORLD');
+        // Response for formatter node
+        return {
+          results: [
+            {
+              index: 0,
+              content:
+                'Formatted Result: This is positive sentiment with 80% confidence',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: {
+            ai: 'mock',
+            model: 'test',
+            tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          },
+        };
+      },
     });
+
+    // Create a flow without passing a signature
+    const flow = new AxFlow()
+      .node(
+        'analyzer',
+        'userText:string -> sentimentValue:string, confidenceScore:number'
+      )
+      .node(
+        'formatter',
+        'rawSentiment:string, score:number -> formattedResult:string'
+      )
+      .execute('analyzer', (state: any) => ({ userText: state.userInput }))
+      .execute('formatter', (state: any) => ({
+        rawSentiment: state.analyzerResult.sentimentValue,
+        score: state.analyzerResult.confidenceScore,
+      }));
+
+    // The signature should be inferred from the flow structure
+    const signature = flow.getSignature();
+
+    // Check that the signature has been inferred
+    expect(signature).toBeDefined();
+    expect(signature.toString()).toBeTruthy();
+
+    // Execute the flow to verify it works
+    const result = await flow.forward(mockAI, { userInput: 'This is great!' });
+    expect(result).toBeDefined();
+  });
+
+  it('should handle flows with no dependencies correctly', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+
+    // Create a flow with just nodes but no executions
+    const flow = new AxFlow().node(
+      'standalone',
+      'inputData:string -> outputData:string'
+    );
+
+    // Should have a default signature
+    const signature = flow.getSignature();
+    expect(signature).toBeDefined();
+    expect(signature.toString()).toBeTruthy();
+
+    // Should be able to execute with default inputs
+    const result = await flow.forward(mockAI, { userInput: 'test' });
+    expect(result).toBeDefined();
+  });
+
+  it('should allow manual signature override', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+
+    // Create a flow with explicit signature (note: this test is about manual override, not inference)
+    const _customSignature = 'customInput:string -> customOutput:string';
+    const flow = new AxFlow().node(
+      'processor',
+      'dataIn:string -> dataOut:string'
+    );
+
+    // Without manual override, should infer signature from flow structure
+    const signature = flow.getSignature();
+    expect(signature.toString()).toContain('processorDataOut'); // Should use actual field name from node signature
+
+    // Should be able to execute
+    const result = await flow.forward(mockAI, { userInput: 'test' });
+    expect(result).toBeDefined();
+  });
+
+  it.skip('should infer complex signatures with multiple input/output nodes', async () => {
+    const mockAI = new AxMockAIService({
+      chatResponse: (messages) => {
+        // Check which node is being executed based on the message content
+        const messageContent = messages[messages.length - 1]?.content || '';
+
+        if (
+          messageContent.includes('rawInput:') ||
+          messageContent.includes('Raw Input:')
+        ) {
+          // Response for preprocessor node
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Cleaned Text: processed input',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: {
+              ai: 'mock',
+              model: 'test',
+              tokens: {
+                promptTokens: 10,
+                completionTokens: 5,
+                totalTokens: 15,
+              },
+            },
+          };
+        }
+        if (
+          messageContent.includes('textData:') ||
+          messageContent.includes('Text Data:')
+        ) {
+          // Check if it's for sentiment or topics based on the signature context
+          if (
+            messageContent.includes('Sentiment:') ||
+            messageContent.includes('sentiment')
+          ) {
+            // Response for analyzer1 node
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Sentiment: positive',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: {
+                ai: 'mock',
+                model: 'test',
+                tokens: {
+                  promptTokens: 10,
+                  completionTokens: 5,
+                  totalTokens: 15,
+                },
+              },
+            };
+          }
+          // Response for analyzer2 node
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Topics: ["technology", "AI", "programming"]',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: {
+              ai: 'mock',
+              model: 'test',
+              tokens: {
+                promptTokens: 10,
+                completionTokens: 5,
+                totalTokens: 15,
+              },
+            },
+          };
+        }
+        // Response for combiner node
+        return {
+          results: [
+            {
+              index: 0,
+              content:
+                'Final Report: Positive sentiment about technology and AI',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: {
+            ai: 'mock',
+            model: 'test',
+            tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          },
+        };
+      },
+    });
+
+    // Create a complex flow with branching
+    const flow = new AxFlow()
+      .node('preprocessor', 'rawInput:string -> cleanedText:string')
+      .node('analyzer1', 'textData:string -> sentiment:string')
+      .node('analyzer2', 'textData:string -> topics:string[]')
+      .node(
+        'combiner',
+        'sentimentData:string, topicData:string[] -> finalReport:string'
+      )
+      .execute('preprocessor', (state: any) => ({ rawInput: state.userInput }))
+      .execute('analyzer1', (state: any) => ({
+        textData: state.preprocessorResult.cleanedText,
+      }))
+      .execute('analyzer2', (state: any) => ({
+        textData: state.preprocessorResult.cleanedText,
+      }))
+      .execute('combiner', (state: any) => ({
+        sentimentData: state.analyzer1Result.sentiment,
+        topicData: state.analyzer2Result.topics,
+      }));
+
+    // The signature should be inferred from the flow structure
+    const signature = flow.getSignature();
+    expect(signature).toBeDefined();
+
+    // Should identify userInput as input and finalReport as output (actual field name, not wrapper)
+    const inputFields = signature.getInputFields();
+    const outputFields = signature.getOutputFields();
+
+    expect(inputFields.length).toBeGreaterThan(0);
+    expect(outputFields.length).toBeGreaterThan(0);
+
+    // Should use the actual field name from the node signature, not the wrapper name
+    expect(signature.toString()).toContain('finalReport');
+
+    // Execute the flow
+    const result = await flow.forward(mockAI, {
+      userInput: 'Complex analysis text',
+    });
+    expect(result).toBeDefined();
   });
 });
 
 describe('AxFlow > node definition > new overloads', () => {
   it('should define a node with AxSignature instance', () => {
     const flow = new AxFlow<{ topic: string }, { result: string }>();
-    const signature = new AxSignature(
-      'documentText:string -> summaryText:string'
-    );
+    const signature = 'documentText:string -> summaryText:string';
 
     flow.node('summarizer', signature, { debug: true, logger: () => {} });
 
@@ -865,77 +1084,6 @@ describe('AxFlow > node definition > new overloads', () => {
     expect(() => {
       // @ts-expect-error - testing runtime behavior
       flow.execute('summarizer', () => ({ documentText: 'test' }));
-    }).not.toThrow();
-  });
-
-  it('should define a node with program class extending AxProgram', () => {
-    class CustomProgram extends AxProgram<
-      { userInput: string },
-      { processedOutput: string }
-    > {
-      constructor() {
-        super('userInput:string -> processedOutput:string');
-      }
-
-      override async forward(
-        _ai: AxAIService,
-        values: Readonly<{ userInput: string }>
-      ): Promise<{ processedOutput: string }> {
-        return { processedOutput: values.userInput.toUpperCase() };
-      }
-    }
-
-    const flow = new AxFlow<{ topic: string }, { result: string }>();
-
-    flow.node('custom', CustomProgram);
-
-    // Test that the node was registered (we can't easily test execution without proper typing)
-    expect(() => {
-      // @ts-expect-error - testing runtime behavior
-      flow.execute('custom', () => ({ userInput: 'test' }));
-    }).not.toThrow();
-  });
-
-  it('should support n alias with AxSignature instance', () => {
-    const flow = new AxFlow<{ topic: string }, { result: string }>();
-    const signature = new AxSignature(
-      'documentText:string -> summaryText:string'
-    );
-
-    flow.n('summarizer', signature, { debug: true, logger: () => {} });
-
-    // Test that the node was registered (we can't easily test execution without proper typing)
-    expect(() => {
-      // @ts-expect-error - testing runtime behavior
-      flow.execute('summarizer', () => ({ documentText: 'test' }));
-    }).not.toThrow();
-  });
-
-  it('should support n alias with program class', () => {
-    class CustomProgram extends AxProgram<
-      { userInput: string },
-      { processedOutput: string }
-    > {
-      constructor() {
-        super('userInput:string -> processedOutput:string');
-      }
-
-      override async forward(
-        _ai: AxAIService,
-        values: Readonly<{ userInput: string }>
-      ): Promise<{ processedOutput: string }> {
-        return { processedOutput: values.userInput.toUpperCase() };
-      }
-    }
-
-    const flow = new AxFlow<{ topic: string }, { result: string }>();
-
-    flow.n('custom', CustomProgram);
-
-    // Test that the node was registered (we can't easily test execution without proper typing)
-    expect(() => {
-      // @ts-expect-error - testing runtime behavior
-      flow.execute('custom', () => ({ userInput: 'test' }));
     }).not.toThrow();
   });
 

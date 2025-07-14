@@ -2,9 +2,8 @@
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
 import { ValidationError } from './errors.js';
-import type { GenDeltaOut } from './program.js';
 import type { AxField, AxSignature } from './sig.js';
-import type { AxGenOut } from './types.js';
+import type { AxGenOut, GenDeltaOut } from './types.js';
 import { matchesContent, parseMarkdownList } from './util.js';
 
 export const extractValues = (

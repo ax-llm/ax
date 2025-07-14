@@ -2,11 +2,16 @@ import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
 
+import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
 import { axDefaultOptimizerLogger } from './optimizerLogging.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
-import type { AxProgram, AxProgramDemos } from './program.js';
-import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js';
+import type {
+  AxFieldValue,
+  AxGenIn,
+  AxGenOut,
+  AxProgramDemos,
+} from './types.js';
 
 // Logger utilities are now exported from ./loggers.js
 
@@ -955,7 +960,7 @@ export interface AxOptimizer<
    * @returns Optimization result containing demos, stats, and configuration
    */
   compile(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxOptimizerResult<OUT>>;
@@ -968,7 +973,7 @@ export interface AxOptimizer<
    * @returns Async iterator yielding optimization progress
    */
   compileStream?(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): AsyncIterableIterator<AxOptimizationProgress>;
@@ -981,7 +986,7 @@ export interface AxOptimizer<
    * @returns Pareto optimization result
    */
   compilePareto?(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>>;
@@ -1020,7 +1025,7 @@ export interface AxOptimizer<
    * @param program Program to validate
    * @returns Validation result with any issues found
    */
-  validateProgram?(program: Readonly<AxProgram<IN, OUT>>): {
+  validateProgram?(program: Readonly<AxGen<IN, OUT>>): {
     isValid: boolean;
     issues: string[];
     suggestions: string[];
@@ -1082,12 +1087,12 @@ export interface AxMiPROOptimizerOptions {
 export interface AxBootstrapCompileOptions extends AxCompileOptions {
   validationExamples?: readonly AxExample[];
   maxDemos?: number;
-  teacherProgram?: Readonly<AxProgram<AxGenIn, AxGenOut>>;
+  teacherProgram?: Readonly<AxGen<AxGenIn, AxGenOut>>;
 }
 
 export interface AxMiPROCompileOptions extends AxCompileOptions {
   validationExamples?: readonly AxExample[];
-  teacher?: Readonly<AxProgram<AxGenIn, AxGenOut>>;
+  teacher?: Readonly<AxGen<AxGenIn, AxGenOut>>;
   auto?: 'light' | 'medium' | 'heavy';
 
   // Enhanced MiPRO options
@@ -1430,7 +1435,7 @@ export abstract class AxBaseOptimizer<
    * Abstract method that must be implemented by concrete optimizers
    */
   public abstract compile(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxOptimizerResult<OUT>>;
@@ -1443,7 +1448,7 @@ export abstract class AxBaseOptimizer<
    * @returns Async iterator yielding optimization progress
    */
   public async *compileStream(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): AsyncIterableIterator<AxOptimizationProgress> {
@@ -1554,10 +1559,11 @@ export abstract class AxBaseOptimizer<
    * @returns Pareto optimization result with frontier of non-dominated solutions
    */
   public async compilePareto(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>> {
+    const _optimizerType = this.constructor.name;
     const startTime = Date.now();
 
     // Strategy 1: Generate different weighted combinations of objectives
@@ -1641,7 +1647,7 @@ export abstract class AxBaseOptimizer<
    * Generate solutions using different weighted combinations of objectives
    */
   private async generateWeightedSolutions(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<
@@ -1660,7 +1666,7 @@ export abstract class AxBaseOptimizer<
     // First, determine the objectives by running the metric on a sample
     const sampleExample = this.examples[0]!;
     const samplePrediction = await program.forward(
-      this.studentAI,
+      this.getAIService(false, options),
       sampleExample as IN
     );
     const sampleScores = await metricFn({
@@ -1739,7 +1745,7 @@ export abstract class AxBaseOptimizer<
    * Generate solutions using constraint-based optimization
    */
   private async generateConstraintSolutions(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<
@@ -1758,7 +1764,7 @@ export abstract class AxBaseOptimizer<
     // Get objectives from a sample evaluation
     const sampleExample = this.examples[0]!;
     const samplePrediction = await program.forward(
-      this.studentAI,
+      this.getAIService(false, options),
       sampleExample as IN
     );
     const sampleScores = await metricFn({
@@ -1882,20 +1888,23 @@ export abstract class AxBaseOptimizer<
    * Evaluate a single-objective result with multi-objective metrics
    */
   private async evaluateWithMultiObjective(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     result: Readonly<AxOptimizerResult<OUT>>,
     metricFn: AxMultiMetricFn
   ): Promise<Record<string, number>> {
+    const testProgram = new AxGen(program.getSignature());
+    if (result.demos) {
+      testProgram.setDemos(result.demos);
+    }
+
+    const predictions = [];
+    for (const ex of this.examples) {
+      const prediction = await testProgram.forward(this.studentAI, ex as IN);
+      predictions.push({ prediction, example: ex });
+    }
+
     const valSet = this.getValidationSet();
     const allScores: Record<string, number[]> = {};
-
-    // Apply the optimized configuration to the program
-    const testProgram = { ...program };
-    if (result.demos && 'setDemos' in testProgram) {
-      (
-        testProgram as unknown as { setDemos: (demos: unknown) => void }
-      ).setDemos(result.demos);
-    }
 
     // Evaluate on validation set
     const evalSet = valSet.slice(0, Math.min(5, valSet.length));

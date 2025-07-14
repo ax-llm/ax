@@ -23,9 +23,8 @@ import {
 } from './fieldProcessor.js';
 import { parseFunctionCalls, processFunctions } from './functions.js';
 import type { AxResponseHandlerArgs, InternalAxGenState } from './generate.js';
-import type { AsyncGenDeltaOut, DeltaOut } from './program.js';
 import type { AxSignature } from './sig.js';
-import type { AxGenOut } from './types.js';
+import type { AsyncGenDeltaOut, AxGenOut, DeltaOut } from './types.js';
 
 type ProcessStreamingResponseArgs = Readonly<
   AxResponseHandlerArgs<ReadableStream<AxChatResponse>>

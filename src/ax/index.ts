@@ -472,24 +472,7 @@ import type {
   AxOptimizerLoggerData,
   AxOptimizerLoggerFunction,
 } from './dsp/optimizerTypes.js';
-import {
-  type AxGenDeltaOut,
-  type AxGenStreamingOut,
-  AxProgram,
-  type AxProgramDemos,
-  type AxProgramExamples,
-  type AxProgramForwardOptions,
-  type AxProgramOptions,
-  type AxProgramStreamingForwardOptions,
-  type AxProgramTrace,
-  type AxProgramUsage,
-  type AxResultPickerFunction,
-  type AxResultPickerFunctionFieldResults,
-  type AxResultPickerFunctionFunctionResults,
-  type AxSetExamplesOptions,
-  type AxTunable,
-  type AxUsable,
-} from './dsp/program.js';
+import { AxProgram } from './dsp/program.js';
 import {
   type AxFieldTemplateFn,
   AxPromptTemplate,
@@ -514,11 +497,49 @@ import {
 } from './dsp/template.js';
 import type {
   AxFieldValue,
+  AxForwardable,
+  AxGenDeltaOut,
   AxGenIn,
   AxGenOut,
+  AxGenStreamingOut,
   AxMessage,
+  AxProgramDemos,
+  AxProgramExamples,
+  AxProgramForwardOptions,
+  AxProgrammable,
+  AxProgramOptions,
+  AxProgramStreamingForwardOptions,
+  AxProgramTrace,
+  AxProgramUsage,
+  AxResultPickerFunction,
+  AxResultPickerFunctionFieldResults,
+  AxResultPickerFunctionFunctionResults,
+  AxSetExamplesOptions,
+  AxTunable,
+  AxUsable,
 } from './dsp/types.js';
-import { AxFlow, AxFlowTypedSubContextImpl } from './flow/flow.js';
+import { AxFlowDependencyAnalyzer } from './flow/dependencyAnalyzer.js';
+import { AxFlowExecutionPlanner } from './flow/executionPlanner.js';
+import { AxFlow } from './flow/flow.js';
+import {
+  AxFlowSubContextImpl,
+  AxFlowTypedSubContextImpl,
+} from './flow/subContext.js';
+import type {
+  AxFlowAutoParallelConfig,
+  AxFlowable,
+  AxFlowBranchContext,
+  AxFlowDynamicContext,
+  AxFlowExecutionStep,
+  AxFlowNodeDefinition,
+  AxFlowParallelBranch,
+  AxFlowParallelGroup,
+  AxFlowState,
+  AxFlowStepFunction,
+  AxFlowSubContext,
+  AxFlowTypedParallelBranch,
+  AxFlowTypedSubContext,
+} from './flow/types.js';
 import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import { AxMCPClient } from './mcp/client.js';
@@ -636,6 +657,9 @@ export { AxDockerSession };
 export { AxEmbeddingAdapter };
 export { AxEvalUtil };
 export { AxFlow };
+export { AxFlowDependencyAnalyzer };
+export { AxFlowExecutionPlanner };
+export { AxFlowSubContextImpl };
 export { AxFlowTypedSubContextImpl };
 export { AxFunctionError };
 export { AxFunctionProcessor };
@@ -960,6 +984,20 @@ export type { AxFieldProcessorProcess };
 export type { AxFieldTemplateFn };
 export type { AxFieldType };
 export type { AxFieldValue };
+export type { AxFlowAutoParallelConfig };
+export type { AxFlowBranchContext };
+export type { AxFlowDynamicContext };
+export type { AxFlowExecutionStep };
+export type { AxFlowNodeDefinition };
+export type { AxFlowParallelBranch };
+export type { AxFlowParallelGroup };
+export type { AxFlowState };
+export type { AxFlowStepFunction };
+export type { AxFlowSubContext };
+export type { AxFlowTypedParallelBranch };
+export type { AxFlowTypedSubContext };
+export type { AxFlowable };
+export type { AxForwardable };
 export type { AxFunction };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
@@ -1012,6 +1050,7 @@ export type { AxProgramOptions };
 export type { AxProgramStreamingForwardOptions };
 export type { AxProgramTrace };
 export type { AxProgramUsage };
+export type { AxProgrammable };
 export type { AxPromptTemplateOptions };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };

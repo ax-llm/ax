@@ -2,9 +2,13 @@
 import { ColorLog } from '../util/log.js';
 
 import type { AxExample, AxOptimizationStats } from './optimizer.js';
-import type { AxGenDeltaOut, AxProgramUsage } from './program.js';
 import type { AxField } from './sig.js';
-import type { AxFieldValue, AxGenOut } from './types.js';
+import type {
+  AxFieldValue,
+  AxGenDeltaOut,
+  AxGenOut,
+  AxProgramUsage,
+} from './types.js';
 
 const colorLog = new ColorLog();
 

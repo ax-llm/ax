@@ -129,11 +129,20 @@ export const axCreateDefaultColorLogger = (
             formattedMessage += `\n${divider}\n`;
         });
         break;
-      case 'ChatResponseStreamingResult':
-        formattedMessage = cl.cyanBright(
-          typedData.value.delta || typedData.value.content || ''
-        );
+      case 'ChatResponseStreamingResult': {
+        const streamingContent =
+          typedData.value.delta || typedData.value.content || '';
+        // Add newline prefix if this is actual content (not just a delta)
+        const needsNewline =
+          streamingContent.trim().length > 0 &&
+          (streamingContent.includes('Reply:') ||
+            streamingContent.includes('🤖') ||
+            streamingContent.length > 50);
+        formattedMessage = needsNewline
+          ? `\n${cl.cyanBright(streamingContent)}`
+          : cl.cyanBright(streamingContent);
         break;
+      }
       case 'FunctionError':
         formattedMessage = `\n${cl.redBright(`[ FUNCTION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
         break;
@@ -214,10 +223,20 @@ export const axCreateDefaultTextLogger = (
             formattedMessage += `\n${divider}\n`;
         });
         break;
-      case 'ChatResponseStreamingResult':
-        formattedMessage =
+      case 'ChatResponseStreamingResult': {
+        const streamingContent =
           typedData.value.delta || typedData.value.content || '';
+        // Add newline prefix if this is actual content (not just a delta)
+        const needsNewline =
+          streamingContent.trim().length > 0 &&
+          (streamingContent.includes('Reply:') ||
+            streamingContent.includes('🤖') ||
+            streamingContent.length > 50);
+        formattedMessage = needsNewline
+          ? `\n${streamingContent}`
+          : streamingContent;
         break;
+      }
       case 'FunctionError':
         formattedMessage = `\n[ FUNCTION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
         break;

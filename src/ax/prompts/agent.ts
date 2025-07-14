@@ -7,27 +7,28 @@ import type {
 } from '../ai/types.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
+import type { AxSignature } from '../dsp/sig.js';
 import type {
+  AxGenIn,
+  AxGenOut,
   AxGenStreamingOut,
-  AxProgram,
+  AxMessage,
   AxProgramDemos,
   AxProgramExamples,
   AxProgramForwardOptions,
+  AxProgrammable,
   AxProgramStreamingForwardOptions,
   AxSetExamplesOptions,
   AxTunable,
   AxUsable,
-} from '../dsp/program.js';
-import type { AxSignature } from '../dsp/sig.js';
-import type { AxGenIn, AxGenOut, AxMessage } from '../dsp/types.js';
+} from '../dsp/types.js';
 
 /**
  * Interface for agents that can be used as child agents.
  * Provides methods to get the agent's function definition and features.
  */
 export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
-  extends AxTunable<IN, OUT>,
-    AxUsable {
+  extends AxProgrammable<IN, OUT> {
   getFunction(): AxFunction;
   getFeatures(): AxAgentFeatures;
 }
@@ -150,7 +151,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
   private ai?: AxAIService;
-  private program: AxProgram<IN, OUT>;
+  private program: AxGen<IN, OUT>;
   private functions?: AxInputFunctionType;
   private agents?: AxAgentic<IN, OUT>[];
   private disableSmartModelRouting?: boolean;
@@ -403,7 +404,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       throw definitionError;
     }
 
-    this.program.getSignature().setDescription(definition);
+    this.program.setDescription(definition);
+    this.func.description = definition;
+  }
+
+  public getSignature(): AxSignature {
+    return this.program.getSignature();
+  }
+
+  public setSignature(
+    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
+  ) {
+    this.program.setSignature(signature);
   }
 
   private getDebug(

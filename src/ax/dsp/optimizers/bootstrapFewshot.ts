@@ -1,3 +1,4 @@
+import type { AxGen } from '../generate.js';
 import {
   AxBaseOptimizer,
   type AxBootstrapCompileOptions,
@@ -6,8 +7,13 @@ import {
   type AxOptimizerArgs,
   type AxOptimizerResult,
 } from '../optimizer.js';
-import type { AxProgram, AxProgramDemos, AxProgramTrace } from '../program.js';
-import type { AxFieldValue, AxGenIn, AxGenOut } from '../types.js';
+import type {
+  AxFieldValue,
+  AxGenIn,
+  AxGenOut,
+  AxProgramDemos,
+  AxProgramTrace,
+} from '../types.js';
 
 // Define model config interface
 interface ModelConfig {
@@ -54,7 +60,7 @@ export class AxBootstrapFewShot<
   }
 
   private async compileRound(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     roundIndex: number,
     metricFn: AxMetricFn,
     options?: { maxRounds?: number; maxDemos?: number } | undefined
@@ -91,7 +97,9 @@ export class AxBootstrapFewShot<
 
         // Use remaining examples as demonstration examples (excluding current one)
         const exList = examples.filter((e) => e !== ex);
-        program.setExamples(exList as unknown as readonly (OUT & IN)[]);
+        (program as AxGen<IN, OUT>).setExamples(
+          exList as unknown as readonly (OUT & IN)[]
+        );
 
         // Use teacher AI if provided, otherwise use student AI
         const aiService = this.getTeacherOrStudentAI();
@@ -154,7 +162,7 @@ export class AxBootstrapFewShot<
   }
 
   public async compile(
-    program: Readonly<AxProgram<IN, OUT>>,
+    program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
     options?: AxBootstrapCompileOptions
   ): Promise<AxOptimizerResult<OUT>> {

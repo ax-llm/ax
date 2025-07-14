@@ -1,13 +1,12 @@
 import type { AxAIService } from '../ai/types.js';
-
+import type { AxGen } from './generate.js';
 import type { AxExample, AxMetricFn } from './optimizer.js';
-import type { AxProgram } from './program.js';
 import type { AxGenIn, AxGenOut } from './types.js';
 import { updateProgressBar } from './util.js';
 
 export type AxEvaluateArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
   ai: AxAIService;
-  program: Readonly<AxProgram<IN, OUT>>;
+  program: Readonly<AxGen<IN, OUT>>;
   examples: Readonly<AxExample[]>;
 };
 
@@ -16,7 +15,7 @@ export class AxTestPrompt<
   OUT extends AxGenOut = AxGenOut,
 > {
   private ai: AxAIService;
-  private program: Readonly<AxProgram<IN, OUT>>;
+  private program: Readonly<AxGen<IN, OUT>>;
   private examples: Readonly<AxExample[]>;
 
   constructor({

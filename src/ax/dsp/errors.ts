@@ -1,3 +1,17 @@
+import type { Span } from '@opentelemetry/api';
+import {
+  logAssertionError,
+  logRefusalError,
+  logValidationError,
+} from '../ai/debug.js';
+import type { AxLoggerFunction } from '../ai/types.js';
+import type { AxAIRefusalError } from '../util/apicall.js';
+import type { AxAssertionError } from './asserts.js';
+import type { AxGenMetricsInstruments } from './metrics.js';
+import {
+  recordRefusalErrorMetric,
+  recordValidationErrorMetric,
+} from './metrics.js';
 import type { AxField } from './sig.js';
 
 export class ValidationError extends Error {
@@ -97,3 +111,121 @@ export class ValidationError extends Error {
     return this.toString();
   }
 }
+
+export type HandleErrorForGenerateArgs<TError extends Error> = {
+  error: TError;
+  errCount: number;
+  logger: AxLoggerFunction | undefined;
+  metricsInstruments: AxGenMetricsInstruments | undefined;
+  signatureName: string;
+  span: Span | undefined;
+  debug: boolean;
+};
+
+/**
+ * Handles validation errors with logging, metrics, and telemetry
+ */
+export const handleValidationErrorForGenerate = ({
+  error,
+  errCount,
+  debug,
+  logger,
+  metricsInstruments,
+  signatureName,
+  span,
+}: HandleErrorForGenerateArgs<ValidationError>) => {
+  const errorFields = error.getFixingInstructions();
+
+  // Log validation error with proper structured logging
+  if (debug && logger) {
+    const fixingInstructions =
+      errorFields?.map((f) => f.title).join(', ') ?? '';
+    logValidationError(error, errCount, fixingInstructions, logger);
+  }
+
+  // Record validation error metric
+  if (metricsInstruments) {
+    recordValidationErrorMetric(
+      metricsInstruments,
+      'validation',
+      signatureName
+    );
+  }
+
+  // Add telemetry event for validation error
+  if (span) {
+    span.addEvent('validation.error', {
+      message: error.toString(),
+      fixing_instructions: errorFields?.map((f) => f.title).join(', ') ?? '',
+    });
+  }
+
+  return errorFields;
+};
+
+/**
+ * Handles assertion errors with logging, metrics, and telemetry
+ */
+export const handleAssertionErrorForGenerate = ({
+  error,
+  errCount,
+  debug,
+  logger,
+  metricsInstruments,
+  signatureName,
+  span,
+}: HandleErrorForGenerateArgs<AxAssertionError>) => {
+  const errorFields = error.getFixingInstructions();
+
+  // Log assertion error with proper structured logging
+  if (debug && logger) {
+    const fixingInstructions =
+      errorFields?.map((f) => f.title).join(', ') ?? '';
+    logAssertionError(error, errCount, fixingInstructions, logger);
+  }
+
+  // Record assertion error metric
+  if (metricsInstruments) {
+    recordValidationErrorMetric(metricsInstruments, 'assertion', signatureName);
+  }
+
+  // Add telemetry event for assertion error
+  if (span) {
+    span.addEvent('assertion.error', {
+      message: error.toString(),
+      fixing_instructions: errorFields?.map((f) => f.title).join(', ') ?? '',
+    });
+  }
+
+  return errorFields;
+};
+
+/**
+ * Handles refusal errors with logging, metrics, and telemetry
+ */
+export const handleRefusalErrorForGenerate = ({
+  error,
+  errCount,
+  debug,
+  logger,
+  metricsInstruments,
+  signatureName,
+  span,
+}: HandleErrorForGenerateArgs<AxAIRefusalError>) => {
+  // Log refusal error with proper structured logging
+  if (debug && logger) {
+    logRefusalError(error, errCount, logger);
+  }
+
+  // Record refusal error metric
+  if (metricsInstruments) {
+    recordRefusalErrorMetric(metricsInstruments, signatureName);
+  }
+
+  // Add telemetry event for refusal error
+  if (span) {
+    span.addEvent('refusal.error', {
+      message: error.toString(),
+    });
+  }
+};

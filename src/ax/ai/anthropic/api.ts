@@ -532,9 +532,14 @@ export class AxAIAnthropic extends AxBaseAI<
       if (!apiKey) {
         throw new Error('Anthropic Vertex API key not set');
       }
+      if (typeof apiKey !== 'function') {
+        throw new Error(
+          'Anthropic Vertex API key must be a function for token-based authentication'
+        );
+      }
       apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
       headers = async () => ({
-        Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
+        Authorization: `Bearer ${await apiKey()}`,
       });
     } else {
       if (!apiKey) {

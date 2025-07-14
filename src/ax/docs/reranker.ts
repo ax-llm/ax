@@ -1,7 +1,7 @@
 import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
-import type { AxProgramForwardOptions } from '../dsp/program.js';
 import { AxStringUtil } from '../dsp/strutil.js';
+import type { AxProgramForwardOptions } from '../dsp/types.js';
 
 import type { AxRerankerIn, AxRerankerOut } from './manager.js';
 

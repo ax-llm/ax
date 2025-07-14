@@ -676,6 +676,11 @@ export class AxAIGoogleGemini extends AxBaseAI<
       if (!apiKey) {
         throw new Error('GoogleGemini Vertex API key not set');
       }
+      if (typeof apiKey !== 'function') {
+        throw new Error(
+          'GoogleGemini Vertex API key must be a function for token-based authentication'
+        );
+      }
 
       let path: string;
       if (endpointId) {

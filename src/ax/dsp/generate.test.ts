@@ -7,8 +7,8 @@ import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 
 import { AxGen } from './generate.js';
-import type { AxProgramForwardOptions } from './program.js';
 import { AxSignature } from './sig.js';
+import type { AxProgramForwardOptions } from './types.js';
 
 function createStreamingResponse(
   chunks: AxChatResponse['results']

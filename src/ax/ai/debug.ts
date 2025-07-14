@@ -130,6 +130,20 @@ export const logAssertionError = (
   logger(loggerData);
 };
 
+export const logRefusalError = (
+  error: unknown,
+  index: number,
+  logger: AxLoggerFunction = defaultLogger
+) => {
+  const loggerData: AxLoggerData = {
+    name: 'RefusalError',
+    index,
+    error,
+  };
+
+  logger(loggerData);
+};
+
 export const logNotification = (
   id: string,
   value: string,
