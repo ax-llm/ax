@@ -1034,6 +1034,189 @@ const typeSafeFlow = new AxFlow<{ input: string }, MergedState>()
   .merge<MergedState>();
 ```
 
+### 4. Parallel Map with Batch Size Control ← **NEW!**
+
+Execute multiple transformations in parallel with intelligent batch processing for optimal resource management:
+
+#### Basic Parallel Map Usage
+
+```typescript
+import { AxFlow } from "@ax-llm/ax";
+
+// Simple parallel map with multiple transforms
+const flow = new AxFlow<{ items: string[] }, { results: string[] }>()
+  .init({ items: ["item1", "item2", "item3", "item4", "item5"] })
+  .map([
+    state => ({ ...state, transform1: processItems(state.items, "method1") }),
+    state => ({ ...state, transform2: processItems(state.items, "method2") }),
+    state => ({ ...state, transform3: processItems(state.items, "method3") })
+  ], { parallel: true })
+  .map(state => ({ 
+    results: combineTransforms([
+      state.transform1, state.transform2, state.transform3
+    ])
+  }));
+
+// ⚡ All three transforms execute simultaneously
+const result = await flow.forward(ai, { items: data });
+```
+
+#### Batch Size Configuration
+
+Control resource usage and prevent overwhelming downstream services:
+
+```typescript
+// Configure batch size for optimal performance
+const batchedFlow = new AxFlow<StateType, ResultType>({ 
+  batchSize: 5         // Process 5 operations at a time
+})
+  .init({ largeDataset: thousandsOfItems })
+  .map([
+    // These 20 transforms will be processed in batches of 5
+    ...createTransforms(20)
+  ], { parallel: true });
+
+// Execution pattern: [5 parallel] → [5 parallel] → [5 parallel] → [5 parallel]
+// Order is preserved despite batched execution
+// Example: If you have 23 operations with batchSize: 5
+// Batch 1: Operations 1-5 (parallel)
+// Batch 2: Operations 6-10 (parallel) 
+// Batch 3: Operations 11-15 (parallel)
+// Batch 4: Operations 16-20 (parallel)
+// Batch 5: Operations 21-23 (parallel)
+```
+
+#### Advanced Batch Processing Patterns
+
+**1. Large-Scale Data Processing:**
+
+```typescript
+interface DataPoint { id: string; content: string; }
+interface ProcessedData { id: string; summary: string; sentiment: string; keywords: string[]; }
+
+const dataProcessor = new AxFlow<
+  { dataPoints: DataPoint[] }, 
+  { processed: ProcessedData[] }
+>({ batchSize: 3 })  // Process 3 items at a time
+  .n("summarizer", "content:string -> summary:string")
+  .n("sentimentAnalyzer", "content:string -> sentiment:string") 
+  .n("keywordExtractor", "content:string -> keywords:string[]")
+  .init(state => ({ ...state, processedItems: [] }))
+  .map(
+    // Create parallel transforms for each data point
+    state => state.dataPoints.map(point => (flowState: any) => ({
+      ...flowState,
+      [`item_${point.id}`]: {
+        id: point.id,
+        content: point.content,
+        processed: false
+      }
+    })), 
+    { parallel: true }
+  )
+  // Process each item through multiple AI models in parallel
+  .map(
+    state => state.dataPoints.map(point => (flowState: any) => {
+      // This creates a sub-flow for each data point
+      return new AxFlow()
+        .e("summarizer", s => ({ content: point.content }))
+        .e("sentimentAnalyzer", s => ({ content: point.content }))
+        .e("keywordExtractor", s => ({ content: point.content }))
+        .m(s => ({
+          id: point.id,
+          summary: s.summarizerResult.summary,
+          sentiment: s.sentimentAnalyzerResult.sentiment,
+          keywords: s.keywordExtractorResult.keywords
+        }))
+        .forward(ai, {});
+    }),
+    { parallel: true }
+  );
+
+// ⚡ Processes large datasets efficiently with controlled concurrency
+```
+
+**2. Environment-Based Batch Size Configuration:**
+
+```typescript
+const adaptiveFlow = new AxFlow<{ tasks: Task[] }, { results: Result[] }>({
+  batchSize: process.env.NODE_ENV === 'production' ? 10 : 3  // Adjust based on environment
+})
+  .init({ tasks: largeBatchOfTasks })
+  .map([
+    // All these transforms will use the configured batch size
+    state => processForAnalytics(state.tasks),
+    state => processForReporting(state.tasks), 
+    state => processForNotifications(state.tasks),
+    state => processForArchiving(state.tasks)
+  ], { parallel: true });
+
+// Production: Processes 10 operations at a time (higher throughput)
+// Development: Processes 3 operations at a time (easier debugging)
+```
+
+**3. Dynamic Batch Size Selection:**
+
+```typescript
+// Choose batch size based on data characteristics
+function getBatchSize(dataSize: number, operationType: string): number {
+  if (operationType === 'heavy-ai-processing') return 2;  // Conservative for expensive ops
+  if (operationType === 'simple-transform') return 20;    // Aggressive for fast ops  
+  if (dataSize > 1000) return 5;                          // Smaller batches for large datasets
+  return 10;                                              // Default batch size
+}
+
+const smartFlow = new AxFlow<InputType, OutputType>({
+  batchSize: getBatchSize(inputData.length, 'heavy-ai-processing')
+})
+  .init(inputData)
+  .map([
+    state => performHeavyAIProcessing(state),
+    state => generateSummaries(state),
+    state => extractInsights(state)
+  ], { parallel: true });
+
+// Automatically adjusts batch size based on workload characteristics
+```
+
+#### Performance Benefits & Use Cases
+
+**🚀 Key Benefits:**
+- **Memory Management**: Prevents memory spikes from thousands of concurrent operations
+- **Rate Limiting**: Works seamlessly with API rate limits and service quotas
+- **Resource Control**: Prevents overwhelming downstream services or databases
+- **Order Preservation**: Results maintain original order despite batched execution
+- **Graceful Scaling**: Automatically adapts to available system resources
+
+**🎯 Perfect For:**
+- Processing large datasets (thousands of items)
+- API-heavy workflows with rate limiting concerns
+- Memory-constrained environments
+- Multi-tenant applications with resource sharing
+- Production systems requiring predictable resource usage
+
+**⚡ Performance Comparison:**
+
+```typescript
+// Without batch control (potentially problematic)
+const unboundedFlow = new AxFlow()
+  .map(thousandsOfTransforms, { parallel: true }); // 😬 Memory spike!
+
+// With intelligent batching (production-ready)
+const batchedFlow = new AxFlow({ batchSize: 10 })
+  .map(thousandsOfTransforms, { parallel: true }); // ✅ Controlled execution
+
+// Real-world example with 1000 transforms:
+// Unbounded: All 1000 operations start simultaneously 
+//   → Memory spike, potential system overload, rate limit issues
+// Batched (size 10): 100 sequential batches of 10 parallel operations each
+//   → Steady memory usage, predictable performance, maintained order
+
+// Memory usage pattern:
+// Unbounded: 📈 Spike to 1000x memory → 📉 All complete at once
+// Batched:   📊 Steady 10x memory → 📊 Steady 10x memory → 📊 Steady...
+```
+
 ---
 
 ## 🛠️ Troubleshooting Guide

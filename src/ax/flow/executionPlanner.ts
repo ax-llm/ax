@@ -1,4 +1,5 @@
 import { AxFlowDependencyAnalyzer } from './dependencyAnalyzer.js';
+import { processBatches } from './batchUtil.js';
 import type {
   AxFlowExecutionStep,
   AxFlowParallelGroup,
@@ -53,7 +54,7 @@ export class AxFlowExecutionPlanner {
     stepFunction: AxFlowStepFunction,
     nodeName?: string,
     mapping?: (state: any) => any,
-    stepType?: 'execute' | 'map' | 'merge' | 'other',
+    stepType?: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel',
     mapTransform?: (state: any) => any,
     mergeOptions?: {
       resultKey?: string;
@@ -62,7 +63,7 @@ export class AxFlowExecutionPlanner {
   ): void {
     let dependencies: string[] = [];
     let produces: string[] = [];
-    let type: 'execute' | 'map' | 'merge' | 'other' = stepType || 'other';
+    let type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel' = stepType || 'map';
 
     if (nodeName && mapping) {
       type = 'execute';
@@ -75,6 +76,24 @@ export class AxFlowExecutionPlanner {
       // Analyze map transformation to determine what fields it produces
       const mapOutputFields = this.analyzeMapTransformation(mapTransform);
       produces = mapOutputFields;
+      dependencies = this.getAllProducedFields();
+    } else if (type === 'parallel-map') {
+      // Parallel map operations produce fields from all transforms
+      if (Array.isArray(mapTransform)) {
+        // Multiple transforms - analyze each one
+        const allFields = new Set<string>();
+        for (const transform of mapTransform) {
+          const fields = this.analyzeMapTransformation(transform);
+          fields.forEach(f => allFields.add(f));
+        }
+        produces = Array.from(allFields);
+      } else if (mapTransform) {
+        // Single transform
+        produces = this.analyzeMapTransformation(mapTransform);
+      } else {
+        // No transform provided, use default
+        produces = ['_parallelMapResult'];
+      }
       dependencies = this.getAllProducedFields();
     } else if (type === 'merge') {
       // Merge operations produce their result key or merge all previous results
@@ -93,6 +112,10 @@ export class AxFlowExecutionPlanner {
       } else {
         dependencies = this.getAllProducedFields();
       }
+    } else if (type === 'parallel') {
+      // Parallel operations produce _parallelResults for merge step
+      produces = ['_parallelResults'];
+      dependencies = this.getAllProducedFields();
     } else if (stepFunction.toString().includes('transform(')) {
       type = 'map';
       // Fallback: Map steps are harder to analyze statically, assume they depend on all previous steps
@@ -408,7 +431,7 @@ export class AxFlowExecutionPlanner {
    * This method converts the parallel groups into actual executable functions.
    * It creates a series of steps where:
    * - Single-step groups execute directly
-   * - Multi-step groups execute in parallel using Promise.all()
+   * - Multi-step groups execute in parallel with batch size control
    * - Results are properly merged to maintain state consistency
    *
    * The optimized execution can significantly improve performance for flows
@@ -418,10 +441,12 @@ export class AxFlowExecutionPlanner {
    * - Reduces total execution time for independent operations
    * - Maximizes CPU and I/O utilization
    * - Maintains correctness through dependency management
+   * - Controls resource usage through batch size limiting
    *
+   * @param batchSize - Maximum number of concurrent operations (optional)
    * @returns Array of optimized step functions ready for execution
    */
-  createOptimizedExecution(): AxFlowStepFunction[] {
+  createOptimizedExecution(batchSize?: number): AxFlowStepFunction[] {
     const optimizedSteps: AxFlowStepFunction[] = [];
 
     for (const group of this.parallelGroups) {
@@ -432,13 +457,15 @@ export class AxFlowExecutionPlanner {
           optimizedSteps.push(step.stepFunction);
         }
       } else if (group.steps.length > 1) {
-        // Multiple steps - execute in parallel
+        // Multiple steps - execute in parallel with batch size control
         const parallelStep: AxFlowStepFunction = async (state, context) => {
-          const promises = group.steps.map((step) =>
-            step.stepFunction(state, context)
+          const results = await processBatches(
+            group.steps,
+            async (step, index) => {
+              return await step.stepFunction(state, context);
+            },
+            batchSize
           );
-
-          const results = await Promise.all(promises);
 
           // Check if any step produces _parallelResults (indicates this is a parallel flow)
           const hasParallelResults = results.some(

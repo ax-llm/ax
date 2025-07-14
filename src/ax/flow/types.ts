@@ -130,7 +130,7 @@ export interface AxFlowBranchContext {
 
 // Type for execution step metadata
 export interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'merge' | 'other';
+  type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel';
   nodeName?: string;
   dependencies: string[];
   produces: string[];
@@ -147,4 +147,5 @@ export interface AxFlowParallelGroup {
 // Configuration for automatic parallelization
 export interface AxFlowAutoParallelConfig {
   enabled: boolean;
+  batchSize?: number;
 }

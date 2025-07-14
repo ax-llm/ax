@@ -91,14 +91,15 @@ describe('AxFlowExecutionPlanner', () => {
       expect(plan.steps[0].type).toBe('map');
     });
 
-    it('should add other steps with default handling', () => {
-      const otherFunction = async (state: any) => ({ ...state, other: true });
+    it('should add parallel steps with default handling', () => {
+      const parallelFunction = async (state: any) => ({ ...state, _parallelResults: [] });
 
-      planner.addExecutionStep(otherFunction, undefined, undefined, 'other');
+      planner.addExecutionStep(parallelFunction, undefined, undefined, 'parallel');
 
       const plan = planner.getExecutionPlan();
       expect(plan.steps).toHaveLength(1);
-      expect(plan.steps[0].type).toBe('other');
+      expect(plan.steps[0].type).toBe('parallel');
+      expect(plan.steps[0].produces).toEqual(['_parallelResults']);
     });
   });
 
@@ -331,7 +332,7 @@ describe('AxFlowExecutionPlanner', () => {
 
       const plan = planner.getExecutionPlan();
       expect(plan.steps).toHaveLength(1);
-      expect(plan.steps[0].type).toBe('other');
+      expect(plan.steps[0].type).toBe('map');
     });
 
     it('should handle steps with circular dependencies gracefully', () => {

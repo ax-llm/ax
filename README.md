@@ -967,6 +967,44 @@ giving you access to the entire Ax ecosystem: optimization, streaming, tracing,
 function calling, and more. The future of AI development is declarative,
 adaptive, and beautiful.
 
+### NEW: Parallel Map with Batch Size Control
+
+Execute multiple transformations in parallel with intelligent batch processing for optimal resource management:
+
+```typescript
+import { AxFlow } from "@ax-llm/ax";
+
+// Configure batch processing for optimal performance
+const flow = new AxFlow<StateType, ResultType>({ 
+  batchSize: 5        // Process 5 operations at a time
+})
+  .init({ data: largeDataset })
+  // Execute multiple transforms in parallel with automatic batching
+  .map([
+    state => ({ ...state, analysis1: analyzeData(state.data) }),
+    state => ({ ...state, analysis2: extractFeatures(state.data) }),
+    state => ({ ...state, analysis3: generateSummary(state.data) }),
+    state => ({ ...state, analysis4: calculateMetrics(state.data) }),
+    state => ({ ...state, analysis5: validateResults(state.data) })
+  ], { parallel: true })
+  .map(state => ({ 
+    final: combineResults([
+      state.analysis1, state.analysis2, state.analysis3, 
+      state.analysis4, state.analysis5
+    ])
+  }));
+
+// ⚡ Automatic batch processing: runs 5 operations concurrently,
+// then processes remaining operations, maintaining result order
+const result = await flow.forward(ai, { data: dataset });
+```
+
+**🚀 Benefits:**
+- **Resource Control**: Prevent memory spikes with large parallel operations
+- **Order Preservation**: Results maintain original order despite batched execution  
+- **Performance Tuning**: Optimize batch size for different deployment environments
+- **Rate Limiting**: Works seamlessly with API rate limits and service quotas
+
 ## AI Routing and Load Balancing
 
 Ax provides two powerful ways to work with multiple AI services: a load balancer

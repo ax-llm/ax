@@ -19,6 +19,7 @@ import type {
 } from '../dsp/types.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
 import { AxFlowSubContextImpl } from './subContext.js';
+import { processBatches } from './batchUtil.js';
 import type {
   AddNodeResult,
   AxFlowAutoParallelConfig,
@@ -344,10 +345,12 @@ export class AxFlow<
 
   constructor(options?: {
     autoParallel?: boolean;
+    batchSize?: number;
   }) {
-    // Initialize configuration
+    // Initialize configuration with defaults
     this.autoParallelConfig = {
       enabled: options?.autoParallel !== false, // Default to true
+      batchSize: options?.batchSize || 10, // Default batch size of 10
     };
   }
 
@@ -497,8 +500,10 @@ export class AxFlow<
       // This tells the planner what fields are available at the start
       this.executionPlanner.setInitialFields(Object.keys(inputValues));
 
-      // Get optimized execution plan with parallel groups
-      const optimizedSteps = this.executionPlanner.createOptimizedExecution();
+      // Get optimized execution plan with parallel groups and batch size control
+      const optimizedSteps = this.executionPlanner.createOptimizedExecution(
+        this.autoParallelConfig.batchSize
+      );
 
       // Execute optimized steps sequentially (parallel groups are handled internally)
       for (const step of optimizedSteps) {
@@ -756,35 +761,129 @@ export class AxFlow<
    */
   public map<TNewState extends AxFlowState>(
     transform: (_state: TState) => TNewState
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  /**
+   * Applies a transformation to the state object with optional parallel execution.
+   * When parallel is enabled, the transform function should prepare data for parallel processing.
+   * The actual parallel processing happens with the array of transforms provided.
+   *
+   * @param transforms - Array of transformation functions to apply in parallel
+   * @param options - Options including parallel execution configuration
+   * @returns New AxFlow instance with updated TState type
+   *
+   * @example
+   * ```typescript
+   * // Parallel map with multiple transforms
+   * flow.map([
+   *   state => ({ ...state, result1: processA(state.data) }),
+   *   state => ({ ...state, result2: processB(state.data) }),
+   *   state => ({ ...state, result3: processC(state.data) })
+   * ], { parallel: true })
+   * ```
+   */
+  public map<TNewState extends AxFlowState>(
+    transforms: Array<(_state: TState) => TNewState>,
+    options: { parallel: true }
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  public map<TNewState extends AxFlowState>(
+    transform: (_state: TState) => TNewState,
+    options?: { parallel?: boolean }
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  public map<TNewState extends AxFlowState>(
+    transformOrTransforms: any,
+    options?: { parallel?: boolean }
   ): AxFlow<IN, OUT, TNodes, TNewState> {
-    const step = (state: AxFlowState) => {
-      return transform(state as TState);
-    };
+    // Check if parallel processing is requested
+    if (options?.parallel) {
+      // Determine if we have an array of transforms or a single transform
+      const transforms = Array.isArray(transformOrTransforms) 
+        ? transformOrTransforms 
+        : [transformOrTransforms];
 
-    if (this.branchContext?.currentBranchValue !== undefined) {
-      // We're inside a branch - add to current branch
-      const currentBranch =
-        this.branchContext.branches.get(
-          this.branchContext.currentBranchValue
-        ) || [];
-      currentBranch.push(step);
-      this.branchContext.branches.set(
-        this.branchContext.currentBranchValue,
-        currentBranch
-      );
-    } else {
-      // Normal execution - add to main flow
-      this.flowDefinition.push(step);
-
-      // Add to execution planner for automatic parallelization
-      if (this.autoParallelConfig.enabled) {
-        this.executionPlanner.addExecutionStep(
-          step,
-          undefined,
-          undefined,
-          'map',
-          transform
+      // Create a parallel map step using the existing parallel infrastructure pattern
+      const parallelMapStep = async (
+        state: AxFlowState,
+        context: Readonly<{
+          mainAi: AxAIService;
+          mainOptions?: AxProgramForwardOptions;
+        }>
+      ) => {
+        // Execute transforms with batch size control
+        const orderedResults = await processBatches(
+          transforms,
+          async (transform, index) => {
+            // Apply each transform to the state
+            return transform(state as TState);
+          },
+          this.autoParallelConfig.batchSize
         );
+
+        // For parallel map, merge results by taking the last one (most recent state)
+        // or if only one transform, return that result
+        return orderedResults[orderedResults.length - 1];
+      };
+
+      // Add the parallel step to the flow
+      if (this.branchContext?.currentBranchValue !== undefined) {
+        const currentBranch =
+          this.branchContext.branches.get(
+            this.branchContext.currentBranchValue
+          ) || [];
+        currentBranch.push(parallelMapStep);
+        this.branchContext.branches.set(
+          this.branchContext.currentBranchValue,
+          currentBranch
+        );
+      } else {
+        this.flowDefinition.push(parallelMapStep);
+
+        // Register with execution planner as parallel operation
+        if (this.autoParallelConfig.enabled) {
+          this.executionPlanner.addExecutionStep(
+            parallelMapStep,
+            undefined,
+            undefined,
+            'parallel-map',
+            transforms
+          );
+        }
+      }
+    } else {
+      // Regular synchronous map operation
+      const step = (state: AxFlowState) => {
+        // For non-parallel mode, only single transforms are supported
+        if (Array.isArray(transformOrTransforms)) {
+          throw new Error('Array of transforms requires parallel: true option');
+        }
+        return transformOrTransforms(state as TState);
+      };
+
+      if (this.branchContext?.currentBranchValue !== undefined) {
+        const currentBranch =
+          this.branchContext.branches.get(
+            this.branchContext.currentBranchValue
+          ) || [];
+        currentBranch.push(step);
+        this.branchContext.branches.set(
+          this.branchContext.currentBranchValue,
+          currentBranch
+        );
+      } else {
+        this.flowDefinition.push(step);
+
+        // Add to execution planner for automatic parallelization
+        if (this.autoParallelConfig.enabled) {
+          this.executionPlanner.addExecutionStep(
+            step,
+            undefined,
+            undefined,
+            'map',
+            transformOrTransforms
+          );
+        }
       }
     }
 
@@ -798,12 +897,22 @@ export class AxFlow<
   }
 
   /**
-   * Short alias for map()
+   * Short alias for map() - supports parallel option
    */
   public m<TNewState extends AxFlowState>(
     transform: (_state: TState) => TNewState
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  public m<TNewState extends AxFlowState>(
+    transforms: Array<(_state: TState) => TNewState>,
+    options: { parallel: true }
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  public m<TNewState extends AxFlowState>(
+    transformOrTransforms: (_state: TState) => TNewState | Array<(_state: TState) => TNewState>,
+    options?: { parallel?: boolean }
   ): AxFlow<IN, OUT, TNodes, TNewState> {
-    return this.map(transform);
+    return this.map(transformOrTransforms as any, options);
   }
 
   /**
@@ -1174,24 +1283,25 @@ export class AxFlow<
         mainOptions?: AxProgramForwardOptions;
       }>
     ) => {
-      // Execute all branches in parallel using Promise.all for maximum performance
-      const promises = branches.map(async (branchFn) => {
-        // Create a sub-context for this branch
-        // This isolates each branch's operations from the others
-        const subContext = new AxFlowSubContextImpl(this.nodeGenerators);
+      // Execute branches with batch size control
+      const results = await processBatches(
+        branches,
+        async (branchFn, index) => {
+          // Create a sub-context for this branch
+          // This isolates each branch's operations from the others
+          const subContext = new AxFlowSubContextImpl(this.nodeGenerators);
 
-        // Type assertion needed because we support both typed and untyped branch functions
-        // The runtime behavior is the same, but TypeScript needs this for type checking
-        const populatedSubContext = branchFn(
-          subContext as AxFlowSubContext & AxFlowTypedSubContext<TNodes, TState>
-        );
+          // Type assertion needed because we support both typed and untyped branch functions
+          // The runtime behavior is the same, but TypeScript needs this for type checking
+          const populatedSubContext = branchFn(
+            subContext as AxFlowSubContext & AxFlowTypedSubContext<TNodes, TState>
+          );
 
-        // Execute the sub-context steps and return the result
-        return await populatedSubContext.executeSteps(state, context);
-      });
-
-      // Wait for all parallel operations to complete
-      const results = await Promise.all(promises);
+          // Execute the sub-context steps and return the result
+          return await populatedSubContext.executeSteps(state, context);
+        },
+        this.autoParallelConfig.batchSize
+      );
 
       // Store results in a special field for the merge operation
       // This is a temporary storage that will be cleaned up by the merge
@@ -1210,7 +1320,7 @@ export class AxFlow<
         parallelStep,
         undefined,
         undefined,
-        'other',
+        'parallel',
         undefined,
         undefined
       );
