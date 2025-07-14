@@ -1,5 +1,5 @@
-import { AxFlowDependencyAnalyzer } from './dependencyAnalyzer.js';
 import { processBatches } from './batchUtil.js';
+import { AxFlowDependencyAnalyzer } from './dependencyAnalyzer.js';
 import type {
   AxFlowExecutionStep,
   AxFlowParallelGroup,
@@ -63,7 +63,8 @@ export class AxFlowExecutionPlanner {
   ): void {
     let dependencies: string[] = [];
     let produces: string[] = [];
-    let type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel' = stepType || 'map';
+    let type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel' =
+      stepType || 'map';
 
     if (nodeName && mapping) {
       type = 'execute';
@@ -84,7 +85,7 @@ export class AxFlowExecutionPlanner {
         const allFields = new Set<string>();
         for (const transform of mapTransform) {
           const fields = this.analyzeMapTransformation(transform);
-          fields.forEach(f => allFields.add(f));
+          fields.forEach((f) => allFields.add(f));
         }
         produces = Array.from(allFields);
       } else if (mapTransform) {
@@ -461,7 +462,7 @@ export class AxFlowExecutionPlanner {
         const parallelStep: AxFlowStepFunction = async (state, context) => {
           const results = await processBatches(
             group.steps,
-            async (step, index) => {
+            async (step) => {
               return await step.stepFunction(state, context);
             },
             batchSize

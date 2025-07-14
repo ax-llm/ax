@@ -17,6 +17,10 @@
         {
           "file": "../aisdk/package.json",
           "path": ["dependencies.@ax-llm/ax"]
+        },
+        {
+          "file": "../tools/package.json",
+          "path": ["dependencies.@ax-llm/ax"]
         }
       ]
     }

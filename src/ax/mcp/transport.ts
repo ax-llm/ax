@@ -1,7 +1,7 @@
 import type {
-  JSONRPCNotification,
-  JSONRPCRequest,
-  JSONRPCResponse,
+  AxMCPJSONRPCNotification,
+  AxMCPJSONRPCRequest,
+  AxMCPJSONRPCResponse,
 } from './types.js';
 
 export interface AxMCPTransport {
@@ -11,14 +11,14 @@ export interface AxMCPTransport {
    * @returns A Promise that resolves to the JSON-RPC response
    */
   send(
-    message: Readonly<JSONRPCRequest<unknown>>
-  ): Promise<JSONRPCResponse<unknown>>;
+    message: Readonly<AxMCPJSONRPCRequest<unknown>>
+  ): Promise<AxMCPJSONRPCResponse<unknown>>;
 
   /**
    * Sends a JSON-RPC notification
    * @param message The JSON-RPC notification to send
    */
-  sendNotification(message: Readonly<JSONRPCNotification>): Promise<void>;
+  sendNotification(message: Readonly<AxMCPJSONRPCNotification>): Promise<void>;
 
   /**
    * Connects to the transport if needed

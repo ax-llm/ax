@@ -7,11 +7,11 @@ import { randomUUID } from '../util/crypto.js';
 
 import type { AxMCPTransport } from './transport.js';
 import type {
-  JSONRPCNotification,
-  JSONRPCRequest,
-  MCPInitializeParams,
-  MCPInitializeResult,
-  MCPToolsListResult,
+  AxMCPInitializeParams,
+  AxMCPInitializeResult,
+  AxMCPJSONRPCNotification,
+  AxMCPJSONRPCRequest,
+  AxMCPToolsListResult,
 } from './types.js';
 
 /**
@@ -90,8 +90,8 @@ export class AxMCPClient {
     }
 
     const { result: res } = await this.sendRequest<
-      MCPInitializeParams,
-      MCPInitializeResult
+      AxMCPInitializeParams,
+      AxMCPInitializeResult
     >('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {
@@ -135,7 +135,7 @@ export class AxMCPClient {
 
     const { result: res } = await this.sendRequest<
       undefined,
-      MCPToolsListResult
+      AxMCPToolsListResult
     >('tools/list');
 
     this.functions = res.tools.map((fn): AxFunction => {
@@ -213,7 +213,7 @@ export class AxMCPClient {
     params: T = {} as T
   ): Promise<{ id: string; result: R }> {
     const requestId = randomUUID();
-    const request: JSONRPCRequest<T> = {
+    const request: AxMCPJSONRPCRequest<T> = {
       jsonrpc: '2.0',
       id: requestId,
       method,
@@ -259,7 +259,7 @@ export class AxMCPClient {
     method: string,
     params: Record<string, unknown> = {}
   ): Promise<void> {
-    const notification: JSONRPCNotification = {
+    const notification: AxMCPJSONRPCNotification = {
       jsonrpc: '2.0',
       method,
       params,

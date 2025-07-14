@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AxMCPClient } from './client.js';
 import type { AxMCPTransport } from './transport.js';
 import type {
-  JSONRPCResponse,
-  JSONRPCSuccessResponse,
-  MCPFunctionDescription,
+  AxMCPFunctionDescription,
+  AxMCPJSONRPCResponse,
+  AxMCPJSONRPCSuccessResponse,
 } from './types.js';
 
 // Mock the transport
@@ -19,10 +19,10 @@ const createMockTransport = () => {
 
 // Fake transport for testing
 class FakeTransport {
-  sendResponses: Record<string, JSONRPCResponse<unknown>> = {};
+  sendResponses: Record<string, AxMCPJSONRPCResponse<unknown>> = {};
   send = (
     request: Readonly<{ method: string; [key: string]: unknown }>
-  ): Promise<JSONRPCResponse<unknown>> => {
+  ): Promise<AxMCPJSONRPCResponse<unknown>> => {
     const response = this.sendResponses[request.method];
     if (response) {
       return Promise.resolve(response);
@@ -70,7 +70,7 @@ describe('AxMCPClient', () => {
       }
 
       if (request.method === 'tools/list') {
-        const tools: MCPFunctionDescription[] = [
+        const tools: AxMCPFunctionDescription[] = [
           {
             name: 'function1',
             description: 'Description for function 1',
@@ -320,7 +320,7 @@ describe('AxMCPClient', () => {
             code: 123,
             message: 'Test error',
           },
-        } as JSONRPCResponse;
+        } as AxMCPJSONRPCResponse;
       });
 
       const client = new AxMCPClient(mockTransport);
@@ -336,7 +336,7 @@ describe('AxMCPClient', () => {
           jsonrpc: '2.0',
           id: 1,
           // No result or error property
-        } as JSONRPCResponse;
+        } as AxMCPJSONRPCResponse;
       });
 
       const client = new AxMCPClient(mockTransport);
@@ -387,7 +387,7 @@ describe('AxMCPClient', () => {
 
     it('cancelRequest cancels an active pending request', async () => {
       // Override transport.send to return a pending promise
-      const pendingPromise = new Promise<JSONRPCSuccessResponse<unknown>>(
+      const pendingPromise = new Promise<AxMCPJSONRPCSuccessResponse<unknown>>(
         () => {
           // This promise intentionally never resolves
         }

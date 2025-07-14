@@ -1,19 +1,19 @@
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 
-export interface JSONRPCRequest<T> {
+export interface AxMCPJSONRPCRequest<T> {
   jsonrpc: '2.0';
   id: string | number;
   method: string;
   params?: T;
 }
 
-export interface JSONRPCSuccessResponse<T = unknown> {
+export interface AxMCPJSONRPCSuccessResponse<T = unknown> {
   jsonrpc: '2.0';
   id: string | number;
   result: T;
 }
 
-export interface JSONRPCErrorResponse {
+export interface AxMCPJSONRPCErrorResponse {
   jsonrpc: '2.0';
   id: string | number;
   error: {
@@ -23,11 +23,11 @@ export interface JSONRPCErrorResponse {
   };
 }
 
-export type JSONRPCResponse<T = unknown> =
-  | JSONRPCSuccessResponse<T>
-  | JSONRPCErrorResponse;
+export type AxMCPJSONRPCResponse<T = unknown> =
+  | AxMCPJSONRPCSuccessResponse<T>
+  | AxMCPJSONRPCErrorResponse;
 
-export interface MCPInitializeParams {
+export interface AxMCPInitializeParams {
   protocolVersion: string;
   capabilities: Record<string, unknown>;
   clientInfo: {
@@ -36,7 +36,7 @@ export interface MCPInitializeParams {
   };
 }
 
-export interface MCPInitializeResult {
+export interface AxMCPInitializeResult {
   protocolVersion: string;
   capabilities: {
     tools?: unknown[];
@@ -49,19 +49,19 @@ export interface MCPInitializeResult {
   };
 }
 
-export interface MCPFunctionDescription {
+export interface AxMCPFunctionDescription {
   name: string;
   description: string;
   inputSchema: AxFunctionJSONSchema;
 }
 
-export interface MCPToolsListResult {
+export interface AxMCPToolsListResult {
   name: string;
   description: string;
-  tools: MCPFunctionDescription[];
+  tools: AxMCPFunctionDescription[];
 }
 
-export interface JSONRPCNotification {
+export interface AxMCPJSONRPCNotification {
   jsonrpc: '2.0';
   method: string;
   params?: Record<string, unknown>;

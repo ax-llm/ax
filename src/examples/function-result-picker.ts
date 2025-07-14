@@ -14,7 +14,6 @@ const mathSolverGen = ax`
 
 // Create multiple JS interpreter instances for different approaches
 const jsInterpreter1 = new AxJSInterpreter();
-const jsInterpreter2 = new AxJSInterpreter();
 
 // Result picker that evaluates function execution results
 const functionResultPicker = async (
@@ -101,7 +100,7 @@ const result1 = await mathSolverGen.forward(
   },
   {
     sampleCount: 2,
-    functions: [jsInterpreter1.toFunction(), jsInterpreter2.toFunction()],
+    functions: [jsInterpreter1],
     resultPicker: functionResultPicker,
   }
 );
@@ -121,7 +120,7 @@ const result2 = await mathSolverGen.forward(
   },
   {
     sampleCount: 2,
-    functions: [jsInterpreter1.toFunction(), jsInterpreter2.toFunction()],
+    functions: [jsInterpreter1],
     resultPicker: functionResultPicker,
   }
 );
@@ -141,7 +140,7 @@ const result3 = await mathSolverGen.forward(
   },
   {
     sampleCount: 3,
-    functions: [jsInterpreter1.toFunction(), jsInterpreter2.toFunction()],
+    functions: [jsInterpreter1],
     resultPicker: functionResultPicker,
   }
 );
@@ -161,7 +160,7 @@ const result4 = await mathSolverGen.forward(
   },
   {
     sampleCount: 2,
-    functions: [jsInterpreter1.toFunction(), jsInterpreter2.toFunction()],
+    functions: [jsInterpreter1],
     resultPicker: functionResultPicker,
   }
 );

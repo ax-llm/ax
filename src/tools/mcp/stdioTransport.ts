@@ -1,10 +1,11 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import readline from 'node:readline';
+
 import type {
+  AxMCPJSONRPCNotification,
+  AxMCPJSONRPCRequest,
+  AxMCPJSONRPCResponse,
   AxMCPTransport,
-  JSONRPCRequest,
-  JSONRPCResponse,
-  JSONRPCNotification,
 } from '@ax-llm/ax';
 
 export interface StdioTransportConfig {
@@ -18,7 +19,7 @@ export class AxMCPStdioTransport implements AxMCPTransport {
   private rl: readline.Interface;
   private pendingResponses = new Map<
     string | number,
-    (res: JSONRPCResponse) => void
+    (res: AxMCPJSONRPCResponse) => void
   >();
 
   constructor(config: Readonly<StdioTransportConfig>) {
@@ -28,7 +29,7 @@ export class AxMCPStdioTransport implements AxMCPTransport {
     this.rl = readline.createInterface({ input: this.process.stdout });
     this.rl.on('line', (line) => {
       try {
-        const response: JSONRPCResponse = JSON.parse(line);
+        const response: AxMCPJSONRPCResponse = JSON.parse(line);
         const resolver = this.pendingResponses.get(response.id);
         if (resolver) {
           resolver(response);
@@ -42,18 +43,18 @@ export class AxMCPStdioTransport implements AxMCPTransport {
   }
 
   async send(
-    message: Readonly<JSONRPCRequest<unknown>>
-  ): Promise<JSONRPCResponse<unknown>> {
-    return new Promise<JSONRPCResponse<unknown>>((resolve) => {
-      this.pendingResponses.set(message.id, (res: JSONRPCResponse) => {
-        resolve(res as JSONRPCResponse<unknown>);
+    message: Readonly<AxMCPJSONRPCRequest<unknown>>
+  ): Promise<AxMCPJSONRPCResponse<unknown>> {
+    return new Promise<AxMCPJSONRPCResponse<unknown>>((resolve) => {
+      this.pendingResponses.set(message.id, (res: AxMCPJSONRPCResponse) => {
+        resolve(res as AxMCPJSONRPCResponse<unknown>);
       });
       this.process.stdin.write(`${JSON.stringify(message)}\n`);
     });
   }
 
   async sendNotification(
-    message: Readonly<JSONRPCNotification>
+    message: Readonly<AxMCPJSONRPCNotification>
   ): Promise<void> {
     this.process.stdin.write(`${JSON.stringify(message)}\n`);
   }

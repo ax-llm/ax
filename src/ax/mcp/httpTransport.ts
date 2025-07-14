@@ -1,8 +1,8 @@
 import type { AxMCPTransport } from './transport.js';
 import type {
-  JSONRPCNotification,
-  JSONRPCRequest,
-  JSONRPCResponse,
+  AxMCPJSONRPCNotification,
+  AxMCPJSONRPCRequest,
+  AxMCPJSONRPCResponse,
 } from './types.js';
 
 export class AxMCPHTTPSSETransport implements AxMCPTransport {
@@ -39,8 +39,8 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
   }
 
   async send(
-    message: JSONRPCRequest<unknown> | JSONRPCNotification
-  ): Promise<JSONRPCResponse<unknown>> {
+    message: AxMCPJSONRPCRequest<unknown> | AxMCPJSONRPCNotification
+  ): Promise<AxMCPJSONRPCResponse<unknown>> {
     if (!this.endpoint) {
       throw new Error(
         'HTTPTransport endpoint is not initialized. Call connect() first.'
@@ -57,11 +57,11 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
       throw new Error(`HTTP error ${res.status}: ${res.statusText}`);
     }
 
-    return res.json() as Promise<JSONRPCResponse<unknown>>;
+    return res.json() as Promise<AxMCPJSONRPCResponse<unknown>>;
   }
 
   async sendNotification(
-    message: Readonly<JSONRPCNotification>
+    message: Readonly<AxMCPJSONRPCNotification>
   ): Promise<void> {
     if (!this.endpoint) {
       throw new Error(
@@ -101,12 +101,12 @@ export class AxMCPStreambleHTTPTransport implements AxMCPTransport {
   private pendingRequests = new Map<
     string | number,
     {
-      resolve: (value: JSONRPCResponse<unknown>) => void;
+      resolve: (value: AxMCPJSONRPCResponse<unknown>) => void;
       reject: (reason: unknown) => void;
     }
   >();
   private messageHandler?: (
-    message: JSONRPCRequest<unknown> | JSONRPCNotification
+    message: AxMCPJSONRPCRequest<unknown> | AxMCPJSONRPCNotification
   ) => void;
   private customHeaders: Record<string, string>;
 
@@ -163,7 +163,9 @@ export class AxMCPStreambleHTTPTransport implements AxMCPTransport {
    * Set a handler for incoming server messages (requests/notifications)
    */
   setMessageHandler(
-    handler: (message: JSONRPCRequest<unknown> | JSONRPCNotification) => void
+    handler: (
+      message: AxMCPJSONRPCRequest<unknown> | AxMCPJSONRPCNotification
+    ) => void
   ): void {
     this.messageHandler = handler;
   }
@@ -285,8 +287,8 @@ export class AxMCPStreambleHTTPTransport implements AxMCPTransport {
   }
 
   async send(
-    message: Readonly<JSONRPCRequest<unknown>>
-  ): Promise<JSONRPCResponse<unknown>> {
+    message: Readonly<AxMCPJSONRPCRequest<unknown>>
+  ): Promise<AxMCPJSONRPCResponse<unknown>> {
     const headers = this.buildHeaders({
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
@@ -321,7 +323,7 @@ export class AxMCPStreambleHTTPTransport implements AxMCPTransport {
     }
     if (contentType?.includes('application/json')) {
       // Handle JSON response
-      return response.json() as Promise<JSONRPCResponse<unknown>>;
+      return response.json() as Promise<AxMCPJSONRPCResponse<unknown>>;
     }
     throw new Error(`Unexpected content type: ${contentType}`);
   }
@@ -329,7 +331,7 @@ export class AxMCPStreambleHTTPTransport implements AxMCPTransport {
   private async handleSSEResponse(
     response: Response,
     requestId: string | number
-  ): Promise<JSONRPCResponse<unknown>> {
+  ): Promise<AxMCPJSONRPCResponse<unknown>> {
     return new Promise((resolve, reject) => {
       const reader = response.body?.getReader();
       if (!reader) {
@@ -365,7 +367,7 @@ export class AxMCPStreambleHTTPTransport implements AxMCPTransport {
 
                 // Check if this is the response to our request
                 if ('id' in message && message.id === requestId) {
-                  resolve(message as JSONRPCResponse<unknown>);
+                  resolve(message as AxMCPJSONRPCResponse<unknown>);
                   return;
                 }
 
@@ -392,7 +394,7 @@ export class AxMCPStreambleHTTPTransport implements AxMCPTransport {
   }
 
   async sendNotification(
-    message: Readonly<JSONRPCNotification>
+    message: Readonly<AxMCPJSONRPCNotification>
   ): Promise<void> {
     const headers = this.buildHeaders({
       'Content-Type': 'application/json',

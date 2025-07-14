@@ -127,3 +127,4 @@ SPII
 Forwardable
 Flowable
 every time
+MCPJSONRPC

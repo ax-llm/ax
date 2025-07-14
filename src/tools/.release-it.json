@@ -12,11 +12,7 @@
         },
         {
           "file": "../examples/package.json",
-          "path": ["dependencies.@ax-llm/ax"]
-        },
-        {
-          "file": "../aisdk/package.json",
-          "path": ["dependencies.@ax-llm/ax"]
+          "path": ["dependencies.@ax-llm/ax-tools"]
         }
       ]
     }

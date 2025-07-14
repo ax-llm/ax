@@ -92,9 +92,17 @@ describe('AxFlowExecutionPlanner', () => {
     });
 
     it('should add parallel steps with default handling', () => {
-      const parallelFunction = async (state: any) => ({ ...state, _parallelResults: [] });
+      const parallelFunction = async (state: any) => ({
+        ...state,
+        _parallelResults: [],
+      });
 
-      planner.addExecutionStep(parallelFunction, undefined, undefined, 'parallel');
+      planner.addExecutionStep(
+        parallelFunction,
+        undefined,
+        undefined,
+        'parallel'
+      );
 
       const plan = planner.getExecutionPlan();
       expect(plan.steps).toHaveLength(1);

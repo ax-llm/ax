@@ -17,9 +17,9 @@ import type {
   AxProgramUsage,
   AxSetExamplesOptions,
 } from '../dsp/types.js';
+import { processBatches } from './batchUtil.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
 import { AxFlowSubContextImpl } from './subContext.js';
-import { processBatches } from './batchUtil.js';
 import type {
   AddNodeResult,
   AxFlowAutoParallelConfig,
@@ -799,22 +799,16 @@ export class AxFlow<
     // Check if parallel processing is requested
     if (options?.parallel) {
       // Determine if we have an array of transforms or a single transform
-      const transforms = Array.isArray(transformOrTransforms) 
-        ? transformOrTransforms 
+      const transforms = Array.isArray(transformOrTransforms)
+        ? transformOrTransforms
         : [transformOrTransforms];
 
       // Create a parallel map step using the existing parallel infrastructure pattern
-      const parallelMapStep = async (
-        state: AxFlowState,
-        context: Readonly<{
-          mainAi: AxAIService;
-          mainOptions?: AxProgramForwardOptions;
-        }>
-      ) => {
+      const parallelMapStep = async (state: AxFlowState) => {
         // Execute transforms with batch size control
         const orderedResults = await processBatches(
           transforms,
-          async (transform, index) => {
+          async (transform, _index) => {
             // Apply each transform to the state
             return transform(state as TState);
           },
@@ -846,8 +840,7 @@ export class AxFlow<
             parallelMapStep,
             undefined,
             undefined,
-            'parallel-map',
-            transforms
+            'parallel-map'
           );
         }
       }
@@ -909,7 +902,9 @@ export class AxFlow<
   ): AxFlow<IN, OUT, TNodes, TNewState>;
 
   public m<TNewState extends AxFlowState>(
-    transformOrTransforms: (_state: TState) => TNewState | Array<(_state: TState) => TNewState>,
+    transformOrTransforms:
+      | ((_state: TState) => TNewState)
+      | Array<(_state: TState) => TNewState>,
     options?: { parallel?: boolean }
   ): AxFlow<IN, OUT, TNodes, TNewState> {
     return this.map(transformOrTransforms as any, options);
@@ -1286,7 +1281,7 @@ export class AxFlow<
       // Execute branches with batch size control
       const results = await processBatches(
         branches,
-        async (branchFn, index) => {
+        async (branchFn, _index) => {
           // Create a sub-context for this branch
           // This isolates each branch's operations from the others
           const subContext = new AxFlowSubContextImpl(this.nodeGenerators);
@@ -1294,7 +1289,8 @@ export class AxFlow<
           // Type assertion needed because we support both typed and untyped branch functions
           // The runtime behavior is the same, but TypeScript needs this for type checking
           const populatedSubContext = branchFn(
-            subContext as AxFlowSubContext & AxFlowTypedSubContext<TNodes, TState>
+            subContext as AxFlowSubContext &
+              AxFlowTypedSubContext<TNodes, TState>
           );
 
           // Execute the sub-context steps and return the result

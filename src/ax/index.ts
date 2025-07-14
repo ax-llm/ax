@@ -550,9 +550,15 @@ import {
 } from './mcp/httpTransport.js';
 import type { AxMCPTransport } from './mcp/transport.js';
 import type {
-  JSONRPCNotification,
-  JSONRPCRequest,
-  JSONRPCResponse,
+  AxMCPFunctionDescription,
+  AxMCPInitializeParams,
+  AxMCPInitializeResult,
+  AxMCPJSONRPCErrorResponse,
+  AxMCPJSONRPCNotification,
+  AxMCPJSONRPCRequest,
+  AxMCPJSONRPCResponse,
+  AxMCPJSONRPCSuccessResponse,
+  AxMCPToolsListResult,
 } from './mcp/types.js';
 import { AxMemory } from './mem/memory.js';
 import type { AxAIMemory, AxMemoryData } from './mem/types.js';
@@ -1016,7 +1022,16 @@ export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
 export type { AxLoggerData };
 export type { AxLoggerFunction };
+export type { AxMCPFunctionDescription };
+export type { AxMCPInitializeParams };
+export type { AxMCPInitializeResult };
+export type { AxMCPJSONRPCErrorResponse };
+export type { AxMCPJSONRPCNotification };
+export type { AxMCPJSONRPCRequest };
+export type { AxMCPJSONRPCResponse };
+export type { AxMCPJSONRPCSuccessResponse };
 export type { AxMCPStreamableHTTPTransportOptions };
+export type { AxMCPToolsListResult };
 export type { AxMCPTransport };
 export type { AxMemoryData };
 export type { AxMessage };
@@ -1073,6 +1088,3 @@ export type { AxStreamingFieldProcessorProcess };
 export type { AxTokenUsage };
 export type { AxTunable };
 export type { AxUsable };
-export type { JSONRPCNotification };
-export type { JSONRPCRequest };
-export type { JSONRPCResponse };
