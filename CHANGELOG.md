@@ -1,5 +1,24 @@
 # Changelog
 
+## [13.0.8](https://github.com/ax-llm/ax/compare/13.0.6...13.0.7) (2025-07-14)
+
+### Features
+
+* ax-tools to restore Node.js-specific functionality (AxJSInterpreter & AxMCPStdioTransport) ([#271](https://github.com/ax-llm/ax/issues/271)) ([d1deab2](https://github.com/ax-llm/ax/commit/d1deab2a37b8d7c31f60e8ee616b7b0d473dc31c))
+* introduce parallel map with batch size control for optimized resource management ([8ffda71](https://github.com/ax-llm/ax/commit/8ffda71093fd610a5d5ff9963d93f58e66878f13))
+
+### Bug Fixes
+
+* only count last modelUsage chunk for streaming models ([#270](https://github.com/ax-llm/ax/issues/270)) ([e742bbd](https://github.com/ax-llm/ax/commit/e742bbd95014ebe3d3c2ff8c846e4a7c6eb8be61))
+* tsup config bug ([#276](https://github.com/ax-llm/ax/issues/276)) ([a6af394](https://github.com/ax-llm/ax/commit/a6af394e52f3be9be4b3eefd763df31f4156b394))
+## [13.0.7](https://github.com/ax-llm/ax/compare/13.0.6...13.0.7) (2025-07-14)
+
+### Features
+
+* add comprehensive tests for AxFlowDependencyAnalyzer and AxFlowExecutionPlanner ([db090b2](https://github.com/ax-llm/ax/commit/db090b28ff39b12c2a5bec7f434d90c3289798f4))
+* add refusal error handling and logging capabilities ([0a000ac](https://github.com/ax-llm/ax/commit/0a000ac26470910c976765c0aa56868065b153ea))
+* introduce AxForwardable interface and enhance AxFlow execution capabilities ([c694c91](https://github.com/ax-llm/ax/commit/c694c910ed44f6162556d2f9f2b719b2a65635eb))
+
 ## [13.0.7](https://github.com/ax-llm/ax/compare/13.0.5...13.0.6) (2025-07-14)
 
 ### Features
