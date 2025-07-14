@@ -44,31 +44,130 @@ export class AxFlowDependencyAnalyzer {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _nodeName: string
   ): string[] {
-    const dependencies: string[] = [];
-
-    // Method 1: Static analysis of function source
-    // This approach parses the function's source code to find property access patterns
-    // It's fast and works for most common cases like state.fieldName
-    const source = mapping.toString();
-    const stateAccessMatches = Array.from(source.matchAll(/state\.(\w+)/g));
-    for (const match of stateAccessMatches) {
-      if (match[1] && !dependencies.includes(match[1])) {
-        dependencies.push(match[1]);
-      }
+    // Handle null/undefined mapping functions
+    if (!mapping || typeof mapping !== 'function') {
+      return [];
     }
 
-    // Method 2: Proxy-based tracking (fallback for complex cases)
-    // This approach actually calls the mapping function with a proxy object
-    // that tracks all property access, catching cases that static analysis might miss
-    // Examples: destructuring, computed properties, nested access patterns
-    if (dependencies.length === 0) {
-      try {
-        const tracker = this.createDependencyTracker(dependencies);
-        mapping(tracker);
-      } catch {
-        // Expected - we're just tracking access patterns, not executing the logic
-        // The function may throw errors when called with our proxy, but that's OK
+    const dependencies: string[] = [];
+
+    try {
+      // Method 1: Static analysis of function source
+      // This approach parses the function's source code to find property access patterns
+      // It's fast and works for most common cases like state.fieldName
+      const source = mapping.toString();
+      const stateAccessMatches = Array.from(source.matchAll(/state\.(\w+)/g));
+      for (const match of stateAccessMatches) {
+        if (match[1] && !dependencies.includes(match[1])) {
+          dependencies.push(match[1]);
+        }
       }
+
+      // Method 2: Proxy-based tracking (fallback for complex cases)
+      // This approach actually calls the mapping function with a proxy object
+      // that tracks all property access, catching cases that static analysis might miss
+      // Examples: destructuring, computed properties, nested access patterns
+      if (dependencies.length === 0) {
+        try {
+          const tracker = this.createDependencyTracker(dependencies);
+          mapping(tracker);
+        } catch {
+          // Expected - we're just tracking access patterns, not executing the logic
+          // The function may throw errors when called with our proxy, but that's OK
+        }
+      }
+    } catch (error) {
+      // If any error occurs during analysis, return empty dependencies
+      console.debug('Dependency analysis failed:', error);
+    }
+
+    return dependencies;
+  }
+
+  /**
+   * Creates a tracking proxy for dependency analysis.
+   *
+   * This is a public method that creates a proxy to track property access patterns.
+   * It's used for testing and advanced dependency analysis scenarios.
+   *
+   * @param target - The target object to wrap with a proxy
+   * @param accessed - Array to collect accessed property names
+   * @returns Proxy object that tracks property access
+   */
+  createTrackingProxy(target: any, accessed: string[]): any {
+    const self = this;
+    return new Proxy(target, {
+      get(obj, prop) {
+        if (typeof prop === 'string' && !accessed.includes(prop)) {
+          accessed.push(prop);
+        }
+
+        const value = obj[prop];
+
+        // Return nested proxies for objects to track deeper access
+        if (value && typeof value === 'object') {
+          return self.createTrackingProxy(value, accessed);
+        }
+
+        return value;
+      },
+
+      has(obj, prop) {
+        if (typeof prop === 'string' && !accessed.includes(prop)) {
+          accessed.push(prop);
+        }
+        return prop in obj;
+      },
+    });
+  }
+
+  /**
+   * Parses function source code to extract state dependencies using static analysis.
+   *
+   * This method analyzes the source code of a function to find patterns like
+   * `state.fieldName` and extracts the field names as dependencies.
+   *
+   * @param functionSource - The source code of the function to analyze
+   * @returns Array of field names found in the source code
+   */
+  parseStaticDependencies(functionSource: string): string[] {
+    const dependencies: string[] = [];
+
+    try {
+      // Match state.fieldName patterns
+      const stateAccessMatches = Array.from(
+        functionSource.matchAll(/state\.(\w+)/g)
+      );
+      for (const match of stateAccessMatches) {
+        if (match[1] && !dependencies.includes(match[1])) {
+          dependencies.push(match[1]);
+        }
+      }
+
+      // Match template literal patterns ${state.fieldName}
+      const templateMatches = Array.from(
+        functionSource.matchAll(/\$\{state\.(\w+)\}/g)
+      );
+      for (const match of templateMatches) {
+        if (match[1] && !dependencies.includes(match[1])) {
+          dependencies.push(match[1]);
+        }
+      }
+
+      // Match destructuring patterns
+      const destructureMatches = Array.from(
+        functionSource.matchAll(/\{\s*(\w+)(?:\s*,\s*(\w+))*\s*\}\s*=\s*state/g)
+      );
+      for (const match of destructureMatches) {
+        for (let i = 1; i < match.length; i++) {
+          if (match[i] && !dependencies.includes(match[i])) {
+            dependencies.push(match[i]);
+          }
+        }
+      }
+    } catch (error) {
+      // If parsing fails, return empty array
+      console.debug('Static dependency parsing failed:', error);
     }
 
     return dependencies;

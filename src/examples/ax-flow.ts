@@ -162,9 +162,7 @@ const flowWhile = new AxFlow<
 const flowRAG = new AxFlow<
   { researchQuestion: string },
   { finalAnswer: string }
->({
-  autoParallel: true,
-})
+>()
   .node('queryGenerator', 'researchQuestion:string -> searchQuery:string')
   .node('retriever', 'searchQuery:string -> retrievedDocument:string')
   .node(

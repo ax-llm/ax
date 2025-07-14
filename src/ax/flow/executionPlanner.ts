@@ -85,12 +85,23 @@ export class AxFlowExecutionPlanner {
         const branchFields = this.analyzeBranchMergeFields();
         produces = branchFields.length > 0 ? branchFields : ['_mergedResult'];
       }
-      dependencies = this.getAllProducedFields();
+
+      // Check if this is a parallel merge step by looking at the function code
+      const funcCode = stepFunction.toString();
+      if (funcCode.includes('_parallelResults')) {
+        dependencies = ['_parallelResults'];
+      } else {
+        dependencies = this.getAllProducedFields();
+      }
     } else if (stepFunction.toString().includes('transform(')) {
       type = 'map';
       // Fallback: Map steps are harder to analyze statically, assume they depend on all previous steps
       dependencies = this.getAllProducedFields();
       produces = ['_mapResult'];
+    } else if (stepFunction.toString().includes('_parallelResults')) {
+      // This is likely a parallel step that produces _parallelResults
+      produces = ['_parallelResults'];
+      dependencies = this.getAllProducedFields();
     }
 
     const step: AxFlowExecutionStep = {
@@ -318,8 +329,21 @@ export class AxFlowExecutionPlanner {
           step.dependencies.every((dep) => availableFields.has(dep));
 
         if (canRun) {
+          // Special handling for merge steps - they should run in their own group
+          // to ensure they see the results from the previous parallel step
+          if (step.type === 'merge' && currentLevelSteps.length > 0) {
+            // Don't add merge step to current level if there are already steps
+            // It will be picked up in the next iteration
+            continue;
+          }
+
           currentLevelSteps.push(step);
           processedSteps.add(step.stepIndex);
+
+          // If this is a merge step, don't add any more steps to this level
+          if (step.type === 'merge') {
+            break;
+          }
         }
       }
 
@@ -335,12 +359,29 @@ export class AxFlowExecutionPlanner {
         });
         currentLevel++;
       } else {
-        // No progress made - this indicates a circular dependency or bug
-        // Break to avoid infinite loop
-        console.warn(
-          'No progress made in parallel group building - possible circular dependency'
+        // No progress made - try to add steps that haven't been processed yet
+        // This handles cases where dependencies might not be perfectly resolved
+        const remainingSteps = this.steps.filter(
+          (step) => !processedSteps.has(step.stepIndex)
         );
-        break;
+
+        if (remainingSteps.length > 0) {
+          // Add the first remaining step to make progress
+          const nextStep = remainingSteps[0];
+          processedSteps.add(nextStep.stepIndex);
+
+          // Add produced fields to available fields
+          nextStep.produces.forEach((field) => availableFields.add(field));
+
+          this.parallelGroups.push({
+            level: currentLevel,
+            steps: [nextStep],
+          });
+          currentLevel++;
+        } else {
+          // No remaining steps, we're done
+          break;
+        }
       }
     }
   }
@@ -399,7 +440,26 @@ export class AxFlowExecutionPlanner {
 
           const results = await Promise.all(promises);
 
-          // Merge all results
+          // Check if any step produces _parallelResults (indicates this is a parallel flow)
+          const hasParallelResults = results.some(
+            (result) =>
+              result &&
+              typeof result === 'object' &&
+              '_parallelResults' in result
+          );
+
+          if (hasParallelResults) {
+            // Find the step that produced _parallelResults and return it directly
+            const parallelResult = results.find(
+              (result) =>
+                result &&
+                typeof result === 'object' &&
+                '_parallelResults' in result
+            );
+            return parallelResult || state;
+          }
+
+          // Merge all results for regular parallel execution
           let mergedState = state;
           for (const result of results) {
             mergedState = { ...mergedState, ...result };
@@ -413,6 +473,23 @@ export class AxFlowExecutionPlanner {
     }
 
     return optimizedSteps;
+  }
+
+  /**
+   * Gets optimized execution steps for the flow.
+   *
+   * This method provides the optimized execution steps that can be used
+   * to execute the flow with maximum parallelism while maintaining
+   * dependency order.
+   *
+   * @returns Array of optimized step functions ready for execution
+   */
+  getOptimizedExecutionSteps(): AxFlowStepFunction[] {
+    // If parallel groups haven't been built yet, build them with empty initial fields
+    if (this.parallelGroups.length === 0 && this.steps.length > 0) {
+      this.rebuildParallelGroups();
+    }
+    return this.createOptimizedExecution();
   }
 
   /**
@@ -435,13 +512,18 @@ export class AxFlowExecutionPlanner {
     steps: AxFlowExecutionStep[];
     groups: AxFlowParallelGroup[];
   } {
+    // If parallel groups haven't been built yet, build them with empty initial fields
+    if (this.parallelGroups.length === 0 && this.steps.length > 0) {
+      this.rebuildParallelGroups();
+    }
+
     return {
       totalSteps: this.steps.length,
       parallelGroups: this.parallelGroups.length,
-      maxParallelism: Math.max(
-        ...this.parallelGroups.map((g) => g.steps.length),
-        0
-      ),
+      maxParallelism:
+        this.steps.length === 0
+          ? 1
+          : Math.max(...this.parallelGroups.map((g) => g.steps.length), 0),
       steps: this.steps,
       groups: this.parallelGroups,
     };
