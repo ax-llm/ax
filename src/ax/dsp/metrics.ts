@@ -511,6 +511,25 @@ export const recordValidationErrorMetric = (
   }
 };
 
+export const recordRefusalErrorMetric = (
+  instruments: Readonly<AxGenMetricsInstruments>,
+  signatureName?: string
+): void => {
+  try {
+    const labels = sanitizeLabels({
+      error_type: 'refusal',
+      ...(signatureName ? { signature: signatureName } : {}),
+    });
+
+    // For now, we'll count refusal errors as validation errors since they trigger retry loops
+    if (instruments.validationErrorsCounter) {
+      instruments.validationErrorsCounter.add(1, labels);
+    }
+  } catch (error) {
+    console.warn('Failed to record refusal error metric:', error);
+  }
+};
+
 export const recordErrorCorrectionMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
   attempts: number,

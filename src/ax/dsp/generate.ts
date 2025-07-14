@@ -10,11 +10,7 @@ import {
 } from '@opentelemetry/api';
 
 import { validateAxMessageArray } from '../ai/base.js';
-import {
-  logAssertionError,
-  logResultPickerUsed,
-  logValidationError,
-} from '../ai/debug.js';
+import { logResultPickerUsed } from '../ai/debug.js';
 import type {
   AxAIService,
   AxChatRequest,
@@ -23,14 +19,23 @@ import type {
 } from '../ai/types.js';
 import { AxMemory } from '../mem/memory.js';
 import type { AxAIMemory } from '../mem/types.js';
-import { AxAIServiceStreamTerminatedError } from '../util/apicall.js';
+import {
+  AxAIRefusalError,
+  AxAIServiceStreamTerminatedError,
+} from '../util/apicall.js';
 
 import {
   type AxAssertion,
   AxAssertionError,
   type AxStreamingAssertion,
 } from './asserts.js';
-import { ValidationError } from './errors.js';
+import {
+  type HandleErrorForGenerateArgs,
+  handleAssertionErrorForGenerate,
+  handleRefusalErrorForGenerate,
+  handleValidationErrorForGenerate,
+  ValidationError,
+} from './errors.js';
 import type { extractionState } from './extract.js';
 import type { AxFieldProcessor } from './fieldProcessor.js';
 import {
@@ -50,7 +55,6 @@ import {
   recordSamplesMetric,
   recordSignatureComplexityMetrics,
   recordStreamingMetric,
-  recordValidationErrorMetric,
 } from './metrics.js';
 import {
   processResponse,
@@ -78,7 +82,6 @@ import type {
   AxSetExamplesOptions,
 } from './types.js';
 import { mergeDeltas } from './util.js';
-import { handleValidationError } from './validate.js';
 
 export type AxGenerateResult<OUT extends AxGenOutType> = OUT & {
   thought?: string;
@@ -581,72 +584,37 @@ export class AxGen<
           return;
         } catch (e) {
           let errorFields: AxIField[] | undefined;
+          const debug = this.isDebug(ai, options);
+          const logger = this.getLogger(ai, options);
+          const metricsInstruments = this.getMetricsInstruments();
+          const signatureName = this.getSignatureName();
+
+          const args: HandleErrorForGenerateArgs<Error> = {
+            error: e as Error,
+            errCount,
+            logger,
+            metricsInstruments,
+            signatureName,
+            span,
+            debug,
+          };
 
           span?.recordException(e as Error);
 
           if (e instanceof ValidationError) {
-            errorFields = e.getFixingInstructions();
+            errorFields = handleValidationErrorForGenerate(
+              args as HandleErrorForGenerateArgs<ValidationError>
+            );
             err = e;
-
-            // Log validation error with proper structured logging
-            const debug = this.isDebug(ai, options);
-            if (debug) {
-              const logger = this.getLogger(ai, options);
-              const fixingInstructions =
-                errorFields?.map((f) => f.title).join(', ') ?? '';
-              logValidationError(e, errCount, fixingInstructions, logger);
-            }
-
-            // Record validation error metric
-            const metricsInstruments = this.getMetricsInstruments();
-            if (metricsInstruments) {
-              recordValidationErrorMetric(
-                metricsInstruments,
-                'validation',
-                this.getSignatureName()
-              );
-            }
-
-            // Add telemetry event for validation error
-            if (span) {
-              span.addEvent('validation.error', {
-                message: e.toString(),
-                fixing_instructions:
-                  errorFields?.map((f) => f.title).join(', ') ?? '',
-              });
-            }
           } else if (e instanceof AxAssertionError) {
-            const e1 = e as AxAssertionError;
-            errorFields = e1.getFixingInstructions();
+            errorFields = handleAssertionErrorForGenerate(
+              args as HandleErrorForGenerateArgs<AxAssertionError>
+            );
             err = e;
-
-            // Log assertion error with proper structured logging
-            const debug = this.isDebug(ai, options);
-            if (debug) {
-              const logger = this.getLogger(ai, options);
-              const fixingInstructions =
-                errorFields?.map((f) => f.title).join(', ') ?? '';
-              logAssertionError(e1, errCount, fixingInstructions, logger);
-            }
-
-            // Record assertion error metric
-            const assertionMetricsInstruments = this.getMetricsInstruments();
-            if (assertionMetricsInstruments) {
-              recordValidationErrorMetric(
-                assertionMetricsInstruments,
-                'assertion',
-                this.getSignatureName()
-              );
-            }
-
-            // Add telemetry event for assertion error
-            if (span) {
-              span.addEvent('assertion.error', {
-                message: e1.toString(),
-                fixing_instructions:
-                  errorFields?.map((f) => f.title).join(', ') ?? '',
-              });
-            }
+          } else if (e instanceof AxAIRefusalError) {
+            handleRefusalErrorForGenerate(
+              args as HandleErrorForGenerateArgs<AxAIRefusalError>
+            );
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
@@ -654,13 +622,16 @@ export class AxGen<
           }
 
           if (errorFields) {
-            handleValidationError(
-              mem,
-              errorFields,
-              ai,
-              this.promptTemplate,
+            mem.addRequest(
+              [
+                {
+                  role: 'user' as const,
+                  content: this.promptTemplate.renderExtraFields(errorFields),
+                },
+              ],
               options.sessionId
             );
+            mem.addTag('error', options.sessionId);
           }
         }
       }
