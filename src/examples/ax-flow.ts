@@ -8,22 +8,9 @@ const ai = new AxAI({
 });
 
 // Full method example - Document analysis pipeline with production configuration
-const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>(
-  'documentContent:string -> analysis:string',
-  {
-    autoParallel: true,
-    maxConcurrency: 2, // Limit to 2 concurrent operations
-    errorHandling: {
-      defaultRetries: 2,
-      exponentialBackoff: true,
-      circuitBreaker: {
-        enabled: true,
-        failureThreshold: 3,
-        resetTimeout: 30000,
-      },
-    },
-  }
-)
+const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>({
+  autoParallel: true,
+})
   .node('summarizer', 'documentContent:string -> documentSummary:string')
   .node('keywordExtractor', 'documentSummary:string -> keywords:string[]')
   .node(
@@ -52,13 +39,7 @@ const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>(
 const flowAlias1 = new AxFlow<
   { ticketMessage: string },
   { supportResponse: string }
->('ticketMessage:string -> supportResponse:string', {
-  errorHandling: {
-    defaultRetries: 3,
-    retryDelay: 1000,
-    exponentialBackoff: true,
-  },
-})
+>()
   .n(
     'classifier',
     'customerMessage:string -> ticketCategory:string, urgencyLevel:string'
@@ -75,13 +56,9 @@ const flowAlias1 = new AxFlow<
   .m((state) => ({ supportResponse: state.responderResult.supportResponse }));
 
 // Aliases example 2 - Simplified code review system with auto-parallelization
-const flowAlias2 = new AxFlow<{ codeSnippet: string }, { codeReview: string }>(
-  'codeSnippet:string -> codeReview:string',
-  {
-    autoParallel: true,
-    maxConcurrency: 3, // Allow up to 3 concurrent code analysis operations
-  }
-)
+const flowAlias2 = new AxFlow<{ codeSnippet: string }, { codeReview: string }>({
+  autoParallel: true,
+})
   .n(
     'codeAnalyzer',
     'sourceCode:string -> codeAnalysis:string, qualityScore:number'
@@ -101,7 +78,7 @@ const flowAlias2 = new AxFlow<{ codeSnippet: string }, { codeReview: string }>(
 const flowBranch = new AxFlow<
   { userPost: string; postType: string },
   { moderationAction: string }
->('userPost:string, postType:string -> moderationAction:string')
+>()
   .node(
     'socialMediaModerator',
     'postContent:string -> moderationDecision:string, reasoning:string'
@@ -127,7 +104,7 @@ const flowBranch = new AxFlow<
 const flowParallel = new AxFlow<
   { paperAbstract: string },
   { combinedScore: number }
->('paperAbstract:string -> combinedScore:number')
+>()
   .node('noveltyScorer', 'researchAbstract:string -> noveltyScore:number')
   .node('clarityScorer', 'researchAbstract:string -> clarityScore:number')
   .parallel([
@@ -156,16 +133,7 @@ const flowParallel = new AxFlow<
 const flowWhile = new AxFlow<
   { draftArticle: string },
   { finalArticle: string }
->('draftArticle:string -> finalArticle:string', {
-  errorHandling: {
-    defaultRetries: 2,
-    circuitBreaker: {
-      enabled: true,
-      failureThreshold: 2,
-      resetTimeout: 20000,
-    },
-  },
-})
+>()
   .node(
     'qualityEvaluator',
     'articleDraft:string -> qualityScore:number, qualityFeedback:string'
@@ -194,15 +162,8 @@ const flowWhile = new AxFlow<
 const flowRAG = new AxFlow<
   { researchQuestion: string },
   { finalAnswer: string }
->('researchQuestion:string -> finalAnswer:string', {
+>({
   autoParallel: true,
-  maxConcurrency: 4, // Process up to 4 retrieval operations concurrently
-  errorHandling: {
-    defaultRetries: 2,
-    retryDelay: 2000,
-    exponentialBackoff: true,
-    maxRetryDelay: 10000,
-  },
 })
   .node('queryGenerator', 'researchQuestion:string -> searchQuery:string')
   .node('retriever', 'searchQuery:string -> retrievedDocument:string')
@@ -228,9 +189,7 @@ const flowRAG = new AxFlow<
 const flowBatchedParallel = new AxFlow<
   { documentBatch: string },
   { processedBatch: string }
->('documentBatch:string -> processedBatch:string', {
-  maxConcurrency: 2, // Only process 2 operations at a time
-})
+>()
   .node('processor1', 'batchData:string -> processedResult1:string')
   .node('processor2', 'batchData:string -> processedResult2:string')
   .node('processor3', 'batchData:string -> processedResult3:string')

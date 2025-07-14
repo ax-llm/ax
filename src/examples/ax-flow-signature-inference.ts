@@ -80,3 +80,25 @@ console.log(
   complexFlow.getSignature().toString()
 );
 console.log('Complex flow result:', complexResult);
+
+// Test with multiple output fields
+console.log('\n=== Flow with Multiple Output Fields ===');
+
+const multiOutputFlow = new AxFlow()
+  .node(
+    'processor',
+    'inputText:string -> summary:string, keywords:string[], confidence:number'
+  )
+  .execute('processor', (state: any) => ({
+    inputText: state.userInput,
+  }));
+
+const multiOutputResult = await multiOutputFlow.forward(ai, {
+  userInput: 'This is a test document with multiple important concepts.',
+});
+
+console.log(
+  'Multi-output flow inferred signature:',
+  multiOutputFlow.getSignature().toString()
+);
+console.log('Multi-output flow result:', multiOutputResult);

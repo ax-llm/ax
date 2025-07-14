@@ -60,8 +60,11 @@ import type {
 export class AxFlow<
   IN extends AxGenIn,
   OUT extends AxGenOut,
-  // NOTE: The `any` here is necessary because TNodes must accommodate AxGen instances with various input/output types
-  TNodes extends Record<string, AxGen<any, any>> = Record<string, never>, // Node registry for type tracking
+  // NOTE: The `any` here is necessary because TNodes must accommodate AxProgrammable instances with various input/output types
+  TNodes extends Record<string, AxProgrammable<any, any>> = Record<
+    string,
+    never
+  >, // Node registry for type tracking
   TState extends AxFlowState = IN, // Current evolving state type
 > implements AxFlowable<IN, OUT>
 {
@@ -109,9 +112,21 @@ export class AxFlow<
    * @returns AxSignature - The inferred signature for this flow
    */
   private inferSignatureFromFlow(): AxSignature {
-    // If no nodes are defined, use a default signature
+    // If no nodes are defined, return a default signature
     if (this.nodeGenerators.size === 0) {
-      throw new Error('No flow (or nodes) defined');
+      // Create a default signature for flows without nodes
+      const defaultSignature = new AxSignature();
+      defaultSignature.addInputField({
+        name: 'userInput',
+        type: { name: 'string' },
+        description: 'User input to the flow',
+      });
+      defaultSignature.addOutputField({
+        name: 'flowOutput',
+        type: { name: 'string' },
+        description: 'Output from the flow',
+      });
+      return defaultSignature;
     }
 
     // Get execution plan to identify dependencies and field flow
@@ -181,7 +196,26 @@ export class AxFlow<
           }
         }
         if (!isConsumed) {
-          outputFieldNames.add(produced);
+          // If this is a node result field (ends with "Result"), extract the actual output field names
+          if (produced.endsWith('Result')) {
+            const nodeName = produced.replace('Result', '');
+            const nodeGen = this.nodeGenerators.get(nodeName);
+            if (nodeGen) {
+              const nodeSignature = nodeGen.getSignature();
+              const sig = new AxSignature(nodeSignature);
+              const outputFields = sig.getOutputFields();
+
+              // Add the actual output field names from the node signature
+              for (const field of outputFields) {
+                outputFieldNames.add(field.name);
+              }
+            } else {
+              // Fallback to the original field name if node not found
+              outputFieldNames.add(produced);
+            }
+          } else {
+            outputFieldNames.add(produced);
+          }
         }
       }
     }
@@ -282,6 +316,10 @@ export class AxFlow<
     // Add output fields
     const outputFields: AxField[] = [];
     for (const fieldName of outputFieldNames) {
+      // Skip internal fields that start with underscore
+      if (fieldName.startsWith('_')) {
+        continue;
+      }
       outputFields.push({
         name: fieldName,
         type: { name: 'string' },
@@ -314,17 +352,13 @@ export class AxFlow<
   }
 
   /**
-   * Initializes the program field everytime something is  added to the graph
+   * Initializes the program field every time something is  added to the graph
    */
   private ensureProgram(): void {
     // Create program with inferred signature
     const signature = this.inferSignatureFromFlow();
     this.program = new AxProgram<IN, OUT>(signature);
   }
-
-  // =============================================================================
-  // AXTUNABLE INTERFACE METHODS
-  // =============================================================================
 
   public setExamples(
     examples: Readonly<AxProgramExamples<IN, OUT>>,
@@ -354,10 +388,6 @@ export class AxFlow<
     this.program!.setDemos(demos);
   }
 
-  // =============================================================================
-  // AXUSABLE INTERFACE METHODS
-  // =============================================================================
-
   public getUsage(): AxProgramUsage[] {
     this.ensureProgram();
     return this.program!.getUsage();
@@ -367,10 +397,6 @@ export class AxFlow<
     this.ensureProgram();
     this.program!.resetUsage();
   }
-
-  // =============================================================================
-  // AXFORWARDABLE INTERFACE METHODS
-  // =============================================================================
 
   public async *streamingForward(
     ai: Readonly<AxAIService>,
@@ -575,6 +601,24 @@ export class AxFlow<
     TState // State unchanged
   >;
 
+  /**
+   * Declares a reusable computational node using an AxProgrammable instance.
+   * This allows using pre-configured AxGen instances or other programmable objects in the flow.
+   *
+   * @param name - The name of the node
+   * @param programInstance - The AxProgrammable instance to use for this node
+   * @returns New AxFlow instance with updated TNodes type
+   */
+  public node<TName extends string, TProgram extends AxProgrammable<any, any>>(
+    name: TName,
+    programInstance: TProgram
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: TProgram }, // Add new node to registry with exact type
+    TState // State unchanged
+  >;
+
   // Implementation
   public node<TName extends string>(
     name: TName,
@@ -622,7 +666,11 @@ export class AxFlow<
         AxGenOut
       >;
       this.nodeGenerators.set(name, programInstance);
-    } else {
+    } else if (
+      nodeValue &&
+      typeof nodeValue === 'object' &&
+      'forward' in nodeValue
+    ) {
       // Using existing AxGen instance or AxProgrammable instance
       this.nodes.set(name, {
         inputs: {},
@@ -633,6 +681,11 @@ export class AxFlow<
       this.nodeGenerators.set(
         name,
         nodeValue as AxProgrammable<AxGenIn, AxGenOut>
+      );
+    } else {
+      // Invalid argument type
+      throw new Error(
+        `Invalid second argument for node '${name}': expected string, AxSignature, AxProgrammable instance, or constructor function`
       );
     }
 

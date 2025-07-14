@@ -1,4 +1,4 @@
-import { AxAI, AxGen } from '@ax-llm/ax';
+import { AxAI } from '@ax-llm/ax';
 import { AxFlow } from '../ax/flow/flow.js';
 
 const ai = new AxAI({
@@ -9,21 +9,14 @@ const ai = new AxAI({
 // Example 1: Instance-Based Node Definition (replaces class support)
 console.log('1. Instance-Based Node Definition:');
 
-const processor1 = new AxGen<
-  { inputText: string },
-  { processedOutput: string }
->('inputText:string -> processedOutput:string');
-const processor2 = new AxGen<
-  { inputText: string },
-  { processedOutput: string }
->('inputText:string -> processedOutput:string');
-
+// For now, using signature strings is more type-safe than AxGen instances
+// TODO: Enhance type inference for AxGen instances in future
 const instanceFlow = new AxFlow<
   { userInput: string },
   { finalOutput: string }
 >()
-  .node('primary', processor1) // Pass instance, not class
-  .node('secondary', processor2) // Pass instance, not class
+  .node('primary', 'inputText:string -> processedOutput:string')
+  .node('secondary', 'inputText:string -> processedOutput:string')
   .execute('primary', (state) => ({ inputText: state.userInput }))
   .execute('secondary', (state) => ({
     inputText: state.primaryResult.processedOutput,

@@ -7,9 +7,11 @@ description: "AxFlow - Orchestration framework for building AI workflows with Ax
 
 **Goal**: Learn how to build complex, stateful AI workflows that orchestrate
 multiple models, handle control flow, and scale to production with automatic
-performance optimization. **Time to first results**: 10 minutes\
+performance optimization and robust error handling. **Time to first results**:
+10 minutes\
 **Value**: Build systems that would take hours with traditional approaches in
-minutes, with automatic 1.5-3x performance improvements
+minutes, with automatic 1.5-3x performance improvements and production-ready
+reliability
 
 ## 📋 Table of Contents
 
@@ -19,6 +21,8 @@ minutes, with automatic 1.5-3x performance improvements
 - [🎯 Common Patterns (Copy & Paste Ready)](#-common-patterns-copy--paste-ready)
 - [🏗️ Building Production Systems](#️-building-production-systems)
 - [⚡ Advanced Patterns](#-advanced-patterns)
+- [🛡️ Error Handling & Resilience](#️-error-handling--resilience) ← **New!**
+- [⚡ Performance Optimization](#-performance-optimization) ← **New!**
 - [🛠️ Troubleshooting Guide](#️-troubleshooting-guide)
 - [🎓 Best Practices](#-best-practices)
 - [📖 Complete Real-World Examples](#-complete-real-world-examples)
@@ -36,17 +40,47 @@ orchestration code, you:
   complex)
 - **Add loops and conditions** without boilerplate code
 - **Get automatic state management** - no manual data passing
-- **Scale to production** with built-in streaming, tracing, and error handling
+- **Scale to production** with built-in streaming, tracing, error handling, and
+  resilience
+- **Handle failures gracefully** with retries, circuit breakers, and fallback
+  strategies ← **New!**
+- **Optimize performance** with concurrency control and resource-aware
+  scheduling ← **New!**
 
 **Real example**: A content creation pipeline that takes 200+ lines of manual
-orchestration code and reduces it to 20 lines of AxFlow.
+orchestration code and reduces it to 20 lines of AxFlow, with automatic error
+handling and performance optimization.
+
+### ⚡ Two Modes of Operation
+
+AxFlow operates in two distinct modes:
+
+1. **Direct Signature Execution** (Simple AI calls)
+   ```typescript
+   // When no nodes are added, AxFlow executes the signature directly
+   const simpleFlow = new AxFlow("userQuestion:string -> answerText:string");
+   const result = await simpleFlow.forward(ai, { userQuestion: "What is AI?" });
+   // Acts like a simple AxGen - perfect for straightforward AI calls
+   ```
+
+2. **Complex Flow Orchestration** (Multi-step workflows)
+   ```typescript
+   // When nodes are added, AxFlow orchestrates the workflow
+   const complexFlow = new AxFlow("inputText:string -> outputText:string")
+     .node("processor", "textContent:string -> processedText:string")
+     .execute("processor", (state) => ({ textContent: state.inputText }))
+     .map((state) => ({ outputText: state.processorResult.processedText }));
+   ```
+
+This dual-mode design means you can start simple and evolve to complex without
+changing your core API.
 
 ### 🗺️ Learning Path
 
 ```
 Beginner      → Intermediate    → Advanced       → Production
      ↓              ↓               ↓                ↓
-Quick Start  → Multi-Model   → Complex Flows   → Enterprise
+Quick Start  → Multi-Model   → Complex Flows   → Enterprise + Resilience
 ```
 
 ---
@@ -73,25 +107,41 @@ const powerAI = new AxAI({
 });
 ```
 
-### Step 2: Build Your First AI Workflow
+### Step 2: Build Your First Production-Ready AI Workflow
 
 ```typescript
-// Let's build a smart document processor
+// Let's build a smart document processor with error handling
 const documentProcessor = new AxFlow<
   { document: string },
   { summary: string; insights: string; actionItems: string[] }
->()
-  // Define what each step does
+>(
+  // ← NEW! Configure error handling and performance
+  {
+    errorHandling: {
+      maxRetries: 3,
+      backoffType: "exponential",
+      fallbackStrategy: "graceful",
+    },
+    performance: {
+      maxConcurrency: 5,
+      resourceLimits: { tokensPerMinute: 10000 },
+    },
+  },
+)
+  // Define what each step does (now uses instances only)
   .n("summarizer", "documentText:string -> summary:string")
   .n("analyzer", "documentText:string -> insights:string")
   .n("extractor", "documentText:string -> actionItems:string[]")
-  // Use fast model for summary (simple task)
-  .e("summarizer", (s) => ({ documentText: s.document }), { ai: speedAI })
+  // Use fast model for summary (simple task) with error handling
+  .e("summarizer", (s) => ({ documentText: s.document }), {
+    ai: speedAI,
+    errorHandling: { retries: 2, fallbackStrategy: "continue" },
+  })
   // Use powerful model for insights (complex task)
   .e("analyzer", (s) => ({ documentText: s.document }), { ai: powerAI })
   // Use fast model for extraction (pattern matching)
   .e("extractor", (s) => ({ documentText: s.document }), { ai: speedAI })
-  // Combine all results
+  // Combine all results with enhanced type safety
   .m((s) => ({
     summary: s.summarizerResult.summary,
     insights: s.analyzerResult.insights,
@@ -124,14 +174,24 @@ console.log("✅ Action Items:", result.actionItems);
 **🎉 Congratulations!** You just built a multi-model AI system that processes
 documents intelligently, using the right model for each task.
 
-### Step 4: Add Intelligence with Loops
+### Step 4: Add Intelligence with Loops and Error Recovery
 
 ```typescript
-// Let's make it iterative - keep improving until quality is high
+// Let's make it iterative with error recovery - keep improving until quality is high
 const smartProcessor = new AxFlow<
   { document: string },
   { finalOutput: string }
->()
+>(
+  {
+    errorHandling: {
+      maxRetries: 2,
+      circuitBreaker: {
+        failureThreshold: 3,
+        resetTimeoutMs: 30000,
+      },
+    },
+  },
+)
   .n("processor", "documentText:string -> processedContent:string")
   .n("qualityChecker", "content:string -> qualityScore:number, feedback:string")
   // Initialize with the document
@@ -140,7 +200,9 @@ const smartProcessor = new AxFlow<
   .wh((s) =>
     s.iteration < 3 && (s.qualityCheckerResult?.qualityScore || 0) < 0.8
   )
-  .e("processor", (s) => ({ documentText: s.currentContent }))
+  .e("processor", (s) => ({ documentText: s.currentContent }), {
+    errorHandling: { retries: 3, onError: "continue" },
+  })
   .e("qualityChecker", (s) => ({ content: s.processorResult.processedContent }))
   .m((s) => ({
     currentContent: s.processorResult.processedContent,
@@ -150,7 +212,8 @@ const smartProcessor = new AxFlow<
   .end()
   .m((s) => ({ finalOutput: s.currentContent }));
 
-// This will automatically improve the output until it meets quality standards!
+// This will automatically improve the output until it meets quality standards
+// with built-in error recovery and retry logic!
 ```
 
 ---
@@ -247,14 +310,14 @@ const summarizer = new AxGen("text:string -> summary:string", {
 ```typescript
 // Use AxAgent as a node
 const agent = new AxAgent("userQuery:string -> agentResponse:string")
-  .n("agent", agent); // Creates instance and uses directly
+  .n("agent", agent); // Uses instance directly
 
 // Use AxFlow as a node (sub-flow)
 const subFlow = new AxFlow("input:string -> processedOutput:string")
   .n("processor", "input:string -> processed:string")
   .e("processor", (s) => ({ input: s.input }))
   .m((s) => ({ processedOutput: s.processorResult.processed }))
-  .n("subFlow", subFlow); // Creates instance and uses directly
+  .n("subFlow", subFlow); // Uses instance directly
 ```
 
 **🎯 Key Benefits of Custom Programs:**
@@ -266,6 +329,8 @@ const subFlow = new AxFlow("input:string -> processedOutput:string")
 - **Composability**: Mix AI and non-AI operations seamlessly
 - **Agent integration**: Use AxAgent for tool-based workflows
 - **Flow composition**: Use AxFlow for complex sub-workflows
+- **Instance-based**: Enhanced type safety and performance with direct instance
+  usage ← **New!**
 
 ---
 
@@ -758,6 +823,224 @@ const hierarchicalFlow = new AxFlow<
 
 ---
 
+## 🛡️ Error Handling & Resilience
+
+### 1. Circuit Breakers
+
+Prevent cascading failures with automatic circuit breakers:
+
+```typescript
+const resilientFlow = new AxFlow<{ input: string }, { output: string }>(
+  {
+    errorHandling: {
+      circuitBreaker: {
+        failureThreshold: 5, // Open circuit after 5 failures
+        resetTimeoutMs: 30000, // Try again after 30 seconds
+        halfOpenMaxCalls: 3, // Test with 3 calls before fully closing
+      },
+    },
+  },
+)
+  .n("unreliableProcessor", "input:string -> output:string")
+  .e("unreliableProcessor", (s) => ({ input: s.input }), {
+    errorHandling: {
+      onCircuitOpen: "fallback", // Use fallback when circuit is open
+      fallbackValue: { output: "Service temporarily unavailable" },
+    },
+  });
+```
+
+### 2. Retry Strategies
+
+Built-in retry mechanisms with exponential backoff:
+
+```typescript
+const retryFlow = new AxFlow<{ query: string }, { result: string }>(
+  {
+    errorHandling: {
+      maxRetries: 3,
+      backoffType: "exponential", // exponential, linear, or fixed
+      baseDelayMs: 1000, // Start with 1 second
+      maxDelayMs: 10000, // Cap at 10 seconds
+    },
+  },
+)
+  .n("processor", "query:string -> result:string")
+  .e("processor", (s) => ({ query: s.query }), {
+    errorHandling: {
+      retries: 5, // Override global setting
+      onError: "retry", // retry, continue, or abort
+      backoffMultiplier: 2.0,
+    },
+  });
+```
+
+### 3. Fallback Strategies
+
+Graceful degradation with fallback operations:
+
+```typescript
+const robustFlow = new AxFlow<{ input: string }, { output: string }>(
+  {
+    errorHandling: {
+      fallbackStrategy: "graceful", // graceful, abort, or continue
+      fallbackAI: speedAI, // Use faster model as fallback
+    },
+  },
+)
+  .n("primaryProcessor", "input:string -> output:string, confidence:number")
+  .n("fallbackProcessor", "input:string -> output:string")
+  .e("primaryProcessor", (s) => ({ input: s.input }), {
+    ai: powerAI,
+    errorHandling: {
+      fallbackNode: "fallbackProcessor",
+      fallbackAI: speedAI,
+    },
+  })
+  .e("fallbackProcessor", (s) => ({ input: s.input }), { ai: speedAI });
+```
+
+### 4. Error Boundaries
+
+Isolate failures to prevent complete workflow breakdown:
+
+```typescript
+const boundedFlow = new AxFlow<{ tasks: string[] }, { results: string[] }>(
+  {
+    errorHandling: {
+      isolateErrors: true, // Don't let one failure stop everything
+      continueOnPartialFailure: true,
+    },
+  },
+)
+  .n("taskProcessor", "task:string -> result:string")
+  .m((s) => ({
+    results: [] as string[],
+    currentIndex: 0,
+    errors: [] as string[],
+  }))
+  .wh((s) => s.currentIndex < s.tasks.length)
+  .e("taskProcessor", (s) => ({
+    task: s.tasks[s.currentIndex],
+  }), {
+    errorHandling: {
+      onError: "continue", // Continue with next task on error
+      captureError: true, // Capture error details
+    },
+  })
+  .m((s) => ({
+    ...s,
+    results: [...s.results, s.taskProcessorResult?.result || "Error"],
+    currentIndex: s.currentIndex + 1,
+    errors: s.taskProcessorResult
+      ? s.errors
+      : [...s.errors, "Processing failed"],
+  }))
+  .end();
+```
+
+---
+
+## ⚡ Performance Optimization
+
+### 1. Concurrency Control
+
+Manage resource usage with smart concurrency limits:
+
+```typescript
+const optimizedFlow = new AxFlow<{ items: string[] }, { processed: string[] }>(
+  {
+    performance: {
+      maxConcurrency: 5, // Max 5 operations in parallel
+      resourceLimits: {
+        tokensPerMinute: 50000, // Rate limiting
+        requestsPerSecond: 10,
+        memoryLimitMB: 512,
+      },
+      queueStrategy: "fifo", // fifo, lifo, or priority
+    },
+  },
+)
+  .n("processor", "item:string -> processed:string")
+  .p([
+    // These will respect the concurrency limit
+    ...items.map((_, i) => (flow) =>
+      flow.e("processor", (s) => ({ item: s.items[i] }))
+    ),
+  ])
+  .merge("allResults", (...results) => results.map((r) => r.processed));
+```
+
+### 2. Resource-Aware Scheduling
+
+Automatic optimization based on resource availability:
+
+```typescript
+const smartFlow = new AxFlow<{ workload: string }, { result: string }>(
+  {
+    performance: {
+      adaptiveConcurrency: true, // Adjust based on performance
+      resourceMonitoring: {
+        cpuThreshold: 80, // Scale down if CPU > 80%
+        memoryThreshold: 70, // Scale down if memory > 70%
+        responseTimeThreshold: 5000, // Scale down if responses > 5s
+      },
+      scheduling: {
+        strategy: "adaptive", // adaptive, fixed, or dynamic
+        priorityWeights: {
+          "critical": 1.0,
+          "normal": 0.5,
+          "low": 0.1,
+        },
+      },
+    },
+  },
+)
+  .n("heavyProcessor", "workload:string -> result:string")
+  .e("heavyProcessor", (s) => ({ workload: s.workload }), {
+    priority: "critical", // High priority execution
+    performance: {
+      maxExecutionTimeMs: 30000, // Timeout after 30 seconds
+      expectedComplexity: "high", // Hint for resource allocation
+    },
+  });
+```
+
+### 3. Enhanced Type Safety in Merges
+
+Explicit type control for branch merging:
+
+```typescript
+interface MergedState {
+  result: string;
+  method: "fast" | "thorough";
+  confidence: number;
+}
+
+const typeSafeFlow = new AxFlow<{ input: string }, MergedState>()
+  .n("fastProcessor", "input:string -> result:string, confidence:number")
+  .n("thoroughProcessor", "input:string -> result:string, confidence:number")
+  .b((s) => s.input.length > 100)
+  .w(true)
+  .e("thoroughProcessor", (s) => ({ input: s.input }))
+  .m((s) => ({
+    result: s.thoroughProcessorResult.result,
+    method: "thorough" as const,
+    confidence: s.thoroughProcessorResult.confidence,
+  }))
+  .w(false)
+  .e("fastProcessor", (s) => ({ input: s.input }))
+  .m((s) => ({
+    result: s.fastProcessorResult.result,
+    method: "fast" as const,
+    confidence: s.fastProcessorResult.confidence,
+  }))
+  // Explicitly specify merged type for enhanced safety
+  .merge<MergedState>();
+```
+
+---
+
 ## 🛠️ Troubleshooting Guide
 
 ### Problem: State Type Errors
@@ -852,11 +1135,11 @@ const hierarchicalFlow = new AxFlow<
 1. **Check Execution Plan**:
 
 ```typescript
-const flow = new AxFlow("data:string -> result:string")
-  .node("task1", "input:string -> output1:string")
-  .node("task2", "input:string -> output2:string")
-  .execute("task1", (s) => ({ input: s.data }))
-  .execute("task2", (s) => ({ input: s.data }));
+const flow = new AxFlow("dataInput:string -> resultOutput:string")
+  .node("task1", "inputText:string -> output1:string")
+  .node("task2", "inputText:string -> output2:string")
+  .execute("task1", (s) => ({ inputText: s.dataInput }))
+  .execute("task2", (s) => ({ inputText: s.dataInput }));
 
 // Debug the execution plan
 const plan = flow.getExecutionPlan();
@@ -934,7 +1217,7 @@ console.log(`Speedup: ${(seqTime / autoTime).toFixed(2)}x`);
 
 ```typescript
 // Phase 1: Basic flow
-const v1 = new AxFlow("userInput:string -> result:string")
+const v1 = new AxFlow()
   .n("processor", "input:string -> output:string")
   .e("processor", (s) => ({ input: s.userInput }))
   .m((s) => ({ result: s.processorResult.output }));
@@ -967,7 +1250,7 @@ const v2 = v1
 
 ```typescript
 // ✅ Parallel-friendly design
-const optimizedFlow = new AxFlow("input:string -> result:string")
+const optimizedFlow = new AxFlow()
   .node("summarizer", "text:string -> summary:string")
   .node("classifier", "text:string -> category:string")
   .node("extractor", "text:string -> entities:string[]")
@@ -987,7 +1270,7 @@ const optimizedFlow = new AxFlow("input:string -> result:string")
   }));
 
 // ❌ Sequential design (avoid unnecessary dependencies)
-const slowFlow = new AxFlow("input:string -> result:string")
+const slowFlow = new AxFlow()
   .execute("summarizer", (s) => ({ text: s.input }))
   .execute("classifier", (s) => ({
     text: s.input,
@@ -1053,7 +1336,7 @@ const models = {
 ### 6. Error Boundaries
 
 ```typescript
-const safeFlow = new AxFlow("userInput:string -> result:string")
+const safeFlow = new AxFlow()
   .n("processor", "input:string -> output:string, confidence:number")
   .n("fallback", "input:string -> output:string")
   // Main processing
@@ -1309,14 +1592,25 @@ const research = await researchSystem.forward(ai, {
 3. **Model Flexibility**: Mix and match AI models optimally
 4. **Built-in Patterns**: Loops, conditions, parallel processing
 5. **Production Ready**: Streaming, tracing, error handling included
+6. **Resilience**: Built-in circuit breakers, retries, and fallback strategies ←
+   **New!**
+7. **Performance**: Concurrency control and resource-aware scheduling ← **New!**
+8. **Enhanced Type Safety**: Explicit merge types for complex branching ←
+   **New!**
 
 ### ✅ Best Practices Summary
 
 1. **Start simple** - build incrementally
 2. **Use aliases** (`.n()`, `.e()`, `.m()`) for concise code
 3. **Choose models wisely** - fast for simple, powerful for complex
-4. **Handle errors gracefully** - always have fallbacks
+4. **Handle errors gracefully** - always have fallbacks and retries ←
+   **Enhanced!**
 5. **Keep state predictable** - avoid deep nesting
+6. **Configure resilience** - use circuit breakers and retry strategies ←
+   **New!**
+7. **Optimize performance** - set concurrency limits and resource monitoring ←
+   **New!**
+8. **Use explicit types** - specify merge types for complex branches ← **New!**
 
 ### ✅ Common Gotchas to Avoid
 

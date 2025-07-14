@@ -8,10 +8,6 @@ import type {
   AxProgrammable,
 } from '../dsp/types.js';
 
-// =============================================================================
-// BASIC FLOW TYPES
-// =============================================================================
-
 // Type for state object that flows through the pipeline
 export type AxFlowState = Record<string, unknown>;
 
@@ -36,25 +32,13 @@ export interface AxFlowDynamicContext {
   options?: AxProgramForwardOptions;
 }
 
-// =============================================================================
-// ADVANCED TYPE SYSTEM FOR TYPE-SAFE CHAINING
-// =============================================================================
+// Helper type to extract input type from an AxProgrammable instance (including AxGen)
+export type GetGenIn<T extends AxProgrammable<AxGenIn, AxGenOut>> =
+  T extends AxProgrammable<infer IN, AxGenOut> ? IN : never;
 
-// Helper type to extract input type from an AxGen instance
-export type GetGenIn<T extends AxGen<AxGenIn, AxGenOut>> = T extends AxGen<
-  infer IN,
-  AxGenOut
->
-  ? IN
-  : never;
-
-// Helper type to extract output type from an AxGen instance
-export type GetGenOut<T extends AxGen<AxGenIn, AxGenOut>> = T extends AxGen<
-  AxGenIn,
-  infer OUT
->
-  ? OUT
-  : never;
+// Helper type to extract output type from an AxProgrammable instance (including AxGen)
+export type GetGenOut<T extends AxProgrammable<AxGenIn, AxGenOut>> =
+  T extends AxProgrammable<AxGenIn, infer OUT> ? OUT : never;
 
 // Helper type to create an AxGen type from a signature string
 // This is a simplified version - in practice, you'd need more sophisticated parsing
@@ -72,10 +56,6 @@ export type AddNodeResult<
   TNodeOut extends AxGenOut,
 > = TState & { [K in NodeResultKey<TNodeName>]: TNodeOut };
 
-// =============================================================================
-// AXFLOWABLE INTERFACE
-// =============================================================================
-
 /**
  * Interface for flows that can be tuned, executed, and used in compositions.
  * Provides methods for building and executing complex AI workflows.
@@ -83,14 +63,10 @@ export type AddNodeResult<
 export interface AxFlowable<IN extends AxGenIn, OUT extends AxGenOut>
   extends AxProgrammable<IN, OUT> {}
 
-// =============================================================================
-// TYPED SUB-CONTEXT INTERFACES
-// =============================================================================
-
 // Type for parallel branch functions with typed context
-// NOTE: The `any` here is necessary because we need to support AxGen with any input/output types
+// NOTE: The `any` here is necessary because we need to support AxProgrammable with any input/output types
 export type AxFlowTypedParallelBranch<
-  TNodes extends Record<string, AxGen<any, any>>,
+  TNodes extends Record<string, AxProgrammable<any, any>>,
   TState extends AxFlowState,
 > = (
   subFlow: AxFlowTypedSubContext<TNodes, TState>
@@ -99,7 +75,7 @@ export type AxFlowTypedParallelBranch<
 // Type for typed sub-flow context used in parallel execution
 // NOTE: The `any` here is necessary for the same reason as above
 export interface AxFlowTypedSubContext<
-  TNodes extends Record<string, AxGen<any, any>>,
+  TNodes extends Record<string, AxProgrammable<any, any>>,
   TState extends AxFlowState,
 > {
   execute<TNodeName extends keyof TNodes & string>(
@@ -151,10 +127,6 @@ export interface AxFlowBranchContext {
   branches: Map<unknown, AxFlowStepFunction[]>;
   currentBranchValue?: unknown;
 }
-
-// =============================================================================
-// AUTOMATIC DEPENDENCY ANALYSIS AND PARALLELIZATION
-// =============================================================================
 
 // Type for execution step metadata
 export interface AxFlowExecutionStep {

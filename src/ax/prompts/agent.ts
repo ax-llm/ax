@@ -404,7 +404,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       throw definitionError;
     }
 
-    this.program.getSignature().setDescription(definition);
+    this.program.setDescription(definition);
+    this.func.description = definition;
   }
 
   public getSignature(): AxSignature {
