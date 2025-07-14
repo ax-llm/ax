@@ -52,15 +52,24 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     args.functions !== undefined &&
     args.functions.length > 0;
 
+  // Each streamed chunk contains a `modelUsage` object, with accumulated token usage data.
+  // We'll only keep track of the latest modelUsage to push at the end.
+  let lastChunkUsage: AxModelUsage | undefined;
+
   // Handle ReadableStream async iteration for browser compatibility
   const reader = res.getReader();
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        if (lastChunkUsage) {
+          usage.push(lastChunkUsage);
+        }
+        break;
+      }
       const v = value;
       if (v.modelUsage) {
-        usage.push(v.modelUsage);
+        lastChunkUsage = v.modelUsage;
       }
 
       for (const result of v.results) {
