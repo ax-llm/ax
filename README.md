@@ -1537,8 +1537,7 @@ monitoring your AI applications with OpenTelemetry integration, see our detailed
 | ------------------ | ------------------ | -------------------------------------------- |
 | Docker Sandbox     | AxDockerSession    | Execute commands within a docker environment |
 | Embeddings Adapter | AxEmbeddingAdapter | Fetch and pass embedding to your function    |
-
-<!-- | JS Interpreter     | AxJSInterpreter    | Execute JS code in a sandboxed env           | -->
+| JS Interpreter     | AxJSInterpreter    | Execute JS code in a sandboxed env (Node.js only) |
 
 ## Check out all the examples
 
@@ -1561,6 +1560,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [marketing.ts](https://github.com/ax-llm/ax/blob/main/src/examples/marketing.ts)                           | Generate short effective marketing sms messages                                                                        |
 | [vectordb.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vectordb.ts)                             | Chunk, embed and search text                                                                                           |
 | [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)                           | Use the JS code interpreter to compute fibonacci                                                                       |
+| [codingWithMemory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/codingWithMemory.ts)             | Coding assistant with memory and JS interpreter (demonstrates both ax-tools features)                                  |
 | [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)                           | Generate a short summary of a large block of text                                                                      |
 | [chain-of-thought.ts](https://github.com/ax-llm/ax/blob/main/src/examples/chain-of-thought.ts)             | Use chain-of-thought prompting to answer questions                                                                     |
 | [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts)       | Type-safe signatures using tagged template literals                                                                    |

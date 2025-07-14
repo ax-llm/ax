@@ -27,7 +27,10 @@ function hasValidPrefix(name: string): boolean {
     name.startsWith('ax') ||
     name.startsWith('Ax') ||
     name === 'f' ||
-    name === 's'
+    name === 's' ||
+    name === 'JSONRPCRequest' ||
+    name === 'JSONRPCResponse' ||
+    name === 'JSONRPCNotification'
   );
 }
 
