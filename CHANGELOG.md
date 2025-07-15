@@ -1,5 +1,16 @@
 # Changelog
 
+## [13.0.10](https://github.com/ax-llm/ax/compare/13.0.8...13.0.9) (2025-07-15)
+
+### Features
+
+* enhance logging and error handling for streaming responses ([ca8d124](https://github.com/ax-llm/ax/commit/ca8d1244bbae3367f4f4a015b81bc7857600ac73))
+## [13.0.9](https://github.com/ax-llm/ax/compare/13.0.8...13.0.9) (2025-07-15)
+
+### Features
+
+* add derive method for field transformation with batch processing ([e2f223a](https://github.com/ax-llm/ax/commit/e2f223a15ba82865f909cecd7269d1ae527c9c00))
+
 ## [13.0.9](https://github.com/ax-llm/ax/compare/13.0.7...13.0.8) (2025-07-15)
 
 ### Features
