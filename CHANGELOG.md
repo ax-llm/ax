@@ -1,5 +1,22 @@
 # Changelog
 
+## [13.0.9](https://github.com/ax-llm/ax/compare/13.0.7...13.0.8) (2025-07-15)
+
+### Features
+
+* add derive method for field transformation with batch processing ([e2f223a](https://github.com/ax-llm/ax/commit/e2f223a15ba82865f909cecd7269d1ae527c9c00))
+## [13.0.8](https://github.com/ax-llm/ax/compare/13.0.7...13.0.8) (2025-07-14)
+
+### Features
+
+* ax-tools to restore Node.js-specific functionality (AxJSInterpreter & AxMCPStdioTransport) ([#271](https://github.com/ax-llm/ax/issues/271)) ([d1deab2](https://github.com/ax-llm/ax/commit/d1deab2a37b8d7c31f60e8ee616b7b0d473dc31c))
+* introduce parallel map with batch size control for optimized resource management ([8ffda71](https://github.com/ax-llm/ax/commit/8ffda71093fd610a5d5ff9963d93f58e66878f13))
+
+### Bug Fixes
+
+* only count last modelUsage chunk for streaming models ([#270](https://github.com/ax-llm/ax/issues/270)) ([e742bbd](https://github.com/ax-llm/ax/commit/e742bbd95014ebe3d3c2ff8c846e4a7c6eb8be61))
+* tsup config bug ([#276](https://github.com/ax-llm/ax/issues/276)) ([a6af394](https://github.com/ax-llm/ax/commit/a6af394e52f3be9be4b3eefd763df31f4156b394))
+
 ## [13.0.8](https://github.com/ax-llm/ax/compare/13.0.6...13.0.7) (2025-07-14)
 
 ### Features
