@@ -548,13 +548,13 @@ Ax provides seamless integration with the Model Context Protocol (MCP), allowing
 your agents to access external tools, and resources through a standardized
 interface.
 
-<!-- ### Using AxMCPClient
+### Using AxMCPClient
 
 The `AxMCPClient` allows you to connect to any MCP-compatible server and use its
 capabilities within your Ax agents:
 
 ```typescript
-import { AxMCPClient, AxMCPStdioTransport } from "@ax-llm/ax";
+import { AxMCPClient, AxMCPStdioTransport } from "@ax-llm/ax-tools";
 
 // Initialize an MCP client with a transport
 const transport = new AxMCPStdioTransport({
@@ -580,7 +580,7 @@ const memoryAgent = new AxAgent({
 const memoryGen = new AxGen("input, userId -> response", {
   functions: [client],
 });
-``` -->
+```
 
 ### Using AxMCPClient with a Remote Server
 
@@ -650,152 +650,93 @@ For a more complex example involving authentication and custom headers with a
 remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts`
 file in this repository.
 
-## AxFlow: Build AI Workflows / LLM Programs
+## AxFlow: Build AI Workflows
 
-**The future of AI programs is here.** AxFlow revolutionizes how you build
-complex, stateful AI applications with a fluent, chainable API that reads like
-poetry and executes like lightning. Build the impossible with unprecedented
-simplicity.
+**AxFlow** makes it easy to build complex AI workflows with automatic parallel
+execution and simple, readable code.
 
-- **🚀 Automatic Parallelization**: AI-powered dependency analysis automatically
-  runs independent operations in parallel for maximum performance
-- **🛡️ Production Resilience**: Circuit breakers, retries, and graceful error
-  handling
-- **⚡ Performance Optimization**: Concurrency control and resource-aware
-  scheduling
-- **Ultra-Compact Syntax**: Powerful aliases (`n`, `e`, `m`, `b`, `w`) for rapid
+### Key Features
+
+- **🚀 Automatic Parallelization**: Runs independent operations in parallel
+  automatically
+- **🎯 Simple API**: Chainable methods that are easy to read and write
+- **🔄 Control Flow**: Loops, branches, and conditional execution
+- **🤖 Multi-Model Support**: Use different AI models for different tasks
+- **📊 State Management**: Automatic state evolution with full type safety
+- **🌊 Streaming Support**: Real-time execution with streaming
+- **🔧 Aliases**: Short method names (`.n()`, `.e()`, `.m()`) for rapid
   development
-- **Neural State Evolution**: Automatic state threading with full context
-  preservation
-- **Multi-Model Intelligence**: Dynamic context switching between specialized AI
-  models
-- **Adaptive Control Flow**: Built-in loops, conditionals, and parallel
-  execution
-- **Type-Safe by Design**: Full TypeScript support with compile-time validation
-- **Streaming-Native**: Real-time execution with end-to-end streaming support
-- **Automatic Observability**: Get tracing across the whole pipeline
 
-### Example: Production-Ready Workflows with Auto-Parallelization
-
-AxFlow automatically analyzes dependencies and runs independent operations in
-parallel for maximum performance. **Built-in error handling and resilience!**
+### Basic Example: Document Analysis
 
 ```typescript
 import { AxAI, AxFlow } from "@ax-llm/ax";
 
 const ai = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
-// 🚀 Production-ready with automatic parallelization + error handling
+// Simple document analysis workflow
 const documentAnalyzer = new AxFlow<
   { documentText: string },
-  { finalAnalysis: string }
->(
-  // ✨ NEW: Production configuration
-  {
-    errorHandling: {
-      maxRetries: 3,
-      backoffType: "exponential",
-      circuitBreaker: {
-        failureThreshold: 5,
-        resetTimeoutMs: 30000,
-      },
-    },
-    performance: {
-      maxConcurrency: 5,
-      resourceLimits: {
-        tokensPerMinute: 50000,
-        requestsPerSecond: 10,
-      },
-    },
-  },
-)
-  .node("summarizer", "documentText:string -> documentSummary:string")
-  .node("keywordExtractor", "documentText:string -> documentKeywords:string[]")
-  .node("sentimentAnalyzer", "documentText:string -> documentSentiment:string")
-  .node(
-    "combiner",
-    "documentSummary:string, documentKeywords:string[], documentSentiment:string -> combinedAnalysis:string",
-  )
-  // These three operations run automatically in parallel! 🎯
-  .execute("summarizer", (state) => ({ documentText: state.documentText }), {
-    errorHandling: { retries: 2, onError: "continue" },
-  })
-  .execute(
-    "keywordExtractor",
-    (state) => ({ documentText: state.documentText }),
-  )
+  { summary: string; sentiment: string; keywords: string[] }
+>()
+  .node("summarizer", "documentText:string -> summary:string")
+  .node("sentimentAnalyzer", "documentText:string -> sentiment:string")
+  .node("keywordExtractor", "documentText:string -> keywords:string[]")
+  // These three operations run automatically in parallel! ⚡
+  .execute("summarizer", (state) => ({ documentText: state.documentText }))
   .execute(
     "sentimentAnalyzer",
     (state) => ({ documentText: state.documentText }),
   )
-  // This waits for all three to complete, then runs
-  .execute("combiner", (state) => ({
-    documentSummary: state.summarizerResult.documentSummary,
-    documentKeywords: state.keywordExtractorResult.documentKeywords,
-    documentSentiment: state.sentimentAnalyzerResult.documentSentiment,
-  }))
-  .map((state) => ({ finalAnalysis: state.combinerResult.combinedAnalysis }));
+  .execute(
+    "keywordExtractor",
+    (state) => ({ documentText: state.documentText }),
+  )
+  // Combine results
+  .map((state) => ({
+    summary: state.summarizerResult.summary,
+    sentiment: state.sentimentAnalyzerResult.sentiment,
+    keywords: state.keywordExtractorResult.keywords,
+  }));
 
-// ⚡ Automatic 1.5-3x speedup + production resilience!
+// Execute the workflow
 const result = await documentAnalyzer.forward(ai, {
   documentText: "AI technology is revolutionary and will change everything...",
 });
 
-console.log("📊 Analysis:", result.finalAnalysis);
-// Execution Plan: 3 parallel operations → 1 sequential → 1 final
-// With automatic retries, circuit breakers, and graceful error handling
+console.log("Summary:", result.summary);
+console.log("Sentiment:", result.sentiment);
+console.log("Keywords:", result.keywords);
 ```
 
-### Example: Compact Syntax with Aliases + Error Handling
+### Compact Syntax with Aliases
 
-For rapid development, use AxFlow's ultra-compact aliases with production
-features:
+For rapid development, use AxFlow's short aliases:
 
 ```typescript
-import { AxAI, AxFlow } from "@ax-llm/ax";
+// Same functionality, ultra-compact syntax
+const quickAnalyzer = new AxFlow<{ text: string }, { result: string }>()
+  .n("sum", "text:string -> summary:string") // .n() = .node()
+  .n("sent", "text:string -> sentiment:string") // .n() = .node()
+  .e("sum", (s) => ({ text: s.text })) // .e() = .execute()
+  .e("sent", (s) => ({ text: s.text })) // .e() = .execute()
+  .m((s) => ({ // .m() = .map()
+    result:
+      `Summary: ${s.sumResult.summary}, Sentiment: ${s.sentResult.sentiment}`,
+  }));
 
-const ai = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
-
-// 🎯 Same functionality, ultra-compact syntax + resilience
-const quickAnalyzer = new AxFlow<{ text: string }, { result: string }>(
-  {
-    errorHandling: { maxRetries: 2, fallbackStrategy: "graceful" },
-    performance: { maxConcurrency: 3 },
-  },
-)
-  .n("sum", "text:string -> summary:string") // node
-  .n("key", "text:string -> keywords:string[]") // node
-  .n("sent", "text:string -> sentiment:string") // node
-  .n(
-    "mix",
-    "summary:string, keywords:string[], sentiment:string -> analysis:string",
-  )
-  .e("sum", (s) => ({ text: s.text })) // execute (auto-parallel)
-  .e("key", (s) => ({ text: s.text })) // execute (auto-parallel)
-  .e("sent", (s) => ({ text: s.text })) // execute (auto-parallel)
-  .e("mix", (s) => ({ // execute (sequential)
-    summary: s.sumResult.summary,
-    keywords: s.keyResult.keywords,
-    sentiment: s.sentResult.sentiment,
-  }))
-  .m((s) => ({ result: s.mixResult.analysis })); // map
-
-const result = await quickAnalyzer.forward(ai, { text: "Hello world!" });
+const result = await quickAnalyzer.forward(ai, {
+  text: "Building the future of AI applications...",
+});
 ```
 
-### Advanced Example: Multi-Model Orchestration
+### Multi-Model Intelligence
+
+Use different AI models for different tasks:
 
 ```typescript
-// Multi-model AI orchestration with specialized models
-const quantumAI = new AxAI({ name: "openai", config: { model: "o1" } }); // For deep reasoning
-const velocityAI = new AxAI({
-  name: "openai",
-  config: { model: "gpt-4o-mini" },
-}); // For speed
-const creativityAI = new AxAI({
-  name: "anthropic",
-  config: { model: "claude-3-5-sonnet-20241022" },
-}); // For creativity
+const fastAI = new AxAI({ name: "openai", config: { model: "gpt-4o-mini" } });
+const powerAI = new AxAI({ name: "openai", config: { model: "gpt-4o" } });
 
 // 🌟 The future: AI workflows that adapt and evolve with full resilience
 const autonomousContentEngine = new AxFlow<
@@ -971,6 +912,51 @@ const researchOracle = new AxFlow<
 giving you access to the entire Ax ecosystem: optimization, streaming, tracing,
 function calling, and more. The future of AI development is declarative,
 adaptive, and beautiful.
+
+### NEW: Parallel Map with Batch Size Control
+
+Execute multiple transformations in parallel with intelligent batch processing
+for optimal resource management:
+
+```typescript
+import { AxFlow } from "@ax-llm/ax";
+
+// Configure batch processing for optimal performance
+const flow = new AxFlow<StateType, ResultType>({
+  batchSize: 5, // Process 5 operations at a time
+})
+  .init({ data: largeDataset })
+  // Execute multiple transforms in parallel with automatic batching
+  .map([
+    (state) => ({ ...state, analysis1: analyzeData(state.data) }),
+    (state) => ({ ...state, analysis2: extractFeatures(state.data) }),
+    (state) => ({ ...state, analysis3: generateSummary(state.data) }),
+    (state) => ({ ...state, analysis4: calculateMetrics(state.data) }),
+    (state) => ({ ...state, analysis5: validateResults(state.data) }),
+  ], { parallel: true })
+  .map((state) => ({
+    final: combineResults([
+      state.analysis1,
+      state.analysis2,
+      state.analysis3,
+      state.analysis4,
+      state.analysis5,
+    ]),
+  }));
+
+// ⚡ Automatic batch processing: runs 5 operations concurrently,
+// then processes remaining operations, maintaining result order
+const result = await flow.forward(ai, { data: dataset });
+```
+
+**🚀 Benefits:**
+
+- **Resource Control**: Prevent memory spikes with large parallel operations
+- **Order Preservation**: Results maintain original order despite batched
+  execution
+- **Performance Tuning**: Optimize batch size for different deployment
+  environments
+- **Rate Limiting**: Works seamlessly with API rate limits and service quotas
 
 ## AI Routing and Load Balancing
 
@@ -1538,10 +1524,10 @@ monitoring your AI applications with OpenTelemetry integration, see our detailed
 
 ## Built-in Functions
 
-| Function           | Name               | Description                                  |
-| ------------------ | ------------------ | -------------------------------------------- |
-| Docker Sandbox     | AxDockerSession    | Execute commands within a docker environment |
-| Embeddings Adapter | AxEmbeddingAdapter | Fetch and pass embedding to your function    |
+| Function           | Name               | Description                                       |
+| ------------------ | ------------------ | ------------------------------------------------- |
+| Docker Sandbox     | AxDockerSession    | Execute commands within a docker environment      |
+| Embeddings Adapter | AxEmbeddingAdapter | Fetch and pass embedding to your function         |
 | JS Interpreter     | AxJSInterpreter    | Execute JS code in a sandboxed env (Node.js only) |
 
 ## Check out all the examples

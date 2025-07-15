@@ -9,7 +9,7 @@ const _colorLog = new ColorLog();
 
 // Default output function that writes to stdout
 const defaultOutput = (message: string): void => {
-  process.stdout.write(message);
+  console.log(message);
 };
 
 // Helper function to format chat message for display
@@ -112,7 +112,7 @@ export const axCreateDefaultColorLogger = (
         formattedMessage += `\n${divider}`; // Keep closing for steps
         break;
       case 'FunctionResults':
-        formattedMessage = `\n${cl.yellow('[ FUNCTION RESULTS ]')}\n${divider}\n`;
+        formattedMessage = `\n${cl.yellow('[ FUNCTION RESULTS ]')}\n`;
         typedData.value.forEach((result, i) => {
           formattedMessage += cl.yellowDim(
             `Function: ${result.functionId}\nResult: ${result.result}`
@@ -122,7 +122,7 @@ export const axCreateDefaultColorLogger = (
         });
         break;
       case 'ChatResponseResults':
-        formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n${divider}\n`;
+        formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n`;
         typedData.value.forEach((result, i) => {
           formattedMessage += cl.cyan(result.content || '[No content]');
           if (i < typedData.value.length - 1)
@@ -130,10 +130,22 @@ export const axCreateDefaultColorLogger = (
         });
         break;
       case 'ChatResponseStreamingResult': {
-        const streamingContent =
-          typedData.value.delta || typedData.value.content || '';
-        // Add newline prefix if this is actual content (not just a delta)
-        formattedMessage = cl.cyanBright(streamingContent);
+        // const streamingContent =
+        //   typedData.value.delta || typedData.value.content || '';
+        // // Add newline prefix if this is actual content (not just a delta)
+        // formattedMessage = cl.cyanBright(streamingContent);
+        return;
+      }
+      case 'ChatResponseStreamingDoneResult': {
+        formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n${divider}\n`;
+        if (typedData.value.content) {
+          formattedMessage += cl.cyanBright(typedData.value.content);
+        }
+        if (typedData.value.functionCalls) {
+          formattedMessage += cl.cyanBright(
+            JSON.stringify(typedData.value.functionCalls, null, 2)
+          );
+        }
         break;
       }
       case 'FunctionError':
@@ -209,7 +221,7 @@ export const axCreateDefaultTextLogger = (
         });
         break;
       case 'ChatResponseResults':
-        formattedMessage = `\n[ CHAT RESPONSE ]\n${divider}\n`;
+        formattedMessage = '\n[ CHAT RESPONSE ]\n';
         typedData.value.forEach((result, i) => {
           formattedMessage += result.content || '[No content]';
           if (i < typedData.value.length - 1)
@@ -217,10 +229,24 @@ export const axCreateDefaultTextLogger = (
         });
         break;
       case 'ChatResponseStreamingResult': {
-        const streamingContent =
-          typedData.value.delta || typedData.value.content || '';
-        // Add newline prefix if this is actual content (not just a delta)
-        formattedMessage = streamingContent;
+        // const streamingContent =
+        //   typedData.value.delta || typedData.value.content || '';
+        // // Add newline prefix if this is actual content (not just a delta)
+        // formattedMessage = streamingContent;
+        return;
+      }
+      case 'ChatResponseStreamingDoneResult': {
+        formattedMessage = '\n[ CHAT RESPONSE ]\n';
+        if (typedData.value.content) {
+          formattedMessage += typedData.value.content;
+        }
+        if (typedData.value.functionCalls) {
+          formattedMessage += JSON.stringify(
+            typedData.value.functionCalls,
+            null,
+            2
+          );
+        }
         break;
       }
       case 'FunctionError':

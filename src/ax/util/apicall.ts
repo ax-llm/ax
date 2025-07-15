@@ -341,7 +341,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const metrics = createRequestMetrics();
   let timeoutId: NodeJS.Timeout;
 
-  const baseUrl = new URL(process.env.PROXY ?? api.url);
+  const baseUrl = new URL(api.url);
   const apiPath = `${[baseUrl.pathname, api.name]
     .filter(Boolean)
     .join('/')

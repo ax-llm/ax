@@ -266,6 +266,11 @@ export type AxLoggerData =
       value: AxChatResponseResult & { delta?: string };
     }
   | {
+      name: 'ChatResponseStreamingDoneResult';
+      index: number;
+      value: AxChatResponseResult;
+    }
+  | {
       name: 'FunctionError';
       index: number;
       fixingInstructions: string;

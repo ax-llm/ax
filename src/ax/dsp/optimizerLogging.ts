@@ -6,7 +6,7 @@ import type {
 
 // Default output function that writes to stdout
 const defaultOutput = (message: string): void => {
-  process.stdout.write(message);
+  console.log(message);
 };
 
 /**

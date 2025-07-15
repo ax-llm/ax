@@ -1,7 +1,6 @@
 /* eslint-disable functional/prefer-immutable-types */
 import { ColorLog } from '../util/log.js';
 
-import type { AxExample, AxOptimizationStats } from './optimizer.js';
 import type { AxField } from './sig.js';
 import type {
   AxFieldValue,
@@ -35,7 +34,7 @@ export const updateProgressBar = (
       : msg;
 
   // Use newline instead of carriage return to avoid overwriting structured logs
-  process.stdout.write(
+  console.log(
     `│  ${friendlyMsg}: ${current}/${total} (${colorLog.yellow(percentage)}%) |${filledBar}${emptyBar}| Success rate: ${colorLog.greenBright(successRate)}%\n`
   );
 };
@@ -404,83 +403,4 @@ export const calculateETA = (
   const etaMs = msPerItem * remainingItems;
 
   return formatTime(etaMs);
-};
-
-interface ProgressConfigInfo {
-  maxRounds: number;
-  batchSize: number;
-  earlyStoppingPatience: number;
-  costMonitoring: boolean;
-  verboseMode: boolean;
-  debugMode: boolean;
-}
-
-export const updateDetailedProgress = <T extends AxGenOut = AxGenOut>(
-  roundIndex: number,
-  current: number,
-  total: number,
-  elapsedTime: number,
-  example: Readonly<AxExample>,
-  stats: Readonly<AxOptimizationStats>,
-  configInfo: Readonly<ProgressConfigInfo>,
-  result?: T,
-  error?: Error
-): void => {
-  // Clear line and create a formatted output
-  process.stdout.write('\r\x1b[K');
-
-  const percentage = ((current / total) * 100).toFixed(1);
-  const formattedTime = formatTime(elapsedTime);
-  const eta = calculateETA(current, total, elapsedTime);
-
-  // Basic progress info (always shown) - more user-friendly
-  let output = `Training round ${roundIndex + 1}/${configInfo.maxRounds}: ${current}/${total} (${percentage}%) [${formattedTime}, ETA: ${eta}]`;
-
-  // Add success stats in a cleaner format
-  const successRate =
-    stats.totalCalls > 0 ? (stats.successfulDemos / stats.totalCalls) * 100 : 0;
-  output += ` | Success rate: ${successRate.toFixed(1)}% (${stats.successfulDemos}/${stats.totalCalls})`;
-
-  // Additional info for verbose mode
-  if (configInfo.verboseMode || configInfo.debugMode) {
-    if (configInfo.costMonitoring) {
-      output += `\n  Tokens: ~${stats.estimatedTokenUsage.toLocaleString()} total`;
-    }
-
-    output += `\n  Batch: ${Math.floor(current / configInfo.batchSize) + 1}/${Math.ceil(total / configInfo.batchSize)}`;
-
-    if (configInfo.earlyStoppingPatience > 0 && stats.earlyStopping) {
-      output += `\n  Best round: ${stats.earlyStopping.bestScoreRound + 1}, Patience: ${configInfo.earlyStoppingPatience}`;
-    }
-  }
-
-  // Debug mode gets even more info
-  if (configInfo.debugMode) {
-    // Truncate example keys for display
-    const exampleKeys = Object.keys(example)
-      .map((k) => {
-        const valueStr = JSON.stringify(example[k]);
-        const truncated =
-          valueStr.length > 30 ? `${valueStr.substring(0, 30)}...` : valueStr;
-        return `${k}: ${truncated}`;
-      })
-      .join(', ');
-
-    output += `\n  Example: {${exampleKeys}}`;
-
-    if (error) {
-      output += `\n  ERROR: ${error.message}`;
-    } else if (result) {
-      // Truncate result for display
-      const resultStr = JSON.stringify(result);
-      const truncatedResult =
-        resultStr.length > 50 ? `${resultStr.substring(0, 50)}...` : resultStr;
-      output += `\n  Result: ${truncatedResult}`;
-    }
-
-    // Add temperature info
-    output += `\n  Temperature: ${(0.7 + 0.001 * current).toFixed(3)}`;
-  }
-
-  console.log(output);
 };

@@ -196,12 +196,7 @@ export class AxMockAIService implements AxAIService {
     return (
       this.config.options?.logger ??
       ((message: string | AxLoggerData) => {
-        if (typeof message === 'string') {
-          process.stdout.write(message);
-        } else {
-          // For typed logger data, convert to string representation
-          process.stdout.write(JSON.stringify(message, null, 2));
-        }
+        console.log(message);
       })
     );
   }

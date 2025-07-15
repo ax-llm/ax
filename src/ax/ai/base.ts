@@ -1,4 +1,3 @@
-// ReadableStream is available globally in modern browsers and Node.js 16+ via DOM types
 import { context, type Span, SpanKind } from '@opentelemetry/api';
 import { axGlobals } from '../dsp/globals.js';
 import { defaultLogger } from '../dsp/loggers.js';
@@ -11,6 +10,7 @@ import {
   logEmbedRequest,
   logEmbedResponse,
   logResponse,
+  logResponseStreamingDoneResult,
   logResponseStreamingResult,
 } from './debug.js';
 import {
@@ -1049,7 +1049,7 @@ export class AxBaseAI<
 
     if (modelConfig.stream) {
       if (!this.aiImpl.createChatStreamResp) {
-        throw new Error('generateChatResp not implemented');
+        throw new Error('generateChatStreamResp not implemented');
       }
 
       const respFn = this.aiImpl.createChatStreamResp.bind(this);
@@ -1090,9 +1090,15 @@ export class AxBaseAI<
         };
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const doneCb = async (_values: readonly AxChatResponse[]) => {
+      const doneCb = async (values: readonly AxChatResponse[]) => {
         if (span?.isRecording()) {
           span.end();
+        }
+        if (debug) {
+          logResponseStreamingDoneResult(
+            values,
+            options?.logger ?? this.logger
+          );
         }
       };
 

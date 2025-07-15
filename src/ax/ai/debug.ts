@@ -7,6 +7,7 @@ import type {
   AxLoggerData,
   AxLoggerFunction,
 } from './types.js';
+import { mergeFunctionCalls } from './util.js';
 
 export const logChatRequest = (
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
@@ -69,6 +70,59 @@ export const logResponseStreamingResult = (
 
   logger(loggerData);
 };
+
+export function logResponseStreamingDoneResult(
+  values: readonly AxChatResponse[],
+  logger: AxLoggerFunction = defaultLogger
+): void {
+  // Combine results by index
+  const combinedResults = new Map<number, AxChatResponseResult>();
+
+  for (const value of values) {
+    for (const result of value.results) {
+      if (!result) {
+        continue;
+      }
+
+      let existing = combinedResults.get(result.index);
+      if (!existing) {
+        existing = structuredClone(result);
+        combinedResults.set(result.index, existing);
+      } else {
+        if (result.content) {
+          existing.content = (existing.content ?? '') + result.content;
+        }
+        if (result.thought) {
+          existing.thought = (existing.thought ?? '') + result.thought;
+        }
+        if (result.finishReason) {
+          existing.finishReason = result.finishReason;
+        }
+        if (result.functionCalls) {
+          if (existing.functionCalls) {
+            mergeFunctionCalls(
+              existing.functionCalls,
+              structuredClone(result.functionCalls)
+            );
+          } else {
+            existing.functionCalls = structuredClone(result.functionCalls);
+          }
+        }
+      }
+    }
+  }
+
+  // Log each combined result
+  for (const result of combinedResults.values()) {
+    const loggerData: AxLoggerData = {
+      name: 'ChatResponseStreamingDoneResult',
+      index: result.index,
+      value: result,
+    };
+
+    logger(loggerData);
+  }
+}
 
 export const logFunctionResults = (
   results: Readonly<AxFunctionResult[]>,
