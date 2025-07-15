@@ -47,7 +47,7 @@ import type {
  * providing compile-time type safety and superior IntelliSense.
  *
  * @example
- * ```typescript
+ * ```
  * const flow = new AxFlow<{ topic: string }, { finalAnswer: string }>()
  *   .node('summarizer', 'text:string -> summary:string')
  *   .node('critic', 'summary:string -> critique:string')
@@ -113,9 +113,12 @@ export class AxFlow<
    * @returns AxSignature - The inferred signature for this flow
    */
   private inferSignatureFromFlow(): AxSignature {
-    // If no nodes are defined, return a default signature
-    if (this.nodeGenerators.size === 0) {
-      // Create a default signature for flows without nodes
+    // Get execution plan to identify dependencies and field flow
+    const executionPlan = this.executionPlanner.getExecutionPlan();
+
+    // If no nodes are defined AND no execution steps, return a default signature
+    if (this.nodeGenerators.size === 0 && executionPlan.steps.length === 0) {
+      // Create a default signature for flows without nodes or steps
       const defaultSignature = new AxSignature();
       defaultSignature.addInputField({
         name: 'userInput',
@@ -130,9 +133,7 @@ export class AxFlow<
       return defaultSignature;
     }
 
-    // Get execution plan to identify dependencies and field flow
     // This gives us a structured view of what each step consumes and produces
-    const executionPlan = this.executionPlanner.getExecutionPlan();
     const allProducedFields = new Set<string>();
     const allConsumedFields = new Set<string>();
 
@@ -159,6 +160,7 @@ export class AxFlow<
     // Special handling for final map/merge operations
     // When a flow ends with a transformation or merge, we want to use those results
     // as the output rather than intermediate node results
+    // Note: For derive operations, use standard logic to handle multiple derives properly
     const lastStep = executionPlan.steps[executionPlan.steps.length - 1];
     if (lastStep && (lastStep.type === 'map' || lastStep.type === 'merge')) {
       // If the last step is a map/merge, use its produced fields as outputs
@@ -535,7 +537,7 @@ export class AxFlow<
    * @returns New AxFlow instance with updated TNodes type
    *
    * @example
-   * ```typescript
+   * ```
    * flow.node('summarizer', 'text:string -> summary:string')
    * flow.node('analyzer', 'text:string -> analysis:string, confidence:number', { debug: true })
    * ```
@@ -561,7 +563,7 @@ export class AxFlow<
    * @returns New AxFlow instance with updated TNodes type
    *
    * @example
-   * ```typescript
+   * ```
    * const sig = new AxSignature('text:string -> summary:string')
    * flow.node('summarizer', sig, { temperature: 0.1 })
    * ```
@@ -586,7 +588,7 @@ export class AxFlow<
    * @returns New AxFlow instance with updated TNodes type
    *
    * @example
-   * ```typescript
+   * ```
    * class CustomProgram extends AxProgram<{ input: string }, { output: string }> {
    *   async forward(ai, values) { return { output: values.input.toUpperCase() } }
    * }
@@ -755,7 +757,7 @@ export class AxFlow<
    * @returns New AxFlow instance with updated TState type
    *
    * @example
-   * ```typescript
+   * ```
    * flow.map(state => ({ ...state, processedText: state.text.toLowerCase() }))
    * ```
    */
@@ -773,7 +775,7 @@ export class AxFlow<
    * @returns New AxFlow instance with updated TState type
    *
    * @example
-   * ```typescript
+   * ```
    * // Parallel map with multiple transforms
    * flow.map([
    *   state => ({ ...state, result1: processA(state.data) }),
@@ -1350,7 +1352,7 @@ export class AxFlow<
 
           // Create new state with the merged result and clean up temporary storage
           const newState = { ...state };
-          newState._parallelResults = undefined; // Clean up temporary field
+          delete newState._parallelResults; // Properly delete temporary field
           newState[resultKey] = mergedValue;
 
           return newState;
@@ -1611,6 +1613,111 @@ export class AxFlow<
    */
   public end(): this {
     return this.endWhile();
+  }
+
+  /**
+   * Derives a new field from an existing field by applying a transform function.
+   *
+   * If the input field contains an array, the transform function is applied to each
+   * array element in parallel with batch size control. If the input field contains
+   * a scalar value, the transform function is applied directly.
+   *
+   * @param outputFieldName - Name of the field to store the result
+   * @param inputFieldName - Name of the existing field to transform
+   * @param transformFn - Function to apply to each element (for arrays) or the value directly (for scalars)
+   * @param options - Options including batch size for parallel processing
+   * @returns this (for chaining)
+   *
+   * @example
+   * ```typescript
+   * // Parallel processing of array items
+   * flow.derive('processedItems', 'items', (item, index) => processItem(item), { batchSize: 5 })
+   *
+   * // Direct transformation of scalar value
+   * flow.derive('upperText', 'text', (text) => text.toUpperCase())
+   * ```
+   */
+  public derive<T>(
+    outputFieldName: string,
+    inputFieldName: string,
+    transformFn: (value: any, index?: number, state?: TState) => T,
+    options?: { batchSize?: number }
+  ): this {
+    const step = async (state: AxFlowState) => {
+      const inputValue = state[inputFieldName];
+
+      if (inputValue === undefined) {
+        throw new Error(`Input field '${inputFieldName}' not found in state`);
+      }
+
+      let result: T | T[];
+
+      if (Array.isArray(inputValue)) {
+        // Array input - use parallel processing with batch control
+        if (this.autoParallelConfig.enabled) {
+          const batchSize =
+            options?.batchSize || this.autoParallelConfig.batchSize;
+          result = await processBatches(
+            inputValue,
+            async (item, index) => {
+              return transformFn(item, index, state as TState);
+            },
+            batchSize
+          );
+        } else {
+          // Sequential processing when parallel is disabled
+          result = inputValue.map((item: any, index: number) =>
+            transformFn(item, index, state as TState)
+          );
+        }
+      } else {
+        // Scalar input - apply transform directly
+        result = transformFn(inputValue, undefined, state as TState);
+      }
+
+      return {
+        ...state,
+        [outputFieldName]: result,
+      };
+    };
+
+    if (this.branchContext?.currentBranchValue !== undefined) {
+      // We're inside a branch - add to current branch
+      const currentBranch =
+        this.branchContext.branches.get(
+          this.branchContext.currentBranchValue
+        ) || [];
+      currentBranch.push(step);
+      this.branchContext.branches.set(
+        this.branchContext.currentBranchValue,
+        currentBranch
+      );
+    } else {
+      // Normal execution - add to main flow
+      this.flowDefinition.push(step);
+
+      // Register with execution planner for signature inference and automatic parallelization
+      if (this.autoParallelConfig.enabled) {
+        this.executionPlanner.addExecutionStep(
+          step,
+          undefined,
+          undefined,
+          'derive',
+          transformFn as any,
+          undefined,
+          {
+            inputFieldName,
+            outputFieldName,
+            batchSize: options?.batchSize,
+          }
+        );
+      }
+    }
+
+    // Initialize program when flow structure is updated
+    this.ensureProgram();
+
+    return this;
   }
 
   /**

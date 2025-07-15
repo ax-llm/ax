@@ -129,7 +129,7 @@ describe('AxFlowExecutionPlanner', () => {
         input: state.value,
       }));
       planner.addExecutionStep(step2, 'node2', (state: any) => ({
-        input: state.step1,
+        input: state.node1Result,
       }));
 
       const plan = planner.getExecutionPlan();
@@ -194,7 +194,7 @@ describe('AxFlowExecutionPlanner', () => {
         input: state.value,
       }));
       planner.addExecutionStep(step2, 'node2', (state: any) => ({
-        input: state.step1,
+        input: state.node1Result,
       }));
 
       const optimizedSteps = planner.getOptimizedExecutionSteps();

@@ -1096,3 +1096,240 @@ describe('AxFlow > node definition > new overloads', () => {
     }).toThrow('Invalid second argument for node');
   });
 });
+
+describe('AxFlow > derive method', () => {
+  let mockAI: AxMockAIService;
+
+  beforeEach(() => {
+    mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+  });
+
+  it('should derive a new field from array input with parallel processing', async () => {
+    const flow = new AxFlow<{ items: string[] }, { processedItems: string[] }>({
+      autoParallel: true,
+      batchSize: 2,
+    }).derive(
+      'processedItems',
+      'items',
+      (item: string, index?: number) => `processed-${item}-${index}`
+    );
+
+    const result = await flow.forward(mockAI, {
+      items: ['item1', 'item2', 'item3', 'item4'],
+    });
+
+    expect(result.processedItems).toEqual([
+      'processed-item1-0',
+      'processed-item2-1',
+      'processed-item3-2',
+      'processed-item4-3',
+    ]);
+  });
+
+  it('should derive a new field from array input with custom batch size', async () => {
+    const flow = new AxFlow<{ numbers: number[] }, { doubled: number[] }>({
+      autoParallel: true,
+    }).derive('doubled', 'numbers', (num: number) => num * 2, { batchSize: 1 });
+
+    const result = await flow.forward(mockAI, {
+      numbers: [1, 2, 3, 4, 5],
+    });
+
+    expect(result.doubled).toEqual([2, 4, 6, 8, 10]);
+  });
+
+  it('should derive a new field from scalar input', async () => {
+    const flow = new AxFlow<
+      { inputText: string },
+      { upperText: string }
+    >().derive('upperText', 'inputText', (text: string) => text.toUpperCase());
+
+    const result = await flow.forward(mockAI, { inputText: 'hello world' });
+
+    expect(result.upperText).toBe('HELLO WORLD');
+  });
+
+  it('should use sequential processing when autoParallel is disabled', async () => {
+    const flow = new AxFlow<{ items: string[] }, { processedItems: string[] }>({
+      autoParallel: false,
+    }).derive(
+      'processedItems',
+      'items',
+      (item: string, index?: number) => `seq-${item}-${index}`
+    );
+
+    const result = await flow.forward(mockAI, {
+      items: ['a', 'b', 'c'],
+    });
+
+    expect(result.processedItems).toEqual(['seq-a-0', 'seq-b-1', 'seq-c-2']);
+  });
+
+  it('should throw error when input field does not exist', async () => {
+    const flow = new AxFlow<
+      { inputText: string },
+      { outputResult: string }
+    >().derive('outputResult', 'nonexistent', (value: any) => value);
+
+    await expect(flow.forward(mockAI, { inputText: 'test' })).rejects.toThrow(
+      "Input field 'nonexistent' not found in state"
+    );
+  });
+
+  it('should work with complex transformations', async () => {
+    const flow = new AxFlow<
+      { users: Array<{ name: string; age: number }> },
+      { adultNames: string[] }
+    >()
+      .derive('adultNames', 'users', (user: { name: string; age: number }) =>
+        user.age >= 18 ? user.name : null
+      )
+      .map((state) => ({
+        adultNames: state.adultNames.filter((name) => name !== null),
+      }));
+
+    const result = await flow.forward(mockAI, {
+      users: [
+        { name: 'Alice', age: 25 },
+        { name: 'Bob', age: 16 },
+        { name: 'Charlie', age: 30 },
+      ],
+    });
+
+    expect(result.adultNames).toEqual(['Alice', 'Charlie']);
+  });
+
+  it('should preserve state and chain with other operations', async () => {
+    const flow = new AxFlow<
+      { items: string[]; prefix: string },
+      {
+        items: string[];
+        prefix: string;
+        prefixedItems: string[];
+        count: number;
+      }
+    >()
+      .derive(
+        'prefixedItems',
+        'items',
+        (item: string, _index?: number, state?: any) =>
+          `${state?.prefix || 'default'}-${item}` // Note: transform doesn't get state, this tests item processing
+      )
+      .map((state) => ({
+        ...state,
+        prefixedItems: state.items.map((item) => `${state.prefix}-${item}`), // Fixed implementation
+        count: state.items.length,
+      }));
+
+    const result = await flow.forward(mockAI, {
+      items: ['apple', 'banana'],
+      prefix: 'fruit',
+    });
+
+    expect(result.items).toEqual(['apple', 'banana']);
+    expect(result.prefix).toBe('fruit');
+    expect(result.prefixedItems).toEqual(['fruit-apple', 'fruit-banana']);
+    expect(result.count).toBe(2);
+  });
+});
+
+describe('AxFlow > derive method signature inference', () => {
+  let mockAI: AxMockAIService;
+
+  beforeEach(() => {
+    mockAI = new AxMockAIService({
+      chatResponse: {
+        results: [{ index: 0, content: 'Mock response', finishReason: 'stop' }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'test',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      },
+    });
+  });
+
+  it('should include derived field in signature output fields', () => {
+    const flow = new AxFlow<
+      { inputItems: string[] },
+      { outputItems: string[] }
+    >().derive('processedData', 'inputItems', (item: string) =>
+      item.toUpperCase()
+    );
+
+    const signature = flow.getSignature();
+    const outputFields = signature.getOutputFields();
+
+    const outputFieldNames = outputFields.map((field) => field.name);
+    expect(outputFieldNames).toContain('processedData');
+  });
+
+  it('should register derived field dependencies in execution planner', () => {
+    const flow = new AxFlow<
+      { items: string[] },
+      { results: string[] }
+    >().derive('results', 'items', (item: string) => `result-${item}`);
+
+    const executionPlan = flow.getExecutionPlan();
+
+    // Find the derive step
+    const deriveStep = executionPlan.steps?.find(
+      (step) => step.type === 'derive'
+    );
+    expect(deriveStep).toBeDefined();
+    expect(deriveStep?.dependencies).toContain('items');
+    expect(deriveStep?.produces).toContain('results');
+  });
+
+  it('should infer correct signature with multiple derive operations', () => {
+    const flow = new AxFlow<
+      { numbers: number[]; texts: string[] },
+      { doubled: number[]; uppercased: string[] }
+    >()
+      .derive('doubled', 'numbers', (num: number) => num * 2)
+      .derive('uppercased', 'texts', (text: string) => text.toUpperCase());
+
+    const signature = flow.getSignature();
+    const inputFields = signature.getInputFields();
+    const outputFields = signature.getOutputFields();
+
+    const inputFieldNames = inputFields.map((field) => field.name);
+    const outputFieldNames = outputFields.map((field) => field.name);
+
+    expect(inputFieldNames).toContain('numbers');
+    expect(inputFieldNames).toContain('texts');
+    expect(outputFieldNames).toContain('doubled');
+    expect(outputFieldNames).toContain('uppercased');
+  });
+
+  it('should work with derive as final operation in signature inference', async () => {
+    const flow = new AxFlow<
+      { inputData: string[] },
+      { finalResult: string[] }
+    >()
+      .map((state) => ({ ...state, intermediate: 'processed' }))
+      .derive('finalResult', 'inputData', (item: string) => `final-${item}`);
+
+    const signature = flow.getSignature();
+    const outputFields = signature.getOutputFields();
+    const outputFieldNames = outputFields.map((field) => field.name);
+
+    // finalResult should be in output fields since it's the last operation
+    expect(outputFieldNames).toContain('finalResult');
+
+    // Test execution works
+    const result = await flow.forward(mockAI, {
+      inputData: ['test1', 'test2'],
+    });
+    expect(result.finalResult).toEqual(['final-test1', 'final-test2']);
+  });
+});

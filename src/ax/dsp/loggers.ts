@@ -96,14 +96,14 @@ export const axCreateDefaultColorLogger = (
   output: (message: string) => void = defaultOutput
 ): AxLoggerFunction => {
   const cl = new ColorLog();
-  const divider = cl.gray('─'.repeat(60));
+  const divider = cl.gray(`${'─'.repeat(60)}\n`);
   return (message: AxLoggerData) => {
     const typedData = message;
     let formattedMessage = '';
 
     switch (typedData.name) {
       case 'ChatRequestChatPrompt':
-        formattedMessage = `${typedData.step > 0 ? `\n${divider}\n` : ''}${cl.blueBright(`[ CHAT REQUEST Step ${typedData.step} ]`)}\n${divider}\n`;
+        formattedMessage = `\n${cl.blueBright(`[ CHAT REQUEST Step ${typedData.step} ]`)}\n${divider}\n`;
         typedData.value.forEach((msg, i) => {
           formattedMessage += formatChatMessage(msg, undefined, cl);
           if (i < typedData.value.length - 1)
@@ -133,14 +133,7 @@ export const axCreateDefaultColorLogger = (
         const streamingContent =
           typedData.value.delta || typedData.value.content || '';
         // Add newline prefix if this is actual content (not just a delta)
-        const needsNewline =
-          streamingContent.trim().length > 0 &&
-          (streamingContent.includes('Reply:') ||
-            streamingContent.includes('🤖') ||
-            streamingContent.length > 50);
-        formattedMessage = needsNewline
-          ? `\n${cl.cyanBright(streamingContent)}`
-          : cl.cyanBright(streamingContent);
+        formattedMessage = cl.cyanBright(streamingContent);
         break;
       }
       case 'FunctionError':
@@ -199,7 +192,7 @@ export const axCreateDefaultTextLogger = (
 
     switch (typedData.name) {
       case 'ChatRequestChatPrompt':
-        formattedMessage = `${typedData.step > 0 ? `\n${divider}\n` : ''}[ CHAT REQUEST Step ${typedData.step} ]\n${divider}\n`;
+        formattedMessage = `\n[ CHAT REQUEST Step ${typedData.step} ]\n${divider}\n`;
         typedData.value.forEach((msg, i) => {
           formattedMessage += formatChatMessage(msg);
           if (i < typedData.value.length - 1)
@@ -227,14 +220,7 @@ export const axCreateDefaultTextLogger = (
         const streamingContent =
           typedData.value.delta || typedData.value.content || '';
         // Add newline prefix if this is actual content (not just a delta)
-        const needsNewline =
-          streamingContent.trim().length > 0 &&
-          (streamingContent.includes('Reply:') ||
-            streamingContent.includes('🤖') ||
-            streamingContent.length > 50);
-        formattedMessage = needsNewline
-          ? `\n${streamingContent}`
-          : streamingContent;
+        formattedMessage = streamingContent;
         break;
       }
       case 'FunctionError':

@@ -54,17 +54,33 @@ export class AxFlowExecutionPlanner {
     stepFunction: AxFlowStepFunction,
     nodeName?: string,
     mapping?: (state: any) => any,
-    stepType?: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel',
+    stepType?:
+      | 'execute'
+      | 'map'
+      | 'merge'
+      | 'parallel-map'
+      | 'parallel'
+      | 'derive',
     mapTransform?: (state: any) => any,
     mergeOptions?: {
       resultKey?: string;
       mergeFunction?: (...args: any[]) => any;
+    },
+    deriveOptions?: {
+      inputFieldName: string;
+      outputFieldName: string;
+      batchSize?: number;
     }
   ): void {
     let dependencies: string[] = [];
     let produces: string[] = [];
-    let type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel' =
-      stepType || 'map';
+    let type:
+      | 'execute'
+      | 'map'
+      | 'merge'
+      | 'parallel-map'
+      | 'parallel'
+      | 'derive' = stepType || 'map';
 
     if (nodeName && mapping) {
       type = 'execute';
@@ -72,6 +88,7 @@ export class AxFlowExecutionPlanner {
         mapping,
         nodeName
       );
+      // For execute steps, we know the result will be stored as `${nodeName}Result`
       produces = [`${nodeName}Result`];
     } else if (type === 'map' && mapTransform) {
       // Analyze map transformation to determine what fields it produces
@@ -117,6 +134,23 @@ export class AxFlowExecutionPlanner {
       // Parallel operations produce _parallelResults for merge step
       produces = ['_parallelResults'];
       dependencies = this.getAllProducedFields();
+    } else if (type === 'derive') {
+      // Derive operations produce the specified output field and depend on the input field
+      if (deriveOptions?.outputFieldName && deriveOptions?.inputFieldName) {
+        produces = [deriveOptions.outputFieldName];
+        // Also analyze the transform function for other dependencies
+        const otherDependencies = mapTransform
+          ? this.analyzer.analyzeMappingDependencies(mapTransform, 'derive')
+          : [];
+        dependencies = [
+          deriveOptions.inputFieldName,
+          ...otherDependencies,
+        ].filter((v, i, a) => a.indexOf(v) === i); // Ensure uniqueness
+      } else {
+        // Fallback if options not provided properly
+        produces = ['_deriveResult'];
+        dependencies = this.getAllProducedFields();
+      }
     } else if (stepFunction.toString().includes('transform(')) {
       type = 'map';
       // Fallback: Map steps are harder to analyze statically, assume they depend on all previous steps
@@ -126,6 +160,14 @@ export class AxFlowExecutionPlanner {
       // This is likely a parallel step that produces _parallelResults
       produces = ['_parallelResults'];
       dependencies = this.getAllProducedFields();
+    }
+
+    // Infer initial fields from dependencies
+    // A field is an initial field if it's consumed by a step but not produced by any previous step
+    for (const dep of dependencies) {
+      if (!this.getAllProducedFields().includes(dep)) {
+        this.initialFields.add(dep);
+      }
     }
 
     const step: AxFlowExecutionStep = {
@@ -140,6 +182,126 @@ export class AxFlowExecutionPlanner {
     this.steps.push(step);
     // Don't rebuild parallel groups during construction - only after initial fields are set
     // this.rebuildParallelGroups()
+  }
+
+  /**
+   * Analyzes a step function to determine what fields it produces.
+   *
+   * This method analyzes the step function to understand what new fields
+   * it adds to the state. It uses a mock state approach:
+   * 1. Creates a mock state with sample data
+   * 2. Runs the step function on the mock state
+   * 3. Compares the result to see what fields were added
+   *
+   * @param stepFunction - The step function to analyze
+   * @returns Array of field names that the step function produces
+   */
+  private analyzeStepFunctionProduction(
+    stepFunction: AxFlowStepFunction
+  ): string[] {
+    // For step functions, we should primarily rely on source analysis
+    // since they might contain complex AI operations that we can't mock safely
+    try {
+      const sourceAnalysis = this.analyzeStepFunctionSource(stepFunction);
+      if (
+        sourceAnalysis.length > 0 &&
+        !sourceAnalysis.includes('_stepResult')
+      ) {
+        return sourceAnalysis;
+      }
+    } catch (error) {
+      console.debug('Step function source analysis failed:', error);
+    }
+
+    // Only try dynamic analysis for simple functions
+    try {
+      const mockState = this.createMockState();
+      const originalKeys = Object.keys(mockState);
+
+      // Create a mock context for the step function
+      const mockContext = {
+        mainAi: {
+          getOptions: () => ({ trace: false }),
+          forward: () => Promise.resolve({ text: 'mock' }),
+        } as any,
+        mainOptions: undefined,
+      };
+
+      const result = stepFunction(mockState, mockContext);
+
+      // Handle async functions
+      if (result && typeof result === 'object' && 'then' in result) {
+        // For async functions, we can't easily determine the output
+        // Fall back to analyzing the function source code
+        return this.analyzeStepFunctionSource(stepFunction);
+      }
+
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        const newKeys = Object.keys(result);
+        const addedFields = newKeys.filter(
+          (key) => !originalKeys.includes(key)
+        );
+        if (addedFields.length > 0) {
+          return addedFields;
+        }
+      }
+    } catch (error) {
+      // If analysis fails, fall back to source analysis
+      console.debug('Step function dynamic analysis failed:', error);
+    }
+
+    return this.analyzeStepFunctionSource(stepFunction);
+  }
+
+  /**
+   * Analyzes step function source code to determine what fields it produces.
+   *
+   * @param stepFunction - The step function to analyze
+   * @returns Array of field names that the step function produces
+   */
+  private analyzeStepFunctionSource(
+    stepFunction: AxFlowStepFunction
+  ): string[] {
+    try {
+      const source = stepFunction.toString();
+
+      // Look for patterns like: { ...state, fieldName: value }
+      const fieldAssignments = source.match(
+        /\{\s*\.\.\.state\s*,\s*(\w+)\s*:/g
+      );
+      if (fieldAssignments) {
+        const fields = fieldAssignments
+          .map((assignment) => {
+            const match = assignment.match(/(\w+)\s*:/);
+            return match ? match[1] : null;
+          })
+          .filter(Boolean);
+
+        if (fields.length > 0) {
+          return fields as string[];
+        }
+      }
+
+      // Look for direct property assignments like: state.fieldName = value
+      const propertyAssignments = source.match(/state\.(\w+)\s*=/g);
+      if (propertyAssignments) {
+        const fields = propertyAssignments
+          .map((assignment) => {
+            const match = assignment.match(/state\.(\w+)\s*=/);
+            return match ? match[1] : null;
+          })
+          .filter(Boolean);
+
+        if (fields.length > 0) {
+          return fields as string[];
+        }
+      }
+    } catch (error) {
+      console.debug('Step function source analysis failed:', error);
+    }
+
+    // Fallback to a generic field name
+    return ['_stepResult'];
   }
 
   /**
@@ -213,6 +375,8 @@ export class AxFlowExecutionPlanner {
             confidenceScore: 0.8,
             isComplex: false,
             mockValue: 'mockValue',
+            responseText: 'mockResponseText',
+            inputText: 'mockInputText',
           };
         } else {
           mockState[field] = this.createMockValue(field);
@@ -484,7 +648,11 @@ export class AxFlowExecutionPlanner {
                 typeof result === 'object' &&
                 '_parallelResults' in result
             );
-            return parallelResult || state;
+            if (parallelResult) {
+              // Return the parallel result directly - the merge step will handle cleanup
+              return parallelResult;
+            }
+            return state;
           }
 
           // Merge all results for regular parallel execution

@@ -122,10 +122,16 @@ const flowParallel = new AxFlow<
       })),
   ])
   .merge('combinedScore', (noveltyRes: unknown, clarityRes: unknown) => {
-    const noveltyResult = noveltyRes as { noveltyScore: number };
-    const clarityResult = clarityRes as { clarityScore: number };
-    const noveltyScore = Number(noveltyResult.noveltyScore) || 0;
-    const clarityScore = Number(clarityResult.clarityScore) || 0;
+    const noveltyResult = noveltyRes as {
+      noveltyScorerResult: { noveltyScore: number };
+    };
+    const clarityResult = clarityRes as {
+      clarityScorerResult: { clarityScore: number };
+    };
+    const noveltyScore =
+      Number(noveltyResult.noveltyScorerResult?.noveltyScore) || 0;
+    const clarityScore =
+      Number(clarityResult.clarityScorerResult?.clarityScore) || 0;
     return (noveltyScore + clarityScore) / 2;
   });
 
@@ -207,7 +213,7 @@ const flowBatchedParallel = new AxFlow<
       })),
   ])
   .merge('processedBatch', (res1: any, res2: any, res3: any) => {
-    return `Combined: ${res1.processedResult1}, ${res2.processedResult2}, ${res3.processedResult3}`;
+    return `Combined: ${res1?.processor1Result?.processedResult1 || 'missing'}, ${res2?.processor2Result?.processedResult2 || 'missing'}, ${res3?.processor3Result?.processedResult3 || 'missing'}`;
   });
 
 console.log('=== Document Analysis Pipeline ===');

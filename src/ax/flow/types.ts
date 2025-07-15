@@ -130,7 +130,7 @@ export interface AxFlowBranchContext {
 
 // Type for execution step metadata
 export interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel';
+  type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel' | 'derive';
   nodeName?: string;
   dependencies: string[];
   produces: string[];
