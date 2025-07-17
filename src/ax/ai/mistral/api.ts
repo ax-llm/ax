@@ -67,7 +67,7 @@ export type AxAIMistralChatRequest = Omit<
   )[];
 };
 
-export type AxAIMistralArgs<TModelKey = string> = AxAIOpenAIArgs<
+export type AxAIMistralArgs<TModelKey> = AxAIOpenAIArgs<
   'mistral',
   AxAIMistralModel,
   AxAIMistralEmbedModels,
@@ -77,7 +77,7 @@ export type AxAIMistralArgs<TModelKey = string> = AxAIOpenAIArgs<
   modelInfo?: AxModelInfo[];
 };
 
-export class AxAIMistral<TModelKey = string> extends AxAIOpenAIBase<
+export class AxAIMistral<TModelKey> extends AxAIOpenAIBase<
   AxAIMistralModel,
   AxAIMistralEmbedModels,
   TModelKey

@@ -37,7 +37,6 @@ import {
 } from './metrics.js';
 import type {
   AxAIInputModelList,
-  AxAIModelList,
   AxAIPromptConfig,
   AxAIService,
   AxAIServiceActionOptions,
@@ -259,7 +258,7 @@ export class AxBaseAI<
   }
 
   getModelList() {
-    const models: AxAIModelList<TModelKey> = [];
+    const models = [];
     for (const model of this.models ?? []) {
       if (model.isInternal) {
         continue;
@@ -270,7 +269,7 @@ export class AxBaseAI<
           key: model.key as TModelKey,
           description: model.description,
           model: model.model as string,
-        });
+        } as const);
       }
 
       if ('embedModel' in model && model.embedModel) {
@@ -278,7 +277,7 @@ export class AxBaseAI<
           key: model.key as TModelKey,
           description: model.description,
           embedModel: model.embedModel as string,
-        });
+        } as const);
       }
     }
 

@@ -645,6 +645,143 @@ For a more complex example involving authentication and custom headers with a
 remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts`
 file in this repository.
 
+## Type-Safe AI Models with Automatic Inference
+
+**New in Ax**: Enhanced type safety with automatic model key inference! Define
+your models once and get precise TypeScript types throughout your application.
+
+### Enhanced Type Inference with Static Factory Methods
+
+Use the static `.create()` method for automatic type inference from your models
+array:
+
+```typescript
+import { AxAI, AxAIGoogleGeminiModel, AxAIOpenAIModel } from "@ax-llm/ax";
+
+// ✨ Automatic type inference - TModelKey becomes 'fast' | 'smart' | 'reasoning'
+const openai = AxAI.create({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  models: [
+    {
+      key: "fast" as const,
+      model: AxAIOpenAIModel.GPT4OMini,
+      description: "Fast model for simple tasks",
+    },
+    {
+      key: "smart" as const,
+      model: AxAIOpenAIModel.GPT4O,
+      description: "Smart model for complex tasks",
+    },
+    {
+      key: "reasoning" as const,
+      model: AxAIOpenAIModel.O1Preview,
+      description: "Reasoning model for deep analysis",
+    },
+  ],
+});
+
+// Perfect IntelliSense! The models list has exact literal types
+const models = openai.getModelList();
+// models[0].key is typed as 'fast' | 'smart' | 'reasoning', not just string
+
+// Type-safe model selection in chat requests
+const response = await openai.chat({
+  chatPrompt: [{ role: "user", content: "Hello!" }],
+  model: "fast", // ✅ TypeScript validates this is a valid key
+  // model: 'invalid' // ❌ TypeScript error - not in defined models
+});
+```
+
+### Multi-Provider Type Safety
+
+Combine multiple AI providers with precise type inference:
+
+```typescript
+// Each provider gets its own inferred model keys
+const gemini = AxAI.create({
+  name: "google-gemini",
+  apiKey: process.env.GOOGLE_APIKEY!,
+  models: [
+    {
+      key: "quick" as const,
+      model: AxAIGoogleGeminiModel.Gemini15Flash,
+      description: "Quick responses",
+    },
+    {
+      key: "advanced" as const,
+      model: AxAIGoogleGeminiModel.Gemini15Pro,
+      description: "Advanced reasoning",
+    },
+  ],
+});
+
+// MultiServiceRouter automatically infers union of all model keys
+const router = new AxMultiServiceRouter([openai, gemini]);
+// router now knows about 'fast' | 'smart' | 'reasoning' | 'quick' | 'advanced'
+
+const routerModels = router.getModelList();
+// Perfect type safety across all providers!
+```
+
+### Backward Compatibility
+
+The traditional constructor pattern still works - this is purely additive:
+
+```typescript
+// ✅ Still works - uses TModelKey = string (less precise)
+const traditionalAI = new AxAI({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+});
+
+// ✅ Still works - explicit type parameter
+const explicitAI = new AxAI<"gpt-4" | "gpt-3.5-turbo">({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  models: [
+    {
+      key: "gpt-4" as const,
+      model: AxAIOpenAIModel.GPT4O,
+      description: "Smart",
+    },
+    {
+      key: "gpt-3.5-turbo" as const,
+      model: AxAIOpenAIModel.GPT35Turbo,
+      description: "Fast",
+    },
+  ],
+});
+
+// ✨ NEW: Automatic inference (recommended)
+const inferredAI = AxAI.create({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  models: [
+    {
+      key: "gpt-4" as const,
+      model: AxAIOpenAIModel.GPT4O,
+      description: "Smart",
+    },
+    {
+      key: "gpt-3.5-turbo" as const,
+      model: AxAIOpenAIModel.GPT35Turbo,
+      description: "Fast",
+    },
+  ],
+});
+```
+
+### Benefits
+
+- **🎯 Precise Types**: Model keys are exact literal types, not generic strings
+- **✨ Perfect IntelliSense**: Autocomplete shows only valid model keys
+- **🛡️ Compile-time Safety**: Invalid model keys caught at build time
+- **🔄 Flow-through Safety**: Types flow through `getModelList()`, router, and
+  all operations
+- **📦 Zero Breaking Changes**: Existing code continues to work unchanged
+- **⚡ Progressive Enhancement**: Adopt better types when ready
+
 ## AxFlow: Build AI Workflows
 
 **AxFlow** makes it easy to build complex AI workflows with automatic parallel
@@ -667,7 +804,7 @@ execution and simple, readable code.
 ```typescript
 import { AxAI, AxFlow } from "@ax-llm/ax";
 
-const ai = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
+const ai = AxAI.create({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
 // Simple document analysis workflow
 const documentAnalyzer = new AxFlow<
@@ -730,8 +867,29 @@ const result = await quickAnalyzer.forward(ai, {
 Use different AI models for different tasks:
 
 ```typescript
-const fastAI = new AxAI({ name: "openai", config: { model: "gpt-4o-mini" } });
-const powerAI = new AxAI({ name: "openai", config: { model: "gpt-4o" } });
+const fastAI = AxAI.create({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  models: [
+    {
+      key: "fast" as const,
+      model: "gpt-4o-mini",
+      description: "Fast responses",
+    },
+  ],
+});
+
+const powerAI = AxAI.create({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  models: [
+    {
+      key: "power" as const,
+      model: "gpt-4o",
+      description: "High-quality responses",
+    },
+  ],
+});
 
 // 🌟 The future: AI workflows that adapt and evolve with full resilience
 const autonomousContentEngine = new AxFlow<
@@ -1006,7 +1164,7 @@ specified.
 import { AxAI, AxAIOpenAIModel, AxMultiServiceRouter } from "@ax-llm/ax";
 
 // Setup OpenAI with model list
-const openai = new AxAI({
+const openai = new AxAI<"basic" | "medium">({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY,
   models: [
@@ -1026,7 +1184,7 @@ const openai = new AxAI({
 });
 
 // Setup Gemini with model list
-const gemini = new AxAI({
+const gemini = new AxAI<"deep-thinker" | "expert">({
   name: "google-gemini",
   apiKey: process.env.GOOGLE_APIKEY,
   models: [
@@ -1057,7 +1215,9 @@ const secretService = {
 };
 
 // Create a router with all services
-const router = new AxMultiServiceRouter([openai, gemini, secretService]);
+const router = new AxMultiServiceRouter<
+  "basic" | "medium" | "deep-thinker" | "expert"
+>([openai, gemini, secretService]);
 
 // Route to OpenAI's expert model
 const openaiResponse = await router.chat({
@@ -1685,10 +1845,34 @@ other messages are output. This is useful for integrating with logging
 frameworks or customizing the output format.
 
 ```ts
-// Custom logger that prefixes messages with timestamp
-const customLogger = (message: string) => {
+import {
+  AxAI,
+  axCreateDefaultColorLogger,
+  axCreateDefaultTextLogger,
+  AxGen,
+  type AxLoggerData,
+} from "@ax-llm/ax";
+
+// Custom logger that handles structured logger data
+const customLogger = (data: AxLoggerData) => {
   const timestamp = new Date().toISOString();
-  process.stdout.write(`[${timestamp}] ${message}`);
+
+  // Handle different types of log messages
+  switch (data.name) {
+    case "ChatRequestChatPrompt":
+      console.log(`[${timestamp}] Chat request step ${data.step}`);
+      break;
+    case "ChatResponseResults":
+      console.log(`[${timestamp}] Chat response: ${data.value.length} results`);
+      break;
+    case "FunctionResults":
+      console.log(
+        `[${timestamp}] Function results: ${data.value.length} calls`,
+      );
+      break;
+    default:
+      console.log(`[${timestamp}] ${data.name}:`, JSON.stringify(data.value));
+  }
 };
 
 // Set logger on AI service
@@ -1713,9 +1897,36 @@ const result = await gen.forward(ai, { question: "Hello" }, {
 });
 ```
 
-The logger function receives a string message and is responsible for outputting
-it. If no logger is provided, messages are written to `process.stdout.write` by
-default.
+### Built-in Logger Factories
+
+For convenience, Ax provides factory functions to create pre-configured loggers:
+
+```ts
+// Create a color logger that outputs to a custom function
+const colorLogger = axCreateDefaultColorLogger((message: string) => {
+  // Send to your logging system instead of console
+  myLoggingSystem.log(message);
+});
+
+// Create a text-only logger (no colors)
+const textLogger = axCreateDefaultTextLogger((message: string) => {
+  fs.appendFileSync("debug.log", message + "\n");
+});
+
+const ai = new AxAI({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY,
+  options: {
+    debug: true,
+    logger: colorLogger,
+  },
+});
+```
+
+The logger function receives structured `AxLoggerData` containing different
+types of debug information (chat requests, responses, function calls, etc.). If
+no logger is provided, the default color logger is used which outputs to
+`console.log`.
 
 ## Reach out
 

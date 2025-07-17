@@ -104,7 +104,7 @@ export interface AxAIGoogleGeminiOptionsTools {
   urlContext?: boolean;
 }
 
-export interface AxAIGoogleGeminiArgs<TModelKey = string> {
+export interface AxAIGoogleGeminiArgs<TModelKey> {
   name: 'google-gemini';
   apiKey?: string | (() => Promise<string>);
   projectId?: string;
@@ -139,7 +139,7 @@ class AxAIGoogleGeminiImpl
     private isVertex: boolean,
     private endpointId?: string,
     private apiKey?: string | (() => Promise<string>),
-    private options?: AxAIGoogleGeminiArgs['options']
+    private options?: AxAIGoogleGeminiArgs<any>['options']
   ) {
     if (!this.isVertex && this.config.autoTruncate) {
       throw new Error('Auto truncate is not supported for GoogleGemini');
@@ -646,9 +646,9 @@ class AxAIGoogleGeminiImpl
   };
 }
 
-/**
- * AxAIGoogleGemini: AI Service
- */
+// Helper type to extract model keys from the models array
+type ExtractModelKeys<T> = T extends readonly { key: infer K }[] ? K : never;
+
 export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiEmbedModel,
@@ -659,6 +659,15 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
   AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse,
   TModelKey
 > {
+  // Static factory method for automatic type inference
+  static create<const T extends AxAIGoogleGeminiArgs<any>>(
+    options: T
+  ): T extends { models: infer M }
+    ? AxAIGoogleGemini<ExtractModelKeys<M>>
+    : AxAIGoogleGemini<string> {
+    return new AxAIGoogleGemini(options) as any;
+  }
+
   constructor({
     apiKey,
     projectId,

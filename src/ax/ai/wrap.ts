@@ -93,10 +93,32 @@ export type AxAIEmbedModels =
   | AxAIGoogleGeminiEmbedModel
   | AxAICohereEmbedModel;
 
+// Helper type to extract model keys from the models array
+type ExtractModelKeys<T> = T extends readonly { key: infer K }[] ? K : never;
+
+// Helper to infer TModelKey from args
+type InferTModelKey<T> = T extends { models: infer M }
+  ? ExtractModelKeys<M>
+  : string;
+
+// Factory function for creating AxAI with proper type inference
+export function createAxAI<const T extends AxAIArgs<any>>(
+  options: T
+): AxAI<InferTModelKey<T>> {
+  return new AxAI(options) as any;
+}
+
 export class AxAI<TModelKey = string>
   implements AxAIService<unknown, unknown, TModelKey>
 {
   private ai: AxAIService<unknown, unknown, TModelKey>;
+
+  // Static factory method for automatic type inference
+  static create<const T extends AxAIArgs<any>>(
+    options: T
+  ): AxAI<InferTModelKey<T>> {
+    return new AxAI(options) as any;
+  }
 
   constructor(options: Readonly<AxAIArgs<TModelKey>>) {
     switch (options.name) {

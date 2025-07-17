@@ -19,7 +19,7 @@ const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
     ...axBaseAIDefaultConfig(),
   });
 
-export type AxAIGroqArgs<TModelKey = string> = AxAIOpenAIArgs<
+export type AxAIGroqArgs<TModelKey> = AxAIOpenAIArgs<
   'groq',
   AxAIGroqModel,
   undefined,
@@ -29,7 +29,7 @@ export type AxAIGroqArgs<TModelKey = string> = AxAIOpenAIArgs<
   modelInfo?: AxModelInfo[];
 };
 
-export class AxAIGroq<TModelKey = string> extends AxAIOpenAIBase<
+export class AxAIGroq<TModelKey> extends AxAIOpenAIBase<
   AxAIGroqModel,
   undefined,
   TModelKey
@@ -82,7 +82,9 @@ export class AxAIGroq<TModelKey = string> extends AxAIOpenAIBase<
     super.setOptions({ ...options, rateLimiter });
   };
 
-  private newRateLimiter = (options: Readonly<AxAIGroqArgs['options']>) => {
+  private newRateLimiter = (
+    options: Readonly<AxAIGroqArgs<any>['options']>
+  ) => {
     if (options?.rateLimiter) {
       return options.rateLimiter;
     }

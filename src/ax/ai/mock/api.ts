@@ -18,7 +18,7 @@ import type {
   AxModelInfoWithProvider,
 } from '../types.js';
 
-export type AxMockAIServiceConfig<TModelKey = string> = {
+export type AxMockAIServiceConfig<TModelKey> = {
   name?: string;
   id?: string;
   modelInfo?: Partial<AxModelInfoWithProvider>;
@@ -47,7 +47,7 @@ export type AxMockAIServiceConfig<TModelKey = string> = {
   latencyMs?: number;
 };
 
-export class AxMockAIService<TModelKey = string>
+export class AxMockAIService<TModelKey>
   implements AxAIService<unknown, unknown, TModelKey>
 {
   private metrics: AxAIServiceMetrics = {

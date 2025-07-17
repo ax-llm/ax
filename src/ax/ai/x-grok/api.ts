@@ -59,7 +59,7 @@ export type AxAIGrokChatRequest = AxAIOpenAIChatRequest<AxAIGrokModel> & {
   };
 };
 
-export type AxAIGrokArgs<TModelKey = string> = AxAIOpenAIArgs<
+export type AxAIGrokArgs<TModelKey> = AxAIOpenAIArgs<
   'grok',
   AxAIGrokModel,
   AxAIGrokEmbedModels,
@@ -72,7 +72,7 @@ export type AxAIGrokArgs<TModelKey = string> = AxAIOpenAIArgs<
   modelInfo?: AxModelInfo[];
 };
 
-export class AxAIGrok<TModelKey = string> extends AxAIOpenAIBase<
+export class AxAIGrok<TModelKey> extends AxAIOpenAIBase<
   AxAIGrokModel,
   AxAIGrokEmbedModels,
   TModelKey,

@@ -26,7 +26,7 @@ export type AxAIAzureOpenAIConfig = AxAIOpenAIConfig<
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel
 >;
-export type AxAIAzureOpenAIArgs<TModelKey = string> = AxAIOpenAIArgs<
+export type AxAIAzureOpenAIArgs<TModelKey> = AxAIOpenAIArgs<
   'azure-openai',
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel,
@@ -37,7 +37,7 @@ export type AxAIAzureOpenAIArgs<TModelKey = string> = AxAIOpenAIArgs<
   version?: string;
 };
 
-export class AxAIAzureOpenAI<TModelKey = string> extends AxAIOpenAIBase<
+export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel,
   TModelKey

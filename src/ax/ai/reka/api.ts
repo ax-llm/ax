@@ -50,7 +50,7 @@ export const axAIRekaFastConfig = (): AxAIRekaConfig => ({
   model: AxAIRekaModel.RekaFlash,
 });
 
-export interface AxAIRekaArgs<TModelKey = string> {
+export interface AxAIRekaArgs<TModelKey> {
   name: 'reka';
   apiKey: string;
   apiURL?: string;
@@ -265,7 +265,7 @@ function createMessages(
   });
 }
 
-export class AxAIReka<TModelKey = string> extends AxBaseAI<
+export class AxAIReka<TModelKey> extends AxBaseAI<
   AxAIRekaModel,
   undefined,
   AxAIRekaChatRequest,

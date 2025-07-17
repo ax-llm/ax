@@ -26,8 +26,28 @@ type AxAIServiceListItem<
   isInternal?: boolean;
 };
 
-export class AxMultiServiceRouter<TModelKey = string>
-  implements AxAIService<unknown, unknown, TModelKey>
+// Helper type to extract model keys from a service
+type ExtractServiceModelKeys<T> = T extends AxAIService<any, any, infer K>
+  ? K
+  : T extends AxAIServiceListItem<any, any, infer K>
+    ? K
+    : never;
+
+// Helper type to extract model keys from an array of services
+type ExtractAllModelKeys<T extends readonly any[]> = T extends readonly [
+  infer First,
+  ...infer Rest,
+]
+  ? ExtractServiceModelKeys<First> | ExtractAllModelKeys<Rest>
+  : never;
+
+export class AxMultiServiceRouter<
+  TServices extends readonly (
+    | AxAIService
+    | AxAIServiceListItem<any, any, any>
+  )[] = readonly AxAIService[],
+  TModelKey = ExtractAllModelKeys<TServices>,
+> implements AxAIService<unknown, unknown, TModelKey>
 {
   private options?: AxAIServiceOptions;
   private lastUsedService?: AxAIService<unknown, unknown, TModelKey>;
@@ -47,12 +67,7 @@ export class AxMultiServiceRouter<TModelKey = string>
    * It validates that each service provides a unique set of model keys,
    * then builds a lookup (map) for routing the chat/embed requests.
    */
-  constructor(
-    services: (
-      | AxAIServiceListItem<unknown, unknown, TModelKey>
-      | AxAIService<unknown, unknown, TModelKey>
-    )[]
-  ) {
+  constructor(services: TServices) {
     if (services.length === 0) {
       throw new Error('No AI services provided.');
     }
@@ -63,13 +78,13 @@ export class AxMultiServiceRouter<TModelKey = string>
       const isKeyBased = 'key' in item;
 
       if (isKeyBased) {
-        if (this.services.has(item.key)) {
+        if (this.services.has(item.key as TModelKey)) {
           throw new Error(`Duplicate model key: ${item.key}`);
         }
 
         const { service, description, isInternal } = item;
 
-        this.services.set(item.key, {
+        this.services.set(item.key as TModelKey, {
           service: service as AxAIService<unknown, unknown, TModelKey>,
           description,
           isInternal,

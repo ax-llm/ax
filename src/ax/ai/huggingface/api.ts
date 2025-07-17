@@ -35,7 +35,7 @@ export const axAIHuggingFaceCreativeConfig = (): AxAIHuggingFaceConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   });
 
-export interface AxAIHuggingFaceArgs<TModelKey = string> {
+export interface AxAIHuggingFaceArgs<TModelKey> {
   name: 'huggingface';
   apiKey: string;
   config?: Readonly<Partial<AxAIHuggingFaceConfig>>;
@@ -163,7 +163,7 @@ class AxAIHuggingFaceImpl
   };
 }
 
-export class AxAIHuggingFace<TModelKey = string> extends AxBaseAI<
+export class AxAIHuggingFace<TModelKey> extends AxBaseAI<
   AxAIHuggingFaceModel,
   unknown,
   AxAIHuggingFaceRequest,

@@ -22,14 +22,14 @@ export const axAIDeepSeekCodeConfig = (): DeepSeekConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   });
 
-export type AxAIDeepSeekArgs<TModelKey = string> = AxAIOpenAIArgs<
+export type AxAIDeepSeekArgs<TModelKey> = AxAIOpenAIArgs<
   'deepseek',
   AxAIDeepSeekModel,
   undefined,
   TModelKey
 >;
 
-export class AxAIDeepSeek<TModelKey = string> extends AxAIOpenAIBase<
+export class AxAIDeepSeek<TModelKey> extends AxAIOpenAIBase<
   AxAIDeepSeekModel,
   undefined,
   TModelKey

@@ -20,7 +20,7 @@ export type AxAITogetherArgs<TModelKey> = AxAIOpenAIArgs<
   TModelKey
 >;
 
-export class AxAITogether<TModelKey = string> extends AxAIOpenAIBase<
+export class AxAITogether<TModelKey> extends AxAIOpenAIBase<
   string,
   unknown,
   TModelKey

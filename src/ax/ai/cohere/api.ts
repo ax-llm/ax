@@ -44,7 +44,7 @@ export const axAICohereCreativeConfig = (): AxAICohereConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   });
 
-export interface AxAICohereArgs<TModelKey = string> {
+export interface AxAICohereArgs<TModelKey> {
   name: 'cohere';
   apiKey: string;
   config?: Readonly<Partial<AxAICohereConfig>>;
@@ -296,7 +296,7 @@ class AxAICohereImpl
   }
 }
 
-export class AxAICohere<TModelKey = string> extends AxBaseAI<
+export class AxAICohere<TModelKey> extends AxBaseAI<
   AxAICohereModel,
   AxAICohereEmbedModel,
   AxAICohereChatRequest,

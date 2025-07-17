@@ -59,6 +59,9 @@ export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
     ...axBaseAIDefaultConfig(),
   });
 
+// Helper type to extract model keys from the models array
+type ExtractModelKeys<T> = T extends readonly { key: infer K }[] ? K : never;
+
 export interface AxAIAnthropicArgs<TModelKey = string> {
   name: 'anthropic';
   apiKey?: string | (() => Promise<string>);
@@ -511,12 +514,21 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
   AxAIAnthropicModel | AxAIAnthropicVertexModel,
   unknown,
   AxAIAnthropicChatRequest,
-  unknown,
+  never,
   AxAIAnthropicChatResponse,
   AxAIAnthropicChatResponseDelta,
-  unknown,
+  never,
   TModelKey
 > {
+  // Static factory method for automatic type inference
+  static create<const T extends AxAIAnthropicArgs<any>>(
+    options: T
+  ): T extends { models: infer M }
+    ? AxAIAnthropic<ExtractModelKeys<M>>
+    : AxAIAnthropic<string> {
+    return new AxAIAnthropic(options) as any;
+  }
+
   constructor({
     apiKey,
     projectId,
