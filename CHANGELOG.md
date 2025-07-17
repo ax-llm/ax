@@ -1,5 +1,18 @@
 # Changelog
 
+## [13.0.11](https://github.com/ax-llm/ax/compare/13.0.9...13.0.10) (2025-07-17)
+
+### Features
+
+* enhance AxFlow with node-level usage and trace tracking ([5620235](https://github.com/ax-llm/ax/commit/56202354bc48ea6342d445122bc5d1e06ecc5ff1))
+* implement dark mode support across the documentation site ([2e56916](https://github.com/ax-llm/ax/commit/2e5691673cd89bde4e1afea730d7243369276f92))
+* introduce type parameterization for AI services and models ([2aa97ba](https://github.com/ax-llm/ax/commit/2aa97ba8786c7c42f4c5e78ead4d5c273f5d96a0))
+## [13.0.10](https://github.com/ax-llm/ax/compare/13.0.9...13.0.10) (2025-07-15)
+
+### Features
+
+* enhance logging and error handling for streaming responses ([ca8d124](https://github.com/ax-llm/ax/commit/ca8d1244bbae3367f4f4a015b81bc7857600ac73))
+
 ## [13.0.10](https://github.com/ax-llm/ax/compare/13.0.8...13.0.9) (2025-07-15)
 
 ### Features
