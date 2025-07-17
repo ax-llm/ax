@@ -8,11 +8,7 @@ export default defineConfig({
     // Use Shiki for better syntax highlighting performance
     syntaxHighlight: 'shiki',
     shikiConfig: {
-      theme: 'one-dark-pro',
-      themes: {
-        light: 'one-dark-pro',
-        dark: 'one-dark-pro',
-      },
+      theme: 'github-light',
       // Add more languages as needed
       langs: [
         'javascript',

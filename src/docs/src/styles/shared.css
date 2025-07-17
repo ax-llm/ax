@@ -16,6 +16,19 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Dark mode styles */
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #111827;
+    color: #f3f4f6;
+  }
+}
+
+:root.dark body {
+  background: #111827;
+  color: #f3f4f6;
+}
+
 .container {
   max-width: 1200px;
   margin: 0 auto;
@@ -80,6 +93,20 @@ main.prose h1:first-of-type {
   max-width: 720px;
 }
 
+/* Dark mode typography */
+:root.dark .prose h1,
+:root.dark .prose h2,
+:root.dark .prose h3,
+:root.dark .prose h4,
+:root.dark .prose h5,
+:root.dark .prose h6 {
+  color: #f9fafb;
+}
+
+:root.dark .prose p {
+  color: #e5e7eb;
+}
+
 .prose ul,
 .prose ol {
   margin: 24px 0;
@@ -91,6 +118,10 @@ main.prose h1:first-of-type {
   margin: 8px 0;
   color: #4a4a4a;
   line-height: 1.6;
+}
+
+:root.dark .prose li {
+  color: #e5e7eb;
 }
 
 .prose li > ul,
@@ -110,6 +141,14 @@ main.prose h1:first-of-type {
   border-bottom-color: #0066cc;
 }
 
+:root.dark .prose a {
+  color: #60a5fa;
+}
+
+:root.dark .prose a:hover {
+  border-bottom-color: #60a5fa;
+}
+
 /* Shiki syntax highlighting styles */
 .prose .astro-code {
   margin: 32px 0;
@@ -125,6 +164,11 @@ main.prose h1:first-of-type {
   position: relative;
 }
 
+:root.dark .prose .astro-code {
+  border-color: #374151;
+  background: #1f2937;
+}
+
 .prose .astro-code code {
   background: none !important;
   border: none !important;
@@ -138,6 +182,121 @@ main.prose h1:first-of-type {
   .prose .astro-code {
     border-color: #374151;
   }
+}
+
+/* Dark mode code block styling - override light theme colors */
+:root.dark .prose .astro-code {
+  background-color: #0d1117 !important;
+  color: #e6edf3 !important;
+}
+
+:root.dark .prose .astro-code .token.comment {
+  color: #8b949e !important;
+}
+
+:root.dark .prose .astro-code .token.string {
+  color: #a5d6ff !important;
+}
+
+:root.dark .prose .astro-code .token.keyword {
+  color: #ff7b72 !important;
+}
+
+:root.dark .prose .astro-code .token.function {
+  color: #d2a8ff !important;
+}
+
+:root.dark .prose .astro-code .token.operator {
+  color: #ff7b72 !important;
+}
+
+:root.dark .prose .astro-code .token.number {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code .token.property {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code .token.variable {
+  color: #ffa657 !important;
+}
+
+:root.dark .prose .astro-code .token.punctuation {
+  color: #e6edf3 !important;
+}
+
+:root.dark .prose .astro-code .token.class-name {
+  color: #ffa657 !important;
+}
+
+:root.dark .prose .astro-code .token.tag {
+  color: #7ee787 !important;
+}
+
+:root.dark .prose .astro-code .token.attr-name {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code .token.attr-value {
+  color: #a5d6ff !important;
+}
+
+:root.dark .prose .astro-code .token.boolean {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code .token.constant {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code .token.selector {
+  color: #7ee787 !important;
+}
+
+/* Additional Shiki-specific dark mode styles */
+:root.dark .prose .astro-code [style*="color"] {
+  color: #e6edf3 !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#24292f"] {
+  color: #e6edf3 !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#cf222e"] {
+  color: #ff7b72 !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#0550ae"] {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#8250df"] {
+  color: #d2a8ff !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#0969da"] {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#116329"] {
+  color: #7ee787 !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#953800"] {
+  color: #ffa657 !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#6f42c1"] {
+  color: #d2a8ff !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#0a3069"] {
+  color: #79c0ff !important;
+}
+
+:root.dark .prose .astro-code [style*="color:#6e7781"] {
+  color: #8b949e !important;
 }
 
 /* Tables */
@@ -166,6 +325,21 @@ main.prose h1:first-of-type {
   color: #4a4a4a;
   font-size: 14px;
   vertical-align: top;
+}
+
+:root.dark .prose table {
+  border-color: #374151;
+}
+
+:root.dark .prose th {
+  background: #374151;
+  color: #f9fafb;
+  border-bottom-color: #4b5563;
+}
+
+:root.dark .prose td {
+  border-bottom-color: #374151;
+  color: #e5e7eb;
 }
 
 .prose tr:last-child td {
@@ -203,11 +377,21 @@ main.prose h1:first-of-type {
   color: #6c757d;
 }
 
+:root.dark .prose blockquote {
+  border-left-color: #4b5563;
+  background: #374151;
+  color: #9ca3af;
+}
+
 /* Horizontal rules */
 .prose hr {
   border: none;
   border-top: 1px solid #e9ecef;
   margin: 64px 0;
+}
+
+:root.dark .prose hr {
+  border-top-color: #4b5563;
 }
 
 /* API Documentation specific styles */
@@ -238,6 +422,68 @@ main.prose h1:first-of-type {
   font-size: 14px;
   margin-bottom: 24px;
   font-style: italic;
+}
+
+/* Dark mode API section styles */
+:root.dark .api-section h2 {
+  color: #f9fafb;
+}
+
+:root.dark .api-section h2::before {
+  color: #60a5fa;
+}
+
+:root.dark .api-section .description {
+  color: #9ca3af;
+}
+
+/* Additional dark mode text improvements */
+:root.dark .prose strong {
+  color: #f3f4f6;
+}
+
+:root.dark .prose em {
+  color: #e5e7eb;
+}
+
+:root.dark .prose code:not(pre code) {
+  background-color: #374151;
+  color: #e5e7eb;
+  padding: 0.2em 0.4em;
+  border-radius: 0.25em;
+  font-size: 0.875em;
+}
+
+:root.dark .prose pre {
+  background-color: #1f2937;
+  border-color: #374151;
+}
+
+/* Fix any remaining low contrast text */
+:root.dark .prose * {
+  color: inherit;
+}
+
+/* Ensure headers are always readable */
+:root.dark .prose h1 *,
+:root.dark .prose h2 *,
+:root.dark .prose h3 *,
+:root.dark .prose h4 *,
+:root.dark .prose h5 *,
+:root.dark .prose h6 * {
+  color: #f9fafb;
+}
+
+/* Fix any muted text that might be too dark */
+:root.dark .prose .text-gray-600,
+:root.dark .prose .text-gray-500,
+:root.dark .prose .text-gray-400 {
+  color: #d1d5db !important;
+}
+
+/* Fix any remaining dark text elements */
+:root.dark .prose [class*="text-gray-"] {
+  color: #e5e7eb;
 }
 
 /* Mobile responsive */

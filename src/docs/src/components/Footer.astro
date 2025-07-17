@@ -4,9 +4,11 @@
 
 <!-- Footer inspired by Humming design -->
 <footer
+  class="footer-component"
   style="margin-top: 120px; padding: 48px 0; border-top: 1px solid #f1f3f4; background: #fafbfc;"
 >
   <div
+    class="footer-content"
     style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 500; color: #6c757d; flex-wrap: wrap; gap: 16px;"
   >
     <div style="display: flex; gap: 32px; flex-wrap: wrap;">
@@ -41,5 +43,15 @@
       flex-direction: column !important;
       gap: 8px !important;
     }
+  }
+
+  /* Dark mode styles */
+  :root.dark .footer-component {
+    border-top-color: #374151 !important;
+    background: #1f2937 !important;
+  }
+
+  :root.dark .footer-content {
+    color: #9ca3af !important;
   }
 </style>
