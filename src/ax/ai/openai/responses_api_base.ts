@@ -56,6 +56,7 @@ export const axAIOpenAIResponsesCreativeConfig = (): AxAIOpenAIResponsesConfig<
 interface AxAIOpenAIResponsesBaseArgs<
   TModel,
   TEmbedModel,
+  TModelKey,
   TResponsesReq extends AxAIOpenAIResponsesRequest<TModel>,
 > {
   apiKey: string;
@@ -65,7 +66,7 @@ interface AxAIOpenAIResponsesBaseArgs<
   } & AxAIServiceOptions;
   apiURL?: string;
   modelInfo?: ReadonlyArray<AxModelInfo>;
-  models?: AxAIInputModelList<TModel, TEmbedModel>;
+  models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   responsesReqUpdater?: (
     req: Readonly<TResponsesReq>
   ) => Readonly<TResponsesReq>;
@@ -78,6 +79,7 @@ interface AxAIOpenAIResponsesBaseArgs<
 export class AxAIOpenAIResponsesBase<
   TModel,
   TEmbedModel,
+  TModelKey,
   TResponsesReq extends AxAIOpenAIResponsesRequest<TModel>,
 > extends AxBaseAI<
   TModel,
@@ -86,7 +88,8 @@ export class AxAIOpenAIResponsesBase<
   AxAIOpenAIEmbedRequest<TEmbedModel>,
   AxAIOpenAIResponsesResponse,
   AxAIOpenAIResponsesResponseDelta,
-  AxAIOpenAIEmbedResponse
+  AxAIOpenAIEmbedResponse,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -98,7 +101,7 @@ export class AxAIOpenAIResponsesBase<
     responsesReqUpdater,
     supportFor = { functions: true, streaming: true },
   }: Readonly<
-    AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TResponsesReq>
+    AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TModelKey, TResponsesReq>
   >) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
@@ -112,7 +115,7 @@ export class AxAIOpenAIResponsesBase<
 
     // Convert models to the expected format if needed
     const formattedModels = models as
-      | AxAIInputModelList<TModel, TEmbedModel>
+      | AxAIInputModelList<TModel, TEmbedModel, TModelKey>
       | undefined;
 
     super(aiImpl, {
@@ -140,22 +143,31 @@ export interface AxAIOpenAIResponsesArgs<
   TName = 'openai-responses',
   TModel = AxAIOpenAIResponsesModel,
   TEmbedModel = AxAIOpenAIEmbedModel,
+  TModelKey = string,
   TChatReq extends
     AxAIOpenAIResponsesRequest<TModel> = AxAIOpenAIResponsesRequest<TModel>,
 > extends Omit<
-    AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TChatReq>,
+    AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>,
     'config' | 'supportFor' | 'modelInfo'
   > {
   name: TName;
   modelInfo?: AxModelInfo[];
   config?: Partial<
-    AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TChatReq>['config']
+    AxAIOpenAIResponsesBaseArgs<
+      TModel,
+      TEmbedModel,
+      TModelKey,
+      TChatReq
+    >['config']
   >;
 }
 
-export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
+export class AxAIOpenAIResponses<
+  TModelKey = string,
+> extends AxAIOpenAIResponsesBase<
   AxAIOpenAIResponsesModel,
   AxAIOpenAIEmbedModel,
+  TModelKey,
   AxAIOpenAIResponsesRequest<AxAIOpenAIResponsesModel>
 > {
   constructor({
@@ -164,7 +176,17 @@ export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIOpenAIResponsesArgs, 'name'>>) {
+  }: Readonly<
+    Omit<
+      AxAIOpenAIResponsesArgs<
+        'openai-responses',
+        AxAIOpenAIResponsesModel,
+        AxAIOpenAIEmbedModel,
+        TModelKey
+      >,
+      'name'
+    >
+  >) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
     }
@@ -173,7 +195,11 @@ export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
     modelInfo = [...axModelInfoOpenAIResponses, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIOpenAIResponsesModel) => {
-      const mi = getModelInfo<AxAIOpenAIResponsesModel, AxAIOpenAIEmbedModel>({
+      const mi = getModelInfo<
+        AxAIOpenAIResponsesModel,
+        AxAIOpenAIEmbedModel,
+        TModelKey
+      >({
         model,
         modelInfo,
         models,

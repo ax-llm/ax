@@ -71,7 +71,7 @@ export type AxResultPickerFunction<OUT extends AxGenOut> = (
     | AxResultPickerFunctionFunctionResults
 ) => number | Promise<number>;
 
-export type AxProgramForwardOptions = {
+export type AxProgramForwardOptions<MODEL> = {
   // Execution control
   maxRetries?: number;
   maxSteps?: number;
@@ -80,7 +80,7 @@ export type AxProgramForwardOptions = {
   // AI service and model configuration
   ai?: AxAIService;
   modelConfig?: AxModelConfig;
-  model?: string;
+  model?: MODEL;
 
   // Session and tracing
   sessionId?: string;
@@ -130,8 +130,8 @@ export type AxProgramForwardOptions = {
   strictMode?: boolean;
 };
 
-export type AxProgramStreamingForwardOptions = Omit<
-  AxProgramForwardOptions,
+export type AxProgramStreamingForwardOptions<MODEL> = Omit<
+  AxProgramForwardOptions<MODEL>,
   'stream'
 >;
 
@@ -169,17 +169,21 @@ export type AxSetExamplesOptions = {
   // No options needed - all fields can be missing in examples
 };
 
-export interface AxForwardable<IN extends AxGenIn, OUT extends AxGenOut> {
+export interface AxForwardable<
+  IN extends AxGenIn,
+  OUT extends AxGenOut,
+  TModelKey,
+> {
   forward(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions<TModelKey>>
   ): Promise<OUT>;
 
   streamingForward(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramStreamingForwardOptions>
+    options?: Readonly<AxProgramStreamingForwardOptions<TModelKey>>
   ): AxGenStreamingOut<OUT>;
 }
 
@@ -199,8 +203,11 @@ export interface AxUsable {
   resetUsage: () => void;
 }
 
-export interface AxProgrammable<IN extends AxGenIn, OUT extends AxGenOut>
-  extends AxForwardable<IN, OUT>,
+export interface AxProgrammable<
+  IN extends AxGenIn,
+  OUT extends AxGenOut,
+  TModelKey = string,
+> extends AxForwardable<IN, OUT, TModelKey>,
     AxTunable<IN, OUT>,
     AxUsable {
   getSignature: () => AxSignature;

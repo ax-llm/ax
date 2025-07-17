@@ -104,7 +104,7 @@ export interface AxAIGoogleGeminiOptionsTools {
   urlContext?: boolean;
 }
 
-export interface AxAIGoogleGeminiArgs {
+export interface AxAIGoogleGeminiArgs<TModelKey = string> {
   name: 'google-gemini';
   apiKey?: string | (() => Promise<string>);
   projectId?: string;
@@ -114,7 +114,8 @@ export interface AxAIGoogleGeminiArgs {
   options?: Readonly<AxAIServiceOptions & AxAIGoogleGeminiOptionsTools>;
   models?: AxAIInputModelList<
     AxAIGoogleGeminiModel,
-    AxAIGoogleGeminiEmbedModel
+    AxAIGoogleGeminiEmbedModel,
+    TModelKey
   >;
   modelInfo?: AxModelInfo[];
 }
@@ -648,14 +649,15 @@ class AxAIGoogleGeminiImpl
 /**
  * AxAIGoogleGemini: AI Service
  */
-export class AxAIGoogleGemini extends AxBaseAI<
+export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiChatRequest,
   AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
   AxAIGoogleGeminiChatResponse,
   AxAIGoogleGeminiChatResponseDelta,
-  AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
+  AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -666,7 +668,7 @@ export class AxAIGoogleGemini extends AxBaseAI<
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIGoogleGeminiArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIGoogleGeminiArgs<TModelKey>, 'name'>>) {
     const isVertex = projectId !== undefined && region !== undefined;
 
     let apiURL: string;
@@ -720,7 +722,8 @@ export class AxAIGoogleGemini extends AxBaseAI<
     const supportFor = (model: AxAIGoogleGeminiModel) => {
       const mi = getModelInfo<
         AxAIGoogleGeminiModel,
-        AxAIGoogleGeminiEmbedModel
+        AxAIGoogleGeminiEmbedModel,
+        TModelKey
       >({
         model,
         modelInfo,

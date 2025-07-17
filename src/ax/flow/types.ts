@@ -22,14 +22,16 @@ export type AxFlowStepFunction = (
   state: AxFlowState,
   context: Readonly<{
     mainAi: AxAIService;
-    mainOptions?: AxProgramForwardOptions;
+    mainOptions?: AxProgramForwardOptions<string>;
   }>
 ) => Promise<AxFlowState> | AxFlowState;
 
 // Type for dynamic context overrides
-export interface AxFlowDynamicContext {
-  ai?: AxAIService;
-  options?: AxProgramForwardOptions;
+export interface AxFlowDynamicContext<T extends Readonly<AxAIService>> {
+  ai?: T;
+  options?: AxProgramForwardOptions<
+    NonNullable<ReturnType<T['getModelList']>>[number]['key']
+  >;
 }
 
 // Helper type to extract input type from an AxProgrammable instance (including AxGen)
@@ -78,10 +80,13 @@ export interface AxFlowTypedSubContext<
   TNodes extends Record<string, AxProgrammable<any, any>>,
   TState extends AxFlowState,
 > {
-  execute<TNodeName extends keyof TNodes & string>(
+  execute<
+    TNodeName extends keyof TNodes & string,
+    TAI extends Readonly<AxAIService>,
+  >(
     nodeName: TNodeName,
     mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
-    dynamicContext?: AxFlowDynamicContext
+    dynamicContext?: AxFlowDynamicContext<TAI>
   ): AxFlowTypedSubContext<
     TNodes,
     AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
@@ -95,7 +100,7 @@ export interface AxFlowTypedSubContext<
     initialState: TState,
     context: Readonly<{
       mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
+      mainOptions?: AxProgramForwardOptions<string>;
     }>
   ): Promise<AxFlowState>;
 }
@@ -106,17 +111,19 @@ export type AxFlowParallelBranch = (
 ) => AxFlowSubContext;
 
 export interface AxFlowSubContext {
-  execute(
+  execute<TAI extends Readonly<AxAIService>>(
     nodeName: string,
     mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
-    dynamicContext?: AxFlowDynamicContext
+    dynamicContext?: AxFlowDynamicContext<TAI>
   ): this;
   map(transform: (state: AxFlowState) => AxFlowState): this;
-  executeSteps(
+  executeSteps<TAI extends Readonly<AxAIService>>(
     initialState: AxFlowState,
     context: Readonly<{
-      mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
+      mainAi: TAI;
+      mainOptions?: AxProgramForwardOptions<
+        NonNullable<ReturnType<TAI['getModelList']>>[number]['key']
+      >;
     }>
   ): Promise<AxFlowState>;
 }

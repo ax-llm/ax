@@ -73,7 +73,7 @@ export class AxFlow<
   private readonly flowDefinition: AxFlowStepFunction[] = [];
   private readonly nodeGenerators: Map<
     string,
-    AxProgrammable<AxGenIn, AxGenOut>
+    AxProgrammable<AxGenIn, AxGenOut, unknown>
   > = new Map();
   private readonly loopStack: number[] = [];
   private readonly stepLabels: Map<string, number> = new Map();
@@ -403,10 +403,14 @@ export class AxFlow<
     this.program!.resetUsage();
   }
 
-  public async *streamingForward(
-    ai: Readonly<AxAIService>,
+  public async *streamingForward<T extends Readonly<AxAIService>>(
+    ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramStreamingForwardOptions>
+    options?: Readonly<
+      AxProgramStreamingForwardOptions<
+        NonNullable<ReturnType<T['getModelList']>>[number]['key']
+      >
+    >
   ): AxGenStreamingOut<OUT> {
     // For now, we'll implement streaming by converting the regular forward result
     // This is a simplified implementation - full streaming would require more work
@@ -450,10 +454,14 @@ export class AxFlow<
    * @param options - Optional forward options to use as defaults (includes autoParallel override)
    * @returns Promise that resolves to the final output
    */
-  public async forward(
-    ai: Readonly<AxAIService>,
+  public async forward<T extends Readonly<AxAIService>>(
+    ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramForwardOptions & { autoParallel?: boolean }>
+    options?: Readonly<
+      AxProgramForwardOptions<
+        NonNullable<ReturnType<T['getModelList']>>[number]['key']
+      > & { autoParallel?: boolean }
+    >
   ): Promise<OUT> {
     // Extract values from input - handle both IN and AxMessage<IN>[] cases
     let inputValues: IN;
@@ -533,7 +541,6 @@ export class AxFlow<
    *
    * @param name - The name of the node
    * @param signature - Signature string in the same format as AxSignature
-   * @param options - Optional program forward options (same as AxGen)
    * @returns New AxFlow instance with updated TNodes type
    *
    * @example
@@ -544,8 +551,7 @@ export class AxFlow<
    */
   public node<TName extends string, TSig extends string>(
     name: TName,
-    signature: TSig,
-    options?: Readonly<AxProgramForwardOptions>
+    signature: TSig
   ): AxFlow<
     IN,
     OUT,
@@ -559,7 +565,6 @@ export class AxFlow<
    *
    * @param name - The name of the node
    * @param signature - AxSignature instance to use for this node
-   * @param options - Optional program forward options (same as AxGen)
    * @returns New AxFlow instance with updated TNodes type
    *
    * @example
@@ -570,8 +575,7 @@ export class AxFlow<
    */
   public node<TName extends string>(
     name: TName,
-    signature: AxSignature,
-    options?: Readonly<AxProgramForwardOptions>
+    signature: AxSignature
   ): AxFlow<
     IN,
     OUT,
@@ -633,8 +637,7 @@ export class AxFlow<
       | string
       | AxSignature
       | AxProgrammable<any, any>
-      | (new () => AxProgrammable<any, any>),
-    options?: Readonly<AxProgramForwardOptions>
+      | (new () => AxProgrammable<any, any>)
   ): AxFlow<
     IN,
     OUT,
@@ -659,7 +662,7 @@ export class AxFlow<
       });
 
       // Create and store the AxGen instance for this node with the same arguments as AxGen
-      this.nodeGenerators.set(name, new AxGen(signature, options));
+      this.nodeGenerators.set(name, new AxGen(signature));
     } else if (typeof nodeValue === 'function') {
       // Using program class
       this.nodes.set(name, {
@@ -709,14 +712,12 @@ export class AxFlow<
    */
   public n<TName extends string, TSig extends string>(
     name: TName,
-    signature: TSig,
-    options?: Readonly<AxProgramForwardOptions>
+    signature: TSig
   ): AxFlow<IN, OUT, TNodes & { [K in TName]: InferAxGen<TSig> }, TState>;
 
   public n<TName extends string>(
     name: TName,
-    signature: AxSignature,
-    options?: Readonly<AxProgramForwardOptions>
+    signature: AxSignature
   ): AxFlow<
     IN,
     OUT,
@@ -743,10 +744,9 @@ export class AxFlow<
       | string
       | AxSignature
       | AxProgrammable<any, any>
-      | (new () => AxProgrammable<any, any>),
-    options?: Readonly<AxProgramForwardOptions>
+      | (new () => AxProgrammable<any, any>)
   ): any {
-    return this.node(name, signatureOrAxGenOrClass as any, options);
+    return this.node(name, signatureOrAxGenOrClass as any);
   }
 
   /**
@@ -953,10 +953,13 @@ export class AxFlow<
    * flow.execute('summarizer', state => ({ text: state.originalText }), { ai: cheapAI })
    * ```
    */
-  public execute<TNodeName extends keyof TNodes & string>(
+  public execute<
+    TNodeName extends keyof TNodes & string,
+    TAI extends Readonly<AxAIService>,
+  >(
     nodeName: TNodeName,
     mapping: (_state: TState) => GetGenIn<TNodes[TNodeName]>,
-    dynamicContext?: AxFlowDynamicContext
+    dynamicContext?: AxFlowDynamicContext<TAI>
   ): AxFlow<
     IN,
     OUT,
@@ -978,7 +981,7 @@ export class AxFlow<
       state: AxFlowState,
       context: Readonly<{
         mainAi: AxAIService;
-        mainOptions?: AxProgramForwardOptions;
+        mainOptions?: AxProgramForwardOptions<string>;
       }>
     ) => {
       // Determine AI service and options using fallback logic
@@ -1053,10 +1056,13 @@ export class AxFlow<
   /**
    * Short alias for execute()
    */
-  public e<TNodeName extends keyof TNodes & string>(
+  public e<
+    TNodeName extends keyof TNodes & string,
+    TAI extends Readonly<AxAIService>,
+  >(
     nodeName: TNodeName,
     mapping: (_state: TState) => GetGenIn<TNodes[TNodeName]>,
-    dynamicContext?: AxFlowDynamicContext
+    dynamicContext?: AxFlowDynamicContext<TAI>
   ): AxFlow<
     IN,
     OUT,
@@ -1277,7 +1283,7 @@ export class AxFlow<
       state: AxFlowState,
       context: Readonly<{
         mainAi: AxAIService;
-        mainOptions?: AxProgramForwardOptions;
+        mainOptions?: AxProgramForwardOptions<string>;
       }>
     ) => {
       // Execute branches with batch size control

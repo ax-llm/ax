@@ -67,18 +67,20 @@ export type AxAIMistralChatRequest = Omit<
   )[];
 };
 
-export type AxAIMistralArgs = AxAIOpenAIArgs<
+export type AxAIMistralArgs<TModelKey = string> = AxAIOpenAIArgs<
   'mistral',
   AxAIMistralModel,
-  AxAIMistralEmbedModels
+  AxAIMistralEmbedModels,
+  TModelKey
 > & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number };
   modelInfo?: AxModelInfo[];
 };
 
-export class AxAIMistral extends AxAIOpenAIBase<
+export class AxAIMistral<TModelKey = string> extends AxAIOpenAIBase<
   AxAIMistralModel,
-  AxAIMistralEmbedModels
+  AxAIMistralEmbedModels,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -86,7 +88,7 @@ export class AxAIMistral extends AxAIOpenAIBase<
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIMistralArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIMistralArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Mistral API key not set');
     }

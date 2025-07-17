@@ -18,13 +18,13 @@ import type {
   AxModelInfoWithProvider,
 } from '../types.js';
 
-export type AxMockAIServiceConfig = {
+export type AxMockAIServiceConfig<TModelKey = string> = {
   name?: string;
   id?: string;
   modelInfo?: Partial<AxModelInfoWithProvider>;
   embedModelInfo?: AxModelInfoWithProvider;
   features?: { functions?: boolean; streaming?: boolean };
-  models?: AxAIModelList;
+  models?: AxAIModelList<TModelKey>;
   options?: AxAIServiceOptions;
   chatResponse?:
     | AxChatResponse
@@ -47,7 +47,9 @@ export type AxMockAIServiceConfig = {
   latencyMs?: number;
 };
 
-export class AxMockAIService implements AxAIService {
+export class AxMockAIService<TModelKey = string>
+  implements AxAIService<unknown, unknown, TModelKey>
+{
   private metrics: AxAIServiceMetrics = {
     latency: {
       chat: { mean: 0, p95: 0, p99: 0, samples: [] },
@@ -59,7 +61,7 @@ export class AxMockAIService implements AxAIService {
     },
   };
 
-  constructor(private readonly config: AxMockAIServiceConfig = {}) {
+  constructor(private readonly config: AxMockAIServiceConfig<TModelKey> = {}) {
     this.config.id = this.config.id ?? randomUUID();
   }
   getLastUsedChatModel(): unknown {
@@ -94,7 +96,7 @@ export class AxMockAIService implements AxAIService {
     };
   }
 
-  getModelList(): AxAIModelList | undefined {
+  getModelList(): AxAIModelList<TModelKey> | undefined {
     return this.config.models;
   }
 
@@ -106,7 +108,7 @@ export class AxMockAIService implements AxAIService {
     req: Readonly<AxChatRequest<unknown>>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown>
+      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown, TModelKey>
     >
   ) {
     if (this.config.latencyMs) {
@@ -150,7 +152,7 @@ export class AxMockAIService implements AxAIService {
   async embed(
     req: Readonly<AxEmbedRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxAIServiceActionOptions>
+    _options?: Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
   ): Promise<AxEmbedResponse> {
     if (this.config.latencyMs) {
       await new Promise((resolve) =>

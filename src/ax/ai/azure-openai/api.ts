@@ -26,19 +26,21 @@ export type AxAIAzureOpenAIConfig = AxAIOpenAIConfig<
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel
 >;
-export type AxAIAzureOpenAIArgs = AxAIOpenAIArgs<
+export type AxAIAzureOpenAIArgs<TModelKey = string> = AxAIOpenAIArgs<
   'azure-openai',
   AxAIOpenAIModel,
-  AxAIOpenAIEmbedModel
+  AxAIOpenAIEmbedModel,
+  TModelKey
 > & {
   resourceName: string;
   deploymentName: string;
   version?: string;
 };
 
-export class AxAIAzureOpenAI extends AxAIOpenAIBase<
+export class AxAIAzureOpenAI<TModelKey = string> extends AxAIOpenAIBase<
   AxAIOpenAIModel,
-  AxAIOpenAIEmbedModel
+  AxAIOpenAIEmbedModel,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -49,7 +51,7 @@ export class AxAIAzureOpenAI extends AxAIOpenAIBase<
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIAzureOpenAIArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIAzureOpenAIArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
     }
@@ -68,11 +70,13 @@ export class AxAIAzureOpenAI extends AxAIOpenAIBase<
     modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIOpenAIModel) => {
-      const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel>({
-        model,
-        modelInfo,
-        models,
-      });
+      const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel, TModelKey>(
+        {
+          model,
+          modelInfo,
+          models,
+        }
+      );
       return {
         functions: true,
         streaming: true,

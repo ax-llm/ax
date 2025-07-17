@@ -30,14 +30,16 @@ export class AxFlowSubContextImpl implements AxFlowSubContext {
   constructor(
     private readonly nodeGenerators: Map<
       string,
-      AxForwardable<AxGenIn, AxGenOut> & AxTunable<AxGenIn, AxGenOut> & AxUsable
+      AxForwardable<AxGenIn, AxGenOut, string> &
+        AxTunable<AxGenIn, AxGenOut> &
+        AxUsable
     >
   ) {}
 
-  execute(
+  execute<TAI extends Readonly<AxAIService>>(
     nodeName: string,
     mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
-    dynamicContext?: AxFlowDynamicContext
+    dynamicContext?: AxFlowDynamicContext<TAI>
   ): this {
     const nodeProgram = this.nodeGenerators.get(nodeName);
     if (!nodeProgram) {
@@ -89,7 +91,7 @@ export class AxFlowSubContextImpl implements AxFlowSubContext {
     initialState: AxFlowState,
     context: Readonly<{
       mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
+      mainOptions?: AxProgramForwardOptions<string>;
     }>
   ): Promise<AxFlowState> {
     let currentState = initialState;
@@ -121,10 +123,13 @@ export class AxFlowTypedSubContextImpl<
     >
   ) {}
 
-  execute<TNodeName extends keyof TNodes & string>(
+  execute<
+    TNodeName extends keyof TNodes & string,
+    TAI extends Readonly<AxAIService>,
+  >(
     nodeName: TNodeName,
     mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
-    dynamicContext?: AxFlowDynamicContext
+    dynamicContext?: AxFlowDynamicContext<TAI>
   ): AxFlowTypedSubContext<
     TNodes,
     AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
@@ -186,7 +191,7 @@ export class AxFlowTypedSubContextImpl<
     initialState: TState,
     context: Readonly<{
       mainAi: AxAIService;
-      mainOptions?: AxProgramForwardOptions;
+      mainOptions?: AxProgramForwardOptions<string>;
     }>
   ): Promise<AxFlowState> {
     let currentState: AxFlowState = initialState;

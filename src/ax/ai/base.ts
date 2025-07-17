@@ -62,7 +62,7 @@ export interface AxAIFeatures {
   hasShowThoughts?: boolean;
 }
 
-export interface AxBaseAIArgs<TModel, TEmbedModel> {
+export interface AxBaseAIArgs<TModel, TEmbedModel, TModelKey> {
   name: string;
   apiURL: string;
   headers: () => Promise<Record<string, string>>;
@@ -70,7 +70,7 @@ export interface AxBaseAIArgs<TModel, TEmbedModel> {
   defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>;
   options?: Readonly<AxAIServiceOptions>;
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
-  models?: AxAIInputModelList<TModel, TEmbedModel>;
+  models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
 }
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
@@ -95,7 +95,8 @@ export class AxBaseAI<
   TChatResponse,
   TChatResponseDelta,
   TEmbedResponse,
-> implements AxAIService<TModel, TEmbedModel>
+  TModelKey,
+> implements AxAIService<TModel, TEmbedModel, TModelKey>
 {
   private debug = false;
 
@@ -105,14 +106,14 @@ export class AxBaseAI<
   private meter?: AxAIServiceOptions['meter'];
   private timeout?: AxAIServiceOptions['timeout'];
   private excludeContentFromTrace?: boolean;
-  private models?: AxAIInputModelList<TModel, TEmbedModel>;
+  private models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   private abortSignal?: AbortSignal;
   private logger: AxLoggerFunction = defaultLogger;
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
   private embedModelUsage?: AxModelUsage;
-  private defaults: AxBaseAIArgs<TModel, TEmbedModel>['defaults'];
+  private defaults: AxBaseAIArgs<TModel, TEmbedModel, TModelKey>['defaults'];
   private lastUsedModelConfig?: AxModelConfig;
   private lastUsedChatModel?: TModel;
   private lastUsedEmbedModel?: TEmbedModel;
@@ -174,7 +175,7 @@ export class AxBaseAI<
       options = {},
       supportFor,
       models,
-    }: Readonly<AxBaseAIArgs<TModel, TEmbedModel>>
+    }: Readonly<AxBaseAIArgs<TModel, TEmbedModel, TModelKey>>
   ) {
     this.name = name;
     this.apiURL = apiURL;
@@ -257,8 +258,8 @@ export class AxBaseAI<
     return this.logger;
   }
 
-  getModelList(): AxAIModelList | undefined {
-    const models: AxAIModelList = [];
+  getModelList() {
+    const models: AxAIModelList<TModelKey> = [];
     for (const model of this.models ?? []) {
       if (model.isInternal) {
         continue;
@@ -266,7 +267,7 @@ export class AxBaseAI<
 
       if ('model' in model && model.model) {
         models.push({
-          key: model.key,
+          key: model.key as TModelKey,
           description: model.description,
           model: model.model as string,
         });
@@ -274,7 +275,7 @@ export class AxBaseAI<
 
       if ('embedModel' in model && model.embedModel) {
         models.push({
-          key: model.key,
+          key: model.key as TModelKey,
           description: model.description,
           embedModel: model.embedModel as string,
         });
@@ -637,7 +638,8 @@ export class AxBaseAI<
   private recordChatMetrics(
     req: Readonly<AxChatRequest<TModel>>,
     options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+      AxAIPromptConfig &
+        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
     >,
     result?: AxChatResponse | ReadableStream<AxChatResponse>
   ): void {
@@ -814,7 +816,8 @@ export class AxBaseAI<
   async chat(
     req: Readonly<AxChatRequest<TModel>>,
     options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+      AxAIPromptConfig &
+        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const startTime = performance.now();
@@ -856,7 +859,8 @@ export class AxBaseAI<
   private async _chat1(
     req: Readonly<AxChatRequest<TModel>>,
     options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+      AxAIPromptConfig &
+        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const model = this.getModel(req.model) ?? req.model ?? this.defaults.model;
@@ -982,7 +986,10 @@ export class AxBaseAI<
     model: TModel,
     modelConfig: Readonly<AxModelConfig>,
     chatReq: Readonly<Omit<AxChatRequest<TModel>, 'modelConfig'>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>,
+    options?: Readonly<
+      AxAIPromptConfig &
+        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
+    >,
     span?: Span
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.aiImpl.createChatReq) {
@@ -1149,7 +1156,7 @@ export class AxBaseAI<
 
   async embed(
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>>
   ): Promise<AxEmbedResponse> {
     const startTime = performance.now();
     let isError = false;
@@ -1189,7 +1196,7 @@ export class AxBaseAI<
 
   private async _embed1(
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, unknown>>
   ): Promise<AxEmbedResponse> {
     const embedModel =
       this.getEmbedModel(req.embedModel) ??
@@ -1227,7 +1234,7 @@ export class AxBaseAI<
   private async _embed2(
     embedModel: TEmbedModel,
     embedReq: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>,
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, unknown>>,
     span?: Span
   ): Promise<AxEmbedResponse> {
     if (!this.aiImpl.createEmbedReq) {
@@ -1322,7 +1329,7 @@ export class AxBaseAI<
 
   private getModelByKey(
     modelName?: TModel | TEmbedModel
-  ): AxAIInputModelList<TModel, TEmbedModel>[number] | undefined {
+  ): AxAIInputModelList<TModel, TEmbedModel, TModelKey>[number] | undefined {
     if (!modelName) {
       return undefined;
     }
@@ -1519,11 +1526,11 @@ export function validateAxMessageArray<T>(values: T[]): void {
   }
 }
 
-function validateModels<TModel, TEmbedModel>(
-  models: Readonly<AxAIInputModelList<TModel, TEmbedModel>>
+function validateModels<TModel, TEmbedModel, TModelKey>(
+  models: Readonly<AxAIInputModelList<TModel, TEmbedModel, TModelKey>>
 ): void {
   // Validate duplicate keys in models.
-  const keys = new Set<string>();
+  const keys = new Set<TModelKey>();
   for (const model of models) {
     if (keys.has(model.key)) {
       throw new Error(

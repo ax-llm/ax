@@ -128,7 +128,7 @@ export class AxGen<
   private promptTemplate: AxPromptTemplate;
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
-  private options?: Omit<AxProgramForwardOptions, 'functions'>;
+  private options?: Omit<AxProgramForwardOptions<any>, 'functions'>;
   private functions?: AxFunction[];
   private fieldProcessors: AxFieldProcessor[] = [];
   private streamingFieldProcessors: AxFieldProcessor[] = [];
@@ -137,7 +137,7 @@ export class AxGen<
 
   constructor(
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
-    options?: Readonly<AxProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     super(signature, {
       description: options?.description,
@@ -257,7 +257,7 @@ export class AxGen<
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
-    options?: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+    options?: Omit<AxProgramForwardOptions<any>, 'ai' | 'mem'>;
     traceContext?: Context;
     functions: AxFunction[];
     functionCall: AxChatRequest['functionCall'] | undefined;
@@ -333,7 +333,7 @@ export class AxGen<
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
-    options: Omit<AxProgramForwardOptions, 'ai' | 'mem'>;
+    options: Omit<AxProgramForwardOptions<any>, 'ai' | 'mem'>;
     stepIndex?: number;
     span?: Span;
     traceContext?: Context;
@@ -416,7 +416,7 @@ export class AxGen<
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
     states: InternalAxGenState[],
-    options: Readonly<AxProgramForwardOptions>,
+    options: Readonly<AxProgramForwardOptions<any>>,
     span?: Span,
     traceContext?: Context
   ): AxGenStreamingOut<OUT> {
@@ -675,7 +675,7 @@ export class AxGen<
   public async *_forward1(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
-    options: Readonly<AxProgramForwardOptions>
+    options: Readonly<AxProgramForwardOptions<any>>
   ): AxGenStreamingOut<OUT> {
     // Track state creation performance
     const stateCreationStart = performance.now();
@@ -770,10 +770,14 @@ export class AxGen<
     }
   }
 
-  public async forward(
-    ai: Readonly<AxAIService>,
+  public async forward<T extends Readonly<AxAIService>>(
+    ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramForwardOptions>
+    options?: Readonly<
+      AxProgramForwardOptions<
+        NonNullable<ReturnType<T['getModelList']>>[number]['key']
+      >
+    >
   ): Promise<OUT> {
     const startTime = performance.now();
     const signatureName = this.getSignatureName();
@@ -919,10 +923,14 @@ export class AxGen<
     }
   }
 
-  async *streamingForward(
-    ai: Readonly<AxAIService>,
+  async *streamingForward<T extends Readonly<AxAIService>>(
+    ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramStreamingForwardOptions>
+    options?: Readonly<
+      AxProgramStreamingForwardOptions<
+        NonNullable<ReturnType<T['getModelList']>>[number]['key']
+      >
+    >
   ): AxGenStreamingOut<OUT> {
     // If no result picker, use normal streaming
     if (!options?.resultPicker) {
@@ -984,7 +992,7 @@ export class AxGen<
 
   private isDebug(
     ai: Readonly<AxAIService>,
-    options?: Readonly<AxProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     return (
       options?.debug ?? this.options?.debug ?? ai.getOptions().debug ?? false
@@ -993,7 +1001,7 @@ export class AxGen<
 
   private getLogger(
     ai: Readonly<AxAIService>,
-    options?: Readonly<AxProgramForwardOptions>
+    options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     return options?.logger ?? this.options?.logger ?? ai.getLogger();
   }

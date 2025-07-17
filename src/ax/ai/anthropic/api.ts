@@ -59,7 +59,7 @@ export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
     ...axBaseAIDefaultConfig(),
   });
 
-export interface AxAIAnthropicArgs {
+export interface AxAIAnthropicArgs<TModelKey = string> {
   name: 'anthropic';
   apiKey?: string | (() => Promise<string>);
   projectId?: string;
@@ -68,7 +68,8 @@ export interface AxAIAnthropicArgs {
   options?: Readonly<AxAIServiceOptions>;
   models?: AxAIInputModelList<
     AxAIAnthropicModel | AxAIAnthropicVertexModel,
-    undefined
+    undefined,
+    TModelKey
   >;
 }
 
@@ -506,14 +507,15 @@ class AxAIAnthropicImpl
   };
 }
 
-export class AxAIAnthropic extends AxBaseAI<
+export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
   AxAIAnthropicModel | AxAIAnthropicVertexModel,
   unknown,
   AxAIAnthropicChatRequest,
   unknown,
   AxAIAnthropicChatResponse,
   AxAIAnthropicChatResponseDelta,
-  unknown
+  unknown,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -522,7 +524,7 @@ export class AxAIAnthropic extends AxBaseAI<
     config,
     options,
     models,
-  }: Readonly<Omit<AxAIAnthropicArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIAnthropicArgs<TModelKey>, 'name'>>) {
     const isVertex = projectId !== undefined && region !== undefined;
 
     let apiURL: string;
@@ -565,7 +567,8 @@ export class AxAIAnthropic extends AxBaseAI<
     ) => {
       const mi = getModelInfo<
         AxAIAnthropicModel | AxAIAnthropicVertexModel,
-        undefined
+        undefined,
+        TModelKey
       >({
         model,
         modelInfo: axModelInfoAnthropic,

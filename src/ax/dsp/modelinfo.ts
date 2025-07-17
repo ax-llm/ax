@@ -1,17 +1,25 @@
 import type { AxAIInputModelList, AxModelInfo } from '../ai/types.js';
 
-interface GetModelInfoParams<TModel = string, TEmbedModel = undefined> {
+interface GetModelInfoParams<
+  TModel = string,
+  TEmbedModel = undefined,
+  TModelKey = string,
+> {
   model: TModel;
   modelInfo: readonly AxModelInfo[];
-  models?: AxAIInputModelList<TModel, TEmbedModel>;
+  models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
 }
 
-export function getModelInfo<TModel = string, TEmbedModel = undefined>({
+export function getModelInfo<
+  TModel = string,
+  TEmbedModel = undefined,
+  TModelKey = string,
+>({
   model,
   modelInfo,
   models,
 }: Readonly<
-  GetModelInfoParams<TModel, TEmbedModel>
+  GetModelInfoParams<TModel | TModelKey, TEmbedModel, TModelKey>
 >): Readonly<AxModelInfo> | null {
   // First check if there's a mapping for this model
   const modelEntry = models?.find((v) => v.key === model);

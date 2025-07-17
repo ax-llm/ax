@@ -19,7 +19,7 @@ export class AxRAG extends AxChainOfThought<
 
   constructor(
     queryFn: (query: string) => Promise<string>,
-    options: Readonly<AxProgramForwardOptions & { maxHops?: number }>
+    options: Readonly<AxProgramForwardOptions<string> & { maxHops?: number }>
   ) {
     const sig =
       '"Answer questions with short factoid answers." context:string[] "may contain relevant facts", question -> answer';
@@ -38,12 +38,16 @@ export class AxRAG extends AxChainOfThought<
     // Note: genQuery is not registered as it has a different output signature than the parent
   }
 
-  public override async forward(
-    ai: Readonly<AxAIService>,
+  public override async forward<T extends Readonly<AxAIService>>(
+    ai: T,
     values:
       | { context: string[]; question: string }
       | AxMessage<{ context: string[]; question: string }>[],
-    options?: Readonly<AxProgramForwardOptions>
+    options?: Readonly<
+      AxProgramForwardOptions<
+        NonNullable<ReturnType<T['getModelList']>>[number]['key']
+      >
+    >
   ): Promise<{ answer: string }> {
     // Extract question from values - handle both cases
     let question: string;

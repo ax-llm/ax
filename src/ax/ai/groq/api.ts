@@ -19,19 +19,28 @@ const axAIGroqDefaultConfig = (): AxAIGroqAIConfig =>
     ...axBaseAIDefaultConfig(),
   });
 
-export type AxAIGroqArgs = AxAIOpenAIArgs<'groq', AxAIGroqModel, undefined> & {
+export type AxAIGroqArgs<TModelKey = string> = AxAIOpenAIArgs<
+  'groq',
+  AxAIGroqModel,
+  undefined,
+  TModelKey
+> & {
   options?: Readonly<AxAIServiceOptions> & { tokensPerMinute?: number };
   modelInfo?: AxModelInfo[];
 };
 
-export class AxAIGroq extends AxAIOpenAIBase<AxAIGroqModel, undefined> {
+export class AxAIGroq<TModelKey = string> extends AxAIOpenAIBase<
+  AxAIGroqModel,
+  undefined,
+  TModelKey
+> {
   constructor({
     apiKey,
     config,
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIGroqArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIGroqArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Groq API key not set');
     }

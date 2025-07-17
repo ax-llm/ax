@@ -15,25 +15,31 @@ import type {
   AxModelConfig,
 } from './types.js';
 
-type AxAIServiceListItem<TModel = unknown, TEmbedModel = unknown> = {
-  key: string;
-  service: AxAIService<TModel, TEmbedModel>;
+type AxAIServiceListItem<
+  TModel = unknown,
+  TEmbedModel = unknown,
+  TModelKey = string,
+> = {
+  key: TModelKey;
+  service: AxAIService<TModel, TEmbedModel, TModelKey>;
   description: string;
   isInternal?: boolean;
 };
 
-export class AxMultiServiceRouter implements AxAIService<string, string> {
+export class AxMultiServiceRouter<TModelKey = string>
+  implements AxAIService<unknown, unknown, TModelKey>
+{
   private options?: AxAIServiceOptions;
-  private lastUsedService?: AxAIService<string, string>;
+  private lastUsedService?: AxAIService<unknown, unknown, TModelKey>;
 
   private services: Map<
-    string,
+    TModelKey,
     {
       isInternal?: boolean;
       description: string;
       model?: string;
       embedModel?: string;
-      service: AxAIService<string, string>;
+      service: AxAIService<unknown, unknown, TModelKey>;
     }
   > = new Map();
   /**
@@ -43,8 +49,8 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    */
   constructor(
     services: (
-      | AxAIServiceListItem<string, string>
-      | AxAIService<string, string>
+      | AxAIServiceListItem<unknown, unknown, TModelKey>
+      | AxAIService<unknown, unknown, TModelKey>
     )[]
   ) {
     if (services.length === 0) {
@@ -64,12 +70,14 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
         const { service, description, isInternal } = item;
 
         this.services.set(item.key, {
-          service: service as AxAIService<string, string>,
+          service: service as AxAIService<unknown, unknown, TModelKey>,
           description,
           isInternal,
         });
       } else {
-        const modelList = item.getModelList() as AxAIModelList | undefined;
+        const modelList = item.getModelList() as
+          | AxAIModelList<TModelKey>
+          | undefined;
 
         if (!modelList) {
           throw new Error(
@@ -87,13 +95,13 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
           if ('model' in v && typeof v.model) {
             this.services.set(v.key, {
               description: v.description,
-              service: item as AxAIService<string, string>,
+              service: item as AxAIService<unknown, unknown, TModelKey>,
               model: v.model,
             });
           } else if ('embedModel' in v && v.embedModel) {
             this.services.set(v.key, {
               description: v.description,
-              service: item as AxAIService<string, string>,
+              service: item as AxAIService<unknown, unknown, TModelKey>,
               embedModel: v.embedModel,
             });
           } else {
@@ -105,10 +113,10 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
       }
     }
   }
-  getLastUsedChatModel(): string | undefined {
+  getLastUsedChatModel(): unknown | undefined {
     return this.lastUsedService?.getLastUsedChatModel();
   }
-  getLastUsedEmbedModel(): string | undefined {
+  getLastUsedEmbedModel(): unknown | undefined {
     return this.lastUsedService?.getLastUsedEmbedModel();
   }
   getLastUsedModelConfig(): AxModelConfig | undefined {
@@ -121,10 +129,10 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
   async chat(
     req: Readonly<AxChatRequest<string>>,
     options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<string, string>
+      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown, TModelKey>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const modelKey = req.model;
+    const modelKey = req.model as TModelKey;
     if (!modelKey) {
       throw new Error('Model key must be specified for multi-service');
     }
@@ -149,9 +157,9 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    */
   async embed(
     req: Readonly<AxEmbedRequest<string>>,
-    options?: Readonly<AxAIServiceActionOptions<string, string>>
+    options?: Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
   ): Promise<AxEmbedResponse> {
-    const embedModelKey = req.embedModel;
+    const embedModelKey = req.embedModel as TModelKey;
     if (!embedModelKey) {
       throw new Error('Embed model key must be specified for multi-service');
     }
@@ -193,7 +201,7 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
   /**
    * Aggregates all available models across the underlying services.
    */
-  getModelList(): AxAIModelList {
+  getModelList(): AxAIModelList<TModelKey> {
     return Array.from(this.services)
       .filter(([, value]) => !value.isInternal)
       .map(([key, v]) => {
@@ -211,7 +219,7 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * If a model key is provided, delegate to the corresponding service's features.
    * Otherwise, returns a default feature set.
    */
-  getFeatures(model?: string): {
+  getFeatures(model?: TModelKey): {
     functions: boolean;
     streaming: boolean;
     functionCot?: boolean;
@@ -292,13 +300,13 @@ export class AxMultiServiceRouter implements AxAIService<string, string> {
    * @param entry - The service entry to set
    */
   setServiceEntry(
-    key: string,
+    key: TModelKey,
     entry: {
       isInternal?: boolean;
       description: string;
       model?: string;
       embedModel?: string;
-      service: AxAIService<string, string>;
+      service: AxAIService<unknown, unknown, TModelKey>;
     }
   ): void {
     this.services.set(key, entry);

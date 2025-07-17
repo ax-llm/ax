@@ -35,12 +35,12 @@ export const axAIHuggingFaceCreativeConfig = (): AxAIHuggingFaceConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   });
 
-export interface AxAIHuggingFaceArgs {
+export interface AxAIHuggingFaceArgs<TModelKey = string> {
   name: 'huggingface';
   apiKey: string;
   config?: Readonly<Partial<AxAIHuggingFaceConfig>>;
   options?: Readonly<AxAIServiceOptions>;
-  models?: AxAIInputModelList<AxAIHuggingFaceModel, undefined>;
+  models?: AxAIInputModelList<AxAIHuggingFaceModel, undefined, TModelKey>;
 }
 
 class AxAIHuggingFaceImpl
@@ -163,21 +163,22 @@ class AxAIHuggingFaceImpl
   };
 }
 
-export class AxAIHuggingFace extends AxBaseAI<
+export class AxAIHuggingFace<TModelKey = string> extends AxBaseAI<
   AxAIHuggingFaceModel,
   unknown,
   AxAIHuggingFaceRequest,
   unknown,
   AxAIHuggingFaceResponse,
   unknown,
-  unknown
+  unknown,
+  TModelKey
 > {
   constructor({
     apiKey,
     config,
     options,
     models,
-  }: Readonly<Omit<AxAIHuggingFaceArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIHuggingFaceArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('HuggingFace API key not set');
     }

@@ -44,12 +44,12 @@ export const axAICohereCreativeConfig = (): AxAICohereConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   });
 
-export interface AxAICohereArgs {
+export interface AxAICohereArgs<TModelKey = string> {
   name: 'cohere';
   apiKey: string;
   config?: Readonly<Partial<AxAICohereConfig>>;
   options?: Readonly<AxAIServiceOptions>;
-  models?: AxAIInputModelList<AxAICohereModel, AxAICohereEmbedModel>;
+  models?: AxAIInputModelList<AxAICohereModel, AxAICohereEmbedModel, TModelKey>;
 }
 
 class AxAICohereImpl
@@ -296,21 +296,22 @@ class AxAICohereImpl
   }
 }
 
-export class AxAICohere extends AxBaseAI<
+export class AxAICohere<TModelKey = string> extends AxBaseAI<
   AxAICohereModel,
   AxAICohereEmbedModel,
   AxAICohereChatRequest,
   AxAICohereEmbedRequest,
   AxAICohereChatResponse,
   AxAICohereChatResponseDelta,
-  AxAICohereEmbedResponse
+  AxAICohereEmbedResponse,
+  TModelKey
 > {
   constructor({
     apiKey,
     config,
     options,
     models,
-  }: Readonly<Omit<AxAICohereArgs, 'name'>>) {
+  }: Readonly<Omit<AxAICohereArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Cohere API key not set');
     }

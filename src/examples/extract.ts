@@ -19,7 +19,7 @@ const currentDate = new Date();
 //   ],
 // })
 
-const ai = new AxAI({
+const ai = new AxAI<'model-a' | 'model-b'>({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite },
@@ -32,13 +32,37 @@ const ai = new AxAI({
     },
   ],
 });
-// ai.setOptions({ debug: true })
+ai.setOptions({ debug: true });
+
+// const ai = new AxAIGoogleGemini<'model-a' | 'model-b'>({
+//   apiKey: process.env.GOOGLE_APIKEY as string,
+//   config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite },
+//   options: { timeout: 5000 },
+//   models: [
+//     {
+//       key: 'model-a',
+//       model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+//       description: 'A model that is good for general purpose',
+//     },
+//     {
+//       key: 'model-b',
+//       model: AxAIGoogleGeminiModel.Gemini25Flash,
+//       description: 'A model that is good for complex stuff',
+//     },
+//   ],
+// });
 
 const gen = new AxGen<{ chatMessage: string; currentDate: Date }>(
   `chatMessage, currentDate:datetime -> subject, thinking, reasoning, foundMeeting:boolean, ticketNumber?:number, customerNumber?:number, datesMentioned:datetime[], shortSummary, messageType:class "reminder, follow-up, meeting, other"`
 );
 
-const stream = await gen.streamingForward(ai, { chatMessage, currentDate });
+const stream = await gen.streamingForward(
+  ai,
+  { chatMessage, currentDate },
+  {
+    model: 'model-b',
+  }
+);
 
 console.log('# Streaming');
 
@@ -46,7 +70,13 @@ for await (const chunk of stream) {
   console.log('>', chunk);
 }
 
-// console.log('\n\n# Not Streaming')
+console.log('\n\n# Not Streaming');
 
-// const res = await gen.forward(ai, { chatMessage, currentDate })
-// console.log('>', res)
+const res = await gen.forward(
+  ai,
+  { chatMessage, currentDate },
+  {
+    model: 'model-a',
+  }
+);
+console.log('>', res);

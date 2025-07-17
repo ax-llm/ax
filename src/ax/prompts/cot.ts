@@ -13,7 +13,7 @@ export class AxChainOfThought<
   constructor(
     signature: Readonly<AxSignature | string>,
     options?: Readonly<
-      AxProgramForwardOptions & { setVisibleReasoning?: boolean }
+      AxProgramForwardOptions<string> & { setVisibleReasoning?: boolean }
     >
   ) {
     const sig = new AxSignature(signature);

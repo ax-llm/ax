@@ -50,14 +50,14 @@ export const axAIRekaFastConfig = (): AxAIRekaConfig => ({
   model: AxAIRekaModel.RekaFlash,
 });
 
-export interface AxAIRekaArgs {
+export interface AxAIRekaArgs<TModelKey = string> {
   name: 'reka';
   apiKey: string;
   apiURL?: string;
   config?: Readonly<Partial<AxAIRekaConfig>>;
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
   modelInfo?: Readonly<AxModelInfo[]>;
-  models?: AxAIInputModelList<AxAIRekaModel, undefined>;
+  models?: AxAIInputModelList<AxAIRekaModel, undefined, TModelKey>;
 }
 
 class AxAIRekaImpl
@@ -265,14 +265,15 @@ function createMessages(
   });
 }
 
-export class AxAIReka extends AxBaseAI<
+export class AxAIReka<TModelKey = string> extends AxBaseAI<
   AxAIRekaModel,
   undefined,
   AxAIRekaChatRequest,
   unknown,
   AxAIRekaChatResponse,
   AxAIRekaChatResponseDelta,
-  unknown
+  unknown,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -281,7 +282,7 @@ export class AxAIReka extends AxBaseAI<
     apiURL,
     modelInfo = axModelInfoReka,
     models,
-  }: Readonly<Omit<AxAIRekaArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIRekaArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Reka API key not set');
     }

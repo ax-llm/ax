@@ -95,15 +95,18 @@ export interface AxAIOpenAIArgs<
   TName = 'openai',
   TModel = AxAIOpenAIModel,
   TEmbedModel = AxAIOpenAIEmbedModel,
+  TModelKey = string,
   TChatReq extends
     AxAIOpenAIChatRequest<TModel> = AxAIOpenAIChatRequest<TModel>,
 > extends Omit<
-    AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>,
+    AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>,
     'config' | 'supportFor' | 'modelInfo'
   > {
   name: TName;
   modelInfo?: AxModelInfo[];
-  config?: Partial<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>['config']>;
+  config?: Partial<
+    AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>['config']
+  >;
 }
 
 type ChatReqUpdater<TModel, TChatReq extends AxAIOpenAIChatRequest<TModel>> = (
@@ -113,6 +116,7 @@ type ChatReqUpdater<TModel, TChatReq extends AxAIOpenAIChatRequest<TModel>> = (
 export interface AxAIOpenAIBaseArgs<
   TModel,
   TEmbedModel,
+  TModelKey,
   TChatReq extends AxAIOpenAIChatRequest<TModel>,
 > {
   apiKey: string;
@@ -120,7 +124,7 @@ export interface AxAIOpenAIBaseArgs<
   config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>;
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
   modelInfo: Readonly<AxModelInfo[]>;
-  models?: AxAIInputModelList<TModel, TEmbedModel>;
+  models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>;
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 }
@@ -595,6 +599,7 @@ function createMessages<TModel>(
 export class AxAIOpenAIBase<
   TModel,
   TEmbedModel,
+  TModelKey,
   TChatReq extends
     AxAIOpenAIChatRequest<TModel> = AxAIOpenAIChatRequest<TModel>,
 > extends AxBaseAI<
@@ -604,7 +609,8 @@ export class AxAIOpenAIBase<
   AxAIOpenAIEmbedRequest<TEmbedModel>,
   AxAIOpenAIChatResponse,
   AxAIOpenAIChatResponseDelta,
-  AxAIOpenAIEmbedResponse
+  AxAIOpenAIEmbedResponse,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -616,7 +622,7 @@ export class AxAIOpenAIBase<
     chatReqUpdater,
     supportFor,
   }: Readonly<
-    Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TChatReq>, 'name'>
+    Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>, 'name'>
   >) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
@@ -644,9 +650,10 @@ export class AxAIOpenAIBase<
   }
 }
 
-export class AxAIOpenAI extends AxAIOpenAIBase<
+export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
   AxAIOpenAIModel,
-  AxAIOpenAIEmbedModel
+  AxAIOpenAIEmbedModel,
+  TModelKey
 > {
   constructor({
     apiKey,
@@ -654,7 +661,17 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIOpenAIArgs, 'name'>>) {
+  }: Readonly<
+    Omit<
+      AxAIOpenAIArgs<
+        'openai',
+        AxAIOpenAIModel,
+        AxAIOpenAIEmbedModel,
+        TModelKey
+      >,
+      'name'
+    >
+  >) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
     }
@@ -662,11 +679,17 @@ export class AxAIOpenAI extends AxAIOpenAIBase<
     modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIOpenAIModel) => {
-      const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel>({
-        model,
-        modelInfo,
-        models,
-      });
+      const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel, TModelKey>(
+        {
+          model,
+          modelInfo,
+          models: models as AxAIInputModelList<
+            AxAIOpenAIModel,
+            AxAIOpenAIEmbedModel,
+            TModelKey
+          >,
+        }
+      );
       return {
         functions: true,
         streaming: true,

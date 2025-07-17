@@ -59,10 +59,11 @@ export type AxAIGrokChatRequest = AxAIOpenAIChatRequest<AxAIGrokModel> & {
   };
 };
 
-export type AxAIGrokArgs = AxAIOpenAIArgs<
+export type AxAIGrokArgs<TModelKey = string> = AxAIOpenAIArgs<
   'grok',
   AxAIGrokModel,
   AxAIGrokEmbedModels,
+  TModelKey,
   AxAIGrokChatRequest
 > & {
   options?: Readonly<AxAIServiceOptions & AxAIGrokOptionsTools> & {
@@ -71,9 +72,10 @@ export type AxAIGrokArgs = AxAIOpenAIArgs<
   modelInfo?: AxModelInfo[];
 };
 
-export class AxAIGrok extends AxAIOpenAIBase<
+export class AxAIGrok<TModelKey = string> extends AxAIOpenAIBase<
   AxAIGrokModel,
   AxAIGrokEmbedModels,
+  TModelKey,
   AxAIGrokChatRequest
 > {
   constructor({
@@ -82,7 +84,7 @@ export class AxAIGrok extends AxAIOpenAIBase<
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIGrokArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIGrokArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Grok API key not set');
     }
@@ -95,7 +97,7 @@ export class AxAIGrok extends AxAIOpenAIBase<
     modelInfo = [...axModelInfoGrok, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIGrokModel) => {
-      const mi = getModelInfo<AxAIGrokModel, AxAIGrokEmbedModels>({
+      const mi = getModelInfo<AxAIGrokModel, AxAIGrokEmbedModels, TModelKey>({
         model,
         modelInfo,
         models,

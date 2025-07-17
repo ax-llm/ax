@@ -28,8 +28,11 @@ import type {
 /**
  * Options for the balancer.
  */
-export type AxBalancerOptions = {
-  comparator?: (a: AxAIService, b: AxAIService) => number;
+export type AxBalancerOptions<TModelKey = string> = {
+  comparator?: (
+    a: AxAIService<unknown, unknown, TModelKey>,
+    b: AxAIService<unknown, unknown, TModelKey>
+  ) => number;
   debug?: boolean;
   initialBackoffMs?: number;
   maxBackoffMs?: number;
@@ -39,10 +42,12 @@ export type AxBalancerOptions = {
 /**
  * Balancer that rotates through services.
  */
-export class AxBalancer implements AxAIService<unknown, unknown> {
-  private services: AxAIService[];
+export class AxBalancer<TModelKey = string>
+  implements AxAIService<unknown, unknown, TModelKey>
+{
+  private services: AxAIService<unknown, unknown, TModelKey>[];
   private currentServiceIndex = 0;
-  private currentService: AxAIService;
+  private currentService: AxAIService<unknown, unknown, TModelKey>;
   private debug: boolean;
   private initialBackoffMs: number;
   private maxBackoffMs: number;
@@ -52,7 +57,10 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
     { retries: number; lastFailureTime: number }
   > = new Map();
 
-  constructor(services: readonly AxAIService[], options?: AxBalancerOptions) {
+  constructor(
+    services: readonly AxAIService<unknown, unknown, TModelKey>[],
+    options?: AxBalancerOptions<TModelKey>
+  ) {
     if (services.length === 0) {
       throw new Error('No AI services provided.');
     }
@@ -60,7 +68,7 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
     validateModels(services);
 
     this.services = [...services].sort(
-      options?.comparator ?? AxBalancer.metricComparator
+      options?.comparator ?? AxBalancer.metricComparator<TModelKey>
     );
 
     const cs = this.services[this.currentServiceIndex];
@@ -107,14 +115,17 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
     }
     */
 
-  public static metricComparator = (a: AxAIService, b: AxAIService) => {
+  public static metricComparator = <TModelKey = string>(
+    a: AxAIService<unknown, unknown, TModelKey>,
+    b: AxAIService<unknown, unknown, TModelKey>
+  ) => {
     const aMetrics = a.getMetrics();
     const bMetrics = b.getMetrics();
     // Compare mean chat latency between services
     return aMetrics.latency.chat.mean - bMetrics.latency.chat.mean;
   };
 
-  getModelList(): AxAIModelList | undefined {
+  getModelList(): AxAIModelList<TModelKey> | undefined {
     return this.currentService.getModelList();
   }
 
@@ -200,7 +211,12 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
 
   async chat(
     req: Readonly<AxChatRequest>,
-    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions> | undefined
+    options?:
+      | Readonly<
+          AxAIPromptConfig &
+            AxAIServiceActionOptions<unknown, unknown, TModelKey>
+        >
+      | undefined
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     this.reset();
 
@@ -260,7 +276,9 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
 
   async embed(
     req: Readonly<AxEmbedRequest>,
-    options?: Readonly<AxAIServiceActionOptions> | undefined
+    options?:
+      | Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
+      | undefined
   ): Promise<AxEmbedResponse> {
     this.reset();
 
@@ -297,7 +315,9 @@ export class AxBalancer implements AxAIService<unknown, unknown> {
   }
 }
 
-function validateModels(services: readonly AxAIService[]) {
+function validateModels<TModelKey = string>(
+  services: readonly AxAIService<unknown, unknown, TModelKey>[]
+) {
   // Check if any service has a model list.
   const serviceWithModel = services.find(
     (service) => service.getModelList() !== undefined

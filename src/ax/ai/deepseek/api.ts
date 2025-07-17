@@ -22,20 +22,25 @@ export const axAIDeepSeekCodeConfig = (): DeepSeekConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   });
 
-export type AxAIDeepSeekArgs = AxAIOpenAIArgs<
+export type AxAIDeepSeekArgs<TModelKey = string> = AxAIOpenAIArgs<
   'deepseek',
   AxAIDeepSeekModel,
-  undefined
+  undefined,
+  TModelKey
 >;
 
-export class AxAIDeepSeek extends AxAIOpenAIBase<AxAIDeepSeekModel, undefined> {
+export class AxAIDeepSeek<TModelKey = string> extends AxAIOpenAIBase<
+  AxAIDeepSeekModel,
+  undefined,
+  TModelKey
+> {
   constructor({
     apiKey,
     config,
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAIDeepSeekArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIDeepSeekArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('DeepSeek API key not set');
     }

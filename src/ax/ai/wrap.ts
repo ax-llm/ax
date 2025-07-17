@@ -37,6 +37,7 @@ import {
   AxAIOpenAIResponses,
   type AxAIOpenAIResponsesArgs,
 } from './openai/responses_api_base.js';
+import type { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
 import { AxAIReka, type AxAIRekaArgs } from './reka/api.js';
 import { AxAITogether, type AxAITogetherArgs } from './together/api.js';
 import type {
@@ -52,21 +53,29 @@ import type {
   AxEmbedResponse,
   AxLoggerFunction,
 } from './types.js';
+import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
+import type { AxAIGrokModel } from './x-grok/types.js';
 
-export type AxAIArgs =
-  | AxAIOpenAIArgs
-  | AxAIOpenAIResponsesArgs
-  | AxAIAzureOpenAIArgs
-  | AxAITogetherArgs
-  | AxAIAnthropicArgs
-  | AxAIGroqArgs
-  | AxAIGoogleGeminiArgs
-  | AxAICohereArgs
-  | AxAIHuggingFaceArgs
-  | AxAIMistralArgs
-  | AxAIDeepSeekArgs
-  | AxAIOllamaArgs
-  | AxAIRekaArgs;
+export type AxAIArgs<TModelKey> =
+  | AxAIOpenAIArgs<'openai', AxAIOpenAIModel, AxAIOpenAIEmbedModel, TModelKey>
+  | AxAIOpenAIResponsesArgs<
+      'openai-responses',
+      AxAIOpenAIResponsesModel,
+      AxAIOpenAIEmbedModel,
+      TModelKey
+    >
+  | AxAIAzureOpenAIArgs<TModelKey>
+  | AxAITogetherArgs<TModelKey>
+  | AxAIAnthropicArgs<TModelKey>
+  | AxAIGroqArgs<TModelKey>
+  | AxAIGoogleGeminiArgs<TModelKey>
+  | AxAICohereArgs<TModelKey>
+  | AxAIHuggingFaceArgs<TModelKey>
+  | AxAIMistralArgs<TModelKey>
+  | AxAIDeepSeekArgs<TModelKey>
+  | AxAIOllamaArgs<TModelKey>
+  | AxAIRekaArgs<TModelKey>
+  | AxAIGrokArgs<TModelKey>;
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -76,56 +85,62 @@ export type AxAIModels =
   | AxAICohereModel
   | AxAIHuggingFaceModel
   | AxAIMistralModel
-  | AxAIDeepSeekModel;
+  | AxAIDeepSeekModel
+  | AxAIGrokModel;
 
 export type AxAIEmbedModels =
   | AxAIOpenAIEmbedModel
   | AxAIGoogleGeminiEmbedModel
   | AxAICohereEmbedModel;
 
-export class AxAI implements AxAIService {
-  private ai: AxAIService;
+export class AxAI<TModelKey = string>
+  implements AxAIService<unknown, unknown, TModelKey>
+{
+  private ai: AxAIService<unknown, unknown, TModelKey>;
 
-  constructor(options: Readonly<AxAIArgs>) {
+  constructor(options: Readonly<AxAIArgs<TModelKey>>) {
     switch (options.name) {
       case 'openai':
-        this.ai = new AxAIOpenAI(options);
+        this.ai = new AxAIOpenAI<TModelKey>(options);
         break;
       case 'openai-responses':
-        this.ai = new AxAIOpenAIResponses(options);
+        this.ai = new AxAIOpenAIResponses<TModelKey>(options);
         break;
       case 'azure-openai':
-        this.ai = new AxAIAzureOpenAI(options);
+        this.ai = new AxAIAzureOpenAI<TModelKey>(options);
+        break;
+      case 'grok':
+        this.ai = new AxAIGrok<TModelKey>(options);
         break;
       case 'huggingface':
-        this.ai = new AxAIHuggingFace(options);
+        this.ai = new AxAIHuggingFace<TModelKey>(options);
         break;
       case 'groq':
-        this.ai = new AxAIGroq(options);
+        this.ai = new AxAIGroq<TModelKey>(options);
         break;
       case 'together':
-        this.ai = new AxAITogether(options);
+        this.ai = new AxAITogether<TModelKey>(options);
         break;
       case 'cohere':
-        this.ai = new AxAICohere(options);
+        this.ai = new AxAICohere<TModelKey>(options);
         break;
       case 'google-gemini':
-        this.ai = new AxAIGoogleGemini(options);
+        this.ai = new AxAIGoogleGemini<TModelKey>(options);
         break;
       case 'anthropic':
-        this.ai = new AxAIAnthropic(options);
+        this.ai = new AxAIAnthropic<TModelKey>(options);
         break;
       case 'mistral':
-        this.ai = new AxAIMistral(options);
+        this.ai = new AxAIMistral<TModelKey>(options);
         break;
       case 'deepseek':
-        this.ai = new AxAIDeepSeek(options);
+        this.ai = new AxAIDeepSeek<TModelKey>(options);
         break;
       case 'ollama':
-        this.ai = new AxAIOllama(options);
+        this.ai = new AxAIOllama<TModelKey>(options);
         break;
       case 'reka':
-        this.ai = new AxAIReka(options);
+        this.ai = new AxAIReka<TModelKey>(options);
         break;
       default:
         throw new Error('Unknown AI');
@@ -145,7 +160,7 @@ export class AxAI implements AxAIService {
   }
 
   getModelList() {
-    return this.ai.getModelList() as AxAIModelList | undefined;
+    return this.ai.getModelList() as AxAIModelList<TModelKey> | undefined;
   }
 
   getLastUsedChatModel() {
@@ -166,14 +181,16 @@ export class AxAI implements AxAIService {
 
   async chat(
     req: Readonly<AxChatRequest>,
-    options?: Readonly<AxAIPromptConfig & AxAIServiceActionOptions>
+    options?: Readonly<
+      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown, TModelKey>
+    >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     return await this.ai.chat(req, options);
   }
 
   async embed(
     req: Readonly<AxEmbedRequest>,
-    options?: Readonly<AxAIServiceActionOptions & AxAIServiceActionOptions>
+    options?: Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
   ): Promise<AxEmbedResponse> {
     return await this.ai.embed(req, options);
   }

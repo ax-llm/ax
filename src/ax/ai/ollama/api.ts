@@ -21,7 +21,12 @@ export const axAIOllamaDefaultCreativeConfig = (): AxAIOllamaAIConfig =>
     embedModel: 'all-minilm',
   });
 
-export type AxAIOllamaArgs = AxAIOpenAIArgs<'ollama', string, string> & {
+export type AxAIOllamaArgs<TModelKey = string> = AxAIOpenAIArgs<
+  'ollama',
+  string,
+  string,
+  TModelKey
+> & {
   model?: string;
   embedModel?: string;
   url?: string;
@@ -30,14 +35,18 @@ export type AxAIOllamaArgs = AxAIOpenAIArgs<'ollama', string, string> & {
 /**
  * OllamaAI: AI Service
  */
-export class AxAIOllama extends AxAIOpenAIBase<string, string> {
+export class AxAIOllama<TModelKey = string> extends AxAIOpenAIBase<
+  string,
+  string,
+  TModelKey
+> {
   constructor({
     apiKey = 'not-set',
     url = 'http://localhost:11434/v1',
     config,
     options,
     models,
-  }: Readonly<Omit<AxAIOllamaArgs, 'name'>>) {
+  }: Readonly<Omit<AxAIOllamaArgs<TModelKey>, 'name'>>) {
     const Config = {
       ...axAIOllamaDefaultConfig(),
       ...config,

@@ -13,16 +13,25 @@ export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
     ...axBaseAIDefaultConfig(),
   });
 
-export type AxAITogetherArgs = AxAIOpenAIArgs<'together', string, unknown>;
+export type AxAITogetherArgs<TModelKey> = AxAIOpenAIArgs<
+  'together',
+  string,
+  unknown,
+  TModelKey
+>;
 
-export class AxAITogether extends AxAIOpenAIBase<string, unknown> {
+export class AxAITogether<TModelKey = string> extends AxAIOpenAIBase<
+  string,
+  unknown,
+  TModelKey
+> {
   constructor({
     apiKey,
     config,
     options,
     models,
     modelInfo,
-  }: Readonly<Omit<AxAITogetherArgs, 'name'>>) {
+  }: Readonly<Omit<AxAITogetherArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Together API key not set');
     }

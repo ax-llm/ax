@@ -4,16 +4,17 @@ import type { Context, Meter, Tracer } from '@opentelemetry/api';
 import type { AxAPI } from '../util/apicall.js';
 import type { AxAIFeatures } from './base.js';
 
-export type AxAIInputModelList<TModel, TEmbedModel> = (AxAIModelListBase & {
-  isInternal?: boolean;
-} & ({ model: TModel } | { embedModel: TEmbedModel }))[];
+export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
+  (AxAIModelListBase<TModelKey> & {
+    isInternal?: boolean;
+  } & ({ model: TModel } | { embedModel: TEmbedModel }))[];
 
-export type AxAIModelListBase = {
-  key: string;
+export type AxAIModelListBase<TModelKey> = {
+  key: TModelKey;
   description: string;
 };
 
-export type AxAIModelList = (AxAIModelListBase &
+export type AxAIModelList<TModelKey> = (AxAIModelListBase<TModelKey> &
   ({ model: string } | { embedModel: string }))[];
 
 export type AxModelInfo = {
@@ -349,8 +350,9 @@ export type AxAIServiceOptions = {
 export type AxAIServiceActionOptions<
   TModel = unknown,
   TEmbedModel = unknown,
+  TModelKey = string,
 > = {
-  ai?: Readonly<AxAIService<TModel, TEmbedModel>>;
+  ai?: Readonly<AxAIService<TModel, TEmbedModel, TModelKey>>;
   sessionId?: string;
   traceId?: string | undefined;
   timeout?: number;
@@ -364,11 +366,15 @@ export type AxAIServiceActionOptions<
   functionResultFormatter?: (result: unknown) => string;
 };
 
-export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
+export interface AxAIService<
+  TModel = unknown,
+  TEmbedModel = unknown,
+  TModelKey = string,
+> {
   getId(): string;
   getName(): string;
   getFeatures(model?: TModel): AxAIFeatures;
-  getModelList(): AxAIModelList | undefined;
+  getModelList(): AxAIModelList<TModelKey> | undefined;
   getMetrics(): AxAIServiceMetrics;
   getLogger(): AxLoggerFunction;
 
@@ -379,12 +385,13 @@ export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   chat(
     req: Readonly<AxChatRequest<TModel>>,
     options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<TModel, TEmbedModel>
+      AxAIPromptConfig &
+        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
     >
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>>;
   embed(
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel>>
+    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>>
   ): Promise<AxEmbedResponse>;
 
   setOptions(options: Readonly<AxAIServiceOptions>): void;
