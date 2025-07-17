@@ -658,7 +658,7 @@ array:
 ```typescript
 import { AxAI, AxAIGoogleGeminiModel, AxAIOpenAIModel } from "@ax-llm/ax";
 
-// ✨ Automatic type inference - TModelKey becomes 'fast' | 'smart' | 'reasoning'
+// ✨ Automatic type inference on models 'fast' | 'smart' | 'reasoning'
 const openai = AxAI.create({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
@@ -720,67 +720,10 @@ const gemini = AxAI.create({
 const router = new AxMultiServiceRouter([openai, gemini]);
 // router now knows about 'fast' | 'smart' | 'reasoning' | 'quick' | 'advanced'
 
-const routerModels = router.getModelList();
-// Perfect type safety across all providers!
+const gen = ax`inputText -> outputText`;
+gen.forward(router, { inputText }, { model: "quick" });
+// ax now knows about 'fast' | 'smart' | 'reasoning' | 'quick' | 'advanced'
 ```
-
-### Backward Compatibility
-
-The traditional constructor pattern still works - this is purely additive:
-
-```typescript
-// ✅ Still works - uses TModelKey = string (less precise)
-const traditionalAI = new AxAI({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY!,
-});
-
-// ✅ Still works - explicit type parameter
-const explicitAI = new AxAI<"gpt-4" | "gpt-3.5-turbo">({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY!,
-  models: [
-    {
-      key: "gpt-4" as const,
-      model: AxAIOpenAIModel.GPT4O,
-      description: "Smart",
-    },
-    {
-      key: "gpt-3.5-turbo" as const,
-      model: AxAIOpenAIModel.GPT35Turbo,
-      description: "Fast",
-    },
-  ],
-});
-
-// ✨ NEW: Automatic inference (recommended)
-const inferredAI = AxAI.create({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY!,
-  models: [
-    {
-      key: "gpt-4" as const,
-      model: AxAIOpenAIModel.GPT4O,
-      description: "Smart",
-    },
-    {
-      key: "gpt-3.5-turbo" as const,
-      model: AxAIOpenAIModel.GPT35Turbo,
-      description: "Fast",
-    },
-  ],
-});
-```
-
-### Benefits
-
-- **🎯 Precise Types**: Model keys are exact literal types, not generic strings
-- **✨ Perfect IntelliSense**: Autocomplete shows only valid model keys
-- **🛡️ Compile-time Safety**: Invalid model keys caught at build time
-- **🔄 Flow-through Safety**: Types flow through `getModelList()`, router, and
-  all operations
-- **📦 Zero Breaking Changes**: Existing code continues to work unchanged
-- **⚡ Progressive Enhancement**: Adopt better types when ready
 
 ## AxFlow: Build AI Workflows
 
@@ -1123,30 +1066,57 @@ based on performance and availability. If one service fails, it automatically
 fails over to the next available service.
 
 ```typescript
-import { AxAI, AxBalancer } from "@ax-llm/ax";
+import {
+  AxAI,
+  AxAIAnthropicModel,
+  AxAIOpenAIModel,
+  AxBalancer,
+} from "@ax-llm/ax";
 
-// Setup multiple AI services
-const openai = new AxAI({
+// Setup multiple AI services with specific model configurations
+const openaiService = AxAI.create({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY,
+  models: [
+    {
+      key: "smart-model",
+      model: AxAIOpenAIModel.GPT4O,
+      description: "Smart Model via OpenAI",
+    },
+    {
+      key: "fast-model",
+      model: AxAIOpenAIModel.GPT4OMini,
+      description: "Fast Model via OpenAI",
+    },
+  ] as const,
 });
 
-const ollama = new AxAI({
-  name: "ollama",
-  config: { model: "nous-hermes2" },
+const anthropicService = AxAI.create({
+  name: "anthropic",
+  apiKey: process.env.ANTHROPIC_APIKEY,
+  models: [
+    {
+      key: "smart-model",
+      model: AxAIAnthropicModel.Claude35Sonnet,
+      description: "Smart Model via Anthropic",
+    },
+    {
+      key: "fast-model",
+      model: AxAIAnthropicModel.Claude35Haiku,
+      description: "Fast Model via Anthropic",
+    },
+  ] as const,
 });
 
-const gemini = new AxAI({
-  name: "google-gemini",
-  apiKey: process.env.GOOGLE_APIKEY,
-});
-
-// Create a load balancer with all services
-const balancer = new AxBalancer([openai, ollama, gemini]);
+// Create type-safe load balancer with automatic model key inference
+// TModelKey is automatically inferred as: "smart-model" | "fast-model"
+const balancer = AxBalancer.create([openaiService, anthropicService]);
 
 // Use like a regular AI service - automatically uses the best available service
+// Model key is type-safe: only "smart-model" or "fast-model" are allowed
 const response = await balancer.chat({
   chatPrompt: [{ role: "user", content: "Hello!" }],
+  model: "smart-model", // ✅ Type-safe
 });
 
 // Or use the balance with AxGen
@@ -1158,85 +1128,108 @@ const res = await gen.forward(balancer, { question: "Hello!" });
 
 The router lets you use multiple AI services through a single interface,
 automatically routing requests to the right service based on the model
-specified.
+specified. With type-safe model key inference, you get automatic IntelliSense
+and compile-time validation.
 
 ```typescript
-import { AxAI, AxAIOpenAIModel, AxMultiServiceRouter } from "@ax-llm/ax";
+import {
+  AxAI,
+  AxAIAnthropicModel,
+  AxAIGoogleGeminiModel,
+  AxAIOpenAIModel,
+  AxMultiServiceRouter,
+} from "@ax-llm/ax";
 
 // Setup OpenAI with model list
-const openai = new AxAI<"basic" | "medium">({
+const openaiService = AxAI.create({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY,
   models: [
     {
       key: "basic",
       model: AxAIOpenAIModel.GPT4OMini,
-      description:
-        "Model for very simple tasks such as answering quick short questions",
+      description: "Model for simple tasks and quick questions",
     },
     {
       key: "medium",
       model: AxAIOpenAIModel.GPT4O,
-      description:
-        "Model for semi-complex tasks such as summarizing text, writing code, and more",
+      description: "Model for complex tasks like summarizing and coding",
     },
-  ],
+  ] as const,
 });
 
-// Setup Gemini with model list
-const gemini = new AxAI<"deep-thinker" | "expert">({
+// Setup Anthropic with model list
+const anthropicService = AxAI.create({
+  name: "anthropic",
+  apiKey: process.env.ANTHROPIC_APIKEY,
+  models: [
+    {
+      key: "deep-thinker",
+      model: AxAIAnthropicModel.Claude35Sonnet,
+      description: "Model for tasks requiring deep planning and analysis",
+    },
+  ] as const,
+});
+
+// Setup Google Gemini with model list
+const googleService = AxAI.create({
   name: "google-gemini",
   apiKey: process.env.GOOGLE_APIKEY,
   models: [
     {
-      key: "deep-thinker",
-      model: "gemini-2.0-flash-thinking",
-      description:
-        "Model that can think deeply about a task, best for tasks that require planning",
-    },
-    {
       key: "expert",
-      model: "gemini-2.0-pro",
-      description:
-        "Model that is the best for very complex tasks such as writing large essays, complex coding, and more",
+      model: AxAIGoogleGeminiModel.Gemini15Pro,
+      description: "Model for very complex tasks and large essays",
     },
-  ],
+  ] as const,
 });
 
-const ollama = new AxAI({
-  name: "ollama",
-  config: { model: "nous-hermes2" },
+// Create type-safe multi-service router with automatic model key inference
+// TModelKey is automatically inferred as: "basic" | "medium" | "deep-thinker" | "expert"
+const router = AxMultiServiceRouter.create([
+  openaiService,
+  anthropicService,
+  googleService,
+]);
+
+// Route to specific models with full type safety
+const basicResponse = await router.chat({
+  chatPrompt: [{ role: "user", content: "Quick question!" }],
+  model: "basic", // ✅ Routes to OpenAI GPT-4o Mini
 });
 
-const secretService = {
-  key: "sensitive-secret",
-  service: ollama,
-  description: "Model for sensitive secrets tasks",
-};
-
-// Create a router with all services
-const router = new AxMultiServiceRouter<
-  "basic" | "medium" | "deep-thinker" | "expert"
->([openai, gemini, secretService]);
-
-// Route to OpenAI's expert model
-const openaiResponse = await router.chat({
-  chatPrompt: [{ role: "user", content: "Hello!" }],
-  model: "expert",
+const expertResponse = await router.chat({
+  chatPrompt: [{ role: "user", content: "Complex analysis needed" }],
+  model: "expert", // ✅ Routes to Google Gemini 1.5 Pro
 });
+
+// TypeScript will catch invalid model keys at compile time:
+// model: "invalid-model" // ❌ Type error - not in union type
 
 // Or use the router with AxGen
 const gen = new AxGen(`question -> answer`);
 const res = await gen.forward(router, { question: "Hello!" });
 ```
 
-The load balancer is ideal for high availability while the router is perfect
-when you need specific models for specific tasks Both can be used with any of
-Ax's features like streaming, function calling, and chain-of-thought prompting.
+**🚀 Type Safety Benefits:**
 
-You can also use the balancer and the router together either the multiple
-balancers can be used with the router or the router can be used with the
-balancer.
+- **Automatic Type Inference**: Model keys are automatically inferred from
+  service configurations
+- **IntelliSense Support**: Get autocomplete for valid model keys in your IDE
+- **Compile-time Validation**: TypeScript catches invalid model keys before
+  runtime
+- **Zero Breaking Changes**: Existing code continues to work, new factory
+  methods provide enhanced types
+
+**⚡ Use Cases:**
+
+- **Load Balancer**: Ideal for high availability and automatic failover
+- **Multi-Service Router**: Perfect for routing specific models to specific
+  tasks
+- **Combined Usage**: Use balancers with routers for complex architectures
+
+Both classes work seamlessly with all Ax features like streaming, function
+calling, and chain-of-thought prompting.
 
 ## OpenTelemetry support
 
@@ -1721,6 +1714,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [smart-hone.ts](https://github.com/ax-llm/ax/blob/main/src/examples/smart-hone.ts)                         | Agent looks for dog in smart home                                                                                      |
 | [multi-modal.ts](https://github.com/ax-llm/ax/blob/main/src/examples/multi-modal.ts)                       | Use an image input along with other text inputs                                                                        |
 | [balancer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/balancer.ts)                             | Balance between various llm's based on cost, etc                                                                       |
+| [ax-multiservice-router.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-multiservice-router.ts) | Type-safe multi-service routing and load balancing with automatic model key inference                                  |
 | [vertex-auth-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vertex-auth-example.ts)       | Google Vertex AI authentication with dynamic API keys                                                                  |
 | [docker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/docker.ts)                                 | Use the docker sandbox to find files by description                                                                    |
 | [prime.ts](https://github.com/ax-llm/ax/blob/main/src/examples/prime.ts)                                   | Using field processors to process fields in a prompt                                                                   |
