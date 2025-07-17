@@ -20,6 +20,7 @@ import type {
 import { processBatches } from './batchUtil.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
 import { AxFlowSubContextImpl } from './subContext.js';
+import { mergeProgramUsage } from '../dsp/util.js';
 import type {
   AddNodeResult,
   AxFlowAutoParallelConfig,
@@ -85,6 +86,12 @@ export class AxFlow<
 
   // Program field that gets initialized when something is added to the graph
   private program?: AxProgram<IN, OUT>;
+
+  // Node-level usage tracking
+  private nodeUsage: Map<string, AxProgramUsage[]> = new Map();
+
+  // Node-level trace tracking
+  private nodeTraces: Map<string, AxProgramTrace<any, any>[]> = new Map();
 
   /**
    * Converts a string to camelCase for valid field names
@@ -384,8 +391,15 @@ export class AxFlow<
   }
 
   public getTraces(): AxProgramTrace<IN, OUT>[] {
-    this.ensureProgram();
-    return this.program!.getTraces();
+    // Collect traces from all nodes
+    const allTraces: AxProgramTrace<IN, OUT>[] = [];
+
+    for (const [_nodeName, nodeTraces] of this.nodeTraces) {
+      // Cast the traces to the expected type since they should be compatible
+      allTraces.push(...(nodeTraces as AxProgramTrace<IN, OUT>[]));
+    }
+
+    return allTraces;
   }
 
   public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]): void {
@@ -394,13 +408,70 @@ export class AxFlow<
   }
 
   public getUsage(): AxProgramUsage[] {
-    this.ensureProgram();
-    return this.program!.getUsage();
+    // Collect usage from all nodes and merge
+    const allUsage: AxProgramUsage[] = [];
+
+    for (const [_nodeName, nodeUsage] of this.nodeUsage) {
+      allUsage.push(...nodeUsage);
+    }
+
+    return mergeProgramUsage(allUsage);
   }
 
   public resetUsage(): void {
-    this.ensureProgram();
-    this.program!.resetUsage();
+    // Clear node-level usage tracking
+    this.nodeUsage.clear();
+
+    // Also reset usage on all node generators
+    for (const [_nodeName, nodeProgram] of this.nodeGenerators) {
+      if (nodeProgram && 'resetUsage' in nodeProgram) {
+        nodeProgram.resetUsage();
+      }
+    }
+  }
+
+  /**
+   * Resets trace tracking for the flow.
+   * This is called automatically on each forward/streamingForward call.
+   */
+  public resetTraces(): void {
+    // Clear node-level trace tracking
+    this.nodeTraces.clear();
+
+    // Note: Individual node programs don't have resetTraces method,
+    // so we only clear the flow-level trace collection
+  }
+
+  /**
+   * Gets a detailed usage report broken down by node name.
+   * This provides visibility into which nodes are consuming the most tokens.
+   *
+   * @returns Object mapping node names to their usage statistics
+   */
+  public getUsageReport(): Record<string, AxProgramUsage[]> {
+    const report: Record<string, AxProgramUsage[]> = {};
+
+    for (const [nodeName, nodeUsage] of this.nodeUsage) {
+      report[nodeName] = mergeProgramUsage(nodeUsage);
+    }
+
+    return report;
+  }
+
+  /**
+   * Gets a detailed trace report broken down by node name.
+   * This provides visibility into the execution traces for each node.
+   *
+   * @returns Object mapping node names to their trace data
+   */
+  public getTracesReport(): Record<string, AxProgramTrace<any, any>[]> {
+    const report: Record<string, AxProgramTrace<any, any>[]> = {};
+
+    for (const [nodeName, nodeTraces] of this.nodeTraces) {
+      report[nodeName] = nodeTraces;
+    }
+
+    return report;
   }
 
   public async *streamingForward<T extends Readonly<AxAIService>>(
@@ -414,6 +485,7 @@ export class AxFlow<
   ): AxGenStreamingOut<OUT> {
     // For now, we'll implement streaming by converting the regular forward result
     // This is a simplified implementation - full streaming would require more work
+    // Note: forward() will handle the resetUsage() call
     const result = await this.forward(ai, values, options);
 
     // Yield the final result with correct AxGenDeltaOut structure
@@ -463,6 +535,10 @@ export class AxFlow<
       > & { autoParallel?: boolean }
     >
   ): Promise<OUT> {
+    // Reset usage and trace tracking at the start of each forward call
+    this.resetUsage();
+    this.resetTraces();
+
     // Extract values from input - handle both IN and AxMessage<IN>[] cases
     let inputValues: IN;
     if (Array.isArray(values)) {
@@ -662,7 +738,12 @@ export class AxFlow<
       });
 
       // Create and store the AxGen instance for this node with the same arguments as AxGen
-      this.nodeGenerators.set(name, new AxGen(signature));
+      const nodeGenerator = new AxGen(signature);
+      this.nodeGenerators.set(name, nodeGenerator);
+
+      // Register the node with the program after program is initialized
+      this.ensureProgram();
+      this.program!.register(nodeGenerator as any);
     } else if (typeof nodeValue === 'function') {
       // Using program class
       this.nodes.set(name, {
@@ -676,6 +757,10 @@ export class AxFlow<
         AxGenOut
       >;
       this.nodeGenerators.set(name, programInstance);
+
+      // Register the node with the program after program is initialized
+      this.ensureProgram();
+      this.program!.register(programInstance as any);
     } else if (
       nodeValue &&
       typeof nodeValue === 'object' &&
@@ -688,19 +773,18 @@ export class AxFlow<
       });
 
       // Store the existing AxGen instance
-      this.nodeGenerators.set(
-        name,
-        nodeValue as AxProgrammable<AxGenIn, AxGenOut>
-      );
+      const nodeGenerator = nodeValue as AxProgrammable<AxGenIn, AxGenOut>;
+      this.nodeGenerators.set(name, nodeGenerator);
+
+      // Register the node with the program after program is initialized
+      this.ensureProgram();
+      this.program!.register(nodeGenerator as any);
     } else {
       // Invalid argument type
       throw new Error(
         `Invalid second argument for node '${name}': expected string, AxSignature, AxProgrammable instance, or constructor function`
       );
     }
-
-    // Initialize program after the node is added
-    this.ensureProgram();
 
     // NOTE: This type assertion is necessary for the type-level programming pattern
     // The runtime value is the same object, but TypeScript can't track the evolving generic types
@@ -1007,6 +1091,32 @@ export class AxFlow<
           ...options,
           traceLabel,
         });
+
+        // Collect usage from the node after execution
+        if (
+          'getUsage' in nodeProgram &&
+          typeof nodeProgram.getUsage === 'function'
+        ) {
+          const nodeUsage = nodeProgram.getUsage();
+          if (nodeUsage && nodeUsage.length > 0) {
+            // Store usage for this node
+            const existingUsage = this.nodeUsage.get(nodeName) || [];
+            this.nodeUsage.set(nodeName, [...existingUsage, ...nodeUsage]);
+          }
+        }
+
+        // Collect traces from the node after execution
+        if (
+          'getTraces' in nodeProgram &&
+          typeof nodeProgram.getTraces === 'function'
+        ) {
+          const nodeTraces = nodeProgram.getTraces();
+          if (nodeTraces && nodeTraces.length > 0) {
+            // Store traces for this node
+            const existingTraces = this.nodeTraces.get(nodeName) || [];
+            this.nodeTraces.set(nodeName, [...existingTraces, ...nodeTraces]);
+          }
+        }
       } else {
         throw new Error(
           `Node program for '${nodeName}' does not have a forward method`
