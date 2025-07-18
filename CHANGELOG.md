@@ -1,5 +1,18 @@
 # Changelog
 
+## [13.0.12](https://github.com/ax-llm/ax/compare/13.0.10...13.0.11) (2025-07-18)
+
+### Features
+
+* enhance type safety and inference for AI models ([71cfb3a](https://github.com/ax-llm/ax/commit/71cfb3ab79217a68a5e4f965755ad84bea2828c7))
+## [13.0.11](https://github.com/ax-llm/ax/compare/13.0.10...13.0.11) (2025-07-17)
+
+### Features
+
+* enhance AxFlow with node-level usage and trace tracking ([5620235](https://github.com/ax-llm/ax/commit/56202354bc48ea6342d445122bc5d1e06ecc5ff1))
+* implement dark mode support across the documentation site ([2e56916](https://github.com/ax-llm/ax/commit/2e5691673cd89bde4e1afea730d7243369276f92))
+* introduce type parameterization for AI services and models ([2aa97ba](https://github.com/ax-llm/ax/commit/2aa97ba8786c7c42f4c5e78ead4d5c273f5d96a0))
+
 ## [13.0.11](https://github.com/ax-llm/ax/compare/13.0.9...13.0.10) (2025-07-17)
 
 ### Features
