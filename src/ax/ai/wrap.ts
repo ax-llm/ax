@@ -91,9 +91,6 @@ export type AxAIEmbedModels =
   | AxAIGoogleGeminiEmbedModel
   | AxAICohereEmbedModel;
 
-// Helper type to extract model keys from the models array
-type ExtractModelKeys<T> = T extends readonly { key: infer K }[] ? K : never;
-
 // Helper to extract both model keys and enum values from model configurations
 type ExtractModelKeysAndValues<T> = T extends readonly {
   key: infer K;

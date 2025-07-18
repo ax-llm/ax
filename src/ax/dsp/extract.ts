@@ -14,7 +14,7 @@ export const extractValues = (
 ) => {
   const xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
   streamingExtractValues(sig, values, xstate, content, { strictMode });
-  streamingExtractFinalValue(sig, values, xstate, content);
+  streamingExtractFinalValue(sig, values, xstate, content, strictMode);
 
   // Filter out internal fields
   for (const field of sig.getOutputFields()) {
@@ -100,7 +100,7 @@ export const streamingExtractValues = (
         }
 
         // If there is only one field then we assume the content is streaming to the first field
-        // Note: optimization for single field responses
+        // Note: optimization for single field responses (only in non-strict mode)
         if (
           !strictMode &&
           fields.length === 1 &&
@@ -113,12 +113,53 @@ export const streamingExtractValues = (
           break;
         }
 
-        // if multiple fields, we need to validate the field name of the first required field
-        if (xstate.currField === undefined && !field.isOptional) {
-          throw new ValidationError({
-            message: 'Expected (Required) field not found',
-            fields: [field],
-          });
+        // For multiple fields, we need to be more strategic about when to assign content
+        // without prefixes to a field. We should first scan all fields to see if any
+        // have proper prefixes before assigning content to the first field.
+
+        // If this is the first field we're checking and no field has been extracted yet
+        if (
+          xstate.currField === undefined &&
+          xstate.extractedFields.length === 0
+        ) {
+          // In strict mode, we need proper field prefixes for the first required field
+          if (strictMode && !field.isOptional) {
+            throw new ValidationError({
+              message: 'Expected (Required) field not found',
+              fields: [field],
+            });
+          }
+
+          // For non-strict mode, we need to check if ANY field has a proper prefix
+          // before assigning content to the first field
+          if (!strictMode) {
+            // Look ahead to see if any other field has a proper prefix
+            let foundValidFieldPrefix = false;
+            for (let i = index; i < fields.length; i++) {
+              const futureField = fields[i];
+              if (!futureField) continue;
+
+              const futurePrefix = `${(xstate.extractedFields.length === 0 ? '' : '\n') + futureField.title}:`;
+              const futureMatch = matchesContent(
+                content,
+                futurePrefix,
+                xstate.s
+              );
+              if (futureMatch >= 0) {
+                foundValidFieldPrefix = true;
+                break;
+              }
+            }
+
+            // If no valid field prefix found anywhere, assign to first field
+            if (!foundValidFieldPrefix) {
+              xstate.inAssumedField = true;
+              expectedField = field;
+              prefixLen = 0;
+              e = 0;
+              break;
+            }
+          }
         }
 
         expectedField = field.isOptional ? undefined : field;
@@ -142,6 +183,29 @@ export const streamingExtractValues = (
     }
 
     if (xstate.currField !== undefined && xstate.inAssumedField) {
+      // We're transitioning from assumed field to explicit field
+      // We need to preserve the content that was already assigned to the assumed field
+      const assumedFieldContent = content.substring(0, e).trim();
+      if (assumedFieldContent && xstate.currField.name === field.name) {
+        // If the assumed field is the same as the current field, combine the content
+        const parsedValue = validateAndParseFieldValue(
+          xstate.currField,
+          assumedFieldContent
+        );
+        if (parsedValue !== undefined) {
+          values[xstate.currField.name] = parsedValue;
+        }
+      } else if (assumedFieldContent) {
+        // If they're different fields, save the assumed field content
+        const parsedValue = validateAndParseFieldValue(
+          xstate.currField,
+          assumedFieldContent
+        );
+        if (parsedValue !== undefined) {
+          values[xstate.currField.name] = parsedValue;
+        }
+      }
+
       xstate.inAssumedField = false;
       xstate.streamedIndex[xstate.currField.name] = 0;
       xstate.currField = undefined;
@@ -182,7 +246,8 @@ export const streamingExtractFinalValue = (
   values: Record<string, unknown>,
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState,
-  content: string
+  content: string,
+  strictMode = false
 ) => {
   if (xstate.currField) {
     const val = content.substring(xstate.s).trim();
@@ -192,8 +257,88 @@ export const streamingExtractFinalValue = (
       values[xstate.currField.name] = parsedValue;
     }
   }
+
+  // In strict mode, if we have content but no fields were extracted and no current field,
+  // this means field prefixes were missing when they should have been present
+  if (strictMode && !xstate.currField && xstate.extractedFields.length === 0) {
+    const trimmedContent = content.trim();
+    if (trimmedContent) {
+      // Find the first required field to report in the error
+      const outputFields = sig.getOutputFields();
+      const firstRequiredField = outputFields.find(
+        (field) => !field.isOptional
+      );
+      if (firstRequiredField) {
+        throw new ValidationError({
+          message: 'Expected field not found',
+          fields: [firstRequiredField],
+        });
+      }
+      // If only optional fields exist, ignore unprefixed content in strict mode
+    }
+  }
+
+  // Check for optional fields that might have been missed by streaming parser
+  parseOptionalFieldsFromFullContent(sig, values, content);
+
   // Check all previous required fields before processing current field
   checkMissingRequiredFields(xstate, values, sig.getOutputFields());
+};
+
+// Helper function to parse optional fields from full content that streaming parser might have missed
+const parseOptionalFieldsFromFullContent = (
+  sig: Readonly<AxSignature>,
+  values: Record<string, unknown>,
+  content: string
+) => {
+  const outputFields = sig.getOutputFields();
+
+  for (const field of outputFields) {
+    // Skip if field is not optional or already found
+    if (!field.isOptional || field.name in values) {
+      continue;
+    }
+
+    // Look for field.title pattern in content
+    const prefix = `${field.title}:`;
+    const fieldIndex = content.indexOf(prefix);
+
+    if (fieldIndex === -1) {
+      continue;
+    }
+
+    // Extract content after the field prefix
+    const startIndex = fieldIndex + prefix.length;
+    let endIndex = content.length;
+
+    // Find the end of this field's content by looking for the next field or end of content
+    for (const otherField of outputFields) {
+      if (otherField.name === field.name) {
+        continue;
+      }
+
+      const otherPrefix = `${otherField.title}:`;
+      const otherFieldIndex = content.indexOf(otherPrefix, startIndex);
+
+      if (otherFieldIndex !== -1 && otherFieldIndex < endIndex) {
+        endIndex = otherFieldIndex;
+      }
+    }
+
+    // Extract and validate the field value
+    const fieldValue = content.substring(startIndex, endIndex).trim();
+
+    if (fieldValue) {
+      try {
+        const parsedValue = validateAndParseFieldValue(field, fieldValue);
+        if (parsedValue !== undefined) {
+          values[field.name] = parsedValue;
+        }
+      } catch {
+        // Ignore validation errors for optional fields in this fallback parser
+      }
+    }
+  }
 };
 
 const convertValueToType = (

@@ -145,7 +145,7 @@ describe('streamingExtractValues', () => {
     content += 'Model Answer 2: Second ';
     streamingExtractValues(sig, values, state, content);
     content += 'output content';
-    streamingExtractFinalValue(sig, values, state, content);
+    streamingExtractFinalValue(sig, values, state, content, false);
 
     expect(values).toEqual({
       modelAnswer1: 'First output content',
@@ -163,7 +163,7 @@ describe('streamingExtractValues', () => {
     streamingExtractValues(sig, values, state, content);
     content += 'el Answer 1: Content here';
     streamingExtractValues(sig, values, state, content);
-    streamingExtractFinalValue(sig, values, state, content);
+    streamingExtractFinalValue(sig, values, state, content, false);
 
     expect(values).toEqual({
       modelAnswer1: 'Content here',
@@ -192,7 +192,7 @@ describe('streamingExtractValues', () => {
       content += chunk;
       streamingExtractValues(sig, values, state, content);
     }
-    streamingExtractFinalValue(sig, values, state, content);
+    streamingExtractFinalValue(sig, values, state, content, false);
 
     expect(values).toEqual({
       modelAnswer1: 'First content here',
@@ -212,7 +212,7 @@ describe('streamingExtractValues', () => {
     content += ', "second", ';
     streamingExtractValues(sig, values, state, content);
     content += '"third"]';
-    streamingExtractFinalValue(sig, values, state, content);
+    streamingExtractFinalValue(sig, values, state, content, false);
 
     expect(values).toEqual({
       modelAnswer1: ['first', 'second', 'third'],
@@ -242,7 +242,7 @@ Model Answer:`;
     const malformedContent = 'Some random content without output prefix';
 
     expect(() => extractValues(sig, values, malformedContent)).toThrow(
-      'Expected (Required) field not found'
+      'Required field not found'
     );
   });
 

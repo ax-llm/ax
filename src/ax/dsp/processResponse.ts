@@ -61,6 +61,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
   try {
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) {
         if (lastChunkUsage) {
           usage.push(lastChunkUsage);
@@ -244,6 +245,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   sessionId,
   traceId,
   span,
+  strictMode,
   excludeContentFromTrace,
   streamingAsserts,
   asserts,
@@ -279,7 +281,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       signature,
       state.values,
       state.xstate,
-      state.content
+      state.content,
+      strictMode
     );
 
     await assertStreamingAssertions(

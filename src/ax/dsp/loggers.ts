@@ -130,10 +130,10 @@ export const axCreateDefaultColorLogger = (
         });
         break;
       case 'ChatResponseStreamingResult': {
-        // const streamingContent =
-        //   typedData.value.delta || typedData.value.content || '';
-        // // Add newline prefix if this is actual content (not just a delta)
-        // formattedMessage = cl.cyanBright(streamingContent);
+        const streamingContent =
+          typedData.value.delta || typedData.value.content || '';
+        // Add newline prefix if this is actual content (not just a delta)
+        formattedMessage = cl.cyanBright(streamingContent);
         return;
       }
       case 'ChatResponseStreamingDoneResult': {
