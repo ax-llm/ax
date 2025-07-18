@@ -112,9 +112,9 @@ export function createAxAI<const T extends AxAIArgs<any>>(
 }
 
 export class AxAI<TModelKey = string>
-  implements AxAIService<unknown, unknown, TModelKey>
+  implements AxAIService<any, any, TModelKey>
 {
-  private ai: AxAIService<unknown, unknown, TModelKey>;
+  private ai: AxAIService<any, any, TModelKey>;
 
   // Static factory method for automatic type inference
   static create<const T extends AxAIArgs<any>>(

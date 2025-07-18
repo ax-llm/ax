@@ -186,6 +186,63 @@ const serviceC: AxAIService<string, string> = {
   getLastUsedModelConfig: (): AxModelConfig | undefined => undefined,
 };
 
+describe('AxMultiServiceRouter Interface Compatibility', () => {
+  it('should implement all AxAIService methods', () => {
+    const router = new AxMultiServiceRouter([serviceA, serviceB]);
+
+    // Test that all required AxAIService methods exist
+    expect(typeof router.getId).toBe('function');
+    expect(typeof router.getName).toBe('function');
+    expect(typeof router.getFeatures).toBe('function');
+    expect(typeof router.getModelList).toBe('function');
+    expect(typeof router.getMetrics).toBe('function');
+    expect(typeof router.getLogger).toBe('function');
+
+    expect(typeof router.getLastUsedChatModel).toBe('function');
+    expect(typeof router.getLastUsedEmbedModel).toBe('function');
+    expect(typeof router.getLastUsedModelConfig).toBe('function');
+
+    expect(typeof router.chat).toBe('function');
+    expect(typeof router.embed).toBe('function');
+
+    expect(typeof router.setOptions).toBe('function');
+    expect(typeof router.getOptions).toBe('function');
+  });
+
+  it('should be assignable to AxAIService interface', () => {
+    const router = new AxMultiServiceRouter([serviceA, serviceB]);
+
+    // This should compile without errors - proves interface compatibility
+    const service: AxAIService = router;
+    expect(service).toBeDefined();
+  });
+
+  it('should properly delegate getLastUsedChatModel return type', () => {
+    const router = new AxMultiServiceRouter([serviceA, serviceB]);
+
+    // The method should exist and return the expected type
+    const result = router.getLastUsedChatModel();
+
+    // At runtime, this will be undefined since we haven't made any calls
+    // but the important thing is that it doesn't throw a type error
+    expect(result).toBeUndefined();
+  });
+
+  it('should properly delegate getLastUsedEmbedModel return type', () => {
+    const router = new AxMultiServiceRouter([serviceA, serviceB]);
+
+    const result = router.getLastUsedEmbedModel();
+    expect(result).toBeUndefined();
+  });
+
+  it('should properly delegate getLastUsedModelConfig return type', () => {
+    const router = new AxMultiServiceRouter([serviceA, serviceB]);
+
+    const result = router.getLastUsedModelConfig();
+    expect(result).toBeUndefined();
+  });
+});
+
 describe('AxMultiServiceRouter', () => {
   it('aggregates the model list from all services', () => {
     const router = new AxMultiServiceRouter([
