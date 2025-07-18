@@ -16,8 +16,9 @@ import type {
   AxProgramDemos,
   AxProgramExamples,
   AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
   AxProgrammable,
-  AxProgramStreamingForwardOptions,
+  AxProgramStreamingForwardOptionsWithModels,
   AxSetExamplesOptions,
   AxTunable,
   AxUsable,
@@ -318,10 +319,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   /**
    * Initializes the agent's execution context, processing child agents and their functions.
    */
-  private init(
-    parentAi: Readonly<AxAIService>,
+  private init<T extends Readonly<AxAIService>>(
+    parentAi: T,
     values: IN | AxMessage<IN>[],
-    options: Readonly<AxProgramForwardOptions<string>> | undefined
+    options: Readonly<AxProgramForwardOptionsWithModels<T>> | undefined
   ) {
     const ai = this.ai ?? parentAi;
     const mm = ai?.getModelList();
@@ -329,7 +330,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Get parent's input schema and keys
     const parentSchema = this.program.getSignature().getInputFields();
     const parentKeys = parentSchema.map((p) => p.name);
-    const debug = this.getDebug(ai, options);
+    const debug = this.getDebug<T>(ai, options);
 
     // Process each child agent's function
     const agentFuncs = this.agents?.map((agent) => {
@@ -363,13 +364,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   public async forward<T extends Readonly<AxAIService>>(
     parentAi: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<
-      AxProgramForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      >
-    >
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
-    const { ai, functions, debug } = this.init(parentAi, values, options);
+    const { ai, functions, debug } = this.init<T>(parentAi, values, options);
     return await this.program.forward(ai, values, {
       ...options,
       debug,
@@ -380,13 +377,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   public async *streamingForward<T extends Readonly<AxAIService>>(
     parentAi: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<
-      AxProgramStreamingForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      >
-    >
+    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
-    const { ai, functions, debug } = this.init(parentAi, values, options);
+    const { ai, functions, debug } = this.init<T>(parentAi, values, options);
     return yield* this.program.streamingForward(ai, values, {
       ...options,
       debug,
@@ -429,9 +422,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.program.setSignature(signature);
   }
 
-  private getDebug(
+  private getDebug<T extends Readonly<AxAIService>>(
     ai: AxAIService,
-    options?: Readonly<AxProgramForwardOptions<string>>
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): boolean {
     return options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
   }

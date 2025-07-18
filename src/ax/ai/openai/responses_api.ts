@@ -5,8 +5,8 @@ import type {
 } from '@ax-llm/ax/index.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
 import type {
-  AxAIPromptConfig,
   AxAIServiceImpl,
+  AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
@@ -259,7 +259,7 @@ export class AxAIOpenAIResponsesImpl<
 
   createChatReq(
     req: Readonly<AxInternalChatRequest<TModel>>,
-    config: Readonly<AxAIPromptConfig>
+    config: Readonly<AxAIServiceOptions>
   ): [Readonly<AxAPI>, Readonly<AxAIOpenAIResponsesRequest<TModel>>] {
     const model = req.model;
     const apiConfig: Readonly<AxAPI> = { name: '/responses' };

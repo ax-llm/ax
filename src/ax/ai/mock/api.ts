@@ -3,9 +3,7 @@ import { randomUUID } from '../../util/crypto.js';
 
 import type {
   AxAIModelList,
-  AxAIPromptConfig,
   AxAIService,
-  AxAIServiceActionOptions,
   AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
@@ -32,9 +30,7 @@ export type AxMockAIServiceConfig<TModelKey> = {
     | (() => Promise<AxChatResponse | ReadableStream<AxChatResponse>>)
     | ((
         req: Readonly<AxChatRequest<unknown>>,
-        options?: Readonly<
-          AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown>
-        >
+        options?: Readonly<AxAIServiceOptions>
       ) => Promise<AxChatResponse | ReadableStream<AxChatResponse>>);
 
   embedResponse?:
@@ -107,9 +103,7 @@ export class AxMockAIService<TModelKey>
   async chat(
     req: Readonly<AxChatRequest<unknown>>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown, TModelKey>
-    >
+    _options?: Readonly<AxAIServiceOptions>
   ) {
     if (this.config.latencyMs) {
       await new Promise((resolve) =>
@@ -152,7 +146,7 @@ export class AxMockAIService<TModelKey>
   async embed(
     req: Readonly<AxEmbedRequest>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
+    _options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     if (this.config.latencyMs) {
       await new Promise((resolve) =>

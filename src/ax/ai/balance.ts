@@ -12,9 +12,7 @@ import {
 
 import type {
   AxAIModelList,
-  AxAIPromptConfig,
   AxAIService,
-  AxAIServiceActionOptions,
   AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
@@ -24,6 +22,19 @@ import type {
   AxLoggerFunction,
   AxModelConfig,
 } from './types.js';
+
+// Helper type to extract model keys from a service
+type ExtractServiceModelKeys<T> = T extends AxAIService<any, any, infer K>
+  ? K
+  : never;
+
+// Helper type to extract model keys from an array of services
+type ExtractAllModelKeys<T extends readonly any[]> = T extends readonly [
+  infer First,
+  ...infer Rest,
+]
+  ? ExtractServiceModelKeys<First> | ExtractAllModelKeys<Rest>
+  : never;
 
 /**
  * Options for the balancer.
@@ -42,8 +53,14 @@ export type AxBalancerOptions<TModelKey = string> = {
 /**
  * Balancer that rotates through services.
  */
-export class AxBalancer<TModelKey = string>
-  implements AxAIService<unknown, unknown, TModelKey>
+export class AxBalancer<
+  TServices extends readonly AxAIService<
+    any,
+    any,
+    any
+  >[] = readonly AxAIService[],
+  TModelKey = ExtractAllModelKeys<TServices>,
+> implements AxAIService<unknown, unknown, TModelKey>
 {
   private services: AxAIService<unknown, unknown, TModelKey>[];
   private currentServiceIndex = 0;
@@ -57,19 +74,18 @@ export class AxBalancer<TModelKey = string>
     { retries: number; lastFailureTime: number }
   > = new Map();
 
-  constructor(
-    services: readonly AxAIService<unknown, unknown, TModelKey>[],
-    options?: AxBalancerOptions<TModelKey>
-  ) {
+  constructor(services: TServices, options?: AxBalancerOptions<TModelKey>) {
     if (services.length === 0) {
       throw new Error('No AI services provided.');
     }
 
-    validateModels(services);
+    validateModels(
+      services as readonly AxAIService<unknown, unknown, TModelKey>[]
+    );
 
     this.services = [...services].sort(
       options?.comparator ?? AxBalancer.metricComparator<TModelKey>
-    );
+    ) as AxAIService<unknown, unknown, TModelKey>[];
 
     const cs = this.services[this.currentServiceIndex];
     if (cs === undefined) {
@@ -80,6 +96,16 @@ export class AxBalancer<TModelKey = string>
     this.initialBackoffMs = options?.initialBackoffMs ?? 1000;
     this.maxBackoffMs = options?.maxBackoffMs ?? 32000;
     this.maxRetries = options?.maxRetries ?? 3;
+  }
+
+  /**
+   * Static factory method for type-safe balancer creation with automatic model key inference.
+   */
+  static create<const TServices extends readonly AxAIService<any, any, any>[]>(
+    services: TServices,
+    options?: AxBalancerOptions<ExtractAllModelKeys<TServices>>
+  ): AxBalancer<TServices, ExtractAllModelKeys<TServices>> {
+    return new AxBalancer(services, options);
   }
   getLastUsedChatModel(): unknown {
     return this.currentService.getLastUsedChatModel();
@@ -210,13 +236,8 @@ export class AxBalancer<TModelKey = string>
   }
 
   async chat(
-    req: Readonly<AxChatRequest>,
-    options?:
-      | Readonly<
-          AxAIPromptConfig &
-            AxAIServiceActionOptions<unknown, unknown, TModelKey>
-        >
-      | undefined
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     this.reset();
 
@@ -275,10 +296,8 @@ export class AxBalancer<TModelKey = string>
   }
 
   async embed(
-    req: Readonly<AxEmbedRequest>,
-    options?:
-      | Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
-      | undefined
+    req: Readonly<AxEmbedRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     this.reset();
 

@@ -322,19 +322,6 @@ export type AxLoggerData =
 
 export type AxLoggerFunction = (message: AxLoggerData) => void;
 
-export type AxAIPromptConfig = {
-  stream?: boolean;
-  thinkingTokenBudget?:
-    | 'minimal'
-    | 'low'
-    | 'medium'
-    | 'high'
-    | 'highest'
-    | 'none';
-  showThoughts?: boolean;
-  useExpensiveModel?: 'yes';
-};
-
 export type AxAIServiceOptions = {
   debug?: boolean;
   rateLimiter?: AxRateLimiterFunction;
@@ -345,25 +332,20 @@ export type AxAIServiceOptions = {
   excludeContentFromTrace?: boolean;
   abortSignal?: AbortSignal;
   logger?: AxLoggerFunction;
-};
-
-export type AxAIServiceActionOptions<
-  TModel = unknown,
-  TEmbedModel = unknown,
-  TModelKey = string,
-> = {
-  ai?: Readonly<AxAIService<TModel, TEmbedModel, TModelKey>>;
   sessionId?: string;
-  traceId?: string | undefined;
-  timeout?: number;
-  rateLimiter?: AxRateLimiterFunction;
-  debug?: boolean;
   debugHideSystemPrompt?: boolean;
   traceContext?: Context;
-  abortSignal?: AbortSignal;
-  logger?: AxLoggerFunction;
+  stream?: boolean;
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none';
+  showThoughts?: boolean;
+  useExpensiveModel?: 'yes';
   stepIndex?: number;
-  functionResultFormatter?: (result: unknown) => string;
 };
 
 export interface AxAIService<
@@ -383,15 +365,12 @@ export interface AxAIService<
   getLastUsedModelConfig(): AxModelConfig | undefined;
 
   chat(
-    req: Readonly<AxChatRequest<TModel>>,
-    options?: Readonly<
-      AxAIPromptConfig &
-        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
-    >
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>>;
   embed(
-    req: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>>
+    req: Readonly<AxEmbedRequest<TEmbedModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse>;
 
   setOptions(options: Readonly<AxAIServiceOptions>): void;
@@ -409,7 +388,7 @@ export interface AxAIServiceImpl<
 > {
   createChatReq(
     req: Readonly<AxInternalChatRequest<TModel>>,
-    config: Readonly<AxAIPromptConfig>
+    config?: Readonly<AxAIServiceOptions>
   ): Promise<[AxAPI, TChatRequest]> | [AxAPI, TChatRequest];
 
   createChatResp(resp: Readonly<TChatResponse>): AxChatResponse;

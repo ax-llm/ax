@@ -11,16 +11,17 @@ import type {
   AxProgramDemos,
   AxProgramExamples,
   AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
   AxProgrammable,
-  AxProgramStreamingForwardOptions,
+  AxProgramStreamingForwardOptionsWithModels,
   AxProgramTrace,
   AxProgramUsage,
   AxSetExamplesOptions,
 } from '../dsp/types.js';
+import { mergeProgramUsage } from '../dsp/util.js';
 import { processBatches } from './batchUtil.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
 import { AxFlowSubContextImpl } from './subContext.js';
-import { mergeProgramUsage } from '../dsp/util.js';
 import type {
   AddNodeResult,
   AxFlowAutoParallelConfig,
@@ -477,11 +478,7 @@ export class AxFlow<
   public async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<
-      AxProgramStreamingForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      >
-    >
+    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
     // For now, we'll implement streaming by converting the regular forward result
     // This is a simplified implementation - full streaming would require more work
@@ -530,9 +527,7 @@ export class AxFlow<
     ai: T,
     values: IN | AxMessage<IN>[],
     options?: Readonly<
-      AxProgramForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      > & { autoParallel?: boolean }
+      AxProgramForwardOptionsWithModels<T> & { autoParallel?: boolean }
     >
   ): Promise<OUT> {
     // Reset usage and trace tracking at the start of each forward call
@@ -569,7 +564,12 @@ export class AxFlow<
     // This provides consistent access to AI service and options for all steps
     const context = {
       mainAi: ai,
-      mainOptions: options,
+      mainOptions: options
+        ? {
+            ...options,
+            model: options.model ? String(options.model) : undefined,
+          }
+        : undefined,
     } as const;
 
     // Determine execution strategy based on configuration

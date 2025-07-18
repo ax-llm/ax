@@ -6,7 +6,6 @@ import {
 } from '../base.js';
 import type {
   AxAIInputModelList,
-  AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatRequest,
@@ -89,9 +88,7 @@ class AxAICohereImpl
   }
 
   createChatReq(
-    req: Readonly<AxInternalChatRequest<AxAICohereModel>>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AxAIPromptConfig>
+    req: Readonly<AxInternalChatRequest<AxAICohereModel>>
   ): [AxAPI, AxAICohereChatRequest] {
     const model = req.model;
 

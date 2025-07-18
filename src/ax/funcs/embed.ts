@@ -1,6 +1,6 @@
 import type {
   AxAIService,
-  AxAIServiceActionOptions,
+  AxAIServiceOptions,
   AxFunction,
 } from '../ai/types.js';
 
@@ -13,7 +13,7 @@ export class AxEmbeddingAdapter {
   };
   private func: (
     args: readonly number[],
-    extra?: Readonly<AxAIServiceActionOptions>
+    extra?: Readonly<AxAIServiceOptions>
   ) => Promise<unknown>;
 
   constructor({
@@ -29,7 +29,7 @@ export class AxEmbeddingAdapter {
     }>;
     func: (
       args: readonly number[],
-      extra?: Readonly<AxAIServiceActionOptions>
+      extra?: Readonly<AxAIServiceOptions>
     ) => Promise<unknown>;
   }>) {
     this.aiService = ai;
@@ -39,7 +39,7 @@ export class AxEmbeddingAdapter {
 
   private async embedAdapter(
     text: string,
-    extra?: Readonly<AxAIServiceActionOptions>
+    extra?: Readonly<AxAIServiceOptions>
   ): Promise<unknown> {
     const embedRes = await this.aiService.embed(
       { texts: [text] },

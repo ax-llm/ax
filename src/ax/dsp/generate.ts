@@ -76,8 +76,9 @@ import type {
   AxMessage,
   AxProgramExamples,
   AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
   AxProgrammable,
-  AxProgramStreamingForwardOptions,
+  AxProgramStreamingForwardOptionsWithModels,
   AxResultPickerFunction,
   AxSetExamplesOptions,
 } from './types.js';
@@ -265,7 +266,6 @@ export class AxGen<
   }>) {
     const {
       sessionId,
-      traceId,
       model,
       rateLimiter,
       stream,
@@ -306,7 +306,6 @@ export class AxGen<
       },
       {
         sessionId,
-        traceId,
         rateLimiter,
         stream,
         debug,
@@ -338,7 +337,7 @@ export class AxGen<
     span?: Span;
     traceContext?: Context;
   }>): AsyncGenDeltaOut<OUT> {
-    const { sessionId, traceId, functions: functionList } = options ?? {};
+    const { sessionId, functions: functionList } = options ?? {};
     const definedFunctionCall =
       options?.functionCall ?? this.options?.functionCall;
     const strictMode = options?.strictMode ?? false;
@@ -369,7 +368,6 @@ export class AxGen<
         model,
         res,
         mem,
-        traceId,
         sessionId,
         functions,
         strictMode,
@@ -393,7 +391,6 @@ export class AxGen<
         model,
         res,
         mem,
-        traceId,
         sessionId,
         functions,
         span,
@@ -773,11 +770,7 @@ export class AxGen<
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<
-      AxProgramForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      >
-    >
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
     const startTime = performance.now();
     const signatureName = this.getSignatureName();
@@ -894,7 +887,7 @@ export class AxGen<
           success,
           signatureName,
           ai.getName(),
-          options?.model
+          options?.model ? String(options.model) : undefined
         );
 
         // Record function calling metrics if functions were used
@@ -926,11 +919,7 @@ export class AxGen<
   async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<
-      AxProgramStreamingForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      >
-    >
+    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
     // If no result picker, use normal streaming
     if (!options?.resultPicker) {

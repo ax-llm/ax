@@ -42,9 +42,7 @@ import { AxAIReka, type AxAIRekaArgs } from './reka/api.js';
 import { AxAITogether, type AxAITogetherArgs } from './together/api.js';
 import type {
   AxAIModelList,
-  AxAIPromptConfig,
   AxAIService,
-  AxAIServiceActionOptions,
   AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
@@ -96,9 +94,17 @@ export type AxAIEmbedModels =
 // Helper type to extract model keys from the models array
 type ExtractModelKeys<T> = T extends readonly { key: infer K }[] ? K : never;
 
-// Helper to infer TModelKey from args
+// Helper to extract both model keys and enum values from model configurations
+type ExtractModelKeysAndValues<T> = T extends readonly {
+  key: infer K;
+  model: infer M;
+}[]
+  ? K | M
+  : never;
+
+// Helper to infer TModelKey from args - now includes both keys and enum values
 type InferTModelKey<T> = T extends { models: infer M }
-  ? ExtractModelKeys<M>
+  ? ExtractModelKeysAndValues<M>
   : string;
 
 // Factory function for creating AxAI with proper type inference
@@ -202,17 +208,15 @@ export class AxAI<TModelKey = string>
   }
 
   async chat(
-    req: Readonly<AxChatRequest>,
-    options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown, TModelKey>
-    >
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     return await this.ai.chat(req, options);
   }
 
   async embed(
-    req: Readonly<AxEmbedRequest>,
-    options?: Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
+    req: Readonly<AxEmbedRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     return await this.ai.embed(req, options);
   }

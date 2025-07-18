@@ -11,7 +11,7 @@ const textToSummarize = `The technological singularity—or simply the singulari
 // models and embedModelList allows you to use common names for models across different AI services
 // is works without the balancer as well.
 
-const ai1 = new AxAI({
+const ai1 = AxAI.create({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   models: [
@@ -28,7 +28,7 @@ const ai1 = new AxAI({
   ],
 });
 
-const ai2 = new AxAI({
+const ai2 = AxAI.create({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY as string,
   models: [
@@ -49,6 +49,7 @@ const gen = new AxChainOfThought<{ textToSummarize: string }>(
   `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
 );
 
-const ai = new AxBalancer([ai1, ai2]);
+const ai = AxBalancer.create([ai1, ai2]);
 const res = await gen.forward(ai, { textToSummarize }, { model: 'chill' });
+
 console.log('>', res);

@@ -288,9 +288,7 @@ import type {
   AxAIInputModelList,
   AxAIModelList,
   AxAIModelListBase,
-  AxAIPromptConfig,
   AxAIService,
-  AxAIServiceActionOptions,
   AxAIServiceImpl,
   AxAIServiceMetrics,
   AxAIServiceOptions,
@@ -496,6 +494,8 @@ import {
   s,
 } from './dsp/template.js';
 import type {
+  AxAIServiceActionOptions,
+  AxAIServiceModelType,
   AxFieldValue,
   AxForwardable,
   AxGenDeltaOut,
@@ -506,9 +506,11 @@ import type {
   AxProgramDemos,
   AxProgramExamples,
   AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
   AxProgrammable,
   AxProgramOptions,
   AxProgramStreamingForwardOptions,
+  AxProgramStreamingForwardOptionsWithModels,
   AxProgramTrace,
   AxProgramUsage,
   AxResultPickerFunction,
@@ -921,7 +923,6 @@ export type { AxAIOpenAIResponsesWebSearchCallSearchingEvent };
 export type { AxAIOpenAIResponsesWebSearchToolCall };
 export type { AxAIOpenAIUrlCitation };
 export type { AxAIOpenAIUsage };
-export type { AxAIPromptConfig };
 export type { AxAIRekaArgs };
 export type { AxAIRekaChatRequest };
 export type { AxAIRekaChatResponse };
@@ -932,6 +933,7 @@ export type { AxAIService };
 export type { AxAIServiceActionOptions };
 export type { AxAIServiceImpl };
 export type { AxAIServiceMetrics };
+export type { AxAIServiceModelType };
 export type { AxAIServiceOptions };
 export type { AxAITogetherArgs };
 export type { AxAPI };
@@ -1061,8 +1063,10 @@ export type { AxParetoResult };
 export type { AxProgramDemos };
 export type { AxProgramExamples };
 export type { AxProgramForwardOptions };
+export type { AxProgramForwardOptionsWithModels };
 export type { AxProgramOptions };
 export type { AxProgramStreamingForwardOptions };
+export type { AxProgramStreamingForwardOptionsWithModels };
 export type { AxProgramTrace };
 export type { AxProgramUsage };
 export type { AxProgrammable };

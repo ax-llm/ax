@@ -2,7 +2,11 @@ import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import { AxSignature } from '../dsp/sig.js';
 import { AxStringUtil } from '../dsp/strutil.js';
-import type { AxMessage, AxProgramForwardOptions } from '../dsp/types.js';
+import type {
+  AxMessage,
+  AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
+} from '../dsp/types.js';
 
 import { AxChainOfThought } from './cot.js';
 
@@ -43,11 +47,7 @@ export class AxRAG extends AxChainOfThought<
     values:
       | { context: string[]; question: string }
       | AxMessage<{ context: string[]; question: string }>[],
-    options?: Readonly<
-      AxProgramForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      >
-    >
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<{ answer: string }> {
     // Extract question from values - handle both cases
     let question: string;

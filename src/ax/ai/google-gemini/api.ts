@@ -9,7 +9,6 @@ import {
 } from '../base.js';
 import type {
   AxAIInputModelList,
-  AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatResponse,
@@ -168,7 +167,7 @@ class AxAIGoogleGeminiImpl
 
   createChatReq = async (
     req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
-    config: Readonly<AxAIPromptConfig>
+    config: Readonly<AxAIServiceOptions>
   ): Promise<[AxAPI, AxAIGoogleGeminiChatRequest]> => {
     const model = req.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;

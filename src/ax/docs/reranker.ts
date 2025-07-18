@@ -1,7 +1,10 @@
 import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import { AxStringUtil } from '../dsp/strutil.js';
-import type { AxProgramForwardOptions } from '../dsp/types.js';
+import type {
+  AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
+} from '../dsp/types.js';
 
 import type { AxRerankerIn, AxRerankerOut } from './manager.js';
 
@@ -19,11 +22,7 @@ export class AxDefaultResultReranker extends AxGen<
   public override forward = async <T extends Readonly<AxAIService>>(
     ai: T,
     input: Readonly<AxRerankerIn>,
-    options?: Readonly<
-      AxProgramForwardOptions<
-        NonNullable<ReturnType<T['getModelList']>>[number]['key']
-      >
-    >
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<AxRerankerOut> => {
     const { rankedItems } = await super.forward(ai, input, options);
 

@@ -2,9 +2,7 @@
 
 import type {
   AxAIModelList,
-  AxAIPromptConfig,
   AxAIService,
-  AxAIServiceActionOptions,
   AxAIServiceMetrics,
   AxAIServiceOptions,
   AxChatRequest,
@@ -128,6 +126,20 @@ export class AxMultiServiceRouter<
       }
     }
   }
+
+  /**
+   * Static factory method for type-safe multi-service router creation with automatic model key inference.
+   */
+  static create<
+    const TServices extends readonly (
+      | AxAIService
+      | AxAIServiceListItem<any, any, any>
+    )[],
+  >(
+    services: TServices
+  ): AxMultiServiceRouter<TServices, ExtractAllModelKeys<TServices>> {
+    return new AxMultiServiceRouter(services);
+  }
   getLastUsedChatModel(): unknown | undefined {
     return this.lastUsedService?.getLastUsedChatModel();
   }
@@ -142,10 +154,8 @@ export class AxMultiServiceRouter<
    * Delegates the chat call to the service matching the provided model key.
    */
   async chat(
-    req: Readonly<AxChatRequest<string>>,
-    options?: Readonly<
-      AxAIPromptConfig & AxAIServiceActionOptions<unknown, unknown, TModelKey>
-    >
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const modelKey = req.model as TModelKey;
     if (!modelKey) {
@@ -171,8 +181,8 @@ export class AxMultiServiceRouter<
    * Delegates the embed call to the service matching the provided embed model key.
    */
   async embed(
-    req: Readonly<AxEmbedRequest<string>>,
-    options?: Readonly<AxAIServiceActionOptions<unknown, unknown, TModelKey>>
+    req: Readonly<AxEmbedRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     const embedModelKey = req.embedModel as TModelKey;
     if (!embedModelKey) {

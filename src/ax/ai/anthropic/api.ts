@@ -4,7 +4,6 @@ import { AxAIRefusalError } from '../../util/apicall.js';
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
 import type {
   AxAIInputModelList,
-  AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatRequest,
@@ -89,7 +88,7 @@ class AxAIAnthropicImpl
     >
 {
   private tokensUsed: AxTokenUsage | undefined;
-  private currentPromptConfig?: AxAIPromptConfig;
+  private currentPromptConfig?: AxAIServiceOptions;
 
   constructor(
     private config: AxAIAnthropicConfig,
@@ -120,7 +119,7 @@ class AxAIAnthropicImpl
     req: Readonly<
       AxInternalChatRequest<AxAIAnthropicModel | AxAIAnthropicVertexModel>
     >,
-    config: Readonly<AxAIPromptConfig>
+    config: Readonly<AxAIServiceOptions>
   ): Promise<[AxAPI, AxAIAnthropicChatRequest]> => {
     // Store config for use in response methods
     this.currentPromptConfig = config;

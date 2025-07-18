@@ -1,7 +1,6 @@
 import { logFunctionError, logFunctionResults } from '../ai/debug.js';
 import type {
   AxAIService,
-  AxAIServiceActionOptions,
   AxChatRequest,
   AxChatResponseResult,
   AxFunction,
@@ -10,6 +9,7 @@ import type {
 import type { AxMemory } from '../mem/memory.js';
 import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonschema.js';
+import type { AxProgramForwardOptions } from './types.js';
 
 export class AxFunctionError extends Error {
   constructor(
@@ -113,10 +113,10 @@ export class AxFunctionProcessor {
     this.funcList = funcList;
   }
 
-  private executeFunction = async (
+  private executeFunction = async <MODEL>(
     fnSpec: Readonly<AxFunction>,
     func: Readonly<AxChatResponseFunctionCall>,
-    options?: Readonly<AxAIServiceActionOptions>
+    options?: Readonly<AxProgramForwardOptions<MODEL>>
   ) => {
     let args: unknown;
 
@@ -129,7 +129,6 @@ export class AxFunctionProcessor {
     const opt = options
       ? {
           sessionId: options.sessionId,
-          traceId: options.traceId,
           ai: options.ai,
         }
       : undefined;
@@ -151,9 +150,9 @@ export class AxFunctionProcessor {
     return formatter(res);
   };
 
-  public execute = async (
+  public execute = async <MODEL>(
     func: Readonly<AxChatResponseFunctionCall>,
-    options?: Readonly<AxAIServiceActionOptions>
+    options?: Readonly<AxProgramForwardOptions<MODEL>>
   ) => {
     const fnSpec = this.funcList.find(
       (v) => v.name.localeCompare(func.name) === 0
@@ -167,7 +166,7 @@ export class AxFunctionProcessor {
 
     // execute value function calls
     try {
-      return await this.executeFunction(fnSpec, func, options);
+      return await this.executeFunction<MODEL>(fnSpec, func, options);
     } catch (e) {
       if (e instanceof AxFunctionError) {
         throw new FunctionError(e.getFields(), fnSpec, func.id);
@@ -230,7 +229,6 @@ export const processFunctions = async ({
   functionCalls,
   mem,
   sessionId,
-  traceId,
   span,
   excludeContentFromTrace,
   index,
@@ -246,7 +244,7 @@ export const processFunctions = async ({
     }
 
     const promise: Promise<AxFunctionResult | undefined> = funcProc
-      .execute(func, { sessionId, traceId, ai, functionResultFormatter })
+      .execute(func, { sessionId, ai, functionResultFormatter })
       .then((functionResult) => {
         functionsExecuted.add(func.name.toLowerCase());
 

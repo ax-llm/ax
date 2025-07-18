@@ -6,7 +6,6 @@ import {
 } from '../base.js';
 import type {
   AxAIInputModelList,
-  AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatResponse,
@@ -76,9 +75,7 @@ class AxAIHuggingFaceImpl
   }
 
   createChatReq = (
-    req: Readonly<AxInternalChatRequest<AxAIHuggingFaceModel>>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _config: Readonly<AxAIPromptConfig>
+    req: Readonly<AxInternalChatRequest<AxAIHuggingFaceModel>>
   ): [AxAPI, AxAIHuggingFaceRequest] => {
     const model = req.model;
 

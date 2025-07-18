@@ -37,9 +37,7 @@ import {
 } from './metrics.js';
 import type {
   AxAIInputModelList,
-  AxAIPromptConfig,
   AxAIService,
-  AxAIServiceActionOptions,
   AxAIServiceImpl,
   AxAIServiceMetrics,
   AxAIServiceOptions,
@@ -461,7 +459,9 @@ export class AxBaseAI<
   }
 
   // Helper method to detect multimodal content
-  private detectMultimodalContent(req: Readonly<AxChatRequest<TModel>>): {
+  private detectMultimodalContent(
+    req: Readonly<AxChatRequest<TModel | TModelKey>>
+  ): {
     hasImages: boolean;
     hasAudio: boolean;
   } {
@@ -486,7 +486,9 @@ export class AxBaseAI<
   }
 
   // Helper method to calculate prompt length
-  private calculatePromptLength(req: Readonly<AxChatRequest<TModel>>): number {
+  private calculatePromptLength(
+    req: Readonly<AxChatRequest<TModel | TModelKey>>
+  ): number {
     let totalLength = 0;
 
     if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
@@ -635,11 +637,8 @@ export class AxBaseAI<
 
   // Comprehensive method to record all chat-related metrics
   private recordChatMetrics(
-    req: Readonly<AxChatRequest<TModel>>,
-    options?: Readonly<
-      AxAIPromptConfig &
-        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
-    >,
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>,
     result?: AxChatResponse | ReadableStream<AxChatResponse>
   ): void {
     const metricsInstruments = this.getMetricsInstruments();
@@ -813,11 +812,8 @@ export class AxBaseAI<
   }
 
   async chat(
-    req: Readonly<AxChatRequest<TModel>>,
-    options?: Readonly<
-      AxAIPromptConfig &
-        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
-    >
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const startTime = performance.now();
     let isError = false;
@@ -856,13 +852,11 @@ export class AxBaseAI<
   }
 
   private async _chat1(
-    req: Readonly<AxChatRequest<TModel>>,
-    options?: Readonly<
-      AxAIPromptConfig &
-        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
-    >
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const model = this.getModel(req.model) ?? req.model ?? this.defaults.model;
+    const model =
+      this.getModel(req.model) ?? (req.model as TModel) ?? this.defaults.model;
 
     // Validate chat prompt messages for empty content
     if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
@@ -984,11 +978,8 @@ export class AxBaseAI<
   private async _chat2(
     model: TModel,
     modelConfig: Readonly<AxModelConfig>,
-    chatReq: Readonly<Omit<AxChatRequest<TModel>, 'modelConfig'>>,
-    options?: Readonly<
-      AxAIPromptConfig &
-        AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>
-    >,
+    chatReq: Readonly<Omit<AxChatRequest<TModel | TModelKey>, 'modelConfig'>>,
+    options?: Readonly<AxAIServiceOptions>,
     span?: Span
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.aiImpl.createChatReq) {
@@ -1017,7 +1008,7 @@ export class AxBaseAI<
     const fn = async () => {
       const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
         req,
-        options as AxAIPromptConfig
+        options
       );
 
       if (span?.isRecording()) {
@@ -1155,7 +1146,7 @@ export class AxBaseAI<
 
   async embed(
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, TModelKey>>
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     const startTime = performance.now();
     let isError = false;
@@ -1195,11 +1186,11 @@ export class AxBaseAI<
 
   private async _embed1(
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, unknown>>
+    options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     const embedModel =
       this.getEmbedModel(req.embedModel) ??
-      req.embedModel ??
+      (req.embedModel as TEmbedModel) ??
       this.defaults.embedModel;
 
     if (!embedModel) {
@@ -1233,7 +1224,7 @@ export class AxBaseAI<
   private async _embed2(
     embedModel: TEmbedModel,
     embedReq: Readonly<AxEmbedRequest<TEmbedModel>>,
-    options?: Readonly<AxAIServiceActionOptions<TModel, TEmbedModel, unknown>>,
+    options?: Readonly<AxAIServiceOptions>,
     span?: Span
   ): Promise<AxEmbedResponse> {
     if (!this.aiImpl.createEmbedReq) {
@@ -1327,7 +1318,7 @@ export class AxBaseAI<
   }
 
   private getModelByKey(
-    modelName?: TModel | TEmbedModel
+    modelName?: TModel | TEmbedModel | TModelKey
   ): AxAIInputModelList<TModel, TEmbedModel, TModelKey>[number] | undefined {
     if (!modelName) {
       return undefined;
@@ -1336,12 +1327,14 @@ export class AxBaseAI<
     return item;
   }
 
-  private getModel(modelName?: TModel): TModel | undefined {
+  private getModel(modelName?: TModel | TModelKey): TModel | undefined {
     const item = this.getModelByKey(modelName);
     return item && 'model' in item ? item.model : undefined;
   }
 
-  private getEmbedModel(modelName?: TEmbedModel): TEmbedModel | undefined {
+  private getEmbedModel(
+    modelName?: TEmbedModel | TModelKey
+  ): TEmbedModel | undefined {
     const item = this.getModelByKey(modelName);
     return item && 'embedModel' in item ? item.embedModel : undefined;
   }

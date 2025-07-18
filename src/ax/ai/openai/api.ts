@@ -9,7 +9,6 @@ import {
 } from '../base.js';
 import type {
   AxAIInputModelList,
-  AxAIPromptConfig,
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxChatResponse,
@@ -175,7 +174,7 @@ class AxAIOpenAIImpl<
   createChatReq(
     req: Readonly<AxInternalChatRequest<TModel>>,
 
-    config: Readonly<AxAIPromptConfig>
+    config: Readonly<AxAIServiceOptions>
   ): [AxAPI, AxAIOpenAIChatRequest<TModel>] {
     const model = req.model;
 

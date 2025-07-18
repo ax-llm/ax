@@ -1,11 +1,9 @@
-import type { Tracer } from '@opentelemetry/api';
 import type {
   AxAIService,
+  AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
-  AxLoggerFunction,
   AxModelConfig,
-  AxRateLimiterFunction,
 } from '../ai/types.js';
 import type { AxAIMemory } from '../mem/types.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
@@ -71,7 +69,7 @@ export type AxResultPickerFunction<OUT extends AxGenOut> = (
     | AxResultPickerFunctionFunctionResults
 ) => number | Promise<number>;
 
-export type AxProgramForwardOptions<MODEL> = {
+export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   // Execution control
   maxRetries?: number;
   maxSteps?: number;
@@ -82,14 +80,7 @@ export type AxProgramForwardOptions<MODEL> = {
   modelConfig?: AxModelConfig;
   model?: MODEL;
 
-  // Session and tracing
-  sessionId?: string;
-  traceId?: string | undefined;
-  tracer?: Tracer;
-  rateLimiter?: AxRateLimiterFunction;
-
   // Streaming and output
-  stream?: boolean;
   sampleCount?: number;
   resultPicker?: AxResultPickerFunction<AxGenOut>;
 
@@ -101,22 +92,10 @@ export type AxProgramForwardOptions<MODEL> = {
 
   // Behavior control
   fastFail?: boolean;
-  debug?: boolean;
-
-  // Thinking model controls
-  thinkingTokenBudget?:
-    | 'minimal'
-    | 'low'
-    | 'medium'
-    | 'high'
-    | 'highest'
-    | 'none';
   showThoughts?: boolean;
 
   // Tracing and logging
   traceLabel?: string;
-  abortSignal?: AbortSignal;
-  logger?: AxLoggerFunction;
 
   // AxGen-specific options (previously in AxGenOptions)
   description?: string;
@@ -130,10 +109,38 @@ export type AxProgramForwardOptions<MODEL> = {
   strictMode?: boolean;
 };
 
+export type AxAIServiceActionOptions<
+  TModel = unknown,
+  TEmbedModel = unknown,
+  TModelKey = string,
+> = AxAIServiceOptions & {
+  ai?: Readonly<AxAIService<TModel, TEmbedModel, TModelKey>>;
+  functionResultFormatter?: (result: unknown) => string;
+};
+
 export type AxProgramStreamingForwardOptions<MODEL> = Omit<
   AxProgramForwardOptions<MODEL>,
   'stream'
 >;
+
+// Helper type to extract model type union from AxAIService (both TModel and TModelKey)
+export type AxAIServiceModelType<
+  T extends Readonly<AxAIService<any, any, any>>,
+> = T extends Readonly<AxAIService<infer TModel, any, infer TModelKey>>
+  ? TModel extends unknown
+    ? TModelKey // For AxAI wrapper services, only use TModelKey since TModel is unknown
+    : TModel | TModelKey // For direct services, use both TModel and TModelKey
+  : never;
+
+// Clean forward options type that includes both TModel and model keys
+export type AxProgramForwardOptionsWithModels<
+  T extends Readonly<AxAIService<any, any, any>>,
+> = AxProgramForwardOptions<AxAIServiceModelType<T>>;
+
+// Clean streaming forward options type that includes both TModel and model keys
+export type AxProgramStreamingForwardOptionsWithModels<
+  T extends Readonly<AxAIService<any, any, any>>,
+> = AxProgramStreamingForwardOptions<AxAIServiceModelType<T>>;
 
 export type AxGenDeltaOut<OUT extends AxGenOut> = {
   version: number;
