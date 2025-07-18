@@ -1,5 +1,8 @@
 # Changelog
 
+## [13.0.15](https://github.com/ax-llm/ax/compare/13.0.13...13.0.14) (2025-07-18)
+## [13.0.14](https://github.com/ax-llm/ax/compare/13.0.13...13.0.14) (2025-07-18)
+
 ## [13.0.14](https://github.com/ax-llm/ax/compare/13.0.12...13.0.13) (2025-07-18)
 ## [13.0.13](https://github.com/ax-llm/ax/compare/13.0.12...13.0.13) (2025-07-18)
 
