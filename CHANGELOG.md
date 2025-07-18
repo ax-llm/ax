@@ -1,5 +1,12 @@
 # Changelog
 
+## [13.0.13](https://github.com/ax-llm/ax/compare/13.0.11...13.0.12) (2025-07-18)
+## [13.0.12](https://github.com/ax-llm/ax/compare/13.0.11...13.0.12) (2025-07-18)
+
+### Features
+
+* enhance type safety and inference for AI models ([71cfb3a](https://github.com/ax-llm/ax/commit/71cfb3ab79217a68a5e4f965755ad84bea2828c7))
+
 ## [13.0.12](https://github.com/ax-llm/ax/compare/13.0.10...13.0.11) (2025-07-18)
 
 ### Features
