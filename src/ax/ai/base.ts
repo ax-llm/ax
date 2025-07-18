@@ -234,7 +234,7 @@ export class AxBaseAI<
     this.meter = options.meter ?? axGlobals.meter;
     this.excludeContentFromTrace = options.excludeContentFromTrace;
     this.abortSignal = options.abortSignal;
-    this.logger = options.logger ?? defaultLogger;
+    this.logger = options.logger ?? axGlobals.logger ?? defaultLogger;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {

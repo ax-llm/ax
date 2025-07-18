@@ -61,6 +61,7 @@ import {
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
+import { axGlobals } from './globals.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
@@ -992,7 +993,12 @@ export class AxGen<
     ai: Readonly<AxAIService>,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
-    return options?.logger ?? this.options?.logger ?? ai.getLogger();
+    return (
+      options?.logger ??
+      this.options?.logger ??
+      axGlobals.logger ??
+      ai.getLogger()
+    );
   }
 }
 

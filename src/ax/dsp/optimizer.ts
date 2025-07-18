@@ -2464,7 +2464,11 @@ export abstract class AxBaseOptimizer<
     options?: AxCompileOptions
   ): AxOptimizerLoggerFunction | undefined {
     if (!this.isOptimizerLoggingEnabled(options)) return undefined;
-    return this.optimizerLogger ?? axDefaultOptimizerLogger;
+    return (
+      this.optimizerLogger ??
+      axGlobals.optimizerLogger ??
+      axDefaultOptimizerLogger
+    );
   }
 
   public getStats(): AxOptimizationStats {
