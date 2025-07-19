@@ -486,6 +486,45 @@ main.prose h1:first-of-type {
   color: #e5e7eb;
 }
 
+/* Anchor link styles for header permalinks */
+.prose .anchor-link {
+  margin-left: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  text-decoration: none;
+  color: #0066cc;
+  font-weight: normal;
+}
+
+.prose .anchor-link:hover {
+  opacity: 1;
+  border-bottom: none;
+}
+
+.prose h1:hover .anchor-link,
+.prose h2:hover .anchor-link,
+.prose h3:hover .anchor-link,
+.prose h4:hover .anchor-link,
+.prose h5:hover .anchor-link,
+.prose h6:hover .anchor-link {
+  opacity: 1;
+}
+
+.prose .anchor-link .icon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+}
+
+.prose .anchor-link .icon-link::before {
+  content: "🔗";
+  font-size: 14px;
+}
+
+:root.dark .prose .anchor-link {
+  color: #60a5fa;
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
   .prose h1 {

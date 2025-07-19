@@ -13,7 +13,9 @@
     "@astrojs/check": "^0.9.4",
     "@astrojs/tailwind": "^6.0.2",
     "@tailwindcss/typography": "^0.5.16",
-    "astro": "^5.11.0"
+    "astro": "^5.11.0",
+    "rehype-autolink-headings": "^7.1.0",
+    "rehype-slug": "^6.0.0"
   },
   "private": "true"
 }

@@ -1,5 +1,7 @@
 import tailwind from '@astrojs/tailwind';
 import { defineConfig } from 'astro/config';
+import rehypeSlug from 'rehype-slug';
+import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 
 // https://astro.build/config
 export default defineConfig({
@@ -26,5 +28,16 @@ export default defineConfig({
       ],
       wrap: true,
     },
+    rehypePlugins: [
+      rehypeSlug,
+      [rehypeAutolinkHeadings, {
+        behavior: 'append',
+        properties: {
+          ariaHidden: true,
+          tabIndex: -1,
+          className: 'anchor-link'
+        }
+      }]
+    ],
   },
 });
