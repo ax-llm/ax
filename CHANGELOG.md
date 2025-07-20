@@ -1,5 +1,16 @@
 # Changelog
 
+## [13.0.18](https://github.com/ax-llm/ax/compare/13.0.16...13.0.17) (2025-07-20)
+
+### Bug Fixes
+
+* update README and examples for improved CDN usage and module imports ([33f734c](https://github.com/ax-llm/ax/commit/33f734ce8a3969d30518b5e8a01185489c6c67b1))
+## [13.0.17](https://github.com/ax-llm/ax/compare/13.0.16...13.0.17) (2025-07-20)
+
+### Bug Fixes
+
+* standardize global variable naming and enhance API configuration ([7cc2f76](https://github.com/ax-llm/ax/commit/7cc2f76b61aa6b6f8911e67e4d889bc72f3c477c))
+
 ## [13.0.17](https://github.com/ax-llm/ax/compare/13.0.15...13.0.16) (2025-07-20)
 
 ### Bug Fixes
