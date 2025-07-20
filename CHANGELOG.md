@@ -1,5 +1,14 @@
 # Changelog
 
+## [13.0.16](https://github.com/ax-llm/ax/compare/13.0.14...13.0.15) (2025-07-20)
+
+### Features
+
+* add rehype plugins for enhanced document linking and type-safe AI model inference ([6dafe2a](https://github.com/ax-llm/ax/commit/6dafe2a91fafa62a78517467d33e285e92f9bbf9))
+* enhance README and examples for browser compatibility and CORS support ([1ad5983](https://github.com/ax-llm/ax/commit/1ad5983202c7284e139e375f91db47d7e25dce73))
+* introduce WebLLM integration for enhanced AI model capabilities ([3d7a6d9](https://github.com/ax-llm/ax/commit/3d7a6d971ef722207ec9c10f792bb929603ef1c4))
+## [13.0.15](https://github.com/ax-llm/ax/compare/13.0.14...13.0.15) (2025-07-18)
+
 ## [13.0.15](https://github.com/ax-llm/ax/compare/13.0.13...13.0.14) (2025-07-18)
 ## [13.0.14](https://github.com/ax-llm/ax/compare/13.0.13...13.0.14) (2025-07-18)
 
