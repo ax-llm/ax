@@ -180,21 +180,17 @@ yarn add @ax-llm/ax
 
 ```html
 <!-- Global variable (window.ax) -->
-<script src="https://unpkg.com/@ax-llm/ax@latest/dist/index.global.js"></script>
+<script src="https://unpkg.com/@ax-llm/ax@latest"></script>
 
 <!-- Or ES modules -->
 <script type="module">
-  import {
-    ax,
-    AxAI,
-    f,
-  } from "https://unpkg.com/@ax-llm/ax@latest/dist/index.js";
+  import { ax, AxAI, f } from "https://unpkg.com/@ax-llm/ax@latest?module";
 </script>
 ```
 
 **Browser CORS Setup:** Most LLM providers require a CORS proxy for browser
-usage. See our [browser example](web-chat.html) which includes a simple
-CORS proxy setup.
+usage. See our [browser example](web-chat.html) which includes a simple CORS
+proxy setup.
 
 ```javascript
 const ai = new AxAI({

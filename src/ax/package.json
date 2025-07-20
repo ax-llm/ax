@@ -3,10 +3,14 @@
   "version": "13.0.17",
   "type": "module",
   "description": "The best library to work with LLMs",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "browser": "./dist/index.global.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.global.js"
+    }
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/ax-llm/ax.git"
