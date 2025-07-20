@@ -38,6 +38,10 @@ export interface AxAPI {
   name?: string;
   headers?: Record<string, string>;
   put?: boolean;
+  localCall?: <TRequest, TResponse>(
+    data: TRequest,
+    stream?: boolean
+  ) => Promise<TResponse | ReadableStream<TResponse>>;
 }
 
 // Enhanced API Configuration
@@ -45,7 +49,7 @@ export interface AxAPIConfig
   extends AxAPI,
     RequestValidation,
     ResponseValidation {
-  url: string | URL;
+  url?: string | URL; // Make URL optional when localCall is provided
   stream?: boolean;
   debug?: boolean;
   fetch?: typeof fetch;
@@ -337,6 +341,16 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   api: Readonly<AxAPIConfig>,
   json: TRequest
 ): Promise<TResponse | ReadableStream<TResponse>> => {
+  // If localCall is provided, use it instead of HTTP
+  if (api.localCall) {
+    return await api.localCall<TRequest, TResponse>(json, api.stream);
+  }
+
+  // Ensure URL is provided for HTTP calls
+  if (!api.url) {
+    throw new Error('API URL is required when localCall is not provided');
+  }
+
   const retryConfig: RetryConfig = { ...defaultRetryConfig, ...api.retry };
   const timeoutMs = api.timeout ?? defaultTimeoutMs;
   const metrics = createRequestMetrics();
@@ -348,7 +362,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     .join('/')
     .replace(/\/+/g, '/')}${baseUrl.search}`;
   let apiUrl = new URL(apiPath, baseUrl);
-  
+
   // Apply CORS proxy if provided (for browser environments)
   if (api.corsProxy) {
     const originalUrl = apiUrl.href;

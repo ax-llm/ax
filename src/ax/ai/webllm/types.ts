@@ -8,21 +8,21 @@ export enum AxAIWebLLMModel {
   // Llama 3.1 series
   Llama31_8B_Instruct = 'Llama-3.1-8B-Instruct-q4f32_1-MLC',
   Llama31_70B_Instruct = 'Llama-3.1-70B-Instruct-q4f16_1-MLC',
-  
+
   // Llama 3.2 series
   Llama32_1B_Instruct = 'Llama-3.2-1B-Instruct-q4f32_1-MLC',
   Llama32_3B_Instruct = 'Llama-3.2-3B-Instruct-q4f32_1-MLC',
-  
+
   // Mistral series
   Mistral7B_Instruct = 'Mistral-7B-Instruct-v0.3-q4f32_1-MLC',
-  
+
   // Phi series
   Phi35_Mini_Instruct = 'Phi-3.5-mini-instruct-q4f32_1-MLC',
-  
+
   // Gemma series
   Gemma2_2B_Instruct = 'gemma-2-2b-it-q4f32_1-MLC',
   Gemma2_9B_Instruct = 'gemma-2-9b-it-q4f32_1-MLC',
-  
+
   // Qwen series
   Qwen2_5_0_5B_Instruct = 'Qwen2.5-0.5B-Instruct-q4f32_1-MLC',
   Qwen2_5_1_5B_Instruct = 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC',
@@ -74,7 +74,10 @@ export type AxAIWebLLMChatRequest = {
       parameters: object;
     };
   }>;
-  tool_choice?: 'none' | 'auto' | { type: 'function'; function: { name: string } };
+  tool_choice?:
+    | 'none'
+    | 'auto'
+    | { type: 'function'; function: { name: string } };
 };
 
 /**

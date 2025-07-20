@@ -179,7 +179,7 @@ yarn add @ax-llm/ax
 ### Browser (CDN)
 
 ```html
-<!-- Global variable (window.Ax) -->
+<!-- Global variable (window.ax) -->
 <script src="https://unpkg.com/@ax-llm/ax@latest/dist/index.global.js"></script>
 
 <!-- Or ES modules -->

@@ -8,7 +8,6 @@ import type {
   AxAIInputModelList,
   AxAIServiceImpl,
   AxAIServiceOptions,
-  AxChatRequest,
   AxChatResponse,
   AxEmbedResponse,
   AxInternalChatRequest,
@@ -62,11 +61,14 @@ class AxAIWebLLMImpl
     >
 {
   private tokensUsed: AxTokenUsage | undefined;
+  public engine: any; // Make engine public so we can access it in localCall
 
   constructor(
     private config: AxAIWebLLMConfig,
-    private engine: any // WebLLM MLCEngine instance
-  ) {}
+    engine: any // WebLLM MLCEngine instance
+  ) {
+    this.engine = engine;
+  }
 
   getTokenUsage(): AxTokenUsage | undefined {
     return this.tokensUsed;
@@ -99,7 +101,10 @@ class AxAIWebLLMImpl
         return {
           role: 'function' as const,
           name: msg.functionId,
-          content: typeof msg.result === 'string' ? msg.result : JSON.stringify(msg.result),
+          content:
+            typeof msg.result === 'string'
+              ? msg.result
+              : JSON.stringify(msg.result),
         };
       }
 
@@ -128,9 +133,10 @@ class AxAIWebLLMImpl
             type: 'function' as const,
             function: {
               name: fc.function.name,
-              arguments: typeof fc.function.params === 'string' 
-                ? fc.function.params 
-                : JSON.stringify(fc.function.params || {}),
+              arguments:
+                typeof fc.function.params === 'string'
+                  ? fc.function.params
+                  : JSON.stringify(fc.function.params || {}),
             },
           })),
         };
@@ -151,6 +157,37 @@ class AxAIWebLLMImpl
 
     const apiConfig = {
       name: '/chat/completions', // WebLLM uses OpenAI-compatible endpoint
+      localCall: async <TRequest, TResponse>(
+        data: TRequest,
+        stream?: boolean
+      ): Promise<TResponse | ReadableStream<TResponse>> => {
+        try {
+          // Use WebLLM engine's chat.completions.create method
+          const response = await this.engine.chat.completions.create({
+            ...data,
+            stream: stream || false,
+          });
+
+          if (stream) {
+            // Return a ReadableStream for streaming responses
+            return new ReadableStream({
+              async start(controller) {
+                try {
+                  for await (const chunk of response) {
+                    controller.enqueue(chunk);
+                  }
+                  controller.close();
+                } catch (error) {
+                  controller.error(error);
+                }
+              },
+            }) as TResponse | ReadableStream<TResponse>;
+          }
+          return response as TResponse | ReadableStream<TResponse>;
+        } catch (error) {
+          throw new Error(`WebLLM API error: ${error}`);
+        }
+      },
     };
 
     const reqValue: AxAIWebLLMChatRequest = {
@@ -160,8 +197,10 @@ class AxAIWebLLMImpl
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP,
-      presence_penalty: req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-      frequency_penalty: req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
+      presence_penalty:
+        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
+      frequency_penalty:
+        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       stop: req.modelConfig?.stopSequences ?? this.config.stopSequences,
       stream: req.modelConfig?.stream ?? this.config.stream,
       n: req.modelConfig?.n ?? this.config.n,
@@ -171,7 +210,7 @@ class AxAIWebLLMImpl
   }
 
   createEmbedReq = (
-    req: Readonly<AxInternalEmbedRequest<AxAIWebLLMEmbedModel>>
+    _req: Readonly<AxInternalEmbedRequest<AxAIWebLLMEmbedModel>>
   ): [AxAPI, AxAIWebLLMEmbedRequest] => {
     throw new Error('WebLLM does not support embeddings');
   };
@@ -252,13 +291,14 @@ class AxAIWebLLMImpl
       if (!ss.toolCalls) {
         ss.toolCalls = [];
       }
-      
+
       for (const deltaToolCall of choice.delta.tool_calls) {
         const existingCall = ss.toolCalls[deltaToolCall.index];
         if (existingCall) {
           if (deltaToolCall.function?.arguments) {
-            existingCall.function!.arguments = 
-              (existingCall.function?.arguments || '') + deltaToolCall.function.arguments;
+            existingCall.function!.arguments =
+              (existingCall.function?.arguments || '') +
+              deltaToolCall.function.arguments;
           }
         } else {
           ss.toolCalls[deltaToolCall.index] = {
@@ -325,7 +365,7 @@ class AxAIWebLLMImpl
     return { results, remoteId: resp.id };
   };
 
-  createEmbedResp(resp: Readonly<AxAIWebLLMEmbedResponse>): AxEmbedResponse {
+  createEmbedResp(_resp: Readonly<AxAIWebLLMEmbedResponse>): AxEmbedResponse {
     throw new Error('WebLLM does not support embeddings');
   }
 }
@@ -359,57 +399,16 @@ export class AxAIWebLLM<TModelKey> extends AxBaseAI<
 
     super(aiImpl, {
       name: 'WebLLM',
-      apiURL: '', // No API URL needed for local inference
+      apiURL: undefined, // No URL needed for local inference
       headers: async () => ({}), // No headers needed
       modelInfo: axModelInfoWebLLM,
       defaults: { model: Config.model },
-      supportFor: (model: AxAIWebLLMModel) => ({
+      supportFor: (_model: AxAIWebLLMModel) => ({
         functions: true, // WebLLM supports function calling
         streaming: true, // WebLLM supports streaming
       }),
       options,
       models,
     });
-
-    // Override the API call method to use the WebLLM engine directly
-    this.overrideApiCall(engine);
-  }
-
-  private overrideApiCall(engine: any) {
-    // Override the internal API call method to use WebLLM engine
-    const originalCall = (this as any).apiCall;
-    (this as any).apiCall = async (
-      api: AxAPI,
-      data: any,
-      stream?: boolean
-    ) => {
-      try {
-        // Use WebLLM engine's chat.completions.create method
-        const response = await engine.chat.completions.create({
-          ...data,
-          stream: stream || false,
-        });
-
-        if (stream) {
-          // Return a ReadableStream for streaming responses
-          return new ReadableStream({
-            async start(controller) {
-              try {
-                for await (const chunk of response) {
-                  controller.enqueue(chunk);
-                }
-                controller.close();
-              } catch (error) {
-                controller.error(error);
-              }
-            },
-          });
-        } else {
-          return response;
-        }
-      } catch (error) {
-        throw new Error(`WebLLM API error: ${error}`);
-      }
-    };
   }
 }

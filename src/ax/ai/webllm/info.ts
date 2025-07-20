@@ -26,7 +26,7 @@ export const axModelInfoWebLLM: AxModelInfo[] = [
     maxTokens: 4096,
     isExpensive: true, // Large model - requires significant compute
   },
-  
+
   // Llama 3.2 series
   {
     name: AxAIWebLLMModel.Llama32_1B_Instruct,
@@ -44,7 +44,7 @@ export const axModelInfoWebLLM: AxModelInfo[] = [
     contextWindow: 128000,
     maxTokens: 2048,
   },
-  
+
   // Mistral series
   {
     name: AxAIWebLLMModel.Mistral7B_Instruct,
@@ -54,7 +54,7 @@ export const axModelInfoWebLLM: AxModelInfo[] = [
     contextWindow: 32768,
     maxTokens: 4096,
   },
-  
+
   // Phi series
   {
     name: AxAIWebLLMModel.Phi35_Mini_Instruct,
@@ -64,7 +64,7 @@ export const axModelInfoWebLLM: AxModelInfo[] = [
     contextWindow: 128000,
     maxTokens: 4096,
   },
-  
+
   // Gemma series
   {
     name: AxAIWebLLMModel.Gemma2_2B_Instruct,
@@ -82,7 +82,7 @@ export const axModelInfoWebLLM: AxModelInfo[] = [
     contextWindow: 8192,
     maxTokens: 2048,
   },
-  
+
   // Qwen series
   {
     name: AxAIWebLLMModel.Qwen2_5_0_5B_Instruct,

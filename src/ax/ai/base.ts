@@ -61,7 +61,7 @@ export interface AxAIFeatures {
 
 export interface AxBaseAIArgs<TModel, TEmbedModel, TModelKey> {
   name: string;
-  apiURL: string;
+  apiURL?: string; // Make optional for local LLMs
   headers: () => Promise<Record<string, string>>;
   modelInfo: Readonly<AxModelInfo[]>;
   defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>;
@@ -116,7 +116,7 @@ export class AxBaseAI<
   private lastUsedChatModel?: TModel;
   private lastUsedEmbedModel?: TEmbedModel;
 
-  protected apiURL: string;
+  protected apiURL?: string;
   protected name: string;
   protected id: string;
   protected headers: () => Promise<Record<string, string>>;
@@ -176,7 +176,7 @@ export class AxBaseAI<
     }: Readonly<AxBaseAIArgs<TModel, TEmbedModel, TModelKey>>
   ) {
     this.name = name;
-    this.apiURL = apiURL;
+    this.apiURL = apiURL || '';
     this.headers = headers;
     this.supportFor = supportFor;
     this.tracer = options.tracer ?? axGlobals.tracer;
@@ -1022,6 +1022,7 @@ export class AxBaseAI<
         {
           name: apiConfig.name,
           url: this.apiURL,
+          localCall: apiConfig.localCall,
           headers: await this.buildHeaders(apiConfig.headers),
           stream: modelConfig.stream,
           timeout: this.timeout,
@@ -1307,6 +1308,7 @@ export class AxBaseAI<
         {
           name: apiConfig.name,
           url: this.apiURL,
+          localCall: apiConfig.localCall,
           headers: await this.buildHeaders(apiConfig.headers),
           debug,
           fetch: this.fetch,

@@ -10,7 +10,7 @@ export default defineConfig({
   minify: true,
   platform: 'neutral', // Ensures browser compatibility
   target: 'es2022', // Modern target for better performance
-  globalName: 'Ax', // Global variable name for IIFE
+  globalName: 'ax', // Global variable name for IIFE
   external: [
     // Keep OpenTelemetry external, bundle dayjs to fix plugin resolution
     '@opentelemetry/api',

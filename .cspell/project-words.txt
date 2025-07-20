@@ -129,3 +129,5 @@ Flowable
 every time
 MCPJSONRPC
 uppercased
+webllm
+Qwen
