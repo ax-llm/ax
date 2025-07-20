@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ax Web Chat - Multi-LLM Browser Interface</title>
+    
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    
+    <!-- Load Ax library -->
+    <script src="./src/ax/dist/index.global.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+        .status-connecting { animation: pulse 2s infinite; }
+        
+        /* Custom scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.1);
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(0,0,0,0.2);
+        }
+        
+        /* Glass effect */
+        .glass {
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen p-8">
+    <div class="max-w-5xl mx-auto">
+        <!-- Header Section -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-semibold text-gray-900 mb-2">Ax</h1>
+            <p class="text-gray-500 text-sm">Multi-LLM Browser Interface</p>
+        </div>
+
+        <!-- Main Chat Interface -->
+        <div class="bg-white/80 glass rounded-3xl shadow-2xl border border-white/20 overflow-hidden">
+            <!-- Configuration Panel -->
+            <div class="p-8 border-b border-gray-100/50">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-end">
+                    <div class="lg:col-span-1">
+                        <label for="llmProvider" class="block text-sm font-medium text-gray-700 mb-3">Provider</label>
+                        <select id="llmProvider" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-2xl text-sm focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all appearance-none">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="google-gemini">Google</option>
+                            <option value="groq">Groq</option>
+                            <option value="together">Together</option>
+                            <option value="cohere">Cohere</option>
+                            <option value="mistral">Mistral</option>
+                        </select>
+                    </div>
+                    
+                    <div class="lg:col-span-1">
+                        <label for="apiKey" class="block text-sm font-medium text-gray-700 mb-3">API Key</label>
+                        <input type="password" id="apiKey" placeholder="Enter API key" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-2xl text-sm focus:ring-2 focus:ring-black/5 focus:border-gray-400 transition-all">
+                    </div>
+                    
+                    <div class="lg:col-span-1">
+                        <button id="testBtn" class="w-full flex items-center justify-center gap-3 px-6 py-3 bg-black text-white rounded-2xl text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all duration-200">
+                            <span id="statusIndicator" class="w-2 h-2 rounded-full bg-red-400"></span>
+                            Connect
+                        </button>
+                    </div>
+                </div>
+                <div id="providerInfo" class="text-xs text-gray-400 mt-3 text-center">
+                    Select a provider and enter your API key
+                </div>
+            </div>
+
+            <!-- Chat Messages -->
+            <div class="h-[500px] flex flex-col">
+                <div id="messages" class="flex-1 p-8 overflow-y-auto custom-scrollbar space-y-4">
+                    <!-- Empty state -->
+                    <div class="flex items-center justify-center h-full text-center" id="emptyState">
+                        <div class="max-w-sm">
+                            <div class="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                                <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                                </svg>
+                            </div>
+                            <p class="text-gray-500 text-sm">Connect to start chatting</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Chat Input -->
+                <div class="p-6 border-t border-gray-100/50">
+                    <div class="flex gap-3">
+                        <input type="text" id="chatInput" placeholder="Type a message..." disabled class="flex-1 px-5 py-4 bg-gray-50 border-0 rounded-2xl text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-black/5 focus:bg-white disabled:bg-gray-100 disabled:cursor-not-allowed transition-all">
+                        <button id="sendBtn" disabled class="px-6 py-4 bg-black text-white rounded-2xl text-sm font-medium hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all duration-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                            </svg>
+                        </button>
+                        <button id="clearBtn" class="px-4 py-4 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-2xl transition-all duration-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const elements = {
+            messages: document.getElementById('messages'),
+            llmProvider: document.getElementById('llmProvider'),
+            providerInfo: document.getElementById('providerInfo'),
+            apiKey: document.getElementById('apiKey'),
+            testBtn: document.getElementById('testBtn'),
+            chatInput: document.getElementById('chatInput'),
+            sendBtn: document.getElementById('sendBtn'),
+            clearBtn: document.getElementById('clearBtn'),
+            statusIndicator: document.getElementById('statusIndicator')
+        };
+        
+        let axModule = null;
+        let ai = null;
+        let chatBot = null;
+        let isConnected = false;
+
+        const providerConfig = {
+            'openai': {
+                info: 'Enter your OpenAI API key to use GPT models',
+                placeholder: 'sk-...',
+                corsProxy: 'http://localhost:3001'
+            },
+            'anthropic': {
+                info: 'Enter your Anthropic API key to use Claude models',
+                placeholder: 'sk-ant-...',
+                corsProxy: 'http://localhost:3001'
+            },
+            'google-gemini': {
+                info: 'Enter your Google AI Studio API key for Gemini models',
+                placeholder: 'AI...',
+                corsProxy: 'http://localhost:3001'
+            },
+            'groq': {
+                info: 'Enter your Groq API key for fast inference',
+                placeholder: 'gsk_...',
+                corsProxy: 'http://localhost:3001'
+            },
+            'together': {
+                info: 'Enter your Together AI API key',
+                placeholder: 'your-together-key',
+                corsProxy: 'http://localhost:3001'
+            },
+            'cohere': {
+                info: 'Enter your Cohere API key',
+                placeholder: 'your-cohere-key',
+                corsProxy: 'http://localhost:3001'
+            },
+            'mistral': {
+                info: 'Enter your Mistral AI API key',
+                placeholder: 'your-mistral-key',
+                corsProxy: 'http://localhost:3001'
+            }
+        };
+
+        function updateProviderInfo() {
+            const provider = elements.llmProvider.value;
+            const config = providerConfig[provider];
+            elements.providerInfo.textContent = config.info;
+            elements.apiKey.placeholder = config.placeholder;
+            
+            // Reset connection when provider changes
+            if (isConnected) {
+                disconnect();
+            }
+        }
+
+        function updateConnectionStatus(status) {
+            const indicator = elements.statusIndicator;
+            const testBtn = elements.testBtn;
+            
+            switch (status) {
+                case 'disconnected':
+                    testBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-400"></span>Connect';
+                    testBtn.disabled = false;
+                    isConnected = false;
+                    elements.chatInput.disabled = true;
+                    elements.sendBtn.disabled = true;
+                    break;
+                case 'connecting':
+                    testBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-yellow-400 status-connecting"></span>Connecting...';
+                    testBtn.disabled = true;
+                    break;
+                case 'connected':
+                    testBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-400"></span>Connected';
+                    testBtn.disabled = false;
+                    isConnected = true;
+                    elements.chatInput.disabled = false;
+                    elements.sendBtn.disabled = false;
+                    // Hide empty state when connected
+                    const emptyState = document.getElementById('emptyState');
+                    if (emptyState) emptyState.style.display = 'none';
+                    break;
+            }
+        }
+
+        function disconnect() {
+            ai = null;
+            chatBot = null;
+            updateConnectionStatus('disconnected');
+        }
+
+        function addMessage(text, type, sender = null) {
+            // Hide empty state on first message
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState && emptyState.style.display !== 'none') {
+                emptyState.style.display = 'none';
+            }
+            
+            const div = document.createElement('div');
+            
+            switch (type) {
+                case 'user':
+                    div.className = 'flex justify-end';
+                    div.innerHTML = `
+                        <div class="max-w-[80%] px-4 py-3 bg-black text-white rounded-3xl rounded-br-lg text-sm">
+                            ${text}
+                        </div>
+                    `;
+                    break;
+                case 'ai':
+                    div.className = 'flex justify-start';
+                    div.innerHTML = `
+                        <div class="max-w-[80%] px-4 py-3 bg-gray-100 text-gray-900 rounded-3xl rounded-bl-lg text-sm border border-gray-200">
+                            ${text}
+                        </div>
+                    `;
+                    break;
+                case 'error':
+                    div.className = 'flex justify-center';
+                    div.innerHTML = `
+                        <div class="max-w-[90%] px-4 py-3 bg-red-50 text-red-600 rounded-2xl text-sm text-center border border-red-100">
+                            ${text}
+                        </div>
+                    `;
+                    break;
+                case 'info':
+                    div.className = 'flex justify-center';
+                    div.innerHTML = `
+                        <div class="max-w-[90%] px-4 py-2 bg-gray-50 text-gray-500 rounded-2xl text-xs text-center">
+                            ${text}
+                        </div>
+                    `;
+                    break;
+            }
+            
+            elements.messages.appendChild(div);
+            elements.messages.scrollTop = elements.messages.scrollHeight;
+        }
+
+        async function testConnection() {
+            if (!elements.apiKey.value.trim()) {
+                addMessage('Please enter an API key', 'error');
+                return;
+            }
+
+            updateConnectionStatus('connecting');
+
+            try {
+                const provider = elements.llmProvider.value;
+                const config = providerConfig[provider];
+                
+                // Use global Ax variable from IIFE build
+                axModule = window.Ax;
+                
+                // Initialize AI with selected provider
+                ai = new axModule.AxAI({
+                    name: provider,
+                    apiKey: elements.apiKey.value,
+                    options: {
+                        corsProxy: config.corsProxy,
+                        debug: true,
+                        logger: console.log,
+                    },
+                    config: {
+                        stream: true
+                    }
+                });
+                
+                // Create AxGen using template literals
+                chatBot = axModule.ax`
+                    userMessage:${axModule.f.string('Message from the user')} -> 
+                    botReply:${axModule.f.string('Helpful and friendly response from the AI assistant')}
+                `;
+                
+                // Test with a simple message
+                const testResponse = await chatBot.forward(ai, {
+                    userMessage: 'Hello! Please respond with a brief greeting to confirm the connection works.'
+                });
+                
+                updateConnectionStatus('connected');
+                addMessage(testResponse.botReply, 'ai');
+                
+                console.log('Connection test successful:', testResponse);
+                
+            } catch (error) {
+                updateConnectionStatus('disconnected');
+                addMessage(`Connection failed: ${error.message}`, 'error');
+                console.error('Connection error:', error);
+            }
+        }
+
+        async function sendMessage() {
+            const message = elements.chatInput.value.trim();
+            if (!message || !isConnected) return;
+            
+            // Add user message
+            addMessage(message, 'user');
+            elements.chatInput.value = '';
+            elements.sendBtn.disabled = true;
+            
+            try {
+                const response = await chatBot.forward(ai, {
+                    userMessage: message
+                });
+                
+                addMessage(response.botReply, 'ai');
+                
+            } catch (error) {
+                addMessage(`Error: ${error.message}`, 'error');
+                console.error('Chat error:', error);
+            } finally {
+                elements.sendBtn.disabled = false;
+                elements.chatInput.focus();
+            }
+        }
+        
+        function clearChat() {
+            elements.messages.innerHTML = `
+                <div class="flex items-center justify-center h-full text-center" id="emptyState">
+                    <div class="max-w-sm">
+                        <div class="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                            <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                            </svg>
+                        </div>
+                        <p class="text-gray-500 text-sm">Connect to start chatting</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Event listeners
+        elements.llmProvider.addEventListener('change', updateProviderInfo);
+        elements.testBtn.addEventListener('click', testConnection);
+        elements.sendBtn.addEventListener('click', sendMessage);
+        elements.clearBtn.addEventListener('click', clearChat);
+        
+        elements.chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !elements.sendBtn.disabled) {
+                sendMessage();
+            }
+        });
+
+        elements.apiKey.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                testConnection();
+            }
+        });
+        
+        // Initialize
+        updateProviderInfo();
+    </script>
+</body>
+</html>

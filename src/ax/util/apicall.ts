@@ -347,7 +347,13 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     .filter(Boolean)
     .join('/')
     .replace(/\/+/g, '/')}${baseUrl.search}`;
-  const apiUrl = new URL(apiPath, baseUrl);
+  let apiUrl = new URL(apiPath, baseUrl);
+  
+  // Apply CORS proxy if provided (for browser environments)
+  if (api.corsProxy) {
+    const originalUrl = apiUrl.href;
+    apiUrl = new URL(`${api.corsProxy}?url=${encodeURIComponent(originalUrl)}`);
+  }
 
   const requestId = randomUUID();
 
