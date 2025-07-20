@@ -317,6 +317,23 @@ import {
   axValidateChatResponseResult,
 } from './ai/validate.js';
 import {
+  AxAIWebLLM,
+  type AxAIWebLLMArgs,
+  axAIWebLLMCreativeConfig,
+  axAIWebLLMDefaultConfig,
+} from './ai/webllm/api.js';
+import { axModelInfoWebLLM } from './ai/webllm/info.js';
+import {
+  type AxAIWebLLMChatRequest,
+  type AxAIWebLLMChatResponse,
+  type AxAIWebLLMChatResponseDelta,
+  type AxAIWebLLMConfig,
+  type AxAIWebLLMEmbedModel,
+  type AxAIWebLLMEmbedRequest,
+  type AxAIWebLLMEmbedResponse,
+  AxAIWebLLMModel,
+} from './ai/webllm/types.js';
+import {
   AxAI,
   type AxAIArgs,
   type AxAIEmbedModels,
@@ -644,6 +661,8 @@ export { AxAIServiceStatusError };
 export { AxAIServiceStreamTerminatedError };
 export { AxAIServiceTimeoutError };
 export { AxAITogether };
+export { AxAIWebLLM };
+export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxApacheTika };
 export { AxAssertionError };
@@ -726,6 +745,8 @@ export { axAIRekaCreativeConfig };
 export { axAIRekaDefaultConfig };
 export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
+export { axAIWebLLMCreativeConfig };
+export { axAIWebLLMDefaultConfig };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axCheckMetricsHealth };
@@ -751,6 +772,7 @@ export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
 export { axModelInfoTogether };
+export { axModelInfoWebLLM };
 export { axSpanAttributes };
 export { axSpanEvents };
 export { axUpdateMetricsConfig };
@@ -936,6 +958,14 @@ export type { AxAIServiceMetrics };
 export type { AxAIServiceModelType };
 export type { AxAIServiceOptions };
 export type { AxAITogetherArgs };
+export type { AxAIWebLLMArgs };
+export type { AxAIWebLLMChatRequest };
+export type { AxAIWebLLMChatResponse };
+export type { AxAIWebLLMChatResponseDelta };
+export type { AxAIWebLLMConfig };
+export type { AxAIWebLLMEmbedModel };
+export type { AxAIWebLLMEmbedRequest };
+export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentFeatures };

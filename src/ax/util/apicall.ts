@@ -53,6 +53,7 @@ export interface AxAPIConfig
   timeout?: number;
   retry?: Partial<RetryConfig>;
   abortSignal?: AbortSignal;
+  corsProxy?: string;
 }
 
 // Default Configurations
@@ -513,13 +514,141 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       let lastChunk: TResponse | undefined;
       let chunkCount = 0;
 
-      // Enhanced tracking stream
+      // Detect if we're in a browser environment with EventSource support
+      const isBrowser =
+        typeof window !== 'undefined' && typeof EventSource !== 'undefined';
+
+      if (isBrowser) {
+        // Use browser-optimized SSE parsing that mimics EventSource behavior
+        // We can't use EventSource directly because:
+        // 1. It only supports GET requests (we need POST for LLM APIs)
+        // 2. It doesn't support custom headers (needed for auth)
+        // 3. It doesn't support request bodies (needed for prompts/config)
+        return new ReadableStream<TResponse>({
+          start(controller) {
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            async function read() {
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) {
+                    closed = true;
+                    controller.close();
+                    break;
+                  }
+
+                  buffer += decoder.decode(value, { stream: true });
+
+                  // Parse SSE format: split by double newlines for events
+                  const events = buffer.split('\n\n');
+                  buffer = events.pop() || ''; // Keep incomplete event in buffer
+
+                  for (const event of events) {
+                    if (!event.trim()) continue;
+
+                    const lines = event.split('\n');
+                    let data = '';
+                    let eventType = 'message';
+
+                    // Parse SSE event fields
+                    for (const line of lines) {
+                      if (line.startsWith('data: ')) {
+                        data = line.slice(6);
+                      } else if (line.startsWith('event: ')) {
+                        eventType = line.slice(7);
+                      }
+                      // We could also handle 'id:', 'retry:', etc. if needed
+                    }
+
+                    if (data) {
+                      // Handle termination signal
+                      if (data === '[DONE]') {
+                        controller.close();
+                        return;
+                      }
+
+                      try {
+                        const parsed = JSON.parse(data) as TResponse;
+                        lastChunk = parsed;
+                        chunkCount++;
+                        metrics.streamChunks = chunkCount;
+                        metrics.lastChunkTime = Date.now();
+
+                        console.log('!!!!>>>>>>>>>parsed', parsed);
+
+                        controller.enqueue(parsed);
+
+                        api.span?.addEvent('stream.chunk', {
+                          'stream.chunks': chunkCount,
+                          'stream.duration': Date.now() - metrics.startTime,
+                          'response.retries': metrics.retryCount,
+                          'sse.event.type': eventType,
+                        });
+                      } catch (parseError) {
+                        // Skip invalid JSON chunks - this is normal for SSE
+                        if (api.debug) {
+                          console.warn(
+                            'Skipping non-JSON SSE data:',
+                            data,
+                            parseError
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (e) {
+                const error = e as Error;
+                const streamMetrics = {
+                  ...metrics,
+                  streamDuration: Date.now() - metrics.startTime,
+                };
+
+                if (
+                  error.name === 'AbortError' ||
+                  error.message?.includes('aborted')
+                ) {
+                  controller.error(
+                    new AxAIServiceStreamTerminatedError(
+                      apiUrl.href,
+                      json,
+                      lastChunk,
+                      { streamMetrics }
+                    )
+                  );
+                } else {
+                  controller.error(
+                    new AxAIServiceNetworkError(
+                      error,
+                      apiUrl.href,
+                      json,
+                      '[ReadableStream - consumed during streaming]',
+                      {
+                        streamMetrics,
+                      }
+                    )
+                  );
+                }
+              } finally {
+                reader.releaseLock();
+              }
+            }
+
+            read();
+          },
+        });
+      }
+      // Use the existing Node.js SSEParser for server-side environments
       const trackingStream = new TransformStream<TResponse, TResponse>({
         transform(chunk, controller) {
           lastChunk = chunk;
           chunkCount++;
           metrics.streamChunks = chunkCount;
           metrics.lastChunkTime = Date.now();
+
           controller.enqueue(chunk);
 
           api.span?.addEvent('stream.chunk', {

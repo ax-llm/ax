@@ -346,6 +346,7 @@ export type AxAIServiceOptions = {
   showThoughts?: boolean;
   useExpensiveModel?: 'yes';
   stepIndex?: number;
+  corsProxy?: string; // CORS proxy URL for browser environments
 };
 
 export interface AxAIService<

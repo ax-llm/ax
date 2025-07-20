@@ -53,6 +53,8 @@ import type {
 } from './types.js';
 import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
 import type { AxAIGrokModel } from './x-grok/types.js';
+import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
+import type { AxAIWebLLMModel } from './webllm/types.js';
 
 export type AxAIArgs<TModelKey> =
   | AxAIOpenAIArgs<'openai', AxAIOpenAIModel, AxAIOpenAIEmbedModel, TModelKey>
@@ -73,7 +75,8 @@ export type AxAIArgs<TModelKey> =
   | AxAIDeepSeekArgs<TModelKey>
   | AxAIOllamaArgs<TModelKey>
   | AxAIRekaArgs<TModelKey>
-  | AxAIGrokArgs<TModelKey>;
+  | AxAIGrokArgs<TModelKey>
+  | AxAIWebLLMArgs<TModelKey>;
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -84,7 +87,8 @@ export type AxAIModels =
   | AxAIHuggingFaceModel
   | AxAIMistralModel
   | AxAIDeepSeekModel
-  | AxAIGrokModel;
+  | AxAIGrokModel
+  | AxAIWebLLMModel;
 
 export type AxAIEmbedModels =
   | AxAIOpenAIEmbedModel
@@ -166,6 +170,9 @@ export class AxAI<TModelKey = string>
         break;
       case 'reka':
         this.ai = new AxAIReka<TModelKey>(options);
+        break;
+      case 'webllm':
+        this.ai = new AxAIWebLLM<TModelKey>(options);
         break;
       default:
         throw new Error('Unknown AI');

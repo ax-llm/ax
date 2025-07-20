@@ -106,6 +106,7 @@ export class AxBaseAI<
   private models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   private abortSignal?: AbortSignal;
   private logger: AxLoggerFunction = defaultLogger;
+  private corsProxy?: AxAIServiceOptions['corsProxy'];
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
@@ -235,6 +236,7 @@ export class AxBaseAI<
     this.excludeContentFromTrace = options.excludeContentFromTrace;
     this.abortSignal = options.abortSignal;
     this.logger = options.logger ?? axGlobals.logger ?? defaultLogger;
+    this.corsProxy = options.corsProxy;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -248,6 +250,7 @@ export class AxBaseAI<
       excludeContentFromTrace: this.excludeContentFromTrace,
       abortSignal: this.abortSignal,
       logger: this.logger,
+      corsProxy: this.corsProxy,
     };
   }
 
@@ -1026,6 +1029,7 @@ export class AxBaseAI<
           fetch: this.fetch,
           span,
           abortSignal: options?.abortSignal ?? this.abortSignal,
+          corsProxy: this.corsProxy,
         },
         reqValue
       );
@@ -1099,6 +1103,50 @@ export class AxBaseAI<
         }
       };
 
+      // Check if we're in browser environment for compatibility
+      const isBrowser = typeof window !== 'undefined';
+
+      if (isBrowser) {
+        // Use browser-compatible manual stream processing instead of pipeThrough
+        const sourceStream = rv as ReadableStream<TChatResponseDelta>;
+        const transformState = {};
+        const transformedValues: AxChatResponse[] = [];
+
+        return new ReadableStream<AxChatResponse>({
+          start(controller) {
+            const reader = sourceStream.getReader();
+
+            async function read() {
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) {
+                    // Call done callback with all transformed values
+                    if (doneCb) {
+                      await doneCb(transformedValues);
+                    }
+                    controller.close();
+                    break;
+                  }
+
+                  const transformedValue = wrappedRespFn(transformState)(value);
+                  if (transformedValue) {
+                    transformedValues.push(transformedValue);
+                    controller.enqueue(transformedValue);
+                  }
+                }
+              } catch (error) {
+                controller.error(error);
+              } finally {
+                reader.releaseLock();
+              }
+            }
+
+            read();
+          },
+        });
+      }
+      // Use pipeThrough for Node.js environments where it's fully supported
       const st = (rv as ReadableStream<TChatResponseDelta>).pipeThrough(
         new RespTransformStream<TChatResponseDelta, AxChatResponse>(
           wrappedRespFn({}),
@@ -1265,6 +1313,7 @@ export class AxBaseAI<
           timeout: this.timeout,
           span,
           abortSignal: options?.abortSignal ?? this.abortSignal,
+          corsProxy: this.corsProxy,
         },
         reqValue
       );
