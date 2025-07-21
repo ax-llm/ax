@@ -7,7 +7,14 @@
     "start": "npm run copy-docs && astro dev",
     "build": "npm run copy-docs && astro check && astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "test": "run-s test:*",
+    "test:type-check": "tsc --noEmit",
+    "test:lint": "biome lint .",
+    "test:format": "biome format .",
+    "fix": "run-s fix:*",
+    "fix:lint": "biome lint --write .",
+    "fix:format": "biome format --write ."
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",

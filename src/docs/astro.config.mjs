@@ -30,14 +30,17 @@ export default defineConfig({
     },
     rehypePlugins: [
       rehypeSlug,
-      [rehypeAutolinkHeadings, {
-        behavior: 'append',
-        properties: {
-          ariaHidden: true,
-          tabIndex: -1,
-          className: 'anchor-link'
-        }
-      }]
+      [
+        rehypeAutolinkHeadings,
+        {
+          behavior: 'append',
+          properties: {
+            ariaHidden: true,
+            tabIndex: -1,
+            className: 'anchor-link',
+          },
+        },
+      ],
     ],
   },
 });

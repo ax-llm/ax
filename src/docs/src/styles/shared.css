@@ -454,6 +454,12 @@ main.prose h1:first-of-type {
   font-size: 0.875em;
 }
 
+.prose pre {
+  padding: 16px;
+  margin: 24px 0;
+  border-radius: 6px;
+}
+
 :root.dark .prose pre {
   background-color: #1f2937;
   border-color: #374151;
@@ -546,12 +552,6 @@ main.prose h1:first-of-type {
   .prose ul,
   .prose ol {
     font-size: 15px;
-  }
-
-  .prose pre {
-    padding: 16px;
-    margin: 24px 0;
-    border-radius: 6px;
   }
 
   .prose table {

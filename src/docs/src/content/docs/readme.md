@@ -173,16 +173,44 @@ clarity.
 
 ## Install
 
+### Node.js / Bundlers
+
 ```bash
 npm install @ax-llm/ax
 # or
 yarn add @ax-llm/ax
 ```
 
-## Example: Using chain-of-thought to summarize text
+### Browser (CDN)
+
+```html
+<!-- Global variable (window.ax) -->
+<script src="https://unpkg.com/@ax-llm/ax@latest?conditions=browser"></script>
+
+<!-- Or ES modules -->
+<script type="module">
+  import { ax, AxAI, f } from "https://unpkg.com/@ax-llm/ax@latest";
+</script>
+```
+
+**Browser CORS Setup:** Most LLM providers require a CORS proxy for browser
+usage. See our [browser example](web-chat.html) which includes a simple CORS
+proxy setup.
+
+```javascript
+const ai = new AxAI({
+  name: "openai",
+  apiKey: "your-api-key",
+  options: {
+    corsProxy: "http://localhost:3001", // Your CORS proxy URL
+  },
+});
+```
+
+## Example: Summarize text
 
 ```typescript
-import { AxAI, AxChainOfThought } from "@ax-llm/ax";
+import { AxAI, ax } from "@ax-llm/ax";
 
 const textToSummarize = `
 The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
@@ -192,9 +220,7 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string,
 });
 
-const gen = new AxChainOfThought(
-  `textToSummarize -> textType:class "note, email, reminder", shortSummary "summarize in 5 to 10 words"`,
-);
+const gen = ax`textToSummarize -> textType:class "note, email, reminder", shortSummary "summarize in 5 to 10 words"`,
 
 const res = await gen.forward(ai, { textToSummarize });
 
@@ -204,7 +230,7 @@ console.log(">", res);
 ## Example: Using tagged template literals for type-safe signatures
 
 ```typescript
-import { AxAI, AxChainOfThought, f, s } from "@ax-llm/ax";
+import { ax, AxAI, f, s } from "@ax-llm/ax";
 
 const ai = new AxAI({
   name: "openai",
@@ -212,15 +238,13 @@ const ai = new AxAI({
 });
 
 // Create a signature using tagged template literals
-const gen = new AxChainOfThought(
-  s`
+const gen = ax`
     userInput:${f.string("User message or question")} -> 
     category:${f.class(["question", "request", "complaint"], "Message type")},
     priority:${f.class(["high", "medium", "low"], "Urgency level")},
     response:${f.string("Appropriate response")},
     reasoning:${f.internal(f.string("Internal reasoning for classification"))}
-  `,
-);
+  `;
 
 const res = await gen.forward(ai, {
   userInput: "My order hasn't arrived and I need it urgently!",
@@ -281,7 +305,7 @@ const ai = new AxAI({
 });
 
 // Or control thinking budget per request
-const gen = new AxChainOfThought(`question -> answer`);
+const gen = ax`question -> answer`;
 const res = await gen.forward(
   ai,
   { question: "What is quantum entanglement?" },
@@ -375,7 +399,7 @@ const image = fs
   .readFileSync("./src/examples/assets/kitten.jpeg")
   .toString("base64");
 
-const gen = new AxChainOfThought(`question, animalImage:image -> answer`);
+const gen = ax`question, animalImage:image -> answer`;
 
 const res = await gen.forward(ai, {
   question: "What family does this animal belong to?",
