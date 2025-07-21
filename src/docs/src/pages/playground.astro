@@ -1,0 +1,80 @@
+---
+import '../styles/shared.css';
+import Navigation from '../components/Navigation.astro';
+import NotebookPlayground from '../components/NotebookPlayground';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Playground - Ax LLM Framework</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script is:inline>
+      // Dark mode initialization - must run before body renders
+      const getInitialTheme = () => {
+        const stored = localStorage.getItem('theme');
+        if (stored) return stored;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      };
+      
+      const theme = getInitialTheme();
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      localStorage.setItem('theme', theme);
+    </script>
+  </head>
+
+  <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+    <Navigation />
+    <main class="min-h-screen bg-background">
+      <NotebookPlayground client:load />
+    </main>
+    
+    <script is:inline>
+      // Dark mode toggle functionality
+      window.toggleDarkMode = function() {
+        const html = document.documentElement;
+        const isDark = html.classList.contains('dark');
+        const newTheme = isDark ? 'light' : 'dark';
+        
+        html.classList.toggle('dark', newTheme === 'dark');
+        localStorage.setItem('theme', newTheme);
+        
+        // Update toggle button icon
+        const button = document.getElementById('theme-toggle');
+        const sunIcon = button?.querySelector('.sun-icon');
+        const moonIcon = button?.querySelector('.moon-icon');
+        
+        if (newTheme === 'dark') {
+          sunIcon?.classList.remove('hidden');
+          moonIcon?.classList.add('hidden');
+        } else {
+          sunIcon?.classList.add('hidden');
+          moonIcon?.classList.remove('hidden');
+        }
+      };
+      
+      // Initialize toggle button state
+      document.addEventListener('DOMContentLoaded', () => {
+        const button = document.getElementById('theme-toggle');
+        const sunIcon = button?.querySelector('.sun-icon');
+        const moonIcon = button?.querySelector('.moon-icon');
+        const isDark = document.documentElement.classList.contains('dark');
+        
+        if (isDark) {
+          sunIcon?.classList.remove('hidden');
+          moonIcon?.classList.add('hidden');
+        } else {
+          sunIcon?.classList.add('hidden');
+          moonIcon?.classList.remove('hidden');
+        }
+      });
+    </script>
+  </body>
+</html>
