@@ -1,5 +1,5 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
 import type { AxAIOpenAIResponsesConfig } from '@ax-llm/ax/index.js';
+import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAIFeatures } from '../base.js';
 import { AxBaseAI } from '../base.js';
 import type {

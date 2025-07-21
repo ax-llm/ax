@@ -180,11 +180,11 @@ yarn add @ax-llm/ax
 
 ```html
 <!-- Global variable (window.ax) -->
-<script src="https://unpkg.com/@ax-llm/ax@latest"></script>
+<script src="https://unpkg.com/@ax-llm/ax@latest?conditions=browser"></script>
 
 <!-- Or ES modules -->
 <script type="module">
-  import { ax, AxAI, f } from "https://unpkg.com/@ax-llm/ax@latest?module";
+  import { ax, AxAI, f } from "https://unpkg.com/@ax-llm/ax@latest";
 </script>
 ```
 

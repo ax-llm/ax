@@ -1,4 +1,4 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
+import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';

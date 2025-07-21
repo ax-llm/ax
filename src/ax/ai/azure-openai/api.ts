@@ -1,4 +1,4 @@
-import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js';
+import { getModelInfo } from '../../dsp/modelinfo.js';
 import {
   type AxAIOpenAIArgs,
   AxAIOpenAIBase,
