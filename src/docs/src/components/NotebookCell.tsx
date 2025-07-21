@@ -130,47 +130,70 @@ export default function NotebookCell({
     setTypeDropdownVisible(false);
   }, []);
 
+  const hideTypeDropdownDelayed = useCallback(() => {
+    // Add a small delay to allow click events on the dropdown to process first
+    setTimeout(() => {
+      setTypeDropdownVisible(false);
+    }, 150);
+  }, []);
+
   const handleTypeSelect = useCallback(
     (type: string, isOptional: boolean, isArray: boolean) => {
       if (!textareaRef.current) return;
 
       const textarea = textareaRef.current;
       const position = textarea.selectionStart;
-
-      // Find the field name before the ":"
-      const beforeColon = content.substring(0, position);
-      const colonIndex = beforeColon.lastIndexOf(':');
+      const beforeCursor = content.substring(0, position);
       
+      // The type already comes with : prefix, so we need to handle optional placement correctly
       let newContent = content;
-      let insertPosition = position;
+      let newCursorPosition = position;
       
-      // Add type with array notation if needed
-      let typeText = type;
-      if (isArray) {
-        typeText += '[]';
-      }
+      // Check if there's already a colon at the cursor position or just before
+      const colonIndex = beforeCursor.lastIndexOf(':');
       
-      // If optional is selected, add ? before the colon
-      if (isOptional && colonIndex !== -1) {
-        // Find the start of the field name
-        const beforeField = beforeColon.substring(0, colonIndex);
-        const fieldStart = Math.max(
-          beforeField.lastIndexOf(','),
-          beforeField.lastIndexOf('->'),
-          beforeField.lastIndexOf('"')
-        ) + 1;
+      if (colonIndex !== -1 && colonIndex === position - 1) {
+        // We're right after a colon, replace what comes after
+        let currentPosition = position;
+        const afterColon = content.substring(currentPosition);
+        const typeEndMatch = afterColon.match(/[,\->"]/);
+        let typeEnd = typeEndMatch ? currentPosition + typeEndMatch.index : content.length;
         
-        const fieldName = beforeColon.substring(fieldStart, colonIndex).trim();
-        if (fieldName && !fieldName.endsWith('?')) {
-          // Insert ? before the colon
-          newContent = content.substring(0, colonIndex) + '?' + content.substring(colonIndex);
-          insertPosition = position + 1; // Account for the added ?
+        // Handle optional marker - place it before the colon
+        if (isOptional) {
+          const beforeColonChar = content.charAt(colonIndex - 1);
+          if (beforeColonChar !== '?') {
+            newContent = content.substring(0, colonIndex) + '?' + content.substring(colonIndex);
+            currentPosition += 1; // Adjust position after adding ?
+            typeEnd += 1;
+          }
+        } else {
+          // Remove existing ? if optional is not selected
+          const beforeColonChar = content.charAt(colonIndex - 1);
+          if (beforeColonChar === '?') {
+            newContent = content.substring(0, colonIndex - 1) + content.substring(colonIndex);
+            currentPosition -= 1; // Adjust position after removing ?
+            typeEnd -= 1;
+          }
         }
+        
+        // Replace everything after the colon (remove the : from type since colon already exists)
+        const typeWithoutColon = type.startsWith(':') ? type.substring(1) : type;
+        newContent = newContent.substring(0, currentPosition) + typeWithoutColon + newContent.substring(typeEnd);
+        newCursorPosition = currentPosition + typeWithoutColon.length;
+        
+      } else {
+        // No colon at cursor, insert the full type with optional handling
+        let insertText = type;
+        
+        if (isOptional) {
+          // Insert ?:type format
+          insertText = insertText.replace(':', '?:');
+        }
+        
+        newContent = content.substring(0, position) + insertText + content.substring(position);
+        newCursorPosition = position + insertText.length;
       }
-      
-      // Insert the type
-      newContent = newContent.substring(0, insertPosition) + typeText + newContent.substring(insertPosition);
-      const newCursorPosition = insertPosition + typeText.length;
 
       setContent(newContent);
       setTypeDropdownVisible(false);
@@ -341,7 +364,7 @@ export default function NotebookCell({
               value={content}
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
-              onBlur={hideTypeDropdown}
+              onBlur={hideTypeDropdownDelayed}
               className="w-full resize-none border rounded-md bg-background p-3 font-mono text-sm outline-none min-h-[120px] focus:ring-2 focus:ring-blue-500"
               placeholder="Enter your signature here..."
               spellCheck={false}

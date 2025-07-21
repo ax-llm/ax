@@ -140,10 +140,8 @@ export default function TypeDropdown({
       insertText += '[]';
     }
     
-    // Add optional marker if selected
-    if (selectedOptional) {
-      insertText += '?';
-    }
+    // Prefix with colon by default
+    insertText = ':' + insertText;
     
     onSelect(insertText, selectedOptional, selectedArray);
     
@@ -178,7 +176,12 @@ export default function TypeDropdown({
           <Button
             size="sm"
             variant={selectedOptional ? "default" : "outline"}
-            onClick={() => setSelectedOptional(!selectedOptional)}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setSelectedOptional(!selectedOptional);
+            }}
+            onMouseDown={(e) => e.preventDefault()}
             className="text-xs h-7"
           >
             {selectedOptional && <Check className="w-3 h-3 mr-1" />}
@@ -187,7 +190,12 @@ export default function TypeDropdown({
           <Button
             size="sm"
             variant={selectedArray ? "default" : "outline"}
-            onClick={() => setSelectedArray(!selectedArray)}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setSelectedArray(!selectedArray);
+            }}
+            onMouseDown={(e) => e.preventDefault()}
             className="text-xs h-7"
           >
             {selectedArray && <Check className="w-3 h-3 mr-1" />}
@@ -209,9 +217,8 @@ export default function TypeDropdown({
           >
             <div className="flex-1">
               <div className="font-medium text-sm font-mono text-primary">
-                {type.label}
+                {selectedOptional && '?'}:{type.label}
                 {selectedArray && '[]'}
-                {selectedOptional && '?'}
               </div>
               <div className="text-xs text-muted-foreground">{type.detail}</div>
             </div>
