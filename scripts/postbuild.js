@@ -10,16 +10,35 @@ const packageJsonData = await fs.readFile(
 );
 const packageJson = JSON.parse(packageJsonData);
 
+// "main": "./index.cjs",
+// "module": "./index.js",
+// "types": "./index.d.ts",
+// "browser": "./index.global.js",
+// "exports": {
+//   ".": {
+//     "types": "./index.d.ts",
+//     "browser": "./index.global.js",
+//     "import": "./index.js",
+//     "require": "./index.cjs"
+//   }
+// },
+
 // Modify the package.json object
 packageJson.main = './index.cjs';
 packageJson.module = './index.js';
 packageJson.types = './index.d.ts';
+packageJson.browser = './index.global.js';
 packageJson.exports = {
   '.': {
+    default: './index.js',
+    types: './index.d.ts',
+    browser: './index.global.js',
     import: './index.js',
     require: './index.cjs',
   },
   './*': {
+    default: './*.js',
+    types: './*.d.ts',
     import: './*.js',
     require: './*.cjs',
   },
