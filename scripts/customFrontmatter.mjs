@@ -45,7 +45,7 @@ function replaceAndFormat(input) {
         .toLowerCase()
         .replace(/[^a-z0-9-]/g, '');
 
-      transformedPath = `/api/#03-apidocs/${transformedPath}`;
+      transformedPath = `/apidocs/${transformedPath}`;
 
       console.log(transformedPath);
 

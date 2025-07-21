@@ -1,0 +1,41 @@
+---
+import { getCollection, getEntry, render } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+
+// This is a statically generated dynamic route
+export const prerender = true;
+
+// Generate static paths for all apidocs
+export async function getStaticPaths() {
+  const apidocs = await getCollection('apidocs');
+  return apidocs.map((doc) => ({
+    params: { slug: doc.slug },
+  }));
+}
+
+// Get the slug from the URL
+const { slug } = Astro.params;
+
+// Handle empty slug
+if (!slug || slug === '') {
+  return Astro.redirect('/apidocs');
+}
+
+// Get the document from the apidocs collection
+const doc = await getEntry('apidocs', slug);
+
+if (!doc) {
+  // If not found, return 404
+  return new Response(null, { status: 404, statusText: 'Not found' });
+}
+
+// Render the content
+const { Content } = await render(doc);
+---
+
+<Layout title={doc.data.title}>
+  <main class="prose max-w-none">
+    <h1>{doc.data.title}</h1>
+    <Content />
+  </main>
+</Layout>

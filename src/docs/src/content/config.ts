@@ -7,4 +7,10 @@ export const collections = {
       description: z.string().optional(),
     }),
   }),
+  apidocs: defineCollection({
+    schema: z.object({
+      title: z.string(),
+      description: z.string().optional(),
+    }),
+  }),
 };

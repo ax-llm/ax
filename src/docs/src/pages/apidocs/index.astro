@@ -1,0 +1,51 @@
+---
+import { getCollection } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+
+// Get all apidocs
+const apidocs = await getCollection('apidocs');
+
+// Sort and categorize the API docs
+const categories = {
+  'Classes': apidocs.filter(doc => doc.slug.startsWith('class')),
+  'Interfaces': apidocs.filter(doc => doc.slug.startsWith('interface')),
+  'Functions': apidocs.filter(doc => doc.slug.startsWith('function')),
+  'Enumerations': apidocs.filter(doc => doc.slug.startsWith('enumeration')),
+  'Type Aliases': apidocs.filter(doc => doc.slug.startsWith('typealias')),
+  'Variables': apidocs.filter(doc => doc.slug.startsWith('variable')),
+};
+
+// Sort each category alphabetically
+Object.values(categories).forEach(categoryDocs => {
+  categoryDocs.sort((a, b) => a.data.title.localeCompare(b.data.title));
+});
+---
+
+<Layout title="API Documentation">
+  <main class="prose max-w-none">
+    <h1>API Documentation</h1>
+    <p>Complete API reference for the Ax LLM Framework.</p>
+    
+    {Object.entries(categories).map(([categoryName, categoryDocs]) => (
+      categoryDocs.length > 0 && (
+        <div class="mb-12">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 border-b border-gray-200 dark:border-gray-700 pb-2">
+            {categoryName}
+          </h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {categoryDocs.map((doc) => (
+              <a 
+                href={`/apidocs/${doc.slug}`} 
+                class="group block p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+              >
+                <div class="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 truncate" title={doc.data.title}>
+                  {doc.data.title}
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )
+    ))}
+  </main>
+</Layout>
