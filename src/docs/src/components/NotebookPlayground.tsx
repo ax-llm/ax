@@ -44,7 +44,7 @@ const EXAMPLE_SIGNATURES = [
 export default function NotebookPlayground() {
   const [cells, setCells] = useState<Cell[]>([
     {
-      id: 'cell-1',
+      id: `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content: 'userQuestion:string "User input question" -> assistantResponse:string "AI assistant response"',
       createdAt: new Date(),
     },
