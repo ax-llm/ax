@@ -33,6 +33,7 @@ interface NotebookCellProps {
   onDelete?: (cellId: string) => void;
   onAddCell?: (afterCellId: string) => void;
   onUpdateCellState?: (cellId: string, outputs: Record<string, any>) => void;
+  onUpdateCellSignature?: (cellId: string, signature: any) => void;
   availableOutputs?: AvailableOutput[];
 }
 
@@ -45,6 +46,7 @@ export default function NotebookCell({
   onDelete,
   onAddCell,
   onUpdateCellState,
+  onUpdateCellSignature,
   availableOutputs = [],
 }: NotebookCellProps) {
   const [content, setContent] = useState(initialContent);
@@ -68,6 +70,7 @@ export default function NotebookCell({
         if (!content.trim()) {
           setAxSignature(null);
           setSignatureError(null);
+          onUpdateCellSignature?.(cellId, null);
           return;
         }
 
@@ -75,15 +78,19 @@ export default function NotebookCell({
         const signature = new AxSignature(content);
         setAxSignature(signature);
         setSignatureError(null);
+        
+        // Notify parent component of parsed signature
+        onUpdateCellSignature?.(cellId, signature);
       } catch (error) {
         console.error('Signature parsing error:', error);
         setAxSignature(null);
         setSignatureError(error instanceof Error ? error.message : 'Invalid signature');
+        onUpdateCellSignature?.(cellId, null);
       }
     };
 
     parseSignature();
-  }, [content]);
+  }, [content, cellId, onUpdateCellSignature]);
 
   const handleContentChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -437,7 +444,7 @@ export default function NotebookCell({
                             {field.name}
                             {field.optional && <span className="text-muted-foreground"> (optional)</span>}
                             <span className="text-muted-foreground ml-2">
-                              {String(field.type)}{field.isArray && '[]'}
+                              {field.type?.name || 'string'}{field.isArray && '[]'}
                             </span>
                           </label>
                           <CellOutputSelector

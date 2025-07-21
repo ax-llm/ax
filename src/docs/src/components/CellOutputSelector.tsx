@@ -98,7 +98,7 @@ export default function CellOutputSelector({
                   {formatValue(output.value)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  Reference: @{output.cellId}.{output.fieldName}
+                  @{output.cellId}.{output.fieldName}
                 </div>
               </button>
             ))}

@@ -54,6 +54,9 @@ export default function NotebookPlayground() {
   const [cellStates, setCellStates] = useState<Record<string, CellState>>({});
   const [executionCounter, setExecutionCounter] = useState(0);
   
+  // Track parsed signatures for all cells to get available output fields
+  const [cellSignatures, setCellSignatures] = useState<Record<string, any>>({});
+  
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Llama-3.2-1B-Instruct-q4f32_1-MLC');
   const [modelStatus, setModelStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -212,6 +215,14 @@ export default function NotebookPlayground() {
     }
   }, [selectedModel]);
 
+  // Update cell signature when parsed
+  const updateCellSignature = useCallback((cellId: string, signature: any) => {
+    setCellSignatures(prev => ({
+      ...prev,
+      [cellId]: signature
+    }));
+  }, []);
+
   // Update cell outputs when execution completes
   const updateCellState = useCallback((cellId: string, outputs: Record<string, any>) => {
     setExecutionCounter(prev => prev + 1);
@@ -233,20 +244,41 @@ export default function NotebookPlayground() {
     for (let i = 0; i < currentCellIndex; i++) {
       const cell = cells[i];
       const cellState = cellStates[cell.id];
-      if (cellState?.outputs) {
-        Object.entries(cellState.outputs).forEach(([fieldName, value]) => {
-          availableOutputs.push({
-            cellId: cell.id,
-            fieldName,
-            value,
-            cellIndex: i
+      const cellSignature = cellSignatures[cell.id];
+      
+      // Use parsed signature to get output fields, whether executed or not
+      if (cellSignature) {
+        try {
+          const outputFields = cellSignature.getOutputFields();
+          outputFields.forEach((field: any) => {
+            const actualValue = cellState?.outputs?.[field.name];
+            availableOutputs.push({
+              cellId: cell.id,
+              fieldName: field.name,
+              value: actualValue !== undefined ? actualValue : `<not yet executed>`,
+              cellIndex: i
+            });
           });
-        });
+        } catch (error) {
+          console.warn('Error getting output fields from signature:', error);
+        }
+      } else {
+        // Fallback: if no parsed signature, use executed outputs if available
+        if (cellState?.outputs) {
+          Object.entries(cellState.outputs).forEach(([fieldName, value]) => {
+            availableOutputs.push({
+              cellId: cell.id,
+              fieldName,
+              value,
+              cellIndex: i
+            });
+          });
+        }
       }
     }
     
     return availableOutputs.sort((a, b) => a.cellIndex - b.cellIndex);
-  }, [cells, cellStates]);
+  }, [cells, cellStates, cellSignatures]);
 
   return (
     <div className="flex h-screen bg-background">
@@ -348,6 +380,7 @@ export default function NotebookPlayground() {
                   onDelete={cells.length > 1 ? deleteCell : undefined}
                   onAddCell={addCell}
                   onUpdateCellState={updateCellState}
+                  onUpdateCellSignature={updateCellSignature}
                   availableOutputs={getAvailableOutputs(cell.id)}
                 />
               ))}
