@@ -1,5 +1,12 @@
 # Changelog
 
+## [13.0.20](https://github.com/ax-llm/ax/compare/13.0.18...13.0.19) (2025-07-21)
+## [13.0.19](https://github.com/ax-llm/ax/compare/13.0.18...13.0.19) (2025-07-21)
+
+### Bug Fixes
+
+* update import paths for model information in AI modules ([3f4ca8d](https://github.com/ax-llm/ax/commit/3f4ca8dc19ff99202dd9454ee9f4d161f4ff4e47))
+
 ## [13.0.19](https://github.com/ax-llm/ax/compare/13.0.17...13.0.18) (2025-07-21)
 
 ### Bug Fixes
