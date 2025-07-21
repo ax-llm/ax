@@ -9,6 +9,11 @@ interface Cell {
   createdAt: Date;
 }
 
+interface CellState {
+  outputs: Record<string, any>;
+  executionOrder: number;
+}
+
 const EXAMPLE_SIGNATURES = [
   {
     name: 'Sentiment Analysis',
@@ -45,6 +50,10 @@ export default function NotebookPlayground() {
     },
   ]);
   
+  // Global state for cell outputs and execution order
+  const [cellStates, setCellStates] = useState<Record<string, CellState>>({});
+  const [executionCounter, setExecutionCounter] = useState(0);
+  
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Llama-3.2-1B-Instruct-q4f32_1-MLC');
   const [modelStatus, setModelStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -68,6 +77,17 @@ export default function NotebookPlayground() {
 
     return () => observer.disconnect();
   }, []);
+
+  // Reset model status when model selection changes
+  useEffect(() => {
+    if (modelStatus === 'ready') {
+      setModelStatus('idle');
+      setLoadedEngine(null);
+      setLoadedAI(null);
+      setLoadingProgress(0);
+      setLoadingText('Ready to load model');
+    }
+  }, [selectedModel]);
 
   const generateCellId = useCallback(() => {
     return `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -94,6 +114,11 @@ export default function NotebookPlayground() {
 
   const deleteCell = useCallback((cellId: string) => {
     setCells(prev => prev.filter(cell => cell.id !== cellId));
+    // Clean up cell state when cell is deleted
+    setCellStates(prev => {
+      const { [cellId]: deleted, ...rest } = prev;
+      return rest;
+    });
   }, []);
 
   const loadExample = useCallback((signature: string) => {
@@ -163,7 +188,7 @@ export default function NotebookPlayground() {
       setLoadedEngine(engine);
       setLoadedAI(ai);
       setModelStatus('ready');
-      setLoadingText('Model loaded and ready!');
+      setLoadingProgress(100);
       
     } catch (error) {
       console.error('Detailed error loading model:', error);
@@ -186,6 +211,42 @@ export default function NotebookPlayground() {
       setLoadingText(errorMessage);
     }
   }, [selectedModel]);
+
+  // Update cell outputs when execution completes
+  const updateCellState = useCallback((cellId: string, outputs: Record<string, any>) => {
+    setExecutionCounter(prev => prev + 1);
+    setCellStates(prev => ({
+      ...prev,
+      [cellId]: {
+        outputs,
+        executionOrder: executionCounter + 1
+      }
+    }));
+  }, [executionCounter]);
+
+  // Get available outputs from previous cells for input selection
+  const getAvailableOutputs = useCallback((currentCellId: string) => {
+    const currentCellIndex = cells.findIndex(cell => cell.id === currentCellId);
+    const availableOutputs: Array<{ cellId: string, fieldName: string, value: any, cellIndex: number }> = [];
+    
+    // Only look at cells above the current one
+    for (let i = 0; i < currentCellIndex; i++) {
+      const cell = cells[i];
+      const cellState = cellStates[cell.id];
+      if (cellState?.outputs) {
+        Object.entries(cellState.outputs).forEach(([fieldName, value]) => {
+          availableOutputs.push({
+            cellId: cell.id,
+            fieldName,
+            value,
+            cellIndex: i
+          });
+        });
+      }
+    }
+    
+    return availableOutputs.sort((a, b) => a.cellIndex - b.cellIndex);
+  }, [cells, cellStates]);
 
   return (
     <div className="flex h-screen bg-background">
@@ -286,6 +347,8 @@ export default function NotebookPlayground() {
                   isDarkMode={isDarkMode}
                   onDelete={cells.length > 1 ? deleteCell : undefined}
                   onAddCell={addCell}
+                  onUpdateCellState={updateCellState}
+                  availableOutputs={getAvailableOutputs(cell.id)}
                 />
               ))}
               
@@ -326,19 +389,34 @@ export default function NotebookPlayground() {
             </div>
 
             {/* Model Status */}
-            <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+            <div className="flex items-start gap-3">
+              <div className={`w-3 h-3 rounded-full transition-all duration-300 flex-shrink-0 mt-1 ${
                 modelStatus === 'idle' ? 'bg-gray-400' :
                 modelStatus === 'loading' ? 'bg-yellow-400 animate-pulse' :
                 modelStatus === 'ready' ? 'bg-green-400' :
                 'bg-red-400'
               }`} />
-              <span className="text-sm flex-1">
+              <div className="text-sm flex-1 leading-relaxed">
                 {modelStatus === 'idle' ? 'Ready to load model' :
-                 modelStatus === 'loading' ? loadingText :
-                 modelStatus === 'ready' ? 'Model loaded and ready!' :
-                 'Failed to load model'}
-              </span>
+                 modelStatus === 'loading' ? (
+                   <div className="space-y-1">
+                     <div className="font-medium">Loading Model...</div>
+                     <div className="text-muted-foreground text-xs whitespace-pre-wrap">{loadingText}</div>
+                   </div>
+                 ) :
+                 modelStatus === 'ready' ? (
+                   <div className="space-y-1">
+                     <div className="font-medium text-green-700 dark:text-green-300">Model Ready</div>
+                     <div className="text-muted-foreground text-xs">
+                       {selectedModel} loaded and ready to use
+                     </div>
+                   </div>
+                 ) :
+                 <div className="space-y-1">
+                   <div className="font-medium text-red-700 dark:text-red-300">Failed to load model</div>
+                   <div className="text-muted-foreground text-xs whitespace-pre-wrap">{loadingText}</div>
+                 </div>}
+              </div>
             </div>
 
             {/* Progress Bar */}
@@ -356,31 +434,23 @@ export default function NotebookPlayground() {
 
             {/* Load Model Button */}
             <div className="pt-4 border-t">
-              {modelStatus !== 'ready' ? (
-                <Button 
-                  onClick={loadModel}
-                  disabled={modelStatus === 'loading'}
-                  className="w-full bg-blue-600 hover:bg-blue-700 py-3"
-                >
-                  {modelStatus === 'loading' ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading Model...
-                    </>
-                  ) : (
-                    'Load Model'
-                  )}
-                </Button>
-              ) : (
-                <div className="text-center">
-                  <div className="text-green-600 dark:text-green-400 text-sm font-medium mb-2">
-                    ✓ Model Ready
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    You can now execute cells by clicking the play button in each cell
-                  </p>
-                </div>
-              )}
+              <Button 
+                onClick={loadModel}
+                disabled={modelStatus === 'loading'}
+                className="w-full bg-blue-600 hover:bg-blue-700 py-3"
+                variant={modelStatus === 'ready' ? 'outline' : 'default'}
+              >
+                {modelStatus === 'loading' ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading Model...
+                  </>
+                ) : modelStatus === 'ready' ? (
+                  'Reload Model'
+                ) : (
+                  'Load Model'
+                )}
+              </Button>
             </div>
 
             {/* About Section */}

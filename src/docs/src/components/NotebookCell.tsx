@@ -10,11 +10,19 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import CellOutputSelector from './CellOutputSelector';
 import TypeDropdown from './TypeDropdown';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
+
+interface AvailableOutput {
+  cellId: string;
+  fieldName: string;
+  value: any;
+  cellIndex: number;
+}
 
 interface NotebookCellProps {
   cellId: string;
@@ -24,6 +32,8 @@ interface NotebookCellProps {
   isDarkMode: boolean;
   onDelete?: (cellId: string) => void;
   onAddCell?: (afterCellId: string) => void;
+  onUpdateCellState?: (cellId: string, outputs: Record<string, any>) => void;
+  availableOutputs?: AvailableOutput[];
 }
 
 export default function NotebookCell({
@@ -34,6 +44,8 @@ export default function NotebookCell({
   isDarkMode,
   onDelete,
   onAddCell,
+  onUpdateCellState,
+  availableOutputs = [],
 }: NotebookCellProps) {
   const [content, setContent] = useState(initialContent);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -210,6 +222,30 @@ export default function NotebookCell({
   );
 
 
+  // Replace references in input values with actual values from previous cells
+  const resolveReferences = useCallback((inputData: Record<string, any>) => {
+    const resolved = { ...inputData };
+    
+    Object.keys(resolved).forEach(key => {
+      const value = resolved[key];
+      if (typeof value === 'string' && value.startsWith('@')) {
+        // Parse reference format: @cellId.fieldName
+        const match = value.match(/^@([^.]+)\.(.+)$/);
+        if (match) {
+          const [, refCellId, refFieldName] = match;
+          const referencedOutput = availableOutputs.find(
+            output => output.cellId === refCellId && output.fieldName === refFieldName
+          );
+          if (referencedOutput) {
+            resolved[key] = referencedOutput.value;
+          }
+        }
+      }
+    });
+    
+    return resolved;
+  }, [availableOutputs]);
+
   const executeSignature = useCallback(async () => {
     if (!loadedAI || modelStatus !== 'ready' || !axSignature) {
       console.log('Cannot execute: AI not ready or signature invalid');
@@ -224,38 +260,37 @@ export default function NotebookCell({
       // Import AxGen exactly like the working example
       const { AxGen } = await import('@ax-llm/ax');
       
-      console.log('Creating AxGen with signature:', content);
-      
-      // Create AxGen directly from the text signature, just like the working example
+      // Create AxGen directly from the text signature
       const signature = new AxGen(content);
       
-      console.log('AxGen created:', signature);
-      
-      // Prepare input data from the input fields
+      // Prepare input data from the input fields with reference resolution
       const inputData: Record<string, any> = {};
       Object.keys(inputValues).forEach(key => {
         inputData[key] = inputValues[key];
       });
       
-      console.log('Input data:', inputData);
-      console.log('Using AI:', loadedAI);
+      // Resolve references to actual values
+      const resolvedInputData = resolveReferences(inputData);
       
-      // Execute the signature exactly like the working example
-      const result = await signature.forward(loadedAI, inputData);
-      console.log('Execution result:', result);
+      // Execute the signature with debug enabled
+      const result = await signature.forward(loadedAI, resolvedInputData, { 
+        debug: true
+      });
+      
       setExecutionResult(result);
       
-    } catch (error) {
-      console.error('Execution error:', error);
-      console.error('Full error details:', error);
-      if (error.cause) {
-        console.error('Error cause:', error.cause);
+      // Save outputs to global state
+      if (onUpdateCellState && result) {
+        onUpdateCellState(cellId, result);
       }
-      setExecutionError(error instanceof Error ? error.message : 'Unknown error occurred');
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setExecutionError(errorMessage);
     } finally {
       setIsExecuting(false);
     }
-  }, [content, inputValues, loadedAI, modelStatus, axSignature]);
+  }, [content, inputValues, loadedAI, modelStatus, axSignature, availableOutputs, resolveReferences, onUpdateCellState, cellId]);
 
   const renderStatusIndicator = () => {
     if (!axSignature && !signatureError) {
@@ -397,13 +432,23 @@ export default function NotebookCell({
                   <div className="grid gap-3">
                     {inputFields.map((field: any) => (
                       <div key={field.name} className="space-y-1">
-                        <label className="text-xs font-medium" htmlFor={`${cellId}-${field.name}`}>
-                          {field.name}
-                          {field.optional && <span className="text-muted-foreground"> (optional)</span>}
-                          <span className="text-muted-foreground ml-2">
-                            {String(field.type)}{field.isArray && '[]'}
-                          </span>
-                        </label>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-medium" htmlFor={`${cellId}-${field.name}`}>
+                            {field.name}
+                            {field.optional && <span className="text-muted-foreground"> (optional)</span>}
+                            <span className="text-muted-foreground ml-2">
+                              {String(field.type)}{field.isArray && '[]'}
+                            </span>
+                          </label>
+                          <CellOutputSelector
+                            availableOutputs={availableOutputs}
+                            onSelect={(reference, actualValue) => {
+                              // Use reference so it updates when cell above changes
+                              setInputValues(prev => ({ ...prev, [field.name]: reference }));
+                            }}
+                            disabled={false}
+                          />
+                        </div>
                         {field.type === 'string' && field.name.toLowerCase().includes('text') ? (
                           <Textarea
                             id={`${cellId}-${field.name}`}
@@ -493,6 +538,7 @@ export default function NotebookCell({
               })() : null}
             </div>
           )}
+
         </div>
       )}
     </div>
