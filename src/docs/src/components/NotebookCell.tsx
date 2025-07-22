@@ -2,6 +2,8 @@ import {
   AlertCircle,
   CheckCircle,
   Copy,
+  Eye,
+  EyeOff,
   Loader2,
   Play,
   Plus,
@@ -61,6 +63,8 @@ export default function NotebookCell({
   const [executionResult, setExecutionResult] = useState<any>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(true);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDebugLogs, setShowDebugLogs] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Parse signature with AxSignature whenever content changes
@@ -253,6 +257,25 @@ export default function NotebookCell({
     return resolved;
   }, [availableOutputs]);
 
+  // Create debug logger using Ax built-in logger functions
+  const createDebugLogger = useCallback(async () => {
+    const logs: string[] = [];
+    
+    // Import the Ax logger functions
+    const { axCreateDefaultTextLogger } = await import('@ax-llm/ax');
+    
+    // Create a function to capture log messages
+    const logCapture = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      logs.push(`[${timestamp}] ${message}`);
+    };
+    
+    // Create the Ax logger with our capture function
+    const logger = axCreateDefaultTextLogger(logCapture);
+    
+    return { logger, getLogs: () => logs };
+  }, []);
+
   const executeSignature = useCallback(async () => {
     if (!loadedAI || modelStatus !== 'ready' || !axSignature) {
       console.log('Cannot execute: AI not ready or signature invalid');
@@ -262,8 +285,12 @@ export default function NotebookCell({
     setIsExecuting(true);
     setExecutionError(null);
     setExecutionResult(null);
+    setDebugLogs([]);
     
     try {
+      // Create debug logger using Ax built-in logger
+      const { logger, getLogs } = await createDebugLogger();
+      
       // Import AxGen exactly like the working example
       const { AxGen } = await import('@ax-llm/ax');
       
@@ -279,12 +306,14 @@ export default function NotebookCell({
       // Resolve references to actual values
       const resolvedInputData = resolveReferences(inputData);
       
-      // Execute the signature with debug enabled
+      // Execute the signature with debug logger passed in options
       const result = await signature.forward(loadedAI, resolvedInputData, { 
-        debug: true
+        debug: true,
+        logger: logger
       });
       
       setExecutionResult(result);
+      setDebugLogs(getLogs());
       
       // Save outputs to global state
       if (onUpdateCellState && result) {
@@ -297,7 +326,7 @@ export default function NotebookCell({
     } finally {
       setIsExecuting(false);
     }
-  }, [content, inputValues, loadedAI, modelStatus, axSignature, availableOutputs, resolveReferences, onUpdateCellState, cellId]);
+  }, [content, inputValues, loadedAI, modelStatus, axSignature, availableOutputs, resolveReferences, onUpdateCellState, cellId, createDebugLogger]);
 
   const renderStatusIndicator = () => {
     if (!axSignature && !signatureError) {
@@ -491,9 +520,31 @@ export default function NotebookCell({
           {/* Output Results */}
           {(executionResult || executionError) && (
             <div className="space-y-3">
-              <h4 className="text-sm font-medium">
-                {executionError ? 'Execution Error' : 'Results'}
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium">
+                  {executionError ? 'Execution Error' : 'Results'}
+                </h4>
+                {(executionResult || executionError) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowDebugLogs(!showDebugLogs)}
+                    className="h-6 px-2 text-xs"
+                  >
+                    {showDebugLogs ? (
+                      <>
+                        <EyeOff className="h-3 w-3 mr-1" />
+                        Hide Debug Logs
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="h-3 w-3 mr-1" />
+                        Show Debug Logs ({debugLogs.length})
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
               {executionError ? (
                 <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
                   <p className="text-destructive text-sm">{executionError}</p>
@@ -543,6 +594,35 @@ export default function NotebookCell({
                   );
                 }
               })() : null}
+              
+              {/* Debug Logs Section */}
+              {showDebugLogs && (
+                <div className="space-y-2 border-t pt-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-xs font-medium text-muted-foreground">
+                      Debug Logs ({debugLogs.length} entries)
+                    </h5>
+                    {debugLogs.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2"
+                        onClick={() => {
+                          navigator.clipboard.writeText(debugLogs.join('\n'));
+                        }}
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                  <Textarea
+                    value={debugLogs.length > 0 ? debugLogs.join('\n') : 'No debug logs captured yet. The logger may not be receiving data from the Ax framework.'}
+                    readOnly
+                    className="min-h-[120px] text-xs font-mono bg-muted/50 resize-none"
+                    placeholder="Debug logs will appear here..."
+                  />
+                </div>
+              )}
             </div>
           )}
 
