@@ -1,5 +1,20 @@
 # Changelog
 
+## [13.0.22](https://github.com/ax-llm/ax/compare/13.0.20...13.0.21) (2025-07-22)
+
+### Features
+
+* add CellOutputSelector component and integrate with NotebookCell ([2c4b70f](https://github.com/ax-llm/ax/commit/2c4b70f899e1605fc8751cedc6478c0cfa71a694))
+* add debug logging functionality to NotebookCell ([821e363](https://github.com/ax-llm/ax/commit/821e3636fd473fb1bb666f5a5bbbed9b486729f6))
+* enhance NotebookCell and NotebookPlayground with signature handling ([8a4c887](https://github.com/ax-llm/ax/commit/8a4c88771d07746e91f5361e42226606daad91e4))
+* implement interactive notebook playground for LLM signatures ([9afeb5d](https://github.com/ax-llm/ax/commit/9afeb5d5ee1ba79ae154b84210bb5b8a490df16d))
+* update cell ID generation in NotebookPlayground for uniqueness ([c344fa7](https://github.com/ax-llm/ax/commit/c344fa7ff627cd8419d785559ec8f11bc945bc8b))
+
+### Bug Fixes
+
+* enhance type handling in NotebookCell and TypeDropdown components ([38d6ed9](https://github.com/ax-llm/ax/commit/38d6ed9027a1d2a13bd1aabd807ebc4f263105a9))
+## [13.0.21](https://github.com/ax-llm/ax/compare/13.0.20...13.0.21) (2025-07-21)
+
 ## [13.0.21](https://github.com/ax-llm/ax/compare/13.0.19...13.0.20) (2025-07-21)
 ## [13.0.20](https://github.com/ax-llm/ax/compare/13.0.19...13.0.20) (2025-07-21)
 
