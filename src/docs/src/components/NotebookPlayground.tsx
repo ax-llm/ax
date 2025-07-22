@@ -1,5 +1,5 @@
 import type { AxAIWebLLMModel } from '@ax-llm/ax';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Menu, Plus, Settings, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import NotebookCell from './NotebookCell';
 import { Button } from './ui/button';
@@ -70,6 +70,8 @@ export default function NotebookPlayground() {
   const [loadingText, setLoadingText] = useState('');
   const [_loadedEngine, setLoadedEngine] = useState<any>(null);
   const [loadedAI, setLoadedAI] = useState<any>(null);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
 
   // Detect dark mode
   useEffect(() => {
@@ -324,17 +326,79 @@ export default function NotebookPlayground() {
   );
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex flex-col md:flex-row h-screen bg-background">
+      {/* Mobile Header */}
+      <div className="md:hidden border-b p-4 flex justify-between items-center bg-background">
+        <button
+          onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+          className="p-2 hover:bg-accent rounded-md"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <h1 className="text-lg font-semibold">DSPy Notebook</h1>
+        <button
+          onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+          className="flex items-center gap-2 px-3 py-2 hover:bg-accent rounded-md text-sm"
+        >
+          <div
+            className={`w-3 h-3 rounded-full transition-all duration-300 ${
+              modelStatus === 'idle'
+                ? 'bg-gray-400'
+                : modelStatus === 'loading'
+                  ? 'bg-yellow-400 animate-pulse'
+                  : modelStatus === 'ready'
+                    ? 'bg-green-400'
+                    : 'bg-red-400'
+            }`}
+          />
+          <span className="font-medium">
+            {modelStatus === 'idle'
+              ? 'Load Model'
+              : modelStatus === 'loading'
+                ? 'Loading...'
+                : modelStatus === 'ready'
+                  ? 'Model Ready'
+                  : 'Load Failed'
+            }
+          </span>
+        </button>
+      </div>
+
+      {/* Mobile Overlay */}
+      {(leftSidebarOpen || rightSidebarOpen) && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => {
+            setLeftSidebarOpen(false);
+            setRightSidebarOpen(false);
+          }}
+        />
+      )}
+
       {/* Left Sidebar - Examples */}
-      <div className="w-80 border-r bg-muted/30 p-6 overflow-y-auto">
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-medium mb-3">Example Templates</h3>
-            <div className="space-y-2">
+      <div className={`${leftSidebarOpen ? 'fixed inset-y-0 left-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-r bg-background overflow-y-auto`}>
+        {/* Mobile close button */}
+        <div className="md:hidden p-4 border-b flex justify-between items-center">
+          <h2 className="font-semibold">Examples</h2>
+          <button
+            onClick={() => setLeftSidebarOpen(false)}
+            className="p-2 hover:bg-accent rounded-md"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 md:p-6">
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-medium mb-3">Example Templates</h3>
+              <div className="space-y-2">
               {EXAMPLE_SIGNATURES.map((example, index) => (
                 <button
                   key={index}
-                  onClick={() => loadExample(example.signature)}
+                  onClick={() => {
+                    loadExample(example.signature);
+                    setLeftSidebarOpen(false);
+                  }}
                   className="w-full text-left p-3 rounded-lg border bg-background hover:bg-accent text-sm transition-colors"
                 >
                   <div className="font-medium">{example.name}</div>
@@ -342,22 +406,26 @@ export default function NotebookPlayground() {
                     {example.description}
                   </div>
                 </button>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div>
-            <h3 className="text-sm font-medium mb-3">Notebook Actions</h3>
-            <div className="space-y-2">
-              <Button
-                onClick={() => addCell()}
-                variant="outline"
-                className="w-full justify-start"
-                size="sm"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Cell
-              </Button>
+            <div>
+              <h3 className="text-sm font-medium mb-3">Notebook Actions</h3>
+              <div className="space-y-2">
+                <Button
+                  onClick={() => {
+                    addCell();
+                    setLeftSidebarOpen(false);
+                  }}
+                  variant="outline"
+                  className="w-full justify-start"
+                  size="sm"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Cell
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -365,8 +433,8 @@ export default function NotebookPlayground() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col">
-        {/* Top Toolbar */}
-        <div className="flex items-center justify-between border-b px-6 py-4">
+        {/* Top Toolbar - Hidden on mobile */}
+        <div className="hidden md:flex items-center justify-between border-b px-6 py-4">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-semibold">DSPy Notebook</h1>
             <span className="text-sm text-muted-foreground">
@@ -382,10 +450,110 @@ export default function NotebookPlayground() {
         </div>
 
         {/* Notebook Content */}
-        <div className="flex-1 flex">
+        <div className="flex-1 flex flex-col md:flex-row">
           {/* Cells Area */}
-          <div className="flex-1 p-6 overflow-y-auto">
-            <div className="max-w-4xl mx-auto">
+          <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+            <div className="max-w-4xl mx-auto w-full">
+              {/* Show model loading component in mobile view when model is not ready */}
+              {modelStatus !== 'ready' && (
+                <div className="md:hidden mb-6 p-6 border rounded-lg bg-muted/50">
+                  <div className="text-center space-y-6">
+                    <div className="flex items-center justify-center gap-3">
+                      <div
+                        className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                          modelStatus === 'idle'
+                            ? 'bg-gray-400'
+                            : modelStatus === 'loading'
+                              ? 'bg-yellow-400 animate-pulse'
+                              : 'bg-red-400'
+                        }`}
+                      />
+                      <h3 className="font-semibold text-lg">
+                        {modelStatus === 'idle' 
+                          ? 'Model Not Loaded'
+                          : modelStatus === 'loading'
+                            ? 'Loading Model...'
+                            : 'Model Load Failed'
+                        }
+                      </h3>
+                    </div>
+                    
+                    {modelStatus === 'idle' && (
+                      <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          Load a model to start using the notebook cells
+                        </p>
+                        <div>
+                          <label className="text-sm font-medium block mb-3">Select Model</label>
+                          <select
+                            className="w-full p-3 border rounded-md bg-background text-sm"
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                          >
+                            <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
+                              Llama 3.2 1B Instruct (Fastest)
+                            </option>
+                            <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
+                              Llama 3.2 3B Instruct
+                            </option>
+                            <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
+                              Llama 3.1 8B Instruct (Better Quality)
+                            </option>
+                            <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
+                              Phi 3.5 Mini Instruct
+                            </option>
+                            <option value="gemma-2-2b-it-q4f32_1-MLC">
+                              Gemma 2 2B Instruct
+                            </option>
+                          </select>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Running locally in your browser with WebLLM
+                          </p>
+                        </div>
+                        <Button
+                          onClick={loadModel}
+                          className="w-full bg-blue-600 hover:bg-blue-700 py-3"
+                        >
+                          Load Model
+                        </Button>
+                      </div>
+                    )}
+                    
+                    {modelStatus === 'loading' && (
+                      <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          {loadingText}
+                        </p>
+                        <div className="w-full bg-gray-200 rounded-full h-3">
+                          <div
+                            className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                            style={{ width: `${loadingProgress}%` }}
+                          />
+                        </div>
+                        <div className="text-sm text-muted-foreground font-medium">
+                          {loadingProgress}%
+                        </div>
+                      </div>
+                    )}
+                    
+                    {modelStatus === 'error' && (
+                      <div className="space-y-4">
+                        <p className="text-sm text-red-600 dark:text-red-400">
+                          {loadingText}
+                        </p>
+                        <Button
+                          onClick={loadModel}
+                          variant="outline"
+                          className="w-full"
+                        >
+                          Try Again
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
               {cells.map((cell) => (
                 <NotebookCell
                   key={cell.id}
@@ -408,7 +576,7 @@ export default function NotebookPlayground() {
                   onClick={() => addCell()}
                   variant="outline"
                   size="sm"
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground h-10 md:h-8"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Add Cell
@@ -418,135 +586,147 @@ export default function NotebookPlayground() {
           </div>
 
           {/* Right Sidebar - Model Controls */}
-          <div className="w-80 border-l bg-muted/30 p-6 space-y-6 overflow-y-auto">
-            <div>
-              <label className="text-sm font-medium block mb-3">Model</label>
-              <select
-                className="w-full p-3 border rounded-md bg-background text-sm"
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                disabled={modelStatus === 'loading'}
+          <div className={`${rightSidebarOpen ? 'fixed inset-y-0 right-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-l bg-background overflow-y-auto`}>
+            {/* Mobile close button */}
+            <div className="md:hidden p-4 border-b flex justify-between items-center">
+              <h2 className="font-semibold">Model Settings</h2>
+              <button
+                onClick={() => setRightSidebarOpen(false)}
+                className="p-2 hover:bg-accent rounded-md"
               >
-                <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
-                  Llama 3.2 1B Instruct (Fastest)
-                </option>
-                <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
-                  Llama 3.2 3B Instruct
-                </option>
-                <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
-                  Llama 3.1 8B Instruct (Better Quality)
-                </option>
-                <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
-                  Phi 3.5 Mini Instruct
-                </option>
-                <option value="gemma-2-2b-it-q4f32_1-MLC">
-                  Gemma 2 2B Instruct
-                </option>
-              </select>
-              <p className="text-xs text-muted-foreground mt-2">
-                Running locally in your browser with WebLLM
-              </p>
+                <X className="h-4 w-4" />
+              </button>
             </div>
-
-            {/* Model Status */}
-            <div className="flex items-start gap-3">
-              <div
-                className={`w-3 h-3 rounded-full transition-all duration-300 flex-shrink-0 mt-1 ${
-                  modelStatus === 'idle'
-                    ? 'bg-gray-400'
-                    : modelStatus === 'loading'
-                      ? 'bg-yellow-400 animate-pulse'
-                      : modelStatus === 'ready'
-                        ? 'bg-green-400'
-                        : 'bg-red-400'
-                }`}
-              />
-              <div className="text-sm flex-1 leading-relaxed">
-                {modelStatus === 'idle' ? (
-                  'Ready to load model'
-                ) : modelStatus === 'loading' ? (
-                  <div className="space-y-1">
-                    <div className="font-medium">Loading Model...</div>
-                    <div className="text-muted-foreground text-xs whitespace-pre-wrap">
-                      {loadingText}
-                    </div>
-                  </div>
-                ) : modelStatus === 'ready' ? (
-                  <div className="space-y-1">
-                    <div className="font-medium text-green-700 dark:text-green-300">
-                      Model Ready
-                    </div>
-                    <div className="text-muted-foreground text-xs">
-                      {selectedModel} loaded and ready to use
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <div className="font-medium text-red-700 dark:text-red-300">
-                      Failed to load model
-                    </div>
-                    <div className="text-muted-foreground text-xs whitespace-pre-wrap">
-                      {loadingText}
-                    </div>
-                  </div>
-                )}
+            <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+              <div>
+                <label className="text-sm font-medium block mb-3">Model</label>
+                <select
+                  className="w-full p-3 border rounded-md bg-background text-sm"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  disabled={modelStatus === 'loading'}
+                >
+                  <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
+                    Llama 3.2 1B Instruct (Fastest)
+                  </option>
+                  <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
+                    Llama 3.2 3B Instruct
+                  </option>
+                  <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
+                    Llama 3.1 8B Instruct (Better Quality)
+                  </option>
+                  <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
+                    Phi 3.5 Mini Instruct
+                  </option>
+                  <option value="gemma-2-2b-it-q4f32_1-MLC">
+                    Gemma 2 2B Instruct
+                  </option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Running locally in your browser with WebLLM
+                </p>
               </div>
-            </div>
 
-            {/* Progress Bar */}
-            {modelStatus === 'loading' && (
-              <div className="space-y-2">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${loadingProgress}%` }}
-                  />
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {loadingProgress}%
+              {/* Model Status */}
+              <div className="flex items-start gap-3">
+                <div
+                  className={`w-3 h-3 rounded-full transition-all duration-300 flex-shrink-0 mt-1 ${
+                    modelStatus === 'idle'
+                      ? 'bg-gray-400'
+                      : modelStatus === 'loading'
+                        ? 'bg-yellow-400 animate-pulse'
+                        : modelStatus === 'ready'
+                          ? 'bg-green-400'
+                          : 'bg-red-400'
+                  }`}
+                />
+                <div className="text-sm flex-1 leading-relaxed">
+                  {modelStatus === 'idle' ? (
+                    'Ready to load model'
+                  ) : modelStatus === 'loading' ? (
+                    <div className="space-y-1">
+                      <div className="font-medium">Loading Model...</div>
+                      <div className="text-muted-foreground text-xs whitespace-pre-wrap">
+                        {loadingText}
+                      </div>
+                    </div>
+                  ) : modelStatus === 'ready' ? (
+                    <div className="space-y-1">
+                      <div className="font-medium text-green-700 dark:text-green-300">
+                        Model Ready
+                      </div>
+                      <div className="text-muted-foreground text-xs">
+                        {selectedModel} loaded and ready to use
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="font-medium text-red-700 dark:text-red-300">
+                        Failed to load model
+                      </div>
+                      <div className="text-muted-foreground text-xs whitespace-pre-wrap">
+                        {loadingText}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
 
-            {/* Load Model Button */}
-            <div className="pt-4 border-t">
-              <Button
-                onClick={loadModel}
-                disabled={modelStatus === 'loading'}
-                className="w-full bg-blue-600 hover:bg-blue-700 py-3"
-                variant={modelStatus === 'ready' ? 'outline' : 'default'}
-              >
-                {modelStatus === 'loading' ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading Model...
-                  </>
-                ) : modelStatus === 'ready' ? (
-                  'Reload Model'
-                ) : (
-                  'Load Model'
-                )}
-              </Button>
-            </div>
+              {/* Progress Bar */}
+              {modelStatus === 'loading' && (
+                <div className="space-y-2">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${loadingProgress}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {loadingProgress}%
+                  </div>
+                </div>
+              )}
 
-            {/* About Section */}
-            <div className="pt-6 border-t space-y-4">
-              <h3 className="font-semibold text-lg leading-tight">
-                Notebook-style prompt engineering
-              </h3>
-              <div className="text-sm text-muted-foreground space-y-3">
-                <p>
-                  <span className="font-medium">
-                    Build and test signatures interactively.
-                  </span>{' '}
-                  Create multiple cells to experiment with different prompts and
-                  see results side by side.
-                </p>
-                <p>
-                  Each cell contains a complete signature with inputs,
-                  validation, execution, and results—just like a Jupyter
-                  notebook for LLM development.
-                </p>
+              {/* Load Model Button */}
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={loadModel}
+                  disabled={modelStatus === 'loading'}
+                  className="w-full bg-blue-600 hover:bg-blue-700 py-3"
+                  variant={modelStatus === 'ready' ? 'outline' : 'default'}
+                >
+                  {modelStatus === 'loading' ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Loading Model...
+                    </>
+                  ) : modelStatus === 'ready' ? (
+                    'Reload Model'
+                  ) : (
+                    'Load Model'
+                  )}
+                </Button>
+              </div>
+
+              {/* About Section */}
+              <div className="pt-6 border-t space-y-4">
+                <h3 className="font-semibold text-lg leading-tight">
+                  Notebook-style prompt engineering
+                </h3>
+                <div className="text-sm text-muted-foreground space-y-3">
+                  <p>
+                    <span className="font-medium">
+                      Build and test signatures interactively.
+                    </span>{' '}
+                    Create multiple cells to experiment with different prompts and
+                    see results side by side.
+                  </p>
+                  <p>
+                    Each cell contains a complete signature with inputs,
+                    validation, execution, and results—just like a Jupyter
+                    notebook for LLM development.
+                  </p>
+                </div>
               </div>
             </div>
           </div>

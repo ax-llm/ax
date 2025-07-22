@@ -415,8 +415,8 @@ export default function NotebookCell({
   return (
     <div className="border rounded-lg bg-card mb-4">
       {/* Cell Header */}
-      <div className="flex items-center justify-between p-3 border-b bg-muted/30">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border-b bg-muted/30 gap-2 sm:gap-0">
+        <div className="flex items-center gap-3 flex-1">
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border"
@@ -425,13 +425,13 @@ export default function NotebookCell({
           </button>
           {renderStatusIndicator()}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Button
             onClick={executeSignature}
             disabled={isExecuting || !axSignature || modelStatus !== 'ready'}
             size="sm"
             variant="outline"
-            className="h-8"
+            className="h-10 md:h-8"
           >
             {isExecuting ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -447,7 +447,7 @@ export default function NotebookCell({
               onClick={() => onAddCell(cellId)}
               size="sm"
               variant="ghost"
-              className="h-8"
+              className="h-10 md:h-8"
             >
               <Plus className="h-3 w-3" />
             </Button>
@@ -457,7 +457,7 @@ export default function NotebookCell({
               onClick={() => onDelete(cellId)}
               size="sm"
               variant="ghost"
-              className="h-8 text-destructive hover:text-destructive"
+              className="h-10 md:h-8 text-destructive hover:text-destructive"
             >
               <Trash2 className="h-3 w-3" />
             </Button>
@@ -467,7 +467,7 @@ export default function NotebookCell({
 
       {/* Cell Content */}
       {isExpanded && (
-        <div className="p-4 space-y-4">
+        <div className="p-3 md:p-4 space-y-3 md:space-y-4">
           {/* Prompt Editor */}
           <div className="relative">
             <textarea
@@ -476,7 +476,7 @@ export default function NotebookCell({
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
               onBlur={hideTypeDropdownDelayed}
-              className="w-full resize-none border rounded-md bg-background p-3 font-mono text-sm outline-none min-h-[120px] focus:ring-2 focus:ring-blue-500"
+              className="w-full resize-none border rounded-md bg-background p-2 md:p-3 font-mono text-sm outline-none min-h-[100px] md:min-h-[120px] focus:ring-2 focus:ring-blue-500"
               placeholder="Enter your signature here..."
               spellCheck={false}
             />
@@ -506,10 +506,10 @@ export default function NotebookCell({
                   inputFields.length > 0 && (
                     <div className="space-y-3">
                       <h4 className="text-sm font-medium">Input Values</h4>
-                      <div className="grid gap-3">
+                      <div className="grid grid-cols-1 gap-3">
                         {inputFields.map((field: any) => (
                           <div key={field.name} className="space-y-1">
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                               <label
                                 className="text-xs font-medium"
                                 htmlFor={`${cellId}-${field.name}`}
@@ -526,17 +526,19 @@ export default function NotebookCell({
                                   {field.isArray && '[]'}
                                 </span>
                               </label>
-                              <CellOutputSelector
-                                availableOutputs={availableOutputs}
-                                onSelect={(reference, _actualValue) => {
-                                  // Use reference so it updates when cell above changes
-                                  setInputValues((prev) => ({
-                                    ...prev,
-                                    [field.name]: reference,
-                                  }));
-                                }}
-                                disabled={false}
-                              />
+                              <div className="flex-shrink-0">
+                                <CellOutputSelector
+                                  availableOutputs={availableOutputs}
+                                  onSelect={(reference, _actualValue) => {
+                                    // Use reference so it updates when cell above changes
+                                    setInputValues((prev) => ({
+                                      ...prev,
+                                      [field.name]: reference,
+                                    }));
+                                  }}
+                                  disabled={false}
+                                />
+                              </div>
                             </div>
                             {field.type === 'string' &&
                             field.name.toLowerCase().includes('text') ? (
@@ -552,7 +554,7 @@ export default function NotebookCell({
                                     [field.name]: e.target.value,
                                   }))
                                 }
-                                className="min-h-[60px] text-sm"
+                                className="min-h-[60px] md:min-h-[80px] text-sm"
                               />
                             ) : (
                               <Input
@@ -596,7 +598,7 @@ export default function NotebookCell({
                     variant="ghost"
                     size="sm"
                     onClick={() => setShowDebugLogs(!showDebugLogs)}
-                    className="h-6 px-2 text-xs"
+                    className="h-8 md:h-6 px-2 text-xs"
                   >
                     {showDebugLogs ? (
                       <>
@@ -629,7 +631,7 @@ export default function NotebookCell({
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-6 px-2"
+                                className="h-8 md:h-6 px-2"
                                 onClick={() => {
                                   const value = executionResult?.[field.name];
                                   if (value) {
@@ -680,7 +682,7 @@ export default function NotebookCell({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2"
+                        className="h-8 md:h-6 px-2"
                         onClick={() => {
                           navigator.clipboard.writeText(debugLogs.join('\n'));
                         }}
@@ -696,7 +698,7 @@ export default function NotebookCell({
                         : 'No debug logs captured yet. The logger may not be receiving data from the Ax framework.'
                     }
                     readOnly
-                    className="min-h-[120px] text-xs font-mono bg-muted/50 resize-none"
+                    className="min-h-[100px] md:min-h-[120px] text-xs font-mono bg-muted/50 resize-none"
                     placeholder="Debug logs will appear here..."
                   />
                 </div>
