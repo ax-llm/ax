@@ -1,5 +1,5 @@
 import type { AxAIWebLLMModel } from '@ax-llm/ax';
-import { Loader2, Menu, Plus, Settings, X } from 'lucide-react';
+import { Loader2, Menu, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import NotebookCell from './NotebookCell';
 import { Button } from './ui/button';
@@ -358,25 +358,34 @@ export default function NotebookPlayground() {
                 ? 'Loading...'
                 : modelStatus === 'ready'
                   ? 'Model Ready'
-                  : 'Load Failed'
-            }
+                  : 'Load Failed'}
           </span>
         </button>
       </div>
 
       {/* Mobile Overlay */}
       {(leftSidebarOpen || rightSidebarOpen) && (
-        <div 
+        <div
           className="md:hidden fixed inset-0 bg-black/50 z-40"
+          role="button"
+          tabIndex={0}
           onClick={() => {
             setLeftSidebarOpen(false);
             setRightSidebarOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              setLeftSidebarOpen(false);
+              setRightSidebarOpen(false);
+            }
           }}
         />
       )}
 
       {/* Left Sidebar - Examples */}
-      <div className={`${leftSidebarOpen ? 'fixed inset-y-0 left-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-r bg-background overflow-y-auto`}>
+      <div
+        className={`${leftSidebarOpen ? 'fixed inset-y-0 left-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-r bg-background overflow-y-auto`}
+      >
         {/* Mobile close button */}
         <div className="md:hidden p-4 border-b flex justify-between items-center">
           <h2 className="font-semibold">Examples</h2>
@@ -392,20 +401,20 @@ export default function NotebookPlayground() {
             <div>
               <h3 className="text-sm font-medium mb-3">Example Templates</h3>
               <div className="space-y-2">
-              {EXAMPLE_SIGNATURES.map((example, index) => (
-                <button
-                  key={index}
-                  onClick={() => {
-                    loadExample(example.signature);
-                    setLeftSidebarOpen(false);
-                  }}
-                  className="w-full text-left p-3 rounded-lg border bg-background hover:bg-accent text-sm transition-colors"
-                >
-                  <div className="font-medium">{example.name}</div>
-                  <div className="text-muted-foreground text-xs mt-1">
-                    {example.description}
-                  </div>
-                </button>
+                {EXAMPLE_SIGNATURES.map((example, index) => (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      loadExample(example.signature);
+                      setLeftSidebarOpen(false);
+                    }}
+                    className="w-full text-left p-3 rounded-lg border bg-background hover:bg-accent text-sm transition-colors"
+                  >
+                    <div className="font-medium">{example.name}</div>
+                    <div className="text-muted-foreground text-xs mt-1">
+                      {example.description}
+                    </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -469,22 +478,23 @@ export default function NotebookPlayground() {
                         }`}
                       />
                       <h3 className="font-semibold text-lg">
-                        {modelStatus === 'idle' 
+                        {modelStatus === 'idle'
                           ? 'Model Not Loaded'
                           : modelStatus === 'loading'
                             ? 'Loading Model...'
-                            : 'Model Load Failed'
-                        }
+                            : 'Model Load Failed'}
                       </h3>
                     </div>
-                    
+
                     {modelStatus === 'idle' && (
                       <div className="space-y-4">
                         <p className="text-sm text-muted-foreground">
                           Load a model to start using the notebook cells
                         </p>
                         <div>
-                          <label className="text-sm font-medium block mb-3">Select Model</label>
+                          <label className="text-sm font-medium block mb-3">
+                            Select Model
+                          </label>
                           <select
                             className="w-full p-3 border rounded-md bg-background text-sm"
                             value={selectedModel}
@@ -518,7 +528,7 @@ export default function NotebookPlayground() {
                         </Button>
                       </div>
                     )}
-                    
+
                     {modelStatus === 'loading' && (
                       <div className="space-y-4">
                         <p className="text-sm text-muted-foreground">
@@ -535,7 +545,7 @@ export default function NotebookPlayground() {
                         </div>
                       </div>
                     )}
-                    
+
                     {modelStatus === 'error' && (
                       <div className="space-y-4">
                         <p className="text-sm text-red-600 dark:text-red-400">
@@ -553,7 +563,7 @@ export default function NotebookPlayground() {
                   </div>
                 </div>
               )}
-              
+
               {cells.map((cell) => (
                 <NotebookCell
                   key={cell.id}
@@ -586,7 +596,9 @@ export default function NotebookPlayground() {
           </div>
 
           {/* Right Sidebar - Model Controls */}
-          <div className={`${rightSidebarOpen ? 'fixed inset-y-0 right-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-l bg-background overflow-y-auto`}>
+          <div
+            className={`${rightSidebarOpen ? 'fixed inset-y-0 right-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-l bg-background overflow-y-auto`}
+          >
             {/* Mobile close button */}
             <div className="md:hidden p-4 border-b flex justify-between items-center">
               <h2 className="font-semibold">Model Settings</h2>
@@ -718,8 +730,8 @@ export default function NotebookPlayground() {
                     <span className="font-medium">
                       Build and test signatures interactively.
                     </span>{' '}
-                    Create multiple cells to experiment with different prompts and
-                    see results side by side.
+                    Create multiple cells to experiment with different prompts
+                    and see results side by side.
                   </p>
                   <p>
                     Each cell contains a complete signature with inputs,
