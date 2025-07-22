@@ -23,6 +23,15 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "a11y": {
+        // TODO: we need to decide what the best practice is for these
+        "noNoninteractiveTabindex": "off",
+        "useKeyWithClickEvents": "off",
+        "noRedundantAlt": "off",
+        "useButtonType": "off",
+        "useAltText": "off",
+        "noLabelWithoutControl": "off"
+      },
       "suspicious": {
         "noExplicitAny": "off",
         "noArrayIndexKey": "off"
@@ -31,7 +40,6 @@
         "useImportType": "error",
         "useExportType": "error",
         "useNodejsImportProtocol": "error",
-        "noNonNullAssertion": "off",
         "useTemplate": "error",
         "noParameterAssign": "error",
         "useAsConstAssertion": "error",
@@ -39,10 +47,16 @@
         "useEnumInitializers": "error",
         "useSelfClosingElements": "error",
         "useSingleVarDeclarator": "error",
-        "noUnusedTemplateLiteral": "error",
         "useNumberNamespace": "error",
-        "noInferrableTypes": "error",
-        "noUselessElse": "error"
+
+        // These would be nice as infos, but that doesn't filter them out of autofixing which we don't want
+        "useExponentiationOperator": "off",
+        "noNonNullAssertion": "off",
+
+        // Rules we don't want
+        "noUnusedTemplateLiteral": "off",
+        "noInferrableTypes": "off",
+        "noUselessElse": "off"
       },
       "correctness": {
         "useExhaustiveDependencies": "off",
@@ -56,9 +70,6 @@
       "performance": {
         "noAccumulatingSpread": "off",
         "noDelete": "off"
-      },
-      "nursery": {
-        "useSortedClasses": "error"
       }
     }
   },
