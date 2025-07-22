@@ -368,7 +368,7 @@ export default function NotebookPlayground() {
         {/* Top Toolbar */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold">Notebook Playground</h1>
+            <h1 className="text-xl font-semibold">DSPy Notebook</h1>
             <span className="text-sm text-muted-foreground">
               {cells.length} {cells.length === 1 ? 'cell' : 'cells'}
             </span>
