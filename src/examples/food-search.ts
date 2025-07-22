@@ -119,21 +119,21 @@ const functions: AxFunction[] = [
   },
 ];
 
-// const ai = new AxAI({
-//   name: 'openai',
-//   apiKey: process.env.OPENAI_APIKEY as string,
-//   config: { stream: true },
-// });
-
 const ai = new AxAI({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY as string,
-  config: {
-    // model: AxAIGoogleGeminiModel.Gemini25Pro,
-    stream: false,
-    thinking: { thinkingTokenBudget: 200 },
-  },
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+  config: { stream: true },
 });
+
+// const ai = new AxAI({
+// 	name: "google-gemini",
+// 	apiKey: process.env.GOOGLE_APIKEY as string,
+// 	config: {
+// 		// model: AxAIGoogleGeminiModel.Gemini25Pro,
+// 		stream: false,
+// 		thinking: { thinkingTokenBudget: 200 },
+// 	},
+// });
 
 // const ai = new AxAI({
 //     name: 'openai-responses',
@@ -179,6 +179,13 @@ const gen = new AxAgent<
   functions,
 });
 
-const res = await gen.forward(ai, { customerQuery });
+const res = await gen.forward(
+  ai,
+  { customerQuery },
+  {
+    // logger: axCreateDefaultTextLogger(),
+    debug: true,
+  }
+);
 
 console.log('\n\n>', res);

@@ -5,6 +5,7 @@ import type {
   AxChatResponseResult,
   AxFunction,
   AxFunctionResult,
+  AxLoggerFunction,
 } from '../ai/types.js';
 import type { AxMemory } from '../mem/memory.js';
 import { axGlobals } from './globals.js';
@@ -221,6 +222,7 @@ type ProcessFunctionsArgs = {
   excludeContentFromTrace?: boolean;
   index: number;
   functionResultFormatter?: (result: unknown) => string;
+  logger: AxLoggerFunction;
 };
 
 export const processFunctions = async ({
@@ -233,6 +235,7 @@ export const processFunctions = async ({
   excludeContentFromTrace,
   index,
   functionResultFormatter,
+  logger,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -292,7 +295,6 @@ export const processFunctions = async ({
         }
 
         if (ai.getOptions().debug) {
-          const logger = ai.getLogger();
           logFunctionError(e, index, result, logger);
         }
 
@@ -320,7 +322,6 @@ export const processFunctions = async ({
       (result) => !result.isError
     );
     if (successfulResults.length > 0) {
-      const logger = ai.getLogger();
       logFunctionResults(successfulResults, logger);
     }
   }

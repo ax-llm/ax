@@ -1,5 +1,5 @@
 import type { AxAIWebLLMModel } from '@ax-llm/ax';
-import { Loader2, Plus, Save, Share } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import NotebookCell from './NotebookCell';
 import { Button } from './ui/button';
@@ -129,7 +129,7 @@ export default function NotebookPlayground() {
     setCells((prev) => prev.filter((cell) => cell.id !== cellId));
     // Clean up cell state when cell is deleted
     setCellStates((prev) => {
-      const { [cellId]: deleted, ...rest } = prev;
+      const { [cellId]: _deleted, ...rest } = prev;
       return rest;
     });
   }, []);
@@ -206,6 +206,9 @@ export default function NotebookPlayground() {
         config: {
           model: selectedModel as AxAIWebLLMModel,
           stream: false,
+        },
+        options: {
+          debug: true,
         },
       });
       console.log('AxAI instance created:', ai);
@@ -355,22 +358,6 @@ export default function NotebookPlayground() {
                 <Plus className="h-4 w-4 mr-2" />
                 Add Cell
               </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                size="sm"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                Save Notebook
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                size="sm"
-              >
-                <Share className="h-4 w-4 mr-2" />
-                Share Notebook
-              </Button>
             </div>
           </div>
         </div>
@@ -390,14 +377,6 @@ export default function NotebookPlayground() {
             <Button onClick={() => addCell()} variant="outline" size="sm">
               <Plus className="h-4 w-4 mr-2" />
               Add Cell
-            </Button>
-            <Button variant="outline" size="sm">
-              <Save className="h-4 w-4 mr-2" />
-              Save
-            </Button>
-            <Button variant="outline" size="sm">
-              <Share className="h-4 w-4 mr-2" />
-              Share
             </Button>
           </div>
         </div>

@@ -72,7 +72,7 @@ const formatChatMessage = (
             `${i + 1}. ${call.function.name}(${params}) [id: ${call.id}]`,
             'yellowDim'
           );
-          if (i < msg.functionCalls!.length - 1) {
+          if (i < (msg.functionCalls?.length ?? 0) - 1) {
             result += '\n';
           }
         });

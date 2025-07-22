@@ -43,7 +43,15 @@ export interface ParseWarning {
 }
 
 export interface SyntaxHighlight {
-  type: 'keyword' | 'fieldName' | 'fieldType' | 'description' | 'arrow' | 'separator' | 'modifier' | 'error';
+  type:
+    | 'keyword'
+    | 'fieldName'
+    | 'fieldType'
+    | 'description'
+    | 'arrow'
+    | 'separator'
+    | 'modifier'
+    | 'error';
   start: number;
   end: number;
   text: string;
@@ -63,16 +71,16 @@ export interface EditorPosition {
   offset: number;
 }
 
-export type FieldType = 
-  | 'string' 
-  | 'number' 
-  | 'boolean' 
-  | 'date' 
-  | 'datetime' 
-  | 'image' 
-  | 'audio' 
-  | 'json' 
-  | 'code' 
+export type FieldType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'datetime'
+  | 'image'
+  | 'audio'
+  | 'json'
+  | 'code'
   | 'class';
 
 export interface EditorState {
@@ -83,7 +91,6 @@ export interface EditorState {
     end: number;
   };
   parsedSignature: ParsedSignature;
-  syntaxHighlights: SyntaxHighlight[];
   autocompleteVisible: boolean;
   autocompleteItems: AutocompleteItem[];
   autocompletePosition: EditorPosition;

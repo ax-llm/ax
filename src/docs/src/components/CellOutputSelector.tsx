@@ -15,17 +15,20 @@ interface CellOutputSelectorProps {
   disabled?: boolean;
 }
 
-export default function CellOutputSelector({ 
-  availableOutputs, 
-  onSelect, 
-  disabled = false 
+export default function CellOutputSelector({
+  availableOutputs,
+  onSelect,
+  disabled = false,
 }: CellOutputSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
@@ -44,11 +47,11 @@ export default function CellOutputSelector({
 
   const formatValue = (value: any) => {
     if (typeof value === 'string') {
-      return value.length > 30 ? value.slice(0, 30) + '...' : value;
+      return value.length > 30 ? `${value.slice(0, 30)}...` : value;
     }
     if (typeof value === 'object') {
-      return JSON.stringify(value).length > 30 
-        ? JSON.stringify(value).slice(0, 30) + '...'
+      return JSON.stringify(value).length > 30
+        ? `${JSON.stringify(value).slice(0, 30)}...`
         : JSON.stringify(value);
     }
     return String(value);
@@ -82,7 +85,7 @@ export default function CellOutputSelector({
             <div className="text-xs font-medium text-muted-foreground mb-2">
               Select output from previous cells:
             </div>
-            {availableOutputs.map((output, index) => (
+            {availableOutputs.map((output, _index) => (
               <button
                 key={`${output.cellId}-${output.fieldName}`}
                 onClick={() => handleSelect(output)}

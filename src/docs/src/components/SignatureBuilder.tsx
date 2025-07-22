@@ -419,7 +419,7 @@ const ${signature.name.replace(/\s+/g, '')} = ax\`
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeTab} className="w-full">
+          <Tabs className="w-full">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger
                 value="builder"

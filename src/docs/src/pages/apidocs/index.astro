@@ -7,16 +7,16 @@ const apidocs = await getCollection('apidocs');
 
 // Sort and categorize the API docs
 const categories = {
-  'Classes': apidocs.filter(doc => doc.slug.startsWith('class')),
-  'Interfaces': apidocs.filter(doc => doc.slug.startsWith('interface')),
-  'Functions': apidocs.filter(doc => doc.slug.startsWith('function')),
-  'Enumerations': apidocs.filter(doc => doc.slug.startsWith('enumeration')),
-  'Type Aliases': apidocs.filter(doc => doc.slug.startsWith('typealias')),
-  'Variables': apidocs.filter(doc => doc.slug.startsWith('variable')),
+  Classes: apidocs.filter((doc) => doc.slug.startsWith('class')),
+  Interfaces: apidocs.filter((doc) => doc.slug.startsWith('interface')),
+  Functions: apidocs.filter((doc) => doc.slug.startsWith('function')),
+  Enumerations: apidocs.filter((doc) => doc.slug.startsWith('enumeration')),
+  'Type Aliases': apidocs.filter((doc) => doc.slug.startsWith('typealias')),
+  Variables: apidocs.filter((doc) => doc.slug.startsWith('variable')),
 };
 
 // Sort each category alphabetically
-Object.values(categories).forEach(categoryDocs => {
+Object.values(categories).forEach((categoryDocs) => {
   categoryDocs.sort((a, b) => a.data.title.localeCompare(b.data.title));
 });
 ---

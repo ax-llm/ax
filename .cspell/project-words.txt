@@ -131,3 +131,4 @@ MCPJSONRPC
 uppercased
 webllm
 Qwen
+apidocs

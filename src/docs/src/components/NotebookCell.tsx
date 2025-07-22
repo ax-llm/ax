@@ -44,7 +44,7 @@ export default function NotebookCell({
   initialContent = 'userQuestion:string "User input question" -> assistantResponse:string "AI assistant response"',
   loadedAI,
   modelStatus,
-  isDarkMode,
+  isDarkMode: _isDarkMode,
   onDelete,
   onAddCell,
   onUpdateCellState,
@@ -110,28 +110,12 @@ export default function NotebookCell({
     []
   );
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      const { key } = e;
-
-      // Hide dropdown on Escape
-      if (key === 'Escape') {
-        setTypeDropdownVisible(false);
-        return;
-      }
-
-      // Show type dropdown when ":" is typed
-      if (key === ':') {
-        setTimeout(() => {
-          showTypeDropdown();
-        }, 0);
-      }
-    },
-    []
-  );
-
   const showTypeDropdown = useCallback(() => {
-    if (!textareaRef.current) return;
+    console.log('showTypeDropdown called');
+    if (!textareaRef.current) {
+      console.log('textareaRef.current is null');
+      return;
+    }
 
     const textarea = textareaRef.current;
     const rect = textarea.getBoundingClientRect();
@@ -149,9 +133,32 @@ export default function NotebookCell({
     const x = rect.left + currentColumn * charWidth + 16;
     const y = rect.top + currentLine * lineHeight + lineHeight + 16;
 
+    console.log('Setting dropdown visible with position:', { x, y });
     setTypeDropdownVisible(true);
     setTypeDropdownPosition({ x, y });
   }, [content]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      const { key } = e;
+
+      // Hide dropdown on Escape
+      if (key === 'Escape') {
+        setTypeDropdownVisible(false);
+        return;
+      }
+
+      // Show type dropdown when ":" is typed
+      if (key === ':') {
+        console.log('Colon key pressed, showing type dropdown');
+        // Use requestAnimationFrame instead of setTimeout for better timing
+        requestAnimationFrame(() => {
+          showTypeDropdown();
+        });
+      }
+    },
+    [showTypeDropdown]
+  );
 
   const hideTypeDropdown = useCallback(() => {
     setTypeDropdownVisible(false);
@@ -185,7 +192,7 @@ export default function NotebookCell({
         const afterColon = content.substring(currentPosition);
         const typeEndMatch = afterColon.match(/[,\->"]/);
         let typeEnd = typeEndMatch
-          ? currentPosition + typeEndMatch.index
+          ? currentPosition + (typeEndMatch.index ?? 0)
           : content.length;
 
         // Handle optional marker - place it before the colon
@@ -276,23 +283,21 @@ export default function NotebookCell({
   );
 
   // Create debug logger using Ax built-in logger functions
-  const createDebugLogger = useCallback(async () => {
-    const logs: string[] = [];
-
+  const createDebugLogger = async (logsArray: string[]) => {
     // Import the Ax logger functions
     const { axCreateDefaultTextLogger } = await import('@ax-llm/ax');
 
-    // Create a function to capture log messages
+    // Create a function to capture log messages to the local array
     const logCapture = (message: string) => {
-      const timestamp = new Date().toLocaleTimeString();
-      logs.push(`[${timestamp}] ${message}`);
+      console.log(message); // Also log to console for immediate feedback
+      logsArray.push(message);
     };
 
     // Create the Ax logger with our capture function
     const logger = axCreateDefaultTextLogger(logCapture);
 
-    return { logger, getLogs: () => logs };
-  }, []);
+    return logger;
+  };
 
   const executeSignature = useCallback(async () => {
     if (!loadedAI || modelStatus !== 'ready' || !axSignature) {
@@ -306,8 +311,11 @@ export default function NotebookCell({
     setDebugLogs([]);
 
     try {
+      // Create a local array to capture debug logs
+      const debugLogsArray: string[] = [];
+
       // Create debug logger using Ax built-in logger
-      const { logger, getLogs } = await createDebugLogger();
+      const logger = await createDebugLogger(debugLogsArray);
 
       // Import AxGen exactly like the working example
       const { AxGen } = await import('@ax-llm/ax');
@@ -330,8 +338,9 @@ export default function NotebookCell({
         logger: logger,
       });
 
+      // Update debug logs with captured messages
+      setDebugLogs(debugLogsArray);
       setExecutionResult(result);
-      setDebugLogs(getLogs());
 
       // Save outputs to global state
       if (onUpdateCellState && result) {

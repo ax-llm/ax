@@ -252,6 +252,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   fieldProcessors,
   streamingFieldProcessors,
   functionResultFormatter,
+  logger,
 }: FinalizeStreamingResponseArgs) {
   const funcs = parseFunctionCalls(
     ai,
@@ -274,6 +275,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       index: state.index,
       excludeContentFromTrace,
       functionResultFormatter,
+      logger,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
   } else {
@@ -341,6 +343,7 @@ export async function* processResponse<OUT extends AxGenOut>({
   thoughtFieldName,
   signature,
   functionResultFormatter,
+  logger,
 }: Readonly<AxResponseHandlerArgs<AxChatResponse>> & {
   states: InternalAxGenState[];
   usage: AxModelUsage[];
@@ -384,6 +387,7 @@ export async function* processResponse<OUT extends AxGenOut>({
           excludeContentFromTrace,
           index: result.index,
           functionResultFormatter,
+          logger,
         });
 
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);

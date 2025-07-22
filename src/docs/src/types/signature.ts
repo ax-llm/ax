@@ -1,6 +1,6 @@
-export type FieldType = 
+export type FieldType =
   | 'string'
-  | 'number' 
+  | 'number'
   | 'boolean'
   | 'date'
   | 'datetime'

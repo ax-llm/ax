@@ -16,6 +16,7 @@ import type {
   AxChatRequest,
   AxChatResponseResult,
   AxFunction,
+  AxLoggerFunction,
 } from '../ai/types.js';
 import { AxMemory } from '../mem/memory.js';
 import type { AxAIMemory } from '../mem/types.js';
@@ -43,6 +44,7 @@ import {
   createFunctionConfig,
   parseFunctions,
 } from './functions.js';
+import { axGlobals } from './globals.js';
 import {
   type AxGenMetricsInstruments,
   getOrCreateGenMetricsInstruments,
@@ -61,7 +63,6 @@ import {
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
-import { axGlobals } from './globals.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
@@ -99,6 +100,7 @@ export interface AxResponseHandlerArgs<T> {
   functions: Readonly<AxFunction[]>;
   strictMode?: boolean;
   span?: Span;
+  logger: AxLoggerFunction;
 }
 
 export interface AxStreamingEvent<T> {
@@ -296,6 +298,7 @@ export class AxGen<
 
     const debug = this.isDebug(ai, options);
     const firstStep = stepIndex === 0;
+    const logger = this.getLogger(ai, options);
 
     const res = await ai.chat(
       {
@@ -317,6 +320,7 @@ export class AxGen<
         traceContext,
         abortSignal: options?.abortSignal,
         stepIndex,
+        logger,
       }
     );
 
@@ -346,6 +350,7 @@ export class AxGen<
     const states = this.createStates(options.sampleCount ?? 1);
     const usage = this.usage;
     const firstStep = stepIndex === 0;
+    const logger = this.getLogger(ai, options);
 
     const { functions, functionCall } = createFunctionConfig(
       functionList,
@@ -382,6 +387,7 @@ export class AxGen<
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
+        logger,
         functionResultFormatter:
           options?.functionResultFormatter ??
           this.options?.functionResultFormatter,
@@ -403,6 +409,7 @@ export class AxGen<
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
+        logger,
         functionResultFormatter:
           options?.functionResultFormatter ??
           this.options?.functionResultFormatter,

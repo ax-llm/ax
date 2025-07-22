@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Check } from 'lucide-react';
@@ -17,64 +17,65 @@ const FIELD_TYPES: FieldTypeOption[] = [
     value: 'string',
     label: 'string',
     detail: 'Text field',
-    description: 'A text field for string input/output'
+    description: 'A text field for string input/output',
   },
   {
     value: 'number',
     label: 'number',
     detail: 'Numeric field',
-    description: 'A numeric field for integer or decimal values'
+    description: 'A numeric field for integer or decimal values',
   },
   {
     value: 'boolean',
     label: 'boolean',
     detail: 'True/false field',
-    description: 'A boolean field for true/false values'
+    description: 'A boolean field for true/false values',
   },
   {
     value: 'date',
     label: 'date',
     detail: 'Date field',
-    description: 'A date field (YYYY-MM-DD format)'
+    description: 'A date field (YYYY-MM-DD format)',
   },
   {
     value: 'datetime',
     label: 'datetime',
     detail: 'Date and time field',
-    description: 'A datetime field with date and time information'
+    description: 'A datetime field with date and time information',
   },
   {
     value: 'image',
     label: 'image',
     detail: 'Image field (input only)',
-    description: 'An image field for file uploads (input fields only)'
+    description: 'An image field for file uploads (input fields only)',
   },
   {
     value: 'audio',
     label: 'audio',
     detail: 'Audio field (input only)',
-    description: 'An audio field for audio file uploads (input fields only)'
+    description: 'An audio field for audio file uploads (input fields only)',
   },
   {
     value: 'json',
     label: 'json',
     detail: 'JSON object field',
-    description: 'A JSON field for structured data objects'
+    description: 'A JSON field for structured data objects',
   },
   {
     value: 'code',
     label: 'code',
     detail: 'Code block field',
     description: 'A code field with syntax highlighting',
-    requiresLanguage: true
+    requiresLanguage: true,
   },
   {
     value: 'class',
     label: 'class',
     detail: 'Classification field (output only)',
-    description: 'A classification field with predefined options (output fields only)',
-    requiresOptions: true
-  }
+    description:
+      'A classification field with predefined options (output fields only)',
+    requiresOptions: true,
+  },
 ];
 
 interface TypeDropdownProps {
@@ -85,12 +86,12 @@ interface TypeDropdownProps {
   isInputField?: boolean;
 }
 
-export default function TypeDropdown({ 
-  visible, 
-  position, 
-  onSelect, 
-  onClose, 
-  isInputField = false 
+export default function TypeDropdown({
+  visible,
+  position,
+  onSelect,
+  onClose,
+  isInputField = false,
 }: TypeDropdownProps) {
   const [selectedOptional, setSelectedOptional] = useState(false);
   const [selectedArray, setSelectedArray] = useState(false);
@@ -99,21 +100,25 @@ export default function TypeDropdown({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         onClose();
       }
     }
 
     if (visible) {
       document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      return () =>
+        document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [visible, onClose]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (!visible) return;
-      
+
       if (event.key === 'Escape') {
         onClose();
       }
@@ -127,24 +132,22 @@ export default function TypeDropdown({
 
   const handleTypeSelect = (type: FieldTypeOption) => {
     let insertText = type.value;
-    
+
     // Add special formatting for certain types
-    if (type.requiresLanguage) {
-      insertText = `${type.value}("python")`;
-    } else if (type.requiresOptions) {
-      insertText = `${type.value}("option1", "option2", "option3")`;
+    if (type.requiresOptions) {
+      insertText = `${type.value} "class1, class2, class3"`;
     }
-    
+
     // Add array notation if selected
     if (selectedArray) {
       insertText += '[]';
     }
-    
+
     // Prefix with colon by default
-    insertText = ':' + insertText;
-    
+    insertText = `:${insertText}`;
+
     onSelect(insertText, selectedOptional, selectedArray);
-    
+
     // Reset state
     setSelectedOptional(false);
     setSelectedArray(false);
@@ -152,7 +155,7 @@ export default function TypeDropdown({
   };
 
   // Filter types based on input/output context
-  const availableTypes = FIELD_TYPES.filter(type => {
+  const availableTypes = FIELD_TYPES.filter((type) => {
     if (isInputField) {
       // Input fields can't use 'class' type
       return type.value !== 'class';
@@ -166,16 +169,18 @@ export default function TypeDropdown({
       className="fixed z-50 bg-popover border rounded-lg shadow-lg min-w-80 max-h-96 overflow-y-auto"
       style={{
         left: position.x,
-        top: position.y
+        top: position.y,
       }}
     >
       {/* Header with modifiers */}
       <div className="border-b p-3 bg-muted/30">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Field Modifiers</div>
+        <div className="text-xs font-medium text-muted-foreground mb-2">
+          Field Modifiers
+        </div>
         <div className="flex gap-2">
           <Button
             size="sm"
-            variant={selectedOptional ? "default" : "outline"}
+            variant={selectedOptional ? 'default' : 'outline'}
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
@@ -189,7 +194,7 @@ export default function TypeDropdown({
           </Button>
           <Button
             size="sm"
-            variant={selectedArray ? "default" : "outline"}
+            variant={selectedArray ? 'default' : 'outline'}
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
@@ -206,11 +211,13 @@ export default function TypeDropdown({
 
       {/* Type list */}
       <div className="p-1">
-        <div className="text-xs font-medium text-muted-foreground p-2 pb-1">Field Types</div>
+        <div className="text-xs font-medium text-muted-foreground p-2 pb-1">
+          Field Types
+        </div>
         {availableTypes.map((type) => (
-          <div
+          <button
             key={type.value}
-            className="flex items-center gap-3 px-3 py-2 hover:bg-accent cursor-pointer rounded-md mx-1"
+            className="flex items-center gap-3 px-3 py-2 hover:bg-accent cursor-pointer rounded-md mx-1 w-full text-left"
             onClick={() => handleTypeSelect(type)}
             onMouseEnter={() => setHoveredType(type.value)}
             onMouseLeave={() => setHoveredType(null)}
@@ -242,7 +249,7 @@ export default function TypeDropdown({
                 </Badge>
               )}
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -250,7 +257,7 @@ export default function TypeDropdown({
       {hoveredType && (
         <div className="border-t p-3 bg-muted/30">
           <div className="text-xs text-muted-foreground">
-            {availableTypes.find(t => t.value === hoveredType)?.description}
+            {availableTypes.find((t) => t.value === hoveredType)?.description}
           </div>
         </div>
       )}

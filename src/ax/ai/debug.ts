@@ -1,4 +1,3 @@
-import { defaultLogger } from '../dsp/loggers.js';
 import type {
   AxChatRequest,
   AxChatResponse,
@@ -12,8 +11,8 @@ import { mergeFunctionCalls } from './util.js';
 export const logChatRequest = (
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
   step: number,
-  hideSystemPrompt?: boolean,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction,
+  hideSystemPrompt?: boolean
 ) => {
   // Filter out system messages if hideSystemPrompt is true
   const filteredPrompt = hideSystemPrompt
@@ -31,7 +30,7 @@ export const logChatRequest = (
 
 export const logResponseResult = (
   r: Readonly<AxChatResponse['results'][number] & { index: number }>,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'ChatResponseResults',
@@ -43,7 +42,7 @@ export const logResponseResult = (
 
 export const logResponse = (
   resp: Readonly<AxChatResponse>,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   if (!resp.results) {
     return;
@@ -60,7 +59,7 @@ export const logResponse = (
 export const logResponseStreamingResult = (
   result: AxChatResponseResult & { delta?: string },
   index: number,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'ChatResponseStreamingResult',
@@ -73,7 +72,7 @@ export const logResponseStreamingResult = (
 
 export function logResponseStreamingDoneResult(
   values: readonly AxChatResponse[],
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ): void {
   // Combine results by index
   const combinedResults = new Map<number, AxChatResponseResult>();
@@ -126,7 +125,7 @@ export function logResponseStreamingDoneResult(
 
 export const logFunctionResults = (
   results: Readonly<AxFunctionResult[]>,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'FunctionResults',
@@ -140,7 +139,7 @@ export const logFunctionError = (
   error: unknown,
   index: number,
   fixingInstructions: string,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'FunctionError',
@@ -156,7 +155,7 @@ export const logValidationError = (
   error: unknown,
   index: number,
   fixingInstructions: string,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'ValidationError',
@@ -172,7 +171,7 @@ export const logAssertionError = (
   error: unknown,
   index: number,
   fixingInstructions: string,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'AssertionError',
@@ -187,7 +186,7 @@ export const logAssertionError = (
 export const logRefusalError = (
   error: unknown,
   index: number,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'RefusalError',
@@ -201,7 +200,7 @@ export const logRefusalError = (
 export const logNotification = (
   id: string,
   value: string,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'Notification',
@@ -215,7 +214,7 @@ export const logNotification = (
 export const logEmbedRequest = (
   texts: readonly string[],
   embedModel: string,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'EmbedRequest',
@@ -228,7 +227,7 @@ export const logEmbedRequest = (
 
 export const logEmbedResponse = (
   embeddings: readonly (readonly number[])[],
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   // Show only a few embeddings for effect, not all
   const sampleEmbeddings = embeddings.slice(0, 3).map((embedding) => ({
@@ -250,7 +249,7 @@ export const logResultPickerUsed = (
   sampleCount: number,
   selectedIndex: number,
   latency: number,
-  logger: AxLoggerFunction = defaultLogger
+  logger: AxLoggerFunction
 ) => {
   const loggerData: AxLoggerData = {
     name: 'ResultPickerUsed',

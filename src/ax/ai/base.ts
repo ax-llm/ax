@@ -105,7 +105,7 @@ export class AxBaseAI<
   private excludeContentFromTrace?: boolean;
   private models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   private abortSignal?: AbortSignal;
-  private logger: AxLoggerFunction = defaultLogger;
+  private logger: AxLoggerFunction = axGlobals.logger ?? defaultLogger;
   private corsProxy?: AxAIServiceOptions['corsProxy'];
 
   private modelInfo: readonly AxModelInfo[];
@@ -235,7 +235,7 @@ export class AxBaseAI<
     this.meter = options.meter ?? axGlobals.meter;
     this.excludeContentFromTrace = options.excludeContentFromTrace;
     this.abortSignal = options.abortSignal;
-    this.logger = options.logger ?? axGlobals.logger ?? defaultLogger;
+    this.logger = options.logger ?? axGlobals.logger ?? this.logger;
     this.corsProxy = options.corsProxy;
   }
 
@@ -1041,8 +1041,8 @@ export class AxBaseAI<
       logChatRequest(
         req.chatPrompt,
         options?.stepIndex ?? 0,
-        options?.debugHideSystemPrompt,
-        options?.logger ?? this.logger
+        options?.logger ?? this.logger,
+        options?.debugHideSystemPrompt
       );
     }
 
@@ -1199,7 +1199,7 @@ export class AxBaseAI<
   ): Promise<AxEmbedResponse> {
     const startTime = performance.now();
     let isError = false;
-    let result: AxEmbedResponse;
+    let result: AxEmbedResponse | undefined;
 
     try {
       result = await this._embed1(req, options);
@@ -1227,8 +1227,8 @@ export class AxBaseAI<
       this.updateErrorMetrics('embed', isError);
 
       // Record additional metrics if successful
-      if (!isError) {
-        this.recordEmbedMetrics(req, result!);
+      if (!isError && result) {
+        this.recordEmbedMetrics(req, result);
       }
     }
   }
@@ -1283,6 +1283,7 @@ export class AxBaseAI<
       throw new Error('generateEmbedResp not implemented');
     }
 
+    const createEmbedReq = this.aiImpl.createEmbedReq;
     const debug = options?.debug ?? this.debug;
 
     const req = {
@@ -1302,7 +1303,7 @@ export class AxBaseAI<
     }
 
     const fn = async () => {
-      const [apiConfig, reqValue] = await this.aiImpl.createEmbedReq!(req);
+      const [apiConfig, reqValue] = await createEmbedReq(req);
 
       const res = await apiCall(
         {
@@ -1325,7 +1326,7 @@ export class AxBaseAI<
     const resValue = this.rt
       ? await this.rt(fn, { modelUsage: this.embedModelUsage })
       : await fn();
-    const res = this.aiImpl.createEmbedResp!(resValue as TEmbedResponse);
+    const res = this.aiImpl.createEmbedResp?.(resValue as TEmbedResponse);
 
     res.sessionId = options?.sessionId;
 
