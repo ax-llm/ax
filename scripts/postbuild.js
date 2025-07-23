@@ -30,14 +30,12 @@ packageJson.types = './index.d.ts';
 packageJson.browser = './index.global.js';
 packageJson.exports = {
   '.': {
-    default: './index.js',
     types: './index.d.ts',
     browser: './index.global.js',
     import: './index.js',
     require: './index.cjs',
   },
   './*': {
-    default: './*.js',
     types: './*.d.ts',
     import: './*.js',
     require: './*.cjs',
