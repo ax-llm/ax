@@ -1,6 +1,3 @@
-/**
- * Defines the available Groq models.
- */
 export enum AxAIGroqModel {
   Llama3_8B = 'llama3-8b-8192',
   Llama33_70B = 'llama-3.3-70b-versatile',
