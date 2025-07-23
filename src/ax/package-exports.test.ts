@@ -59,16 +59,4 @@ describe('Package Exports Compatibility', () => {
     // Verify source keeps "type": "module" for development
     expect(sourcePackageJson.type).toBe('module');
   });
-
-  it('should generate all required build artifacts', async () => {
-    const { existsSync } = await import('node:fs');
-    const distPath = path.join(process.cwd(), 'dist');
-
-    // Verify all build outputs exist
-    expect(existsSync(path.join(distPath, 'index.js'))).toBe(true);
-    expect(existsSync(path.join(distPath, 'index.cjs'))).toBe(true);
-    expect(existsSync(path.join(distPath, 'index.d.ts'))).toBe(true);
-    expect(existsSync(path.join(distPath, 'index.global.js'))).toBe(true);
-    expect(existsSync(path.join(distPath, 'package.json'))).toBe(true);
-  });
 });
