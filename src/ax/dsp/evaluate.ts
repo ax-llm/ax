@@ -42,11 +42,15 @@ export class AxTestPrompt<
       }
 
       try {
-        const res = await this.program.forward(this.ai, ex as IN, { maxRetries: 1 });
+        const res = await this.program.forward(this.ai, ex as IN, {
+          maxRetries: 1,
+        });
         const score = await metricFn({ prediction: res, example: ex });
         sumOfScores += score;
       } catch (error) {
-        console.warn(`Program evaluation failed for example ${i}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.warn(
+          `Program evaluation failed for example ${i}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
         // Continue with next example - score remains 0 for this example
       }
 

@@ -651,7 +651,8 @@ Instruction:`;
 
     for (const example of evalSet) {
       try {
-        const forwardOptions = this.sampleCount > 1
+        const forwardOptions =
+          this.sampleCount > 1
             ? {
                 sampleCount: this.sampleCount,
                 resultPicker:
@@ -659,7 +660,7 @@ Instruction:`;
                 maxRetries: 1,
               }
             : { maxRetries: 1 };
-            
+
         const prediction = await testProgram.forward(
           this.studentAI,
           example as IN,
@@ -672,7 +673,9 @@ Instruction:`;
       } catch (error) {
         // Log the error but continue optimization - student model failures are expected during optimization
         if (this.isLoggingEnabled()) {
-          console.warn(`Student model failed during evaluation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          console.warn(
+            `Student model failed during evaluation: ${error instanceof Error ? error.message : 'Unknown error'}`
+          );
         }
         // Count failed attempts to track optimization health
         this.stats.totalCalls++;

@@ -113,7 +113,7 @@ export class AxBootstrapFewShot<
             ...aiOpt,
             maxRetries: 1,
           };
-          
+
           res = await program.forward(aiService, ex as IN, forwardOptions);
 
           // Estimate token usage if cost monitoring is enabled
@@ -132,7 +132,9 @@ export class AxBootstrapFewShot<
         } catch (error) {
           // Log the error but continue bootstrap - student model failures are expected during bootstrapping
           if (this.verboseMode || this.debugMode) {
-            console.warn(`Student model failed during bootstrap: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            console.warn(
+              `Student model failed during bootstrap: ${error instanceof Error ? error.message : 'Unknown error'}`
+            );
           }
           res = {} as OUT;
         }
