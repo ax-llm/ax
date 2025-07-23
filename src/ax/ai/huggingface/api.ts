@@ -160,11 +160,6 @@ class AxAIHuggingFaceImpl
   };
 }
 
-/**
- * Represents the Hugging Face AI service.
- *
- * @template TModelKey - The type of the model key.
- */
 export class AxAIHuggingFace<TModelKey> extends AxBaseAI<
   AxAIHuggingFaceModel,
   unknown,
@@ -175,11 +170,6 @@ export class AxAIHuggingFace<TModelKey> extends AxBaseAI<
   unknown,
   TModelKey
 > {
-  /**
-   * Creates an instance of the `AxAIHuggingFace` class.
-   *
-   * @param {Readonly<Omit<AxAIHuggingFaceArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
-   */
   constructor({
     apiKey,
     config,

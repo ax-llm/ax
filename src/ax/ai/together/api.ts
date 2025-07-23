@@ -20,21 +20,11 @@ export type AxAITogetherArgs<TModelKey> = AxAIOpenAIArgs<
   TModelKey
 >;
 
-/**
- * Represents the Together AI service.
- *
- * @template TModelKey - The type of the model key.
- */
 export class AxAITogether<TModelKey> extends AxAIOpenAIBase<
   string,
   unknown,
   TModelKey
 > {
-  /**
-   * Creates an instance of the `AxAITogether` class.
-   *
-   * @param {Readonly<Omit<AxAITogetherArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
-   */
   constructor({
     apiKey,
     config,
