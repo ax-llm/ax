@@ -370,6 +370,11 @@ class AxAIWebLLMImpl
   }
 }
 
+/**
+ * Represents the WebLLM AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIWebLLM<TModelKey> extends AxBaseAI<
   AxAIWebLLMModel,
   AxAIWebLLMEmbedModel,
@@ -380,6 +385,11 @@ export class AxAIWebLLM<TModelKey> extends AxBaseAI<
   AxAIWebLLMEmbedResponse,
   TModelKey
 > {
+  /**
+   * Creates an instance of the `AxAIWebLLM` class.
+   *
+   * @param {Readonly<Omit<AxAIWebLLMArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     engine,
     config,

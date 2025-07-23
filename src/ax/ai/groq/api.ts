@@ -29,11 +29,21 @@ export type AxAIGroqArgs<TModelKey> = AxAIOpenAIArgs<
   modelInfo?: AxModelInfo[];
 };
 
+/**
+ * Represents the Groq AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIGroq<TModelKey> extends AxAIOpenAIBase<
   AxAIGroqModel,
   undefined,
   TModelKey
 > {
+  /**
+   * Creates an instance of the `AxAIGroq` class.
+   *
+   * @param {Readonly<Omit<AxAIGroqArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     config,
@@ -77,6 +87,11 @@ export class AxAIGroq<TModelKey> extends AxAIOpenAIBase<
     this.setOptions(Options);
   }
 
+  /**
+   * Sets the options for the AI service.
+   *
+   * @param {Readonly<AxAIServiceOptions>} options - The options to set.
+   */
   override setOptions = (options: Readonly<AxAIServiceOptions>) => {
     const rateLimiter = this.newRateLimiter(options);
     super.setOptions({ ...options, rateLimiter });

@@ -1,5 +1,8 @@
 // cspell:ignore mistral, mixtral, codestral, nemo
 
+/**
+ * Defines the available Mistral models.
+ */
 export enum AxAIMistralModel {
   Mistral7B = 'open-mistral-7b',
   Mistral8x7B = 'open-mixtral-8x7b',
@@ -11,6 +14,9 @@ export enum AxAIMistralModel {
   OpenMistralNemo = 'open-mistral-nemo-latest',
 }
 
+/**
+ * Defines the available Mistral embedding models.
+ */
 export enum AxAIMistralEmbedModels {
   MistralEmbed = 'mistral-embed',
 }
