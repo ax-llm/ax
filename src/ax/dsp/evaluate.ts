@@ -41,9 +41,14 @@ export class AxTestPrompt<
         throw new Error('Invalid example');
       }
 
-      const res = await this.program.forward(this.ai, ex as IN);
-      const score = await metricFn({ prediction: res, example: ex });
-      sumOfScores += score;
+      try {
+        const res = await this.program.forward(this.ai, ex as IN, { maxRetries: 1 });
+        const score = await metricFn({ prediction: res, example: ex });
+        sumOfScores += score;
+      } catch (error) {
+        console.warn(`Program evaluation failed for example ${i}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Continue with next example - score remains 0 for this example
+      }
 
       // Setting updateProgressBar's 3rd argument is a count/value that represents progress.
       // If it specifically needs a 'success count', this might need adjustment.

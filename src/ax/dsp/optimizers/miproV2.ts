@@ -651,22 +651,32 @@ Instruction:`;
 
     for (const example of evalSet) {
       try {
-        const prediction = await testProgram.forward(
-          this.studentAI,
-          example as IN,
-          this.sampleCount > 1
+        const forwardOptions = this.sampleCount > 1
             ? {
                 sampleCount: this.sampleCount,
                 resultPicker:
                   axMajorityVotePicker<OUT>() as AxResultPickerFunction<AxGenOut>,
+                maxRetries: 1,
               }
-            : undefined
+            : { maxRetries: 1 };
+            
+        const prediction = await testProgram.forward(
+          this.studentAI,
+          example as IN,
+          forwardOptions
         );
         const score = await metricFn({ prediction, example });
         totalScore += score;
         count++;
         this.stats.totalCalls++;
-      } catch {}
+      } catch (error) {
+        // Log the error but continue optimization - student model failures are expected during optimization
+        if (this.isLoggingEnabled()) {
+          console.warn(`Student model failed during evaluation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+        // Count failed attempts to track optimization health
+        this.stats.totalCalls++;
+      }
     }
 
     return count > 0 ? totalScore / count : 0;

@@ -108,7 +108,13 @@ export class AxBootstrapFewShot<
         let res: OUT;
 
         try {
-          res = await program.forward(aiService, ex as IN, aiOpt);
+          // Add maxRetries to forward options
+          const forwardOptions = {
+            ...aiOpt,
+            maxRetries: 1,
+          };
+          
+          res = await program.forward(aiService, ex as IN, forwardOptions);
 
           // Estimate token usage if cost monitoring is enabled
           if (this.costMonitoring) {
@@ -123,7 +129,11 @@ export class AxBootstrapFewShot<
             this.traces = [...this.traces, ...program.getTraces()];
             this.stats.successfulDemos++;
           }
-        } catch (_err) {
+        } catch (error) {
+          // Log the error but continue bootstrap - student model failures are expected during bootstrapping
+          if (this.verboseMode || this.debugMode) {
+            console.warn(`Student model failed during bootstrap: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
           res = {} as OUT;
         }
 
