@@ -353,13 +353,6 @@ export class AxFlow<
     return inferredSignature;
   }
 
-  /**
-   * Creates an instance of the `AxFlow` class.
-   *
-   * @param {object} [options] - The options for the flow.
-   * @param {boolean} [options.autoParallel=true] - Whether to enable automatic parallelization of independent operations.
-   * @param {number} [options.batchSize=10] - The batch size for parallel operations.
-   */
   constructor(options?: {
     autoParallel?: boolean;
     batchSize?: number;
@@ -380,11 +373,6 @@ export class AxFlow<
     this.program = new AxProgram<IN, OUT>(signature);
   }
 
-  /**
-   * Sets the examples for the program.
-   * @param {Readonly<AxProgramExamples<IN, OUT>>} examples - The examples to set.
-   * @param {Readonly<AxSetExamplesOptions>} [options] - The options for setting the examples.
-   */
   public setExamples(
     examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
@@ -393,28 +381,16 @@ export class AxFlow<
     this.program!.setExamples(examples, options);
   }
 
-  /**
-   * Sets the ID of the program.
-   * @param {string} id - The ID to set.
-   */
   public setId(id: string): void {
     this.ensureProgram();
     this.program!.setId(id);
   }
 
-  /**
-   * Sets the parent ID of the program.
-   * @param {string} parentId - The parent ID to set.
-   */
   public setParentId(parentId: string): void {
     this.ensureProgram();
     this.program!.setParentId(parentId);
   }
 
-  /**
-   * Returns the traces for the program.
-   * @returns {AxProgramTrace<IN, OUT>[]} The traces for the program.
-   */
   public getTraces(): AxProgramTrace<IN, OUT>[] {
     // Collect traces from all nodes
     const allTraces: AxProgramTrace<IN, OUT>[] = [];
@@ -427,19 +403,11 @@ export class AxFlow<
     return allTraces;
   }
 
-  /**
-   * Sets the demos for the program.
-   * @param {readonly AxProgramDemos<IN, OUT>[]} demos - The demos to set.
-   */
   public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]): void {
     this.ensureProgram();
     this.program!.setDemos(demos);
   }
 
-  /**
-   * Returns the usage for the program.
-   * @returns {AxProgramUsage[]} The usage for the program.
-   */
   public getUsage(): AxProgramUsage[] {
     // Collect usage from all nodes and merge
     const allUsage: AxProgramUsage[] = [];
@@ -451,9 +419,6 @@ export class AxFlow<
     return mergeProgramUsage(allUsage);
   }
 
-  /**
-   * Resets the usage for the program.
-   */
   public resetUsage(): void {
     // Clear node-level usage tracking
     this.nodeUsage.clear();
@@ -510,14 +475,6 @@ export class AxFlow<
     return report;
   }
 
-  /**
-   * Executes the flow and returns a streaming output.
-   *
-   * @param {T} ai - The AI service to use.
-   * @param {IN | AxMessage<IN>[]} values - The input values for the flow.
-   * @param {Readonly<AxProgramStreamingForwardOptionsWithModels<T>>} [options] - The options for the streaming forward pass.
-   * @returns {AxGenStreamingOut<OUT>} A streaming output of the flow's result.
-   */
   public async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],
@@ -536,36 +493,6 @@ export class AxFlow<
     };
   }
 
-  /**
-   * Executes the flow with the given AI service and input values.
-   *
-   * This is the main execution method that orchestrates the entire flow execution.
-   * It handles several complex aspects:
-   *
-   * 1. **Dynamic Signature Inference**: If the flow was created with a default signature
-   *    but has nodes defined, it will infer the actual signature from the flow structure.
-   *
-   * 2. **Execution Mode Selection**: Chooses between optimized parallel execution
-   *    (when auto-parallel is enabled) or sequential execution based on configuration.
-   *
-   * 3. **State Management**: Maintains the evolving state object as it flows through
-   *    each step, accumulating results and transformations.
-   *
-   * 4. **Performance Optimization**: Uses the execution planner to identify
-   *    independent operations that can run in parallel, reducing total execution time.
-   *
-   * Execution Flow:
-   * - Initialize state with input values
-   * - Infer signature if needed (based on nodes and current signature)
-   * - Choose execution strategy (parallel vs sequential)
-   * - Execute all steps while maintaining state consistency
-   * - Return final state cast to expected output type
-   *
-   * @param ai - The AI service to use as the default for all steps
-   * @param values - The input values for the flow
-   * @param options - Optional forward options to use as defaults (includes autoParallel override)
-   * @returns Promise that resolves to the final output
-   */
   /**
    * Executes the flow with the given AI service and input values.
    *

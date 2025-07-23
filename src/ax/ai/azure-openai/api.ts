@@ -37,11 +37,21 @@ export type AxAIAzureOpenAIArgs<TModelKey> = AxAIOpenAIArgs<
   version?: string;
 };
 
+/**
+ * Represents the Azure OpenAI AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel,
   TModelKey
 > {
+  /**
+   * Creates an instance of the `AxAIAzureOpenAI` class.
+   *
+   * @param {Readonly<Omit<AxAIAzureOpenAIArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     resourceName,

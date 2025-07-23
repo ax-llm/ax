@@ -77,11 +77,21 @@ export type AxAIMistralArgs<TModelKey> = AxAIOpenAIArgs<
   modelInfo?: AxModelInfo[];
 };
 
+/**
+ * Represents the Mistral AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIMistral<TModelKey> extends AxAIOpenAIBase<
   AxAIMistralModel,
   AxAIMistralEmbedModels,
   TModelKey
 > {
+  /**
+   * Creates an instance of the `AxAIMistral` class.
+   *
+   * @param {Readonly<Omit<AxAIMistralArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     config,
