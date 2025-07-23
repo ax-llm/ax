@@ -39,7 +39,24 @@ export interface AxFieldDescriptor {
   readonly isInternal?: boolean;
 }
 
-// Main tagged template function for creating signatures
+/**
+ * A tagged template function for creating `AxSignature` instances.
+ *
+ * @param {TemplateStringsArray} strings - The template strings.
+ * @param {readonly AxSignatureTemplateValue[]} values - The template values.
+ * @returns {AxSignature} A new `AxSignature` instance.
+ *
+ * @example
+ * ```typescript
+ * import { s, f } from './ax';
+ *
+ * const signature = s`
+ *   input: ${f.string("The input text")}
+ *   ->
+ *   output: ${f.string("The output text")}
+ * `;
+ * ```
+ */
 export function s(
   strings: TemplateStringsArray,
   // eslint-disable-next-line functional/functional-parameters
@@ -90,7 +107,26 @@ export function s(
   return new AxSignature(result);
 }
 
-// Tagged template function that returns AxGen instances
+/**
+ * A tagged template function for creating `AxGen` instances.
+ *
+ * @template IN - The input type of the `AxGen` instance.
+ * @template OUT - The output type of the `AxGen` instance.
+ * @param {TemplateStringsArray} strings - The template strings.
+ * @param {readonly AxSignatureTemplateValue[]} values - The template values.
+ * @returns {AxGen<IN, OUT>} A new `AxGen` instance.
+ *
+ * @example
+ * ```typescript
+ * import { ax, f } from './ax';
+ *
+ * const program = ax`
+ *   input: ${f.string("The input text")}
+ *   ->
+ *   output: ${f.string("The output text")}
+ * `;
+ * ```
+ */
 export function ax<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>,
@@ -241,60 +277,120 @@ function isAxFieldDescriptor(value: unknown): value is AxFieldDescriptor {
   );
 }
 
-// Helper functions for type-safe field creation
+/**
+ * A collection of helper functions for creating `AxFieldType` instances.
+ */
 export const f = {
+  /**
+   * Creates a string field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A string field type.
+   */
   string: (desc?: string): AxFieldType => ({
     type: 'string',
     description: desc,
   }),
 
+  /**
+   * Creates a number field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A number field type.
+   */
   number: (desc?: string): AxFieldType => ({
     type: 'number',
     description: desc,
   }),
 
+  /**
+   * Creates a boolean field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A boolean field type.
+   */
   boolean: (desc?: string): AxFieldType => ({
     type: 'boolean',
     description: desc,
   }),
 
+  /**
+   * Creates a date field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A date field type.
+   */
   date: (desc?: string): AxFieldType => ({
     type: 'date',
     description: desc,
   }),
 
+  /**
+   * Creates a datetime field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A datetime field type.
+   */
   datetime: (desc?: string): AxFieldType => ({
     type: 'datetime',
     description: desc,
   }),
 
+  /**
+   * Creates a json field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A json field type.
+   */
   json: (desc?: string): AxFieldType => ({
     type: 'json',
     description: desc,
   }),
 
+  /**
+   * Creates an image field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} An image field type.
+   */
   image: (desc?: string): AxFieldType => ({
     type: 'image',
     description: desc,
   }),
 
+  /**
+   * Creates an audio field type.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} An audio field type.
+   */
   audio: (desc?: string): AxFieldType => ({
     type: 'audio',
     description: desc,
   }),
 
+  /**
+   * Creates a class field type.
+   * @param {readonly string[]} options - The options for the class.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A class field type.
+   */
   class: (options: readonly string[], desc?: string): AxFieldType => ({
     type: 'class',
     options,
     description: desc,
   }),
 
+  /**
+   * Creates a code field type.
+   * @param {string} language - The language of the code.
+   * @param {string} [desc] - The description of the field.
+   * @returns {AxFieldType} A code field type.
+   */
   code: (language: string, desc?: string): AxFieldType => ({
     type: 'code',
     options: [language],
     description: desc,
   }),
 
+  /**
+   * Creates an array field type.
+   * @template T - The base type of the array.
+   * @param {T} baseType - The base type of the array.
+   * @returns {T & { readonly isArray: true }} An array field type.
+   */
   array: <T extends AxFieldType>(
     baseType: T
   ): T & { readonly isArray: true } => ({
@@ -302,6 +398,12 @@ export const f = {
     isArray: true,
   }),
 
+  /**
+   * Creates an optional field type.
+   * @template T - The base type of the field.
+   * @param {T} baseType - The base type of the field.
+   * @returns {T & { readonly isOptional: true }} An optional field type.
+   */
   optional: <T extends AxFieldType>(
     baseType: T
   ): T & { readonly isOptional: true } => ({
@@ -309,6 +411,12 @@ export const f = {
     isOptional: true,
   }),
 
+  /**
+   * Creates an internal field type.
+   * @template T - The base type of the field.
+   * @param {T} baseType - The base type of the field.
+   * @returns {T & { readonly isInternal: true }} An internal field type.
+   */
   internal: <T extends AxFieldType>(
     baseType: T
   ): T & { readonly isInternal: true } => ({
