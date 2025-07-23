@@ -120,23 +120,43 @@ export type AxModelUsage = {
   tokens?: AxTokenUsage;
 };
 
+/**
+ * Represents a chat response from an AI service.
+ */
 export type AxChatResponse = {
+  /** The session ID of the chat. */
   sessionId?: string;
+  /** The remote ID of the chat. */
   remoteId?: string;
+  /** The results of the chat response. */
   results: readonly AxChatResponseResult[];
+  /** The model usage for the chat response. */
   modelUsage?: AxModelUsage;
 };
 
+/**
+ * Represents an embedding response from an AI service.
+ */
 export type AxEmbedResponse = {
+  /** The remote ID of the embedding. */
   remoteId?: string;
+  /** The session ID of the embedding. */
   sessionId?: string;
+  /** The embeddings. */
   embeddings: readonly (readonly number[])[];
+  /** The model usage for the embedding response. */
   modelUsage?: AxModelUsage;
 };
 
 export type AxModelInfoWithProvider = AxModelInfo & { provider: string };
 
+/**
+ * Represents a chat request to an AI service.
+ *
+ * @template TModel - The type of the model to use for the chat request.
+ */
 export type AxChatRequest<TModel = string> = {
+  /** The chat prompt, consisting of a series of messages. */
   chatPrompt: (
     | { role: 'system'; content: string; cache?: boolean }
     | {
@@ -184,17 +204,21 @@ export type AxChatRequest<TModel = string> = {
         cache?: boolean;
       }
   )[];
+  /** The functions that the AI can call. */
   functions?: Readonly<{
     name: string;
     description: string;
     parameters?: AxFunctionJSONSchema;
   }>[];
+  /** The function call behavior. */
   functionCall?:
     | 'none'
     | 'auto'
     | 'required'
     | { type: 'function'; function: { name: string } };
+  /** The model configuration. */
   modelConfig?: AxModelConfig;
+  /** The model to use for the chat request. */
   model?: TModel;
 };
 
@@ -230,8 +254,15 @@ export interface AxAIServiceMetrics {
 export type AxInternalChatRequest<TModel> = Omit<AxChatRequest, 'model'> &
   Required<Pick<AxChatRequest<TModel>, 'model'>>;
 
+/**
+ * Represents an embedding request to an AI service.
+ *
+ * @template TEmbedModel - The type of the embedding model to use.
+ */
 export type AxEmbedRequest<TEmbedModel = string> = {
+  /** The texts to embed. */
   texts?: readonly string[];
+  /** The embedding model to use. */
   embedModel?: TEmbedModel;
 };
 
@@ -322,20 +353,37 @@ export type AxLoggerData =
 
 export type AxLoggerFunction = (message: AxLoggerData) => void;
 
+/**
+ * Represents the options for an AI service.
+ */
 export type AxAIServiceOptions = {
+  /** Whether to enable debug mode. */
   debug?: boolean;
+  /** A rate limiter function to use. */
   rateLimiter?: AxRateLimiterFunction;
+  /** The fetch function to use. */
   fetch?: typeof fetch;
+  /** The tracer to use for OpenTelemetry. */
   tracer?: Tracer;
+  /** The meter to use for OpenTelemetry. */
   meter?: Meter;
+  /** The timeout in milliseconds. */
   timeout?: number;
+  /** Whether to exclude content from the trace. */
   excludeContentFromTrace?: boolean;
+  /** An abort signal to cancel the request. */
   abortSignal?: AbortSignal;
+  /** A logger function to use. */
   logger?: AxLoggerFunction;
+  /** The session ID. */
   sessionId?: string;
+  /** Whether to hide the system prompt in debug logs. */
   debugHideSystemPrompt?: boolean;
+  /** The trace context for OpenTelemetry. */
   traceContext?: Context;
+  /** Whether to stream the response. */
   stream?: boolean;
+  /** The token budget for thinking. */
   thinkingTokenBudget?:
     | 'minimal'
     | 'low'
@@ -343,10 +391,14 @@ export type AxAIServiceOptions = {
     | 'high'
     | 'highest'
     | 'none';
+  /** Whether to show thoughts in the response. */
   showThoughts?: boolean;
+  /** Whether to use an expensive model. */
   useExpensiveModel?: 'yes';
+  /** The step index for multi-step programs. */
   stepIndex?: number;
-  corsProxy?: string; // CORS proxy URL for browser environments
+  /** The CORS proxy URL for browser environments. */
+  corsProxy?: string;
 };
 
 export interface AxAIService<
