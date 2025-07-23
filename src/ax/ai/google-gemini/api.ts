@@ -648,6 +648,11 @@ class AxAIGoogleGeminiImpl
 // Helper type to extract model keys from the models array
 type ExtractModelKeys<T> = T extends readonly { key: infer K }[] ? K : never;
 
+/**
+ * Represents the Google Gemini AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiEmbedModel,
@@ -658,7 +663,13 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
   AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse,
   TModelKey
 > {
-  // Static factory method for automatic type inference
+  /**
+   * A static factory method for creating an `AxAIGoogleGemini` instance with automatic type inference.
+   *
+   * @template T - The type of the `AxAIGoogleGeminiArgs`.
+   * @param {T} options - The options for creating the instance.
+   * @returns {AxAIGoogleGemini<ExtractModelKeys<M>> | AxAIGoogleGemini<string>} A new `AxAIGoogleGemini` instance.
+   */
   static create<const T extends AxAIGoogleGeminiArgs<any>>(
     options: T
   ): T extends { models: infer M }
@@ -667,6 +678,11 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
     return new AxAIGoogleGemini(options) as any;
   }
 
+  /**
+   * Creates an instance of the `AxAIGoogleGemini` class.
+   *
+   * @param {Readonly<Omit<AxAIGoogleGeminiArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     projectId,

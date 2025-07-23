@@ -262,6 +262,11 @@ function createMessages(
   });
 }
 
+/**
+ * Represents the Reka AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIReka<TModelKey> extends AxBaseAI<
   AxAIRekaModel,
   undefined,
@@ -272,6 +277,11 @@ export class AxAIReka<TModelKey> extends AxBaseAI<
   unknown,
   TModelKey
 > {
+  /**
+   * Creates an instance of the `AxAIReka` class.
+   *
+   * @param {Readonly<Omit<AxAIRekaArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     config,

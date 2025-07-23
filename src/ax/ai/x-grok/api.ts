@@ -72,12 +72,22 @@ export type AxAIGrokArgs<TModelKey> = AxAIOpenAIArgs<
   modelInfo?: AxModelInfo[];
 };
 
+/**
+ * Represents the Grok AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIGrok<TModelKey> extends AxAIOpenAIBase<
   AxAIGrokModel,
   AxAIGrokEmbedModels,
   TModelKey,
   AxAIGrokChatRequest
 > {
+  /**
+   * Creates an instance of the `AxAIGrok` class.
+   *
+   * @param {Readonly<Omit<AxAIGrokArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     config,

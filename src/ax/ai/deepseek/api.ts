@@ -29,11 +29,21 @@ export type AxAIDeepSeekArgs<TModelKey> = AxAIOpenAIArgs<
   TModelKey
 >;
 
+/**
+ * Represents the DeepSeek AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIDeepSeek<TModelKey> extends AxAIOpenAIBase<
   AxAIDeepSeekModel,
   undefined,
   TModelKey
 > {
+  /**
+   * Creates an instance of the `AxAIDeepSeek` class.
+   *
+   * @param {Readonly<Omit<AxAIDeepSeekArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     config,
