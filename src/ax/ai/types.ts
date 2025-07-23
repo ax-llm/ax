@@ -401,32 +401,65 @@ export type AxAIServiceOptions = {
   corsProxy?: string;
 };
 
+/**
+ * Represents an AI service.
+ *
+ * @template TModel - The type of the chat model.
+ * @template TEmbedModel - The type of the embedding model.
+ * @template TModelKey - The type of the model key.
+ */
 export interface AxAIService<
   TModel = unknown,
   TEmbedModel = unknown,
   TModelKey = string,
 > {
+  /** Gets the ID of the AI service instance. */
   getId(): string;
+  /** Gets the name of the AI service. */
   getName(): string;
+  /** Gets the features of the AI service. */
   getFeatures(model?: TModel): AxAIFeatures;
+  /** Gets the list of available models. */
   getModelList(): AxAIModelList<TModelKey> | undefined;
+  /** Gets the metrics for the AI service. */
   getMetrics(): AxAIServiceMetrics;
+  /** Gets the logger for the AI service. */
   getLogger(): AxLoggerFunction;
 
+  /** Gets the last used chat model. */
   getLastUsedChatModel(): TModel | undefined;
+  /** Gets the last used embedding model. */
   getLastUsedEmbedModel(): TEmbedModel | undefined;
+  /** Gets the last used model configuration. */
   getLastUsedModelConfig(): AxModelConfig | undefined;
 
+  /**
+   * Performs a chat request.
+   * @param {Readonly<AxChatRequest<TModel | TModelKey>>} req - The chat request.
+   * @param {Readonly<AxAIServiceOptions>} [options] - The options for the request.
+   * @returns {Promise<AxChatResponse | ReadableStream<AxChatResponse>>} The chat response or a stream of chat responses.
+   */
   chat(
     req: Readonly<AxChatRequest<TModel | TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>>;
+  /**
+   * Performs an embedding request.
+   * @param {Readonly<AxEmbedRequest<TEmbedModel | TModelKey>>} req - The embedding request.
+   * @param {Readonly<AxAIServiceOptions>} [options] - The options for the request.
+   * @returns {Promise<AxEmbedResponse>} The embedding response.
+   */
   embed(
     req: Readonly<AxEmbedRequest<TEmbedModel | TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse>;
 
+  /**
+   * Sets the options for the AI service.
+   * @param {Readonly<AxAIServiceOptions>} options - The options to set.
+   */
   setOptions(options: Readonly<AxAIServiceOptions>): void;
+  /** Gets the options for the AI service. */
   getOptions(): Readonly<AxAIServiceOptions>;
 }
 

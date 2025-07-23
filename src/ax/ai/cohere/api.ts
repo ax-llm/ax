@@ -293,6 +293,11 @@ class AxAICohereImpl
   }
 }
 
+/**
+ * Represents the Cohere AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAICohere<TModelKey> extends AxBaseAI<
   AxAICohereModel,
   AxAICohereEmbedModel,
@@ -303,6 +308,11 @@ export class AxAICohere<TModelKey> extends AxBaseAI<
   AxAICohereEmbedResponse,
   TModelKey
 > {
+  /**
+   * Creates an instance of the `AxAICohere` class.
+   *
+   * @param {Readonly<Omit<AxAICohereArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     config,

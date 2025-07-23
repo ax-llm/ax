@@ -509,6 +509,11 @@ class AxAIAnthropicImpl
   };
 }
 
+/**
+ * Represents the Anthropic AI service.
+ *
+ * @template TModelKey - The type of the model key.
+ */
 export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
   AxAIAnthropicModel | AxAIAnthropicVertexModel,
   unknown,
@@ -519,7 +524,13 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
   never,
   TModelKey
 > {
-  // Static factory method for automatic type inference
+  /**
+   * A static factory method for creating an `AxAIAnthropic` instance with automatic type inference.
+   *
+   * @template T - The type of the `AxAIAnthropicArgs`.
+   * @param {T} options - The options for creating the instance.
+   * @returns {AxAIAnthropic<ExtractModelKeys<M>> | AxAIAnthropic<string>} A new `AxAIAnthropic` instance.
+   */
   static create<const T extends AxAIAnthropicArgs<any>>(
     options: T
   ): T extends { models: infer M }
@@ -528,6 +539,11 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
     return new AxAIAnthropic(options) as any;
   }
 
+  /**
+   * Creates an instance of the `AxAIAnthropic` class.
+   *
+   * @param {Readonly<Omit<AxAIAnthropicArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
+   */
   constructor({
     apiKey,
     projectId,

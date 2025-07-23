@@ -4,6 +4,9 @@ import type { AxModelConfig } from '../types.js';
  * WebLLM: Models for text generation
  * Based on WebLLM's supported models
  */
+/**
+ * Defines the available WebLLM models.
+ */
 export enum AxAIWebLLMModel {
   // Llama 3.1 series
   Llama31_8B_Instruct = 'Llama-3.1-8B-Instruct-q4f32_1-MLC',
