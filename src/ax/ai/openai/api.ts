@@ -649,21 +649,11 @@ export class AxAIOpenAIBase<
   }
 }
 
-/**
- * Represents the OpenAI AI service.
- *
- * @template TModelKey - The type of the model key.
- */
 export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
   AxAIOpenAIModel,
   AxAIOpenAIEmbedModel,
   TModelKey
 > {
-  /**
-   * Creates an instance of the `AxAIOpenAI` class.
-   *
-   * @param {Readonly<Omit<AxAIOpenAIArgs<'openai', AxAIOpenAIModel, AxAIOpenAIEmbedModel, TModelKey>, 'name'>>} params - The parameters for creating the instance.
-   */
   constructor({
     apiKey,
     config,

@@ -4,9 +4,6 @@ import type { AxModelConfig } from '../types.js';
  * WebLLM: Models for text generation
  * Based on WebLLM's supported models
  */
-/**
- * Defines the available WebLLM models.
- */
 export enum AxAIWebLLMModel {
   // Llama 3.1 series
   Llama31_8B_Instruct = 'Llama-3.1-8B-Instruct-q4f32_1-MLC',
@@ -36,17 +33,10 @@ export enum AxAIWebLLMModel {
 /**
  * WebLLM: Model options for text generation
  */
-/**
- * Represents the configuration for the WebLLM AI service.
- */
 export type AxAIWebLLMConfig = AxModelConfig & {
-  /** The model to use. */
   model: AxAIWebLLMModel;
-  /** A map of tokens to their bias values. */
   logitBias?: Record<number, number>;
-  /** Whether to return log probabilities. */
   logProbs?: boolean;
-  /** The number of top log probabilities to return. */
   topLogprobs?: number;
 };
 
@@ -54,13 +44,8 @@ export type AxAIWebLLMConfig = AxModelConfig & {
  * WebLLM: Chat request structure
  * Based on OpenAI-compatible API from WebLLM
  */
-/**
- * Represents a chat request to the WebLLM AI service.
- */
 export type AxAIWebLLMChatRequest = {
-  /** The model to use. */
   model: AxAIWebLLMModel;
-  /** The messages in the chat. */
   messages: Array<{
     role: 'system' | 'user' | 'assistant' | 'function';
     content?: string;
@@ -70,29 +55,17 @@ export type AxAIWebLLMChatRequest = {
       arguments: string;
     };
   }>;
-  /** The temperature of the sampling. */
   temperature?: number;
-  /** The top-p value of the sampling. */
   top_p?: number;
-  /** The maximum number of tokens to generate. */
   max_tokens?: number;
-  /** Whether to stream the response. */
   stream?: boolean;
-  /** A stop sequence or an array of stop sequences. */
   stop?: string | string[];
-  /** The presence penalty. */
   presence_penalty?: number;
-  /** The frequency penalty. */
   frequency_penalty?: number;
-  /** A map of tokens to their bias values. */
   logit_bias?: Record<number, number>;
-  /** Whether to return log probabilities. */
   logprobs?: boolean;
-  /** The number of top log probabilities to return. */
   top_logprobs?: number;
-  /** The number of completions to generate. */
   n?: number;
-  /** The tools that the AI can use. */
   tools?: Array<{
     type: 'function';
     function: {
@@ -101,7 +74,6 @@ export type AxAIWebLLMChatRequest = {
       parameters: object;
     };
   }>;
-  /** The tool choice behavior. */
   tool_choice?:
     | 'none'
     | 'auto'
@@ -109,18 +81,13 @@ export type AxAIWebLLMChatRequest = {
 };
 
 /**
- * Represents a chat response from the WebLLM AI service.
+ * WebLLM: Chat response structure
  */
 export type AxAIWebLLMChatResponse = {
-  /** The ID of the response. */
   id: string;
-  /** The object type. */
   object: 'chat.completion';
-  /** The timestamp of the response. */
   created: number;
-  /** The model used for the response. */
   model: AxAIWebLLMModel;
-  /** The choices in the response. */
   choices: Array<{
     index: number;
     message: {
@@ -149,7 +116,6 @@ export type AxAIWebLLMChatResponse = {
       }>;
     };
   }>;
-  /** The token usage of the response. */
   usage: {
     prompt_tokens: number;
     completion_tokens: number;
@@ -158,18 +124,13 @@ export type AxAIWebLLMChatResponse = {
 };
 
 /**
- * Represents a delta in a streaming chat response from the WebLLM AI service.
+ * WebLLM: Streaming chat response structure
  */
 export type AxAIWebLLMChatResponseDelta = {
-  /** The ID of the response. */
   id: string;
-  /** The object type. */
   object: 'chat.completion.chunk';
-  /** The timestamp of the response. */
   created: number;
-  /** The model used for the response. */
   model: AxAIWebLLMModel;
-  /** The choices in the response. */
   choices: Array<{
     index: number;
     delta: {
@@ -199,7 +160,6 @@ export type AxAIWebLLMChatResponseDelta = {
       }>;
     };
   }>;
-  /** The token usage of the response. */
   usage?: {
     prompt_tokens: number;
     completion_tokens: number;

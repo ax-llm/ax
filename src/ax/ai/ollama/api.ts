@@ -33,20 +33,13 @@ export type AxAIOllamaArgs<TModelKey> = AxAIOpenAIArgs<
 };
 
 /**
- * Represents the Ollama AI service.
- *
- * @template TModelKey - The type of the model key.
+ * OllamaAI: AI Service
  */
 export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
   string,
   string,
   TModelKey
 > {
-  /**
-   * Creates an instance of the `AxAIOllama` class.
-   *
-   * @param {Readonly<Omit<AxAIOllamaArgs<TModelKey>, 'name'>>} params - The parameters for creating the instance.
-   */
   constructor({
     apiKey = 'not-set',
     url = 'http://localhost:11434/v1',

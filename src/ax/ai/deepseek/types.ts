@@ -1,5 +1,5 @@
 /**
- * Defines the available DeepSeek models for text generation.
+ * DeepSeek: Models for text generation
  */
 export enum AxAIDeepSeekModel {
   DeepSeekChat = 'deepseek-chat',

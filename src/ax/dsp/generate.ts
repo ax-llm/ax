@@ -139,12 +139,6 @@ export class AxGen<
   private excludeContentFromTrace = false;
   private thoughtFieldName: string;
 
-  /**
-   * Creates an instance of the `AxGen` class.
-   *
-   * @param {NonNullable<ConstructorParameters<typeof AxSignature>[0]>} signature - The signature for the generation program.
-   * @param {Readonly<AxProgramForwardOptions<any>>} [options] - The options for the generation program.
-   */
   constructor(
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
     options?: Readonly<AxProgramForwardOptions<any>>
@@ -182,10 +176,6 @@ export class AxGen<
     return getOrCreateGenMetricsInstruments();
   }
 
-  /**
-   * Updates the meter for the generation program.
-   * @param {Meter} [meter] - The meter to use for metrics.
-   */
   public updateMeter(meter?: Meter): void {
     // This now just updates the global singleton, no need to store locally
     getOrCreateGenMetricsInstruments(meter);
@@ -206,21 +196,10 @@ export class AxGen<
     }));
   }
 
-  /**
-   * Adds an assertion to the generation program.
-   * @param {AxAssertion['fn']} fn - The assertion function.
-   * @param {string} [message] - The message to display if the assertion fails.
-   */
   public addAssert = (fn: AxAssertion['fn'], message?: string) => {
     this.asserts.push({ fn, message });
   };
 
-  /**
-   * Adds a streaming assertion to the generation program.
-   * @param {string} fieldName - The name of the field to assert on.
-   * @param {AxStreamingAssertion['fn']} fn - The assertion function.
-   * @param {string} [message] - The message to display if the assertion fails.
-   */
   public addStreamingAssert = (
     fieldName: string,
     fn: AxStreamingAssertion['fn'],
@@ -257,11 +236,6 @@ export class AxGen<
     }
   };
 
-  /**
-   * Adds a streaming field processor to the generation program.
-   * @param {string} fieldName - The name of the field to process.
-   * @param {AxFieldProcessor['process']} fn - The processor function.
-   */
   public addStreamingFieldProcessor = (
     fieldName: string,
     fn: AxFieldProcessor['process']
@@ -269,11 +243,6 @@ export class AxGen<
     this.addFieldProcessorInternal(fieldName, fn, true);
   };
 
-  /**
-   * Adds a field processor to the generation program.
-   * @param {string} fieldName - The name of the field to process.
-   * @param {AxFieldProcessor['process']} fn - The processor function.
-   */
   public addFieldProcessor = (
     fieldName: string,
     fn: AxFieldProcessor['process']
@@ -806,14 +775,6 @@ export class AxGen<
     }
   }
 
-  /**
-   * Executes the generation program with the given AI service and input values.
-   *
-   * @param {T} ai - The AI service to use.
-   * @param {IN | AxMessage<IN>[]} values - The input values for the program.
-   * @param {Readonly<AxProgramForwardOptionsWithModels<T>>} [options] - The options for the forward pass.
-   * @returns {Promise<OUT>} A promise that resolves to the output of the program.
-   */
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],
@@ -963,14 +924,6 @@ export class AxGen<
     }
   }
 
-  /**
-   * Executes the generation program and returns a streaming output.
-   *
-   * @param {T} ai - The AI service to use.
-   * @param {IN | AxMessage<IN>[]} values - The input values for the program.
-   * @param {Readonly<AxProgramStreamingForwardOptionsWithModels<T>>} [options] - The options for the streaming forward pass.
-   * @returns {AxGenStreamingOut<OUT>} A streaming output of the program's result.
-   */
   async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],
