@@ -69,7 +69,6 @@ export const defaultRetryConfig: RetryConfig = {
   retryableStatusCodes: [500, 408, 429, 502, 503, 504],
 };
 
-const defaultTimeoutMs = 30000;
 const textDecoderStream =
   (globalThis as any).TextDecoderStream ?? TextDecoderStreamPolyfill;
 
@@ -352,9 +351,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   }
 
   const retryConfig: RetryConfig = { ...defaultRetryConfig, ...api.retry };
-  const timeoutMs = api.timeout ?? defaultTimeoutMs;
+  const timeoutMs = api.timeout;
   const metrics = createRequestMetrics();
-  let timeoutId: NodeJS.Timeout;
+  let timeoutId: NodeJS.Timeout | undefined;
 
   const baseUrl = new URL(api.url);
   const apiPath = `${[baseUrl.pathname, api.name]
@@ -428,9 +427,11 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       };
     }
 
-    timeoutId = setTimeout(() => {
-      combinedAbortController.abort('Request timeout');
-    }, timeoutMs);
+    if (timeoutMs) {
+      timeoutId = setTimeout(() => {
+        combinedAbortController.abort('Request timeout');
+      }, timeoutMs);
+    }
 
     try {
       // Set up timeout with proper cleanup
@@ -447,7 +448,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         signal: combinedAbortController.signal,
       });
 
-      clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
       // Handle authentication errors
       if (res.status === 401 || res.status === 403) {
@@ -756,7 +759,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
               }
               throw error;
             } finally {
-              clearTimeout(timeoutId);
+              if (timeoutId) {
+                clearTimeout(timeoutId);
+              }
               reader.releaseLock();
             }
           }
@@ -779,7 +784,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             { metrics }
           );
         }
-        throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs, json, {
+        throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs || 0, json, {
           metrics,
         });
       }
@@ -831,7 +836,6 @@ export function createApiConfig(
   config: Readonly<Partial<AxAPIConfig>>
 ): AxAPIConfig {
   return {
-    timeout: defaultTimeoutMs,
     retry: defaultRetryConfig,
     ...config,
     url: config.url!, // URL is required
