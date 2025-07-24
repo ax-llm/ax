@@ -1,5 +1,22 @@
 # Changelog
 
+## [13.0.24](https://github.com/ax-llm/ax/compare/13.0.22...13.0.23) (2025-07-24)
+
+### Features
+
+* implement error handling and retry logic in evaluation and optimization processes ([e34f37a](https://github.com/ax-llm/ax/commit/e34f37af40eb2db813abcd86f7543a9ba47aff47))
+
+### Reverts
+
+* Revert "Docs ax functions (#291)" ([de65289](https://github.com/ax-llm/ax/commit/de6528914eee7b7d1490e1a8ccae939d86364574)), closes [#291](https://github.com/ax-llm/ax/issues/291)
+## [13.0.23](https://github.com/ax-llm/ax/compare/13.0.22...13.0.23) (2025-07-23)
+
+### Features
+
+* enhance NotebookCell and NotebookPlayground with responsive design and improved UI elements ([46cfc4d](https://github.com/ax-llm/ax/commit/46cfc4ddfab81d44b45e92bce926ca508fd15e0b))
+* update navigation and playground references to DSPy Notebook ([8137e1c](https://github.com/ax-llm/ax/commit/8137e1c1aeb59505673a2d2d7a14a2a661df031e))
+* update postbuild script and add tests for package exports compatibility ([097d875](https://github.com/ax-llm/ax/commit/097d87565fb3024d1d05fda4eaa490be47ee0536))
+
 ## [13.0.23](https://github.com/ax-llm/ax/compare/13.0.21...13.0.22) (2025-07-23)
 
 ### Features

@@ -1056,7 +1056,23 @@ Instruction:`;
    * Encodes a configuration into a string key for surrogate model lookup
    */
   private encodeConfiguration(config: Readonly<ConfigType>): string {
-    return `${config.instruction.length}_${config.bootstrappedDemos}_${config.labeledExamples}`;
+    // Create a proper hash of the instruction content, not just length!
+    const instructionHash = this.hashString(config.instruction);
+    return `${instructionHash}_${config.bootstrappedDemos}_${config.labeledExamples}`;
+  }
+
+  /**
+   * Simple string hash function for instruction content
+   */
+  private hashString(str: string): string {
+    let hash = 0;
+    if (str.length === 0) return hash.toString();
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(16);
   }
 
   /**
