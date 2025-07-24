@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # FastAPI application
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=true
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ax_optimizer
+      - USE_MEMORY_STORAGE=false
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./app:/app/app
+    command: python -m app.main
+
+  # ARQ worker
+  worker:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ax_optimizer
+      - USE_MEMORY_STORAGE=false
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./app:/app/app
+    command: arq app.tasks.WorkerSettings
+
+  # Redis for task queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # PostgreSQL for persistent storage (optional)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=ax_optimizer
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  redis_data:
+  postgres_data:

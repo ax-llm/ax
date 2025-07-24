@@ -208,12 +208,10 @@ const optimizer = new AxMiPRO({
   checkpointLoad,
   checkpointInterval: 3, // Save every 3 rounds
   resumeFromCheckpoint, // Resume from checkpoint if available
-  options: {
-    numCandidates: 4,
-    numTrials: 15, // Longer run to demonstrate checkpointing
-    verbose: true,
-    earlyStoppingTrials: 5,
-  },
+  numCandidates: 4,
+  numTrials: 15, // Longer run to demonstrate checkpointing
+  verbose: true,
+  earlyStoppingTrials: 5,
 });
 
 console.log('\nStarting optimization...');

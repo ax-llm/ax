@@ -110,6 +110,35 @@ export type AxOptimizerArgs = {
   teacherAI?: AxAIService; // For generating high-quality examples/corrections
   examples: readonly AxExample[];
 
+  // Python optimizer service
+  optimizerEndpoint?: string; // Python optimizer service URL
+  optimizerTimeout?: number; // Request timeout (default: 30000ms)
+  optimizerRetries?: number; // Retry attempts (default: 3)
+
+  // MiPRO-specific options (flattened from AxMiPROOptimizerOptions)
+  numCandidates?: number;
+  initTemperature?: number;
+  maxBootstrappedDemos?: number;
+  maxLabeledDemos?: number;
+  numTrials?: number;
+  minibatch?: boolean;
+  minibatchSize?: number;
+  minibatchFullEvalSteps?: number;
+  programAwareProposer?: boolean;
+  dataAwareProposer?: boolean;
+  viewDataBatchSize?: number;
+  tipAwareProposer?: boolean;
+  fewshotAwareProposer?: boolean;
+  earlyStoppingTrials?: number;
+  minImprovementThreshold?: number;
+  bayesianOptimization?: boolean;
+  acquisitionFunction?:
+    | 'expected_improvement'
+    | 'upper_confidence_bound'
+    | 'probability_improvement';
+  explorationWeight?: number;
+  sampleCount?: number;
+
   // Evaluation strategy
   validationSet?: readonly AxExample[];
 
