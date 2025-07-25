@@ -532,7 +532,10 @@ function createMessages<TModel>(
                   const data = c.data;
                   return {
                     type: 'input_audio' as const,
-                    input_audio: { data, format: c.format ?? 'wav' },
+                    input_audio: {
+                      data,
+                      format: c.format === 'wav' ? 'wav' : undefined,
+                    },
                   };
                 }
                 default:
@@ -694,6 +697,45 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
+        media: {
+          images: {
+            supported: true,
+            formats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+            maxSize: 20 * 1024 * 1024, // 20MB
+            detailLevels: ['high', 'low', 'auto'] as (
+              | 'high'
+              | 'low'
+              | 'auto'
+            )[],
+          },
+          audio: {
+            supported: true,
+            formats: ['wav', 'mp3', 'ogg'],
+            maxDuration: 25 * 60, // 25 minutes
+          },
+          files: {
+            supported: true,
+            formats: [
+              'text/plain',
+              'application/pdf',
+              'image/jpeg',
+              'image/png',
+            ],
+            maxSize: 512 * 1024 * 1024, // 512MB
+            uploadMethod: 'upload' as 'inline' | 'upload' | 'cloud' | 'none',
+          },
+          urls: {
+            supported: false,
+            webSearch: true, // Available via web search options
+            contextFetching: false,
+          },
+        },
+        caching: {
+          supported: false,
+          types: [],
+        },
+        thinking: mi?.hasThinkingBudget ?? false,
+        multiTurn: true,
       };
     };
 

@@ -193,7 +193,36 @@ export class AxAIHuggingFace<TModelKey> extends AxBaseAI<
       modelInfo: axModelInfoHuggingFace,
       defaults: { model: Config.model },
       options,
-      supportFor: { functions: false, streaming: false },
+      supportFor: {
+        functions: false,
+        streaming: false,
+        media: {
+          images: {
+            supported: false,
+            formats: [],
+          },
+          audio: {
+            supported: false,
+            formats: [],
+          },
+          files: {
+            supported: false,
+            formats: [],
+            uploadMethod: 'none' as const,
+          },
+          urls: {
+            supported: false,
+            webSearch: false,
+            contextFetching: false,
+          },
+        },
+        caching: {
+          supported: false,
+          types: [],
+        },
+        thinking: false,
+        multiTurn: true,
+      },
       models,
     });
   }

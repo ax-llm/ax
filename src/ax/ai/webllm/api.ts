@@ -406,6 +406,32 @@ export class AxAIWebLLM<TModelKey> extends AxBaseAI<
       supportFor: (_model: AxAIWebLLMModel) => ({
         functions: true, // WebLLM supports function calling
         streaming: true, // WebLLM supports streaming
+        media: {
+          images: {
+            supported: false,
+            formats: [],
+          },
+          audio: {
+            supported: false,
+            formats: [],
+          },
+          files: {
+            supported: false,
+            formats: [],
+            uploadMethod: 'none' as const,
+          },
+          urls: {
+            supported: false,
+            webSearch: false,
+            contextFetching: false,
+          },
+        },
+        caching: {
+          supported: false,
+          types: [],
+        },
+        thinking: false,
+        multiTurn: true,
       }),
       options,
       models,

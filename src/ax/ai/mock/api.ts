@@ -15,6 +15,7 @@ import type {
   AxModelConfig,
   AxModelInfoWithProvider,
 } from '../types.js';
+import type { AxAIFeatures } from '../base.js';
 
 export type AxMockAIServiceConfig<TModelKey> = {
   name?: string;
@@ -85,10 +86,36 @@ export class AxMockAIService<TModelKey>
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getFeatures(_model?: string): { functions: boolean; streaming: boolean } {
+  getFeatures(_model?: string): AxAIFeatures {
     return {
       functions: this.config.features?.functions ?? false,
       streaming: this.config.features?.streaming ?? false,
+      media: {
+        images: {
+          supported: false,
+          formats: [],
+        },
+        audio: {
+          supported: false,
+          formats: [],
+        },
+        files: {
+          supported: false,
+          formats: [],
+          uploadMethod: 'none' as const,
+        },
+        urls: {
+          supported: false,
+          webSearch: false,
+          contextFetching: false,
+        },
+      },
+      caching: {
+        supported: false,
+        types: [],
+      },
+      thinking: false,
+      multiTurn: true,
     };
   }
 

@@ -57,6 +57,60 @@ export interface AxAIFeatures {
   functionCot?: boolean;
   hasThinkingBudget?: boolean;
   hasShowThoughts?: boolean;
+  /** Enhanced media capability specifications */
+  media: {
+    /** Image processing capabilities */
+    images: {
+      /** Whether the provider supports image inputs */
+      supported: boolean;
+      /** Supported image MIME types (e.g., ['image/jpeg', 'image/png']) */
+      formats: string[];
+      /** Maximum image size in bytes */
+      maxSize?: number;
+      /** Supported detail/quality levels for image processing */
+      detailLevels?: ('high' | 'low' | 'auto')[];
+    };
+    /** Audio processing capabilities */
+    audio: {
+      /** Whether the provider supports audio inputs */
+      supported: boolean;
+      /** Supported audio formats (e.g., ['wav', 'mp3']) */
+      formats: string[];
+      /** Maximum audio duration in seconds */
+      maxDuration?: number;
+    };
+    /** File processing capabilities */
+    files: {
+      /** Whether the provider supports file inputs */
+      supported: boolean;
+      /** Supported file MIME types (e.g., ['application/pdf', 'text/plain']) */
+      formats: string[];
+      /** Maximum file size in bytes */
+      maxSize?: number;
+      /** How files are uploaded to the provider */
+      uploadMethod: 'inline' | 'upload' | 'cloud' | 'none';
+    };
+    /** URL and web content capabilities */
+    urls: {
+      /** Whether the provider supports URL inputs */
+      supported: boolean;
+      /** Whether the provider can perform web searches */
+      webSearch: boolean;
+      /** Whether the provider can fetch web page content */
+      contextFetching: boolean;
+    };
+  };
+  /** Content caching capabilities */
+  caching: {
+    /** Whether the provider supports content caching */
+    supported: boolean;
+    /** Types of caching available */
+    types: ('ephemeral' | 'persistent')[];
+  };
+  /** Whether the provider supports thinking/reasoning modes */
+  thinking: boolean;
+  /** Whether the provider supports multi-turn conversations */
+  multiTurn: boolean;
 }
 
 export interface AxBaseAIArgs<TModel, TEmbedModel, TModelKey> {

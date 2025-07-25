@@ -591,6 +591,40 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
         functionCot: true,
+        media: {
+          images: {
+            supported: true,
+            formats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+            maxSize: 5 * 1024 * 1024, // 5MB
+            detailLevels: ['high', 'low', 'auto'] as (
+              | 'high'
+              | 'low'
+              | 'auto'
+            )[],
+          },
+          audio: {
+            supported: false,
+            formats: [],
+            maxDuration: 0,
+          },
+          files: {
+            supported: false,
+            formats: [],
+            maxSize: 0,
+            uploadMethod: 'none' as 'inline' | 'upload' | 'cloud' | 'none',
+          },
+          urls: {
+            supported: false,
+            webSearch: false,
+            contextFetching: false,
+          },
+        },
+        caching: {
+          supported: true,
+          types: ['ephemeral'] as ('ephemeral' | 'persistent')[],
+        },
+        thinking: mi?.hasThinkingBudget ?? false,
+        multiTurn: true,
       };
     };
 

@@ -325,7 +325,40 @@ export class AxAICohere<TModelKey> extends AxBaseAI<
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo: axModelInfoCohere,
       defaults: { model: Config.model },
-      supportFor: { functions: true, streaming: true },
+      supportFor: {
+        functions: true,
+        streaming: true,
+        media: {
+          images: {
+            supported: false,
+            formats: [],
+            maxSize: 0,
+            detailLevels: [] as ('high' | 'low' | 'auto')[],
+          },
+          audio: {
+            supported: false,
+            formats: [],
+            maxDuration: 0,
+          },
+          files: {
+            supported: false,
+            formats: [],
+            maxSize: 0,
+            uploadMethod: 'none' as 'inline' | 'upload' | 'cloud' | 'none',
+          },
+          urls: {
+            supported: false,
+            webSearch: false,
+            contextFetching: false,
+          },
+        },
+        caching: {
+          supported: false,
+          types: [],
+        },
+        thinking: false,
+        multiTurn: true,
+      },
       options,
       models,
     });

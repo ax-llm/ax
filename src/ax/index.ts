@@ -46,6 +46,15 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from './ai/base.js';
 import {
+  axAnalyzeRequestRequirements,
+  axGetCompatibilityReport,
+  axGetFormatCompatibility,
+  axGetProvidersWithMediaSupport,
+  axScoreProvidersForRequest,
+  axSelectOptimalProvider,
+  axValidateProviderCapabilities,
+} from './ai/capabilities.js';
+import {
   AxAICohere,
   type AxAICohereArgs,
   axAICohereCreativeConfig,
@@ -262,6 +271,10 @@ import {
   type AxAIOpenAIResponsesWebSearchToolCall,
 } from './ai/openai/responses_types.js';
 import {
+  axAnalyzeChatPromptRequirements,
+  axProcessContentForProvider,
+} from './ai/processor.js';
+import {
   AxAIReka,
   type AxAIRekaArgs,
   axAIRekaBestConfig,
@@ -278,6 +291,12 @@ import {
   AxAIRekaModel,
   type AxAIRekaUsage,
 } from './ai/reka/types.js';
+import {
+  type AxContentProcessingServices,
+  type AxMultiProviderConfig,
+  AxProviderRouter,
+  type AxRoutingResult,
+} from './ai/router.js';
 import {
   AxAITogether,
   type AxAITogetherArgs,
@@ -607,6 +626,8 @@ import {
   AxAIServiceTimeoutError,
   type AxAPI,
   type AxAPIConfig,
+  AxContentProcessingError,
+  AxMediaNotSupportedError,
 } from './util/apicall.js';
 import {
   AxRateLimiterTokenUsage,
@@ -671,6 +692,7 @@ export { AxBaseAI };
 export { AxBaseOptimizer };
 export { AxBootstrapFewShot };
 export { AxChainOfThought };
+export { AxContentProcessingError };
 export { AxDB };
 export { AxDBBase };
 export { AxDBCloudflare };
@@ -698,12 +720,14 @@ export { AxLLMRequestTypeValues };
 export { AxMCPClient };
 export { AxMCPHTTPSSETransport };
 export { AxMCPStreambleHTTPTransport };
+export { AxMediaNotSupportedError };
 export { AxMemory };
 export { AxMiPRO };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
 export { AxProgram };
 export { AxPromptTemplate };
+export { AxProviderRouter };
 export { AxRAG };
 export { AxRateLimiterTokenUsage };
 export { AxSignature };
@@ -747,6 +771,8 @@ export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
 export { axAIWebLLMCreativeConfig };
 export { axAIWebLLMDefaultConfig };
+export { axAnalyzeChatPromptRequirements };
+export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axCheckMetricsHealth };
@@ -757,8 +783,11 @@ export { axCreateDefaultTextLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
 export { axDefaultOptimizerMetricsConfig };
+export { axGetCompatibilityReport };
+export { axGetFormatCompatibility };
 export { axGetMetricsConfig };
 export { axGetOptimizerMetricsConfig };
+export { axGetProvidersWithMediaSupport };
 export { axGlobals };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };
@@ -773,12 +802,16 @@ export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
 export { axModelInfoTogether };
 export { axModelInfoWebLLM };
+export { axProcessContentForProvider };
+export { axScoreProvidersForRequest };
+export { axSelectOptimalProvider };
 export { axSpanAttributes };
 export { axSpanEvents };
 export { axUpdateMetricsConfig };
 export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
+export { axValidateProviderCapabilities };
 export { f };
 export { s };
 
@@ -985,6 +1018,7 @@ export type { AxChatResponseResult };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCompileOptions };
+export type { AxContentProcessingServices };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };
 export type { AxDBArgs };
@@ -1079,6 +1113,7 @@ export type { AxModelInfo };
 export type { AxModelInfoWithProvider };
 export type { AxModelUsage };
 export type { AxMultiMetricFn };
+export type { AxMultiProviderConfig };
 export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
@@ -1111,6 +1146,7 @@ export type { AxResultPickerFunctionFieldResults };
 export type { AxResultPickerFunctionFunctionResults };
 export type { AxRewriteIn };
 export type { AxRewriteOut };
+export type { AxRoutingResult };
 export type { AxSamplePickerOptions };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };

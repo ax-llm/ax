@@ -82,6 +82,41 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
+        functionCot: false,
+        media: {
+          images: {
+            supported: true,
+            formats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+            maxSize: 20 * 1024 * 1024, // 20MB
+            detailLevels: ['high', 'low', 'auto'] as (
+              | 'high'
+              | 'low'
+              | 'auto'
+            )[],
+          },
+          audio: {
+            supported: false,
+            formats: [],
+            maxDuration: 0,
+          },
+          files: {
+            supported: false,
+            formats: [],
+            maxSize: 0,
+            uploadMethod: 'none' as 'inline' | 'upload' | 'cloud' | 'none',
+          },
+          urls: {
+            supported: false,
+            webSearch: false,
+            contextFetching: false,
+          },
+        },
+        caching: {
+          supported: false,
+          types: [],
+        },
+        thinking: mi?.hasThinkingBudget ?? false,
+        multiTurn: true,
       };
     };
 

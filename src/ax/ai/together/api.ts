@@ -47,6 +47,32 @@ export class AxAITogether<TModelKey> extends AxAIOpenAIBase<
       streaming: true,
       hasThinkingBudget: false,
       hasShowThoughts: false,
+      media: {
+        images: {
+          supported: false,
+          formats: [],
+        },
+        audio: {
+          supported: false,
+          formats: [],
+        },
+        files: {
+          supported: false,
+          formats: [],
+          uploadMethod: 'none' as const,
+        },
+        urls: {
+          supported: false,
+          webSearch: false,
+          contextFetching: false,
+        },
+      },
+      caching: {
+        supported: false,
+        types: [],
+      },
+      thinking: false,
+      multiTurn: true,
     };
 
     super({

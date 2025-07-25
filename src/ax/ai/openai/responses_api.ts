@@ -123,7 +123,10 @@ export class AxAIOpenAIResponsesImpl<
         if (part.type === 'audio') {
           return {
             type: 'input_audio',
-            input_audio: { data: part.data, format: part.format ?? 'wav' },
+            input_audio: {
+              data: part.data,
+              format: part.format === 'wav' ? 'wav' : undefined,
+            },
           };
         }
         // This should be exhaustive given AxUserMessageContentItem's definition

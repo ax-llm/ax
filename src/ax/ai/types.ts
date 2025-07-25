@@ -156,12 +156,46 @@ export type AxChatRequest<TModel = string> = {
                   image: string;
                   details?: 'high' | 'low' | 'auto';
                   cache?: boolean;
+                  /** Optimization preference for image processing */
+                  optimize?: 'quality' | 'size' | 'auto';
+                  /** Fallback text description when images aren't supported */
+                  altText?: string;
                 }
               | {
                   type: 'audio';
                   data: string;
-                  format?: 'wav';
+                  format?: 'wav' | 'mp3' | 'ogg';
                   cache?: boolean;
+                  /** Pre-transcribed text content for fallback */
+                  transcription?: string;
+                  /** Duration of audio in seconds */
+                  duration?: number;
+                }
+              | {
+                  /** File content type */
+                  type: 'file';
+                  /** File data as base64 or file URL */
+                  data: string;
+                  /** Original filename */
+                  filename: string;
+                  /** MIME type of the file */
+                  mimeType: string;
+                  cache?: boolean;
+                  /** Pre-extracted text content for fallback */
+                  extractedText?: string;
+                }
+              | {
+                  /** URL/Link content type */
+                  type: 'url';
+                  /** The URL to fetch content from */
+                  url: string;
+                  cache?: boolean;
+                  /** Pre-fetched content for providers without web access */
+                  cachedContent?: string;
+                  /** Page title for context */
+                  title?: string;
+                  /** Page description for context */
+                  description?: string;
                 }
             )[];
       }
@@ -184,6 +218,33 @@ export type AxChatRequest<TModel = string> = {
         cache?: boolean;
       }
   )[];
+
+  /** Provider capability preferences and requirements */
+  capabilities?: {
+    /** Whether the request requires image support */
+    requiresImages?: boolean;
+    /** Whether the request requires audio support */
+    requiresAudio?: boolean;
+    /** Whether the request requires file support */
+    requiresFiles?: boolean;
+    /** Whether the request requires web search capabilities */
+    requiresWebSearch?: boolean;
+    /** How to handle unsupported content types */
+    fallbackBehavior?: 'error' | 'degrade' | 'skip';
+  };
+
+  /** Content processing preferences and hints */
+  processing?: {
+    /** Whether to apply image compression */
+    imageCompression?: boolean;
+    /** Whether to apply audio transcription */
+    audioTranscription?: boolean;
+    /** Whether to extract text from files */
+    fileTextExtraction?: boolean;
+    /** Whether to fetch content from URLs */
+    urlContentFetching?: boolean;
+  };
+
   functions?: Readonly<{
     name: string;
     description: string;

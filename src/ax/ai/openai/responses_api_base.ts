@@ -99,7 +99,36 @@ export class AxAIOpenAIResponsesBase<
     modelInfo = [],
     models,
     responsesReqUpdater,
-    supportFor = { functions: true, streaming: true },
+    supportFor = {
+      functions: true,
+      streaming: true,
+      media: {
+        images: {
+          supported: false,
+          formats: [],
+        },
+        audio: {
+          supported: false,
+          formats: [],
+        },
+        files: {
+          supported: false,
+          formats: [],
+          uploadMethod: 'none' as const,
+        },
+        urls: {
+          supported: false,
+          webSearch: false,
+          contextFetching: false,
+        },
+      },
+      caching: {
+        supported: false,
+        types: [],
+      },
+      thinking: false,
+      multiTurn: true,
+    },
   }: Readonly<
     AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TModelKey, TResponsesReq>
   >) {
@@ -209,6 +238,32 @@ export class AxAIOpenAIResponses<
         streaming: true,
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
+        media: {
+          images: {
+            supported: false,
+            formats: [],
+          },
+          audio: {
+            supported: false,
+            formats: [],
+          },
+          files: {
+            supported: false,
+            formats: [],
+            uploadMethod: 'none' as const,
+          },
+          urls: {
+            supported: false,
+            webSearch: false,
+            contextFetching: false,
+          },
+        },
+        caching: {
+          supported: false,
+          types: [],
+        },
+        thinking: false,
+        multiTurn: true,
       };
     };
 

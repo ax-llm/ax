@@ -12,6 +12,7 @@ import type {
   AxLoggerFunction,
   AxModelConfig,
 } from './types.js';
+import type { AxAIFeatures } from './base.js';
 
 type AxAIServiceListItem<
   TModel = unknown,
@@ -244,18 +245,43 @@ export class AxMultiServiceRouter<
    * If a model key is provided, delegate to the corresponding service's features.
    * Otherwise, returns a default feature set.
    */
-  getFeatures(model?: TModelKey): {
-    functions: boolean;
-    streaming: boolean;
-    functionCot?: boolean;
-  } {
+  getFeatures(model?: TModelKey): AxAIFeatures {
     if (model) {
       const service = this.services.get(model);
       if (service) {
         return service.service.getFeatures(model);
       }
     }
-    return { functions: false, streaming: false };
+    return {
+      functions: false,
+      streaming: false,
+      media: {
+        images: {
+          supported: false,
+          formats: [],
+        },
+        audio: {
+          supported: false,
+          formats: [],
+        },
+        files: {
+          supported: false,
+          formats: [],
+          uploadMethod: 'none' as const,
+        },
+        urls: {
+          supported: false,
+          webSearch: false,
+          contextFetching: false,
+        },
+      },
+      caching: {
+        supported: false,
+        types: [],
+      },
+      thinking: false,
+      multiTurn: true,
+    };
   }
 
   /**

@@ -743,6 +743,46 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         hasThinkingBudget: mi?.hasThinkingBudget ?? false,
         hasShowThoughts: mi?.hasShowThoughts ?? false,
         functionCot: false,
+        media: {
+          images: {
+            supported: true,
+            formats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+            maxSize: 20 * 1024 * 1024, // 20MB
+            detailLevels: ['high', 'low', 'auto'] as (
+              | 'high'
+              | 'low'
+              | 'auto'
+            )[],
+          },
+          audio: {
+            supported: true,
+            formats: ['wav', 'mp3', 'aac', 'ogg'],
+            maxDuration: 9.5 * 60, // 9.5 minutes for cloud storage
+          },
+          files: {
+            supported: true,
+            formats: [
+              'application/pdf',
+              'text/plain',
+              'text/csv',
+              'text/html',
+              'text/xml',
+            ],
+            maxSize: 2 * 1024 * 1024 * 1024, // 2GB
+            uploadMethod: 'cloud' as 'inline' | 'upload' | 'cloud' | 'none',
+          },
+          urls: {
+            supported: true,
+            webSearch: true,
+            contextFetching: true,
+          },
+        },
+        caching: {
+          supported: false,
+          types: [],
+        },
+        thinking: mi?.hasThinkingBudget ?? false,
+        multiTurn: true,
       };
     };
 

@@ -280,6 +280,143 @@ export class AxAIRefusalError extends Error {
   }
 }
 
+/**
+ * Error thrown when an AI provider doesn't support a required media type.
+ *
+ * This error is thrown during content processing when a provider cannot handle
+ * a specific media type and no suitable fallback mechanism is available or configured.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await textOnlyProvider.chat(imageRequest);
+ * } catch (error) {
+ *   if (error instanceof AxMediaNotSupportedError) {
+ *     console.log(`${error.mediaType} not supported by ${error.provider}`);
+ *     if (error.fallbackAvailable) {
+ *       console.log('Consider using content processing services');
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export class AxMediaNotSupportedError extends Error {
+  /** ISO timestamp when the error occurred */
+  public readonly timestamp: string;
+  /** Unique identifier for this error instance */
+  public readonly errorId: string;
+
+  /**
+   * Creates a new media not supported error.
+   *
+   * @param mediaType - The type of media that is not supported (e.g., 'Images', 'Audio')
+   * @param provider - The name of the AI provider that doesn't support the media type
+   * @param fallbackAvailable - Whether fallback processing options are available
+   */
+  constructor(
+    public readonly mediaType: string,
+    public readonly provider: string,
+    public readonly fallbackAvailable: boolean = false
+  ) {
+    super(
+      `${mediaType} not supported by ${provider}${fallbackAvailable ? ' (fallback available)' : ''}`
+    );
+    this.name = 'AxMediaNotSupportedError';
+    this.timestamp = new Date().toISOString();
+    this.errorId = randomUUID();
+  }
+
+  override toString(): string {
+    return [
+      `${this.name}: ${this.message}`,
+      `Media Type: ${this.mediaType}`,
+      `Provider: ${this.provider}`,
+      `Fallback Available: ${this.fallbackAvailable}`,
+      `Timestamp: ${this.timestamp}`,
+      `Error ID: ${this.errorId}`,
+    ].join('\n');
+  }
+
+  // For Node.js, override the custom inspect method so console.log shows our custom string.
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString();
+  }
+}
+
+/**
+ * Error thrown when content processing/transformation fails.
+ *
+ * This error wraps underlying failures from content processing services like
+ * image-to-text, audio transcription, file text extraction, or URL content fetching.
+ * It provides context about what type of content was being processed and at which step.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await axProcessContentForProvider(content, provider, {
+ *     imageToText: imageService.analyze
+ *   });
+ * } catch (error) {
+ *   if (error instanceof AxContentProcessingError) {
+ *     console.log(`Failed processing ${error.contentType} during ${error.processingStep}`);
+ *     console.log('Original error:', error.originalError.message);
+ *   }
+ * }
+ * ```
+ */
+export class AxContentProcessingError extends Error {
+  /** ISO timestamp when the error occurred */
+  public readonly timestamp: string;
+  /** Unique identifier for this error instance */
+  public readonly errorId: string;
+
+  /**
+   * Creates a new content processing error.
+   *
+   * @param originalError - The underlying error that caused the processing failure
+   * @param contentType - The type of content being processed (e.g., 'image', 'audio', 'file')
+   * @param processingStep - The specific processing step that failed (e.g., 'vision analysis', 'transcription')
+   */
+  constructor(
+    public readonly originalError: Error,
+    public readonly contentType: string,
+    public readonly processingStep: string
+  ) {
+    super(
+      `Failed to process ${contentType} during ${processingStep}: ${originalError.message}`
+    );
+    this.name = 'AxContentProcessingError';
+    this.timestamp = new Date().toISOString();
+    this.errorId = randomUUID();
+  }
+
+  override toString(): string {
+    return [
+      `${this.name}: ${this.message}`,
+      `Content Type: ${this.contentType}`,
+      `Processing Step: ${this.processingStep}`,
+      `Original Error: ${this.originalError.message}`,
+      `Timestamp: ${this.timestamp}`,
+      `Error ID: ${this.errorId}`,
+    ].join('\n');
+  }
+
+  // For Node.js, override the custom inspect method so console.log shows our custom string.
+  [Symbol.for('nodejs.util.inspect.custom')](
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _depth: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Record<string, unknown>
+  ) {
+    return this.toString();
+  }
+}
+
 // Utility Functions
 async function safeReadResponseBody(response: Response): Promise<unknown> {
   try {

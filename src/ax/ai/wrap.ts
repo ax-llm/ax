@@ -51,6 +51,7 @@ import type {
   AxEmbedResponse,
   AxLoggerFunction,
 } from './types.js';
+import type { AxAIFeatures } from './base.js';
 import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
 import type { AxAIGrokModel } from './x-grok/types.js';
 import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
@@ -187,7 +188,7 @@ export class AxAI<TModelKey = string>
     return this.ai.getId();
   }
 
-  getFeatures(model?: string): { functions: boolean; streaming: boolean } {
+  getFeatures(model?: string): AxAIFeatures {
     return this.ai.getFeatures(model);
   }
 
