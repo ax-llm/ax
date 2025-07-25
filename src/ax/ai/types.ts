@@ -36,6 +36,10 @@ export type AxTokenUsage = {
   completionTokens: number;
   totalTokens: number;
   thoughtsTokens?: number;
+  reasoningTokens?: number; // For O1-style models
+  cacheCreationTokens?: number; // Cost of creating cache entries
+  cacheReadTokens?: number; // Tokens read from cache (often free)
+  serviceTier?: 'standard' | 'priority' | 'batch'; // Service level used
 };
 
 export type AxModelConfig = {
@@ -104,6 +108,10 @@ export type AxChatResponseResult = {
       url: string;
       title?: string;
       description?: string;
+      license?: string; // Content license information
+      publicationDate?: string; // ISO date string
+      snippet?: string; // Relevant text excerpt
+      confidenceScore?: number; // 0-1 confidence in citation
     };
   }[];
   finishReason?:
@@ -112,6 +120,13 @@ export type AxChatResponseResult = {
     | 'function_call'
     | 'content_filter'
     | 'error';
+  logprobs?: {
+    content?: {
+      token: string;
+      logprob: number;
+      topLogprobs?: { token: string; logprob: number }[];
+    }[];
+  };
 };
 
 export type AxModelUsage = {
