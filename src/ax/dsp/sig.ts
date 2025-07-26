@@ -22,6 +22,8 @@ export interface AxField {
       | 'json'
       | 'image'
       | 'audio'
+      | 'file'
+      | 'url'
       | 'date'
       | 'datetime'
       | 'class'
@@ -191,7 +193,7 @@ export class AxSignature {
       throw new AxSignatureValidationError(
         'Field type name is required',
         field.name,
-        'Specify a valid type. Available types: string, number, boolean, json, image, audio, date, datetime, class, code'
+        'Specify a valid type. Available types: string, number, boolean, json, image, audio, file, url, date, datetime, class, code'
       );
     }
 
@@ -697,7 +699,12 @@ function validateFieldType(
 
   const { type } = field;
 
-  if (type.name === 'image' || type.name === 'audio') {
+  if (
+    type.name === 'image' ||
+    type.name === 'audio' ||
+    type.name === 'file' ||
+    type.name === 'url'
+  ) {
     if (context === 'output') {
       throw new AxSignatureValidationError(
         `${type.name} type is not supported in output fields`,
@@ -706,7 +713,7 @@ function validateFieldType(
       );
     }
 
-    if (type.isArray) {
+    if (type.isArray && (type.name === 'image' || type.name === 'audio')) {
       throw new AxSignatureValidationError(
         `Arrays of ${type.name} are not supported`,
         field.name,

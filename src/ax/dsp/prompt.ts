@@ -515,6 +515,109 @@ export class AxPromptTemplate {
       return result;
     }
 
+    if (field.type?.name === 'file') {
+      const validateFile = (
+        value: Readonly<AxFieldValue>
+      ): { filename: string; mimeType: string; data: string } => {
+        if (!value) {
+          throw new Error('File field value is required.');
+        }
+        if (typeof value !== 'object') {
+          throw new Error('File field value must be an object.');
+        }
+        if (!('filename' in value)) {
+          throw new Error('File field must have filename');
+        }
+        if (!('mimeType' in value)) {
+          throw new Error('File field must have mimeType');
+        }
+        if (!('data' in value)) {
+          throw new Error('File field must have data');
+        }
+        return value as { filename: string; mimeType: string; data: string };
+      };
+      let result: ChatRequestUserMessage = [
+        { type: 'text', text: `${field.title}: ` as string },
+      ];
+      if (field.type.isArray) {
+        if (!Array.isArray(value)) {
+          throw new Error('File field value must be an array.');
+        }
+        result = result.concat(
+          (value as unknown[]).map((v) => {
+            const validated = validateFile(v as AxFieldValue);
+            return {
+              type: 'file',
+              filename: validated.filename,
+              mimeType: validated.mimeType,
+              data: validated.data,
+            };
+          })
+        );
+      } else {
+        const validated = validateFile(value);
+        result.push({
+          type: 'file',
+          filename: validated.filename,
+          mimeType: validated.mimeType,
+          data: validated.data,
+        });
+      }
+      return result;
+    }
+
+    if (field.type?.name === 'url') {
+      const validateUrl = (
+        value: Readonly<AxFieldValue>
+      ): { url: string; title?: string; description?: string } => {
+        if (!value) {
+          throw new Error('URL field value is required.');
+        }
+        if (typeof value === 'string') {
+          return { url: value };
+        }
+        if (typeof value !== 'object') {
+          throw new Error('URL field value must be a string or object.');
+        }
+        if (!('url' in value)) {
+          throw new Error('URL field must have url property');
+        }
+        return value as { url: string; title?: string; description?: string };
+      };
+      let result: ChatRequestUserMessage = [
+        { type: 'text', text: `${field.title}: ` as string },
+      ];
+      if (field.type.isArray) {
+        if (!Array.isArray(value)) {
+          throw new Error('URL field value must be an array.');
+        }
+        result = result.concat(
+          (value as unknown[]).map((v) => {
+            const validated = validateUrl(v as AxFieldValue);
+            return {
+              type: 'url',
+              url: validated.url,
+              ...(validated.title ? { title: validated.title } : {}),
+              ...(validated.description
+                ? { description: validated.description }
+                : {}),
+            };
+          })
+        );
+      } else {
+        const validated = validateUrl(value);
+        result.push({
+          type: 'url',
+          url: validated.url,
+          ...(validated.title ? { title: validated.title } : {}),
+          ...(validated.description
+            ? { description: validated.description }
+            : {}),
+        });
+      }
+      return result;
+    }
+
     const text = [field.title, ': '];
 
     if (Array.isArray(value)) {
@@ -598,6 +701,15 @@ const processValue = (
   if (field.type?.name === 'audio' && typeof value === 'object') {
     return value;
   }
+  if (field.type?.name === 'file' && typeof value === 'object') {
+    return value;
+  }
+  if (
+    field.type?.name === 'url' &&
+    (typeof value === 'string' || typeof value === 'object')
+  ) {
+    return value;
+  }
   if (typeof value === 'string') {
     return value;
   }
@@ -623,6 +735,10 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
         return 'classification class';
       case 'code':
         return 'code';
+      case 'file':
+        return 'file (with filename, mimeType, and data)';
+      case 'url':
+        return 'URL (string or object with url, title, description)';
       default:
         return 'string';
     }

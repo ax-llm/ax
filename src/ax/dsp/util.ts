@@ -132,6 +132,73 @@ export const validateValue = (
     return;
   }
 
+  const validFile = (val: Readonly<AxFieldValue>): boolean => {
+    if (
+      !val ||
+      typeof val !== 'object' ||
+      !('filename' in val) ||
+      !('mimeType' in val) ||
+      !('data' in val)
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  if (field.type?.name === 'file') {
+    let msg: string | undefined;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!validFile(item)) {
+          msg = 'object ({ filename: string; mimeType: string; data: string })';
+          break;
+        }
+      }
+    } else if (!validFile(value)) {
+      msg = 'object ({ filename: string; mimeType: string; data: string })';
+    }
+
+    if (msg) {
+      throw new Error(
+        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
+      );
+    }
+    return;
+  }
+
+  const validUrl = (val: Readonly<AxFieldValue>): boolean => {
+    if (typeof val === 'string') {
+      return true; // Simple URL string
+    }
+    if (!val || typeof val !== 'object' || !('url' in val)) {
+      return false;
+    }
+    return true;
+  };
+
+  if (field.type?.name === 'url') {
+    let msg: string | undefined;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!validUrl(item)) {
+          msg =
+            'string or object ({ url: string; title?: string; description?: string })';
+          break;
+        }
+      }
+    } else if (!validUrl(value)) {
+      msg =
+        'string or object ({ url: string; title?: string; description?: string })';
+    }
+
+    if (msg) {
+      throw new Error(
+        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
+      );
+    }
+    return;
+  }
+
   let isValid = true;
 
   if (ft.isArray) {

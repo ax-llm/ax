@@ -20,6 +20,8 @@ export interface AxFieldType {
     | 'json'
     | 'image'
     | 'audio'
+    | 'file'
+    | 'url'
     | 'date'
     | 'datetime'
     | 'class'
@@ -280,6 +282,21 @@ export const f = {
 
   audio: (desc?: string): AxFieldType => ({
     type: 'audio',
+    description: desc,
+  }),
+
+  file: (desc?: string): AxFieldType => ({
+    type: 'file',
+    description: desc,
+  }),
+
+  url: (desc?: string): AxFieldType => ({
+    type: 'url',
+    description: desc,
+  }),
+
+  link: (desc?: string): AxFieldType => ({
+    type: 'url',
     description: desc,
   }),
 

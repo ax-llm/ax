@@ -7,6 +7,8 @@ export type TypeNotClass =
   | 'json'
   | 'image'
   | 'audio'
+  | 'file'
+  | 'url'
   | 'datetime'
   | 'date'
   | 'code';
@@ -593,6 +595,8 @@ class SignatureParser {
       'json',
       'image',
       'audio',
+      'file',
+      'url',
       'datetime',
       'date',
       'code',
