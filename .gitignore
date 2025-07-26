@@ -18,4 +18,8 @@ site/dist
 .astro
 .tsimp
 *.mp4
+*.mov
+*.mp3
+*.ac3
 *.webm
+*.txt
