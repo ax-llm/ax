@@ -55,7 +55,7 @@ The idea behind prompt signatures is based on work done in the
 
 You can have multiple input and output fields, and each field can be of the
 types `string`, `number`, `boolean`, `date`, `datetime`,
-`class "class1, class2"`, `code`, `json`, `image`, `audio`, or an array of any
+`class "class1, class2"`, `code`, `json`, `image`, `audio`, `file`, `url`, or an array of any
 of these, e.g., `string[]`. When a type is not defined, it defaults to `string`.
 
 ### Field Modifiers
@@ -134,6 +134,8 @@ just the signature, use `s` instead.
 | `json`                      | A JSON object                          | `metadata:json`                      | `{"key": "value"}`                                 |
 | `image`                     | An image (input only)                  | `photo:image`                        | Base64 encoded image data                          |
 | `audio`                     | An audio file (input only)             | `recording:audio`                    | Base64 encoded audio data                          |
+| `file`                      | A file with filename, mime type, and data | `document:file`               | `{"filename": "doc.pdf", "mimeType": "application/pdf", "data": "base64data"}` |
+| `url`                       | A URL with optional title and description | `website:url`                | `"https://example.com"` or `{"url": "https://example.com", "title": "Example"}` |
 | `class "option1,option2"`   | Classification with predefined options | `category:class "urgent,normal,low"` | `"urgent"`                                         |
 | `code`                      | A code block                           | `solution:code "Python solution"`    | `print('Hello, world!')`                           |
 | `string[]`                  | An array of strings                    | `tags:string[]`                      | `["example1", "example2"]`                         |
@@ -141,6 +143,8 @@ just the signature, use `s` instead.
 | `boolean[]`                 | An array of boolean values             | `permissions:boolean[]`              | `[true, false, true]`                              |
 | `date[]`                    | An array of dates                      | `holidayDates:date[]`                | `["2023-10-01", "2023-10-02"]`                     |
 | `datetime[]`                | An array of date and time values       | `logTimestamps:datetime[]`           | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]` |
+| `file[]`                    | An array of files                      | `attachments:file[]`                 | `[{"filename": "doc1.pdf", "mimeType": "application/pdf", "data": "base64data"}]` |
+| `url[]`                     | An array of URLs                       | `links:url[]`                        | `["https://example.com", {"url": "https://test.com", "title": "Test"}]` |
 | `class[] "option1,option2"` | Array of classifications               | `categories:class[] "tech,business"` | `["tech", "business"]`                             |
 
 ### Important Notes on Field Types

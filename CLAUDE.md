@@ -149,7 +149,7 @@ const signature = `emailText -> categoryType:class "urgent, normal, low", action
 
 **Field Types & Builders**:
 - **Basic types**: `f.string()`, `f.number()`, `f.boolean()`, `f.date()`, `f.datetime()`, `f.json()`
-- **Media types**: `f.image()`, `f.audio()`
+- **Media types**: `f.image()`, `f.audio()`, `f.file()`, `f.url()`
 - **Classifications**: `f.class(['option1', 'option2'], 'description')`
 - **Code blocks**: `f.code('python', 'description')`
 - **Arrays**: `f.array(f.string())`, `f.array(f.number())`, etc.
