@@ -40,6 +40,43 @@ import {
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './types.js';
 
+/**
+ * Clean function schema for Gemini API compatibility by removing unsupported fields
+ * Gemini doesn't support: additionalProperties, default, optional, maximum, oneOf, anyOf
+ */
+const cleanSchemaForGemini = (schema: any): any => {
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+
+  const cleaned = { ...schema };
+
+  // Remove unsupported fields
+  delete cleaned.additionalProperties;
+  delete cleaned.default;
+  delete cleaned.optional;
+  delete cleaned.maximum;
+  delete cleaned.oneOf;
+  delete cleaned.anyOf;
+
+  // Recursively clean properties
+  if (cleaned.properties && typeof cleaned.properties === 'object') {
+    cleaned.properties = Object.fromEntries(
+      Object.entries(cleaned.properties).map(([key, value]) => [
+        key,
+        cleanSchemaForGemini(value),
+      ])
+    );
+  }
+
+  // Recursively clean items (for arrays)
+  if (cleaned.items) {
+    cleaned.items = cleanSchemaForGemini(cleaned.items);
+  }
+
+  return cleaned;
+};
+
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
   {
     category: AxAIGoogleGeminiSafetyCategory.HarmCategoryHarassment,
@@ -306,7 +343,14 @@ class AxAIGoogleGeminiImpl
     let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
 
     if (req.functions && req.functions.length > 0) {
-      tools.push({ function_declarations: req.functions });
+      // Clean function schemas for Gemini compatibility
+      const cleanedFunctions = req.functions.map((fn) => ({
+        ...fn,
+        parameters: fn.parameters
+          ? cleanSchemaForGemini(fn.parameters)
+          : undefined,
+      }));
+      tools.push({ function_declarations: cleanedFunctions });
     }
 
     if (this.options?.codeExecution) {

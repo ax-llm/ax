@@ -30,6 +30,43 @@ import {
   AxAIAnthropicVertexModel,
 } from './types.js';
 
+/**
+ * Clean function schema for Anthropic API compatibility
+ * Anthropic uses input_schema and may not support certain JSON Schema fields
+ */
+const cleanSchemaForAnthropic = (schema: any): any => {
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+
+  const cleaned = { ...schema };
+
+  // Remove fields that might cause issues with Anthropic
+  delete cleaned.additionalProperties;
+  delete cleaned.default;
+  delete cleaned.optional;
+  delete cleaned.oneOf;
+  delete cleaned.anyOf;
+  delete cleaned.allOf;
+
+  // Recursively clean properties
+  if (cleaned.properties && typeof cleaned.properties === 'object') {
+    cleaned.properties = Object.fromEntries(
+      Object.entries(cleaned.properties).map(([key, value]) => [
+        key,
+        cleanSchemaForAnthropic(value),
+      ])
+    );
+  }
+
+  // Recursively clean items (for arrays)
+  if (cleaned.items) {
+    cleaned.items = cleanSchemaForAnthropic(cleaned.items);
+  }
+
+  return cleaned;
+};
+
 export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
     model: AxAIAnthropicModel.Claude37Sonnet,
@@ -184,7 +221,9 @@ class AxAIAnthropicImpl
       (v) => ({
         name: v.name,
         description: v.description,
-        input_schema: v.parameters,
+        input_schema: v.parameters
+          ? cleanSchemaForAnthropic(v.parameters)
+          : undefined,
       })
     );
 
