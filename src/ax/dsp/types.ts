@@ -243,9 +243,9 @@ export interface TypeMap {
   json: any;
   date: Date;
   datetime: Date;
-  image: string;
-  audio: string;
-  file: string;
+  image: { mimeType: string; data: string };
+  audio: { format?: 'wav'; data: string };
+  file: { mimeType: string; data: string };
   url: string;
   code: string;
   'string[]': string[];
@@ -263,13 +263,16 @@ type Trim<S extends string> = S extends ` ${infer T}`
 // Parses a single field, checking for the optional marker "?" at the end of the name
 type ParseField<S extends string> = S extends `${infer Name}?:${infer _Rest}`
   ? { name: Trim<Name>; optional: true }
-  : { name: Trim<S>; optional: false };
+  : S extends `${infer Name}?`
+    ? { name: Trim<Name>; optional: true }
+    : { name: Trim<S>; optional: false };
 
 // Parses a "name: type" or "name?: type" part, now handling arrays
+// If no type is specified, defaults to 'string'
 type ParseNameAndType<S extends string> =
   S extends `${infer Name}:${infer Type}`
     ? ParseField<Name> & { type: Trim<Type> }
-    : never;
+    : ParseField<S> & { type: 'string' };
 
 // Recursively parses a comma-separated list of fields into a tuple of field objects
 type ParseFields<S extends string> = S extends `${infer Field},${infer Rest}`

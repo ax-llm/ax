@@ -30,6 +30,17 @@ expectType<
   >
 >(multiTypeSig);
 
+// Test signature with missing types (should default to string)
+const missingTypesSig = AxSignature.create(
+  'question, animalImage: image -> answer'
+);
+expectType<
+  AxSignature<
+    { question: string; animalImage: { mimeType: string; data: string } },
+    { answer: string }
+  >
+>(missingTypesSig);
+
 // Test error cases
 expectError(AxSignature.create('invalid format without arrow'));
 expectError(AxSignature.create(''));

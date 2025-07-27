@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 
-import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, ax } from '@ax-llm/ax';
 
-const gen = new AxChainOfThought('question, animalImage:image -> answer');
+const gen = ax('question, animalImage:image -> answer');
 
 const image = fs
   .readFileSync('./src/examples/assets/kitten.jpeg')
