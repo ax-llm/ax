@@ -9,6 +9,7 @@ import {
   type ParsedSignature,
   parseSignature,
 } from './parser.js';
+import type { ParseSignature } from './types.js';
 
 export interface AxField {
   name: string;
@@ -54,7 +55,10 @@ export interface AxSignatureConfig {
   outputs: readonly AxField[];
 }
 
-export class AxSignature {
+export class AxSignature<
+  _TInput extends Record<string, any> = Record<string, any>,
+  _TOutput extends Record<string, any> = Record<string, any>,
+> {
   private description?: string;
   private inputFields: AxIField[];
   private outputFields: AxIField[];
@@ -159,6 +163,19 @@ export class AxSignature {
         'Signature must be a string, another AxSignature instance, or an object with inputs and outputs arrays'
       );
     }
+  }
+
+  /**
+   * Static factory method for type inference.
+   * Creates a typed AxSignature instance from a signature string.
+   */
+  public static create<const T extends string>(
+    signature: T
+  ): AxSignature<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
+    return new AxSignature(signature) as AxSignature<
+      ParseSignature<T>['inputs'],
+      ParseSignature<T>['outputs']
+    >;
   }
 
   private parseParsedField = (

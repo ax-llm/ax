@@ -133,3 +133,4 @@ webllm
 Qwen
 apidocs
 audiodata
+Typesafe

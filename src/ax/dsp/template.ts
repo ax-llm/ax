@@ -3,7 +3,7 @@
 
 import { AxGen, type AxGenerateResult } from './generate.js';
 import { AxSignature } from './sig.js';
-import type { AxGenIn, AxGenOut } from './types.js';
+import type { AxGenIn, AxGenOut, ParseSignature } from './types.js';
 
 // Type for template interpolation values
 export type AxSignatureTemplateValue =
@@ -41,12 +41,30 @@ export interface AxFieldDescriptor {
   readonly isInternal?: boolean;
 }
 
+// Function overload for string-based type-safe signature creation
+export function s<const T extends string>(
+  signature: T
+): AxSignature<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
+
 // Main tagged template function for creating signatures
 export function s(
   strings: TemplateStringsArray,
   // eslint-disable-next-line functional/functional-parameters
   ...values: readonly AxSignatureTemplateValue[]
-): AxSignature {
+): AxSignature;
+
+export function s<const T extends string>(
+  sigOrStrings: T | TemplateStringsArray,
+  // eslint-disable-next-line functional/functional-parameters
+  ...values: readonly AxSignatureTemplateValue[]
+): AxSignature<any, any> {
+  // If called as regular function with string
+  if (typeof sigOrStrings === 'string') {
+    return AxSignature.create(sigOrStrings);
+  }
+
+  // If called as tagged template literal
+  const strings = sigOrStrings as TemplateStringsArray;
   let result = '';
 
   for (let i = 0; i < strings.length; i++) {
@@ -92,6 +110,11 @@ export function s(
   return new AxSignature(result);
 }
 
+// Function overload for string-based type-safe generator creation
+export function ax<const T extends string>(
+  signature: T
+): AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
+
 // Tagged template function that returns AxGen instances
 export function ax<
   IN extends AxGenIn = AxGenIn,
@@ -100,7 +123,21 @@ export function ax<
   strings: TemplateStringsArray,
   // eslint-disable-next-line functional/functional-parameters
   ...values: readonly AxSignatureTemplateValue[]
-): AxGen<IN, OUT> {
+): AxGen<IN, OUT>;
+
+export function ax<const T extends string>(
+  sigOrStrings: T | TemplateStringsArray,
+  // eslint-disable-next-line functional/functional-parameters
+  ...values: readonly AxSignatureTemplateValue[]
+): AxGen<any, any> {
+  // If called as regular function with string
+  if (typeof sigOrStrings === 'string') {
+    const typedSignature = AxSignature.create(sigOrStrings);
+    return new AxGen(typedSignature);
+  }
+
+  // If called as tagged template literal
+  const strings = sigOrStrings as TemplateStringsArray;
   let result = '';
 
   for (let i = 0; i < strings.length; i++) {
@@ -143,7 +180,9 @@ export function ax<
     }
   }
 
-  return new AxGen<IN, OUT>(result);
+  // For complex signatures with field objects, use the standard constructor
+  const signature = new AxSignature(result);
+  return new AxGen(signature);
 }
 
 function convertValueToSignatureString(

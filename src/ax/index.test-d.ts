@@ -1,7 +1,38 @@
-// // index.test-d.ts
-// import type { ReadableStream } from 'stream/web'
+// index.test-d.ts
+import { expectError, expectType } from 'tsd';
 
-// import { expectError, expectType } from 'tsd'
+// === Typesafe Signature Tests ===
+import { AxSignature } from './dsp/sig.js';
+
+// Test basic signature type inference
+const basicSig = AxSignature.create('question: string -> answer: string');
+expectType<AxSignature<{ question: string }, { answer: string }>>(basicSig);
+
+// Test signature with optional fields and arrays
+const complexSig = AxSignature.create(
+  'userInput: string, context?: string[] -> responseText: string, citations: number[]'
+);
+expectType<
+  AxSignature<
+    { userInput: string; context?: string[] },
+    { responseText: string; citations: number[] }
+  >
+>(complexSig);
+
+// Test signature with multiple types
+const multiTypeSig = AxSignature.create(
+  'title: string, count: number, isActive: boolean -> analysisResult: string, score: number'
+);
+expectType<
+  AxSignature<
+    { title: string; count: number; isActive: boolean },
+    { analysisResult: string; score: number }
+  >
+>(multiTypeSig);
+
+// Test error cases
+expectError(AxSignature.create('invalid format without arrow'));
+expectError(AxSignature.create(''));
 
 // import type {
 //   AxAIService,

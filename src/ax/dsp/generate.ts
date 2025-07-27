@@ -66,7 +66,7 @@ import {
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
-import type { AxIField, AxSignature } from './sig.js';
+import type { AxSignature, AxIField } from './sig.js';
 import type {
   AsyncGenDeltaOut,
   AxGenDeltaOut,
@@ -140,7 +140,9 @@ export class AxGen<
   private thoughtFieldName: string;
 
   constructor(
-    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
+    signature:
+      | NonNullable<ConstructorParameters<typeof AxSignature>[0]>
+      | AxSignature<IN, OUT>,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     super(signature, {

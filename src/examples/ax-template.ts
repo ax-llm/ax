@@ -7,6 +7,10 @@ const ai = new AxAI({
 
 console.log('=== Ax Tagged Template Literals Demo ===\n');
 
+// Keep in mind tagged template literals do not return typesafe objects
+const testAx = ax(`userQuestion:string -> responseText:string`);
+testAx.forward(ai, { userQuestion: 'What is the capital of France?' });
+
 // Example 1: Basic AxGen creation
 console.log('1. Basic AxGen creation:');
 const basicGen = ax`userQuestion:string -> responseText:string`;
