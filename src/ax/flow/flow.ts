@@ -157,7 +157,7 @@ export class AxFlow<
     // Find input fields (consumed but not produced by any step)
     // These are fields that the flow needs from external input
     const inputFieldNames = new Set<string>();
-    for (const consumed of allConsumedFields) {
+    for (const consumed of Array.from(allConsumedFields)) {
       if (!allProducedFields.has(consumed)) {
         inputFieldNames.add(consumed);
       }
@@ -199,7 +199,7 @@ export class AxFlow<
     } else {
       // Standard logic: fields produced but not consumed by subsequent steps
       // This finds the "leaf" fields that aren't used by any other step
-      for (const produced of allProducedFields) {
+      for (const produced of Array.from(allProducedFields)) {
         // Check if this field is consumed by any step
         let isConsumed = false;
         for (const step of executionPlan.steps) {
@@ -242,7 +242,7 @@ export class AxFlow<
       const outputFields: AxField[] = [];
 
       // Go through each node and extract its input/output fields
-      for (const [nodeName, nodeGen] of this.nodeGenerators) {
+      for (const [nodeName, nodeGen] of Array.from(this.nodeGenerators)) {
         const nodeSignature = nodeGen.getSignature();
         const sig = new AxSignature(nodeSignature);
 
@@ -309,7 +309,7 @@ export class AxFlow<
 
     // Add input fields
     const inputFields: AxField[] = [];
-    for (const fieldName of inputFieldNames) {
+    for (const fieldName of Array.from(inputFieldNames)) {
       inputFields.push({
         name: fieldName,
         type: { name: 'string' },
@@ -328,7 +328,7 @@ export class AxFlow<
 
     // Add output fields
     const outputFields: AxField[] = [];
-    for (const fieldName of outputFieldNames) {
+    for (const fieldName of Array.from(outputFieldNames)) {
       // Skip internal fields that start with underscore
       if (fieldName.startsWith('_')) {
         continue;
@@ -397,7 +397,7 @@ export class AxFlow<
     // Collect traces from all nodes
     const allTraces: AxProgramTrace<IN, OUT>[] = [];
 
-    for (const [_nodeName, nodeTraces] of this.nodeTraces) {
+    for (const [_nodeName, nodeTraces] of Array.from(this.nodeTraces)) {
       // Cast the traces to the expected type since they should be compatible
       allTraces.push(...(nodeTraces as AxProgramTrace<IN, OUT>[]));
     }
@@ -414,7 +414,7 @@ export class AxFlow<
     // Collect usage from all nodes and merge
     const allUsage: AxProgramUsage[] = [];
 
-    for (const [_nodeName, nodeUsage] of this.nodeUsage) {
+    for (const [_nodeName, nodeUsage] of Array.from(this.nodeUsage)) {
       allUsage.push(...nodeUsage);
     }
 
@@ -426,7 +426,7 @@ export class AxFlow<
     this.nodeUsage.clear();
 
     // Also reset usage on all node generators
-    for (const [_nodeName, nodeProgram] of this.nodeGenerators) {
+    for (const [_nodeName, nodeProgram] of Array.from(this.nodeGenerators)) {
       if (nodeProgram && 'resetUsage' in nodeProgram) {
         nodeProgram.resetUsage();
       }
@@ -454,7 +454,7 @@ export class AxFlow<
   public getUsageReport(): Record<string, AxProgramUsage[]> {
     const report: Record<string, AxProgramUsage[]> = {};
 
-    for (const [nodeName, nodeUsage] of this.nodeUsage) {
+    for (const [nodeName, nodeUsage] of Array.from(this.nodeUsage)) {
       report[nodeName] = mergeProgramUsage(nodeUsage);
     }
 
@@ -470,7 +470,7 @@ export class AxFlow<
   public getTracesReport(): Record<string, AxProgramTrace<any, any>[]> {
     const report: Record<string, AxProgramTrace<any, any>[]> = {};
 
-    for (const [nodeName, nodeTraces] of this.nodeTraces) {
+    for (const [nodeName, nodeTraces] of Array.from(this.nodeTraces)) {
       report[nodeName] = nodeTraces;
     }
 

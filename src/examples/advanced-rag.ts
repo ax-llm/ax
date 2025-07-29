@@ -1,4 +1,10 @@
-import { AxAIGoogleGeminiModel, ai, ax, axAdvancedRAG, axRAG } from '@ax-llm/ax'
+import {
+  AxAIGoogleGeminiModel,
+  ai,
+  ax,
+  axAdvancedRAG,
+  axRAG,
+} from '@ax-llm/ax';
 
 const llm = ai({
   name: 'google-gemini',
@@ -10,12 +16,12 @@ const llm = ai({
 const fetchFromVectorDB = async (query: string) => {
   // In a real implementation, this would query your vector database
   // For demo purposes, we'll simulate retrieval with AxGen
-  const contextRetriever = ax`
+  const contextRetriever = ax(`
     searchQuery:string -> 
     sourceType:class "academic, news, research",
     relevantContext:string,
     sourceReferences:string
-  `;
+  `);
 
   const result = await contextRetriever.forward(llm, {
     searchQuery: query,
@@ -77,4 +83,3 @@ const simpleResult = await simpleRAG.forward(llm, {
 console.log('Simple RAG Result:');
 console.log('Answer:', simpleResult.answer);
 console.log('Context length:', simpleResult.context.length);
-

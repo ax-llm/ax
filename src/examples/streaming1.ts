@@ -1,9 +1,7 @@
-import { AxAI, AxAIGoogleGeminiModel, AxChainOfThought } from '@ax-llm/ax';
+import { AxAI, AxAIGoogleGeminiModel, ax } from '@ax-llm/ax';
 
 // setup the prompt program
-const gen = new AxChainOfThought<{ startNumber: number }>(
-  'startNumber:number -> next10Numbers:number[]'
-);
+const gen = ax('startNumber:number -> next10Numbers:number[]');
 
 // add a assertion to ensure that the number 5 is not in an output field
 gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {

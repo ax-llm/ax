@@ -1,412 +1,249 @@
-import { describe, expectTypeOf, test } from 'vitest';
+import { expectType } from 'tsd';
 import type { ParseSignature, BuildObject } from './sigtypes.js';
 
-describe('ParseSignature type inference', () => {
-  describe('basic types', () => {
-    test('should parse string types', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> responseText:string'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test basic string types
+{
+  type Result = ParseSignature<'userQuestion:string -> responseText:string'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-    test('should parse number types', () => {
-      type Result = ParseSignature<'userInput:number -> responseScore:number'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{ userInput: number }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseScore: number;
-      }>();
-    });
+// Test number types
+{
+  type Result = ParseSignature<'userInput:number -> responseScore:number'>;
+  expectType<{ userInput: number }>({} as Result['inputs']);
+  expectType<{ responseScore: number }>({} as Result['outputs']);
+}
 
-    test('should parse boolean types', () => {
-      type Result = ParseSignature<'isValid:boolean -> isProcessed:boolean'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{ isValid: boolean }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        isProcessed: boolean;
-      }>();
-    });
+// Test boolean types
+{
+  type Result = ParseSignature<'isValid:boolean -> isProcessed:boolean'>;
+  expectType<{ isValid: boolean }>({} as Result['inputs']);
+  expectType<{ isProcessed: boolean }>({} as Result['outputs']);
+}
 
-    test('should default missing types to string', () => {
-      type Result =
-        ParseSignature<'userQuestion, imageData:image -> responseText'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-        imageData: { mimeType: string; data: string };
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
-  });
+// Test default missing types to string
+{
+  type Result = ParseSignature<'userQuestion, imageData:image -> responseText'>;
+  expectType<{ userQuestion: string; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-  describe('array types', () => {
-    test('should parse string arrays', () => {
-      type Result =
-        ParseSignature<'userQuestions:string[] -> responseTexts:string[]'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestions: string[];
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseTexts: string[];
-      }>();
-    });
+// Test string arrays
+{
+  type Result = ParseSignature<'userQuestions:string[] -> responseTexts:string[]'>;
+  expectType<{ userQuestions: string[] }>({} as Result['inputs']);
+  expectType<{ responseTexts: string[] }>({} as Result['outputs']);
+}
 
-    test('should parse number arrays', () => {
-      type Result =
-        ParseSignature<'inputScores:number[] -> outputScores:number[]'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        inputScores: number[];
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        outputScores: number[];
-      }>();
-    });
+// Test number arrays
+{
+  type Result = ParseSignature<'inputScores:number[] -> outputScores:number[]'>;
+  expectType<{ inputScores: number[] }>({} as Result['inputs']);
+  expectType<{ outputScores: number[] }>({} as Result['outputs']);
+}
 
-    test('should parse boolean arrays', () => {
-      type Result =
-        ParseSignature<'inputFlags:boolean[] -> outputFlags:boolean[]'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        inputFlags: boolean[];
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        outputFlags: boolean[];
-      }>();
-    });
-  });
+// Test boolean arrays
+{
+  type Result = ParseSignature<'inputFlags:boolean[] -> outputFlags:boolean[]'>;
+  expectType<{ inputFlags: boolean[] }>({} as Result['inputs']);
+  expectType<{ outputFlags: boolean[] }>({} as Result['outputs']);
+}
 
-  describe('class types', () => {
-    test('should parse class with single option', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> categoryType:class "option1"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        categoryType: 'option1';
-      }>();
-    });
+// Test class with single option
+{
+  type Result = ParseSignature<'userQuestion:string -> categoryType:class "option1"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ categoryType: 'option1' }>({} as Result['outputs']);
+}
 
-    test('should parse class with multiple options', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> categoryType:class "positive, negative, neutral"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        categoryType: 'positive' | 'negative' | 'neutral';
-      }>();
-    });
+// Test class with multiple options
+{
+  type Result = ParseSignature<'userQuestion:string -> categoryType:class "positive, negative, neutral"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ categoryType: 'positive' | 'negative' | 'neutral' }>({} as Result['outputs']);
+}
 
-    test('should parse class with pipe separators', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> categoryType:class "option1 | option2 | option3"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        categoryType: 'option1' | 'option2' | 'option3';
-      }>();
-    });
+// Test class with pipe separators
+{
+  type Result = ParseSignature<'userQuestion:string -> categoryType:class "option1 | option2 | option3"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>({} as Result['outputs']);
+}
 
-    test('should parse class with mixed separators', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> categoryType:class "option1, option2 | option3"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        categoryType: 'option1' | 'option2' | 'option3';
-      }>();
-    });
+// Test class with mixed separators
+{
+  type Result = ParseSignature<'userQuestion:string -> categoryType:class "option1, option2 | option3"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>({} as Result['outputs']);
+}
 
-    test('should parse class arrays', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> categoryTypes:class[] "option1, option2"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        categoryTypes: ('option1' | 'option2')[];
-      }>();
-    });
-  });
+// Test class arrays
+{
+  type Result = ParseSignature<'userQuestion:string -> categoryTypes:class[] "option1, option2"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ categoryTypes: ('option1' | 'option2')[] }>({} as Result['outputs']);
+}
 
-  describe('multi-modal types', () => {
-    test('should parse image types', () => {
-      type Result =
-        ParseSignature<'userQuestion:string, imageData:image -> responseText:string'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-        imageData: { mimeType: string; data: string };
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test image types
+{
+  type Result = ParseSignature<'userQuestion:string, imageData:image -> responseText:string'>;
+  expectType<{ userQuestion: string; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-    test('should parse audio types', () => {
-      type Result =
-        ParseSignature<'userQuestion:string, audioData:audio -> responseText:string'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-        audioData: { format?: 'wav'; data: string };
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test audio types
+{
+  type Result = ParseSignature<'userQuestion:string, audioData:audio -> responseText:string'>;
+  expectType<{ userQuestion: string; audioData: { format?: 'wav'; data: string } }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-    test('should parse file types', () => {
-      type Result =
-        ParseSignature<'userQuestion:string, fileData:file -> responseText:string'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-        fileData: { mimeType: string; data: string };
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test file types
+{
+  type Result = ParseSignature<'userQuestion:string, fileData:file -> responseText:string'>;
+  expectType<{ userQuestion: string; fileData: { mimeType: string; data: string } }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-    test('should parse URL types', () => {
-      type Result = ParseSignature<'websiteUrl:url -> extractedText:string'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{ websiteUrl: string }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        extractedText: string;
-      }>();
-    });
-  });
+// Test URL types
+{
+  type Result = ParseSignature<'websiteUrl:url -> extractedText:string'>;
+  expectType<{ websiteUrl: string }>({} as Result['inputs']);
+  expectType<{ extractedText: string }>({} as Result['outputs']);
+}
 
-  describe('date and time types', () => {
-    test('should parse date types', () => {
-      type Result = ParseSignature<'startDate:date -> processedDate:date'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{ startDate: Date }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        processedDate: Date;
-      }>();
-    });
+// Test date types
+{
+  type Result = ParseSignature<'startDate:date -> processedDate:date'>;
+  expectType<{ startDate: Date }>({} as Result['inputs']);
+  expectType<{ processedDate: Date }>({} as Result['outputs']);
+}
 
-    test('should parse datetime types', () => {
-      type Result =
-        ParseSignature<'timestamp:datetime -> processedTime:datetime'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{ timestamp: Date }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        processedTime: Date;
-      }>();
-    });
-  });
+// Test datetime types
+{
+  type Result = ParseSignature<'timestamp:datetime -> processedTime:datetime'>;
+  expectType<{ timestamp: Date }>({} as Result['inputs']);
+  expectType<{ processedTime: Date }>({} as Result['outputs']);
+}
 
-  describe('other types', () => {
-    test('should parse JSON types', () => {
-      type Result = ParseSignature<'configData:json -> resultData:json'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{ configData: any }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{ resultData: any }>();
-    });
+// Test JSON types
+{
+  type Result = ParseSignature<'configData:json -> resultData:json'>;
+  expectType<{ configData: any }>({} as Result['inputs']);
+  expectType<{ resultData: any }>({} as Result['outputs']);
+}
 
-    test('should parse code types', () => {
-      type Result = ParseSignature<'sourceCode:code -> processedCode:code'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{ sourceCode: string }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        processedCode: string;
-      }>();
-    });
-  });
+// Test code types
+{
+  type Result = ParseSignature<'sourceCode:code -> processedCode:code'>;
+  expectType<{ sourceCode: string }>({} as Result['inputs']);
+  expectType<{ processedCode: string }>({} as Result['outputs']);
+}
 
-  describe('optional fields', () => {
-    test('should parse optional input fields', () => {
-      type Result =
-        ParseSignature<'requiredField:string, optionalField?:number -> responseText:string'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        requiredField: string;
-        optionalField?: number;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test optional input fields
+{
+  type Result = ParseSignature<'requiredField:string, optionalField?:number -> responseText:string'>;
+  expectType<{ requiredField: string; optionalField?: number }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-    test('should parse optional output fields', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> requiredField:string, optionalField?:number'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        requiredField: string;
-        optionalField?: number;
-      }>();
-    });
+// Test optional output fields
+{
+  type Result = ParseSignature<'userQuestion:string -> requiredField:string, optionalField?:number'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ requiredField: string; optionalField?: number }>({} as Result['outputs']);
+}
 
-    test('should parse optional fields without types', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> requiredField, optionalField?'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        requiredField: string;
-        optionalField?: string;
-      }>();
-    });
-  });
+// Test optional fields without types
+{
+  type Result = ParseSignature<'userQuestion:string -> requiredField, optionalField?'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ requiredField: string; optionalField?: string }>({} as Result['outputs']);
+}
 
-  describe('field descriptions', () => {
-    test('should handle field descriptions (ignore for type inference)', () => {
-      type Result =
-        ParseSignature<'userQuestion:string "User input" -> responseText:string "AI response"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test field descriptions (ignore for type inference)
+{
+  type Result = ParseSignature<'userQuestion:string "User input" -> responseText:string "AI response"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-    test('should handle fields with descriptions but no types', () => {
-      type Result =
-        ParseSignature<'userQuestion "User input" -> responseText "AI response"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test fields with descriptions but no types
+{
+  type Result = ParseSignature<'userQuestion "User input" -> responseText "AI response"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-    test('should handle class with both options and descriptions', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> categoryType:class "positive, negative" "Sentiment analysis"'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        categoryType: 'positive' | 'negative';
-      }>();
-    });
-  });
+// Test class with both options and descriptions
+{
+  type Result = ParseSignature<'userQuestion:string -> categoryType:class "positive, negative" "Sentiment analysis"'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ categoryType: 'positive' | 'negative' }>({} as Result['outputs']);
+}
 
-  describe('complex signatures', () => {
-    test('should parse multiple input and output fields', () => {
-      type Result =
-        ParseSignature<'userMessage:string, contextData:json, isUrgent:boolean -> responseText:string, confidence:number, needsFollowup:boolean'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userMessage: string;
-        contextData: any;
-        isUrgent: boolean;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-        confidence: number;
-        needsFollowup: boolean;
-      }>();
-    });
+// Test multiple input and output fields
+{
+  type Result = ParseSignature<'userMessage:string, contextData:json, isUrgent:boolean -> responseText:string, confidence:number, needsFollowup:boolean'>;
+  expectType<{ userMessage: string; contextData: any; isUrgent: boolean }>({} as Result['inputs']);
+  expectType<{ responseText: string; confidence: number; needsFollowup: boolean }>({} as Result['outputs']);
+}
 
-    test('should parse mixed types with arrays and classes', () => {
-      type Result =
-        ParseSignature<'userQuestions:string[], imageData:image -> categories:class[] "urgent, normal, low", responseTexts:string[], confidence:number'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestions: string[];
-        imageData: { mimeType: string; data: string };
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        categories: ('urgent' | 'normal' | 'low')[];
-        responseTexts: string[];
-        confidence: number;
-      }>();
-    });
-  });
+// Test mixed types with arrays and classes
+{
+  type Result = ParseSignature<'userQuestions:string[], imageData:image -> categories:class[] "urgent, normal, low", responseTexts:string[], confidence:number'>;
+  expectType<{ userQuestions: string[]; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
+  expectType<{ categories: ('urgent' | 'normal' | 'low')[]; responseTexts: string[]; confidence: number }>({} as Result['outputs']);
+}
 
-  describe('whitespace handling', () => {
-    test('should handle extra whitespace around fields', () => {
-      type Result =
-        ParseSignature<' userQuestion : string ,  imageData : image  ->  responseText : string , confidence : number '>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-        imageData: { mimeType: string; data: string };
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-        confidence: number;
-      }>();
-    });
+// Test extra whitespace around fields
+{
+  type Result = ParseSignature<' userQuestion : string ,  imageData : image  ->  responseText : string , confidence : number '>;
+  expectType<{ userQuestion: string; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
+  expectType<{ responseText: string; confidence: number }>({} as Result['outputs']);
+}
 
-    test('should handle newlines and tabs', () => {
-      type Result = ParseSignature<`
-        userQuestion:string,
-        imageData:image
-        ->
-        responseText:string,
-        confidence:number
-      `>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-        imageData: { mimeType: string; data: string };
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-        confidence: number;
-      }>();
-    });
-  });
+// Test single input and output
+{
+  type Result = ParseSignature<'userQuestion:string -> responseText:string'>;
+  expectType<{ userQuestion: string }>({} as Result['inputs']);
+  expectType<{ responseText: string }>({} as Result['outputs']);
+}
 
-  describe('edge cases', () => {
-    test('should handle single input and output', () => {
-      type Result =
-        ParseSignature<'userQuestion:string -> responseText:string'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<{
-        userQuestion: string;
-      }>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<{
-        responseText: string;
-      }>();
-    });
+// Test fallback for invalid signatures
+{
+  type Result = ParseSignature<'invalid signature format'>;
+  expectType<Record<string, any>>({} as Result['inputs']);
+  expectType<Record<string, any>>({} as Result['outputs']);
+}
 
-    test('should provide fallback for invalid signatures', () => {
-      type Result = ParseSignature<'invalid signature format'>;
-      expectTypeOf<Result['inputs']>().toEqualTypeOf<Record<string, any>>();
-      expectTypeOf<Result['outputs']>().toEqualTypeOf<Record<string, any>>();
-    });
-  });
-});
+// Test BuildObject helper type
+{
+  type Fields = readonly [
+    { name: 'required'; type: 'string'; optional: false },
+    { name: 'optional'; type: 'number'; optional: true },
+  ];
+  type Result = BuildObject<Fields>;
+  expectType<{ required: string; optional?: number }>({} as Result);
+}
 
-describe('BuildObject helper type', () => {
-  test('should build object from field definitions', () => {
-    type Fields = readonly [
-      { name: 'required'; type: 'string'; optional: false },
-      { name: 'optional'; type: 'number'; optional: true },
-    ];
-    type Result = BuildObject<Fields>;
-    expectTypeOf<Result>().toEqualTypeOf<{
-      required: string;
-      optional?: number;
-    }>();
-  });
+// Test BuildObject with all required fields
+{
+  type Fields = readonly [
+    { name: 'field1'; type: 'string'; optional: false },
+    { name: 'field2'; type: 'number'; optional: false },
+  ];
+  type Result = BuildObject<Fields>;
+  expectType<{ field1: string; field2: number }>({} as Result);
+}
 
-  test('should handle all required fields', () => {
-    type Fields = readonly [
-      { name: 'field1'; type: 'string'; optional: false },
-      { name: 'field2'; type: 'number'; optional: false },
-    ];
-    type Result = BuildObject<Fields>;
-    expectTypeOf<Result>().toEqualTypeOf<{
-      field1: string;
-      field2: number;
-    }>();
-  });
-
-  test('should handle all optional fields', () => {
-    type Fields = readonly [
-      { name: 'field1'; type: 'string'; optional: true },
-      { name: 'field2'; type: 'number'; optional: true },
-    ];
-    type Result = BuildObject<Fields>;
-    expectTypeOf<Result>().toEqualTypeOf<{
-      field1?: string;
-      field2?: number;
-    }>();
-  });
-});
+// Test BuildObject with all optional fields
+{
+  type Fields = readonly [
+    { name: 'field1'; type: 'string'; optional: true },
+    { name: 'field2'; type: 'number'; optional: true },
+  ];
+  type Result = BuildObject<Fields>;
+  expectType<{ field1?: string; field2?: number }>({} as Result);
+}

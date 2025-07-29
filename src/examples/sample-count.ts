@@ -1,10 +1,9 @@
-import { AxAI, AxAIOpenAIModel, ax, f } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, ax } from '@ax-llm/ax';
 
 // Create a simple generator for creative writing
-export const creativeGen = ax`
-  topic:${f.string('Topic to write about')} ->
-  story:${f.string('A creative very short story. 1 line')}
-`;
+export const creativeGen = ax(
+  'topic:string "Topic to write about" -> story:string "A creative very short story. 1 line"'
+);
 
 console.log('=== Sample Count Demo ===');
 

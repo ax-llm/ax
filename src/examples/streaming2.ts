@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, ax } from '@ax-llm/ax';
 
 // const ai = new AxAI({
 //     name: 'anthropic'
@@ -6,9 +6,7 @@ import { AxAI, AxAIOpenAIModel, AxChainOfThought } from '@ax-llm/ax';
 // });
 
 // setup the prompt program
-const gen = new AxChainOfThought<{ question: string }>(
-  'question:string -> answerInPoints:string'
-);
+const gen = ax('question:string -> answerInPoints:string');
 
 // add a assertion to ensure all lines start with a number and a dot.
 gen.addStreamingAssert(

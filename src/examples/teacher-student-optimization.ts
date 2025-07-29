@@ -7,7 +7,7 @@
  * optimization guided by the teacher model, it learns to perform much better.
  */
 
-import { AxAI, AxMiPRO, ax, f, AxAIGoogleGeminiModel } from '../ax/index.js';
+import { AxAI, AxMiPRO, ax, AxAIGoogleGeminiModel } from '../ax/index.js';
 
 // Environment checks
 const requiredEnvVars = ['GOOGLE_APIKEY'];
@@ -36,12 +36,9 @@ const studentAI = new AxAI({
 
 // Define the complex task: Algorithm Implementation
 // This requires understanding algorithms, edge cases, and Python syntax
-const algorithmImplementer = ax`
-  algorithmName:${f.string('Name of the algorithm to implement')} ->
-  implementation:${f.code('python', 'Complete Python function implementation')},
-  explanation:${f.string('Brief explanation of how the algorithm works')},
-  timeComplexity:${f.string('Time complexity in Big O notation')}
-`;
+const algorithmImplementer = ax(
+  'algorithmName:string "Name of the algorithm to implement" -> implementation:code "python" "Complete Python function implementation", explanation:string "Brief explanation of how the algorithm works", timeComplexity:string "Time complexity in Big O notation"'
+);
 
 // Training examples: Complex algorithms that require sophisticated understanding
 const algorithmTasks = [

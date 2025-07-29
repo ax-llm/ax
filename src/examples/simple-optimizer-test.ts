@@ -5,7 +5,6 @@ import {
   type AxMetricFn,
   ax,
   axDefaultOptimizerLogger,
-  f,
 } from '@ax-llm/ax';
 
 // Simple classification examples
@@ -18,10 +17,9 @@ const examples = [
 ];
 
 // Simple generator for email classification
-export const emailClassifier = ax`
-  emailText:${f.string('Email content')} -> 
-  priority:${f.class(['high', 'normal', 'low'], 'Priority level')}
-`;
+export const emailClassifier = ax(
+  'emailText:string "Email content" -> priority:class "high, normal, low" "Priority level"'
+);
 
 // Simple metric
 const metric: AxMetricFn = ({ prediction, example }) => {

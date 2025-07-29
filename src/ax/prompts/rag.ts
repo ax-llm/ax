@@ -124,9 +124,8 @@ export const axAdvancedRAG = (
 
       // Use the provided queryFn for actual retrieval
       .map(async (state) => {
-        const retrievedDocument = await queryFn(
-          state.queryGeneratorResult.searchQuery
-        );
+        const searchQuery = state.queryGeneratorResult.searchQuery as string;
+        const retrievedDocument = await queryFn(searchQuery);
         return {
           ...state,
           retrievalResult: {
@@ -156,10 +155,10 @@ export const axAdvancedRAG = (
           ...state.retrievedContexts,
           state.retrievalResult.retrievedDocument,
         ],
-        completenessScore: state.qualityAssessorResult.completenessScore,
-        searchQuery: state.queryGeneratorResult.searchQuery,
+        completenessScore: state.qualityAssessorResult.completenessScore as number,
+        searchQuery: state.queryGeneratorResult.searchQuery as string,
         shouldContinue:
-          state.qualityAssessorResult.completenessScore <
+          (state.qualityAssessorResult.completenessScore as number) <
           state.qualityThreshold,
       }))
 
@@ -207,7 +206,7 @@ export const axAdvancedRAG = (
       // Use focused queries from gap analysis for subsequent iterations
       .map((state) => ({
         ...state,
-        currentQueries: state.gapAnalyzerResult?.focusedQueries || [],
+        currentQueries: ((state as any).gapAnalyzerResult?.focusedQueries as string[]) || [],
       }))
       .merge()
 
@@ -269,11 +268,11 @@ export const axAdvancedRAG = (
       }))
       .map((state) => ({
         ...state,
-        currentAnswer: state.answerGeneratorResult.comprehensiveAnswer,
-        currentQuality: state.qualityValidatorResult.qualityScore,
-        currentIssues: state.qualityValidatorResult.issues,
+        currentAnswer: state.answerGeneratorResult.comprehensiveAnswer as string,
+        currentQuality: state.qualityValidatorResult.qualityScore as number,
+        currentIssues: state.qualityValidatorResult.issues as string[],
         shouldContinueHealing:
-          state.qualityValidatorResult.qualityScore < state.qualityTarget,
+          (state.qualityValidatorResult.qualityScore as number) < state.qualityTarget,
       }))
 
       // Healing loop for quality improvement
@@ -287,7 +286,7 @@ export const axAdvancedRAG = (
 
       // Use queryFn for healing retrieval
       .map(async (state) => {
-        const healingQuery = `${state.originalQuestion} addressing issues: ${state.currentIssues?.join(', ') || 'quality improvement'}`;
+        const healingQuery = `${state.originalQuestion} addressing issues: ${(state.currentIssues as string[])?.join(', ') || 'quality improvement'}`;
         const healingDocument = await queryFn(healingQuery);
         return {
           ...state,
@@ -308,11 +307,11 @@ export const axAdvancedRAG = (
       }))
       .map((state) => ({
         ...state,
-        currentAnswer: state.answerHealerResult.healedAnswer,
-        currentQuality: state.qualityValidatorResult.qualityScore,
-        currentIssues: state.qualityValidatorResult.issues,
+        currentAnswer: state.answerHealerResult.healedAnswer as string,
+        currentQuality: state.qualityValidatorResult.qualityScore as number,
+        currentIssues: state.qualityValidatorResult.issues as string[],
         shouldContinueHealing:
-          state.qualityValidatorResult.qualityScore < state.qualityTarget,
+          (state.qualityValidatorResult.qualityScore as number) < state.qualityTarget,
       }))
 
       .endWhile()

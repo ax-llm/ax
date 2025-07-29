@@ -4,7 +4,6 @@ import {
   type AxFunction,
   type AxMessage,
   ax,
-  f,
 } from '@ax-llm/ax';
 
 // Weather function for testing function calls
@@ -66,10 +65,7 @@ const ai = new AxAI({
 });
 
 // Create a chat assistant with function calling capability using modern template literals
-const chatBot = ax`
-  message:${f.string('A casual message from the user')} -> 
-  reply:${f.string('A friendly, casual response that can include weather information when requested')}
-`;
+const chatBot = ax('message:string -> reply:string');
 
 console.log('🤖 Starting casual chat with Gemini (with function calling)...\n');
 

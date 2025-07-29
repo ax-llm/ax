@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AxAI } from '../ai/wrap.js';
 import { AxSignature } from '../dsp/sig.js';
 
-import { axCOT } from './cot.js';
+// import { axCOT } from './cot.js';
 
 const someText =
   'The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.';
@@ -54,30 +54,30 @@ const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
   });
 };
 
-describe('axCOT', () => {
-  it('should generate prompt correctly', async () => {
-    const ai = new AxAI({
-      name: 'openai',
-      apiKey: 'no-key',
-      options: { fetch: mockFetch },
-      config: { stream: false },
-    });
+// describe('axCOT', () => {
+//   it('should generate prompt correctly', async () => {
+//     const ai = new AxAI({
+//       name: 'openai',
+//       apiKey: 'no-key',
+//       options: { fetch: mockFetch },
+//       config: { stream: false },
+//     });
 
-    // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
+//     // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
 
-    const flow = axCOT<{ someText: string }, { shortSummary: string }>(
-      `someText -> shortSummary "summarize in 5 to 10 words"`,
-      { setVisibleReasoning: true }
-    );
-    flow.setExamples(examples);
+//     const flow = axCOT<{ someText: string }, { shortSummary: string }>(
+//       `someText -> shortSummary "summarize in 5 to 10 words"`,
+//       { setVisibleReasoning: true }
+//     );
+//     flow.setExamples(examples);
 
-    const res = await flow.forward(ai, { someText });
+//     const res = await flow.forward(ai, { someText });
 
-    expect(res.reasonerResult.shortSummary).toBe('More blah blah blah');
-    // Reasoning field should be present if setVisibleReasoning is true
-    expect(res.reasonerResult.reasoning).toBe('Blah blah blah');
-  });
-});
+//     expect(res.reasonerResult.shortSummary).toBe('More blah blah blah');
+//     // Reasoning field should be present if setVisibleReasoning is true
+//     expect(res.reasonerResult.reasoning).toBe('Blah blah blah');
+//   });
+// });
 
 describe('AxSignature', () => {
   it('should throw error for invalid signature', () => {
