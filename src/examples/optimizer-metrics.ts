@@ -1,4 +1,4 @@
-import { AxAI, AxBootstrapFewShot, type AxMetricFn, ax, f } from '@ax-llm/ax';
+import { AxAI, AxBootstrapFewShot, type AxMetricFn, ax } from '@ax-llm/ax';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
@@ -20,11 +20,9 @@ sdk.start();
 const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Define a simple program to optimize
-const emailClassifier = ax`
-  emailText:${f.string('Email content')} -> 
-  category:${f.class(['urgent', 'normal', 'low'], 'Priority level')},
-  confidence:${f.number('Confidence score 0-1')}
-`;
+const emailClassifier = ax(
+  'emailText:string "Email content" -> category:class "urgent, normal, low" "Priority level", confidence:number "Confidence score 0-1"'
+);
 
 // Training examples
 const examples = [
@@ -98,7 +96,7 @@ const main = async () => {
 
   // Run optimization
   const startTime = Date.now();
-  const result = await optimizer.compile(emailClassifier, metricFn);
+  const result = await optimizer.compile(emailClassifier as any, metricFn);
   const duration = Date.now() - startTime;
 
   console.log('\n=== Optimization Results ===');

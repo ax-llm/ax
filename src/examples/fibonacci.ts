@@ -1,10 +1,9 @@
-import { AxAI, ax, f } from '@ax-llm/ax';
+import { AxAI, ax } from '@ax-llm/ax';
 import { AxJSInterpreter } from '@ax-llm/ax-tools';
 
-const gen = ax`
-  numberSeriesTask:${f.string('Task to calculate number series')} -> 
-  fibonacciSeries:${f.array(f.number())}
-`;
+const gen = ax(
+  'numberSeriesTask:string "Task to calculate number series" -> fibonacciSeries:number[] "Fibonacci series as an array of numbers"'
+);
 
 const ai = new AxAI({
   name: 'openai',

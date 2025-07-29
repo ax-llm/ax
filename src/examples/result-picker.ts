@@ -1,15 +1,13 @@
-import { AxAI, ax, f } from '@ax-llm/ax';
+import { AxAI, ax } from '@ax-llm/ax';
 
 // Example showing how to use result picker to select from multiple samples
 
 const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create a generator that produces creative responses
-const creativeGen = ax`
-  topic:${f.string('A topic to write about')} ->
-  title:${f.string('Creative title')},
-  content:${f.string('Creative content')}
-`;
+const creativeGen = ax(
+  'topic:string "A topic to write about" -> title:string "Creative title", content:string "Creative content"'
+);
 
 // Example 1: Simple result picker that selects the shortest content
 const shortestContentPicker = async (
@@ -120,11 +118,9 @@ const llmJudgePicker = async (
   }
 
   // Create a judge generator
-  const judgeGen = ax`
-    options:${f.string('List of title and content options')} ->
-    selectedIndex:${f.number('Index of the best option (0-based)')},
-    reasoning:${f.string('Reasoning for the selection')}
-  `;
+  const judgeGen = ax(
+    'options:string "List of title and content options" -> selectedIndex:number "Index of the best option (0-based)", reasoning:string "Reasoning for the selection"'
+  );
 
   // Format the options for the judge
   const optionsText = data.results
@@ -193,10 +189,9 @@ for await (const delta of streamingResult) {
 }
 
 // Example 4: Create a generator that uses functions to demonstrate function result picking
-const functionGen = ax`
-  query:${f.string('User query')} ->
-  answer:${f.string('Final answer based on function results')}
-`;
+const functionGen = ax(
+  'query:string "User query" -> answer:string "Final answer based on function results"'
+);
 
 // Define a simple function
 const getWeatherFunction = {

@@ -1,4 +1,4 @@
-import { AxAI, ax, axGlobals, f } from '@ax-llm/ax';
+import { AxAI, ax, axGlobals } from '@ax-llm/ax';
 
 console.log('=== Function Result Formatter Demo ===\n');
 
@@ -67,7 +67,9 @@ console.log('   Result:', perCallFormatter({ name: 'John', age: 30 }));
 console.log();
 
 // Create a generator
-const _gen = ax`userRequest:${f.string('User request')} -> responseText:${f.string('AI response')}`;
+const _gen = ax(
+  'userRequest:string "User request" -> responseText:string "AI response"'
+);
 
 console.log('4. Integration Example:');
 console.log(

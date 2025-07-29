@@ -1,7 +1,9 @@
 import { AxAI, AxAIGoogleGeminiModel, ax } from '@ax-llm/ax';
 
 // Setup the prompt program for movie reviews
-const gen = ax('movieTitle:string -> rating:number, genres:string[], strengths:string[], weaknesses:string[], recommendedAudience:string, verdict:string');
+const gen = ax(
+  'movieTitle:string -> rating:number, genres:string[], strengths:string[], weaknesses:string[], recommendedAudience:string, verdict:string'
+);
 
 // Assert rating is between 1 and 10
 gen.addAssert(({ rating }: Readonly<{ rating: number }>) => {

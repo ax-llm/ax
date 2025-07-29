@@ -1,4 +1,5 @@
 import {
+  ax,
   AxAI,
   AxAIAnthropicModel,
   AxAIOpenAIModel,
@@ -44,8 +45,8 @@ const ai2 = AxAI.create({
   ],
 });
 
-const gen = ax<{ textToSummarize: string }>(
-  `textToSummarize -> shortSummary "summarize in 5 to 10 words"`
+const gen = ax(
+  'textToSummarize:string -> shortSummary:string "summarize in 5 to 10 words"'
 );
 
 const ai = AxBalancer.create([ai1, ai2]);

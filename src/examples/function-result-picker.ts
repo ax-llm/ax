@@ -1,4 +1,4 @@
-import { AxAI, ax, f } from '@ax-llm/ax';
+import { AxAI, ax } from '@ax-llm/ax';
 import { AxJSInterpreter } from '@ax-llm/ax-tools';
 
 // Example showing how to use result picker with function results from JS interpreter
@@ -6,11 +6,9 @@ import { AxJSInterpreter } from '@ax-llm/ax-tools';
 const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create a generator that solves math problems using JavaScript code
-const mathSolverGen = ax`
-  problem:${f.string('A mathematical problem to solve')} ->
-  approach:${f.string('The approach or algorithm used')},
-  solution:${f.string('The final answer')}
-`;
+const mathSolverGen = ax(
+  'problem:string "A mathematical problem to solve" -> approach:string "The approach or algorithm used", solution:string "The final answer"'
+);
 
 // Create multiple JS interpreter instances for different approaches
 const jsInterpreter1 = new AxJSInterpreter();

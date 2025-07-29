@@ -36,7 +36,7 @@ describe('Type Inference Integration with ax string-based functions', () => {
     };
 
     // Mock the forward method to return expected structure
-    generator.forward = async (ai: any, inputs: any) => {
+    generator.forward = async (_ai: any, inputs: any) => {
       // Verify input types at runtime
       expect(typeof inputs.userQuestion).toBe('string');
       expect(typeof inputs.priority).toBe('number');
@@ -58,7 +58,9 @@ describe('Type Inference Integration with ax string-based functions', () => {
 
   test('should work with string-based signatures with classes', async () => {
     // Create generator with string-based signature
-    const emailClassifier = ax('emailText:string -> category:class "spam, personal, work", priority:class "high, medium, low"');
+    const emailClassifier = ax(
+      'emailText:string -> category:class "spam, personal, work", priority:class "high, medium, low"'
+    );
 
     // Type should be inferred correctly
     type ExpectedInputs = { emailText: string };
@@ -72,7 +74,7 @@ describe('Type Inference Integration with ax string-based functions', () => {
     };
 
     // Mock the forward method
-    emailClassifier.forward = async (ai: any, inputs: any) => {
+    emailClassifier.forward = async (_ai: any, inputs: any) => {
       expect(typeof inputs.emailText).toBe('string');
 
       return {
@@ -88,7 +90,9 @@ describe('Type Inference Integration with ax string-based functions', () => {
   });
 
   test('should handle optional fields correctly', async () => {
-    const optionalGen = ax('requiredField:string, optionalField?:number -> processedResult:string, metadata?:json');
+    const optionalGen = ax(
+      'requiredField:string, optionalField?:number -> processedResult:string, metadata?:json'
+    );
 
     // Input with optional field
     type InputsWithOptional = {
@@ -112,7 +116,7 @@ describe('Type Inference Integration with ax string-based functions', () => {
     };
 
     // Mock the forward method
-    optionalGen.forward = async (ai: any, inputs: any) => {
+    optionalGen.forward = async (_ai: any, inputs: any) => {
       return {
         processedResult: 'processed',
         metadata: inputs.optionalField
@@ -132,7 +136,9 @@ describe('Type Inference Integration with ax string-based functions', () => {
 
   test('should work with s() signature function', () => {
     // Test the s() function for creating signatures
-    const signature = s('userMessage:string, contextData:json -> responseText:string, confidence:number');
+    const signature = s(
+      'userMessage:string, contextData:json -> responseText:string, confidence:number'
+    );
 
     // Verify signature was created correctly
     expect(signature.getInputFields()).toHaveLength(2);
@@ -153,7 +159,7 @@ describe('Type Inference Integration with ax string-based functions', () => {
   });
 
   test('compile-time type checking should prevent wrong input types', () => {
-    const strictGen = ax(
+    const _strictGen = ax(
       'userInput:string, count:number -> processedOutput:string'
     );
 

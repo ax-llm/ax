@@ -2,248 +2,250 @@ import { expectType } from 'tsd';
 import type { ParseSignature, BuildObject } from './sigtypes.js';
 
 // Test basic string types
-{
-  type Result = ParseSignature<'userQuestion:string -> responseText:string'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type BasicStringResult =
+  ParseSignature<'userQuestion:string -> responseText:string'>;
+expectType<{ userQuestion: string }>({} as BasicStringResult['inputs']);
+expectType<{ responseText: string }>({} as BasicStringResult['outputs']);
 
 // Test number types
-{
-  type Result = ParseSignature<'userInput:number -> responseScore:number'>;
-  expectType<{ userInput: number }>({} as Result['inputs']);
-  expectType<{ responseScore: number }>({} as Result['outputs']);
-}
+type NumberResult = ParseSignature<'userInput:number -> responseScore:number'>;
+expectType<{ userInput: number }>({} as NumberResult['inputs']);
+expectType<{ responseScore: number }>({} as NumberResult['outputs']);
 
 // Test boolean types
-{
-  type Result = ParseSignature<'isValid:boolean -> isProcessed:boolean'>;
-  expectType<{ isValid: boolean }>({} as Result['inputs']);
-  expectType<{ isProcessed: boolean }>({} as Result['outputs']);
-}
+type BooleanResult = ParseSignature<'isValid:boolean -> isProcessed:boolean'>;
+expectType<{ isValid: boolean }>({} as BooleanResult['inputs']);
+expectType<{ isProcessed: boolean }>({} as BooleanResult['outputs']);
 
 // Test default missing types to string
-{
-  type Result = ParseSignature<'userQuestion, imageData:image -> responseText'>;
-  expectType<{ userQuestion: string; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type DefaultStringResult =
+  ParseSignature<'userQuestion, imageData:image -> responseText'>;
+expectType<{
+  userQuestion: string;
+  imageData: { mimeType: string; data: string };
+}>({} as DefaultStringResult['inputs']);
+expectType<{ responseText: string }>({} as DefaultStringResult['outputs']);
 
 // Test string arrays
-{
-  type Result = ParseSignature<'userQuestions:string[] -> responseTexts:string[]'>;
-  expectType<{ userQuestions: string[] }>({} as Result['inputs']);
-  expectType<{ responseTexts: string[] }>({} as Result['outputs']);
-}
+type StringArrayResult =
+  ParseSignature<'userQuestions:string[] -> responseTexts:string[]'>;
+expectType<{ userQuestions: string[] }>({} as StringArrayResult['inputs']);
+expectType<{ responseTexts: string[] }>({} as StringArrayResult['outputs']);
 
 // Test number arrays
-{
-  type Result = ParseSignature<'inputScores:number[] -> outputScores:number[]'>;
-  expectType<{ inputScores: number[] }>({} as Result['inputs']);
-  expectType<{ outputScores: number[] }>({} as Result['outputs']);
-}
+type NumberArrayResult =
+  ParseSignature<'inputScores:number[] -> outputScores:number[]'>;
+expectType<{ inputScores: number[] }>({} as NumberArrayResult['inputs']);
+expectType<{ outputScores: number[] }>({} as NumberArrayResult['outputs']);
 
 // Test boolean arrays
-{
-  type Result = ParseSignature<'inputFlags:boolean[] -> outputFlags:boolean[]'>;
-  expectType<{ inputFlags: boolean[] }>({} as Result['inputs']);
-  expectType<{ outputFlags: boolean[] }>({} as Result['outputs']);
-}
+type BooleanArrayResult =
+  ParseSignature<'inputFlags:boolean[] -> outputFlags:boolean[]'>;
+expectType<{ inputFlags: boolean[] }>({} as BooleanArrayResult['inputs']);
+expectType<{ outputFlags: boolean[] }>({} as BooleanArrayResult['outputs']);
 
 // Test class with single option
-{
-  type Result = ParseSignature<'userQuestion:string -> categoryType:class "option1"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ categoryType: 'option1' }>({} as Result['outputs']);
-}
+type SingleClassResult =
+  ParseSignature<'userQuestion:string -> categoryType:class "option1"'>;
+expectType<{ userQuestion: string }>({} as SingleClassResult['inputs']);
+expectType<{ categoryType: 'option1' }>({} as SingleClassResult['outputs']);
 
 // Test class with multiple options
-{
-  type Result = ParseSignature<'userQuestion:string -> categoryType:class "positive, negative, neutral"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ categoryType: 'positive' | 'negative' | 'neutral' }>({} as Result['outputs']);
-}
+type MultipleClassResult =
+  ParseSignature<'userQuestion:string -> categoryType:class "positive, negative, neutral"'>;
+expectType<{ userQuestion: string }>({} as MultipleClassResult['inputs']);
+expectType<{ categoryType: 'positive' | 'negative' | 'neutral' }>(
+  {} as MultipleClassResult['outputs']
+);
 
 // Test class with pipe separators
-{
-  type Result = ParseSignature<'userQuestion:string -> categoryType:class "option1 | option2 | option3"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>({} as Result['outputs']);
-}
+type PipeClassResult =
+  ParseSignature<'userQuestion:string -> categoryType:class "option1 | option2 | option3"'>;
+expectType<{ userQuestion: string }>({} as PipeClassResult['inputs']);
+expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>(
+  {} as PipeClassResult['outputs']
+);
 
 // Test class with mixed separators
-{
-  type Result = ParseSignature<'userQuestion:string -> categoryType:class "option1, option2 | option3"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>({} as Result['outputs']);
-}
+type MixedClassResult =
+  ParseSignature<'userQuestion:string -> categoryType:class "option1, option2 | option3"'>;
+expectType<{ userQuestion: string }>({} as MixedClassResult['inputs']);
+expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>(
+  {} as MixedClassResult['outputs']
+);
 
 // Test class arrays
-{
-  type Result = ParseSignature<'userQuestion:string -> categoryTypes:class[] "option1, option2"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ categoryTypes: ('option1' | 'option2')[] }>({} as Result['outputs']);
-}
+type ClassArrayResult =
+  ParseSignature<'userQuestion:string -> categoryTypes:class[] "option1, option2"'>;
+expectType<{ userQuestion: string }>({} as ClassArrayResult['inputs']);
+expectType<{ categoryTypes: ('option1' | 'option2')[] }>(
+  {} as ClassArrayResult['outputs']
+);
 
 // Test image types
-{
-  type Result = ParseSignature<'userQuestion:string, imageData:image -> responseText:string'>;
-  expectType<{ userQuestion: string; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type ImageResult =
+  ParseSignature<'userQuestion:string, imageData:image -> responseText:string'>;
+expectType<{
+  userQuestion: string;
+  imageData: { mimeType: string; data: string };
+}>({} as ImageResult['inputs']);
+expectType<{ responseText: string }>({} as ImageResult['outputs']);
 
 // Test audio types
-{
-  type Result = ParseSignature<'userQuestion:string, audioData:audio -> responseText:string'>;
-  expectType<{ userQuestion: string; audioData: { format?: 'wav'; data: string } }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type AudioResult =
+  ParseSignature<'userQuestion:string, audioData:audio -> responseText:string'>;
+expectType<{
+  userQuestion: string;
+  audioData: { format?: 'wav'; data: string };
+}>({} as AudioResult['inputs']);
+expectType<{ responseText: string }>({} as AudioResult['outputs']);
 
 // Test file types
-{
-  type Result = ParseSignature<'userQuestion:string, fileData:file -> responseText:string'>;
-  expectType<{ userQuestion: string; fileData: { mimeType: string; data: string } }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type FileResult =
+  ParseSignature<'userQuestion:string, fileData:file -> responseText:string'>;
+expectType<{
+  userQuestion: string;
+  fileData: { mimeType: string; data: string };
+}>({} as FileResult['inputs']);
+expectType<{ responseText: string }>({} as FileResult['outputs']);
 
 // Test URL types
-{
-  type Result = ParseSignature<'websiteUrl:url -> extractedText:string'>;
-  expectType<{ websiteUrl: string }>({} as Result['inputs']);
-  expectType<{ extractedText: string }>({} as Result['outputs']);
-}
+type URLResult = ParseSignature<'websiteUrl:url -> extractedText:string'>;
+expectType<{ websiteUrl: string }>({} as URLResult['inputs']);
+expectType<{ extractedText: string }>({} as URLResult['outputs']);
 
 // Test date types
-{
-  type Result = ParseSignature<'startDate:date -> processedDate:date'>;
-  expectType<{ startDate: Date }>({} as Result['inputs']);
-  expectType<{ processedDate: Date }>({} as Result['outputs']);
-}
+type DateResult = ParseSignature<'startDate:date -> processedDate:date'>;
+expectType<{ startDate: Date }>({} as DateResult['inputs']);
+expectType<{ processedDate: Date }>({} as DateResult['outputs']);
 
 // Test datetime types
-{
-  type Result = ParseSignature<'timestamp:datetime -> processedTime:datetime'>;
-  expectType<{ timestamp: Date }>({} as Result['inputs']);
-  expectType<{ processedTime: Date }>({} as Result['outputs']);
-}
+type DateTimeResult =
+  ParseSignature<'timestamp:datetime -> processedTime:datetime'>;
+expectType<{ timestamp: Date }>({} as DateTimeResult['inputs']);
+expectType<{ processedTime: Date }>({} as DateTimeResult['outputs']);
 
 // Test JSON types
-{
-  type Result = ParseSignature<'configData:json -> resultData:json'>;
-  expectType<{ configData: any }>({} as Result['inputs']);
-  expectType<{ resultData: any }>({} as Result['outputs']);
-}
+type JSONResult = ParseSignature<'configData:json -> resultData:json'>;
+expectType<{ configData: any }>({} as JSONResult['inputs']);
+expectType<{ resultData: any }>({} as JSONResult['outputs']);
 
 // Test code types
-{
-  type Result = ParseSignature<'sourceCode:code -> processedCode:code'>;
-  expectType<{ sourceCode: string }>({} as Result['inputs']);
-  expectType<{ processedCode: string }>({} as Result['outputs']);
-}
+type CodeResult = ParseSignature<'sourceCode:code -> processedCode:code'>;
+expectType<{ sourceCode: string }>({} as CodeResult['inputs']);
+expectType<{ processedCode: string }>({} as CodeResult['outputs']);
 
 // Test optional input fields
-{
-  type Result = ParseSignature<'requiredField:string, optionalField?:number -> responseText:string'>;
-  expectType<{ requiredField: string; optionalField?: number }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type OptionalInputResult =
+  ParseSignature<'requiredField:string, optionalField?:number -> responseText:string'>;
+expectType<{ requiredField: string; optionalField?: number }>(
+  {} as OptionalInputResult['inputs']
+);
+expectType<{ responseText: string }>({} as OptionalInputResult['outputs']);
 
 // Test optional output fields
-{
-  type Result = ParseSignature<'userQuestion:string -> requiredField:string, optionalField?:number'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ requiredField: string; optionalField?: number }>({} as Result['outputs']);
-}
+type OptionalOutputResult =
+  ParseSignature<'userQuestion:string -> requiredField:string, optionalField?:number'>;
+expectType<{ userQuestion: string }>({} as OptionalOutputResult['inputs']);
+expectType<{ requiredField: string; optionalField?: number }>(
+  {} as OptionalOutputResult['outputs']
+);
 
 // Test optional fields without types
-{
-  type Result = ParseSignature<'userQuestion:string -> requiredField, optionalField?'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ requiredField: string; optionalField?: string }>({} as Result['outputs']);
-}
+type OptionalNoTypeResult =
+  ParseSignature<'userQuestion:string -> requiredField, optionalField?'>;
+expectType<{ userQuestion: string }>({} as OptionalNoTypeResult['inputs']);
+expectType<{ requiredField: string; optionalField?: string }>(
+  {} as OptionalNoTypeResult['outputs']
+);
 
 // Test field descriptions (ignore for type inference)
-{
-  type Result = ParseSignature<'userQuestion:string "User input" -> responseText:string "AI response"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type DescriptionResult =
+  ParseSignature<'userQuestion:string "User input" -> responseText:string "AI response"'>;
+expectType<{ userQuestion: string }>({} as DescriptionResult['inputs']);
+expectType<{ responseText: string }>({} as DescriptionResult['outputs']);
 
 // Test fields with descriptions but no types
-{
-  type Result = ParseSignature<'userQuestion "User input" -> responseText "AI response"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type DescriptionNoTypeResult =
+  ParseSignature<'userQuestion "User input" -> responseText "AI response"'>;
+expectType<{ userQuestion: string }>({} as DescriptionNoTypeResult['inputs']);
+expectType<{ responseText: string }>({} as DescriptionNoTypeResult['outputs']);
 
 // Test class with both options and descriptions
-{
-  type Result = ParseSignature<'userQuestion:string -> categoryType:class "positive, negative" "Sentiment analysis"'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ categoryType: 'positive' | 'negative' }>({} as Result['outputs']);
-}
+type ClassDescriptionResult =
+  ParseSignature<'userQuestion:string -> categoryType:class "positive, negative" "Sentiment analysis"'>;
+expectType<{ userQuestion: string }>({} as ClassDescriptionResult['inputs']);
+expectType<{ categoryType: 'positive' | 'negative' }>(
+  {} as ClassDescriptionResult['outputs']
+);
 
 // Test multiple input and output fields
-{
-  type Result = ParseSignature<'userMessage:string, contextData:json, isUrgent:boolean -> responseText:string, confidence:number, needsFollowup:boolean'>;
-  expectType<{ userMessage: string; contextData: any; isUrgent: boolean }>({} as Result['inputs']);
-  expectType<{ responseText: string; confidence: number; needsFollowup: boolean }>({} as Result['outputs']);
-}
+type MultipleFieldsResult =
+  ParseSignature<'userMessage:string, contextData:json, isUrgent:boolean -> responseText:string, confidence:number, needsFollowup:boolean'>;
+expectType<{ userMessage: string; contextData: any; isUrgent: boolean }>(
+  {} as MultipleFieldsResult['inputs']
+);
+expectType<{
+  responseText: string;
+  confidence: number;
+  needsFollowup: boolean;
+}>({} as MultipleFieldsResult['outputs']);
 
 // Test mixed types with arrays and classes
-{
-  type Result = ParseSignature<'userQuestions:string[], imageData:image -> categories:class[] "urgent, normal, low", responseTexts:string[], confidence:number'>;
-  expectType<{ userQuestions: string[]; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
-  expectType<{ categories: ('urgent' | 'normal' | 'low')[]; responseTexts: string[]; confidence: number }>({} as Result['outputs']);
-}
+type MixedTypesResult =
+  ParseSignature<'userQuestions:string[], imageData:image -> categories:class[] "urgent, normal, low", responseTexts:string[], confidence:number'>;
+expectType<{
+  userQuestions: string[];
+  imageData: { mimeType: string; data: string };
+}>({} as MixedTypesResult['inputs']);
+expectType<{
+  categories: ('urgent' | 'normal' | 'low')[];
+  responseTexts: string[];
+  confidence: number;
+}>({} as MixedTypesResult['outputs']);
 
 // Test extra whitespace around fields
-{
-  type Result = ParseSignature<' userQuestion : string ,  imageData : image  ->  responseText : string , confidence : number '>;
-  expectType<{ userQuestion: string; imageData: { mimeType: string; data: string } }>({} as Result['inputs']);
-  expectType<{ responseText: string; confidence: number }>({} as Result['outputs']);
-}
+type WhitespaceResult =
+  ParseSignature<' userQuestion : string ,  imageData : image  ->  responseText : string , confidence : number '>;
+expectType<{
+  userQuestion: string;
+  imageData: { mimeType: string; data: string };
+}>({} as WhitespaceResult['inputs']);
+expectType<{ responseText: string; confidence: number }>(
+  {} as WhitespaceResult['outputs']
+);
 
 // Test single input and output
-{
-  type Result = ParseSignature<'userQuestion:string -> responseText:string'>;
-  expectType<{ userQuestion: string }>({} as Result['inputs']);
-  expectType<{ responseText: string }>({} as Result['outputs']);
-}
+type SingleFieldResult =
+  ParseSignature<'userQuestion:string -> responseText:string'>;
+expectType<{ userQuestion: string }>({} as SingleFieldResult['inputs']);
+expectType<{ responseText: string }>({} as SingleFieldResult['outputs']);
 
 // Test fallback for invalid signatures
-{
-  type Result = ParseSignature<'invalid signature format'>;
-  expectType<Record<string, any>>({} as Result['inputs']);
-  expectType<Record<string, any>>({} as Result['outputs']);
-}
+type InvalidResult = ParseSignature<'invalid signature format'>;
+expectType<Record<string, any>>({} as InvalidResult['inputs']);
+expectType<Record<string, any>>({} as InvalidResult['outputs']);
 
 // Test BuildObject helper type
-{
-  type Fields = readonly [
-    { name: 'required'; type: 'string'; optional: false },
-    { name: 'optional'; type: 'number'; optional: true },
-  ];
-  type Result = BuildObject<Fields>;
-  expectType<{ required: string; optional?: number }>({} as Result);
-}
+type TestFields = readonly [
+  { name: 'required'; type: 'string'; optional: false },
+  { name: 'optional'; type: 'number'; optional: true },
+];
+type BuildObjectResult = BuildObject<TestFields>;
+expectType<{ required: string; optional?: number }>({} as BuildObjectResult);
 
 // Test BuildObject with all required fields
-{
-  type Fields = readonly [
-    { name: 'field1'; type: 'string'; optional: false },
-    { name: 'field2'; type: 'number'; optional: false },
-  ];
-  type Result = BuildObject<Fields>;
-  expectType<{ field1: string; field2: number }>({} as Result);
-}
+type AllRequiredFields = readonly [
+  { name: 'field1'; type: 'string'; optional: false },
+  { name: 'field2'; type: 'number'; optional: false },
+];
+type AllRequiredResult = BuildObject<AllRequiredFields>;
+expectType<{ field1: string; field2: number }>({} as AllRequiredResult);
 
 // Test BuildObject with all optional fields
-{
-  type Fields = readonly [
-    { name: 'field1'; type: 'string'; optional: true },
-    { name: 'field2'; type: 'number'; optional: true },
-  ];
-  type Result = BuildObject<Fields>;
-  expectType<{ field1?: string; field2?: number }>({} as Result);
-}
+type AllOptionalFields = readonly [
+  { name: 'field1'; type: 'string'; optional: true },
+  { name: 'field2'; type: 'number'; optional: true },
+];
+type AllOptionalResult = BuildObject<AllOptionalFields>;
+expectType<{ field1?: string; field2?: number }>({} as AllOptionalResult);

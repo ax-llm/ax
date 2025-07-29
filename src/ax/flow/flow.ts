@@ -4,7 +4,6 @@ import { AxGen } from '../dsp/generate.js';
 import { AxProgram } from '../dsp/program.js';
 import { type AxField, AxSignature } from '../dsp/sig.js';
 import type { AxFieldType } from '../dsp/sig.js';
-import { createFieldType } from '../dsp/sig.js';
 import type {
   AxGenIn,
   AxGenOut,

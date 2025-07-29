@@ -38,7 +38,7 @@ export const createFieldType = {
     type: 'string',
     description: desc,
   }),
-  
+
   number: (desc?: string): AxFieldType => ({
     type: 'number',
     description: desc,

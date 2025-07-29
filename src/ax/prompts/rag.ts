@@ -155,7 +155,8 @@ export const axAdvancedRAG = (
           ...state.retrievedContexts,
           state.retrievalResult.retrievedDocument,
         ],
-        completenessScore: state.qualityAssessorResult.completenessScore as number,
+        completenessScore: state.qualityAssessorResult
+          .completenessScore as number,
         searchQuery: state.queryGeneratorResult.searchQuery as string,
         shouldContinue:
           (state.qualityAssessorResult.completenessScore as number) <
@@ -206,7 +207,8 @@ export const axAdvancedRAG = (
       // Use focused queries from gap analysis for subsequent iterations
       .map((state) => ({
         ...state,
-        currentQueries: ((state as any).gapAnalyzerResult?.focusedQueries as string[]) || [],
+        currentQueries:
+          ((state as any).gapAnalyzerResult?.focusedQueries as string[]) || [],
       }))
       .merge()
 
@@ -268,11 +270,13 @@ export const axAdvancedRAG = (
       }))
       .map((state) => ({
         ...state,
-        currentAnswer: state.answerGeneratorResult.comprehensiveAnswer as string,
+        currentAnswer: state.answerGeneratorResult
+          .comprehensiveAnswer as string,
         currentQuality: state.qualityValidatorResult.qualityScore as number,
         currentIssues: state.qualityValidatorResult.issues as string[],
         shouldContinueHealing:
-          (state.qualityValidatorResult.qualityScore as number) < state.qualityTarget,
+          (state.qualityValidatorResult.qualityScore as number) <
+          state.qualityTarget,
       }))
 
       // Healing loop for quality improvement
@@ -311,7 +315,8 @@ export const axAdvancedRAG = (
         currentQuality: state.qualityValidatorResult.qualityScore as number,
         currentIssues: state.qualityValidatorResult.issues as string[],
         shouldContinueHealing:
-          (state.qualityValidatorResult.qualityScore as number) < state.qualityTarget,
+          (state.qualityValidatorResult.qualityScore as number) <
+          state.qualityTarget,
       }))
 
       .endWhile()

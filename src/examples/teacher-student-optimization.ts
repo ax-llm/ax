@@ -148,11 +148,7 @@ async function demonstrateTeacherStudentOptimization() {
     const beforeResult = await algorithmImplementer.forward(studentAI, {
       algorithmName: testTask.algorithmName,
     });
-    const result = beforeResult.answer as {
-      implementation: string;
-      explanation: string;
-      timeComplexity: string;
-    };
+    const result = beforeResult;
     console.log(
       `📊 Before - Implementation quality: ${(
         await implementationQuality({
@@ -202,7 +198,7 @@ async function demonstrateTeacherStudentOptimization() {
 
   console.log('⚡ Starting optimization...');
   const optimizationResult = await optimizer.compile(
-    algorithmImplementer,
+    algorithmImplementer as any,
     implementationQuality
   );
 
@@ -224,11 +220,7 @@ async function demonstrateTeacherStudentOptimization() {
         algorithmName: task.algorithmName,
       });
 
-      const result = afterResult.answer as {
-        implementation: string;
-        explanation: string;
-        timeComplexity: string;
-      };
+      const result = afterResult;
       const score = await implementationQuality({
         prediction: result,
         example: task,

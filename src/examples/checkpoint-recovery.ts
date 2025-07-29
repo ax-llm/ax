@@ -7,7 +7,6 @@ import {
   AxMiPRO,
   type AxOptimizationCheckpoint,
   ax,
-  f,
 } from '@ax-llm/ax';
 
 // Example checkpoint functions for different storage systems
@@ -76,11 +75,9 @@ const _createDatabaseCheckpoint = () => {
 };
 
 // Simple sentiment analysis program
-export const sentimentAnalyzer = ax`
-  reviewText:${f.string('Customer review text')} -> 
-  sentiment:${f.class(['positive', 'negative', 'neutral'], 'Overall sentiment')},
-  confidence:${f.number('Confidence score 0-1')}
-`;
+export const sentimentAnalyzer = ax(
+  'reviewText:string "Customer review text" -> sentiment:class "positive, negative, neutral" "Overall sentiment", confidence:number "Confidence score 0-1"'
+);
 
 // Training examples
 const examples = [
@@ -218,7 +215,7 @@ console.log('\nStarting optimization...');
 console.log('💡 Tip: This shows how simple checkpoint functions can be!');
 
 try {
-  const result = await optimizer.compile(sentimentAnalyzer, metric, {
+  const result = await optimizer.compile(sentimentAnalyzer as any, metric, {
     verbose: true,
     saveCheckpointOnComplete: true, // Save final checkpoint
   });
@@ -228,7 +225,7 @@ try {
 
   // Apply the optimized configuration
   if (result.demos) {
-    sentimentAnalyzer.setDemos(result.demos);
+    (sentimentAnalyzer as any).setDemos(result.demos);
   }
 
   // Test the optimized model

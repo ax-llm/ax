@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { parseSignature } from './parser.js';
+import type { ParseSignature } from './sigtypes.js';
 
 describe('TypeScript Parser Parity with JS Parser', () => {
   test('should handle all the same features as JS parser', () => {
@@ -76,29 +77,27 @@ describe('TypeScript Parser Parity with JS Parser', () => {
 
   test('should demonstrate TypeScript type inference capabilities', () => {
     // These won't be perfect due to TypeScript limitations, but they show the approach works
-    import('./sigtypes.js').then(({ ParseSignature }) => {
-      // Basic type inference validation
-      type BasicTest =
-        ParseSignature<'userQuestion:string -> responseText:string'>;
-      const basicExample: BasicTest = {
-        inputs: { userQuestion: 'test' },
-        outputs: { responseText: 'response' },
-      };
+    // Basic type inference validation
+    type BasicTest =
+      ParseSignature<'userQuestion:string -> responseText:string'>;
+    const basicExample: BasicTest = {
+      inputs: { userQuestion: 'test' },
+      outputs: { responseText: 'response' },
+    };
 
-      expect(basicExample.inputs.userQuestion).toBe('test');
-      expect(basicExample.outputs.responseText).toBe('response');
+    expect(basicExample.inputs.userQuestion).toBe('test');
+    expect(basicExample.outputs.responseText).toBe('response');
 
-      // Simple class type (without commas in options to avoid parsing complexity)
-      type SimpleClassTest =
-        ParseSignature<'userQuestion:string -> category:class "positive"'>;
-      const simpleClassExample: SimpleClassTest = {
-        inputs: { userQuestion: 'test' },
-        outputs: { category: 'positive' as any }, // Type assertion needed due to parsing limitations
-      };
+    // Simple class type (without commas in options to avoid parsing complexity)
+    type SimpleClassTest =
+      ParseSignature<'userQuestion:string -> category:class "positive"'>;
+    const simpleClassExample: SimpleClassTest = {
+      inputs: { userQuestion: 'test' },
+      outputs: { category: 'positive' as any }, // Type assertion needed due to parsing limitations
+    };
 
-      expect(simpleClassExample.outputs.category).toBe('positive');
+    expect(simpleClassExample.outputs.category).toBe('positive');
 
-      console.log('✅ TypeScript type inference working for supported cases');
-    });
+    console.log('✅ TypeScript type inference working for supported cases');
   });
 });

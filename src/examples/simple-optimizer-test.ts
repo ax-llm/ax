@@ -48,7 +48,7 @@ const optimizer = new AxBootstrapFewShot({
 
 console.log('Starting clean optimization...\n');
 
-const result = await optimizer.compile(emailClassifier, metric);
+const result = await optimizer.compile(emailClassifier as any, metric);
 
 console.log('\n✅ Optimization Complete!');
 console.log(`📊 Best Score: ${result.bestScore}`);

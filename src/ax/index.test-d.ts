@@ -100,8 +100,14 @@ expectType<
 
 // Test chaining type inference
 const chainedSig = testSig
-  .appendInputField('metadata', createFieldType.optional(createFieldType.json('Metadata')))
-  .prependOutputField('status', createFieldType.class(['success', 'error'], 'Status'))
+  .appendInputField(
+    'metadata',
+    createFieldType.optional(createFieldType.json('Metadata'))
+  )
+  .prependOutputField(
+    'status',
+    createFieldType.class(['success', 'error'], 'Status')
+  )
   .appendOutputField('timestamp', createFieldType.datetime('Timestamp'));
 
 expectType<
@@ -113,8 +119,14 @@ expectType<
 
 // Test array type inference
 const arraySig = testSig
-  .appendInputField('tags', createFieldType.array(createFieldType.string('Tag names')))
-  .appendOutputField('suggestions', createFieldType.array(createFieldType.string('Suggestions')));
+  .appendInputField(
+    'tags',
+    createFieldType.array(createFieldType.string('Tag names'))
+  )
+  .appendOutputField(
+    'suggestions',
+    createFieldType.array(createFieldType.string('Suggestions'))
+  );
 
 expectType<
   AxSignature<

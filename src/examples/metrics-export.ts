@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, type AxChatResponse, ax, f } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, type AxChatResponse, ax } from '@ax-llm/ax';
 import { metrics } from '@opentelemetry/api';
 import {
   ConsoleMetricExporter,
@@ -34,10 +34,9 @@ const ai = new AxAI({
 });
 
 // Example generators to test different metric scenarios
-const chatGen = ax`
-    userQuestion:${f.string('User question')} ->
-    responseText:${f.string('AI response')}
-`;
+const chatGen = ax(
+  'userQuestion:string "User question" -> responseText:string "AI response"'
+);
 
 // Demo 1: Basic chat with metrics (non-streaming)
 console.log('\n--- Demo 1: Basic Chat Metrics ---');

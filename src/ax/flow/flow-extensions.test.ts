@@ -13,7 +13,9 @@ describe('AxFlow nodeExtended method', () => {
         prependOutputs: [
           {
             name: 'reasoning',
-            type: createFieldType.internal(createFieldType.string('Step-by-step reasoning')),
+            type: createFieldType.internal(
+              createFieldType.string('Step-by-step reasoning')
+            ),
           },
         ],
       }
@@ -38,7 +40,10 @@ describe('AxFlow nodeExtended method', () => {
       'userInput:string -> analysis:string',
       {
         appendOutputs: [
-          { name: 'confidence', type: createFieldType.number('Confidence score 0-1') },
+          {
+            name: 'confidence',
+            type: createFieldType.number('Confidence score 0-1'),
+          },
         ],
       }
     );
@@ -62,7 +67,11 @@ describe('AxFlow nodeExtended method', () => {
           { name: 'document', type: createFieldType.string('Source document') },
           {
             name: 'history',
-            type: createFieldType.optional(createFieldType.array(createFieldType.string('Previous questions'))),
+            type: createFieldType.optional(
+              createFieldType.array(
+                createFieldType.string('Previous questions')
+              )
+            ),
           },
         ],
       }
@@ -84,18 +93,31 @@ describe('AxFlow nodeExtended method', () => {
       'analyzer',
       'userInput:string -> analysis:string',
       {
-        prependInputs: [{ name: 'priority', type: createFieldType.string('Task priority') }],
+        prependInputs: [
+          { name: 'priority', type: createFieldType.string('Task priority') },
+        ],
         appendInputs: [
-          { name: 'context', type: createFieldType.optional(createFieldType.string('Additional context')) },
+          {
+            name: 'context',
+            type: createFieldType.optional(
+              createFieldType.string('Additional context')
+            ),
+          },
         ],
         prependOutputs: [
           {
             name: 'category',
-            type: createFieldType.class(['urgent', 'normal', 'low'], 'Result category'),
+            type: createFieldType.class(
+              ['urgent', 'normal', 'low'],
+              'Result category'
+            ),
           },
         ],
         appendOutputs: [
-          { name: 'confidence', type: createFieldType.number('Confidence score') },
+          {
+            name: 'confidence',
+            type: createFieldType.number('Confidence score'),
+          },
         ],
       }
     );
@@ -126,7 +148,10 @@ describe('AxFlow nodeExtended method', () => {
     expect(() =>
       flow.nodeExtended('test', 'userInput:string -> analysis:string', {
         appendInputs: [
-          { name: 'userInput', type: createFieldType.string('Duplicate input') },
+          {
+            name: 'userInput',
+            type: createFieldType.string('Duplicate input'),
+          },
         ],
       })
     ).toThrow('Duplicate input field name');
@@ -138,7 +163,10 @@ describe('AxFlow nodeExtended method', () => {
 
     const extendedFlow = flow.nodeExtended('thinker', baseSig, {
       prependOutputs: [
-        { name: 'reasoning', type: createFieldType.internal(createFieldType.string('Reasoning')) },
+        {
+          name: 'reasoning',
+          type: createFieldType.internal(createFieldType.string('Reasoning')),
+        },
       ],
     });
     const signature = extendedFlow.getSignature();
@@ -155,11 +183,16 @@ describe('AxFlow nodeExtended method', () => {
     const chainedFlow = flow
       .nodeExtended('reasoner', 'question:string -> analysis:string', {
         prependOutputs: [
-          { name: 'reasoning', type: createFieldType.internal(createFieldType.string('Reasoning')) },
+          {
+            name: 'reasoning',
+            type: createFieldType.internal(createFieldType.string('Reasoning')),
+          },
         ],
       })
       .nodeExtended('scorer', 'analysis:string -> finalAnswer:string', {
-        appendOutputs: [{ name: 'confidence', type: createFieldType.number('Confidence') }],
+        appendOutputs: [
+          { name: 'confidence', type: createFieldType.number('Confidence') },
+        ],
       });
 
     const signature = chainedFlow.getSignature();
@@ -176,7 +209,10 @@ describe('AxFlow nodeExtended method', () => {
     expect(() =>
       flow.nodeExtended('test', 'userInput:string -> analysis:string', {
         appendInputs: [
-          { name: 'category', type: createFieldType.class(['a', 'b'], 'Input category') },
+          {
+            name: 'category',
+            type: createFieldType.class(['a', 'b'], 'Input category'),
+          },
         ],
       })
     ).toThrow('Class type is not supported in input fields');
@@ -185,7 +221,10 @@ describe('AxFlow nodeExtended method', () => {
     expect(() =>
       flow.nodeExtended('test', 'userInput:string -> analysis:string', {
         appendOutputs: [
-          { name: 'outputImage', type: createFieldType.image('Generated image') },
+          {
+            name: 'outputImage',
+            type: createFieldType.image('Generated image'),
+          },
         ],
       })
     ).toThrow('image type is not supported in output fields');
@@ -199,7 +238,9 @@ describe('AxFlow nodeExtended method', () => {
       prependOutputs: [
         {
           name: 'reasoning',
-          type: createFieldType.internal(createFieldType.string('Step-by-step reasoning')),
+          type: createFieldType.internal(
+            createFieldType.string('Step-by-step reasoning')
+          ),
         },
       ],
     });
