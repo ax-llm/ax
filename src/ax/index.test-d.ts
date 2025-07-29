@@ -46,14 +46,14 @@ expectError(AxSignature.create('invalid format without arrow'));
 expectError(AxSignature.create(''));
 
 // Test type-safe field addition methods
-import { createFieldType } from './dsp/sig.js';
+import { f } from './dsp/sig.js';
 
 const testSig = AxSignature.create('userInput: string -> responseText: string');
 
 // Test appendInputField type inference
 const withAppendedInput = testSig.appendInputField(
   'contextInfo',
-  createFieldType.optional(createFieldType.string('Context'))
+  f.optional(f.string('Context'))
 );
 expectType<
   AxSignature<
@@ -65,7 +65,7 @@ expectType<
 // Test prependInputField type inference
 const withPrependedInput = testSig.prependInputField(
   'sessionId',
-  createFieldType.string('Session ID')
+  f.string('Session ID')
 );
 expectType<
   AxSignature<
@@ -77,7 +77,7 @@ expectType<
 // Test appendOutputField type inference
 const withAppendedOutput = testSig.appendOutputField(
   'confidence',
-  createFieldType.number('Confidence score')
+  f.number('Confidence score')
 );
 expectType<
   AxSignature<
@@ -89,7 +89,7 @@ expectType<
 // Test prependOutputField type inference
 const withPrependedOutput = testSig.prependOutputField(
   'category',
-  createFieldType.class(['urgent', 'normal', 'low'], 'Priority')
+  f.class(['urgent', 'normal', 'low'], 'Priority')
 );
 expectType<
   AxSignature<
@@ -100,15 +100,9 @@ expectType<
 
 // Test chaining type inference
 const chainedSig = testSig
-  .appendInputField(
-    'metadata',
-    createFieldType.optional(createFieldType.json('Metadata'))
-  )
-  .prependOutputField(
-    'status',
-    createFieldType.class(['success', 'error'], 'Status')
-  )
-  .appendOutputField('timestamp', createFieldType.datetime('Timestamp'));
+  .appendInputField('metadata', f.optional(f.json('Metadata')))
+  .prependOutputField('status', f.class(['success', 'error'], 'Status'))
+  .appendOutputField('timestamp', f.datetime('Timestamp'));
 
 expectType<
   AxSignature<
@@ -119,14 +113,8 @@ expectType<
 
 // Test array type inference
 const arraySig = testSig
-  .appendInputField(
-    'tags',
-    createFieldType.array(createFieldType.string('Tag names'))
-  )
-  .appendOutputField(
-    'suggestions',
-    createFieldType.array(createFieldType.string('Suggestions'))
-  );
+  .appendInputField('tags', f.array(f.string('Tag names')))
+  .appendOutputField('suggestions', f.array(f.string('Suggestions')));
 
 expectType<
   AxSignature<

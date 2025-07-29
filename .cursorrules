@@ -1,0 +1,180 @@
+# Ax LLM Framework - Cursor Rules
+
+## Project Overview
+Ax is a TypeScript framework for building LLM-powered agents with end-to-end streaming, multi-modal DSPy capabilities, and typed signatures. It provides a standard interface across all top LLMs with features like prompt compilation, native streaming, agent orchestration, RAG, vector databases, and automatic prompt tuning.
+
+## Current Recommended Patterns (v13.0.24+)
+
+### ✅ **RECOMMENDED: Use Factory Functions and String Functions**
+
+```typescript
+import { ai, agent, s, ax, f } from '@ax-llm/ax'
+
+// 1. AI Instance Creation (use factory function)
+const llm = ai({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY!
+})
+
+// 2. Signature Creation (use s function)
+const signature = s(`
+  userQuestion:string "User input" -> 
+  responseText:string "AI response",
+  confidenceScore:number "Confidence 0-1"
+`)
+
+// 3. Generator Creation (use ax function)
+const generator = ax(`
+  emailText:string "Email content" -> 
+  categoryType:class "urgent, normal, low" "Priority level",
+  actionItems:string[] "Required actions"
+`)
+
+// 4a. Agent Creation (use factory function)
+const agentInstance = agent(
+  'userInput:string "User question" -> responseText:string "Agent response"',
+  {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions',
+    definition: 'You are a helpful assistant that provides clear, accurate responses to user questions.',
+    ai: llm
+  }
+)
+
+// 4b. Agent Creation (use AxAgent.create static method)
+const agentInstance2 = AxAgent.create(
+  'userInput:string "User question" -> responseText:string "Agent response"',
+  {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions',
+    definition: 'You are a helpful assistant that provides clear, accurate responses to user questions.',
+    ai: llm
+  }
+)
+
+// 5. Dynamic field creation (f helpers still available)
+const dynamicSig = s('baseField:string -> baseOutput:string')
+  .appendInputField('extraField', f.optional(f.array(f.string('Dynamic field'))))
+  .appendOutputField('confidence', f.number('Confidence score'))
+```
+
+### ❌ **DEPRECATED: Constructors and Template Literals (will be removed v15.0.0)**
+
+```typescript
+// ❌ DEPRECATED: Constructor, template literals
+const ai = new AxAI({ name: 'openai', apiKey: '...' })
+const sig = s`userQuestion:${f.string()} -> responseText:${f.string()}` // template literals
+const gen = ax`emailText:${f.string()} -> categoryType:${f.class(['a', 'b'])}` // template literals
+```
+
+## Field Types in String Signatures
+
+| Type | Syntax | Example |
+|------|---------|---------|
+| **Basic types** | `field:type "description"` | `userInput:string "User question"` |
+| **Numbers** | `field:number "description"` | `score:number "Confidence 0-1"` |
+| **Booleans** | `field:boolean "description"` | `isValid:boolean "Input validity"` |
+| **JSON** | `field:json "description"` | `metadata:json "Extra data"` |
+| **Arrays** | `field:type[] "description"` | `tags:string[] "Keywords"` |
+| **Optional** | `field?:type "description"` | `context?:string "Optional context"` |
+| **Classifications** | `field:class "opt1, opt2" "description"` | `category:class "urgent, normal, low" "Priority"` |
+| **Dates** | `field:date "description"` | `dueDate:date "Due date"` |
+| **DateTime** | `field:datetime "description"` | `timestamp:datetime "Event time"` |
+| **Media types** | `field:image/audio/file/url` | `photo:image "Profile picture"` |
+| **Code** | `field:code "description"` | `script:code "Python code"` |
+
+## Critical Field Naming Requirements
+
+- **NEVER use generic field names** like `text`, `result`, `value`, `item`, `data`, `input`, `output`
+- **ALWAYS use descriptive field names** that indicate the content's purpose:
+  - ✅ Good: `documentText`, `userQuestion`, `responseText`, `summaryText`, `emailContent`
+  - ✅ Good: `processedResult`, `analysisOutput`, `categoryType`, `confidenceScore`
+  - ❌ Bad: `text`, `result`, `value`, `item`, `data`, `input`, `output`
+- **Signature validation will reject generic names** - this is enforced at runtime
+
+## Common Patterns
+
+1. **Creating AI Instance**: Always use `ai()` factory function: `ai({ name: 'provider', apiKey: '...' })`
+2. **Signature Creation**: Use `s()` function for type-safe string-based signatures
+3. **Generator Creation**: Use `ax()` function for direct generator creation
+4. **Agent Creation**: Use `agent()` factory function OR `AxAgent.create()` static method for type safety
+5. **Dynamic Fields**: Combine string signatures with `f.<type>()` helpers for dynamic field creation
+6. **Variable Naming**: Use `llm` instead of `ai` to avoid naming conflicts with factory function
+7. **Type Safety**: Leverage TypeScript's type system for compile-time validation
+
+## Core Components
+
+- **AxAI**: Main AI interface supporting 15+ LLM providers (use `ai()` factory function)
+- **AxAgent**: Agent framework with inter-agent communication (use `agent()` factory function)
+- **AxFlow**: AI workflow orchestration engine for complex multi-step processes
+- **AxDB**: Vector database abstraction (Memory, Weaviate, Pinecone, Cloudflare)
+- **AxDBManager**: Smart chunking, embedding, and querying
+- **axRAG**: Modern RAG implementation built on AxFlow (replaces AxRAG)
+
+## Naming Conventions
+
+**CRITICAL**: All publicly exported functions and utilities must be prefixed with `ax` or classes `Ax` (do not do this with internal functions)
+
+**Classes and Types**: Follow existing patterns:
+- Classes: `AxClassName` (e.g., `AxAI`, `AxAgent`)
+- Types/Interfaces: `AxTypeName` (e.g., `AxSignature`, `AxGenConfig`)
+- Functions/Utilities: `axFunctionName` (e.g., `axCreateLogger`, `axDefaultConfig`)
+
+## Code Style
+
+- **DO NOT ADD COMMENTS** unless explicitly asked
+- Use `const llm` instead of `const ai` to avoid naming conflicts
+- Always use factory functions instead of constructors
+- Prefer string-based signatures over template literals
+- Use descriptive field names that indicate content purpose
+- Follow TypeScript best practices for type safety
+
+## Example Structure
+
+```typescript
+// Export reusable generator
+export const myGen = ax(`userInput:string "User input" -> aiResponse:string "AI response"`)
+
+// Top-level execution - no function wrappers
+console.log('=== Demo ===')
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! })
+const result = await myGen.forward(llm, { userInput: 'test' })
+
+// Access typed results
+console.log(result.aiResponse)
+```
+
+## Migration from Deprecated Patterns
+
+If you see deprecated patterns, update them:
+
+| Old (Deprecated) | New (Recommended) |
+|------------------|-------------------|
+| `new AxAI({...})` | `ai({...})` |
+| `new AxSignature('...')` | `s('...')` |
+| `s\`field:\${f.string()}\`` | `s('field:string "description"')` |
+| `ax\`field:\${f.string()}\`` | `ax('field:string "description"')` |
+| Template literals with `\${}` | String functions: `s()`, `ax()` |
+| Dynamic field creation only | String syntax + `f.<type>()` helpers for dynamic fields |
+
+## Testing Commands
+
+```bash
+# Build all workspaces
+npm run build
+
+# Run tests across all workspaces
+npm run test
+
+# Run tests for main library
+npm run test --workspace=@ax-llm/ax
+
+# Fix formatting and linting
+npm run fix
+
+# Run examples with tsx
+npm run tsx ./src/examples/<example-file>.ts
+```
+
+Remember: This is a production-ready library used by startups in production. Maintain high code quality, comprehensive testing, and use current recommended patterns only.

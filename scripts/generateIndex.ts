@@ -28,7 +28,8 @@ function hasValidPrefix(name: string): boolean {
     name.startsWith('Ax') ||
     name === 'f' ||
     name === 's' ||
-    name === 'ai'
+    name === 'ai' ||
+    name === 'agent'
   );
 }
 

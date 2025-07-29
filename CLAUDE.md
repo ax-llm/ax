@@ -284,13 +284,13 @@ npm run dev --workspace=@ax-llm/ax
 
 ```typescript
 // Export reusable generator
-export const myGen = ax`input:${f.string('User input')} -> output:${f.string('AI response')}`
+export const myGen = ax(`userInput:string "User input" -> aiResponse:string "AI response"`)
 
 // Top-level execution - no function wrappers
 console.log('=== Demo ===')
 
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! })
-const result = await myGen.forward(ai, { input: 'test' })
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! })
+const result = await myGen.forward(llm, { userInput: 'test' })
 
 // Save only essential data
 await fs.writeFile('demos.json', JSON.stringify(demos, null, 2))
@@ -315,33 +315,67 @@ await fs.writeFile('demos.json', JSON.stringify(demos, null, 2))
 
 ### Key Architectural Patterns
 
-#### 1. Prompt Signatures & Template Literals
-Ax uses a unique prompt signature system with **modern template literal support**:
+#### 1. Prompt Signatures & String Functions
+Ax uses a unique prompt signature system with **string-based function support**:
 
-**PREFERRED: Template Literals with Field Builders**
+**CURRENT RECOMMENDED PATTERNS**
 ```typescript
-import { ax, s, f } from '@ax-llm/ax'
+import { ai, agent, AxAgent, s, ax, f } from '@ax-llm/ax'
 
-// Using the `s` template literal for signatures
-const signature = s`
-  userQuestion:${f.string('User input')} -> 
-  responseText:${f.string('AI response')},
-  confidenceScore:${f.number('Confidence 0-1')}
-`
+// 1. AI Instance Creation (use factory function)
+const llm = ai({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY!
+})
 
-// Using the `ax` template literal for AxGen instances
-const generator = ax`
-  emailText:${f.string('Email content')} -> 
-  categoryType:${f.class(['urgent', 'normal', 'low'], 'Priority level')},
-  actionItems:${f.array(f.string('Required actions'))}
-`
+// 2. Signature Creation (use s function)
+const signature = s(`
+  userQuestion:string "User input" -> 
+  responseText:string "AI response",
+  confidenceScore:number "Confidence 0-1"
+`)
+
+// 3. Generator Creation (use ax function)
+const generator = ax(`
+  emailText:string "Email content" -> 
+  categoryType:class "urgent, normal, low" "Priority level",
+  actionItems:string[] "Required actions"
+`)
+
+// 4a. Agent Creation (use factory function)
+const agentInstance = agent(
+  'userInput:string "User question" -> responseText:string "Agent response"',
+  {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions',
+    definition: 'You are a helpful assistant that provides clear, accurate responses to user questions.',
+    ai: llm
+  }
+)
+
+// 4b. Agent Creation (use AxAgent.create static method)
+const agentInstance2 = AxAgent.create(
+  'userInput:string "User question" -> responseText:string "Agent response"',
+  {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions', 
+    definition: 'You are a helpful assistant that provides clear, accurate responses to user questions.',
+    ai: llm
+  }
+)
+
+// 5. Field helpers can still be used for dynamic field creation
+const dynamicSig = s('userInput:string -> responseText:string')
+  .appendInputField('metadata', f.optional(f.json('Extra data')))
+  .appendOutputField('confidence', f.number('Confidence score'))
 ```
 
-**Legacy: String-based signatures (discouraged for new code)**
+**DEPRECATED PATTERNS (will be removed in v15.0.0)**
 ```typescript
-// Format: "task description" inputField:type "field description" -> outputField:type
-const signature = `userQuestion -> responseText:string "detailed response"`
-const signature = `emailText -> categoryType:class "urgent, normal, low", actionItems:string[]`
+// ❌ DEPRECATED: Constructors, template literals
+const ai = new AxAI({ name: 'openai', apiKey: '...' })
+const sig = s`userQuestion:${f.string()} -> responseText:${f.string()}` // template literals
+const gen = ax`emailText:${f.string()} -> categoryType:${f.class(['a', 'b'])}` // template literals
 ```
 
 ## 🔧 Signatures and AxGen Deep Dive
@@ -353,76 +387,77 @@ Signatures define the input/output structure for LLM interactions. They specify:
 - **Field types**: String, number, array, class (enum), etc.
 - **Field descriptions**: Help the LLM understand context
 
-### Template Literal Syntax
+### String-Based Function Syntax
 
-#### The `s` Template Literal (Signatures)
+#### Current Recommended Approach
+
 ```typescript
-import { s, f } from '@ax-llm/ax'
+import { s, ax, f } from '@ax-llm/ax'
 
 // Basic signature structure
-const signature = s`inputField:${f.type()} -> outputField:${f.type()}`
+const signature = s('inputField:string -> outputField:string')
 
-// Multiple inputs and outputs
-const complexSig = s`
-  userMessage:${f.string('User input')},
-  contextData:${f.json('Background info')} -> 
-  responseText:${f.string('AI response')},
-  sentiment:${f.class(['positive', 'negative', 'neutral'])},
-  confidence:${f.number('0-1 confidence score')}
-`
+// Multiple inputs and outputs with descriptions
+const complexSig = s(`
+  userMessage:string "User input",
+  contextData:json "Background info" -> 
+  responseText:string "AI response",
+  sentiment:class "positive, negative, neutral" "Sentiment analysis",
+  confidence:number "0-1 confidence score"
+`)
+
+// Create generator directly
+const generator = ax(`
+  userMessage:string "User input" -> 
+  responseText:string "AI response"
+`)
 ```
 
-#### The `ax` Template Literal (AxGen Generators)
-```typescript
-import { ax, f } from '@ax-llm/ax'
+#### Field Types in String Signatures
 
-// Creates a ready-to-use generator
-const emailClassifier = ax`
-  emailText:${f.string('Raw email content')} -> 
-  category:${f.class(['spam', 'personal', 'work'], 'Email category')},
-  priority:${f.class(['high', 'medium', 'low'], 'Priority level')},
-  extractedTasks:${f.array(f.string('Action items from email'))}
-`
-
-// Use the generator
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! })
-const result = await emailClassifier.forward(ai, { 
-  emailText: 'Meeting tomorrow at 3pm about Q4 budget review' 
-})
-```
-
-### Field Types & Builders
-- **Basic types**: `f.string()`, `f.number()`, `f.boolean()`, `f.date()`, `f.datetime()`, `f.json()`
-- **Media types**: `f.image()`, `f.audio()`, `f.file()`, `f.url()`
-- **Classifications**: `f.class(['option1', 'option2'], 'description')`
-- **Code blocks**: `f.code('python', 'description')`
-- **Arrays**: `f.array(f.string())`, `f.array(f.number())`, etc.
-- **Modifiers**: `f.optional(f.string())`, `f.internal(f.string())`, chaining: `f.optional(f.array(f.string()))`
+| Type | Syntax | Example |
+|------|---------|---------|
+| **Basic types** | `field:type "description"` | `userInput:string "User question"` |
+| **Numbers** | `field:number "description"` | `score:number "Confidence 0-1"` |
+| **Booleans** | `field:boolean "description"` | `isValid:boolean "Input validity"` |
+| **JSON** | `field:json "description"` | `metadata:json "Extra data"` |
+| **Arrays** | `field:type[] "description"` | `tags:string[] "Keywords"` |
+| **Optional** | `field?:type "description"` | `context?:string "Optional context"` |
+| **Classifications** | `field:class "opt1, opt2" "description"` | `category:class "urgent, normal, low" "Priority"` |
+| **Dates** | `field:date "description"` | `dueDate:date "Due date"` |
+| **DateTime** | `field:datetime "description"` | `timestamp:datetime "Event time"` |
+| **Media types** | `field:image/audio/file/url` | `photo:image "Profile picture"` |
+| **Code** | `field:code "description"` | `script:code "Python code"` |
 
 ### Advanced Field Usage
 ```typescript
-// Optional fields
-const optionalSig = s`
-  userInput:${f.string()} -> 
-  response:${f.string()},
-  metadata:${f.optional(f.json('Optional extra data'))}
-`
+// Optional fields with string syntax
+const optionalSig = s(`
+  userInput:string -> 
+  response:string,
+  metadata?:json "Optional extra data"
+`)
 
 // Array fields
-const listProcessor = ax`
-  itemList:${f.array(f.string('List items'))} -> 
-  processedItems:${f.array(f.string('Processed items'))},
-  summary:${f.string('Overall summary')}
-`
+const listProcessor = ax(`
+  itemList:string[] "List items" -> 
+  processedItems:string[] "Processed items",
+  summary:string "Overall summary"
+`)
 
 // Complex nested structures
-const structuredAnalysis = ax`
-  documentText:${f.string('Document to analyze')} -> 
-  topics:${f.array(f.string('Main topics'))},
-  sentiment:${f.class(['positive', 'negative', 'neutral'])},
-  keyPoints:${f.array(f.string('Important points'))},
-  actionItems:${f.optional(f.array(f.string('Required actions')))}
-`
+const structuredAnalysis = ax(`
+  documentText:string "Document to analyze" -> 
+  topics:string[] "Main topics",
+  sentiment:class "positive, negative, neutral" "Sentiment analysis",
+  keyPoints:string[] "Important points",
+  actionItems?:string[] "Required actions"
+`)
+
+// Dynamic field creation using f helpers
+const dynamicSig = s('baseField:string -> baseOutput:string')
+  .appendInputField('extraField', f.optional(f.array(f.string('Dynamic field'))))
+  .appendOutputField('confidence', f.number('Confidence score'))
 ```
 
 ### Field Naming Requirements
@@ -440,25 +475,25 @@ const structuredAnalysis = ax`
 
 #### Creating and Using AxGen
 ```typescript
-import { ax, f, AxAI } from '@ax-llm/ax'
+import { ax, ai } from '@ax-llm/ax'
 
-// 1. Create generator with ax template literal
-const taskExtractor = ax`
-  meetingNotes:${f.string('Raw meeting notes')} -> 
-  actionItems:${f.array(f.string('Tasks to complete'))},
-  decisions:${f.array(f.string('Decisions made'))},
-  nextMeetingDate:${f.optional(f.date('Next meeting if mentioned'))}
-`
+// 1. Create generator with ax function
+const taskExtractor = ax(`
+  meetingNotes:string "Raw meeting notes" -> 
+  actionItems:string[] "Tasks to complete",
+  decisions:string[] "Decisions made",
+  nextMeetingDate?:date "Next meeting if mentioned"
+`)
 
-// 2. Set up AI provider
-const ai = new AxAI({ 
+// 2. Set up AI provider using factory function
+const llm = ai({ 
   name: 'openai', 
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: 'gpt-4' }
 })
 
 // 3. Execute the generator
-const result = await taskExtractor.forward(ai, {
+const result = await taskExtractor.forward(llm, {
   meetingNotes: 'Discussed Q4 budget. John will review numbers by Friday. Next meeting Dec 15th.'
 })
 
@@ -470,14 +505,14 @@ console.log(result.nextMeetingDate) // '2024-12-15'
 
 #### Streaming with AxGen
 ```typescript
-const streamingGen = ax`
-  storyPrompt:${f.string('Story premise')} -> 
-  storyText:${f.string('Generated story')},
-  genre:${f.class(['fantasy', 'sci-fi', 'mystery'], 'Story genre')}
-`
+const streamingGen = ax(`
+  storyPrompt:string "Story premise" -> 
+  storyText:string "Generated story",
+  genre:class "fantasy, sci-fi, mystery" "Story genre"
+`)
 
 // Stream the response
-for await (const chunk of streamingGen.stream(ai, { 
+for await (const chunk of streamingGen.stream(llm, { 
   storyPrompt: 'A robot discovers emotions' 
 })) {
   if (chunk.storyText) {
@@ -486,29 +521,32 @@ for await (const chunk of streamingGen.stream(ai, {
 }
 ```
 
-### Signature-Only Usage (Advanced)
+### Advanced Signature Usage
 ```typescript
-import { s, f, AxGen, AxAI } from '@ax-llm/ax'
+import { s, ax, ai } from '@ax-llm/ax'
 
 // Create signature separately
-const analysisSignature = s`
-  documentText:${f.string('Document to analyze')} -> 
-  mainThemes:${f.array(f.string('Key themes'))},
-  readingLevel:${f.class(['elementary', 'middle', 'high', 'college'], 'Reading difficulty')},
-  wordCount:${f.number('Approximate word count')}
-`
+const analysisSignature = s(`
+  documentText:string "Document to analyze" -> 
+  mainThemes:string[] "Key themes",
+  readingLevel:class "elementary, middle, high, college" "Reading difficulty",
+  wordCount:number "Approximate word count"
+`)
 
-// Use with AxGen constructor
-const analyzer = new AxGen(analysisSignature, 'Analyze the given document for themes and readability.')
+// Create generator from signature
+const analyzer = ax(analysisSignature.toString())
 
-// Alternative: Convert signature to generator
-const generator = analysisSignature.toAxGen('Document analysis task')
+// Use the analyzer
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! })
+const result = await analyzer.forward(llm, { 
+  documentText: 'Sample document text...' 
+})
 ```
 
 ### Error Handling and Validation
 ```typescript
 try {
-  const result = await generator.forward(ai, { documentText: 'Sample text' })
+  const result = await generator.forward(llm, { documentText: 'Sample text' })
   
   // Results are automatically validated against the signature
   // Type errors will be caught at compile time with TypeScript
@@ -523,36 +561,37 @@ try {
 ### Integration Patterns
 ```typescript
 // Chaining generators
-const summarizer = ax`
-  longText:${f.string('Text to summarize')} -> 
-  summary:${f.string('Brief summary')}
-`
+const summarizer = ax(`
+  longText:string "Text to summarize" -> 
+  summary:string "Brief summary"
+`)
 
-const classifier = ax`
-  summaryText:${f.string('Summary text')} -> 
-  category:${f.class(['news', 'opinion', 'tutorial'], 'Content type')}
-`
+const classifier = ax(`
+  summaryText:string "Summary text" -> 
+  category:class "news, opinion, tutorial" "Content type"
+`)
 
 // Chain execution
-const summary = await summarizer.forward(ai, { longText: document })
-const classification = await classifier.forward(ai, { summaryText: summary.summary })
+const summary = await summarizer.forward(llm, { longText: document })
+const classification = await classifier.forward(llm, { summaryText: summary.summary })
 ```
 
-**Template Literal Advantages**:
-- Type-safe field creation with IntelliSense
-- Cleaner, more readable syntax
-- Supports field interpolation and complex structures
-- Better error messages and validation
-- Consistent with modern JavaScript/TypeScript patterns
-- Runtime validation of field names and types
-- Automatic TypeScript inference for result types
+**String-Based Function Advantages**:
+- Full TypeScript type inference and safety
+- Clean, readable syntax with `s()` and `ax()` functions
+- Better IntelliSense support than template literals
+- Consistent validation and error messages
+- Standard string format that's easy to parse and understand
+- Can combine with `f.<type>()` helpers for dynamic field creation
+- Automatic TypeScript inference for input/output types
 
 #### 2. Core Components
-- **AxAI**: Main AI interface supporting 15+ LLM providers
-- **AxChainOfThought**: Chain-of-thought reasoning
-- **AxAgent**: Agent framework with inter-agent communication
+- **AxAI**: Main AI interface supporting 15+ LLM providers (use `ai()` factory function)
+- **AxAgent**: Agent framework with inter-agent communication (use `agent()` factory function)
+- **AxFlow**: AI workflow orchestration engine for complex multi-step processes
 - **AxDB**: Vector database abstraction (Memory, Weaviate, Pinecone, Cloudflare)
 - **AxDBManager**: Smart chunking, embedding, and querying
+- **axRAG**: Modern RAG implementation built on AxFlow (replaces AxRAG)
 
 #### 3. Streaming & Multi-modal
 - Native end-to-end streaming
@@ -662,13 +701,16 @@ PINECONE_API_KEY=your_key_here
 ```
 
 ## Common Patterns
-1. **Creating AI Instance**: Always start with `new AxAI({ name: 'provider', apiKey: '...' })`
-2. **Template Literals**: **PREFER** using `ax` and `s` template literals over string-based signatures
-3. **Field Creation**: Use `f.string()`, `f.class()`, etc. instead of raw type strings
-4. **Signature Design**: Keep signatures simple and descriptive with meaningful field names
-5. **Agent Composition**: Agents can call other agents for complex workflows
-6. **Streaming Handling**: Always handle both success and error states in streams
-7. **Type Safety**: Leverage TypeScript's type system for prompt validation
+1. **Creating AI Instance**: Always use `ai()` factory function: `ai({ name: 'provider', apiKey: '...' })`
+2. **Signature Creation**: Use `s()` function for type-safe string-based signatures
+3. **Generator Creation**: Use `ax()` function for direct generator creation
+4. **Agent Creation**: Use `agent()` factory function OR `AxAgent.create()` static method for type safety
+5. **Dynamic Fields**: Combine string signatures with `f.<type>()` helpers for dynamic field creation
+6. **Signature Design**: Keep signatures simple and descriptive with meaningful field names
+7. **Agent Composition**: Agents can call other agents for complex workflows  
+8. **Streaming Handling**: Always handle both success and error states in streams
+9. **Type Safety**: Leverage TypeScript's type system for compile-time validation
+10. **Variable Naming**: Use `llm` instead of `ai` to avoid naming conflicts with factory function
 
 ## Build & Release
 - Uses `tsup` for building
@@ -677,13 +719,15 @@ PINECONE_API_KEY=your_key_here
 - GitHub Actions for CI/CD
 - **Auto-generated Files**: `index.ts` in the main library is auto-generated by running `npm run build:index --workspace=@ax-llm/ax`
 
-## Template Literal Best Practices
-- **Always prefer** `ax` template literals over `new AxGen()` for creating generators
-- **Always prefer** `s` template literals over `new AxSignature()` for creating signatures
-- **Import pattern**: `import { ax, s, f } from '@ax-llm/ax'`
+## Current Best Practices (v13.0.24+)
+- **Always use** factory functions: `ai()`, `agent()` for better type safety
+- **Always use** `s()` function for string-based signatures (not constructors)
+- **Always use** `ax()` function for generators (not template literals)
+- **Import pattern**: `import { ai, agent, s, ax, f } from '@ax-llm/ax'`
 - **Field naming**: Use descriptive names like `userQuestion`, `emailText`, `responseText`
-- **Type safety**: Leverage `f.string()`, `f.class()`, etc. for better IntelliSense and validation
-- **Complex fields**: Chain modifiers like `f.optional(f.array(f.string('descriptions')))`
+- **Variable naming**: Use `llm` instead of `ai` to avoid naming conflicts
+- **Dynamic fields**: Use `f.<type>()` helpers with signature methods for dynamic field creation
+- **Type safety**: Leverage string-based functions for full TypeScript inference
 
 ## Documentation Guidelines
 - When implementing big new features, **ask to update the top-level README.md** with examples and documentation
@@ -691,7 +735,7 @@ PINECONE_API_KEY=your_key_here
 - Update TypeDoc comments for new APIs
 - Add corresponding examples in `src/examples/` for new functionality
 - **When creating new examples, always add them to the examples table in the top-level README.md** with a clear description
-- **ALL examples must use template literals** (`ax`, `s`, `f`) instead of string-based signatures
+- **ALL examples must use current recommended patterns** (factory functions, string-based signatures) instead of deprecated patterns
 - **IMPORTANT**: Only edit the top-level `README.md` file. Never edit files under `src/docs/src/content/` as they are auto-generated and will be overwritten
 
 Remember: This is a production-ready library used by startups in production. Maintain high code quality, comprehensive testing, and backward compatibility. 

@@ -144,7 +144,12 @@ export class AxAI<TModelKey = string>
 
   /**
    * @deprecated Use `AxAI.create()` or `ai()` function instead for better type safety.
-   * This constructor will be removed in a future version.
+   * This constructor will be removed in v15.0.0.
+   *
+   * Migration timeline:
+   * - v13.0.24+: Deprecation warnings (current)
+   * - v14.0.0: Runtime console warnings
+   * - v15.0.0: Complete removal
    *
    * @example
    * ```typescript

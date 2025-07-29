@@ -521,6 +521,7 @@ import {
   type AxIField,
   AxSignature,
   type AxSignatureConfig,
+  f,
 } from './dsp/sig.js';
 import { AxStringUtil } from './dsp/strutil.js';
 import { ax, s } from './dsp/template.js';
@@ -613,9 +614,11 @@ import { AxMemory } from './mem/memory.js';
 import type { AxAIMemory, AxMemoryData } from './mem/types.js';
 import {
   AxAgent,
+  type AxAgentConfig,
   type AxAgentFeatures,
   type AxAgentic,
   type AxAgentOptions,
+  agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
 import {
@@ -744,6 +747,7 @@ export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
 export { AxStringUtil };
 export { AxTestPrompt };
+export { agent };
 export { ai };
 export { ax };
 export { axAIAnthropicDefaultConfig };
@@ -825,6 +829,7 @@ export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
 export { axValidateProviderCapabilities };
+export { f };
 export { s };
 
 // Type exports
@@ -1013,6 +1018,7 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxAgentConfig };
 export type { AxAgentFeatures };
 export type { AxAgentOptions };
 export type { AxAgentic };

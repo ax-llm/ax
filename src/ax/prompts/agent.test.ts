@@ -384,4 +384,87 @@ describe('AxAgent', () => {
     // The test verifies that the system can handle message arrays without throwing errors
     // The actual value injection logic is tested implicitly through the successful execution
   });
+
+  describe('AxAgent.create()', () => {
+    it('should create an agent with type-safe signature parsing', () => {
+      const agent = AxAgent.create(
+        'userInput:string "User question" -> responseText:string "Agent response"',
+        {
+          name: 'testCreateMethod',
+          description: 'Test agent created with AxAgent.create() method',
+          definition:
+            'You are a test agent that provides responses to user questions. Always respond helpfully and accurately.',
+          ai: mockAI,
+        }
+      );
+
+      expect(agent).toBeInstanceOf(AxAgent);
+
+      const signature = agent.getSignature();
+      expect(signature.getInputFields()).toHaveLength(1);
+      expect(signature.getOutputFields()).toHaveLength(1);
+      expect(signature.getInputFields()[0]?.name).toBe('userInput');
+      expect(signature.getOutputFields()[0]?.name).toBe('responseText');
+    });
+
+    it('should create agent with complex signature types', () => {
+      const agent = AxAgent.create(
+        `userQuery:string "User question",
+         context?:json "Optional context" ->
+         answer:string "Detailed answer",
+         confidence:number "Confidence score",
+         category:class "technical, general, personal" "Query category"`,
+        {
+          name: 'complexSignatureAgent',
+          description: 'Agent with complex signature for comprehensive testing',
+          definition:
+            'You are an agent that processes complex queries with multiple input and output types. Analyze the query carefully and provide detailed responses.',
+          ai: mockAI,
+        }
+      );
+
+      const signature = agent.getSignature();
+      const inputFields = signature.getInputFields();
+      const outputFields = signature.getOutputFields();
+
+      expect(inputFields).toHaveLength(2);
+      expect(outputFields).toHaveLength(3);
+
+      expect(inputFields[0]?.name).toBe('userQuery');
+      expect(inputFields[1]?.name).toBe('context');
+      expect(inputFields[1]?.isOptional).toBe(true);
+
+      expect(outputFields[0]?.name).toBe('answer');
+      expect(outputFields[1]?.name).toBe('confidence');
+      expect(outputFields[2]?.name).toBe('category');
+    });
+
+    it('should work identically to constructor with same parameters', () => {
+      const signature = 'testInput:string -> testOutput:string';
+      const config = {
+        name: 'identicalTestAgent',
+        description:
+          'Agent for testing identical behavior between create and constructor',
+        definition:
+          'You are a test agent that helps verify identical behavior between AxAgent.create() and constructor. Your role is to demonstrate that both creation methods produce functionally equivalent agent instances with the same capabilities and behavior.',
+        ai: mockAI,
+      };
+
+      const createdAgent = AxAgent.create(signature, config);
+      const constructedAgent = new AxAgent({
+        signature,
+        ...config,
+      });
+
+      expect(createdAgent.getSignature().toString()).toBe(
+        constructedAgent.getSignature().toString()
+      );
+      expect(createdAgent.getFunction().name).toBe(
+        constructedAgent.getFunction().name
+      );
+      expect(createdAgent.getFunction().description).toBe(
+        constructedAgent.getFunction().description
+      );
+    });
+  });
 });

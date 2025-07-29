@@ -1,6 +1,5 @@
-import { createHash } from '../util/crypto.js';
-
 import type { AxFunctionJSONSchema } from '../ai/types.js';
+import { createHash } from '../util/crypto.js';
 
 import { axGlobals } from './globals.js';
 import {
@@ -33,7 +32,7 @@ export interface AxFieldType {
 }
 
 // Helper functions for creating field types
-export const createFieldType = {
+export const f = {
   string: (desc?: string): AxFieldType => ({
     type: 'string',
     description: desc,
@@ -59,6 +58,11 @@ export const createFieldType = {
     description: desc,
   }),
 
+  date: (desc?: string): AxFieldType => ({
+    type: 'date',
+    description: desc,
+  }),
+
   class: (options: readonly string[], desc?: string): AxFieldType => ({
     type: 'class',
     options,
@@ -68,6 +72,26 @@ export const createFieldType = {
   image: (desc?: string): AxFieldType => ({
     type: 'image',
     description: desc,
+  }),
+
+  audio: (desc?: string): AxFieldType => ({
+    type: 'audio',
+    description: desc,
+  }),
+
+  file: (desc?: string): AxFieldType => ({
+    type: 'file',
+    description: desc,
+  }),
+
+  url: (desc?: string): AxFieldType => ({
+    type: 'url',
+    description: desc,
+  }),
+
+  code: (language?: string, desc?: string): AxFieldType => ({
+    type: 'code',
+    description: desc || language,
   }),
 
   array: <T extends AxFieldType>(
@@ -91,6 +115,9 @@ export const createFieldType = {
     isInternal: true,
   }),
 };
+
+// Backward compatibility alias (legacy API)
+export const createFieldType = f;
 
 export interface AxField {
   name: string;
@@ -223,7 +250,12 @@ export class AxSignature<
 
   /**
    * @deprecated Use `AxSignature.create()` for better type safety instead of the constructor.
-   * This constructor will be removed in a future version.
+   * This constructor will be removed in v15.0.0.
+   *
+   * Migration timeline:
+   * - v13.0.24+: Deprecation warnings (current)
+   * - v14.0.0: Runtime console warnings
+   * - v15.0.0: Complete removal
    *
    * @example
    * ```typescript

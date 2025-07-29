@@ -7,7 +7,8 @@ import type {
 } from '../ai/types.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
-import type { AxSignature } from '../dsp/sig.js';
+import { AxSignature } from '../dsp/sig.js';
+import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
   AxGenIn,
   AxGenOut,
@@ -150,6 +151,29 @@ const definitionError = new Error(
 /**
  * An AI agent that can process inputs using an AI service and coordinate with child agents.
  * Supports features like smart model routing and automatic input field passing to child agents.
+ *
+ * @deprecated Use the `agent()` factory function instead of instantiating this class directly.
+ * The factory function provides better type inference and cleaner syntax.
+ * This class will be removed in v15.0.0.
+ *
+ * Migration timeline:
+ * - v13.0.24+: Deprecation warnings (current)
+ * - v14.0.0: Runtime console warnings
+ * - v15.0.0: Complete removal
+ *
+ * @example
+ * // Old (deprecated):
+ * const myAgent = new AxAgent({
+ *   name: 'myAgent',
+ *   description: 'An agent that does something',
+ *   signature: 'userInput:string -> responseText:string'
+ * });
+ *
+ * // New (recommended):
+ * const myAgent = agent('userInput:string -> responseText:string', {
+ *   name: 'myAgent',
+ *   description: 'An agent that does something'
+ * });
  */
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
@@ -236,6 +260,52 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (mm && !this.disableSmartModelRouting) {
       this.func.parameters = addModelParameter(this.func.parameters, mm);
     }
+  }
+
+  /**
+   * Creates a new AxAgent instance with type-safe signature parsing.
+   * This is the recommended way to create agents with string-based signatures.
+   *
+   * @param signature - The signature string defining input/output fields
+   * @param config - Agent configuration including name, description, etc.
+   * @returns A new AxAgent instance with inferred types
+   *
+   * @example
+   * ```typescript
+   * const agent = AxAgent.create(
+   *   'userInput:string "User question" -> responseText:string "Agent response"',
+   *   {
+   *     name: 'helpfulAgent',
+   *     description: 'An agent that provides helpful responses to user questions',
+   *     definition: 'You are a helpful assistant that provides clear, accurate responses to user questions.',
+   *     ai: llm
+   *   }
+   * );
+   * ```
+   */
+  public static create<const T extends string>(
+    signature: T,
+    config: AxAgentConfig<
+      ParseSignature<T>['inputs'],
+      ParseSignature<T>['outputs']
+    >
+  ): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
+    const typedSignature = AxSignature.create(signature);
+    const { ai, name, description, definition, agents, functions, ...options } =
+      config;
+
+    return new AxAgent(
+      {
+        ai,
+        name,
+        description,
+        definition,
+        signature: typedSignature,
+        agents,
+        functions,
+      },
+      options
+    );
   }
 
   public setExamples(
@@ -545,4 +615,70 @@ function pick<T extends object, K extends keyof T>(
     }
   }
   return result;
+}
+
+/**
+ * Configuration options for creating an agent using the agent() factory function.
+ */
+export interface AxAgentConfig<IN extends AxGenIn, OUT extends AxGenOut>
+  extends AxAgentOptions {
+  ai?: AxAIService;
+  name: string;
+  description: string;
+  definition?: string;
+  agents?: AxAgentic<IN, OUT>[];
+  functions?: AxInputFunctionType;
+}
+
+/**
+ * Creates a strongly-typed AI agent from a string signature.
+ * This is the recommended way to create agents, providing better type inference and cleaner syntax.
+ *
+ * @param signature - The input/output signature as a string (e.g., "userInput:string -> responseText:string")
+ * @param config - Configuration options for the agent
+ * @returns A typed agent instance
+ *
+ * @example
+ * ```typescript
+ * const myAgent = agent('userInput:string -> responseText:string', {
+ *   name: 'myAgent',
+ *   description: 'An agent that processes user input and returns a response',
+ *   definition: 'You are a helpful assistant that responds to user queries...'
+ * });
+ *
+ * // With child agents
+ * const parentAgent = agent('taskDescription:string -> completedTask:string', {
+ *   name: 'parentAgent',
+ *   description: 'Coordinates child agents to complete tasks',
+ *   agents: [childAgent1, childAgent2]
+ * });
+ *
+ * // Type-safe usage
+ * const result = await myAgent.forward(ai, { userInput: 'Hello!' });
+ * console.log(result.responseText); // TypeScript knows this exists
+ * ```
+ */
+export function agent<const T extends string>(
+  signature: T,
+  config: AxAgentConfig<
+    ParseSignature<T>['inputs'],
+    ParseSignature<T>['outputs']
+  >
+): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
+  const typedSignature = AxSignature.create(signature);
+  const { ai, name, description, definition, agents, functions, ...options } =
+    config;
+
+  return new AxAgent(
+    {
+      ai,
+      name,
+      description,
+      definition,
+      signature: typedSignature,
+      agents,
+      functions,
+    },
+    options
+  );
 }
