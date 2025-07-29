@@ -1,15 +1,13 @@
-import { AxAI, AxChainOfThought, AxRAG } from '@ax-llm/ax';
+import { AxAI, axCOT, axRAG } from '@ax-llm/ax';
 
 // simulated vector db call using an llm
 const fetchFromVectorDB = async (query: string) => {
-  const cot = new AxChainOfThought<{ query: string }, { answer: string }>(
-    'query -> answer'
-  );
+  const cot = axCOT('query -> answer');
   const { answer } = await cot.forward(ai, { query });
-  return answer;
+  return answer as string;
 };
 
-const rag = new AxRAG(fetchFromVectorDB, { maxHops: 3 });
+const rag = axRAG(fetchFromVectorDB, { maxHops: 3 });
 
 const ai = new AxAI({
   name: 'openai',
@@ -17,7 +15,7 @@ const ai = new AxAI({
 });
 
 const res = await rag.forward(ai, {
-  context: [],
+  inputContext: [],
   question:
     'List 3 of the top most important work done by Michael Stonebraker?',
 });

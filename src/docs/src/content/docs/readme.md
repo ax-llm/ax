@@ -60,7 +60,7 @@ The idea behind prompt signatures is based on work done in the
 
 You can have multiple input and output fields, and each field can be of the
 types `string`, `number`, `boolean`, `date`, `datetime`,
-`class "class1, class2"`, `code`, `json`, `image`, `audio`, or an array of any
+`class "class1, class2"`, `code`, `json`, `image`, `audio`, `file`, `url`, or an array of any
 of these, e.g., `string[]`. When a type is not defined, it defaults to `string`.
 
 ### Field Modifiers
@@ -72,60 +72,111 @@ of these, e.g., `string[]`. When a type is not defined, it defaults to `string`.
   `reasoning!:string`)
 - **Combined**: You can combine modifiers (e.g., `optionalReasoning?!:string`)
 
-### Tagged Template Literals (New!)
+### Type-Safe Functions (Recommended)
 
-For a more ergonomic and type-safe way to create signatures, you can use tagged
-template literals:
+The **fully type-safe** approach uses the `ax()` and `s()` functions, which provide complete TypeScript type inference and return fully typed objects with complete IntelliSense support:
 
 ```typescript
-import { f, s } from "@ax-llm/ax";
+import { f, s, ax } from "@ax-llm/ax";
 
-// Basic usage
-const sig1 = s`question:string -> answer:string`;
+// Create type-safe signatures with s() function
+const sig1 = s(
+  "question:string -> answer:string"
+);
 
-// With field types and descriptions
-const sig2 = s`
-  input:${f.string("User input")} -> 
-  category:${f.class(["tech", "business", "sports"], "Content category")},
-  confidence:${f.number("Confidence score 0-1")}
-`;
+// With field types and descriptions - fully type-safe
+const sig2 = s(
+  "input", f.string("User input"),
+  "->",
+  "category", f.class(["tech", "business", "sports"], "Content category"),
+  "confidence", f.number("Confidence score 0-1")
+);
 
-// With modifiers
-const sig3 = s`
-  text:string -> 
-  summary:${f.optional(f.string("Brief summary"))},
-  reasoning:${f.internal(f.string("Internal reasoning"))}
-`;
+// With modifiers - IntelliSense knows exact field types
+const sig3 = s(
+  "text:string",
+  "->", 
+  "summary", f.optional(f.string("Brief summary")),
+  "reasoning", f.internal(f.string("Internal reasoning"))
+);
+
+// TypeScript knows the exact input/output types!
+type Sig2Input = { input: string };
+type Sig2Output = { category: "tech" | "business" | "sports"; confidence: number };
 ```
 
-### Ax Tagged Template Literals
+### Type-Safe AxGen Creation with ax()
 
-For an even more streamlined experience, you can use the `ax` tagged template
-literal to create `AxGen` instances directly:
+The `ax()` function creates fully typed `AxGen` instances with complete type inference:
 
 ```typescript
 import { ax, f } from "@ax-llm/ax";
 
-// Basic AxGen creation
-const gen = ax`question:string -> answer:string`;
+// Create type-safe AxGen instances
+const gen = ax("question:string -> answer:string");
 
-// With field types and descriptions
-const sentimentGen = ax`
-  text:${f.string("Text to analyze")} -> 
-  sentiment:${
-  f.class(["positive", "negative", "neutral"], "Sentiment classification")
-},
-  confidence:${f.number("Confidence score 0-1")}
-`;
+// Advanced example with full type safety
+const sentimentGen = ax(
+  "text", f.string("Text to analyze"),
+  "->",
+  "sentiment", f.class(["positive", "negative", "neutral"], "Sentiment classification"),
+  "confidence", f.number("Confidence score 0-1")
+);
 
-// Direct usage with AI
+// TypeScript knows exact types - no any/unknown!
 const result = await sentimentGen.forward(ai, {
-  text: "I love this product!",
+  text: "I love this product!", // TypeScript validates this
 });
+
+// Perfect IntelliSense on result
+console.log(result.sentiment); // "positive" | "negative" | "neutral"
+console.log(result.confidence); // number
 ```
 
-The `ax` template literal creates ready-to-use `AxGen` instances. If you need
-just the signature, use `s` instead.
+### Alternative: Template Literal Support
+
+For convenience, we also support template literals: `const gen = ax\`question:string -> answer:string\`;`
+
+### Why ax() and s() Functions Are Fully Type-Safe
+
+**Type Safety Benefits:**
+
+| Feature | `ax()`/`s()` Functions | Template Literals | Raw Strings |
+|---------|------------------------|-------------------|-------------|
+| **Return Type** | Fully typed objects | Limited type info | `any` |
+| **IntelliSense** | Complete field autocompletion | Basic support | No type hints |
+| **Compile-time Validation** | Catches type errors | Runtime validation | Runtime-only validation |
+| **Field Type Inference** | Exact literal types | Generic types | No types |
+| **IDE Support** | Full refactoring support | Limited | None |
+
+**Example showing the difference:**
+
+```typescript
+// Template literal - limited type information
+const templateWay = ax`input:string -> category:class "a,b,c"`;
+
+// Function approach - full type safety  
+const functionWay = ax(
+  "input", f.string(),
+  "->",
+  "category", f.class(["a", "b", "c"])
+);
+
+// Usage comparison:
+const result1 = await templateWay.forward(ai, { input: "test" });
+result1.category; // Limited type information
+
+const result2 = await functionWay.forward(ai, { input: "test" });  
+result2.category; // TypeScript shows "a" | "b" | "c" - perfect safety!
+```
+
+**Best Practices:**
+- **Always use `ax()` and `s()` functions** for full type safety
+- Leverage `f.string()`, `f.class()`, etc. for field definitions
+- Take advantage of exact literal type inference
+- Use descriptive field names like `userQuestion`, not `question`
+
+The `ax()` function creates ready-to-use `AxGen` instances, while `s()` creates just the signature. Both provide full TypeScript type safety.
 
 ## Output Field Types
 
@@ -139,6 +190,8 @@ just the signature, use `s` instead.
 | `json`                      | A JSON object                          | `metadata:json`                      | `{"key": "value"}`                                 |
 | `image`                     | An image (input only)                  | `photo:image`                        | Base64 encoded image data                          |
 | `audio`                     | An audio file (input only)             | `recording:audio`                    | Base64 encoded audio data                          |
+| `file`                      | A file with filename, mime type, and data | `document:file`               | `{"filename": "doc.pdf", "mimeType": "application/pdf", "data": "base64data"}` |
+| `url`                       | A URL with optional title and description | `website:url`                | `"https://example.com"` or `{"url": "https://example.com", "title": "Example"}` |
 | `class "option1,option2"`   | Classification with predefined options | `category:class "urgent,normal,low"` | `"urgent"`                                         |
 | `code`                      | A code block                           | `solution:code "Python solution"`    | `print('Hello, world!')`                           |
 | `string[]`                  | An array of strings                    | `tags:string[]`                      | `["example1", "example2"]`                         |
@@ -146,6 +199,8 @@ just the signature, use `s` instead.
 | `boolean[]`                 | An array of boolean values             | `permissions:boolean[]`              | `[true, false, true]`                              |
 | `date[]`                    | An array of dates                      | `holidayDates:date[]`                | `["2023-10-01", "2023-10-02"]`                     |
 | `datetime[]`                | An array of date and time values       | `logTimestamps:datetime[]`           | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]` |
+| `file[]`                    | An array of files                      | `attachments:file[]`                 | `[{"filename": "doc1.pdf", "mimeType": "application/pdf", "data": "base64data"}]` |
+| `url[]`                     | An array of URLs                       | `links:url[]`                        | `["https://example.com", {"url": "https://test.com", "title": "Test"}]` |
 | `class[] "option1,option2"` | Array of classifications               | `categories:class[] "tech,business"` | `["tech", "business"]`                             |
 
 ### Important Notes on Field Types
@@ -210,7 +265,7 @@ const ai = new AxAI({
 ## Example: Summarize text
 
 ```typescript
-import { AxAI, ax } from "@ax-llm/ax";
+import { AxAI, ax, f } from "@ax-llm/ax";
 
 const textToSummarize = `
 The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
@@ -220,31 +275,37 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY as string,
 });
 
-const gen = ax`textToSummarize -> textType:class "note, email, reminder", shortSummary "summarize in 5 to 10 words"`,
+const gen = ax(
+  "textToSummarize", f.string(),
+  "->",
+  "textType", f.class(["note", "email", "reminder"]),
+  "shortSummary", f.string("summarize in 5 to 10 words")
+);
 
 const res = await gen.forward(ai, { textToSummarize });
 
 console.log(">", res);
 ```
 
-## Example: Using tagged template literals for type-safe signatures
+## Example: Using functions for type-safe signatures
 
 ```typescript
-import { ax, AxAI, f, s } from "@ax-llm/ax";
+import { ax, AxAI, f } from "@ax-llm/ax";
 
 const ai = new AxAI({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY as string,
 });
 
-// Create a signature using tagged template literals
-const gen = ax`
-    userInput:${f.string("User message or question")} -> 
-    category:${f.class(["question", "request", "complaint"], "Message type")},
-    priority:${f.class(["high", "medium", "low"], "Urgency level")},
-    response:${f.string("Appropriate response")},
-    reasoning:${f.internal(f.string("Internal reasoning for classification"))}
-  `;
+// Create a signature using type-safe functions
+const gen = ax(
+  "userInput", f.string("User message or question"),
+  "->",
+  "category", f.class(["question", "request", "complaint"], "Message type"),
+  "priority", f.class(["high", "medium", "low"], "Urgency level"),
+  "response", f.string("Appropriate response"),
+  "reasoning", f.internal(f.string("Internal reasoning for classification"))
+);
 
 const res = await gen.forward(ai, {
   userInput: "My order hasn't arrived and I need it urgently!",
@@ -305,7 +366,7 @@ const ai = new AxAI({
 });
 
 // Or control thinking budget per request
-const gen = ax`question -> answer`;
+const gen = ax("question -> answer");
 const res = await gen.forward(
   ai,
   { question: "What is quantum entanglement?" },
@@ -399,7 +460,12 @@ const image = fs
   .readFileSync("./src/examples/assets/kitten.jpeg")
   .toString("base64");
 
-const gen = ax`question, animalImage:image -> answer`;
+const gen = ax(
+  "question", f.string(),
+  "animalImage", f.image(),
+  "->",
+  "answer", f.string()
+);
 
 const res = await gen.forward(ai, {
   question: "What family does this animal belong to?",
@@ -437,11 +503,12 @@ GOOGLE_APIKEY=api-key npm run tsx ./src/examples/chat.ts
 ```
 
 ```typescript
-// Create a chat assistant using modern template literals
-const chatBot = ax`
-  message:${f.string("A casual message from the user")} -> 
-  reply:${f.string("A friendly, casual response")}
-`;
+// Create a chat assistant using type-safe functions
+const chatBot = ax(
+  "message", f.string("A casual message from the user"),
+  "->",
+  "reply", f.string("A friendly, casual response")
+);
 
 // Start a conversation with message history
 const chat: AxMessage<{ message: string }>[] = [
@@ -749,7 +816,7 @@ const gemini = AxAI.create({
 const router = new AxMultiServiceRouter([openai, gemini]);
 // router now knows about 'fast' | 'smart' | 'reasoning' | 'quick' | 'advanced'
 
-const gen = ax`inputText -> outputText`;
+const gen = ax("inputText -> outputText");
 gen.forward(router, { inputText }, { model: "quick" });
 // ax now knows about 'fast' | 'smart' | 'reasoning' | 'quick' | 'advanced'
 ```

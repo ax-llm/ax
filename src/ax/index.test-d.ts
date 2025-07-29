@@ -45,6 +45,84 @@ expectType<
 expectError(AxSignature.create('invalid format without arrow'));
 expectError(AxSignature.create(''));
 
+// Test type-safe field addition methods
+import { f } from './dsp/template.js';
+
+const testSig = AxSignature.create('userInput: string -> responseText: string');
+
+// Test appendInputField type inference
+const withAppendedInput = testSig.appendInputField(
+  'contextInfo',
+  f.optional(f.string('Context'))
+);
+expectType<
+  AxSignature<
+    { userInput: string; contextInfo?: string },
+    { responseText: string }
+  >
+>(withAppendedInput);
+
+// Test prependInputField type inference
+const withPrependedInput = testSig.prependInputField(
+  'sessionId',
+  f.string('Session ID')
+);
+expectType<
+  AxSignature<
+    { sessionId: string; userInput: string },
+    { responseText: string }
+  >
+>(withPrependedInput);
+
+// Test appendOutputField type inference
+const withAppendedOutput = testSig.appendOutputField(
+  'confidence',
+  f.number('Confidence score')
+);
+expectType<
+  AxSignature<
+    { userInput: string },
+    { responseText: string; confidence: number }
+  >
+>(withAppendedOutput);
+
+// Test prependOutputField type inference
+const withPrependedOutput = testSig.prependOutputField(
+  'category',
+  f.class(['urgent', 'normal', 'low'], 'Priority')
+);
+expectType<
+  AxSignature<
+    { userInput: string },
+    { category: 'urgent' | 'normal' | 'low'; responseText: string }
+  >
+>(withPrependedOutput);
+
+// Test chaining type inference
+const chainedSig = testSig
+  .appendInputField('metadata', f.optional(f.json('Metadata')))
+  .prependOutputField('status', f.class(['success', 'error'], 'Status'))
+  .appendOutputField('timestamp', f.datetime('Timestamp'));
+
+expectType<
+  AxSignature<
+    { userInput: string; metadata?: any },
+    { status: 'success' | 'error'; responseText: string; timestamp: Date }
+  >
+>(chainedSig);
+
+// Test array type inference
+const arraySig = testSig
+  .appendInputField('tags', f.array(f.string('Tag names')))
+  .appendOutputField('suggestions', f.array(f.string('Suggestions')));
+
+expectType<
+  AxSignature<
+    { userInput: string; tags: string[] },
+    { responseText: string; suggestions: string[] }
+  >
+>(arraySig);
+
 // import type {
 //   AxAIService,
 //   AxAIServiceMetrics,

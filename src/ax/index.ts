@@ -606,8 +606,7 @@ import {
   type AxAgentic,
   type AxAgentOptions,
 } from './prompts/agent.js';
-import { AxChainOfThought } from './prompts/cot.js';
-import { AxRAG } from './prompts/rag.js';
+import { axAdvancedRAG, axRAG } from './prompts/rag.js';
 import {
   AxLLMRequestTypeValues,
   AxSpanKindValues,
@@ -691,7 +690,6 @@ export { AxBalancer };
 export { AxBaseAI };
 export { AxBaseOptimizer };
 export { AxBootstrapFewShot };
-export { AxChainOfThought };
 export { AxContentProcessingError };
 export { AxDB };
 export { AxDBBase };
@@ -728,7 +726,6 @@ export { AxMultiServiceRouter };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
-export { AxRAG };
 export { AxRateLimiterTokenUsage };
 export { AxSignature };
 export { AxSimpleClassifier };
@@ -771,6 +768,7 @@ export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
 export { axAIWebLLMCreativeConfig };
 export { axAIWebLLMDefaultConfig };
+export { axAdvancedRAG };
 export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
@@ -803,6 +801,7 @@ export { axModelInfoReka };
 export { axModelInfoTogether };
 export { axModelInfoWebLLM };
 export { axProcessContentForProvider };
+export { axRAG };
 export { axScoreProvidersForRequest };
 export { axSelectOptimalProvider };
 export { axSpanAttributes };

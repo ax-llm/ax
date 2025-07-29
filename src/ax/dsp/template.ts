@@ -3,7 +3,8 @@
 
 import { AxGen, type AxGenerateResult } from './generate.js';
 import { AxSignature } from './sig.js';
-import type { AxGenIn, AxGenOut, ParseSignature } from './types.js';
+import type { ParseSignature, BuildObject } from './sigtypes.js';
+import type { AxGenIn, AxGenOut } from './types.js';
 
 // Type for template interpolation values
 export type AxSignatureTemplateValue =
@@ -47,6 +48,16 @@ export function s<const T extends string>(
 ): AxSignature<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
 
 // Main tagged template function for creating signatures
+/**
+ * @deprecated Template literals are not type-safe and will be removed in a future version.
+ * Use AxSignature.create() instead for better type safety.
+ * 
+ * @example
+ * ```typescript
+ * // Instead of: s`userInput:${f.string()} -> responseText:${f.string()}`
+ * // Use: AxSignature.create('userInput:string -> responseText:string')
+ * ```
+ */
 export function s(
   strings: TemplateStringsArray,
   // eslint-disable-next-line functional/functional-parameters
@@ -111,11 +122,31 @@ export function s<const T extends string>(
 }
 
 // Function overload for string-based type-safe generator creation
+/**
+ * @deprecated Template literals are not type-safe and will be removed in a future version.
+ * Use s() with new AxGen() instead for better type safety.
+ * 
+ * @example
+ * ```typescript
+ * // Instead of: ax('userInput:string -> responseText:string')
+ * // Use: new AxGen(s('userInput:string -> responseText:string'))
+ * ```
+ */
 export function ax<const T extends string>(
   signature: T
 ): AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
 
 // Tagged template function that returns AxGen instances
+/**
+ * @deprecated Template literals are not type-safe and will be removed in a future version.
+ * Use s() with new AxGen() instead for better type safety.
+ * 
+ * @example
+ * ```typescript
+ * // Instead of: ax`userInput:${f.string()} -> responseText:${f.string()}`
+ * // Use: new AxGen(s('userInput:string -> responseText:string'))
+ * ```
+ */
 export function ax<
   IN extends AxGenIn = AxGenIn,
   OUT extends AxGenerateResult<AxGenOut> = AxGenerateResult<AxGenOut>,
@@ -129,11 +160,13 @@ export function ax<const T extends string>(
   sigOrStrings: T | TemplateStringsArray,
   // eslint-disable-next-line functional/functional-parameters
   ...values: readonly AxSignatureTemplateValue[]
-): AxGen<any, any> {
+): T extends string 
+  ? AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>
+  : AxGen<any, any> {
   // If called as regular function with string
   if (typeof sigOrStrings === 'string') {
     const typedSignature = AxSignature.create(sigOrStrings);
-    return new AxGen(typedSignature);
+    return new AxGen(typedSignature) as AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
   }
 
   // If called as tagged template literal
@@ -283,74 +316,126 @@ function isAxFieldDescriptor(value: unknown): value is AxFieldDescriptor {
 }
 
 // Helper functions for type-safe field creation
+/**
+ * @deprecated Field helper functions are not type-safe and will be removed in a future version.
+ * Use string-based signatures with s() function instead for better type safety.
+ * 
+ * @example
+ * ```typescript
+ * // Instead of: f.string('User input')
+ * // Use: s('userInput:string "User input" -> responseText:string')
+ * ```
+ */
 export const f = {
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   string: (desc?: string): AxFieldType => ({
     type: 'string',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   number: (desc?: string): AxFieldType => ({
     type: 'number',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   boolean: (desc?: string): AxFieldType => ({
     type: 'boolean',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   date: (desc?: string): AxFieldType => ({
     type: 'date',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   datetime: (desc?: string): AxFieldType => ({
     type: 'datetime',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   json: (desc?: string): AxFieldType => ({
     type: 'json',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   image: (desc?: string): AxFieldType => ({
     type: 'image',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   audio: (desc?: string): AxFieldType => ({
     type: 'audio',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   file: (desc?: string): AxFieldType => ({
     type: 'file',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   url: (desc?: string): AxFieldType => ({
     type: 'url',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   link: (desc?: string): AxFieldType => ({
     type: 'url',
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   class: (options: readonly string[], desc?: string): AxFieldType => ({
     type: 'class',
     options,
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   code: (language: string, desc?: string): AxFieldType => ({
     type: 'code',
     options: [language],
     description: desc,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   array: <T extends AxFieldType>(
     baseType: T
   ): T & { readonly isArray: true } => ({
@@ -358,6 +443,9 @@ export const f = {
     isArray: true,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   optional: <T extends AxFieldType>(
     baseType: T
   ): T & { readonly isOptional: true } => ({
@@ -365,6 +453,9 @@ export const f = {
     isOptional: true,
   }),
 
+  /**
+   * @deprecated Use string-based signatures instead. Will be removed in a future version.
+   */
   internal: <T extends AxFieldType>(
     baseType: T
   ): T & { readonly isInternal: true } => ({

@@ -5,7 +5,7 @@ import type {
   AxAIOpenAIModel,
 } from './openai/chat_types.js';
 import type { AxAIService, AxAIServiceOptions } from './types.js';
-import { AxAI } from './wrap.js';
+import { AxAI, ai } from './wrap.js';
 
 describe('AxAI Wrapper', () => {
   describe('Interface Compatibility', () => {
@@ -117,6 +117,17 @@ describe('AxAI Wrapper', () => {
 
     it('should create AxAI instance with static create method', () => {
       const axAI = AxAI.create({
+        name: 'openai',
+        apiKey: 'test-key',
+        config: { model: 'gpt-4' as AxAIOpenAIModel },
+      });
+
+      expect(axAI).toBeInstanceOf(AxAI);
+      expect(axAI.getName()).toBe('OpenAI');
+    });
+
+    it('should create AxAI instance with ai() factory function', () => {
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },

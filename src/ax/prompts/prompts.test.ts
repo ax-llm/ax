@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AxAI } from '../ai/wrap.js';
 import { AxSignature } from '../dsp/sig.js';
 
-import { AxChainOfThought } from './cot.js';
+import { axCOT } from './cot.js';
 
 const someText =
   'The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible.';
@@ -32,7 +32,7 @@ const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
         index: 0,
         message: {
           role: 'assistant',
-          content: 'Reason: Blah blah blah\nShort Summary: More blah blah blah',
+          content: 'Reasoning: Blah blah blah\nShort Summary: More blah blah blah',
         },
       },
     ],
@@ -53,7 +53,7 @@ const mockFetch = async (_urlObj: unknown, req: unknown): Promise<Response> => {
   });
 };
 
-describe('AxChainOfThought', () => {
+describe('axCOT', () => {
   it('should generate prompt correctly', async () => {
     const ai = new AxAI({
       name: 'openai',
@@ -64,18 +64,17 @@ describe('AxChainOfThought', () => {
 
     // const ai = new AxAI({ name: 'ollama', config: { model: 'nous-hermes2' } });
 
-    const gen = new AxChainOfThought<{ someText: string }>(
+    const flow = axCOT<{ someText: string }, { shortSummary: string }>(
       `someText -> shortSummary "summarize in 5 to 10 words"`,
       { setVisibleReasoning: true }
     );
-    gen.setExamples(examples);
+    flow.setExamples(examples);
 
-    const res = await gen.forward(ai, { someText });
+    const res = await flow.forward(ai, { someText });
 
-    expect(res).toEqual({
-      reason: 'Blah blah blah',
-      shortSummary: 'More blah blah blah',
-    });
+    expect(res.reasonerResult.shortSummary).toBe('More blah blah blah');
+    // Reasoning field should be present if setVisibleReasoning is true
+    expect(res.reasonerResult.reasoning).toBe('Blah blah blah');
   });
 });
 

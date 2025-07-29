@@ -691,3 +691,201 @@ Thought Process: I am thinking.`;
     expect(result4).toBe(true);
   });
 });
+
+describe('Type-safe field addition methods', () => {
+  it('should append input field with type safety', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+    const enhanced = baseSig.appendInputField('contextInfo', {
+      type: 'string',
+      description: 'Additional context',
+      isOptional: true,
+    });
+
+    expect(enhanced.getInputFields()).toHaveLength(2);
+    expect(enhanced.getInputFields()[1]?.name).toBe('contextInfo');
+    expect(enhanced.getInputFields()[1]?.isOptional).toBe(true);
+    expect(enhanced.toString()).toContain(
+      'contextInfo?:string "Additional context"'
+    );
+  });
+
+  it('should prepend input field with type safety', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+    const enhanced = baseSig.prependInputField('sessionId', {
+      type: 'string',
+      description: 'Session identifier',
+    });
+
+    expect(enhanced.getInputFields()).toHaveLength(2);
+    expect(enhanced.getInputFields()[0]?.name).toBe('sessionId');
+    expect(enhanced.getInputFields()[1]?.name).toBe('userInput');
+    expect(enhanced.toString()).toContain(
+      'sessionId:string "Session identifier", userInput:string'
+    );
+  });
+
+  it('should append output field with type safety', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+    const enhanced = baseSig.appendOutputField('confidence', {
+      type: 'number',
+      description: 'Confidence score',
+    });
+
+    expect(enhanced.getOutputFields()).toHaveLength(2);
+    expect(enhanced.getOutputFields()[1]?.name).toBe('confidence');
+    expect(enhanced.toString()).toContain(
+      'responseText:string, confidence:number "Confidence score"'
+    );
+  });
+
+  it('should prepend output field with type safety', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+    const enhanced = baseSig.prependOutputField('category', {
+      type: 'class',
+      options: ['question', 'request', 'complaint'],
+      description: 'Input category',
+    });
+
+    expect(enhanced.getOutputFields()).toHaveLength(2);
+    expect(enhanced.getOutputFields()[0]?.name).toBe('category');
+    expect(enhanced.getOutputFields()[1]?.name).toBe('responseText');
+    expect(enhanced.toString()).toContain(
+      'category:class "question | request | complaint"'
+    );
+  });
+
+  it('should support chaining multiple field additions', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+    const enhanced = baseSig
+      .prependInputField('sessionId', {
+        type: 'string',
+        description: 'Session ID',
+      })
+      .appendInputField('metadata', { type: 'json', isOptional: true })
+      .prependOutputField('status', {
+        type: 'class',
+        options: ['success', 'error'],
+      })
+      .appendOutputField('timestamp', { type: 'datetime' });
+
+    expect(enhanced.getInputFields()).toHaveLength(3);
+    expect(enhanced.getOutputFields()).toHaveLength(3);
+
+    const inputNames = enhanced.getInputFields().map((f) => f.name);
+    expect(inputNames).toEqual(['sessionId', 'userInput', 'metadata']);
+
+    const outputNames = enhanced.getOutputFields().map((f) => f.name);
+    expect(outputNames).toEqual(['status', 'responseText', 'timestamp']);
+  });
+
+  it('should handle array field types correctly', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+    const enhanced = baseSig
+      .appendInputField('tags', {
+        type: 'string',
+        isArray: true,
+        description: 'Tag list',
+      })
+      .appendOutputField('suggestions', { type: 'string', isArray: true });
+
+    expect(enhanced.toString()).toContain('tags:string[] "Tag list"');
+    expect(enhanced.toString()).toContain('suggestions:string[]');
+  });
+
+  it('should prevent duplicate field names in type-safe methods', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+
+    expect(() =>
+      baseSig.appendInputField('userInput', { type: 'string' })
+    ).toThrow('Duplicate input field name: "userInput"');
+
+    expect(() =>
+      baseSig.appendOutputField('responseText', { type: 'string' })
+    ).toThrow('Duplicate output field name: "responseText"');
+  });
+
+  it('should prevent field names appearing in both input and output', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+
+    expect(() =>
+      baseSig.appendOutputField('userInput', { type: 'string' })
+    ).toThrow('Field name "userInput" appears in both inputs and outputs');
+
+    expect(() =>
+      baseSig.appendInputField('responseText', { type: 'string' })
+    ).toThrow('Field name "responseText" appears in both inputs and outputs');
+  });
+
+  it('should validate field types according to input/output rules', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+
+    // Class types not allowed in input
+    expect(() =>
+      baseSig.appendInputField('category', {
+        type: 'class',
+        options: ['a', 'b'],
+      })
+    ).toThrow('Class type is not supported in input fields');
+
+    // Image types not allowed in output
+    expect(() =>
+      baseSig.appendOutputField('outputImage', { type: 'image' })
+    ).toThrow('image type is not supported in output fields');
+  });
+
+  it('should return immutable new instances', () => {
+    const baseSig = AxSignature.create(
+      'userInput:string -> responseText:string'
+    );
+    const enhanced = baseSig.appendInputField('contextInfo', {
+      type: 'string',
+    });
+
+    // Original signature should be unchanged
+    expect(baseSig.getInputFields()).toHaveLength(1);
+    expect(baseSig.toString()).toBe('userInput:string -> responseText:string');
+
+    // Enhanced signature should have the new field
+    expect(enhanced.getInputFields()).toHaveLength(2);
+    expect(enhanced.toString()).toContain('contextInfo:string');
+
+    // They should have different hashes
+    expect(baseSig.hash()).not.toBe(enhanced.hash());
+  });
+
+  it('should handle multiline signatures with proper whitespace trimming in type inference', () => {
+    // Test the specific case that was reported - field names should not include whitespace
+    const sig = AxSignature.create(`searchQuery:string -> 
+    relevantContext:string,
+    sources:string[]`);
+
+    const outputFields = sig.getOutputFields();
+    expect(outputFields).toHaveLength(2);
+    
+    // Field names should be properly trimmed without newlines or extra spaces
+    expect(outputFields[0].name).toBe('relevantContext');
+    expect(outputFields[1].name).toBe('sources');
+    
+    // Verify no whitespace characters in field names
+    expect(outputFields[0].name).not.toMatch(/[\s\n\t\r]/);
+    expect(outputFields[1].name).not.toMatch(/[\s\n\t\r]/);
+  });
+});

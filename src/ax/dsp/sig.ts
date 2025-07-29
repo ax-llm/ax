@@ -10,6 +10,7 @@ import {
   parseSignature,
 } from './parser.js';
 import type { ParseSignature } from './types.js';
+import type { AxFieldType } from './template.js';
 
 export interface AxField {
   name: string;
@@ -37,6 +38,77 @@ export interface AxField {
 }
 
 export type AxIField = Omit<AxField, 'title'> & { title: string };
+
+// Helper type to map AxFieldType to TypeScript types for type-safe field additions
+type InferFieldValueType<T extends AxFieldType> = T['type'] extends 'string'
+  ? T['isArray'] extends true
+    ? string[]
+    : string
+  : T['type'] extends 'number'
+    ? T['isArray'] extends true
+      ? number[]
+      : number
+    : T['type'] extends 'boolean'
+      ? T['isArray'] extends true
+        ? boolean[]
+        : boolean
+      : T['type'] extends 'json'
+        ? T['isArray'] extends true
+          ? any[]
+          : any
+        : T['type'] extends 'date'
+          ? T['isArray'] extends true
+            ? Date[]
+            : Date
+          : T['type'] extends 'datetime'
+            ? T['isArray'] extends true
+              ? Date[]
+              : Date
+            : T['type'] extends 'image'
+              ? T['isArray'] extends true
+                ? { mimeType: string; data: string }[]
+                : { mimeType: string; data: string }
+              : T['type'] extends 'audio'
+                ? T['isArray'] extends true
+                  ? { format?: 'wav'; data: string }[]
+                  : { format?: 'wav'; data: string }
+                : T['type'] extends 'file'
+                  ? T['isArray'] extends true
+                    ? { mimeType: string; data: string }[]
+                    : { mimeType: string; data: string }
+                  : T['type'] extends 'url'
+                    ? T['isArray'] extends true
+                      ? string[]
+                      : string
+                    : T['type'] extends 'code'
+                      ? T['isArray'] extends true
+                        ? string[]
+                        : string
+                      : T['type'] extends 'class'
+                        ? T['options'] extends readonly (infer U)[]
+                          ? T['isArray'] extends true
+                            ? U[]
+                            : U
+                          : T['isArray'] extends true
+                            ? string[]
+                            : string
+                        : any;
+
+// Helper function to convert AxFieldType to AxField
+function convertFieldTypeToAxField(
+  fieldType: AxFieldType
+): Omit<AxField, 'name'> {
+  return {
+    type: {
+      name: fieldType.type,
+      isArray: fieldType.isArray,
+      options: fieldType.options ? [...fieldType.options] : undefined,
+    },
+    description: fieldType.description,
+    isOptional: fieldType.isOptional,
+    isInternal: fieldType.isInternal,
+  };
+}
 
 class AxSignatureValidationError extends Error {
   constructor(
@@ -69,6 +141,16 @@ export class AxSignature<
   // Validation caching - stores hash when validation last passed
   private validatedAtHash?: string;
 
+  /**
+   * @deprecated Use `AxSignature.create()` for better type safety instead of the constructor.
+   * This constructor will be removed in a future version.
+   * 
+   * @example
+   * ```typescript
+   * // Instead of: new AxSignature('userInput:string -> responseText:string')
+   * // Use: AxSignature.create('userInput:string -> responseText:string')
+   * ```
+   */
   constructor(signature?: Readonly<AxSignature | string | AxSignatureConfig>) {
     if (!signature) {
       this.inputFields = [];
@@ -371,6 +453,131 @@ export class AxSignature<
   public getInputFields = (): Readonly<AxIField[]> => this.inputFields;
   public getOutputFields = (): Readonly<AxIField[]> => this.outputFields;
   public getDescription = () => this.description;
+
+  // Type-safe field addition methods that return new signature instances
+  public appendInputField = <K extends string, T extends AxFieldType>(
+    name: K,
+    fieldType: T
+  ): AxSignature<_TInput & Record<K, InferFieldValueType<T>>, _TOutput> => {
+    const newSig = new AxSignature(this);
+    newSig.addInputField({
+      name,
+      ...convertFieldTypeToAxField(fieldType),
+    });
+    return newSig as AxSignature<
+      _TInput & Record<K, InferFieldValueType<T>>,
+      _TOutput
+    >;
+  };
+
+  public prependInputField = <K extends string, T extends AxFieldType>(
+    name: K,
+    fieldType: T
+  ): AxSignature<Record<K, InferFieldValueType<T>> & _TInput, _TOutput> => {
+    const newSig = new AxSignature(this);
+    const fieldToAdd = {
+      name,
+      ...convertFieldTypeToAxField(fieldType),
+    };
+
+    // Validate the field before adding
+    const parsedField = newSig.parseField(fieldToAdd);
+    validateField(parsedField, 'input');
+
+    // Check for duplicate field names
+    for (const existingField of newSig.inputFields) {
+      if (existingField.name === parsedField.name) {
+        throw new AxSignatureValidationError(
+          `Duplicate input field name: "${parsedField.name}"`,
+          parsedField.name,
+          'Each field name must be unique within the signature'
+        );
+      }
+    }
+
+    // Check if field name conflicts with existing output fields
+    for (const outputField of newSig.outputFields) {
+      if (outputField.name === parsedField.name) {
+        throw new AxSignatureValidationError(
+          `Field name "${parsedField.name}" appears in both inputs and outputs`,
+          parsedField.name,
+          'Use different names for input and output fields to avoid confusion'
+        );
+      }
+    }
+
+    // Prepend to the beginning of input fields array
+    newSig.inputFields.unshift(parsedField);
+    newSig.invalidateValidationCache();
+    newSig.updateHashLight();
+
+    return newSig as AxSignature<
+      Record<K, InferFieldValueType<T>> & _TInput,
+      _TOutput
+    >;
+  };
+
+  public appendOutputField = <K extends string, T extends AxFieldType>(
+    name: K,
+    fieldType: T
+  ): AxSignature<_TInput, _TOutput & Record<K, InferFieldValueType<T>>> => {
+    const newSig = new AxSignature(this);
+    newSig.addOutputField({
+      name,
+      ...convertFieldTypeToAxField(fieldType),
+    });
+    return newSig as AxSignature<
+      _TInput,
+      _TOutput & Record<K, InferFieldValueType<T>>
+    >;
+  };
+
+  public prependOutputField = <K extends string, T extends AxFieldType>(
+    name: K,
+    fieldType: T
+  ): AxSignature<_TInput, Record<K, InferFieldValueType<T>> & _TOutput> => {
+    const newSig = new AxSignature(this);
+    const fieldToAdd = {
+      name,
+      ...convertFieldTypeToAxField(fieldType),
+    };
+
+    // Validate the field before adding
+    const parsedField = newSig.parseField(fieldToAdd);
+    validateField(parsedField, 'output');
+
+    // Check for duplicate field names
+    for (const existingField of newSig.outputFields) {
+      if (existingField.name === parsedField.name) {
+        throw new AxSignatureValidationError(
+          `Duplicate output field name: "${parsedField.name}"`,
+          parsedField.name,
+          'Each field name must be unique within the signature'
+        );
+      }
+    }
+
+    // Check if field name conflicts with existing input fields
+    for (const inputField of newSig.inputFields) {
+      if (inputField.name === parsedField.name) {
+        throw new AxSignatureValidationError(
+          `Field name "${parsedField.name}" appears in both inputs and outputs`,
+          parsedField.name,
+          'Use different names for input and output fields to avoid confusion'
+        );
+      }
+    }
+
+    // Prepend to the beginning of output fields array
+    newSig.outputFields.unshift(parsedField);
+    newSig.invalidateValidationCache();
+    newSig.updateHashLight();
+
+    return newSig as AxSignature<
+      _TInput,
+      Record<K, InferFieldValueType<T>> & _TOutput
+    >;
+  };
 
   private invalidateValidationCache = (): void => {
     this.validatedAtHash = undefined;

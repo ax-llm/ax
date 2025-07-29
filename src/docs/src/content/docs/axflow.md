@@ -109,6 +109,46 @@ flow.node('summarizer', 'documentText:string -> summary:string');
 flow.node('classifier', 'text:string -> category:string', { debug: true });
 ```
 
+**Alias:** `n()` - Short alias for `node()`
+
+```typescript
+flow.n('summarizer', 'documentText:string -> summary:string');
+```
+
+#### `nodeExtended(name: string, baseSignature: string | AxSignature, extensions: object)`
+Create a node with extended signature by adding additional input/output fields.
+
+```typescript
+// Add chain-of-thought reasoning
+flow.nodeExtended('reasoner', 'question:string -> answer:string', {
+  prependOutputs: [
+    { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
+  ]
+});
+
+// Add context and confidence
+flow.nodeExtended('analyzer', 'input:string -> output:string', {
+  appendInputs: [{ name: 'context', type: f.optional(f.string('Context')) }],
+  appendOutputs: [{ name: 'confidence', type: f.number('Confidence score') }]
+});
+```
+
+**Extension Options:**
+- `prependInputs` - Add fields at the beginning of input signature
+- `appendInputs` - Add fields at the end of input signature  
+- `prependOutputs` - Add fields at the beginning of output signature
+- `appendOutputs` - Add fields at the end of output signature
+
+**Alias:** `nx()` - Short alias for `nodeExtended()`
+
+```typescript
+flow.nx('reasoner', 'question:string -> answer:string', {
+  prependOutputs: [
+    { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
+  ]
+});
+```
+
 #### `execute(nodeName: string, mapping: Function, options?: object)`
 Execute a node with input mapping.
 
@@ -482,6 +522,48 @@ flow
 ```
 
 ## Examples
+
+### Extended Node Patterns with `nx`
+
+```typescript
+import { AxFlow, f } from '@ax-llm/ax';
+
+// Chain-of-thought reasoning pattern
+const reasoningFlow = new AxFlow<{ question: string }, { answer: string }>()
+  .nx('reasoner', 'question:string -> answer:string', {
+    prependOutputs: [
+      { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
+    ]
+  })
+  .execute('reasoner', (state) => ({ question: state.question }))
+  .map((state) => ({ answer: state.reasonerResult.answer }));
+
+// Confidence scoring pattern
+const confidenceFlow = new AxFlow<{ input: string }, { result: string; confidence: number }>()
+  .nx('analyzer', 'input:string -> result:string', {
+    appendOutputs: [
+      { name: 'confidence', type: f.number('Confidence score 0-1') }
+    ]
+  })
+  .execute('analyzer', (state) => ({ input: state.input }))
+  .map((state) => ({
+    result: state.analyzerResult.result,
+    confidence: state.analyzerResult.confidence
+  }));
+
+// Contextual processing pattern
+const contextualFlow = new AxFlow<{ query: string; context?: string }, { response: string }>()
+  .nx('processor', 'query:string -> response:string', {
+    appendInputs: [
+      { name: 'context', type: f.optional(f.string('Additional context')) }
+    ]
+  })
+  .execute('processor', (state) => ({ 
+    query: state.query,
+    context: state.context 
+  }))
+  .map((state) => ({ response: state.processorResult.response }));
+```
 
 ### Document Processing Pipeline
 

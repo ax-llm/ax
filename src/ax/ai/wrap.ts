@@ -116,6 +116,27 @@ export function createAxAI<const T extends AxAIArgs<any>>(
   return new AxAI(options) as any;
 }
 
+/**
+ * Factory function for creating AxAI instances with type safety.
+ * This is the recommended way to create AxAI instances instead of using the constructor.
+ * 
+ * @param options - Configuration options for the AI service
+ * @returns A properly typed AxAI instance
+ * 
+ * @example
+ * ```typescript
+ * const ai = ai({
+ *   name: 'openai',
+ *   apiKey: process.env.OPENAI_APIKEY!
+ * });
+ * ```
+ */
+export function ai<const T extends AxAIArgs<any>>(
+  options: T
+): AxAI<InferTModelKey<T>> {
+  return AxAI.create(options);
+}
+
 export class AxAI<TModelKey = string>
   implements AxAIService<any, any, TModelKey>
 {
@@ -128,6 +149,17 @@ export class AxAI<TModelKey = string>
     return new AxAI(options) as any;
   }
 
+  /**
+   * @deprecated Use `AxAI.create()` or `ai()` function instead for better type safety.
+   * This constructor will be removed in a future version.
+   * 
+   * @example
+   * ```typescript
+   * // Instead of: new AxAI({ name: 'openai', apiKey: '...' })
+   * // Use: AxAI.create({ name: 'openai', apiKey: '...' })
+   * // Or: ai({ name: 'openai', apiKey: '...' })
+   * ```
+   */
   constructor(options: Readonly<AxAIArgs<TModelKey>>) {
     switch (options.name) {
       case 'openai':

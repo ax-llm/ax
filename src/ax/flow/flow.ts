@@ -3,6 +3,7 @@ import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import { AxProgram } from '../dsp/program.js';
 import { type AxField, AxSignature } from '../dsp/sig.js';
+import { f, type AxFieldType } from '../dsp/template.js';
 import type {
   AxGenIn,
   AxGenOut,
@@ -1863,5 +1864,106 @@ export class AxFlow<
   public getSignature(): AxSignature {
     this.ensureProgram();
     return this.program!.getSignature();
+  }
+
+  /**
+   * Creates a new AxFlow node from an existing signature by extending it with additional fields.
+   *
+   * @param name - The name of the new node
+   * @param baseSignature - The base signature to extend (string or AxSignature)
+   * @param extensions - Object defining how to extend the signature
+   * @returns New AxFlow instance with the extended node
+   *
+   * @example
+   * ```typescript
+   * // Create a chain-of-thought node
+   * flow.nodeExtended('reasoner', 'question:string -> answer:string', {
+   *   prependOutputs: [
+   *     { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
+   *   ]
+   * })
+   *
+   * // Create a node with context and confidence
+   * flow.nodeExtended('analyzer', 'input:string -> output:string', {
+   *   appendInputs: [{ name: 'context', type: f.optional(f.string('Context')) }],
+   *   appendOutputs: [{ name: 'confidence', type: f.number('Confidence score') }]
+   * })
+   * ```
+   */
+  public nodeExtended<TName extends string>(
+    name: TName,
+    baseSignature: string | AxSignature,
+    extensions: {
+      prependInputs?: Array<{ name: string; type: AxFieldType }>;
+      appendInputs?: Array<{ name: string; type: AxFieldType }>;
+      prependOutputs?: Array<{ name: string; type: AxFieldType }>;
+      appendOutputs?: Array<{ name: string; type: AxFieldType }>;
+    }
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: AxGen<AxGenIn, AxGenOut> },
+    TState
+  > {
+    // Create base signature
+    const sig =
+      typeof baseSignature === 'string'
+        ? AxSignature.create(baseSignature)
+        : new AxSignature(baseSignature);
+
+    // Apply extensions in the specified order
+    let extendedSig = sig;
+
+    // Apply prepend inputs first
+    if (extensions.prependInputs) {
+      for (const input of extensions.prependInputs) {
+        extendedSig = extendedSig.prependInputField(input.name, input.type);
+      }
+    }
+
+    // Apply append inputs
+    if (extensions.appendInputs) {
+      for (const input of extensions.appendInputs) {
+        extendedSig = extendedSig.appendInputField(input.name, input.type);
+      }
+    }
+
+    // Apply prepend outputs
+    if (extensions.prependOutputs) {
+      for (const output of extensions.prependOutputs) {
+        extendedSig = extendedSig.prependOutputField(output.name, output.type);
+      }
+    }
+
+    // Apply append outputs
+    if (extensions.appendOutputs) {
+      for (const output of extensions.appendOutputs) {
+        extendedSig = extendedSig.appendOutputField(output.name, output.type);
+      }
+    }
+
+    // Create the node using the extended signature
+    return this.node(name, extendedSig);
+  }
+
+  /**
+   * Short alias for nodeExtended() - creates nodes with extended signatures
+   */
+  public nx<TName extends string>(
+    name: TName,
+    baseSignature: string | AxSignature,
+    extensions: {
+      prependInputs?: Array<{ name: string; type: AxFieldType }>;
+      appendInputs?: Array<{ name: string; type: AxFieldType }>;
+      prependOutputs?: Array<{ name: string; type: AxFieldType }>;
+      appendOutputs?: Array<{ name: string; type: AxFieldType }>;
+    }
+  ): AxFlow<
+    IN,
+    OUT,
+    TNodes & { [K in TName]: AxGen<AxGenIn, AxGenOut> },
+    TState
+  > {
+    return this.nodeExtended(name, baseSignature, extensions);
   }
 }
