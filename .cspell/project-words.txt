@@ -134,3 +134,5 @@ Qwen
 apidocs
 audiodata
 Typesafe
+contextualizer
+sigtypes

@@ -449,72 +449,73 @@ export default function AdvancedSignatureBuilder() {
     const { parsedSignature } = editorState;
     if (!parsedSignature.valid) return '';
 
-    const inputParts = parsedSignature.inputFields.map((field) => {
-      let fieldDef = `${field.name}:\${f.${field.type}('${field.description || field.name}')}`;
+    // Helper function to build field string representation (same as in execution logic)
+    const buildFieldString = (field: any): string => {
+      let fieldStr = field.name;
 
+      // Add type
       if (field.type === 'class' && field.classOptions) {
-        const options = field.classOptions.map((opt) => `'${opt}'`).join(', ');
-        fieldDef = `${field.name}:\${f.class([${options}], '${field.description || 'Classification'}')}`;
-      } else if (field.isArray) {
-        const baseType =
-          field.type === 'class'
-            ? `f.class([${field.classOptions?.map((opt) => `'${opt}'`).join(', ')}], '${field.description}')`
-            : `f.${field.type}('${field.description}')`;
-        fieldDef = `${field.name}:\${f.array(${baseType})}`;
+        fieldStr += `:class "${field.classOptions.join(', ')}"`;
       } else if (field.type === 'code' && field.codeLanguage) {
-        fieldDef = `${field.name}:\${f.code('${field.codeLanguage}', '${field.description || 'Code block'}')}`;
-      }
-
-      if (field.isOptional) {
-        fieldDef = fieldDef
-          .replace(':${', ':${f.optional(')
-          .replace(')}', '))}');
-      }
-      if (field.isInternal) {
-        fieldDef = fieldDef
-          .replace(':${', ':${f.internal(')
-          .replace(')}', '))}');
-      }
-
-      return fieldDef;
-    });
-
-    const outputParts = parsedSignature.outputFields.map((field) => {
-      let fieldDef = `${field.name}:\${f.${field.type}('${field.description || field.name}')}`;
-
-      if (field.type === 'class' && field.classOptions) {
-        const options = field.classOptions.map((opt) => `'${opt}'`).join(', ');
-        fieldDef = `${field.name}:\${f.class([${options}], '${field.description || 'Classification'}')}`;
+        // Code types default to string in string-based signatures
+        fieldStr += ':string';
+      } else if (field.type && field.type !== 'string') {
+        fieldStr += `:${field.type}`;
+        if (field.isArray) {
+          fieldStr = fieldStr.replace(`:${field.type}`, `:${field.type}[]`);
+        }
       } else if (field.isArray) {
-        const baseType =
-          field.type === 'class'
-            ? `f.class([${field.classOptions?.map((opt) => `'${opt}'`).join(', ')}], '${field.description}')`
-            : `f.${field.type}('${field.description}')`;
-        fieldDef = `${field.name}:\${f.array(${baseType})}`;
-      } else if (field.type === 'code' && field.codeLanguage) {
-        fieldDef = `${field.name}:\${f.code('${field.codeLanguage}', '${field.description || 'Code block'}')}`;
+        fieldStr += ':string[]';
       }
 
+      // Add optional marker
       if (field.isOptional) {
-        fieldDef = fieldDef
-          .replace(':${', ':${f.optional(')
-          .replace(')}', '))}');
+        const colonIndex = fieldStr.indexOf(':');
+        if (colonIndex > -1) {
+          fieldStr = `${fieldStr.substring(0, colonIndex)}?${fieldStr.substring(colonIndex)}`;
+        } else {
+          fieldStr += '?';
+        }
       }
+
+      // Add internal marker
       if (field.isInternal) {
-        fieldDef = fieldDef
-          .replace(':${', ':${f.internal(')
-          .replace(')}', '))}');
+        const colonIndex = fieldStr.indexOf(':');
+        if (colonIndex > -1) {
+          fieldStr = `${fieldStr.substring(0, colonIndex)}!${fieldStr.substring(colonIndex)}`;
+        } else {
+          fieldStr += '!';
+        }
       }
 
-      return fieldDef;
-    });
+      // Add description
+      if (field.description) {
+        fieldStr += ` "${field.description}"`;
+      }
 
-    const signatureParts = [...inputParts, '->', ...outputParts].join(',\n  ');
+      return fieldStr;
+    };
+
+    // Build signature string
+    let signatureStr = '';
+    if (parsedSignature.description) {
+      signatureStr += `"${parsedSignature.description}" `;
+    }
+
+    // Build input and output field strings
+    const inputFieldsStr = parsedSignature.inputFields
+      .map((field: any) => buildFieldString(field))
+      .join(', ');
+
+    const outputFieldsStr = parsedSignature.outputFields
+      .map((field: any) => buildFieldString(field))
+      .join(', ');
+
+    // Combine into full signature string
+    signatureStr += `${inputFieldsStr} -> ${outputFieldsStr}`;
 
     return `// ${parsedSignature.description || 'Generated signature'}
-const mySignature = ax\`
-  ${signatureParts}
-\`;`;
+const mySignature = ax('${signatureStr}');`;
   }, [editorState.parsedSignature]);
 
   const _copyToClipboard = useCallback((text: string) => {
@@ -587,106 +588,80 @@ const mySignature = ax\`
     setExecutionResult(null);
 
     try {
-      // Import Ax dynamically for template literals
-      const { ax: _ax, f: _f } = await import('@ax-llm/ax');
+      // Import Ax dynamically for string-based signatures
+      const { ax: _ax } = await import('@ax-llm/ax');
 
-      // Create signature using template literal syntax
+      // Create signature using string-based syntax
       const { parsedSignature } = editorState;
 
-      // Build signature using dynamic signature creation without eval
-      // Create field definitions as objects instead of template literal strings
-      const inputFieldObjs: Record<string, any> = {};
-      const outputFieldObjs: Record<string, any> = {};
+      // Helper function to build field string representation
+      const buildFieldString = (field: any): string => {
+        let fieldStr = field.name;
 
-      // Build input fields
-      for (const field of parsedSignature.inputFields) {
-        let fieldObj: any;
-
+        // Add type
         if (field.type === 'class' && field.classOptions) {
-          fieldObj = _f.class(
-            field.classOptions,
-            field.description || 'Classification'
-          );
+          fieldStr += `:class "${field.classOptions.join(', ')}"`;
         } else if (field.type === 'code' && field.codeLanguage) {
-          fieldObj = _f.code(
-            field.codeLanguage,
-            field.description || 'Code block'
-          );
-        } else {
-          const fieldBuilder = _f[field.type as keyof typeof _f] as any;
-          if (typeof fieldBuilder === 'function') {
-            fieldObj = fieldBuilder(field.description || field.name);
+          // Code types default to string in string-based signatures
+          fieldStr += ':string';
+        } else if (field.type && field.type !== 'string') {
+          fieldStr += `:${field.type}`;
+          if (field.isArray) {
+            fieldStr = fieldStr.replace(`:${field.type}`, `:${field.type}[]`);
+          }
+        } else if (field.isArray) {
+          fieldStr += ':string[]';
+        }
+
+        // Add optional marker
+        if (field.isOptional) {
+          const colonIndex = fieldStr.indexOf(':');
+          if (colonIndex > -1) {
+            fieldStr = `${fieldStr.substring(0, colonIndex)}?${fieldStr.substring(colonIndex)}`;
           } else {
-            throw new Error(`Unknown field type: ${field.type}`);
+            fieldStr += '?';
           }
         }
 
-        if (field.isArray && fieldObj) {
-          fieldObj = _f.array(fieldObj);
-        }
-        if (field.isOptional && fieldObj) {
-          fieldObj = _f.optional(fieldObj);
-        }
-        if (field.isInternal && fieldObj) {
-          fieldObj = _f.internal(fieldObj);
-        }
-
-        inputFieldObjs[field.name] = fieldObj;
-      }
-
-      // Build output fields
-      for (const field of parsedSignature.outputFields) {
-        let fieldObj: any;
-
-        if (field.type === 'class' && field.classOptions) {
-          fieldObj = _f.class(
-            field.classOptions,
-            field.description || 'Classification'
-          );
-        } else if (field.type === 'code' && field.codeLanguage) {
-          fieldObj = _f.code(
-            field.codeLanguage,
-            field.description || 'Code block'
-          );
-        } else {
-          const fieldBuilder = _f[field.type as keyof typeof _f] as any;
-          if (typeof fieldBuilder === 'function') {
-            fieldObj = fieldBuilder(field.description || field.name);
+        // Add internal marker
+        if (field.isInternal) {
+          const colonIndex = fieldStr.indexOf(':');
+          if (colonIndex > -1) {
+            fieldStr = `${fieldStr.substring(0, colonIndex)}!${fieldStr.substring(colonIndex)}`;
           } else {
-            throw new Error(`Unknown field type: ${field.type}`);
+            fieldStr += '!';
           }
         }
 
-        if (field.isArray && fieldObj) {
-          fieldObj = _f.array(fieldObj);
-        }
-        if (field.isOptional && fieldObj) {
-          fieldObj = _f.optional(fieldObj);
-        }
-        if (field.isInternal && fieldObj) {
-          fieldObj = _f.internal(fieldObj);
+        // Add description
+        if (field.description) {
+          fieldStr += ` "${field.description}"`;
         }
 
-        outputFieldObjs[field.name] = fieldObj;
-      }
-
-      // Use the proper AxGen API with field objects
-      const { AxGen } = await import('@ax-llm/ax');
-
-      // Create signature with proper format using new AxSignature constructor
-      const signatureConfig = {
-        description: 'Dynamically created signature',
-        inputs: Object.entries(inputFieldObjs).map(([name, field]) => ({
-          name,
-          ...field,
-        })),
-        outputs: Object.entries(outputFieldObjs).map(([name, field]) => ({
-          name,
-          ...field,
-        })),
+        return fieldStr;
       };
 
-      const signature = new AxGen(signatureConfig);
+      // Build signature description if available
+      let signatureStr = '';
+      if (parsedSignature.description) {
+        signatureStr += `"${parsedSignature.description}" `;
+      }
+
+      // Build input fields string
+      const inputFieldsStr = parsedSignature.inputFields
+        .map((field: any) => buildFieldString(field))
+        .join(', ');
+
+      // Build output fields string
+      const outputFieldsStr = parsedSignature.outputFields
+        .map((field: any) => buildFieldString(field))
+        .join(', ');
+
+      // Combine into full signature string
+      signatureStr += `${inputFieldsStr} -> ${outputFieldsStr}`;
+
+      // Create AxGen using string-based signature
+      const signature = _ax(signatureStr);
 
       // Prepare input data
       const inputData: Record<string, any> = {};
