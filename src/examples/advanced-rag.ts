@@ -1,85 +1,62 @@
-import {
-  AxAIGoogleGeminiModel,
-  ai,
-  ax,
-  axAdvancedRAG,
-  axRAG,
-} from '@ax-llm/ax';
+import { AxAIOpenAIModel, ai, axRAG } from '@ax-llm/ax';
 
 const llm = ai({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY!,
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 });
 
-// Simulated vector database retrieval function using AxGen
-const fetchFromVectorDB = async (query: string) => {
+// Simulated vector database retrieval function
+const fetchFromVectorDB = async (query: string): Promise<string> => {
   // In a real implementation, this would query your vector database
-  // For demo purposes, we'll simulate retrieval with AxGen
-  const contextRetriever = ax(`
-    searchQuery:string -> 
-    sourceType:class "academic, news, research",
-    relevantContext:string,
-    sourceReferences:string
-  `);
+  // For demo purposes, we'll return mock contextual data based on query
+  if (!query || typeof query !== 'string') {
+    return 'General information about renewable energy, sustainability, and environmental technology.';
+  }
 
-  const result = await contextRetriever.forward(llm, {
-    searchQuery: query,
-  });
+  const mockData: Record<string, string> = {
+    'renewable energy': 'Renewable energy sources like solar, wind, and hydro power provide clean electricity without fossil fuel emissions. Benefits include reduced carbon footprint, energy independence, and long-term cost savings.',
+    'machine learning privacy': 'Machine learning in financial services raises privacy concerns through data collection, algorithmic bias, and potential for discrimination. Regulations like GDPR require explicit consent and data protection measures.',
+    'solar energy environment': 'Solar energy has minimal environmental impact during operation, producing no emissions. Manufacturing solar panels requires energy and materials, but lifecycle analysis shows net positive environmental benefits.',
+  };
 
-  console.log('Retrieved from source type:', result.sourceType);
-  return result.relevantContext;
+  // Simple matching logic for demo
+  const queryLower = query.toLowerCase();
+  const matchedKey = Object.keys(mockData).find(key => 
+    queryLower.includes(key) || key.includes(queryLower)
+  );
+  
+  return matchedKey ? mockData[matchedKey] : 'General information about renewable energy, sustainability, and environmental technology.';
 };
 
-// Create RAG flow with all features
-const advancedRAG = axAdvancedRAG(fetchFromVectorDB, {
+console.log('=== Advanced RAG Demo ===');
+
+// Create advanced RAG instance with configuration
+const advancedRAG = axRAG(fetchFromVectorDB, {
   maxHops: 2,
   qualityThreshold: 0.7,
-  maxIterations: 1,
+  maxIterations: 2,
   qualityTarget: 0.8,
-  disableQualityHealing: false,
+  disableQualityHealing: false
 });
 
-const advancedResult = await advancedRAG.forward(llm, {
-  originalQuestion:
-    'How do machine learning algorithms impact privacy in financial services?',
-});
+const questions = [
+  'What are the benefits of renewable energy?',
+  'How do machine learning algorithms impact privacy in financial services?',
+  'What is the impact of solar energy on the environment?',
+];
 
-console.log('Advanced RAG Result:');
-console.log('Final Answer:', advancedResult.finalAnswer);
-console.log('Total Hops:', advancedResult.totalHops);
-console.log('Iteration Count:', advancedResult.iterationCount);
-console.log('Healing Attempts:', advancedResult.healingAttempts);
-console.log('Quality Achieved:', advancedResult.qualityAchieved);
-
-console.log('\n=== Fast RAG (Quality Healing Disabled) ===');
-
-// Create fast RAG flow with quality healing disabled
-const fastRAG = axAdvancedRAG(fetchFromVectorDB, {
-  maxHops: 1,
-  maxIterations: 1,
-  disableQualityHealing: true,
-});
-
-const fastResult = await fastRAG.forward(llm, {
-  originalQuestion: 'What is the impact of solar energy on the environment?',
-});
-
-console.log('Fast RAG Result:');
-console.log('Final Answer:', fastResult.finalAnswer);
-console.log('Total Hops:', fastResult.totalHops);
-console.log('Quality Achieved:', fastResult.qualityAchieved);
-console.log('Healing Attempts:', fastResult.healingAttempts);
-
-// Simple RAG example
-console.log('\n=== Simple RAG ===');
-
-const simpleRAG = axRAG(fetchFromVectorDB);
-
-const simpleResult = await simpleRAG.forward(llm, {
-  question: 'What are the benefits of renewable energy?',
-});
-
-console.log('Simple RAG Result:');
-console.log('Answer:', simpleResult.answer);
-console.log('Context length:', simpleResult.context.length);
+for (const question of questions) {
+  console.log(`\nQuestion: ${question}`);
+  
+  const result = await advancedRAG.forward(llm, { 
+    originalQuestion: question 
+  });
+  
+  console.log(`Answer: ${result.finalAnswer}`);
+  console.log(`Total hops: ${result.totalHops}`);
+  console.log(`Iterations: ${result.iterationCount}`);
+  console.log(`Healing attempts: ${result.healingAttempts}`);
+  console.log(`Quality achieved: ${result.qualityAchieved}`);
+  console.log(`Contexts retrieved: ${result.retrievedContexts.length}`);
+}

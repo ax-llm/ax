@@ -8,7 +8,7 @@ import { AxFlow } from '../flow/flow.js';
  * @param options - Configuration options
  * @returns AxFlow instance with advanced RAG capability
  */
-export const axAdvancedRAG = (
+export const axRAG = (
   queryFn: (query: string) => Promise<string>,
   options?: {
     maxHops?: number;
@@ -185,6 +185,12 @@ export const axAdvancedRAG = (
       .endWhile()
 
       // Phase 2: Advanced parallel sub-query processing for complex questions
+      // Initialize allEvidence with retrieved contexts from Phase 1
+      .map((state) => ({
+        ...state,
+        allEvidence: state.retrievedContexts.length > 0 ? state.retrievedContexts : [],
+      }))
+      
       .while(
         (state) => state.iteration < state.maxIterations && state.needsMoreInfo
       )
@@ -214,9 +220,10 @@ export const axAdvancedRAG = (
 
       // Parallel retrieval for current set of queries
       .map(async (state) => {
-        const retrievalResults = await Promise.all(
-          state.currentQueries?.map((query: string) => queryFn(query)) || []
-        );
+        const queries = state.currentQueries || [];
+        const retrievalResults = queries.length > 0 
+          ? await Promise.all(queries.map((query: string) => queryFn(query)))
+          : [];
         return {
           ...state,
           retrievalResults,
@@ -224,10 +231,17 @@ export const axAdvancedRAG = (
       })
 
       // Synthesize evidence from current iteration
-      .execute('evidenceSynthesizer', (state) => ({
-        collectedEvidence: [...state.allEvidence, ...state.retrievalResults],
-        originalQuestion: state.originalQuestion,
-      }))
+      .execute('evidenceSynthesizer', (state) => {
+        const evidence = [
+          ...(state.allEvidence || []),
+          ...(state.retrievalResults || [])
+        ].filter(Boolean);
+        
+        return {
+          collectedEvidence: evidence.length > 0 ? evidence : ['No evidence collected yet'],
+          originalQuestion: state.originalQuestion,
+        };
+      })
 
       // Analyze gaps and determine if more information is needed
       .execute('gapAnalyzer', (state) => ({
@@ -349,7 +363,7 @@ export const axAdvancedRAG = (
  * @param queryFn - Function to execute search queries and return results
  * @returns AxFlow instance with basic RAG capability
  */
-export const axRAG = (queryFn: (query: string) => Promise<string>) => {
+export const axSimpleRAG = (queryFn: (query: string) => Promise<string>) => {
   return new AxFlow<{ question: string }, { answer: string; context: string }>()
     .node(
       'answerer',

@@ -601,7 +601,7 @@ import {
   type AxAgentic,
   type AxAgentOptions,
 } from './prompts/agent.js';
-import { axAdvancedRAG, axRAG } from './prompts/rag.js';
+import { axRAG, axSimpleRAG } from './prompts/rag.js';
 import {
   AxLLMRequestTypeValues,
   AxSpanKindValues,
@@ -764,7 +764,7 @@ export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
 export { axAIWebLLMCreativeConfig };
 export { axAIWebLLMDefaultConfig };
-export { axAdvancedRAG };
+export { axSimpleRAG };
 export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
