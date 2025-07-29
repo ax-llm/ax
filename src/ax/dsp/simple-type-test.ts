@@ -21,7 +21,7 @@ console.log('Signature:', gen.getSignature().toString());
 export type TypeTest = {
   TestSig: TestSig;
   GenType: GenType;
-  InputType: InputType;  
+  InputType: InputType;
   OutputType: OutputType;
   // These should show the actual inferred types
   TestInputs: TestSig['inputs'];

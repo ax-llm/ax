@@ -879,11 +879,11 @@ describe('Type-safe field addition methods', () => {
 
     const outputFields = sig.getOutputFields();
     expect(outputFields).toHaveLength(2);
-    
+
     // Field names should be properly trimmed without newlines or extra spaces
     expect(outputFields[0].name).toBe('relevantContext');
     expect(outputFields[1].name).toBe('sources');
-    
+
     // Verify no whitespace characters in field names
     expect(outputFields[0].name).not.toMatch(/[\s\n\t\r]/);
     expect(outputFields[1].name).not.toMatch(/[\s\n\t\r]/);

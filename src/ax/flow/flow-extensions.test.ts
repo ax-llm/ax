@@ -11,8 +11,11 @@ describe('AxFlow nodeExtended method', () => {
       'userInput:string -> answer:string',
       {
         prependOutputs: [
-          { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
-        ]
+          {
+            name: 'reasoning',
+            type: f.internal(f.string('Step-by-step reasoning')),
+          },
+        ],
       }
     );
 
@@ -35,8 +38,8 @@ describe('AxFlow nodeExtended method', () => {
       'userInput:string -> analysis:string',
       {
         appendOutputs: [
-          { name: 'confidence', type: f.number('Confidence score 0-1') }
-        ]
+          { name: 'confidence', type: f.number('Confidence score 0-1') },
+        ],
       }
     );
 
@@ -57,8 +60,11 @@ describe('AxFlow nodeExtended method', () => {
       {
         appendInputs: [
           { name: 'document', type: f.string('Source document') },
-          { name: 'history', type: f.optional(f.array(f.string('Previous questions'))) }
-        ]
+          {
+            name: 'history',
+            type: f.optional(f.array(f.string('Previous questions'))),
+          },
+        ],
       }
     );
 
@@ -132,8 +138,8 @@ describe('AxFlow nodeExtended method', () => {
 
     const extendedFlow = flow.nodeExtended('thinker', baseSig, {
       prependOutputs: [
-        { name: 'reasoning', type: f.internal(f.string('Reasoning')) }
-      ]
+        { name: 'reasoning', type: f.internal(f.string('Reasoning')) },
+      ],
     });
     const signature = extendedFlow.getSignature();
 
@@ -148,10 +154,12 @@ describe('AxFlow nodeExtended method', () => {
 
     const chainedFlow = flow
       .nodeExtended('reasoner', 'question:string -> analysis:string', {
-        prependOutputs: [{ name: 'reasoning', type: f.internal(f.string('Reasoning')) }]
+        prependOutputs: [
+          { name: 'reasoning', type: f.internal(f.string('Reasoning')) },
+        ],
       })
       .nodeExtended('scorer', 'analysis:string -> finalAnswer:string', {
-        appendOutputs: [{ name: 'confidence', type: f.number('Confidence') }]
+        appendOutputs: [{ name: 'confidence', type: f.number('Confidence') }],
       });
 
     const signature = chainedFlow.getSignature();
@@ -185,17 +193,16 @@ describe('AxFlow nodeExtended method', () => {
 
   it('should have nx alias that works identically to nodeExtended', () => {
     const flow = new AxFlow();
-    
+
     // Test nx alias with same functionality as nodeExtended
-    const nxFlow = flow.nx(
-      'reasoner',
-      'userInput:string -> answer:string',
-      {
-        prependOutputs: [
-          { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
-        ]
-      }
-    );
+    const nxFlow = flow.nx('reasoner', 'userInput:string -> answer:string', {
+      prependOutputs: [
+        {
+          name: 'reasoning',
+          type: f.internal(f.string('Step-by-step reasoning')),
+        },
+      ],
+    });
 
     const signature = nxFlow.getSignature();
     const fields = signature.getOutputFields();

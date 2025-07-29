@@ -144,7 +144,7 @@ export class AxSignature<
   /**
    * @deprecated Use `AxSignature.create()` for better type safety instead of the constructor.
    * This constructor will be removed in a future version.
-   * 
+   *
    * @example
    * ```typescript
    * // Instead of: new AxSignature('userInput:string -> responseText:string')

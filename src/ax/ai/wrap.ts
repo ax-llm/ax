@@ -119,10 +119,10 @@ export function createAxAI<const T extends AxAIArgs<any>>(
 /**
  * Factory function for creating AxAI instances with type safety.
  * This is the recommended way to create AxAI instances instead of using the constructor.
- * 
+ *
  * @param options - Configuration options for the AI service
  * @returns A properly typed AxAI instance
- * 
+ *
  * @example
  * ```typescript
  * const ai = ai({
@@ -152,7 +152,7 @@ export class AxAI<TModelKey = string>
   /**
    * @deprecated Use `AxAI.create()` or `ai()` function instead for better type safety.
    * This constructor will be removed in a future version.
-   * 
+   *
    * @example
    * ```typescript
    * // Instead of: new AxAI({ name: 'openai', apiKey: '...' })

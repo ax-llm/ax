@@ -10,8 +10,12 @@ type TestInputs = TestParse['inputs'];
 type TestOutputs = TestParse['outputs'];
 
 // Test BuildObject directly
-type TestBuildInputs = BuildObject<[{ name: 'userQuestion'; type: 'string'; optional: false }]>;
-type TestBuildOutputs = BuildObject<[{ name: 'responseText'; type: 'string'; optional: false }]>;
+type TestBuildInputs = BuildObject<
+  [{ name: 'userQuestion'; type: 'string'; optional: false }]
+>;
+type TestBuildOutputs = BuildObject<
+  [{ name: 'responseText'; type: 'string'; optional: false }]
+>;
 
 // Create actual generator
 const gen = ax('userQuestion:string -> responseText:string');
@@ -36,5 +40,7 @@ console.log('Signature created:', gen.getSignature().toString());
 console.log('Check the exported DebugTypes in your IDE!');
 
 // Test a more complex signature
-const complexGen = ax('userQuestion:string, contextData:json -> responseText:string, confidenceScore:number');
+const complexGen = ax(
+  'userQuestion:string, contextData:json -> responseText:string, confidenceScore:number'
+);
 console.log('Complex signature:', complexGen.getSignature().toString());

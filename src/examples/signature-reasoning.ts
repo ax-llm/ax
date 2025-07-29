@@ -17,11 +17,14 @@ const reasoningAnalyzer = ax`
 `;
 
 const analysisResult = await reasoningAnalyzer.forward(ai, {
-  userQuestion: 'What are the main factors that contribute to climate change?'
+  userQuestion: 'What are the main factors that contribute to climate change?',
 });
 
 console.log('Analysis with Reasoning:');
-console.log('Question:', 'What are the main factors that contribute to climate change?');
+console.log(
+  'Question:',
+  'What are the main factors that contribute to climate change?'
+);
 console.log('Reasoning:', analysisResult.reasoning);
 console.log('Final Answer:', analysisResult.finalAnswer);
 console.log('Confidence:', analysisResult.confidence);
@@ -37,7 +40,8 @@ const mathReasoner = ax`
 `;
 
 const mathResult = await mathReasoner.forward(ai, {
-  problemStatement: 'A rectangle has a length of 12 meters and a width of 8 meters. What is its area and perimeter?'
+  problemStatement:
+    'A rectangle has a length of 12 meters and a width of 8 meters. What is its area and perimeter?',
 });
 
 console.log('Math Problem with Reasoning:');
@@ -58,7 +62,8 @@ const decisionMaker = ax`
 `;
 
 const decisionResult = await decisionMaker.forward(ai, {
-  scenario: 'Should a small startup invest 50% of their budget in marketing or product development?'
+  scenario:
+    'Should a small startup invest 50% of their budget in marketing or product development?',
 });
 
 console.log('Decision Analysis:');

@@ -51,7 +51,7 @@ export function s<const T extends string>(
 /**
  * @deprecated Template literals are not type-safe and will be removed in a future version.
  * Use AxSignature.create() instead for better type safety.
- * 
+ *
  * @example
  * ```typescript
  * // Instead of: s`userInput:${f.string()} -> responseText:${f.string()}`
@@ -125,7 +125,7 @@ export function s<const T extends string>(
 /**
  * @deprecated Template literals are not type-safe and will be removed in a future version.
  * Use s() with new AxGen() instead for better type safety.
- * 
+ *
  * @example
  * ```typescript
  * // Instead of: ax('userInput:string -> responseText:string')
@@ -140,7 +140,7 @@ export function ax<const T extends string>(
 /**
  * @deprecated Template literals are not type-safe and will be removed in a future version.
  * Use s() with new AxGen() instead for better type safety.
- * 
+ *
  * @example
  * ```typescript
  * // Instead of: ax`userInput:${f.string()} -> responseText:${f.string()}`
@@ -160,13 +160,15 @@ export function ax<const T extends string>(
   sigOrStrings: T | TemplateStringsArray,
   // eslint-disable-next-line functional/functional-parameters
   ...values: readonly AxSignatureTemplateValue[]
-): T extends string 
+): T extends string
   ? AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>
   : AxGen<any, any> {
   // If called as regular function with string
   if (typeof sigOrStrings === 'string') {
     const typedSignature = AxSignature.create(sigOrStrings);
-    return new AxGen(typedSignature) as AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
+    return new AxGen(typedSignature) as T extends string
+      ? AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>
+      : AxGen<any, any>;
   }
 
   // If called as tagged template literal
@@ -215,7 +217,9 @@ export function ax<const T extends string>(
 
   // For complex signatures with field objects, use the standard constructor
   const signature = new AxSignature(result);
-  return new AxGen(signature);
+  return new AxGen(signature) as T extends string
+    ? AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>
+    : AxGen<any, any>;
 }
 
 function convertValueToSignatureString(
@@ -319,7 +323,7 @@ function isAxFieldDescriptor(value: unknown): value is AxFieldDescriptor {
 /**
  * @deprecated Field helper functions are not type-safe and will be removed in a future version.
  * Use string-based signatures with s() function instead for better type safety.
- * 
+ *
  * @example
  * ```typescript
  * // Instead of: f.string('User input')
