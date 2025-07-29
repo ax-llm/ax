@@ -3,7 +3,8 @@ import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import { AxProgram } from '../dsp/program.js';
 import { type AxField, AxSignature } from '../dsp/sig.js';
-import { f, type AxFieldType } from '../dsp/template.js';
+import type { AxFieldType } from '../dsp/sig.js';
+import { createFieldType } from '../dsp/sig.js';
 import type {
   AxGenIn,
   AxGenOut,
@@ -1936,14 +1937,14 @@ export class AxFlow<
    * // Create a chain-of-thought node
    * flow.nodeExtended('reasoner', 'question:string -> answer:string', {
    *   prependOutputs: [
-   *     { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
+   *     { name: 'reasoning', type: createFieldType.internal(createFieldType.string('Step-by-step reasoning')) }
    *   ]
    * })
    *
    * // Create a node with context and confidence
    * flow.nodeExtended('analyzer', 'input:string -> output:string', {
-   *   appendInputs: [{ name: 'context', type: f.optional(f.string('Context')) }],
-   *   appendOutputs: [{ name: 'confidence', type: f.number('Confidence score') }]
+   *   appendInputs: [{ name: 'context', type: createFieldType.optional(createFieldType.string('Context')) }],
+   *   appendOutputs: [{ name: 'confidence', type: createFieldType.number('Confidence score') }]
    * })
    * ```
    */

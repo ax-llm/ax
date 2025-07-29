@@ -55,8 +55,9 @@ The idea behind prompt signatures is based on work done in the
 
 You can have multiple input and output fields, and each field can be of the
 types `string`, `number`, `boolean`, `date`, `datetime`,
-`class "class1, class2"`, `code`, `json`, `image`, `audio`, `file`, `url`, or an array of any
-of these, e.g., `string[]`. When a type is not defined, it defaults to `string`.
+`class "class1, class2"`, `code`, `json`, `image`, `audio`, `file`, `url`, or an
+array of any of these, e.g., `string[]`. When a type is not defined, it defaults
+to `string`.
 
 ### Field Modifiers
 
@@ -69,34 +70,40 @@ of these, e.g., `string[]`. When a type is not defined, it defaults to `string`.
 
 ### Type-Safe Signatures (Recommended)
 
-The **recommended type-safe** approach uses the `ax()` function with string-based signatures, which provide complete TypeScript type inference and clean, readable syntax:
+The **recommended type-safe** approach uses the `ax()` function with
+string-based signatures, which provide complete TypeScript type inference and
+clean, readable syntax:
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 
 // Create type-safe generators with ax() function
 const gen1 = ax(
-  "question:string -> answer:string"
+  "question:string -> answer:string",
 );
 
 // With field types and descriptions - fully type-safe
 const gen2 = ax(
-  'input:string "User input" -> category:class "tech, business, sports" "Content category", confidence:number "Confidence score 0-1"'
+  'input:string "User input" -> category:class "tech, business, sports" "Content category", confidence:number "Confidence score 0-1"',
 );
 
 // With modifiers - clean syntax
 const gen3 = ax(
-  'text:string -> summary?:string "Brief summary", reasoning!:string "Internal reasoning"'
+  'text:string -> summary?:string "Brief summary", reasoning!:string "Internal reasoning"',
 );
 
 // TypeScript knows the exact input/output types!
 type Sig2Input = { input: string };
-type Sig2Output = { category: "tech" | "business" | "sports"; confidence: number };
+type Sig2Output = {
+  category: "tech" | "business" | "sports";
+  confidence: number;
+};
 ```
 
 ### Type-Safe Generator Creation
 
-Create fully typed generators using the `ax()` function with complete type inference:
+Create fully typed generators using the `ax()` function with complete type
+inference:
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
@@ -106,7 +113,7 @@ const gen = ax("question:string -> answer:string");
 
 // Advanced example with full type safety
 const sentimentGen = ax(
-  'text:string "Text to analyze" -> sentiment:class "positive, negative, neutral" "Sentiment classification", confidence:number "Confidence score 0-1"'
+  'text:string "Text to analyze" -> sentiment:class "positive, negative, neutral" "Sentiment classification", confidence:number "Confidence score 0-1"',
 );
 
 // TypeScript knows exact types - no any/unknown!
@@ -121,27 +128,28 @@ console.log(result.confidence); // number
 
 ### Legacy: Template Literal Support (Deprecated)
 
-**Note**: Template literals are deprecated. Use the `ax()` function instead for better type safety and performance.
+**Note**: Template literals are deprecated. Use the `ax()` function instead for
+better type safety and performance.
 
 ### Why ax() Is Fully Type-Safe
 
 **Type Safety Benefits:**
 
-| Feature | `ax()` Function | Template Literals (Deprecated) | Raw Strings |
-|---------|------------------------|-------------------|-------------|
-| **Return Type** | Fully typed objects | Limited type info | `any` |
-| **IntelliSense** | Complete field autocompletion | Basic support | No type hints |
-| **Compile-time Validation** | Catches type errors | Runtime validation | Runtime-only validation |
-| **Field Type Inference** | Exact literal types | Generic types | No types |
-| **IDE Support** | Full refactoring support | Limited | None |
-| **Performance** | Faster parsing | Template overhead | Fastest |
+| Feature                     | `ax()` Function               | Template Literals (Deprecated) | Raw Strings             |
+| --------------------------- | ----------------------------- | ------------------------------ | ----------------------- |
+| **Return Type**             | Fully typed objects           | Limited type info              | `any`                   |
+| **IntelliSense**            | Complete field autocompletion | Basic support                  | No type hints           |
+| **Compile-time Validation** | Catches type errors           | Runtime validation             | Runtime-only validation |
+| **Field Type Inference**    | Exact literal types           | Generic types                  | No types                |
+| **IDE Support**             | Full refactoring support      | Limited                        | None                    |
+| **Performance**             | Faster parsing                | Template overhead              | Fastest                 |
 
 **Example showing the recommended approach:**
 
 ```typescript
 // ✅ Recommended: ax() function - full type safety
 const recommendedWay = ax(
-  'input:string -> category:class "a, b, c"'
+  'input:string -> category:class "a, b, c"',
 );
 
 // ❌ Deprecated: Template literal approach
@@ -153,38 +161,40 @@ result.category; // TypeScript shows "a" | "b" | "c" - perfect safety!
 ```
 
 **Best Practices:**
+
 - **Always use the `ax()` function** for full type safety and performance
 - Use string-based field definitions with descriptions
 - Take advantage of exact literal type inference
 - Use descriptive field names like `userQuestion`, not `question`
 - Use `const llm = ai({})` for AI instances to avoid naming conflicts
 
-The `ax()` function provides the best balance of type safety, performance, and readability.
+The `ax()` function provides the best balance of type safety, performance, and
+readability.
 
 ## Output Field Types
 
-| Type                        | Description                            | Usage Example                        | Example Output                                     |
-| --------------------------- | -------------------------------------- | ------------------------------------ | -------------------------------------------------- |
-| `string`                    | A sequence of characters               | `fullName:string`                    | `"John Doe"`                                       |
-| `number`                    | A numerical value                      | `price:number`                       | `42`                                               |
-| `boolean`                   | A true or false value                  | `isValid:boolean`                    | `true`, `false`                                    |
-| `date`                      | A date value                           | `startDate:date`                     | `"2023-10-01"`                                     |
-| `datetime`                  | A date and time value                  | `createdAt:datetime`                 | `"2023-10-01T12:00:00Z"`                           |
-| `json`                      | A JSON object                          | `metadata:json`                      | `{"key": "value"}`                                 |
-| `image`                     | An image (input only)                  | `photo:image`                        | Base64 encoded image data                          |
-| `audio`                     | An audio file (input only)             | `recording:audio`                    | Base64 encoded audio data                          |
-| `file`                      | A file with filename, mime type, and data | `document:file`               | `{"filename": "doc.pdf", "mimeType": "application/pdf", "data": "base64data"}` |
-| `url`                       | A URL with optional title and description | `website:url`                | `"https://example.com"` or `{"url": "https://example.com", "title": "Example"}` |
-| `class "option1,option2"`   | Classification with predefined options | `category:class "urgent,normal,low"` | `"urgent"`                                         |
-| `code`                      | A code block                           | `solution:code "Python solution"`    | `print('Hello, world!')`                           |
-| `string[]`                  | An array of strings                    | `tags:string[]`                      | `["example1", "example2"]`                         |
-| `number[]`                  | An array of numbers                    | `scores:number[]`                    | `[1, 2, 3]`                                        |
-| `boolean[]`                 | An array of boolean values             | `permissions:boolean[]`              | `[true, false, true]`                              |
-| `date[]`                    | An array of dates                      | `holidayDates:date[]`                | `["2023-10-01", "2023-10-02"]`                     |
-| `datetime[]`                | An array of date and time values       | `logTimestamps:datetime[]`           | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]` |
-| `file[]`                    | An array of files                      | `attachments:file[]`                 | `[{"filename": "doc1.pdf", "mimeType": "application/pdf", "data": "base64data"}]` |
-| `url[]`                     | An array of URLs                       | `links:url[]`                        | `["https://example.com", {"url": "https://test.com", "title": "Test"}]` |
-| `class[] "option1,option2"` | Array of classifications               | `categories:class[] "tech,business"` | `["tech", "business"]`                             |
+| Type                        | Description                               | Usage Example                        | Example Output                                                                    |
+| --------------------------- | ----------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------- |
+| `string`                    | A sequence of characters                  | `fullName:string`                    | `"John Doe"`                                                                      |
+| `number`                    | A numerical value                         | `price:number`                       | `42`                                                                              |
+| `boolean`                   | A true or false value                     | `isValid:boolean`                    | `true`, `false`                                                                   |
+| `date`                      | A date value                              | `startDate:date`                     | `"2023-10-01"`                                                                    |
+| `datetime`                  | A date and time value                     | `createdAt:datetime`                 | `"2023-10-01T12:00:00Z"`                                                          |
+| `json`                      | A JSON object                             | `metadata:json`                      | `{"key": "value"}`                                                                |
+| `image`                     | An image (input only)                     | `photo:image`                        | Base64 encoded image data                                                         |
+| `audio`                     | An audio file (input only)                | `recording:audio`                    | Base64 encoded audio data                                                         |
+| `file`                      | A file with filename, mime type, and data | `document:file`                      | `{"filename": "doc.pdf", "mimeType": "application/pdf", "data": "base64data"}`    |
+| `url`                       | A URL with optional title and description | `website:url`                        | `"https://example.com"` or `{"url": "https://example.com", "title": "Example"}`   |
+| `class "option1,option2"`   | Classification with predefined options    | `category:class "urgent,normal,low"` | `"urgent"`                                                                        |
+| `code`                      | A code block                              | `solution:code "Python solution"`    | `print('Hello, world!')`                                                          |
+| `string[]`                  | An array of strings                       | `tags:string[]`                      | `["example1", "example2"]`                                                        |
+| `number[]`                  | An array of numbers                       | `scores:number[]`                    | `[1, 2, 3]`                                                                       |
+| `boolean[]`                 | An array of boolean values                | `permissions:boolean[]`              | `[true, false, true]`                                                             |
+| `date[]`                    | An array of dates                         | `holidayDates:date[]`                | `["2023-10-01", "2023-10-02"]`                                                    |
+| `datetime[]`                | An array of date and time values          | `logTimestamps:datetime[]`           | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]`                                |
+| `file[]`                    | An array of files                         | `attachments:file[]`                 | `[{"filename": "doc1.pdf", "mimeType": "application/pdf", "data": "base64data"}]` |
+| `url[]`                     | An array of URLs                          | `links:url[]`                        | `["https://example.com", {"url": "https://test.com", "title": "Test"}]`           |
+| `class[] "option1,option2"` | Array of classifications                  | `categories:class[] "tech,business"` | `["tech", "business"]`                                                            |
 
 ### Important Notes on Field Types
 
@@ -259,7 +269,7 @@ const llm = ai({
 });
 
 const gen = ax(
-  'textToSummarize:string -> textType:class "note, email, reminder", shortSummary:string "summarize in 5 to 10 words"'
+  'textToSummarize:string -> textType:class "note, email, reminder", shortSummary:string "summarize in 5 to 10 words"',
 );
 
 const res = await gen.forward(llm, { textToSummarize });
@@ -279,7 +289,7 @@ const llm = ai({
 
 // Create a signature using string-based approach
 const gen = ax(
-  'userInput:string "User message or question" -> category:class "question, request, complaint" "Message type", priority:class "high, medium, low" "Urgency level", response:string "Appropriate response", reasoning!:string "Internal reasoning for classification"'
+  'userInput:string "User message or question" -> category:class "question, request, complaint" "Message type", priority:class "high, medium, low" "Urgency level", response:string "Appropriate response", reasoning!:string "Internal reasoning for classification"',
 );
 
 const res = await gen.forward(llm, {
@@ -436,7 +446,7 @@ const image = fs
   .toString("base64");
 
 const gen = ax(
-  'question:string, animalImage:image -> answer:string'
+  "question:string, animalImage:image -> answer:string",
 );
 
 const res = await gen.forward(llm, {
@@ -454,7 +464,7 @@ const audio = fs
   .readFileSync("./src/examples/assets/comment.wav")
   .toString("base64");
 
-const gen = ax('question:string, commentAudio:audio -> answer:string');
+const gen = ax("question:string, commentAudio:audio -> answer:string");
 
 const res = await gen.forward(llm, {
   question: "What family does this animal belong to?",
@@ -477,7 +487,7 @@ GOOGLE_APIKEY=api-key npm run tsx ./src/examples/chat.ts
 ```typescript
 // Create a chat assistant using string-based signatures
 const chatBot = ax(
-  'message:string "A casual message from the user" -> reply:string "A friendly, casual response"'
+  'message:string "A casual message from the user" -> reply:string "A friendly, casual response"',
 );
 
 // Start a conversation with message history
@@ -1318,7 +1328,9 @@ const llm = ai({
   options: { tracer },
 });
 
-const gen = ax('text:string -> shortSummary:string "summarize in 5 to 10 words"');
+const gen = ax(
+  'text:string -> shortSummary:string "summarize in 5 to 10 words"',
+);
 
 const res = await gen.forward({ text });
 ```
@@ -1449,7 +1461,9 @@ const llm = ai({
 });
 
 // Setup the program to tune
-const program = ax<{ question: string }, { answer: string }>('question:string -> answer:string "in short 2 or 3 words"');
+const program = ax<{ question: string }, { answer: string }>(
+  'question:string -> answer:string "in short 2 or 3 words"',
+);
 
 // Setup a Bootstrap Few Shot optimizer to tune the above program
 const optimize = new AxBootstrapFewShot({
@@ -1666,7 +1680,7 @@ Here's a complete example showing how demos improve a classification task:
 ```typescript
 // Create a classification program
 const classifier = ax(
-  'text:string -> category:class "positive, negative, neutral"'
+  'text:string -> category:class "positive, negative, neutral"',
 );
 
 // Load demos generated from either Bootstrap or MiPRO tuning
@@ -1753,10 +1767,8 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)                           | Use the JS code interpreter to compute fibonacci                                                                       |
 | [codingWithMemory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/codingWithMemory.ts)             | Coding assistant with memory and JS interpreter (demonstrates both ax-tools features)                                  |
 | [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)                           | Generate a short summary of a large block of text                                                                      |
-| [chain-of-thought.ts](https://github.com/ax-llm/ax/blob/main/src/examples/chain-of-thought.ts)             | Use chain-of-thought prompting to answer questions                                                                     |
-| [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts)       | Type-safe signatures using AxSignature.create() (deprecated template literal examples)                                |
-| [ax-template.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-template.ts)                       | Create AxGen instances using AxSignature.create() (deprecated template literal examples)                              |
-| [rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag.ts)                                       | Use multi-hop retrieval to answer questions                                                                            |
+| [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts)       | Type-safe signatures using AxSignature.create() (deprecated template literal examples)                                 |
+| [ax-template.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-template.ts)                       | Create AxGen instances using AxSignature.create() (deprecated template literal examples)                               |
 | [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)                             | Convert PDF to text and embed for rag search                                                                           |
 | [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                                   | Use function calling and reasoning to answer questions                                                                 |
 | [agent.ts](https://github.com/ax-llm/ax/blob/main/src/examples/agent.ts)                                   | Agent framework, agents can use other agents, tools etc                                                                |

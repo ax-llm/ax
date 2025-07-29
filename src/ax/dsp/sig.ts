@@ -10,7 +10,87 @@ import {
   parseSignature,
 } from './parser.js';
 import type { ParseSignature } from './types.js';
-import type { AxFieldType } from './template.js';
+// Interface for programmatically defining field types
+export interface AxFieldType {
+  readonly type:
+    | 'string'
+    | 'number'
+    | 'boolean'
+    | 'json'
+    | 'image'
+    | 'audio'
+    | 'file'
+    | 'url'
+    | 'date'
+    | 'datetime'
+    | 'class'
+    | 'code';
+  readonly isArray?: boolean;
+  readonly options?: readonly string[];
+  readonly description?: string;
+  readonly isOptional?: boolean;
+  readonly isInternal?: boolean;
+}
+
+// Helper functions for creating field types
+export const createFieldType = {
+  string: (desc?: string): AxFieldType => ({
+    type: 'string',
+    description: desc,
+  }),
+  
+  number: (desc?: string): AxFieldType => ({
+    type: 'number',
+    description: desc,
+  }),
+
+  boolean: (desc?: string): AxFieldType => ({
+    type: 'boolean',
+    description: desc,
+  }),
+
+  json: (desc?: string): AxFieldType => ({
+    type: 'json',
+    description: desc,
+  }),
+
+  datetime: (desc?: string): AxFieldType => ({
+    type: 'datetime',
+    description: desc,
+  }),
+
+  class: (options: readonly string[], desc?: string): AxFieldType => ({
+    type: 'class',
+    options,
+    description: desc,
+  }),
+
+  image: (desc?: string): AxFieldType => ({
+    type: 'image',
+    description: desc,
+  }),
+
+  array: <T extends AxFieldType>(
+    baseType: T
+  ): T & { readonly isArray: true } => ({
+    ...baseType,
+    isArray: true,
+  }),
+
+  optional: <T extends AxFieldType>(
+    baseType: T
+  ): T & { readonly isOptional: true } => ({
+    ...baseType,
+    isOptional: true,
+  }),
+
+  internal: <T extends AxFieldType>(
+    baseType: T
+  ): T & { readonly isInternal: true } => ({
+    ...baseType,
+    isInternal: true,
+  }),
+};
 
 export interface AxField {
   name: string;

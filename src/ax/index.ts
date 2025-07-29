@@ -517,19 +517,13 @@ import { AxInstanceRegistry } from './dsp/registry.js';
 import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
   type AxField,
+  type AxFieldType,
   type AxIField,
   AxSignature,
   type AxSignatureConfig,
 } from './dsp/sig.js';
 import { AxStringUtil } from './dsp/strutil.js';
-import {
-  type AxFieldDescriptor,
-  type AxFieldType,
-  type AxSignatureTemplateValue,
-  ax,
-  f,
-  s,
-} from './dsp/template.js';
+import { ax, s } from './dsp/template.js';
 import type {
   AxAIServiceActionOptions,
   AxAIServiceModelType,
@@ -813,7 +807,6 @@ export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
 export { axValidateProviderCapabilities };
-export { f };
 export { s };
 
 // Type exports
@@ -1051,7 +1044,6 @@ export type { AxErrorCategory };
 export type { AxEvaluateArgs };
 export type { AxExample };
 export type { AxField };
-export type { AxFieldDescriptor };
 export type { AxFieldProcessor };
 export type { AxFieldProcessorProcess };
 export type { AxFieldTemplateFn };
@@ -1151,7 +1143,6 @@ export type { AxRoutingResult };
 export type { AxSamplePickerOptions };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };
-export type { AxSignatureTemplateValue };
 export type { AxSimpleClassifierForwardOptions };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };

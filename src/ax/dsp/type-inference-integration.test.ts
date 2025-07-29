@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { ax, s, f } from './template.js';
-import { AxAI } from '../ai/anthropic.js';
-import type { ParseSignature } from './sigtypes.js';
+import { ax, s } from './template.js';
 
-describe('Type Inference Integration with ax.forward and streamingForward', () => {
+describe('Type Inference Integration with ax string-based functions', () => {
   // Mock AI for testing (no actual API calls)
   const mockAI = {
     name: 'mock',
@@ -38,7 +36,6 @@ describe('Type Inference Integration with ax.forward and streamingForward', () =
     };
 
     // Mock the forward method to return expected structure
-    const originalForward = generator.forward;
     generator.forward = async (ai: any, inputs: any) => {
       // Verify input types at runtime
       expect(typeof inputs.userQuestion).toBe('string');
@@ -59,21 +56,15 @@ describe('Type Inference Integration with ax.forward and streamingForward', () =
     expect(result.confidence).toBe(0.85);
   });
 
-  test('should provide type-safe inputs and outputs for template literals', async () => {
-    // Create generator with template literal using f helper
-    const emailClassifier = ax`
-      emailText:${f.string('Email content to classify')} -> 
-      category:${f.class(['spam', 'personal', 'work'], 'Email category')},
-      priority:${f.class(['high', 'medium', 'low'], 'Priority level')},
-      extractedTasks:${f.array(f.string('Action items'))}
-    `;
+  test('should work with string-based signatures with classes', async () => {
+    // Create generator with string-based signature
+    const emailClassifier = ax('emailText:string -> category:class "spam, personal, work", priority:class "high, medium, low"');
 
     // Type should be inferred correctly
     type ExpectedInputs = { emailText: string };
     type ExpectedOutputs = {
       category: 'spam' | 'personal' | 'work';
       priority: 'high' | 'medium' | 'low';
-      extractedTasks: string[];
     };
 
     const validInputs: ExpectedInputs = {
@@ -87,7 +78,6 @@ describe('Type Inference Integration with ax.forward and streamingForward', () =
       return {
         category: 'work' as const,
         priority: 'medium' as const,
-        extractedTasks: ['Attend Q4 budget meeting'],
       } as ExpectedOutputs;
     };
 
@@ -95,17 +85,10 @@ describe('Type Inference Integration with ax.forward and streamingForward', () =
 
     expect(result.category).toBe('work');
     expect(result.priority).toBe('medium');
-    expect(Array.isArray(result.extractedTasks)).toBe(true);
-    expect(result.extractedTasks[0]).toBe('Attend Q4 budget meeting');
   });
 
   test('should handle optional fields correctly', async () => {
-    const optionalGen = ax`
-      requiredField:${f.string('Required input')},
-      optionalField:${f.optional(f.number('Optional input'))} -> 
-      processedResult:${f.string('Processed result')},
-      metadata:${f.optional(f.json('Optional metadata'))}
-    `;
+    const optionalGen = ax('requiredField:string, optionalField?:number -> processedResult:string, metadata?:json');
 
     // Input with optional field
     type InputsWithOptional = {
@@ -147,134 +130,9 @@ describe('Type Inference Integration with ax.forward and streamingForward', () =
     expect(result2.metadata).toBeUndefined();
   });
 
-  test('should work with array types', async () => {
-    const arrayGen = ax`
-      userQuestions:${f.array(f.string('List of questions'))} -> 
-      responseTexts:${f.array(f.string('List of responses'))},
-      averageConfidence:${f.number('Average confidence score')}
-    `;
-
-    type ArrayInputs = { userQuestions: string[] };
-    type ArrayOutputs = { responseTexts: string[]; averageConfidence: number };
-
-    const arrayInputs: ArrayInputs = {
-      userQuestions: [
-        'What is AI?',
-        'How does ML work?',
-        'What is deep learning?',
-      ],
-    };
-
-    arrayGen.forward = async (ai: any, inputs: any) => {
-      expect(Array.isArray(inputs.userQuestions)).toBe(true);
-      expect(inputs.userQuestions.length).toBe(3);
-
-      return {
-        responseTexts: inputs.userQuestions.map(
-          (q: string) => `Answer to: ${q}`
-        ),
-        averageConfidence: 0.92,
-      } as ArrayOutputs;
-    };
-
-    const result = await arrayGen.forward(mockAI, arrayInputs);
-
-    expect(Array.isArray(result.responseTexts)).toBe(true);
-    expect(result.responseTexts.length).toBe(3);
-    expect(result.responseTexts[0]).toBe('Answer to: What is AI?');
-    expect(result.averageConfidence).toBe(0.92);
-  });
-
-  test('should work with multi-modal types', async () => {
-    const multiModalGen = ax`
-      userQuestion:${f.string('Question about the image')},
-      imageData:${f.image('Image to analyze')} -> 
-      description:${f.string('Image description')},
-      confidence:${f.number('Analysis confidence')}
-    `;
-
-    type MultiModalInputs = {
-      userQuestion: string;
-      imageData: { mimeType: string; data: string };
-    };
-
-    type MultiModalOutputs = {
-      description: string;
-      confidence: number;
-    };
-
-    const multiModalInputs: MultiModalInputs = {
-      userQuestion: 'What do you see in this image?',
-      imageData: { mimeType: 'image/jpeg', data: 'base64-encoded-data' },
-    };
-
-    multiModalGen.forward = async (ai: any, inputs: any) => {
-      expect(typeof inputs.userQuestion).toBe('string');
-      expect(typeof inputs.imageData).toBe('object');
-      expect(typeof inputs.imageData.mimeType).toBe('string');
-      expect(typeof inputs.imageData.data).toBe('string');
-
-      return {
-        description: 'A beautiful landscape with mountains',
-        confidence: 0.95,
-      } as MultiModalOutputs;
-    };
-
-    const result = await multiModalGen.forward(mockAI, multiModalInputs);
-
-    expect(result.description).toBe('A beautiful landscape with mountains');
-    expect(result.confidence).toBe(0.95);
-  });
-
-  test('should provide type-safe streaming', async () => {
-    const streamingGen = ax`
-      storyPrompt:${f.string('Story premise')} -> 
-      storyText:${f.string('Generated story')},
-      genre:${f.class(['fantasy', 'sci-fi', 'mystery'], 'Story genre')}
-    `;
-
-    type StreamingInputs = { storyPrompt: string };
-    type StreamingOutputs = {
-      storyText: string;
-      genre: 'fantasy' | 'sci-fi' | 'mystery';
-    };
-
-    const streamingInputs: StreamingInputs = {
-      storyPrompt: 'A robot discovers emotions',
-    };
-
-    // Mock the streamingForward method
-    streamingGen.streamingForward = async function* (ai: any, inputs: any) {
-      expect(typeof inputs.storyPrompt).toBe('string');
-
-      yield { storyText: 'Once upon a time, ' };
-      yield { storyText: 'there was a robot named R2 ' };
-      yield { storyText: 'who began to feel...', genre: 'sci-fi' as const };
-    };
-
-    const chunks: any[] = [];
-    for await (const chunk of streamingGen.streamingForward(
-      mockAI,
-      streamingInputs
-    )) {
-      chunks.push(chunk);
-    }
-
-    expect(chunks).toHaveLength(3);
-    expect(chunks[0].storyText).toBe('Once upon a time, ');
-    expect(chunks[1].storyText).toBe('there was a robot named R2 ');
-    expect(chunks[2].storyText).toBe('who began to feel...');
-    expect(chunks[2].genre).toBe('sci-fi');
-  });
-
-  test('should work with s() signature template literal', () => {
-    // Test the s() template literal for creating signatures
-    const signature = s`
-      userMessage:${f.string('User input')},
-      contextData:${f.json('Background context')} -> 
-      responseText:${f.string('AI response')},
-      confidence:${f.number('Response confidence')}
-    `;
+  test('should work with s() signature function', () => {
+    // Test the s() function for creating signatures
+    const signature = s('userMessage:string, contextData:json -> responseText:string, confidence:number');
 
     // Verify signature was created correctly
     expect(signature.getInputFields()).toHaveLength(2);

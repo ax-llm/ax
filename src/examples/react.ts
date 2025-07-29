@@ -1,4 +1,4 @@
-import { AxAI, AxChainOfThought } from '@ax-llm/ax';
+import { ai, ax } from '@ax-llm/ax';
 
 const values = {
   question: 'What is the weather like in tokyo?',
@@ -31,14 +31,14 @@ const functions = [
   },
 ];
 
-const cot = new AxChainOfThought('question:string -> answer:string', {
+const gen = ax('question:string -> answer:string', {
   functions,
 });
 
-const ai = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
 });
 
-const res = await cot.forward(ai, values);
+const res = await gen.forward(llm, values);
 console.log(res);

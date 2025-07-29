@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import {
   AxAI,
   AxBootstrapFewShot,
-  AxChainOfThought,
   AxHFDataLoader,
   type AxMetricFn,
+  ax,
 } from '@ax-llm/ax';
 
 const hf = new AxHFDataLoader({
@@ -27,7 +27,7 @@ const ai = new AxAI({
 });
 
 // Setup the program to tune
-const program = new AxChainOfThought<{ question: string }, { answer: string }>(
+const program = ax<{ question: string }, { answer: string }>(
   `question -> answer:number "numerical rating from 1 to 4"`
 );
 
