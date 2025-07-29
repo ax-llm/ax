@@ -12,10 +12,9 @@ This document outlines the deprecation strategy for the Ax framework to improve 
 
 ### ✅ **New Recommended Patterns**
 
-1. **AxAI Factory Function**: `ai()` - **Most recommended** shorthand factory function
-2. **AxAI Static Method**: `AxAI.create()` - Alternative type-safe factory method  
-3. **AxSignature Factory**: `AxSignature.create()` - Type-safe factory method
-4. **String-based Signatures**: String literals with `AxSignature.create()` - Type-safe and clean
+1. **AxAI Factory Function**: `ai()` - **The recommended** shorthand factory function
+2. **AxSignature Factory**: `AxSignature.create()` - Type-safe factory method
+3. **String-based Signatures**: String literals with `AxSignature.create()` - Type-safe and clean
 
 ### ❌ **Deprecated Patterns**
 
@@ -34,14 +33,8 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY! 
 });
 
-// ✅ RECOMMENDED: Shorthand factory function (most preferred)
+// ✅ RECOMMENDED: Shorthand factory function
 const llm = ai({ 
-  name: 'openai', 
-  apiKey: process.env.OPENAI_APIKEY! 
-});
-
-// ✅ ALTERNATIVE: Static factory method (type-safe)
-const llm = AxAI.create({ 
   name: 'openai', 
   apiKey: process.env.OPENAI_APIKEY! 
 });
@@ -296,6 +289,28 @@ const sig = AxSignature.create<
 - All new patterns work alongside deprecated ones during transition
 - No breaking changes until v15.0.0
 - Comprehensive test coverage ensures migration safety
+
+---
+
+## Additional Notes
+
+### Removed Features
+
+#### Field Helper Functions (`f.<type>()`)
+The field helper functions like `f.string()`, `f.number()`, `f.class()`, etc. have been completely removed. These were not providing proper type safety and have been replaced with string-based type annotations that offer full TypeScript type inference.
+
+#### Template Literal Functions (`ax``, `s``)
+The template literal functions `ax`` ` and `s`` ` have been removed. These have been replaced with strongly-typed function alternatives:
+- `ax`` ` → `ax(signature)` function
+- `s`` ` → `s(signature)` function
+
+The new functions provide proper TypeScript type inference, while the old template literal approach did not.
+
+#### AxChainOfThought
+`AxChainOfThought` has been removed as it's no longer needed. Modern thinking models (like o1) provide built-in chain-of-thought reasoning capabilities, making this abstraction unnecessary.
+
+#### AxRAG → axRAG
+`AxRAG` has been replaced with `axRAG` - this is a complete rewrite built on top of `AxFlow`, not just a renaming. The new `axRAG` provides better composability and integration with the rest of the framework's flow-based architecture.
 
 ---
 

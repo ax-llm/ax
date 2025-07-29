@@ -32,6 +32,13 @@ const filesToCopy = [
     title: 'Telemetry Guide',
     description: 'Observability and monitoring for Ax applications',
   },
+  {
+    source: 'AXRAG.md',
+    dest: 'axrag.md',
+    title: 'AxRAG Guide',
+    description:
+      'Advanced RAG with multi-hop retrieval and self-healing quality loops',
+  },
 ];
 
 // Ensure content/docs directory exists

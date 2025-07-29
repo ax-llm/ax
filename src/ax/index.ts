@@ -555,6 +555,22 @@ import { AxFlowDependencyAnalyzer } from './flow/dependencyAnalyzer.js';
 import { AxFlowExecutionPlanner } from './flow/executionPlanner.js';
 import { AxFlow } from './flow/flow.js';
 import {
+  type AxFlowBranchEvaluationData,
+  type AxFlowCompleteData,
+  type AxFlowErrorData,
+  type AxFlowLogData,
+  type AxFlowLoggerData,
+  type AxFlowLoggerFunction,
+  type AxFlowParallelGroupCompleteData,
+  type AxFlowParallelGroupStartData,
+  type AxFlowStartData,
+  type AxFlowStepCompleteData,
+  type AxFlowStepStartData,
+  axCreateFlowColorLogger,
+  axCreateFlowTextLogger,
+  axDefaultFlowLogger,
+} from './flow/logger.js';
+import {
   AxFlowSubContextImpl,
   AxFlowTypedSubContextImpl,
 } from './flow/subContext.js';
@@ -601,7 +617,7 @@ import {
   type AxAgentic,
   type AxAgentOptions,
 } from './prompts/agent.js';
-import { axRAG, axSimpleRAG } from './prompts/rag.js';
+import { axRAG } from './prompts/rag.js';
 import {
   AxLLMRequestTypeValues,
   AxSpanKindValues,
@@ -764,7 +780,6 @@ export { axAIRekaFastConfig };
 export { axAITogetherDefaultConfig };
 export { axAIWebLLMCreativeConfig };
 export { axAIWebLLMDefaultConfig };
-export { axSimpleRAG };
 export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
@@ -774,6 +789,9 @@ export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };
 export { axCreateDefaultOptimizerTextLogger };
 export { axCreateDefaultTextLogger };
+export { axCreateFlowColorLogger };
+export { axCreateFlowTextLogger };
+export { axDefaultFlowLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
 export { axDefaultOptimizerMetricsConfig };
@@ -1051,13 +1069,24 @@ export type { AxFieldType };
 export type { AxFieldValue };
 export type { AxFlowAutoParallelConfig };
 export type { AxFlowBranchContext };
+export type { AxFlowBranchEvaluationData };
+export type { AxFlowCompleteData };
 export type { AxFlowDynamicContext };
+export type { AxFlowErrorData };
 export type { AxFlowExecutionStep };
+export type { AxFlowLogData };
+export type { AxFlowLoggerData };
+export type { AxFlowLoggerFunction };
 export type { AxFlowNodeDefinition };
 export type { AxFlowParallelBranch };
 export type { AxFlowParallelGroup };
+export type { AxFlowParallelGroupCompleteData };
+export type { AxFlowParallelGroupStartData };
+export type { AxFlowStartData };
 export type { AxFlowState };
+export type { AxFlowStepCompleteData };
 export type { AxFlowStepFunction };
+export type { AxFlowStepStartData };
 export type { AxFlowSubContext };
 export type { AxFlowTypedParallelBranch };
 export type { AxFlowTypedSubContext };

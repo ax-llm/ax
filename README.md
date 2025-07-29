@@ -973,63 +973,30 @@ const result = await autonomousContentEngine.forward(quantumAI, {
 console.log("🌟 Autonomous Campaign Generated:", result.campaign);
 ```
 
-### Advanced Example: Self-Healing Research Pipeline
+## Advanced RAG: `axRAG`
+
+**`axRAG`** is a powerful, production-ready RAG (Retrieval-Augmented Generation) implementation built on AxFlow that provides advanced multi-hop retrieval, self-healing quality loops, and intelligent query refinement.
 
 ```typescript
-// 🔬 Autonomous research agent with advanced error recovery
-const researchOracle = new AxFlow<
-  { researchQuery: string },
-  { insights: string; confidence: number }
->(
-  {
-    errorHandling: {
-      maxRetries: 5,
-      backoffType: "exponential",
-      circuitBreaker: { failureThreshold: 4, resetTimeoutMs: 45000 },
-      isolateErrors: true,
-    },
-    performance: {
-      maxConcurrency: 3,
-      resourceLimits: { tokensPerMinute: 30000 },
-    },
-  },
-)
-  .n("queryExpander", "query:string -> expandedQueries:string[]")
-  .n("knowledgeHarvester", "queries:string[] -> rawData:string[]")
-  .n(
-    "insightSynthesizer",
-    "data:string[] -> insights:string, confidence:number",
-  )
-  .n("validityChecker", "insights:string -> isValid:boolean, issues:string[]")
-  // 📡 Query expansion with exponential search
-  .e("queryExpander", (s) => ({ query: s.researchQuery }))
-  // 🌐 Parallel knowledge harvesting
-  .wh((s) => s.queryExpanderResult.expandedQueries.length > 0, 5)
-  .e(
-    "knowledgeHarvester",
-    (s) => ({ queries: s.queryExpanderResult.expandedQueries }),
-  )
-  .e(
-    "insightSynthesizer",
-    (s) => ({ data: s.knowledgeHarvesterResult.rawData }),
-  )
-  .e(
-    "validityChecker",
-    (s) => ({ insights: s.insightSynthesizerResult.insights }),
-  )
-  // 🔧 Self-healing: regenerate if confidence too low
-  .b((s) => s.insightSynthesizerResult.confidence > 0.8)
-  .w(true).m((s) => ({ finalInsights: s.insightSynthesizerResult.insights }))
-  .w(false).m((s) => ({
-    queryExpanderResult: { expandedQueries: ["refined query based on issues"] },
-  }))
-  .merge()
-  .end()
-  .m((s) => ({
-    insights: s.finalInsights || "Research incomplete",
-    confidence: s.insightSynthesizerResult?.confidence || 0,
-  }));
+import { axRAG } from "@ax-llm/ax";
+
+// Create an advanced RAG pipeline with multi-hop retrieval and self-healing
+const rag = axRAG(queryVectorDB, {
+  maxHops: 3,           // Multi-hop context accumulation
+  qualityThreshold: 0.8, // Quality-driven retrieval
+  maxIterations: 2,      // Parallel sub-query processing
+  qualityTarget: 0.85,   // Self-healing quality loops
+  debug: true           // Full pipeline visualization
+});
+
+const result = await rag.forward(llm, {
+  originalQuestion: "How do ML algorithms impact privacy in financial services?"
+});
 ```
+
+**Key Features:** Multi-hop retrieval, intelligent query refinement, parallel sub-query processing, self-healing quality loops, gap analysis, configurable performance vs. quality trade-offs.
+
+For comprehensive documentation, architecture details, and advanced examples, see our detailed [**AxRAG Guide**](https://github.com/ax-llm/ax/blob/main/AXRAG.md).
 
 ### Why AxFlow is the Future
 
@@ -1756,6 +1723,7 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 
 | Example                                                                                                    | Description                                                                                                            |
 | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [advanced-rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/advanced-rag.ts)                     | 🚀 Advanced RAG with multi-hop retrieval, self-healing quality loops, and intelligent query refinement                 |
 | [customer-support.ts](https://github.com/ax-llm/ax/blob/main/src/examples/customer-support.ts)             | Extract valuable details from customer communications                                                                  |
 | [debug-logging.ts](https://github.com/ax-llm/ax/blob/main/src/examples/debug-logging.ts)                   | Debug and custom logging examples with different loggers                                                               |
 | [function.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function.ts)                             | Simple single function calling example                                                                                 |

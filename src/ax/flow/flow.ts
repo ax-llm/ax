@@ -2,8 +2,8 @@
 import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import { AxProgram } from '../dsp/program.js';
-import { type AxField, AxSignature } from '../dsp/sig.js';
 import type { AxFieldType } from '../dsp/sig.js';
+import { type AxField, AxSignature } from '../dsp/sig.js';
 import type {
   AxGenIn,
   AxGenOut,
@@ -22,6 +22,11 @@ import type {
 import { mergeProgramUsage } from '../dsp/util.js';
 import { processBatches } from './batchUtil.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
+import {
+  type AxFlowLoggerFunction,
+  axCreateFlowColorLogger,
+  createTimingLogger,
+} from './logger.js';
 import { AxFlowSubContextImpl } from './subContext.js';
 import type {
   AddNodeResult,
@@ -95,11 +100,240 @@ export class AxFlow<
   // Node-level trace tracking
   private nodeTraces: Map<string, AxProgramTrace<any, any>[]> = new Map();
 
+  // Verbose logging support
+  private readonly flowLogger?: AxFlowLoggerFunction;
+  private readonly timingLogger?: ReturnType<typeof createTimingLogger>;
+
   /**
    * Converts a string to camelCase for valid field names
    */
   private toCamelCase(str: string): string {
     return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+
+  /**
+   * Executes a list of steps with comprehensive logging
+   */
+  private async executeStepsWithLogging(
+    steps: AxFlowStepFunction[],
+    initialState: AxFlowState,
+    context: Readonly<{
+      mainAi: AxAIService;
+      mainOptions?: AxProgramForwardOptions<string>;
+    }>,
+    _isOptimized: boolean
+  ): Promise<{ finalState: AxFlowState; stepsExecuted: number }> {
+    let state = { ...initialState };
+    let stepsExecuted = 0;
+
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      if (!step) continue;
+
+      // Determine step type and metadata for logging
+      const stepType = this.getStepType(step, i);
+      const stepMetadata = this.getStepMetadata(step, i);
+
+      const previousFields = Object.keys(state);
+
+      // Log step start
+      if (this.flowLogger) {
+        this.flowLogger({
+          name: 'StepStart',
+          timestamp: Date.now(),
+          stepIndex: i,
+          stepType: stepType,
+          nodeName: stepMetadata.nodeName,
+          dependencies: stepMetadata.dependencies,
+          produces: stepMetadata.produces,
+          state: { ...state },
+        });
+      }
+
+      // Execute step with timing
+      const stepStartTime = Date.now();
+      this.timingLogger?.startTiming(`step-${i}`);
+
+      try {
+        const result = await step(state, context);
+        state = result;
+        stepsExecuted++;
+
+        // Calculate execution time
+        const executionTime =
+          this.timingLogger?.endTiming(`step-${i}`) ??
+          Date.now() - stepStartTime;
+
+        // Identify new fields
+        const currentFields = Object.keys(state);
+        const newFields = currentFields.filter(
+          (field) => !previousFields.includes(field)
+        );
+
+        // Extract result for execute steps with node names
+        let nodeResult: any;
+        if (
+          stepType === 'execute' &&
+          stepMetadata.nodeName &&
+          newFields.length > 0
+        ) {
+          // For execute steps, try to find the result field that matches the node name
+          const resultFieldName = `${stepMetadata.nodeName}Result`;
+          nodeResult = state[resultFieldName];
+        }
+
+        // Log step completion
+        if (this.flowLogger) {
+          this.flowLogger({
+            name: 'StepComplete',
+            timestamp: Date.now(),
+            stepIndex: i,
+            stepType: stepType,
+            nodeName: stepMetadata.nodeName,
+            executionTime,
+            state: { ...state },
+            newFields,
+            result: nodeResult,
+          });
+        }
+      } catch (error) {
+        // Log step error
+        if (this.flowLogger) {
+          this.flowLogger({
+            name: 'FlowError',
+            timestamp: Date.now(),
+            error: error instanceof Error ? error.message : String(error),
+            stepIndex: i,
+            stepType: stepType,
+            nodeName: stepMetadata.nodeName,
+            state: { ...state },
+          });
+        }
+        throw error;
+      }
+    }
+
+    return { finalState: state, stepsExecuted };
+  }
+
+  /**
+   * Determines the type of a step function for logging purposes
+   */
+  private getStepType(
+    step: AxFlowStepFunction,
+    _index: number
+  ):
+    | 'execute'
+    | 'map'
+    | 'merge'
+    | 'parallel-map'
+    | 'parallel'
+    | 'derive'
+    | 'branch'
+    | 'feedback'
+    | 'while'
+    | 'other' {
+    const source = step.toString();
+
+    // Check for execute steps (contain nodeName references)
+    if (source.includes('nodeName') || source.includes('nodeProgram')) {
+      return 'execute';
+    }
+
+    // Check for parallel operations
+    if (
+      source.includes('_parallelResults') ||
+      source.includes('processBatches')
+    ) {
+      return 'parallel';
+    }
+
+    // Check for merge operations
+    if (
+      source.includes('branchValue') ||
+      source.includes('branches.get') ||
+      source.includes('mergeFunction')
+    ) {
+      return 'merge';
+    }
+
+    // Check for map operations
+    if (source.includes('transform(') || source.includes('...state,')) {
+      return 'map';
+    }
+
+    // Check for derive operations
+    if (source.includes('inputValue') && source.includes('transformFn')) {
+      return 'derive';
+    }
+
+    // Check for control flow operations
+    if (source.includes('condition(') && source.includes('iterations')) {
+      if (source.includes('while')) {
+        return 'while';
+      }
+      return 'feedback';
+    }
+
+    // Check for branch operations
+    if (source.includes('branchSteps') || source.includes('currentState')) {
+      return 'branch';
+    }
+
+    return 'other';
+  }
+
+  /**
+   * Gets metadata about a step for logging purposes
+   */
+  private getStepMetadata(
+    step: AxFlowStepFunction,
+    index: number
+  ): {
+    nodeName?: string;
+    dependencies: string[];
+    produces: string[];
+  } {
+    // Try to get metadata from execution planner if available
+    const executionPlan = this.executionPlanner.getExecutionPlan();
+    const stepInfo = executionPlan.steps.find((s) => s.stepIndex === index);
+
+    if (stepInfo) {
+      return {
+        nodeName: stepInfo.nodeName,
+        dependencies: stepInfo.dependencies,
+        produces: stepInfo.produces,
+      };
+    }
+
+    // Fallback to source analysis
+    const source = step.toString();
+    const nodeName = this.extractNodeNameFromSource(source);
+
+    return {
+      nodeName,
+      dependencies: [],
+      produces: [],
+    };
+  }
+
+  /**
+   * Extracts node name from step function source code
+   */
+  private extractNodeNameFromSource(source: string): string | undefined {
+    // Look for patterns like 'nodeName' variable references
+    const nodeNameMatch = source.match(/nodeName['"]?\s*[=:]\s*['"](\w+)['"]/);
+    if (nodeNameMatch) {
+      return nodeNameMatch[1];
+    }
+
+    // Look for patterns in node execution
+    const nodeExecMatch = source.match(/nodeProgram\.get\(['"](\w+)['"]\)/);
+    if (nodeExecMatch) {
+      return nodeExecMatch[1];
+    }
+
+    return undefined;
   }
 
   /**
@@ -357,12 +591,30 @@ export class AxFlow<
   constructor(options?: {
     autoParallel?: boolean;
     batchSize?: number;
+    logger?: AxFlowLoggerFunction;
+    debug?: boolean;
   }) {
     // Initialize configuration with defaults
     this.autoParallelConfig = {
       enabled: options?.autoParallel !== false, // Default to true
       batchSize: options?.batchSize || 10, // Default batch size of 10
     };
+
+    // Initialize logging based on options
+    if (options?.logger) {
+      // Explicit logger provided
+      this.flowLogger = options.logger;
+    } else if (options?.debug === true) {
+      // Debug mode enabled - use default color logger
+      this.flowLogger = axCreateFlowColorLogger();
+    } else {
+      // No logging
+      this.flowLogger = undefined;
+    }
+
+    this.timingLogger = this.flowLogger
+      ? createTimingLogger(this.flowLogger)
+      : undefined;
   }
 
   /**
@@ -531,85 +783,147 @@ export class AxFlow<
       AxProgramForwardOptionsWithModels<T> & { autoParallel?: boolean }
     >
   ): Promise<OUT> {
-    // Reset usage and trace tracking at the start of each forward call
-    this.resetUsage();
-    this.resetTraces();
+    // Start flow timing
+    const flowStartTime = Date.now();
+    this.timingLogger?.startTiming('flow-execution');
 
-    // Extract values from input - handle both IN and AxMessage<IN>[] cases
-    let inputValues: IN;
-    if (Array.isArray(values)) {
-      // If values is an array of messages, find the most recent user message
-      const lastUserMessage = values.filter((msg) => msg.role === 'user').pop();
-      if (!lastUserMessage) {
-        throw new Error('No user message found in values array');
+    // Initialize state early so it's accessible in catch block
+    let state: AxFlowState = {};
+
+    try {
+      // Reset usage and trace tracking at the start of each forward call
+      this.resetUsage();
+      this.resetTraces();
+
+      // Extract values from input - handle both IN and AxMessage<IN>[] cases
+      let inputValues: IN;
+      if (Array.isArray(values)) {
+        // If values is an array of messages, find the most recent user message
+        const lastUserMessage = values
+          .filter((msg) => msg.role === 'user')
+          .pop();
+        if (!lastUserMessage) {
+          throw new Error('No user message found in values array');
+        }
+        inputValues = lastUserMessage.values;
+      } else {
+        // If values is a single IN object
+        inputValues = values;
       }
-      inputValues = lastUserMessage.values;
-    } else {
-      // If values is a single IN object
-      inputValues = values;
-    }
 
-    // Dynamic signature inference - only if using default signature and have nodes
-    // This allows flows to be created with a simple signature and then have it
-    // automatically refined based on the actual nodes and operations defined
-    if (this.nodeGenerators.size > 0) {
-      // Initialize program with inferred signature
-      this.ensureProgram();
-    }
-
-    // Initialize state with input values
-    // This creates the initial state object that will flow through all steps
-    let state: AxFlowState = { ...inputValues };
-
-    // Create execution context object
-    // This provides consistent access to AI service and options for all steps
-    const context = {
-      mainAi: ai,
-      mainOptions: options
-        ? {
-            ...options,
-            model: options.model ? String(options.model) : undefined,
-          }
-        : undefined,
-    } as const;
-
-    // Determine execution strategy based on configuration
-    // Auto-parallel can be disabled globally or overridden per execution
-    const useAutoParallel =
-      options?.autoParallel !== false && this.autoParallelConfig.enabled;
-
-    if (useAutoParallel) {
-      // OPTIMIZED PARALLEL EXECUTION PATH
-      // This path uses the execution planner to identify independent operations
-      // and execute them in parallel for better performance
-
-      // Set initial fields for dependency analysis
-      // This tells the planner what fields are available at the start
-      this.executionPlanner.setInitialFields(Object.keys(inputValues));
-
-      // Get optimized execution plan with parallel groups and batch size control
-      const optimizedSteps = this.executionPlanner.createOptimizedExecution(
-        this.autoParallelConfig.batchSize
-      );
-
-      // Execute optimized steps sequentially (parallel groups are handled internally)
-      for (const step of optimizedSteps) {
-        state = await step(state, context);
+      // Dynamic signature inference - only if using default signature and have nodes
+      // This allows flows to be created with a simple signature and then have it
+      // automatically refined based on the actual nodes and operations defined
+      if (this.nodeGenerators.size > 0) {
+        // Initialize program with inferred signature
+        this.ensureProgram();
       }
-    } else {
-      // SEQUENTIAL EXECUTION PATH
-      // This path executes all steps in the order they were defined
-      // It's simpler but potentially slower for independent operations
 
-      // Execute all steps sequentially
-      for (const step of this.flowDefinition) {
-        state = await step(state, context);
+      // Initialize state with input values
+      // This creates the initial state object that will flow through all steps
+      state = { ...inputValues };
+
+      // Log flow start
+      if (this.flowLogger) {
+        const executionPlan = this.getExecutionPlan();
+        this.flowLogger({
+          name: 'FlowStart',
+          timestamp: flowStartTime,
+          inputFields: Object.keys(inputValues),
+          totalSteps: executionPlan.totalSteps,
+          parallelGroups: executionPlan.parallelGroups,
+          maxParallelism: executionPlan.maxParallelism,
+          autoParallelEnabled: executionPlan.autoParallelEnabled,
+        });
       }
-    }
 
-    // Return the final state cast to the expected output type
-    // The type system ensures this is safe based on the signature inference
-    return state as OUT;
+      // Create execution context object
+      // This provides consistent access to AI service and options for all steps
+      const context = {
+        mainAi: ai,
+        mainOptions: options
+          ? {
+              ...options,
+              model: options.model ? String(options.model) : undefined,
+            }
+          : undefined,
+      } as const;
+
+      // Determine execution strategy based on configuration
+      // Auto-parallel can be disabled globally or overridden per execution
+      const useAutoParallel =
+        options?.autoParallel !== false && this.autoParallelConfig.enabled;
+
+      let stepsExecuted = 0;
+      if (useAutoParallel) {
+        // OPTIMIZED PARALLEL EXECUTION PATH
+        // This path uses the execution planner to identify independent operations
+        // and execute them in parallel for better performance
+
+        // Set initial fields for dependency analysis
+        // This tells the planner what fields are available at the start
+        this.executionPlanner.setInitialFields(Object.keys(inputValues));
+
+        // Get optimized execution plan with parallel groups and batch size control
+        const optimizedSteps = this.executionPlanner.createOptimizedExecution(
+          this.autoParallelConfig.batchSize
+        );
+
+        // Execute optimized steps with logging
+        const result = await this.executeStepsWithLogging(
+          optimizedSteps,
+          state,
+          context,
+          true
+        );
+        state = result.finalState;
+        stepsExecuted = result.stepsExecuted;
+      } else {
+        // SEQUENTIAL EXECUTION PATH
+        // This path executes all steps in the order they were defined
+        // It's simpler but potentially slower for independent operations
+
+        // Execute all steps sequentially with logging
+        const result = await this.executeStepsWithLogging(
+          this.flowDefinition,
+          state,
+          context,
+          false
+        );
+        state = result.finalState;
+        stepsExecuted = result.stepsExecuted;
+      }
+
+      // Log flow completion
+      if (this.flowLogger) {
+        const totalExecutionTime =
+          this.timingLogger?.endTiming('flow-execution') ??
+          Date.now() - flowStartTime;
+        this.flowLogger({
+          name: 'FlowComplete',
+          timestamp: Date.now(),
+          totalExecutionTime,
+          finalState: state,
+          outputFields: Object.keys(state),
+          stepsExecuted,
+        });
+      }
+
+      // Return the final state cast to the expected output type
+      // The type system ensures this is safe based on the signature inference
+      return state as OUT;
+    } catch (error) {
+      // Log flow error
+      if (this.flowLogger) {
+        this.flowLogger({
+          name: 'FlowError',
+          timestamp: Date.now(),
+          error: error instanceof Error ? error.message : String(error),
+          state,
+        });
+      }
+      throw error;
+    }
   }
 
   /**

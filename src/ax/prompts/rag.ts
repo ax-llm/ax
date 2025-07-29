@@ -1,4 +1,5 @@
 import { AxFlow } from '../flow/flow.js';
+import type { AxFlowLoggerFunction } from '../flow/logger.js';
 
 /**
  * Advanced Multi-hop RAG with iterative query refinement, context accumulation,
@@ -16,6 +17,8 @@ export const axRAG = (
     maxIterations?: number;
     qualityTarget?: number;
     disableQualityHealing?: boolean;
+    logger?: AxFlowLoggerFunction;
+    debug?: boolean;
   }
 ) => {
   const maxHops = options?.maxHops ?? 3;
@@ -35,7 +38,10 @@ export const axRAG = (
         healingAttempts: number;
         qualityAchieved: number;
       }
-    >()
+    >({
+      logger: options?.logger,
+      debug: options?.debug,
+    })
       // Define nodes for comprehensive RAG pipeline
       .node(
         'queryGenerator',
@@ -188,9 +194,10 @@ export const axRAG = (
       // Initialize allEvidence with retrieved contexts from Phase 1
       .map((state) => ({
         ...state,
-        allEvidence: state.retrievedContexts.length > 0 ? state.retrievedContexts : [],
+        allEvidence:
+          state.retrievedContexts.length > 0 ? state.retrievedContexts : [],
       }))
-      
+
       .while(
         (state) => state.iteration < state.maxIterations && state.needsMoreInfo
       )
@@ -221,9 +228,10 @@ export const axRAG = (
       // Parallel retrieval for current set of queries
       .map(async (state) => {
         const queries = state.currentQueries || [];
-        const retrievalResults = queries.length > 0 
-          ? await Promise.all(queries.map((query: string) => queryFn(query)))
-          : [];
+        const retrievalResults =
+          queries.length > 0
+            ? await Promise.all(queries.map((query: string) => queryFn(query)))
+            : [];
         return {
           ...state,
           retrievalResults,
@@ -234,11 +242,12 @@ export const axRAG = (
       .execute('evidenceSynthesizer', (state) => {
         const evidence = [
           ...(state.allEvidence || []),
-          ...(state.retrievalResults || [])
+          ...(state.retrievalResults || []),
         ].filter(Boolean);
-        
+
         return {
-          collectedEvidence: evidence.length > 0 ? evidence : ['No evidence collected yet'],
+          collectedEvidence:
+            evidence.length > 0 ? evidence : ['No evidence collected yet'],
           originalQuestion: state.originalQuestion,
         };
       })
@@ -355,33 +364,4 @@ export const axRAG = (
         qualityAchieved: state.currentQuality,
       }))
   );
-};
-
-/**
- * Simple RAG implementation for basic question-answering scenarios
- *
- * @param queryFn - Function to execute search queries and return results
- * @returns AxFlow instance with basic RAG capability
- */
-export const axSimpleRAG = (queryFn: (query: string) => Promise<string>) => {
-  return new AxFlow<{ question: string }, { answer: string; context: string }>()
-    .node(
-      'answerer',
-      'retrievedContext:string, userQuestion:string -> finalAnswer:string'
-    )
-    .map(async (state) => {
-      const retrievedContext = await queryFn(state.question);
-      return {
-        ...state,
-        retrievedContext,
-      };
-    })
-    .execute('answerer', (state) => ({
-      retrievedContext: state.retrievedContext,
-      userQuestion: state.question,
-    }))
-    .map((state) => ({
-      answer: state.answererResult.finalAnswer,
-      context: state.retrievedContext,
-    }));
 };
