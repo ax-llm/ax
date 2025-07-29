@@ -851,6 +851,25 @@ export class AxFlow<
   ): AxFlow<IN, OUT, TNodes, TNewState>;
 
   /**
+   * Applies an asynchronous transformation to the state object.
+   * Returns a new AxFlow type with the evolved state.
+   *
+   * @param transform - Async function that takes the current state and returns a promise of new state
+   * @returns New AxFlow instance with updated TState type
+   *
+   * @example
+   * ```
+   * flow.map(async state => ({
+   *   ...state,
+   *   apiResult: await fetchDataFromAPI(state.query)
+   * }))
+   * ```
+   */
+  public map<TNewState extends AxFlowState>(
+    transform: (_state: TState) => Promise<TNewState>
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  /**
    * Applies a transformation to the state object with optional parallel execution.
    * When parallel is enabled, the transform function should prepare data for parallel processing.
    * The actual parallel processing happens with the array of transforms provided.
@@ -874,8 +893,31 @@ export class AxFlow<
     options: { parallel: true }
   ): AxFlow<IN, OUT, TNodes, TNewState>;
 
+  /**
+   * Applies async transformations to the state object with optional parallel execution.
+   * When parallel is enabled, all async transforms are executed concurrently.
+   *
+   * @param transforms - Array of async transformation functions to apply in parallel
+   * @param options - Options including parallel execution configuration
+   * @returns New AxFlow instance with updated TState type
+   *
+   * @example
+   * ```
+   * // Parallel async map with multiple transforms
+   * flow.map([
+   *   async state => ({ ...state, result1: await apiCall1(state.data) }),
+   *   async state => ({ ...state, result2: await apiCall2(state.data) }),
+   *   async state => ({ ...state, result3: await apiCall3(state.data) })
+   * ], { parallel: true })
+   * ```
+   */
   public map<TNewState extends AxFlowState>(
-    transform: (_state: TState) => TNewState,
+    transforms: Array<(_state: TState) => Promise<TNewState>>,
+    options: { parallel: true }
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  public map<TNewState extends AxFlowState>(
+    transform: (_state: TState) => TNewState | Promise<TNewState>,
     options?: { parallel?: boolean }
   ): AxFlow<IN, OUT, TNodes, TNewState>;
 
@@ -896,8 +938,10 @@ export class AxFlow<
         const orderedResults = await processBatches(
           transforms,
           async (transform, _index) => {
-            // Apply each transform to the state
-            return transform(state as TState);
+            // Apply each transform to the state - handle both sync and async transforms
+            const result = transform(state as TState);
+            // If the result is a promise, await it; otherwise return it directly
+            return Promise.resolve(result);
           },
           this.autoParallelConfig.batchSize
         );
@@ -932,13 +976,17 @@ export class AxFlow<
         }
       }
     } else {
-      // Regular synchronous map operation
-      const step = (state: AxFlowState) => {
+      // Regular map operation (supports both sync and async)
+      const step = async (state: AxFlowState) => {
         // For non-parallel mode, only single transforms are supported
         if (Array.isArray(transformOrTransforms)) {
           throw new Error('Array of transforms requires parallel: true option');
         }
-        return transformOrTransforms(state as TState);
+
+        // Handle both sync and async transforms
+        const result = transformOrTransforms(state as TState);
+        // If the result is a promise, await it; otherwise return it directly
+        return Promise.resolve(result);
       };
 
       if (this.branchContext?.currentBranchValue !== undefined) {
@@ -977,10 +1025,14 @@ export class AxFlow<
   }
 
   /**
-   * Short alias for map() - supports parallel option
+   * Short alias for map() - supports parallel option and async functions
    */
   public m<TNewState extends AxFlowState>(
     transform: (_state: TState) => TNewState
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  public m<TNewState extends AxFlowState>(
+    transform: (_state: TState) => Promise<TNewState>
   ): AxFlow<IN, OUT, TNodes, TNewState>;
 
   public m<TNewState extends AxFlowState>(
@@ -989,9 +1041,14 @@ export class AxFlow<
   ): AxFlow<IN, OUT, TNodes, TNewState>;
 
   public m<TNewState extends AxFlowState>(
+    transforms: Array<(_state: TState) => Promise<TNewState>>,
+    options: { parallel: true }
+  ): AxFlow<IN, OUT, TNodes, TNewState>;
+
+  public m<TNewState extends AxFlowState>(
     transformOrTransforms:
-      | ((_state: TState) => TNewState)
-      | Array<(_state: TState) => TNewState>,
+      | ((_state: TState) => TNewState | Promise<TNewState>)
+      | Array<(_state: TState) => TNewState | Promise<TNewState>>,
     options?: { parallel?: boolean }
   ): AxFlow<IN, OUT, TNodes, TNewState> {
     return this.map(transformOrTransforms as any, options);

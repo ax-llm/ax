@@ -1,4 +1,4 @@
-import { AxAgent, AxAI, type AxFunction, AxSignature } from '@ax-llm/ax';
+import { AxAgent, type AxFunction, AxSignature, ai } from '@ax-llm/ax';
 
 const goodDay = {
   temperature: '27C',
@@ -125,7 +125,7 @@ const functions: AxFunction[] = [
 //   config: { stream: true },
 // });
 
-const ai = new AxAI({
+const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
@@ -159,7 +159,7 @@ const ai = new AxAI({
 //     config: { stream: true },
 // })
 
-ai.setOptions({ debug: true });
+llm.setOptions({ debug: true });
 
 const customerQuery =
   "Give me an ideas for lunch today in San Francisco. I like sushi, chinese, indian. Also if its a nice day I'd rather sit outside. Find me something.";
@@ -180,7 +180,7 @@ const gen = new AxAgent<
 });
 
 const res = await gen.forward(
-  ai,
+  llm,
   { customerQuery },
   {
     // logger: axCreateDefaultTextLogger(),

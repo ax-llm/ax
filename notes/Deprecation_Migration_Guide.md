@@ -12,10 +12,10 @@ This document outlines the deprecation strategy for the Ax framework to improve 
 
 ### ✅ **New Recommended Patterns**
 
-1. **AxAI Factory Function**: `ai()` - New shorthand factory function
-2. **AxAI Static Method**: `AxAI.create()` - Type-safe factory method  
+1. **AxAI Factory Function**: `ai()` - **Most recommended** shorthand factory function
+2. **AxAI Static Method**: `AxAI.create()` - Alternative type-safe factory method  
 3. **AxSignature Factory**: `AxSignature.create()` - Type-safe factory method
-4. **String-based Signatures**: `s()` function with string literals - Type-safe and clean
+4. **String-based Signatures**: String literals with `AxSignature.create()` - Type-safe and clean
 
 ### ❌ **Deprecated Patterns**
 
@@ -34,18 +34,20 @@ const ai = new AxAI({
   apiKey: process.env.OPENAI_APIKEY! 
 });
 
-// ✅ RECOMMENDED: Factory functions (type-safe)
-const ai = AxAI.create({ 
+// ✅ RECOMMENDED: Shorthand factory function (most preferred)
+const llm = ai({ 
   name: 'openai', 
   apiKey: process.env.OPENAI_APIKEY! 
 });
 
-// ✅ NEW: Shorthand factory function (type-safe)
-const ai = ai({ 
+// ✅ ALTERNATIVE: Static factory method (type-safe)
+const llm = AxAI.create({ 
   name: 'openai', 
   apiKey: process.env.OPENAI_APIKEY! 
 });
 ```
+
+**Note**: We recommend using `const llm` instead of `const ai` to avoid naming conflicts with the `ai()` factory function.
 
 ### 2. AxSignature Creation
 
@@ -123,16 +125,19 @@ const gen = new AxGen(AxSignature.create('userInput:string -> responseText:strin
 - Better IntelliSense and auto-completion
 - Clearer error messages
 - More consistent API patterns
+- Shorter, more concise syntax with `ai()` function
 
 ### 3. **Cleaner Code**
 - Removes verbose helper function calls
 - More readable signature definitions
 - Standard string-based format across all use cases
+- Shorter variable names (`llm` vs longer descriptive names)
 
 ### 4. **Performance Benefits**
 - No runtime overhead from template literal processing
 - Faster signature parsing
 - Reduced bundle size
+- Optimized factory function with better performance
 
 ## Timeline and Deprecation Strategy
 
@@ -190,9 +195,9 @@ import { AxSignature, AxAI, ai } from '@ax-llm/ax';
 
 describe('Migration Tests', () => {
   it('should use new factory functions', () => {
-    // Test AxAI factory
-    const aiInstance = ai({ name: 'openai', apiKey: 'test' });
-    expect(aiInstance).toBeInstanceOf(AxAI);
+    // Test AxAI factory (use 'llm' to avoid naming conflict)
+    const llm = ai({ name: 'openai', apiKey: 'test' });
+    expect(llm).toBeInstanceOf(AxAI);
     
     // Test AxSignature factory
     const sig = AxSignature.create('input:string -> output:string');
@@ -208,8 +213,11 @@ describe('Migration Tests', () => {
 const sig = AxSignature.create('userInput:string -> responseText:string, score:number');
 const gen = new AxGen(sig);
 
+// Create AI instance with new factory function
+const llm = ai({ name: 'openai', apiKey: 'test' });
+
 // TypeScript knows the exact input/output types
-const result = await gen.forward(ai, { 
+const result = await gen.forward(llm, { 
   userInput: 'test' // TypeScript enforces this field exists and is string
 });
 

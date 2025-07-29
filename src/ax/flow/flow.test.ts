@@ -93,6 +93,91 @@ describe('AxFlow', () => {
       const result = await flow.forward(mockAI, { value: 5 });
       expect(result.doubled).toBe(10);
     });
+
+    it('should apply asynchronous state transformations', async () => {
+      const asyncTransform = async (state: { value: number }) => {
+        // Simulate async operation like API call
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { ...state, asyncResult: state.value * 3 };
+      };
+
+      const flow = new AxFlow<{ value: number }, { asyncResult: number }>().map(
+        asyncTransform
+      );
+
+      const result = await flow.forward(mockAI, { value: 5 });
+      expect(result.asyncResult).toBe(15);
+    });
+
+    it('should apply multiple async transformations in parallel', async () => {
+      const asyncTransform1 = async (state: { value: number }) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { ...state, result1: state.value * 2 };
+      };
+
+      const asyncTransform2 = async (state: { value: number }) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { ...state, result2: state.value * 3 };
+      };
+
+      const asyncTransform3 = async (state: { value: number }) => {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return { ...state, result3: state.value * 4 };
+      };
+
+      const flow = new AxFlow<
+        { value: number },
+        { result1: number; result2: number; result3: number }
+      >().map([asyncTransform1, asyncTransform2, asyncTransform3], {
+        parallel: true,
+      });
+
+      const startTime = Date.now();
+      const result = await flow.forward(mockAI, { value: 5 });
+      const endTime = Date.now();
+
+      // Verify results
+      expect(result.result3).toBe(20); // Last transform should be applied (parallel map takes last result)
+
+      // Verify parallel execution (should be faster than sequential)
+      // If run sequentially: 20 + 10 + 15 = 45ms minimum
+      // If run in parallel: max(20, 10, 15) = 20ms minimum
+      expect(endTime - startTime).toBeLessThan(40);
+    });
+
+    it('should handle mixed sync and async transforms in parallel', async () => {
+      const syncTransform = (state: { value: number }) => ({
+        ...state,
+        syncResult: state.value * 2,
+      });
+
+      const asyncTransform = async (state: { value: number }) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { ...state, asyncResult: state.value * 3 };
+      };
+
+      const flow = new AxFlow<
+        { value: number },
+        { syncResult: number; asyncResult: number }
+      >().map([syncTransform, asyncTransform], { parallel: true });
+
+      const result = await flow.forward(mockAI, { value: 5 });
+      expect(result.asyncResult).toBe(15); // Last transform (async) should be applied
+    });
+
+    it('should support the short alias m() with async functions', async () => {
+      const asyncTransform = async (state: { value: number }) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { ...state, aliasResult: state.value * 5 };
+      };
+
+      const flow = new AxFlow<{ value: number }, { aliasResult: number }>().m(
+        asyncTransform
+      );
+
+      const result = await flow.forward(mockAI, { value: 4 });
+      expect(result.aliasResult).toBe(20);
+    });
   });
 
   describe('execute with dynamic context', () => {

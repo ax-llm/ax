@@ -1,37 +1,6 @@
 import { AxFlow } from '../flow/flow.js';
 
 /**
- * Creates a RAG (Retrieval-Augmented Generation) flow with search and reasoning capability
- *
- * @param queryFn - Function to execute search queries and return results
- * @param options - Configuration options including maxHops
- * @returns AxFlow instance with RAG capability
- */
-export const axRAG = (
-  _queryFn: (query: string) => Promise<string>,
-  options?: { maxHops?: number; setVisibleReasoning?: boolean }
-) => {
-  const _maxHops = options?.maxHops ?? 3;
-
-  // Create a RAG implementation using AxFlow
-  // This creates a flow that will handle the search and answer generation
-  return new AxFlow()
-    .n(
-      'ragProcessor',
-      '"Answer questions using iterative search and reasoning." question:string, inputContext?:string[] -> answer:string, updatedContext:string[]'
-    )
-    .e('ragProcessor', (state: any) => ({
-      question: state.question,
-      inputContext: state.context,
-      queryFn: state.queryFn,
-    }))
-    .m((state) => ({
-      answer: state.ragProcessorResult.answer as string,
-      context: state.ragProcessorResult.updatedContext as string[],
-    }));
-};
-
-/**
  * Advanced Multi-hop RAG with iterative query refinement, context accumulation,
  * parallel sub-queries, and self-healing quality feedback loops
  *
@@ -40,7 +9,7 @@ export const axRAG = (
  * @returns AxFlow instance with advanced RAG capability
  */
 export const axAdvancedRAG = (
-  queryFn: (query: string) => Promise<string>,
+  _queryFn: (query: string) => Promise<string>,
   options?: {
     maxHops?: number;
     qualityThreshold?: number;
@@ -393,4 +362,28 @@ export const axAdvancedRAG = (
         qualityAchieved: (state as any).currentQuality,
       }))
   );
+};
+
+/**
+ * Simple RAG implementation for basic question-answering scenarios
+ *
+ * @param queryFn - Function to execute search queries and return results
+ * @returns AxFlow instance with basic RAG capability
+ */
+export const axRAG = (_queryFn: (query: string) => Promise<string>) => {
+  return new AxFlow<{ question: string }, { answer: string; context: string }>()
+    .node('retriever', 'userQuestion:string -> retrievedContext:string')
+    .node('answerer', 'context:string, question:string -> finalAnswer:string')
+    .map((state) => ({
+      ...state,
+      mockContext: `Mock retrieved context for: ${state.question}`,
+    }))
+    .execute('answerer', (state) => ({
+      context: state.mockContext,
+      question: state.question,
+    }))
+    .map((state) => ({
+      answer: state.answererResult.finalAnswer,
+      context: state.mockContext,
+    }));
 };

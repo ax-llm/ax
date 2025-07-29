@@ -67,32 +67,26 @@ of these, e.g., `string[]`. When a type is not defined, it defaults to `string`.
   `reasoning!:string`)
 - **Combined**: You can combine modifiers (e.g., `optionalReasoning?!:string`)
 
-### Type-Safe Functions (Recommended)
+### Type-Safe Signatures (Recommended)
 
-The **fully type-safe** approach uses the `ax()` and `s()` functions, which provide complete TypeScript type inference and return fully typed objects with complete IntelliSense support:
+The **recommended type-safe** approach uses the `ax()` function with string-based signatures, which provide complete TypeScript type inference and clean, readable syntax:
 
 ```typescript
-import { f, s, ax } from "@ax-llm/ax";
+import { ai, ax } from "@ax-llm/ax";
 
-// Create type-safe signatures with s() function
-const sig1 = s(
+// Create type-safe generators with ax() function
+const gen1 = ax(
   "question:string -> answer:string"
 );
 
 // With field types and descriptions - fully type-safe
-const sig2 = s(
-  "input", f.string("User input"),
-  "->",
-  "category", f.class(["tech", "business", "sports"], "Content category"),
-  "confidence", f.number("Confidence score 0-1")
+const gen2 = ax(
+  'input:string "User input" -> category:class "tech, business, sports" "Content category", confidence:number "Confidence score 0-1"'
 );
 
-// With modifiers - IntelliSense knows exact field types
-const sig3 = s(
-  "text:string",
-  "->", 
-  "summary", f.optional(f.string("Brief summary")),
-  "reasoning", f.internal(f.string("Internal reasoning"))
+// With modifiers - clean syntax
+const gen3 = ax(
+  'text:string -> summary?:string "Brief summary", reasoning!:string "Internal reasoning"'
 );
 
 // TypeScript knows the exact input/output types!
@@ -100,26 +94,23 @@ type Sig2Input = { input: string };
 type Sig2Output = { category: "tech" | "business" | "sports"; confidence: number };
 ```
 
-### Type-Safe AxGen Creation with ax()
+### Type-Safe Generator Creation
 
-The `ax()` function creates fully typed `AxGen` instances with complete type inference:
+Create fully typed generators using the `ax()` function with complete type inference:
 
 ```typescript
-import { ax, f } from "@ax-llm/ax";
+import { ai, ax } from "@ax-llm/ax";
 
-// Create type-safe AxGen instances
+// Create type-safe generators
 const gen = ax("question:string -> answer:string");
 
 // Advanced example with full type safety
 const sentimentGen = ax(
-  "text", f.string("Text to analyze"),
-  "->",
-  "sentiment", f.class(["positive", "negative", "neutral"], "Sentiment classification"),
-  "confidence", f.number("Confidence score 0-1")
+  'text:string "Text to analyze" -> sentiment:class "positive, negative, neutral" "Sentiment classification", confidence:number "Confidence score 0-1"'
 );
 
 // TypeScript knows exact types - no any/unknown!
-const result = await sentimentGen.forward(ai, {
+const result = await sentimentGen.forward(llm, {
   text: "I love this product!", // TypeScript validates this
 });
 
@@ -128,50 +119,47 @@ console.log(result.sentiment); // "positive" | "negative" | "neutral"
 console.log(result.confidence); // number
 ```
 
-### Alternative: Template Literal Support
+### Legacy: Template Literal Support (Deprecated)
 
-For convenience, we also support template literals: `const gen = ax\`question:string -> answer:string\`;`
+**Note**: Template literals are deprecated. Use the `ax()` function instead for better type safety and performance.
 
-### Why ax() and s() Functions Are Fully Type-Safe
+### Why ax() Is Fully Type-Safe
 
 **Type Safety Benefits:**
 
-| Feature | `ax()`/`s()` Functions | Template Literals | Raw Strings |
+| Feature | `ax()` Function | Template Literals (Deprecated) | Raw Strings |
 |---------|------------------------|-------------------|-------------|
 | **Return Type** | Fully typed objects | Limited type info | `any` |
 | **IntelliSense** | Complete field autocompletion | Basic support | No type hints |
 | **Compile-time Validation** | Catches type errors | Runtime validation | Runtime-only validation |
 | **Field Type Inference** | Exact literal types | Generic types | No types |
 | **IDE Support** | Full refactoring support | Limited | None |
+| **Performance** | Faster parsing | Template overhead | Fastest |
 
-**Example showing the difference:**
+**Example showing the recommended approach:**
 
 ```typescript
-// Template literal - limited type information
-const templateWay = ax`input:string -> category:class "a,b,c"`;
-
-// Function approach - full type safety  
-const functionWay = ax(
-  "input", f.string(),
-  "->",
-  "category", f.class(["a", "b", "c"])
+// ✅ Recommended: ax() function - full type safety
+const recommendedWay = ax(
+  'input:string -> category:class "a, b, c"'
 );
 
-// Usage comparison:
-const result1 = await templateWay.forward(ai, { input: "test" });
-result1.category; // Limited type information
+// ❌ Deprecated: Template literal approach
+// const deprecatedWay = ax`input:string -> category:class "a,b,c"`;
 
-const result2 = await functionWay.forward(ai, { input: "test" });  
-result2.category; // TypeScript shows "a" | "b" | "c" - perfect safety!
+// Usage with full type safety:
+const result = await recommendedWay.forward(llm, { input: "test" });
+result.category; // TypeScript shows "a" | "b" | "c" - perfect safety!
 ```
 
 **Best Practices:**
-- **Always use `ax()` and `s()` functions** for full type safety
-- Leverage `f.string()`, `f.class()`, etc. for field definitions
+- **Always use the `ax()` function** for full type safety and performance
+- Use string-based field definitions with descriptions
 - Take advantage of exact literal type inference
 - Use descriptive field names like `userQuestion`, not `question`
+- Use `const llm = ai({})` for AI instances to avoid naming conflicts
 
-The `ax()` function creates ready-to-use `AxGen` instances, while `s()` creates just the signature. Both provide full TypeScript type safety.
+The `ax()` function provides the best balance of type safety, performance, and readability.
 
 ## Output Field Types
 
@@ -248,7 +236,7 @@ usage. See our [browser example](web-chat.html) which includes a simple CORS
 proxy setup.
 
 ```javascript
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: "your-api-key",
   options: {
@@ -260,24 +248,21 @@ const ai = new AxAI({
 ## Example: Summarize text
 
 ```typescript
-import { AxAI, ax, f } from "@ax-llm/ax";
+import { ai, ax } from "@ax-llm/ax";
 
 const textToSummarize = `
 The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
 
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY as string,
 });
 
 const gen = ax(
-  "textToSummarize", f.string(),
-  "->",
-  "textType", f.class(["note", "email", "reminder"]),
-  "shortSummary", f.string("summarize in 5 to 10 words")
+  'textToSummarize:string -> textType:class "note, email, reminder", shortSummary:string "summarize in 5 to 10 words"'
 );
 
-const res = await gen.forward(ai, { textToSummarize });
+const res = await gen.forward(llm, { textToSummarize });
 
 console.log(">", res);
 ```
@@ -285,24 +270,19 @@ console.log(">", res);
 ## Example: Using functions for type-safe signatures
 
 ```typescript
-import { ax, AxAI, f } from "@ax-llm/ax";
+import { ai, ax } from "@ax-llm/ax";
 
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY as string,
 });
 
-// Create a signature using type-safe functions
+// Create a signature using string-based approach
 const gen = ax(
-  "userInput", f.string("User message or question"),
-  "->",
-  "category", f.class(["question", "request", "complaint"], "Message type"),
-  "priority", f.class(["high", "medium", "low"], "Urgency level"),
-  "response", f.string("Appropriate response"),
-  "reasoning", f.internal(f.string("Internal reasoning for classification"))
+  'userInput:string "User message or question" -> category:class "question, request, complaint" "Message type", priority:class "high, medium, low" "Urgency level", response:string "Appropriate response", reasoning!:string "Internal reasoning for classification"'
 );
 
-const res = await gen.forward(ai, {
+const res = await gen.forward(llm, {
   userInput: "My order hasn't arrived and I need it urgently!",
 });
 
@@ -324,23 +304,23 @@ agent example.
 const researcher = new AxAgent({
   name: 'researcher',
   description: 'Researcher agent',
-  signature: `physicsQuestion "physics questions" -> answer "reply in bullet points"`
+  signature: ax('physicsQuestion:string "physics questions" -> answer:string "reply in bullet points"')
 });
 
 const summarizer = new AxAgent({
   name: 'summarizer',
   description: 'Summarizer agent',
-  signature: `text "text so summarize" -> shortSummary "summarize in 5 to 10 words"`
+  signature: ax('text:string "text to summarize" -> shortSummary:string "summarize in 5 to 10 words"')
 });
 
 const agent = new AxAgent({
   name: 'agent',
-  description: 'A an agent to research complex topics',
-  signature: `question -> answer`,
+  description: 'An agent to research complex topics',
+  signature: ax('question:string -> answer:string'),
   agents: [researcher, summarizer]
 });
 
-agent.forward(ai, { questions: "How many atoms are there in the universe" })
+agent.forward(llm, { questions: "How many atoms are there in the universe" })
 ```
 
 ## Thinking Models Support
@@ -351,7 +331,7 @@ feature helps in understanding the model's reasoning process and optimizing
 token usage.
 
 ```typescript
-const ai = new AxAI({
+const llm = ai({
   name: "google-gemini",
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
@@ -361,7 +341,7 @@ const ai = new AxAI({
 });
 
 // Or control thinking budget per request
-const gen = ax("question -> answer");
+const gen = ax("question:string -> answer:string");
 const res = await gen.forward(
   ai,
   { question: "What is quantum entanglement?" },
@@ -456,13 +436,10 @@ const image = fs
   .toString("base64");
 
 const gen = ax(
-  "question", f.string(),
-  "animalImage", f.image(),
-  "->",
-  "answer", f.string()
+  'question:string, animalImage:image -> answer:string'
 );
 
-const res = await gen.forward(ai, {
+const res = await gen.forward(llm, {
   question: "What family does this animal belong to?",
   animalImage: { mimeType: "image/jpeg", data: image },
 });
@@ -477,9 +454,9 @@ const audio = fs
   .readFileSync("./src/examples/assets/comment.wav")
   .toString("base64");
 
-const gen = new AxGen(`question, commentAudio:audio -> answer`);
+const gen = ax('question:string, commentAudio:audio -> answer:string');
 
-const res = await gen.forward(ai, {
+const res = await gen.forward(llm, {
   question: "What family does this animal belong to?",
   commentAudio: { format: "wav", data: audio },
 });
@@ -498,11 +475,9 @@ GOOGLE_APIKEY=api-key npm run tsx ./src/examples/chat.ts
 ```
 
 ```typescript
-// Create a chat assistant using type-safe functions
+// Create a chat assistant using string-based signatures
 const chatBot = ax(
-  "message", f.string("A casual message from the user"),
-  "->",
-  "reply", f.string("A friendly, casual response")
+  'message:string "A casual message from the user" -> reply:string "A friendly, casual response"'
 );
 
 // Start a conversation with message history
@@ -511,7 +486,7 @@ const chat: AxMessage<{ message: string }>[] = [
 ];
 
 // Get first response
-let response = await chatBot.forward(ai, chat);
+let response = await chatBot.forward(llm, chat);
 console.log(response.reply);
 
 // Add response to chat history
@@ -523,7 +498,7 @@ chat.push({
   values: { message: "That's great! Can you tell me a fun fact?" },
 });
 
-response = await chatBot.forward(ai, chat);
+response = await chatBot.forward(llm, chat);
 console.log(response.reply);
 ```
 
@@ -543,10 +518,7 @@ ensure the output matches your requirements; they also work with streaming.
 
 ```typescript
 // setup the prompt program
-const gen = new AxChainOfThought(
-  ai,
-  `startNumber:number -> next10Numbers:number[]`,
-);
+const gen = ax("startNumber:number -> next10Numbers:number[]");
 
 // add a assertion to ensure that the number 5 is not in an output field
 gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
@@ -606,10 +578,7 @@ Field processors are a powerful way to process fields in a prompt. They are used
 to process fields in a prompt before the prompt is sent to the LLM.
 
 ```typescript
-const gen = new AxChainOfThought(
-  ai,
-  `startNumber:number -> next10Numbers:number[]`,
-);
+const gen = ax("startNumber:number -> next10Numbers:number[]");
 
 const streamValue = false;
 
@@ -663,7 +632,7 @@ const memoryAgent = new AxAgent({
 });
 
 // Or use the client with AxGen
-const memoryGen = new AxGen("input, userId -> response", {
+const memoryGen = ax("input:string, userId:string -> response:string", {
   functions: [client],
 });
 ```
@@ -695,7 +664,7 @@ await mcpClient.init(); // Initialize the connection
 
 // 3. Initialize your AI model (e.g., OpenAI)
 // Ensure your OPENAI_APIKEY environment variable is set
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY as string,
 });
@@ -718,7 +687,7 @@ const deepwikiAgent = new AxAgent<
 });
 
 // 5. Formulate a question and call the agent
-const result = await deepwikiAgent.forward(ai, {
+const result = await deepwikiAgent.forward(llm, {
   questionAboutRepo: "What is the main purpose of this library?",
   githubRepositoryUrl: "https://github.com/dosco/ax", // Example: Ax library itself
 });
@@ -811,7 +780,7 @@ const gemini = AxAI.create({
 const router = new AxMultiServiceRouter([openai, gemini]);
 // router now knows about 'fast' | 'smart' | 'reasoning' | 'quick' | 'advanced'
 
-const gen = ax("inputText -> outputText");
+const gen = ax("inputText:string -> outputText:string");
 gen.forward(router, { inputText }, { model: "quick" });
 // ax now knows about 'fast' | 'smart' | 'reasoning' | 'quick' | 'advanced'
 ```
@@ -838,7 +807,7 @@ execution and simple, readable code.
 ```typescript
 import { AxAI, AxFlow } from "@ax-llm/ax";
 
-const ai = AxAI.create({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
 // Simple document analysis workflow
 const documentAnalyzer = new AxFlow<
@@ -866,7 +835,7 @@ const documentAnalyzer = new AxFlow<
   }));
 
 // Execute the workflow
-const result = await documentAnalyzer.forward(ai, {
+const result = await documentAnalyzer.forward(llm, {
   documentText: "AI technology is revolutionary and will change everything...",
 });
 
@@ -891,7 +860,7 @@ const quickAnalyzer = new AxFlow<{ text: string }, { result: string }>()
       `Summary: ${s.sumResult.summary}, Sentiment: ${s.sentResult.sentiment}`,
   }));
 
-const result = await quickAnalyzer.forward(ai, {
+const result = await quickAnalyzer.forward(llm, {
   text: "Building the future of AI applications...",
 });
 ```
@@ -1133,7 +1102,7 @@ const flow = new AxFlow<StateType, ResultType>({
 
 // ⚡ Automatic batch processing: runs 5 operations concurrently,
 // then processes remaining operations, maintaining result order
-const result = await flow.forward(ai, { data: dataset });
+const result = await flow.forward(llm, { data: dataset });
 ```
 
 **🚀 Benefits:**
@@ -1211,7 +1180,7 @@ const response = await balancer.chat({
 });
 
 // Or use the balance with AxGen
-const gen = new AxGen(`question -> answer`);
+const gen = ax("question:string -> answer:string");
 const res = await gen.forward(balancer, { question: "Hello!" });
 ```
 
@@ -1298,7 +1267,7 @@ const expertResponse = await router.chat({
 // model: "invalid-model" // ❌ Type error - not in union type
 
 // Or use the router with AxGen
-const gen = new AxGen(`question -> answer`);
+const gen = ax("question:string -> answer:string");
 const res = await gen.forward(router, { question: "Hello!" });
 ```
 
@@ -1343,16 +1312,13 @@ trace.setGlobalTracerProvider(provider);
 
 const tracer = trace.getTracer("test");
 
-const ai = new AxAI({
+const llm = ai({
   name: "ollama",
   config: { model: "nous-hermes2" },
   options: { tracer },
 });
 
-const gen = new AxChainOfThought(
-  ai,
-  `text -> shortSummary "summarize in 5 to 10 words"`,
-);
+const gen = ax('text:string -> shortSummary:string "summarize in 5 to 10 words"');
 
 const res = await gen.forward({ text });
 ```
@@ -1413,8 +1379,8 @@ import { axGlobals } from "@ax-llm/ax";
 axGlobals.meter = metrics.getMeter("my-app");
 
 // All AxGen operations now automatically track metrics
-const gen = new AxGen("userQuestion:string -> assistantAnswer:string");
-const result = await gen.forward(ai, { userQuestion: "Hello!" });
+const gen = ax("userQuestion:string -> assistantAnswer:string");
+const result = await gen.forward(llm, { userQuestion: "Hello!" });
 ```
 
 ### Metrics Tracked
@@ -1477,20 +1443,17 @@ const examples = await hf.getData<{ question: string; answer: string }>({
   fields: ["question", "answer"],
 });
 
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY as string,
 });
 
 // Setup the program to tune
-const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-  ai,
-  `question -> answer "in short 2 or 3 words"`,
-);
+const program = ax<{ question: string }, { answer: string }>('question:string -> answer:string "in short 2 or 3 words"');
 
 // Setup a Bootstrap Few Shot optimizer to tune the above program
 const optimize = new AxBootstrapFewShot({
-  studentAI: ai,
+  studentAI: llm,
   examples,
   options: {
     maxRounds: 3,
@@ -1548,17 +1511,17 @@ configurations, MiPRO v2 helps maximize model performance without manual tuning.
 import { AxAI, AxChainOfThought, AxMiPRO } from "@ax-llm/ax";
 
 // 1. Setup your AI service
-const ai = new AxAI({
+const llm = ai({
   name: "google-gemini",
   apiKey: process.env.GOOGLE_APIKEY,
 });
 
 // 2. Create your program
-const program = new AxChainOfThought(`input -> output`);
+const program = ax("input:string -> output:string");
 
 // 3. Configure the optimizer
 const optimizer = new AxMiPRO({
-  studentAI: ai,
+  studentAI: llm,
   examples: trainingData, // Your training examples
   options: {
     numTrials: 20, // Number of configurations to try
@@ -1578,7 +1541,7 @@ const result = await optimizer.compile(program, metricFn, {
 });
 
 // 6. Use the optimized program
-const result = await optimizedProgram.forward(ai, { input: "test input" });
+const result = await optimizedProgram.forward(llm, { input: "test input" });
 ```
 
 ### Configuration Options
@@ -1619,14 +1582,14 @@ const result = await optimizer.compile(program, metricFn, { auto: "heavy" });
 
 ```typescript
 // Create sentiment analysis program
-const classifyProgram = new AxChainOfThought<
+const classifyProgram = ax<
   { productReview: string },
   { label: string }
->(`productReview -> label:string "positive" or "negative"`);
+>('productReview:string -> label:string "positive or negative"');
 
 // Configure optimizer with advanced settings
 const optimizer = new AxMiPRO({
-  studentAI: ai,
+  studentAI: llm,
   examples: trainingData,
   options: {
     numCandidates: 3,
@@ -1674,15 +1637,13 @@ import fs from "fs";
 import { AxAI, AxChainOfThought, AxGen } from "@ax-llm/ax";
 
 // 1. Setup your AI service
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY,
 });
 
 // 2. Create your program (same signature as used during tuning)
-const program = new AxChainOfThought(
-  `question -> answer "in short 2 or 3 words"`,
-);
+const program = ax('question:string -> answer:string "in short 2 or 3 words"');
 
 // 3. Load the demos from the saved file
 const demos = JSON.parse(fs.readFileSync("bootstrap-demos.json", "utf8"));
@@ -1691,7 +1652,7 @@ const demos = JSON.parse(fs.readFileSync("bootstrap-demos.json", "utf8"));
 program.setDemos(demos);
 
 // 5. Use your enhanced program
-const result = await program.forward(ai, {
+const result = await program.forward(llm, {
   question: "What castle did David Gregory inherit?",
 });
 
@@ -1704,8 +1665,8 @@ Here's a complete example showing how demos improve a classification task:
 
 ```typescript
 // Create a classification program
-const classifier = new AxGen(
-  `text -> category:class "positive, negative, neutral"`,
+const classifier = ax(
+  'text:string -> category:class "positive, negative, neutral"'
 );
 
 // Load demos generated from either Bootstrap or MiPRO tuning
@@ -1715,7 +1676,7 @@ const savedDemos = JSON.parse(
 classifier.setDemos(savedDemos);
 
 // Now the classifier has learned from examples and performs better
-const result = await classifier.forward(ai, {
+const result = await classifier.forward(llm, {
   text: "This product exceeded my expectations!",
 });
 
@@ -1793,8 +1754,8 @@ OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 | [codingWithMemory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/codingWithMemory.ts)             | Coding assistant with memory and JS interpreter (demonstrates both ax-tools features)                                  |
 | [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)                           | Generate a short summary of a large block of text                                                                      |
 | [chain-of-thought.ts](https://github.com/ax-llm/ax/blob/main/src/examples/chain-of-thought.ts)             | Use chain-of-thought prompting to answer questions                                                                     |
-| [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts)       | Type-safe signatures using tagged template literals                                                                    |
-| [ax-template.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-template.ts)                       | Create AxGen instances using tagged template literals                                                                  |
+| [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts)       | Type-safe signatures using AxSignature.create() (deprecated template literal examples)                                |
+| [ax-template.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-template.ts)                       | Create AxGen instances using AxSignature.create() (deprecated template literal examples)                              |
 | [rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag.ts)                                       | Use multi-hop retrieval to answer questions                                                                            |
 | [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)                             | Convert PDF to text and embed for rag search                                                                           |
 | [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                                   | Use function calling and reasoning to answer questions                                                                 |
@@ -1855,7 +1816,7 @@ const ai = new AxOpenAI({ apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
 
 ```ts
 // Signature defines the inputs and outputs of your prompt program
-const cot = new ChainOfThought(ai, `question:string -> answer:string`, { mem });
+const cot = ax("question:string -> answer:string");
 ```
 
 ### 3. Execute this new prompt program
@@ -1910,13 +1871,13 @@ const functions = [
 ### 2. Pass the functions to a prompt
 
 ```ts
-const cot = new AxGen(ai, `question:string -> answer:string`, { functions });
+const cot = ax("question:string -> answer:string", { functions });
 ```
 
 ## Enable debug logs
 
 ```ts
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY,
 } as AxOpenAIArgs);
@@ -1961,7 +1922,7 @@ const customLogger = (data: AxLoggerData) => {
 };
 
 // Set logger on AI service
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY,
   options: {
@@ -1971,13 +1932,13 @@ const ai = new AxAI({
 });
 
 // Or set logger on generation programs
-const gen = new AxGen(
-  "question -> answer:string",
+const gen = ax(
+  "question:string -> answer:string",
   { logger: customLogger },
 );
 
 // Logger can also be passed through options
-const result = await gen.forward(ai, { question: "Hello" }, {
+const result = await gen.forward(llm, { question: "Hello" }, {
   logger: customLogger,
 });
 ```
@@ -1998,7 +1959,7 @@ const textLogger = axCreateDefaultTextLogger((message: string) => {
   fs.appendFileSync("debug.log", message + "\n");
 });
 
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY,
   options: {

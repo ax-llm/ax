@@ -8,6 +8,7 @@
 - [Core Concepts](#core-concepts)
 - [API Reference](#api-reference)
 - [Control Flow Patterns](#control-flow-patterns)
+  - [Asynchronous Operations](#5-asynchronous-operations)
 - [Advanced Features](#advanced-features)
 - [Best Practices](#best-practices)
 - [Examples](#examples)
@@ -17,7 +18,10 @@
 ### Basic Flow
 
 ```typescript
-import { AxFlow } from '@ax-llm/ax';
+import { AxFlow, ai } from '@ax-llm/ax';
+
+// Create AI instance
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create a simple flow
 const flow = new AxFlow<{ userInput: string }, { responseText: string }>()
@@ -26,7 +30,7 @@ const flow = new AxFlow<{ userInput: string }, { responseText: string }>()
   .map((state) => ({ responseText: state.testNodeResult.responseText }));
 
 // Execute the flow
-const result = await flow.forward(ai, { userInput: 'Hello world' });
+const result = await flow.forward(llm, { userInput: 'Hello world' });
 console.log(result.responseText);
 ```
 
@@ -157,13 +161,40 @@ flow.execute('processor', mapping, { ai: alternativeAI });
 ```
 
 #### `map(transform: Function)`
-Transform the current state.
+Transform the current state synchronously or asynchronously.
 
 ```typescript
+// Synchronous transformation
 flow.map((state) => ({
   ...state,
   upperCaseResult: state.processorResult.output.toUpperCase()
 }));
+
+// Asynchronous transformation
+flow.map(async (state) => {
+  const apiData = await fetchFromAPI(state.query);
+  return {
+    ...state,
+    enrichedData: apiData
+  };
+});
+
+// Parallel asynchronous transformations
+flow.map([
+  async (state) => ({ ...state, result1: await api1(state.data) }),
+  async (state) => ({ ...state, result2: await api2(state.data) }),
+  async (state) => ({ ...state, result3: await api3(state.data) })
+], { parallel: true });
+```
+
+**Alias:** `m()` - Short alias for `map()` (supports both sync and async)
+
+```typescript
+// Async with alias
+flow.m(async (state) => {
+  const processed = await processAsync(state.input);
+  return { ...state, processed };
+});
 ```
 
 ### Control Flow Methods
@@ -325,7 +356,107 @@ console.log('Parallel groups:', plan.parallelGroups);
 console.log('Max parallelism:', plan.maxParallelism);
 ```
 
-### 5. Self-Healing with Feedback Loops
+### 5. Asynchronous Operations
+
+AxFlow supports asynchronous transformations in map operations, enabling API calls, database queries, and other async operations within your flow:
+
+```typescript
+const asyncFlow = new AxFlow<
+  { userQuery: string },
+  { enrichedData: string; apiCallTime: number }
+>()
+  .node('processor', 'enrichedData:string -> processedResult:string')
+  
+  // Single async map - API enrichment
+  .map(async (state) => {
+    const startTime = Date.now();
+    const apiData = await fetchFromExternalAPI(state.userQuery);
+    const duration = Date.now() - startTime;
+    
+    return {
+      ...state,
+      enrichedData: apiData,
+      apiCallTime: duration
+    };
+  })
+  
+  // Execute AI processing on enriched data
+  .execute('processor', (state) => ({ enrichedData: state.enrichedData }))
+  
+  // Parallel async operations
+  .map([
+    async (state) => {
+      const sentiment = await analyzeSentiment(state.processedResult);
+      return { ...state, sentiment };
+    },
+    async (state) => {
+      const entities = await extractEntities(state.processedResult);
+      return { ...state, entities };
+    },
+    async (state) => {
+      const summary = await generateSummary(state.processedResult);
+      return { ...state, summary };
+    }
+  ], { parallel: true })
+  
+  .map((state) => ({
+    enrichedData: state.enrichedData,
+    apiCallTime: state.apiCallTime
+  }));
+```
+
+#### Mixed Sync/Async Processing
+
+You can mix synchronous and asynchronous operations seamlessly:
+
+```typescript
+const mixedFlow = new AxFlow<{ rawData: string }, { result: string }>()
+  // Sync preprocessing
+  .map((state) => ({
+    ...state,
+    cleanedData: state.rawData.trim().toLowerCase()
+  }))
+  
+  // Async validation
+  .map(async (state) => {
+    const isValid = await validateWithAPI(state.cleanedData);
+    return { ...state, isValid };
+  })
+  
+  // More sync processing
+  .map((state) => ({
+    ...state,
+    timestamp: Date.now()
+  }))
+  
+  // Final async processing
+  .map(async (state) => {
+    if (state.isValid) {
+      const processed = await processData(state.cleanedData);
+      return { result: processed };
+    }
+    return { result: 'Invalid data' };
+  });
+```
+
+#### Performance Considerations
+
+- **Parallel async maps**: Multiple async operations run concurrently
+- **Sequential async maps**: Each async operation waits for the previous one
+- **Batch control**: Use `batchSize` option to control parallelism
+
+```typescript
+// Parallel execution (faster)
+flow.map([asyncOp1, asyncOp2, asyncOp3], { parallel: true });
+
+// Sequential execution (slower but controlled)
+flow
+  .map(asyncOp1)
+  .map(asyncOp2)
+  .map(asyncOp3);
+```
+
+### 6. Self-Healing with Feedback Loops
 
 ```typescript
 const selfHealingFlow = new AxFlow<{ input: string }, { output: string }>()
@@ -369,7 +500,7 @@ AxFlow automatically analyzes dependencies and runs independent operations in pa
 const sequentialFlow = new AxFlow({ autoParallel: false });
 
 // Disable for specific execution
-const result = await flow.forward(ai, input, { autoParallel: false });
+const result = await flow.forward(llm, input, { autoParallel: false });
 
 // Get execution plan information
 const plan = flow.getExecutionPlan();
@@ -403,7 +534,7 @@ const batchFlow = new AxFlow<{ items: string[] }, { processedItems: string[] }>(
 
 ```typescript
 try {
-  const result = await flow.forward(ai, input);
+  const result = await flow.forward(llm, input);
 } catch (error) {
   console.error('Flow execution failed:', error);
 }
@@ -627,6 +758,123 @@ const contentCreator = new AxFlow<
   .map((state) => ({
     finalContent: state.currentContent,
     iterations: state.iteration
+  }));
+```
+
+### Async Data Enrichment Pipeline
+
+```typescript
+const enrichmentPipeline = new AxFlow<
+  { userQuery: string },
+  { finalResult: string; metadata: object }
+>()
+  .node('analyzer', 'enrichedData:string -> analysis:string')
+  
+  // Parallel async data enrichment from multiple sources
+  .map([
+    async (state) => {
+      const userProfile = await fetchUserProfile(state.userQuery);
+      return { ...state, userProfile };
+    },
+    async (state) => {
+      const contextData = await fetchContextData(state.userQuery);
+      return { ...state, contextData };
+    },
+    async (state) => {
+      const historicalData = await fetchHistoricalData(state.userQuery);
+      return { ...state, historicalData };
+    }
+  ], { parallel: true })
+  
+  // Combine enriched data
+  .map(async (state) => {
+    const combinedData = await combineDataSources({
+      userProfile: state.userProfile,
+      context: state.contextData,
+      historical: state.historicalData
+    });
+    
+    return {
+      ...state,
+      enrichedData: combinedData,
+      metadata: {
+        sources: ['userProfile', 'contextData', 'historicalData'],
+        timestamp: Date.now()
+      }
+    };
+  })
+  
+  // Process with AI
+  .execute('analyzer', (state) => ({ enrichedData: state.enrichedData }))
+  
+  // Final async post-processing
+  .map(async (state) => {
+    const enhanced = await enhanceResult(state.analyzerResult.analysis);
+    return {
+      finalResult: enhanced,
+      metadata: state.metadata
+    };
+  });
+```
+
+### Real-time Data Processing with Async Maps
+
+```typescript
+const realTimeProcessor = new AxFlow<
+  { streamData: string[] },
+  { processedResults: string[]; stats: object }
+>()
+  // Async preprocessing of each item in parallel
+  .map(async (state) => {
+    const startTime = Date.now();
+    
+    // Process each item in batches with async operations
+    const processedItems = await Promise.all(
+      state.streamData.map(async (item, index) => {
+        const enriched = await enrichDataItem(item);
+        const validated = await validateItem(enriched);
+        return { item: validated, index, timestamp: Date.now() };
+      })
+    );
+    
+    const processingTime = Date.now() - startTime;
+    
+    return {
+      ...state,
+      processedItems,
+      processingStats: {
+        totalItems: state.streamData.length,
+        processingTime,
+        itemsPerSecond: state.streamData.length / (processingTime / 1000)
+      }
+    };
+  })
+  
+  // Parallel async quality checks
+  .map([
+    async (state) => {
+      const qualityScore = await calculateQualityScore(state.processedItems);
+      return { ...state, qualityScore };
+    },
+    async (state) => {
+      const anomalies = await detectAnomalies(state.processedItems);
+      return { ...state, anomalies };
+    },
+    async (state) => {
+      const trends = await analyzeTrends(state.processedItems);
+      return { ...state, trends };
+    }
+  ], { parallel: true })
+  
+  // Final aggregation
+  .map((state) => ({
+    processedResults: state.processedItems.map(item => item.item),
+    stats: {
+      ...state.processingStats,
+      qualityScore: state.qualityScore,
+      anomaliesFound: state.anomalies?.length || 0,
+      trendsDetected: state.trends?.length || 0
+    }
   }));
 ```
 
