@@ -6,6 +6,7 @@ import {
   AxAIAzureOpenAI,
   type AxAIAzureOpenAIArgs,
 } from './azure-openai/api.js';
+import type { AxAIFeatures } from './base.js';
 import { AxAICohere, type AxAICohereArgs } from './cohere/api.js';
 import type { AxAICohereEmbedModel, AxAICohereModel } from './cohere/types.js';
 import { AxAIDeepSeek, type AxAIDeepSeekArgs } from './deepseek/api.js';
@@ -51,11 +52,10 @@ import type {
   AxEmbedResponse,
   AxLoggerFunction,
 } from './types.js';
-import type { AxAIFeatures } from './base.js';
-import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
-import type { AxAIGrokModel } from './x-grok/types.js';
 import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
 import type { AxAIWebLLMModel } from './webllm/types.js';
+import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
+import type { AxAIGrokModel } from './x-grok/types.js';
 
 export type AxAIArgs<TModelKey> =
   | AxAIOpenAIArgs<'openai', AxAIOpenAIModel, AxAIOpenAIEmbedModel, TModelKey>
@@ -108,13 +108,6 @@ type ExtractModelKeysAndValues<T> = T extends readonly {
 type InferTModelKey<T> = T extends { models: infer M }
   ? ExtractModelKeysAndValues<M>
   : string;
-
-// Factory function for creating AxAI with proper type inference
-export function createAxAI<const T extends AxAIArgs<any>>(
-  options: T
-): AxAI<InferTModelKey<T>> {
-  return new AxAI(options) as any;
-}
 
 /**
  * Factory function for creating AxAI instances with type safety.

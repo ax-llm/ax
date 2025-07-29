@@ -50,12 +50,12 @@ export function s<const T extends string>(
 // Main tagged template function for creating signatures
 /**
  * @deprecated Template literals are not type-safe and will be removed in a future version.
- * Use AxSignature.create() instead for better type safety.
+ * Use s() function with string-based signatures instead for better type safety.
  *
  * @example
  * ```typescript
  * // Instead of: s`userInput:${f.string()} -> responseText:${f.string()}`
- * // Use: AxSignature.create('userInput:string -> responseText:string')
+ * // Use: s('userInput:string -> responseText:string')
  * ```
  */
 export function s(
@@ -122,16 +122,6 @@ export function s<const T extends string>(
 }
 
 // Function overload for string-based type-safe generator creation
-/**
- * @deprecated Template literals are not type-safe and will be removed in a future version.
- * Use s() with new AxGen() instead for better type safety.
- *
- * @example
- * ```typescript
- * // Instead of: ax('userInput:string -> responseText:string')
- * // Use: new AxGen(s('userInput:string -> responseText:string'))
- * ```
- */
 export function ax<const T extends string>(
   signature: T
 ): AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
@@ -139,12 +129,12 @@ export function ax<const T extends string>(
 // Tagged template function that returns AxGen instances
 /**
  * @deprecated Template literals are not type-safe and will be removed in a future version.
- * Use s() with new AxGen() instead for better type safety.
+ * Use ax() function with string-based signatures instead for better type safety.
  *
  * @example
  * ```typescript
  * // Instead of: ax`userInput:${f.string()} -> responseText:${f.string()}`
- * // Use: new AxGen(s('userInput:string -> responseText:string'))
+ * // Use: ax('userInput:string -> responseText:string')
  * ```
  */
 export function ax<
@@ -321,13 +311,13 @@ function isAxFieldDescriptor(value: unknown): value is AxFieldDescriptor {
 
 // Helper functions for type-safe field creation
 /**
- * @deprecated Field helper functions are not type-safe and will be removed in a future version.
- * Use string-based signatures with s() function instead for better type safety.
+ * @deprecated Field helper functions are deprecated and will be removed in a future version.
+ * Use string-based signatures with ax() and s() functions instead for better type safety.
  *
  * @example
  * ```typescript
- * // Instead of: f.string('User input')
- * // Use: s('userInput:string "User input" -> responseText:string')
+ * // Instead of: ax`userInput:${f.string('User input')} -> responseText:${f.string()}`
+ * // Use: ax('userInput:string "User input" -> responseText:string')
  * ```
  */
 export const f = {

@@ -1,6 +1,6 @@
-import { AxAI, AxAIGoogleGeminiModel, axRAG } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, ai, ax, axRAG, } from '@ax-llm/ax'
 
-const ai = new AxAI({
+const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
@@ -18,7 +18,7 @@ const fetchFromVectorDB = async (query: string) => {
   `
   );
 
-  const result = await contextRetriever.forward(ai, {
+  const result = await contextRetriever.forward(llm, {
     searchQuery: query,
   });
 
@@ -65,3 +65,7 @@ console.log('Final Answer:', fastResult.finalAnswer);
 console.log('Total Hops:', fastResult.totalHops);
 console.log('Quality Achieved:', fastResult.qualityAchieved);
 console.log('Healing Attempts:', fastResult.healingAttempts);
+function _axAI_arg00: { name: string; apiKey: string; config: { model: AxAIGoogleGeminiModel; }; }) {
+  throw new Error('Function not implemented.');
+}
+

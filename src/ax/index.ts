@@ -357,6 +357,7 @@ import {
   type AxAIArgs,
   type AxAIEmbedModels,
   type AxAIModels,
+  ai,
 } from './ai/wrap.js';
 import {
   AxAIGrok,
@@ -733,6 +734,7 @@ export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
 export { AxStringUtil };
 export { AxTestPrompt };
+export { ai };
 export { ax };
 export { axAIAnthropicDefaultConfig };
 export { axAIAnthropicVertexDefaultConfig };
