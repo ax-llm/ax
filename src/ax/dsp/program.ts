@@ -2,8 +2,6 @@ import { AxInstanceRegistry } from './registry.js';
 import { AxSignature } from './sig.js';
 import type {
   AxFieldValue,
-  AxGenIn,
-  AxGenOut,
   AxProgramDemos,
   AxProgramExamples,
   AxProgramOptions,
@@ -16,9 +14,7 @@ import type {
 
 import { mergeProgramUsage, validateValue } from './util.js';
 
-export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxUsable
-{
+export class AxProgram<IN, OUT> implements AxUsable {
   protected signature: AxSignature;
   protected sigHash: string;
 
@@ -126,11 +122,11 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     let traces: Record<string, AxFieldValue>[] = [];
 
     if ('programId' in examples && examples.programId === this.key.id) {
-      traces = examples.traces;
+      traces = examples.traces as any;
     }
 
     if (Array.isArray(examples)) {
-      traces = examples;
+      traces = examples as any;
     }
 
     if (traces) {

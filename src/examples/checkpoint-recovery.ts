@@ -126,11 +126,12 @@ const examples = [
 // Metric function
 const metric: AxMetricFn = ({ prediction, example }) => {
   let score = 0;
-  if (prediction.sentiment === example.sentiment) score += 0.7;
+  if ((prediction as any).sentiment === (example as any).sentiment)
+    score += 0.7;
 
   // Bonus for confidence alignment
-  const predConfidence = prediction.confidence as number;
-  const expectedConfidence = example.confidence as number;
+  const predConfidence = (prediction as any).confidence as number;
+  const expectedConfidence = (example as any).confidence as number;
   const confidenceDiff = Math.abs(predConfidence - expectedConfidence);
   if (confidenceDiff < 0.2) score += 0.3;
 

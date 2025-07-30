@@ -326,7 +326,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   }
 }
 
-export async function* processResponse<OUT extends AxGenOut>({
+export async function* processResponse<OUT>({
   ai,
   res,
   mem,

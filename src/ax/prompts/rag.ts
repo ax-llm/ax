@@ -1,4 +1,4 @@
-import { AxFlow } from '../flow/flow.js';
+import { flow } from '../flow/flow.js';
 import type { AxFlowLoggerFunction } from '../flow/logger.js';
 
 /**
@@ -28,17 +28,7 @@ export const axRAG = (
   const disableQualityHealing = options?.disableQualityHealing ?? false;
 
   return (
-    new AxFlow<
-      { originalQuestion: string },
-      {
-        finalAnswer: string;
-        totalHops: number;
-        retrievedContexts: string[];
-        iterationCount: number;
-        healingAttempts: number;
-        qualityAchieved: number;
-      }
-    >({
+    flow<{ originalQuestion: string }>({
       logger: options?.logger,
       debug: options?.debug,
     })

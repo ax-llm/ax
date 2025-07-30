@@ -1,5 +1,5 @@
 // AxFlow usage examples: full method names and aliases
-import { AxAI, AxAIGoogleGeminiModel, AxFlow } from '@ax-llm/ax';
+import { AxAI, AxAIGoogleGeminiModel, AxFlow, flow } from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'google-gemini',
@@ -8,7 +8,7 @@ const ai = new AxAI({
 });
 
 // Full method example - Document analysis pipeline with production configuration
-const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>({
+const flowFull = AxFlow.create<{ documentContent: string }>({
   autoParallel: true,
 })
   .node('summarizer', 'documentContent:string -> documentSummary:string')
@@ -36,10 +36,7 @@ const flowFull = new AxFlow<{ documentContent: string }, { analysis: string }>({
   });
 
 // Aliases example 1 - Customer support ticket processing with error handling
-const flowAlias1 = new AxFlow<
-  { ticketMessage: string },
-  { supportResponse: string }
->()
+const flowAlias1 = AxFlow.create<{ ticketMessage: string }>()
   .n(
     'classifier',
     'customerMessage:string -> ticketCategory:string, urgencyLevel:string'
@@ -101,10 +98,7 @@ const flowBranch = new AxFlow<
   }));
 
 // Parallel example - Research paper analysis with manual parallelization
-const flowParallel = new AxFlow<
-  { paperAbstract: string },
-  { combinedScore: number }
->()
+const flowParallel = flow<{ paperAbstract: string }>()
   .node('noveltyScorer', 'researchAbstract:string -> noveltyScore:number')
   .node('clarityScorer', 'researchAbstract:string -> clarityScore:number')
   .parallel([
@@ -136,10 +130,7 @@ const flowParallel = new AxFlow<
   });
 
 // While example - Iterative writing improvement with circuit breaker
-const flowWhile = new AxFlow<
-  { draftArticle: string },
-  { finalArticle: string }
->()
+const flowWhile = AxFlow.create<{ draftArticle: string }>()
   .node(
     'qualityEvaluator',
     'articleDraft:string -> qualityScore:number, qualityFeedback:string'
@@ -165,10 +156,7 @@ const flowWhile = new AxFlow<
   .map((state) => ({ finalArticle: state.currentDraft }));
 
 // Multi-hop RAG example - Research question answering with concurrency control
-const flowRAG = new AxFlow<
-  { researchQuestion: string },
-  { finalAnswer: string }
->()
+const flowRAG = AxFlow.create<{ researchQuestion: string }>()
   .node('queryGenerator', 'researchQuestion:string -> searchQuery:string')
   .node('retriever', 'searchQuery:string -> retrievedDocument:string')
   .node(
@@ -190,10 +178,7 @@ const flowRAG = new AxFlow<
   }));
 
 // Batched parallel example - Processing multiple documents with concurrency control
-const flowBatchedParallel = new AxFlow<
-  { documentBatch: string },
-  { processedBatch: string }
->()
+const flowBatchedParallel = flow<{ documentBatch: string }>()
   .node('processor1', 'batchData:string -> processedResult1:string')
   .node('processor2', 'batchData:string -> processedResult2:string')
   .node('processor3', 'batchData:string -> processedResult3:string')

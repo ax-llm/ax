@@ -70,10 +70,7 @@ import type { AxSignature, AxIField } from './sig.js';
 import type {
   AsyncGenDeltaOut,
   AxGenDeltaOut,
-  AxGenIn,
-  AxGenIn as AxGenInType,
   AxGenOut,
-  AxGenOut as AxGenOutType,
   AxGenStreamingOut,
   AxMessage,
   AxProgramExamples,
@@ -86,7 +83,7 @@ import type {
 } from './types.js';
 import { mergeDeltas } from './util.js';
 
-export type AxGenerateResult<OUT extends AxGenOutType> = OUT & {
+export type AxGenerateResult<OUT> = OUT & {
   thought?: string;
 };
 
@@ -115,17 +112,14 @@ export interface AxStreamingEvent<T> {
 
 export type InternalAxGenState = {
   index: number;
-  values: AxGenOutType;
+  values: Record<string, any>;
   content: string;
   functionsExecuted: Set<string>;
   functionCalls: NonNullable<AxChatResponseResult['functionCalls']>;
   xstate: extractionState;
 };
 
-export class AxGen<
-    IN extends AxGenIn = AxGenIn,
-    OUT extends AxGenOut = AxGenOut,
-  >
+export class AxGen<IN = any, OUT extends AxGenOut = any>
   extends AxProgram<IN, OUT>
   implements AxProgrammable<IN, OUT>
 {
@@ -142,7 +136,7 @@ export class AxGen<
   constructor(
     signature:
       | NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-      | AxSignature<IN, OUT>,
+      | AxSignature<any, any>,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     super(signature, {
@@ -279,7 +273,7 @@ export class AxGen<
     } = options ?? {};
 
     // Use selectFromSamplesInMemory to choose the best sample before getting history
-    const selectedIndex = await selectFromSamplesInMemory<OUT>(mem, sessionId, {
+    const selectedIndex = await selectFromSamplesInMemory(mem, sessionId, {
       resultPicker: options?.resultPicker as
         | AxResultPickerFunction<OUT>
         | undefined,
@@ -371,7 +365,7 @@ export class AxGen<
     });
 
     if (res instanceof ReadableStream) {
-      yield* processStreamingResponse({
+      yield* processStreamingResponse<OUT>({
         ai,
         model,
         res,
@@ -395,7 +389,7 @@ export class AxGen<
           this.options?.functionResultFormatter,
       });
     } else {
-      yield* processResponse({
+      yield* processResponse<OUT>({
         ai,
         model,
         res,
@@ -465,16 +459,16 @@ export class AxGen<
       // For now, assume render will handle the array directly.
       // The generic type for render might need to be T (from render<T extends ...>)
       // and T will be inferred as ReadonlyArray<AxMessage>
-      prompt = this.promptTemplate.render(values, {
-        examples: this.examples,
-        demos: this.demos,
+      prompt = this.promptTemplate.render(values as any, {
+        examples: this.examples as any,
+        demos: this.demos as any,
       });
     } else {
-      // Ensure `values` here is correctly inferred as AxGenInType
-      prompt = this.promptTemplate.render(values as AxGenInType, {
+      // Ensure `values` here is correctly inferred as IN
+      prompt = this.promptTemplate.render(values as any, {
         // Cast if necessary
-        examples: this.examples,
-        demos: this.demos,
+        examples: this.examples as any,
+        demos: this.demos as any,
       });
     }
 

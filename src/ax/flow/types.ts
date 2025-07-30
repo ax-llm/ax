@@ -2,10 +2,9 @@ import type { AxAIService } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
 import type {
   AxFieldValue,
-  AxGenIn,
-  AxGenOut,
   AxProgramForwardOptions,
   AxProgrammable,
+  ParseSignature,
 } from '../dsp/types.js';
 
 // Type for state object that flows through the pipeline
@@ -35,18 +34,19 @@ export interface AxFlowDynamicContext<T extends Readonly<AxAIService>> {
 }
 
 // Helper type to extract input type from an AxProgrammable instance (including AxGen)
-export type GetGenIn<T extends AxProgrammable<AxGenIn, AxGenOut>> =
-  T extends AxProgrammable<infer IN, AxGenOut> ? IN : never;
+export type GetGenIn<T extends AxProgrammable<any, any>> =
+  T extends AxProgrammable<infer IN, any> ? IN : never;
 
 // Helper type to extract output type from an AxProgrammable instance (including AxGen)
-export type GetGenOut<T extends AxProgrammable<AxGenIn, AxGenOut>> =
-  T extends AxProgrammable<AxGenIn, infer OUT> ? OUT : never;
+export type GetGenOut<T extends AxProgrammable<any, any>> =
+  T extends AxProgrammable<any, infer OUT> ? OUT : never;
 
 // Helper type to create an AxGen type from a signature string
-// This is a simplified version - in practice, you'd need more sophisticated parsing
-export type InferAxGen<TSig extends string> = TSig extends string
-  ? AxGen<AxGenIn, AxGenOut>
-  : never;
+// Uses ParseSignature to extract proper input/output types
+export type InferAxGen<TSig extends string> = AxGen<
+  ParseSignature<TSig>['inputs'],
+  ParseSignature<TSig>['outputs']
+>;
 
 // Helper type to create result key name from node name
 export type NodeResultKey<TNodeName extends string> = `${TNodeName}Result`;
@@ -55,15 +55,14 @@ export type NodeResultKey<TNodeName extends string> = `${TNodeName}Result`;
 export type AddNodeResult<
   TState extends AxFlowState,
   TNodeName extends string,
-  TNodeOut extends AxGenOut,
+  TNodeOut,
 > = TState & { [K in NodeResultKey<TNodeName>]: TNodeOut };
 
 /**
  * Interface for flows that can be tuned, executed, and used in compositions.
  * Provides methods for building and executing complex AI workflows.
  */
-export interface AxFlowable<IN extends AxGenIn, OUT extends AxGenOut>
-  extends AxProgrammable<IN, OUT> {}
+export interface AxFlowable<IN, OUT> extends AxProgrammable<IN, OUT> {}
 
 // Type for parallel branch functions with typed context
 // NOTE: The `any` here is necessary because we need to support AxProgrammable with any input/output types

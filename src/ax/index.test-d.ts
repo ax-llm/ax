@@ -123,6 +123,158 @@ expectType<
   >
 >(arraySig);
 
+// === Fluent API Builder Type Tests ===
+// Test fluent API type inference
+const fluentSig = f()
+  .input('query', f.string('Query to the vector database'))
+  .output('context', f.string('Context retrieved from the vector database'))
+  .build();
+
+expectType<AxSignature<{ query: string }, { context: string }>>(fluentSig);
+
+// Test fluent API with complex types
+const complexFluentSig = f()
+  .input('userInput', f.string('User input'))
+  .input('metadata', f.optional(f.json('Optional metadata')))
+  .input('tags', f.array(f.string('Tag list')))
+  .output('responseText', f.string('Response text'))
+  .output('confidence', f.number('Confidence score'))
+  .output('categories', f.array(f.string('Categories')))
+  .build();
+
+expectType<
+  AxSignature<
+    { userInput: string; metadata?: any; tags: string[] },
+    { responseText: string; confidence: number; categories: string[] }
+  >
+>(complexFluentSig);
+
+// === AxGen (ax) Type Tests ===
+import { ax } from './index.js';
+
+// Test ax() creates generators that can be called with forward method
+const basicGenerator = ax('userInput:string -> responseText:string');
+// Basic test - should have forward method and be callable
+expectType<Function>(basicGenerator.forward);
+
+// Test ax() with complex signature creates working generator
+const complexGenerator = ax(`
+  userQuery:string "User question",
+  contextData:json "Background info" -> 
+  responseText:string "AI response",
+  confidence:number "Confidence 0-1",
+  categories:string[] "Response categories"
+`);
+expectType<Function>(complexGenerator.forward);
+
+// Test ax() with optional fields and class types
+const optionalGenerator = ax(`
+  userInput:string,
+  metadata?:json -> 
+  responseText:string,
+  sentiment:class "positive, negative, neutral"
+`);
+expectType<Function>(optionalGenerator.forward);
+
+// Test ax() accepts AxSignature input
+const sigBasedGenerator = ax('question:string -> answer:string');
+expectType<Function>(sigBasedGenerator.forward);
+
+// === AxFlow (flow) Type Tests ===
+import { flow } from './index.js';
+
+// Test flow() creates workflows with forward method
+const basicFlow = flow<{ userInput: string }>().map((state) => ({
+  processedInput: state.userInput.toUpperCase(),
+  inputLength: state.userInput.length,
+}));
+expectType<Function>(basicFlow.forward);
+
+// Test flow() with node execution creates working workflow
+const nodeFlow = flow<{ documentText: string }>()
+  .node('summarizer', 'content:string -> summary:string, wordCount:number')
+  .execute('summarizer', (state) => ({ content: state.documentText }))
+  .map((state) => ({
+    originalText: state.documentText,
+    summaryResult: (state.summarizerResult?.summary as string) || '',
+    wordCount: (state.summarizerResult?.wordCount as number) || 0,
+  }));
+expectType<Function>(nodeFlow.forward);
+
+// Test flow() with complex multi-node workflow
+const complexFlow = flow<{ userQuery: string }>()
+  .node('searcher', 'query:string -> results:string[], count:number')
+  .node('analyzer', 'data:string[] -> hasResults:boolean')
+  .execute('searcher', (state) => ({ query: state.userQuery }))
+  .execute('analyzer', (state) => ({
+    data: (state.searcherResult?.results as string[]) || [],
+  }))
+  .map((state) => ({
+    originalQuery: state.userQuery,
+    searchResults: (state.searcherResult?.results as string[]) || [],
+    totalResults: (state.searcherResult?.count as number) || 0,
+    hasResults: (state.analyzerResult?.hasResults as boolean) || false,
+  }));
+expectType<Function>(complexFlow.forward);
+
+// Test flow() with optional fields
+const optionalFlow = flow<{
+  requiredField: string;
+  optionalField?: string;
+}>().map((state) => ({
+  processedRequired: state.requiredField.trim(),
+  processedOptional: state.optionalField?.trim(),
+  hasOptional: !!state.optionalField,
+}));
+expectType<Function>(optionalFlow.forward);
+
+// Test flow() with array handling
+const arrayFlow = flow<{ items: string[] }>().map((state) => ({
+  originalItems: state.items,
+  itemCount: state.items.length,
+  firstItem: state.items[0] || '',
+  uppercaseItems: state.items.map((item) => item.toUpperCase()),
+}));
+expectType<Function>(arrayFlow.forward);
+
+// === AxAgent (agent) Type Tests ===
+import { agent } from './index.js';
+
+// Test agent() creates agents with forward method
+const basicAgent = agent('userInput:string -> responseText:string', {
+  name: 'testAgent',
+  description: 'A test agent',
+  definition: 'You are a helpful assistant.',
+});
+expectType<Function>(basicAgent.forward);
+
+// Test agent() with complex signature creates working agent
+const complexAgent = agent(
+  `userQuery:string "User question",
+   contextData?:json "Optional context" -> 
+   responseText:string "Agent response",
+   confidence:number "Confidence score",
+   actionTaken:class "search, analyze, respond" "Action performed"`,
+  {
+    name: 'complexAgent',
+    description: 'A complex agent with multiple capabilities',
+    definition:
+      'You are an intelligent assistant that can search, analyze, and respond.',
+  }
+);
+expectType<Function>(complexAgent.forward);
+
+// Test agent() with different signature structure
+const sigBasedAgent = agent(
+  'userInput:string, context?:string[] -> responseText:string, citations:number[]',
+  {
+    name: 'sigAgent',
+    description: 'Agent based on signature',
+    definition: 'You process user input with context.',
+  }
+);
+expectType<Function>(sigBasedAgent.forward);
+
 // import type {
 //   AxAIService,
 //   AxAIServiceMetrics,

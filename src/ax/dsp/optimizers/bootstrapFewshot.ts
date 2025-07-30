@@ -9,7 +9,6 @@ import {
 } from '../optimizer.js';
 import type {
   AxFieldValue,
-  AxGenIn,
   AxGenOut,
   AxProgramDemos,
   AxProgramTrace,
@@ -23,8 +22,8 @@ interface ModelConfig {
 }
 
 export class AxBootstrapFewShot<
-  IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenOut = AxGenOut,
+  IN = any,
+  OUT extends AxGenOut = any,
 > extends AxBaseOptimizer<IN, OUT> {
   private maxRounds: number;
   private maxDemos: number;
@@ -230,7 +229,7 @@ export class AxBootstrapFewShot<
   }
 }
 
-function groupTracesByKeys<IN extends AxGenIn, OUT extends AxGenOut>(
+function groupTracesByKeys<IN, OUT>(
   programTraces: readonly AxProgramTrace<IN, OUT>[]
 ): AxProgramDemos<IN, OUT>[] {
   const groupedTraces = new Map<string, Record<string, AxFieldValue>[]>();
@@ -240,10 +239,10 @@ function groupTracesByKeys<IN extends AxGenIn, OUT extends AxGenOut>(
     if (groupedTraces.has(programTrace.programId)) {
       const traces = groupedTraces.get(programTrace.programId);
       if (traces) {
-        traces.push(programTrace.trace);
+        traces.push(programTrace.trace as any);
       }
     } else {
-      groupedTraces.set(programTrace.programId, [programTrace.trace]);
+      groupedTraces.set(programTrace.programId, [programTrace.trace as any]);
     }
   }
 

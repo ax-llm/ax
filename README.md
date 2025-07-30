@@ -126,6 +126,38 @@ console.log(result.sentiment); // "positive" | "negative" | "neutral"
 console.log(result.confidence); // number
 ```
 
+### Fluent API for Complex Signatures
+
+For building complex signatures programmatically, use the fluent API with the
+`f()` function:
+
+```typescript
+import { ai, f } from "@ax-llm/ax";
+
+// Build signatures step by step with fluent chaining
+const sig = f()
+  .input("userMessage", f.string("User input message"))
+  .input("context", f.string("Background context").optional().array())
+  .output("response", f.string("Generated response"))
+  .output(
+    "sentiment",
+    f.class(["positive", "negative", "neutral"], "Sentiment"),
+  )
+  .description("Analyzes user messages with context")
+  .build();
+
+// Use with ax() or AxGen
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+const gen = ax(sig, llm);
+```
+
+The fluent API supports:
+
+- **Method chaining**: `.string().optional().array()`
+- **Field ordering**: Use `prepend: true` to add fields at the beginning
+- **Full type safety**: TypeScript infers all types correctly
+- **All field types**: string, number, boolean, json, class, image, etc.
+
 ### Legacy: Template Literal Support (Deprecated)
 
 **Note**: Template literals are deprecated. Use the `ax()` function instead for
@@ -311,19 +343,19 @@ agent example.
 ```typescript
 # npm run tsx ./src/examples/agent.ts
 
-const researcher = new AxAgent({
+const researcher = agent({
   name: 'researcher',
   description: 'Researcher agent',
   signature: ax('physicsQuestion:string "physics questions" -> answer:string "reply in bullet points"')
 });
 
-const summarizer = new AxAgent({
+const summarizer = agent({
   name: 'summarizer',
   description: 'Summarizer agent',
   signature: ax('text:string "text to summarize" -> shortSummary:string "summarize in 5 to 10 words"')
 });
 
-const agent = new AxAgent({
+const agent = agent({
   name: 'agent',
   description: 'An agent to research complex topics',
   signature: ax('question:string -> answer:string'),
@@ -634,7 +666,7 @@ const client = new AxMCPClient(transport, { debug: true });
 await client.init();
 
 // Use the client's functions in an agent
-const memoryAgent = new AxAgent({
+const memoryAgent = agent({
   name: "MemoryAssistant",
   description: "An assistant with persistent memory",
   signature: "input, userId -> response",
@@ -680,7 +712,7 @@ const llm = ai({
 });
 
 // 4. Create an AxAgent that uses the MCP client
-const deepwikiAgent = new AxAgent<
+const deepwikiAgent = agent<
   {
     // Define input types for clarity, matching a potential DeepWiki function
     questionAboutRepo: string;
@@ -975,28 +1007,35 @@ console.log("🌟 Autonomous Campaign Generated:", result.campaign);
 
 ## Advanced RAG: `axRAG`
 
-**`axRAG`** is a powerful, production-ready RAG (Retrieval-Augmented Generation) implementation built on AxFlow that provides advanced multi-hop retrieval, self-healing quality loops, and intelligent query refinement.
+**`axRAG`** is a powerful, production-ready RAG (Retrieval-Augmented Generation)
+implementation built on AxFlow that provides advanced multi-hop retrieval,
+self-healing quality loops, and intelligent query refinement.
 
 ```typescript
 import { axRAG } from "@ax-llm/ax";
 
 // Create an advanced RAG pipeline with multi-hop retrieval and self-healing
 const rag = axRAG(queryVectorDB, {
-  maxHops: 3,           // Multi-hop context accumulation
+  maxHops: 3, // Multi-hop context accumulation
   qualityThreshold: 0.8, // Quality-driven retrieval
-  maxIterations: 2,      // Parallel sub-query processing
-  qualityTarget: 0.85,   // Self-healing quality loops
-  debug: true           // Full pipeline visualization
+  maxIterations: 2, // Parallel sub-query processing
+  qualityTarget: 0.85, // Self-healing quality loops
+  debug: true, // Full pipeline visualization
 });
 
 const result = await rag.forward(llm, {
-  originalQuestion: "How do ML algorithms impact privacy in financial services?"
+  originalQuestion:
+    "How do ML algorithms impact privacy in financial services?",
 });
 ```
 
-**Key Features:** Multi-hop retrieval, intelligent query refinement, parallel sub-query processing, self-healing quality loops, gap analysis, configurable performance vs. quality trade-offs.
+**Key Features:** Multi-hop retrieval, intelligent query refinement, parallel
+sub-query processing, self-healing quality loops, gap analysis, configurable
+performance vs. quality trade-offs.
 
-For comprehensive documentation, architecture details, and advanced examples, see our detailed [**AxRAG Guide**](https://github.com/ax-llm/ax/blob/main/AXRAG.md).
+For comprehensive documentation, architecture details, and advanced examples,
+see our detailed
+[**AxRAG Guide**](https://github.com/ax-llm/ax/blob/main/AXRAG.md).
 
 ### Why AxFlow is the Future
 

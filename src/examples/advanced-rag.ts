@@ -59,10 +59,20 @@ for (const question of questions) {
     originalQuestion: question,
   });
 
-  console.log(`Answer: ${result.finalAnswer}`);
-  console.log(`Total hops: ${result.totalHops}`);
-  console.log(`Iterations: ${result.iterationCount}`);
-  console.log(`Healing attempts: ${result.healingAttempts}`);
-  console.log(`Quality achieved: ${result.qualityAchieved}`);
-  console.log(`Contexts retrieved: ${result.retrievedContexts.length}`);
+  // Cast result to expected type due to TypeScript inference limitations
+  const typedResult = result as {
+    finalAnswer: string;
+    totalHops: number;
+    iterationCount: number;
+    healingAttempts: number;
+    qualityAchieved: number;
+    retrievedContexts: string[];
+  };
+
+  console.log(`Answer: ${typedResult.finalAnswer}`);
+  console.log(`Total hops: ${typedResult.totalHops}`);
+  console.log(`Iterations: ${typedResult.iterationCount}`);
+  console.log(`Healing attempts: ${typedResult.healingAttempts}`);
+  console.log(`Quality achieved: ${typedResult.qualityAchieved}`);
+  console.log(`Contexts retrieved: ${typedResult.retrievedContexts.length}`);
 }

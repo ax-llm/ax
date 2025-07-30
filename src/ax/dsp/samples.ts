@@ -1,12 +1,11 @@
 import type { AxAIMemory } from '../mem/types.js';
 import type {
   AxGenDeltaOut,
-  AxGenOut,
   AxResultPickerFunction,
   AxResultPickerFunctionFunctionResults,
 } from './types.js';
 
-export interface AxSamplePickerOptions<OUT extends AxGenOut> {
+export interface AxSamplePickerOptions<OUT> {
   resultPicker?: AxResultPickerFunction<OUT>;
 }
 
@@ -92,7 +91,7 @@ function extractFunctionResults(
  * Selects a result from multiple samples using the provided result picker function.
  * If no result picker is provided or only one result exists, returns the first result.
  */
-export async function selectFromSamples<OUT extends AxGenOut>(
+export async function selectFromSamples<OUT>(
   buffer: AxGenDeltaOut<OUT>[],
   options?: AxSamplePickerOptions<OUT>,
   mem?: AxAIMemory,
@@ -151,7 +150,7 @@ export async function selectFromSamples<OUT extends AxGenOut>(
  * If no result picker is provided or only one result exists, returns 0.
  * If the last memory is not from an assistant role, returns 0.
  */
-export async function selectFromSamplesInMemory<OUT extends AxGenOut>(
+export async function selectFromSamplesInMemory<OUT>(
   mem: AxAIMemory,
   sessionId?: string,
   options?: AxSamplePickerOptions<OUT>

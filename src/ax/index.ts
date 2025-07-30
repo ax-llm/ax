@@ -518,8 +518,10 @@ import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
   type AxField,
   type AxFieldType,
+  AxFluentFieldType,
   type AxIField,
   AxSignature,
+  AxSignatureBuilder,
   type AxSignatureConfig,
   f,
 } from './dsp/sig.js';
@@ -554,7 +556,7 @@ import type {
 } from './dsp/types.js';
 import { AxFlowDependencyAnalyzer } from './flow/dependencyAnalyzer.js';
 import { AxFlowExecutionPlanner } from './flow/executionPlanner.js';
-import { AxFlow } from './flow/flow.js';
+import { AxFlow, flow } from './flow/flow.js';
 import {
   type AxFlowBranchEvaluationData,
   type AxFlowCompleteData,
@@ -722,6 +724,7 @@ export { AxFlowDependencyAnalyzer };
 export { AxFlowExecutionPlanner };
 export { AxFlowSubContextImpl };
 export { AxFlowTypedSubContextImpl };
+export { AxFluentFieldType };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGen };
@@ -742,6 +745,7 @@ export { AxPromptTemplate };
 export { AxProviderRouter };
 export { AxRateLimiterTokenUsage };
 export { AxSignature };
+export { AxSignatureBuilder };
 export { AxSimpleClassifier };
 export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
@@ -830,6 +834,7 @@ export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
 export { axValidateProviderCapabilities };
 export { f };
+export { flow };
 export { s };
 
 // Type exports

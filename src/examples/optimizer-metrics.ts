@@ -70,9 +70,14 @@ const validationExamples = [
 // Metric function to evaluate program performance
 const metricFn: AxMetricFn = async ({ prediction, example }) => {
   // Simple accuracy metric
-  const categoryMatch = prediction.category === example.category ? 1 : 0;
+  const categoryMatch =
+    (prediction as any).category === (example as any).category ? 1 : 0;
   const confidenceAccuracy =
-    1 - Math.abs(Number(prediction.confidence) - Number(example.confidence));
+    1 -
+    Math.abs(
+      Number((prediction as any).confidence) -
+        Number((example as any).confidence)
+    );
 
   return (categoryMatch + confidenceAccuracy) / 2;
 };

@@ -23,7 +23,7 @@ export const emailClassifier = ax(
 
 // Simple metric
 const metric: AxMetricFn = ({ prediction, example }) => {
-  return prediction.priority === example.priority ? 1 : 0;
+  return (prediction as any).priority === (example as any).priority ? 1 : 0;
 };
 
 console.log('=== Simple Optimizer Logging Demo ===\n');

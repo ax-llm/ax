@@ -6,26 +6,21 @@ import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
 import { axDefaultOptimizerLogger } from './optimizerLogging.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
-import type {
-  AxFieldValue,
-  AxGenIn,
-  AxGenOut,
-  AxProgramDemos,
-} from './types.js';
+import type { AxFieldValue, AxGenOut, AxProgramDemos } from './types.js';
 
 // Logger utilities are now exported from ./loggers.js
 
 // Common types used by optimizers
 export type AxExample = Record<string, AxFieldValue>;
 
-export type AxMetricFn = <T extends AxGenOut = AxGenOut>(
+export type AxMetricFn = <T = any>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
 ) => number | Promise<number>;
 
 export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
 
 // Multi-objective metric function for Pareto optimization
-export type AxMultiMetricFn = <T extends AxGenOut = AxGenOut>(
+export type AxMultiMetricFn = <T = any>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
 ) => Record<string, number>;
 
@@ -922,8 +917,8 @@ export const recordOptimizerConfigurationMetric = (
 };
 
 // Simplified result - no program since it's passed to compile
-export interface AxOptimizerResult<OUT extends AxGenOut> {
-  demos?: AxProgramDemos<AxGenIn, OUT>[];
+export interface AxOptimizerResult<OUT> {
+  demos?: AxProgramDemos<any, OUT>[];
   stats: AxOptimizationStats;
   bestScore: number;
   finalConfiguration?: Record<string, unknown>;
@@ -934,10 +929,9 @@ export interface AxOptimizerResult<OUT extends AxGenOut> {
 }
 
 // Pareto optimization result for multi-objective optimization
-export interface AxParetoResult<OUT extends AxGenOut = AxGenOut>
-  extends AxOptimizerResult<OUT> {
+export interface AxParetoResult<OUT = any> extends AxOptimizerResult<OUT> {
   paretoFront: ReadonlyArray<{
-    demos: readonly AxProgramDemos<AxGenIn, OUT>[];
+    demos: readonly AxProgramDemos<any, OUT>[];
     scores: Readonly<Record<string, number>>;
     configuration: Readonly<Record<string, unknown>>;
     dominatedSolutions: number;
@@ -977,10 +971,7 @@ export interface AxCompileOptions {
 }
 
 // Enhanced base optimizer interface
-export interface AxOptimizer<
-  IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenOut = AxGenOut,
-> {
+export interface AxOptimizer<IN = any, OUT extends AxGenOut = any> {
   /**
    * Optimize a program using the provided metric function
    * @param program The program to optimize (moved from constructor)
@@ -1116,12 +1107,12 @@ export interface AxMiPROOptimizerOptions {
 export interface AxBootstrapCompileOptions extends AxCompileOptions {
   validationExamples?: readonly AxExample[];
   maxDemos?: number;
-  teacherProgram?: Readonly<AxGen<AxGenIn, AxGenOut>>;
+  teacherProgram?: Readonly<AxGen<any, any>>;
 }
 
 export interface AxMiPROCompileOptions extends AxCompileOptions {
   validationExamples?: readonly AxExample[];
-  teacher?: Readonly<AxGen<AxGenIn, AxGenOut>>;
+  teacher?: Readonly<AxGen<any, any>>;
   auto?: 'light' | 'medium' | 'heavy';
 
   // Enhanced MiPRO options
@@ -1201,10 +1192,8 @@ export class AxDefaultCostTracker implements AxCostTracker {
  * Abstract base class for optimizers that provides common functionality
  * and standardized handling of AxOptimizerArgs
  */
-export abstract class AxBaseOptimizer<
-  IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenOut = AxGenOut,
-> implements AxOptimizer<IN, OUT>
+export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
+  implements AxOptimizer<IN, OUT>
 {
   // Common AxOptimizerArgs fields
   protected readonly studentAI: AxAIService;
@@ -1682,13 +1671,13 @@ export abstract class AxBaseOptimizer<
   ): Promise<
     Array<{
       scores: Record<string, number>;
-      demos?: AxProgramDemos<AxGenIn, OUT>[];
+      demos?: AxProgramDemos<any, OUT>[];
       configuration: Record<string, unknown>;
     }>
   > {
     const solutions: Array<{
       scores: Record<string, number>;
-      demos?: AxProgramDemos<AxGenIn, OUT>[];
+      demos?: AxProgramDemos<any, OUT>[];
       configuration: Record<string, unknown>;
     }> = [];
 
@@ -1780,13 +1769,13 @@ export abstract class AxBaseOptimizer<
   ): Promise<
     Array<{
       scores: Record<string, number>;
-      demos?: AxProgramDemos<AxGenIn, OUT>[];
+      demos?: AxProgramDemos<any, OUT>[];
       configuration: Record<string, unknown>;
     }>
   > {
     const solutions: Array<{
       scores: Record<string, number>;
-      demos?: AxProgramDemos<AxGenIn, OUT>[];
+      demos?: AxProgramDemos<any, OUT>[];
       configuration: Record<string, unknown>;
     }> = [];
 
@@ -1974,17 +1963,17 @@ export abstract class AxBaseOptimizer<
   private findParetoFrontier(
     solutions: Array<{
       scores: Record<string, number>;
-      demos?: AxProgramDemos<AxGenIn, OUT>[];
+      demos?: AxProgramDemos<any, OUT>[];
       configuration: Record<string, unknown>;
     }>
   ): Array<{
-    demos: readonly AxProgramDemos<AxGenIn, OUT>[];
+    demos: readonly AxProgramDemos<any, OUT>[];
     scores: Readonly<Record<string, number>>;
     configuration: Readonly<Record<string, unknown>>;
     dominatedSolutions: number;
   }> {
     const paretoFront: Array<{
-      demos: readonly AxProgramDemos<AxGenIn, OUT>[];
+      demos: readonly AxProgramDemos<any, OUT>[];
       scores: Readonly<Record<string, number>>;
       configuration: Readonly<Record<string, unknown>>;
       dominatedSolutions: number;

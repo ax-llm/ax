@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, functional/prefer-immutable-types */
 import type { AxAIService } from '../ai/types.js';
-import { AxGen } from '../dsp/generate.js';
+import type { AxGen } from '../dsp/generate.js';
 import { AxProgram } from '../dsp/program.js';
 import type { AxFieldType } from '../dsp/sig.js';
-import { type AxField, AxSignature } from '../dsp/sig.js';
+import { type AxField, AxSignature, f } from '../dsp/sig.js';
+import { ax } from '../dsp/template.js';
 import type {
   AxGenIn,
   AxGenOut,
@@ -67,8 +68,8 @@ import type {
  * ```
  */
 export class AxFlow<
-  IN extends AxGenIn,
-  OUT extends AxGenOut,
+  IN extends Record<string, any>,
+  OUT,
   // NOTE: The `any` here is necessary because TNodes must accommodate AxProgrammable instances with various input/output types
   TNodes extends Record<string, AxProgrammable<any, any>> = Record<
     string,
@@ -81,7 +82,7 @@ export class AxFlow<
   private readonly flowDefinition: AxFlowStepFunction[] = [];
   private readonly nodeGenerators: Map<
     string,
-    AxProgrammable<AxGenIn, AxGenOut, unknown>
+    AxProgrammable<any, any, unknown>
   > = new Map();
   private readonly loopStack: number[] = [];
   private readonly stepLabels: Map<string, number> = new Map();
@@ -362,18 +363,10 @@ export class AxFlow<
     // If no nodes are defined AND no execution steps, return a default signature
     if (this.nodeGenerators.size === 0 && executionPlan.steps.length === 0) {
       // Create a default signature for flows without nodes or steps
-      const defaultSignature = new AxSignature();
-      defaultSignature.addInputField({
-        name: 'userInput',
-        type: { name: 'string' },
-        description: 'User input to the flow',
-      });
-      defaultSignature.addOutputField({
-        name: 'flowOutput',
-        type: { name: 'string' },
-        description: 'Output from the flow',
-      });
-      return defaultSignature;
+      return f()
+        .input('userInput', f.string('User input to the flow'))
+        .output('flowOutput', f.string('Output from the flow'))
+        .build();
     }
 
     // This gives us a structured view of what each step consumes and produces
@@ -447,8 +440,7 @@ export class AxFlow<
             const nodeName = produced.replace('Result', '');
             const nodeGen = this.nodeGenerators.get(nodeName);
             if (nodeGen) {
-              const nodeSignature = nodeGen.getSignature();
-              const sig = new AxSignature(nodeSignature);
+              const sig = nodeGen.getSignature();
               const outputFields = sig.getOutputFields();
 
               // Add the actual output field names from the node signature
@@ -476,8 +468,7 @@ export class AxFlow<
 
       // Go through each node and extract its input/output fields
       for (const [nodeName, nodeGen] of Array.from(this.nodeGenerators)) {
-        const nodeSignature = nodeGen.getSignature();
-        const sig = new AxSignature(nodeSignature);
+        const sig = nodeGen.getSignature();
 
         // Add node's input fields as potential flow inputs
         // These are prefixed with the node name to avoid conflicts
@@ -615,6 +606,28 @@ export class AxFlow<
     this.timingLogger = this.flowLogger
       ? createTimingLogger(this.flowLogger)
       : undefined;
+  }
+
+  /**
+   * Static factory method to create a new AxFlow instance with proper type safety
+   * @param options - Optional configuration for the flow
+   * @returns New AxFlow instance with type-safe defaults
+   */
+  public static create<
+    IN extends Record<string, any> = Record<string, never>,
+    OUT = {},
+    TNodes extends Record<string, AxProgrammable<any, any>> = Record<
+      string,
+      never
+    >,
+    TState extends AxFlowState = IN,
+  >(options?: {
+    autoParallel?: boolean;
+    batchSize?: number;
+    logger?: AxFlowLoggerFunction;
+    debug?: boolean;
+  }): AxFlow<IN, OUT, TNodes, TState> {
+    return new AxFlow<IN, OUT, TNodes, TState>(options);
   }
 
   /**
@@ -960,7 +973,7 @@ export class AxFlow<
    *
    * @example
    * ```
-   * const sig = new AxSignature('text:string -> summary:string')
+   * const sig = s('text:string -> summary:string')
    * flow.node('summarizer', sig, { temperature: 0.1 })
    * ```
    */
@@ -1053,7 +1066,7 @@ export class AxFlow<
       });
 
       // Create and store the AxGen instance for this node with the same arguments as AxGen
-      const nodeGenerator = new AxGen(signature);
+      const nodeGenerator = ax(signature as string);
       this.nodeGenerators.set(name, nodeGenerator);
 
       // Register the node with the program after program is initialized
@@ -1067,10 +1080,7 @@ export class AxFlow<
       });
 
       // Create an instance of the program class and store it directly
-      const programInstance = new nodeValue() as AxProgrammable<
-        AxGenIn,
-        AxGenOut
-      >;
+      const programInstance = new nodeValue() as AxProgrammable<any, any>;
       this.nodeGenerators.set(name, programInstance);
 
       // Register the node with the program after program is initialized
@@ -1088,7 +1098,7 @@ export class AxFlow<
       });
 
       // Store the existing AxGen instance
-      const nodeGenerator = nodeValue as AxProgrammable<AxGenIn, AxGenOut>;
+      const nodeGenerator = nodeValue as AxProgrammable<any, any>;
       this.nodeGenerators.set(name, nodeGenerator);
 
       // Register the node with the program after program is initialized
@@ -2280,7 +2290,7 @@ export class AxFlow<
     const sig =
       typeof baseSignature === 'string'
         ? AxSignature.create(baseSignature)
-        : new AxSignature(baseSignature);
+        : baseSignature;
 
     // Apply extensions in the specified order
     let extendedSig = sig;
@@ -2337,4 +2347,129 @@ export class AxFlow<
   > {
     return this.nodeExtended(name, baseSignature, extensions);
   }
+
+  /**
+   * Applies a final transformation to the state object that updates both state and output type.
+   * This is specifically designed for terminal transformations that shape the final output.
+   *
+   * @param transform - Function that takes the current state and returns the final output
+   * @returns New AxFlow instance with updated OUT and TState types
+   *
+   * @example
+   * ```
+   * const result = await flow
+   *   .node('analyzer', 'userQuestion:string -> analysisResult:string')
+   *   .execute('analyzer', state => ({ userQuestion: state.userQuestion }))
+   *   .mapOutput(state => ({
+   *     // Note: Node results are typed as AxFieldValue, so you may need to cast
+   *     finalAnswer: state.analyzerResult.analysisResult as string
+   *   }))
+   *   .forward(ai, { userQuestion: 'test' });
+   *
+   * // result is typed as { finalAnswer: string }
+   * ```
+   */
+  public mapOutput<TOutput>(
+    transform: (_state: TState) => TOutput
+  ): AxFlow<IN, TOutput, TNodes, TOutput & TState> {
+    // Add the transformation as a regular map step
+    const step = async (state: AxFlowState) => {
+      const result = transform(state as TState);
+      return { ...state, ...result };
+    };
+
+    if (this.branchContext?.currentBranchValue !== undefined) {
+      const currentBranch =
+        this.branchContext.branches.get(
+          this.branchContext.currentBranchValue
+        ) || [];
+      currentBranch.push(step);
+      this.branchContext.branches.set(
+        this.branchContext.currentBranchValue,
+        currentBranch
+      );
+    } else {
+      this.flowDefinition.push(step);
+
+      // Add to execution planner for automatic parallelization
+      if (this.autoParallelConfig.enabled) {
+        this.executionPlanner.addExecutionStep(
+          step,
+          undefined,
+          undefined,
+          'map',
+          transform
+        );
+      }
+    }
+
+    // Initialize program when flow structure is updated (only if we have nodes)
+    if (this.nodeGenerators.size > 0) {
+      this.ensureProgram();
+    }
+
+    // Return with updated OUT type
+    return this as unknown as AxFlow<IN, TOutput, TNodes, TOutput & TState>;
+  }
+
+  /**
+   * Short alias for mapOutput()
+   */
+  public mo<TOutput>(
+    transform: (_state: TState) => TOutput
+  ): AxFlow<IN, TOutput, TNodes, TOutput & TState> {
+    return this.mapOutput(transform);
+  }
+}
+
+/**
+ * Factory function to create a new AxFlow instance
+ * Similar to ai() for AI services, this creates a fluent flow
+ *
+ * @param options - Optional configuration for the flow
+ * @returns New AxFlow instance
+ *
+ * @example
+ * ```typescript
+ * // Input type is required - provides type safety throughout the flow
+ * const workflow = flow<{ userInput: string }>()
+ *   .node('summarizer', 'documentText:string -> summaryText:string')
+ *   .execute('summarizer', state => ({ documentText: state.userInput }));
+ *
+ * // Complex input types work great for multi-field workflows
+ * const complexFlow = flow<{ userQuestion: string; context: string }>()
+ *   .map(state => ({
+ *     ...state,
+ *     processedQuestion: state.userQuestion.toUpperCase() // TypeScript knows this exists!
+ *   }));
+ * ```
+ */
+/**
+ * Creates a new AxFlow instance with required input type specification.
+ *
+ * The input type must be specified upfront to enable proper type inference
+ * throughout the flow construction and execution.
+ *
+ * @example
+ * ```typescript
+ * // ✅ Define input type upfront for better type safety
+ * const workflow = flow<{ userInput: string, options?: any }>()
+ *   .map(state => ({ ...state, processedInput: state.userInput.toUpperCase() }))
+ *   .node('analyzer', 'processedInput:string -> result:string')
+ *
+ * // ✅ Simple input types work too
+ * const simpleFlow = flow<{ documentText: string }>()
+ *   .node('summarizer', 'documentText:string -> summary:string')
+ * ```
+ */
+export function flow<
+  TInput extends Record<string, any>,
+  TOutput = {},
+>(options?: {
+  autoParallel?: boolean;
+  batchSize?: number;
+  logger?: AxFlowLoggerFunction;
+  debug?: boolean;
+}): AxFlow<TInput, TOutput, {}, TInput> {
+  return AxFlow.create<TInput, TOutput, {}, TInput>(options);
 }

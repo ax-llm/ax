@@ -1,16 +1,9 @@
-import type { AxGenIn, AxGenOut, AxTunable, AxUsable } from './types.js';
+import type { AxTunable, AxUsable } from './types.js';
 
-type AxInstanceRegistryItem<
-  T extends AxTunable<IN, OUT>,
-  IN extends AxGenIn,
-  OUT extends AxGenOut,
-> = T & AxUsable;
+type AxInstanceRegistryItem<T extends AxTunable<IN, OUT>, IN, OUT> = T &
+  AxUsable;
 
-export class AxInstanceRegistry<
-  T extends AxTunable<IN, OUT>,
-  IN extends AxGenIn,
-  OUT extends AxGenOut,
-> {
+export class AxInstanceRegistry<T extends AxTunable<IN, OUT>, IN, OUT> {
   private reg: Set<AxInstanceRegistryItem<T, IN, OUT>>; // To track keys for iteration
 
   constructor() {

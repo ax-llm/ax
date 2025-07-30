@@ -28,25 +28,25 @@ export type AxGenIn = { [key: string]: AxFieldValue };
 
 export type AxGenOut = { [key: string]: AxFieldValue };
 
-export type AxMessage<IN extends AxGenIn> =
+export type AxMessage<IN> =
   | { role: 'user'; values: IN }
   | { role: 'assistant'; values: IN };
 
-export type AxProgramTrace<IN extends AxGenIn, OUT extends AxGenOut> = {
+export type AxProgramTrace<IN, OUT> = {
   trace: OUT & IN;
   programId: string;
 };
 
-export type AxProgramDemos<IN extends AxGenIn, OUT extends AxGenOut> = {
+export type AxProgramDemos<IN, OUT> = {
   traces: (OUT & IN)[];
   programId: string;
 };
 
-export type AxProgramExamples<IN extends AxGenIn, OUT extends AxGenOut> =
+export type AxProgramExamples<IN, OUT> =
   | AxProgramDemos<IN, OUT>
   | AxProgramDemos<IN, OUT>['traces'];
 
-export type AxResultPickerFunctionFieldResults<OUT extends AxGenOut> = {
+export type AxResultPickerFunctionFieldResults<OUT> = {
   type: 'fields';
   results: readonly { index: number; sample: Partial<OUT> }[];
 };
@@ -63,7 +63,7 @@ export type AxResultPickerFunctionFunctionResults = {
   }[];
 };
 
-export type AxResultPickerFunction<OUT extends AxGenOut> = (
+export type AxResultPickerFunction<OUT> = (
   data:
     | AxResultPickerFunctionFieldResults<OUT>
     | AxResultPickerFunctionFunctionResults
@@ -142,45 +142,34 @@ export type AxProgramStreamingForwardOptionsWithModels<
   T extends Readonly<AxAIService<any, any, any>>,
 > = AxProgramStreamingForwardOptions<AxAIServiceModelType<T>>;
 
-export type AxGenDeltaOut<OUT extends AxGenOut> = {
+export type AxGenDeltaOut<OUT> = {
   version: number;
   index: number;
   delta: Partial<OUT>;
 };
 
-export type AxGenStreamingOut<OUT extends AxGenOut> = AsyncGenerator<
+export type AxGenStreamingOut<OUT> = AsyncGenerator<
   AxGenDeltaOut<OUT>,
   void,
   unknown
 >;
 
-export type DeltaOut<OUT extends AxGenOut> = Omit<
-  AxGenDeltaOut<OUT>,
-  'version'
->;
+export type DeltaOut<OUT> = Omit<AxGenDeltaOut<OUT>, 'version'>;
 
-export type AsyncGenDeltaOut<OUT extends AxGenOut> = AsyncGenerator<
+export type AsyncGenDeltaOut<OUT> = AsyncGenerator<
   DeltaOut<OUT>,
   void,
   unknown
 >;
 
-export type GenDeltaOut<OUT extends AxGenOut> = Generator<
-  DeltaOut<OUT>,
-  void,
-  unknown
->;
+export type GenDeltaOut<OUT> = Generator<DeltaOut<OUT>, void, unknown>;
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type AxSetExamplesOptions = {
   // No options needed - all fields can be missing in examples
 };
 
-export interface AxForwardable<
-  IN extends AxGenIn,
-  OUT extends AxGenOut,
-  TModelKey,
-> {
+export interface AxForwardable<IN, OUT, TModelKey> {
   forward(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
@@ -194,7 +183,7 @@ export interface AxForwardable<
   ): AxGenStreamingOut<OUT>;
 }
 
-export interface AxTunable<IN extends AxGenIn, OUT extends AxGenOut> {
+export interface AxTunable<IN, OUT> {
   setExamples: (
     examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
@@ -210,11 +199,8 @@ export interface AxUsable {
   resetUsage: () => void;
 }
 
-export interface AxProgrammable<
-  IN extends AxGenIn,
-  OUT extends AxGenOut,
-  TModelKey = string,
-> extends AxForwardable<IN, OUT, TModelKey>,
+export interface AxProgrammable<IN, OUT, TModelKey = string>
+  extends AxForwardable<IN, OUT, TModelKey>,
     AxTunable<IN, OUT>,
     AxUsable {
   getSignature: () => AxSignature;

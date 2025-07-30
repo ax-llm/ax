@@ -3,7 +3,7 @@ import type { AxChatRequest } from '../ai/types.js';
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxIField, AxSignature } from './sig.js';
-import type { AxFieldValue, AxGenIn, AxMessage } from './types.js';
+import type { AxFieldValue, AxMessage } from './types.js';
 import { validateValue } from './util.js';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
@@ -101,7 +101,7 @@ export class AxPromptTemplate {
     };
   }
 
-  private renderSingleValueUserContent = <T extends AxGenIn>(
+  private renderSingleValueUserContent = <T = any>(
     values: T,
     renderedExamples: ChatRequestUserMessage,
     renderedDemos: ChatRequestUserMessage,
@@ -119,8 +119,8 @@ export class AxPromptTemplate {
       : prompt.reduce(combineConsecutiveStrings('\n'), []);
   };
 
-  public render = <T extends AxGenIn>(
-    values: T | ReadonlyArray<AxMessage<T>>, // Allow T (AxGenIn) or array of AxMessages
+  public render = <T = any>(
+    values: T | ReadonlyArray<AxMessage<T>>, // Allow T or array of AxMessages
     {
       examples,
       demos,
@@ -217,7 +217,7 @@ export class AxPromptTemplate {
       return [systemPrompt, ...messages];
     }
 
-    // values is T (AxGenIn) - existing logic path
+    // values is T - existing logic path
     const userContent = this.renderSingleValueUserContent(
       values as T,
       renderedExamples,
@@ -370,10 +370,10 @@ export class AxPromptTemplate {
     return list;
   };
 
-  private renderInputFields = <T extends AxGenIn>(values: T) => {
+  private renderInputFields = <T = any>(values: T) => {
     const renderedItems = this.sig
       .getInputFields()
-      .map((field) => this.renderInField(field, values, undefined))
+      .map((field) => this.renderInField(field, values as any, undefined))
       .filter((v) => v !== undefined)
       .flat();
 

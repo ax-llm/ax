@@ -31,90 +31,287 @@ export interface AxFieldType {
   readonly isInternal?: boolean;
 }
 
-// Helper functions for creating field types
-export const f = {
-  string: (desc?: string): AxFieldType => ({
-    type: 'string',
-    description: desc,
-  }),
+// Improved SignatureBuilder class for fluent API with better type inference
+export class AxSignatureBuilder<
+  _TInput extends Record<string, any> = {},
+  _TOutput extends Record<string, any> = {},
+> {
+  private inputFields: AxField[] = [];
+  private outputFields: AxField[] = [];
+  private desc?: string;
 
-  number: (desc?: string): AxFieldType => ({
-    type: 'number',
-    description: desc,
-  }),
+  /**
+   * Add an input field to the signature
+   * @param name - Field name
+   * @param fieldInfo - Field type created with f.string(), f.number(), etc.
+   * @param prepend - If true, adds field to the beginning of input fields
+   */
+  public input<
+    K extends string,
+    T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
+  >(
+    name: K,
+    fieldInfo: T,
+    prepend = false
+  ): AxSignatureBuilder<_TInput & Record<K, InferFluentType<T>>, _TOutput> {
+    const field: AxField = {
+      name,
+      type: {
+        name: fieldInfo.type,
+        isArray: fieldInfo.isArray,
+        options: fieldInfo.options ? [...fieldInfo.options] : undefined,
+      },
+      description: fieldInfo.description,
+      isOptional: fieldInfo.isOptional,
+      isInternal: fieldInfo.isInternal,
+    };
 
-  boolean: (desc?: string): AxFieldType => ({
-    type: 'boolean',
-    description: desc,
-  }),
+    if (prepend) {
+      this.inputFields.unshift(field);
+    } else {
+      this.inputFields.push(field);
+    }
 
-  json: (desc?: string): AxFieldType => ({
-    type: 'json',
-    description: desc,
-  }),
+    return this as any;
+  }
 
-  datetime: (desc?: string): AxFieldType => ({
-    type: 'datetime',
-    description: desc,
-  }),
+  /**
+   * Add an output field to the signature
+   * @param name - Field name
+   * @param fieldInfo - Field type created with f.string(), f.number(), etc.
+   * @param prepend - If true, adds field to the beginning of output fields
+   */
+  public output<
+    K extends string,
+    T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
+  >(
+    name: K,
+    fieldInfo: T,
+    prepend = false
+  ): AxSignatureBuilder<_TInput, _TOutput & Record<K, InferFluentType<T>>> {
+    const field: AxField = {
+      name,
+      type: {
+        name: fieldInfo.type,
+        isArray: fieldInfo.isArray,
+        options: fieldInfo.options ? [...fieldInfo.options] : undefined,
+      },
+      description: fieldInfo.description,
+      isOptional: fieldInfo.isOptional,
+      isInternal: fieldInfo.isInternal,
+    };
 
-  date: (desc?: string): AxFieldType => ({
-    type: 'date',
-    description: desc,
-  }),
+    if (prepend) {
+      this.outputFields.unshift(field);
+    } else {
+      this.outputFields.push(field);
+    }
 
-  class: (options: readonly string[], desc?: string): AxFieldType => ({
-    type: 'class',
-    options,
-    description: desc,
-  }),
+    return this as any;
+  }
 
-  image: (desc?: string): AxFieldType => ({
-    type: 'image',
-    description: desc,
-  }),
+  /**
+   * Set the description for the signature
+   * @param description - Description text
+   */
+  public description(
+    description: string
+  ): AxSignatureBuilder<_TInput, _TOutput> {
+    this.desc = description;
+    return this;
+  }
 
-  audio: (desc?: string): AxFieldType => ({
-    type: 'audio',
-    description: desc,
-  }),
+  /**
+   * Build the final AxSignature instance
+   */
+  public build(): AxSignature<_TInput, _TOutput> {
+    const config: AxSignatureConfig = {
+      description: this.desc,
+      inputs: this.inputFields,
+      outputs: this.outputFields,
+    };
 
-  file: (desc?: string): AxFieldType => ({
-    type: 'file',
-    description: desc,
-  }),
+    return new AxSignature(config) as AxSignature<_TInput, _TOutput>;
+  }
+}
 
-  url: (desc?: string): AxFieldType => ({
-    type: 'url',
-    description: desc,
-  }),
+// Fluent field type builder for method chaining
+export class AxFluentFieldType implements AxFieldType {
+  readonly type: AxFieldType['type'];
+  readonly isArray?: boolean;
+  readonly options?: readonly string[];
+  readonly description?: string;
+  readonly isOptional?: boolean;
+  readonly isInternal?: boolean;
 
-  code: (language?: string, desc?: string): AxFieldType => ({
-    type: 'code',
-    description: desc || language,
-  }),
+  constructor(fieldType: AxFieldType) {
+    this.type = fieldType.type;
+    this.isArray = fieldType.isArray;
+    this.options = fieldType.options;
+    this.description = fieldType.description;
+    this.isOptional = fieldType.isOptional;
+    this.isInternal = fieldType.isInternal;
+  }
 
-  array: <T extends AxFieldType>(
-    baseType: T
-  ): T & { readonly isArray: true } => ({
-    ...baseType,
-    isArray: true,
-  }),
+  optional(): AxFluentFieldType {
+    return new AxFluentFieldType({
+      ...this,
+      isOptional: true,
+    });
+  }
 
-  optional: <T extends AxFieldType>(
-    baseType: T
-  ): T & { readonly isOptional: true } => ({
-    ...baseType,
-    isOptional: true,
-  }),
+  array(): AxFluentFieldType {
+    return new AxFluentFieldType({
+      ...this,
+      isArray: true,
+    });
+  }
 
-  internal: <T extends AxFieldType>(
-    baseType: T
-  ): T & { readonly isInternal: true } => ({
-    ...baseType,
-    isInternal: true,
-  }),
-};
+  internal(): AxFluentFieldType {
+    return new AxFluentFieldType({
+      ...this,
+      isInternal: true,
+    });
+  }
+}
+
+// Improved helper functions for creating strongly-typed field info
+export const f = Object.assign(
+  (): AxSignatureBuilder => new AxSignatureBuilder(),
+  {
+    string: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'string' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    number: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'number' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    boolean: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'boolean' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    json: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'json' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    datetime: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'datetime' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    date: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'date' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    class: <const TOptions extends readonly string[]>(
+      options: TOptions,
+      desc?: string
+    ): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'class' as const,
+        isArray: false as const,
+        options,
+        description: desc,
+      }),
+
+    image: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'image' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    audio: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'audio' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    file: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'file' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    url: (desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'url' as const,
+        isArray: false as const,
+        description: desc,
+      }),
+
+    code: (language?: string, desc?: string): AxFluentFieldType =>
+      new AxFluentFieldType({
+        type: 'code' as const,
+        isArray: false as const,
+        description: desc || language,
+      }),
+
+    // Enhanced helper functions for fluent chaining
+    array: <T extends AxFluentFieldInfo<any, any, any, any>>(
+      baseType: T
+    ): AxFluentFieldInfo<T['type'], true, T['options'], T['isOptional']> => ({
+      ...baseType,
+      isArray: true as const,
+    }),
+
+    optional: <T extends AxFluentFieldInfo<any, any, any, any>>(
+      baseType: T
+    ): AxFluentFieldInfo<T['type'], T['isArray'], T['options'], true> => ({
+      ...baseType,
+      isOptional: true as const,
+    }),
+
+    internal: <T extends AxFluentFieldInfo<any, any, any, any>>(
+      baseType: T
+    ): T & { readonly isInternal: true } => ({
+      ...baseType,
+      isInternal: true as const,
+    }),
+
+    // Legacy helper functions for backward compatibility with AxFieldType
+    legacyArray: <T extends AxFieldType>(
+      baseType: T
+    ): T & { readonly isArray: true } => ({
+      ...baseType,
+      isArray: true,
+    }),
+
+    legacyOptional: <T extends AxFieldType>(
+      baseType: T
+    ): T & { readonly isOptional: true } => ({
+      ...baseType,
+      isOptional: true,
+    }),
+
+    legacyInternal: <T extends AxFieldType>(
+      baseType: T
+    ): T & { readonly isInternal: true } => ({
+      ...baseType,
+      isInternal: true,
+    }),
+  }
+);
 
 // Backward compatibility alias (legacy API)
 export const createFieldType = f;
@@ -146,8 +343,82 @@ export interface AxField {
 
 export type AxIField = Omit<AxField, 'title'> & { title: string };
 
-// Helper type to map AxFieldType to TypeScript types for type-safe field additions
-type InferFieldValueType<T extends AxFieldType> = T['type'] extends 'string'
+// Helper type to map AxFieldType or AxFluentFieldType to TypeScript types for type-safe field additions
+type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
+  ? T['type'] extends 'string'
+    ? T['isArray'] extends true
+      ? string[]
+      : string
+    : T['type'] extends 'number'
+      ? T['isArray'] extends true
+        ? number[]
+        : number
+      : T['type'] extends 'boolean'
+        ? T['isArray'] extends true
+          ? boolean[]
+          : boolean
+        : T['type'] extends 'json'
+          ? T['isArray'] extends true
+            ? any[]
+            : any
+          : T['type'] extends 'date'
+            ? T['isArray'] extends true
+              ? Date[]
+              : Date
+            : T['type'] extends 'datetime'
+              ? T['isArray'] extends true
+                ? Date[]
+                : Date
+              : T['type'] extends 'image'
+                ? T['isArray'] extends true
+                  ? { mimeType: string; data: string }[]
+                  : { mimeType: string; data: string }
+                : T['type'] extends 'audio'
+                  ? T['isArray'] extends true
+                    ? { format?: 'wav'; data: string }[]
+                    : { format?: 'wav'; data: string }
+                  : T['type'] extends 'file'
+                    ? T['isArray'] extends true
+                      ? { mimeType: string; data: string }[]
+                      : { mimeType: string; data: string }
+                    : T['type'] extends 'url'
+                      ? T['isArray'] extends true
+                        ? string[]
+                        : string
+                      : T['type'] extends 'code'
+                        ? T['isArray'] extends true
+                          ? string[]
+                          : string
+                        : T['type'] extends 'class'
+                          ? T['options'] extends readonly (infer U)[]
+                            ? T['isArray'] extends true
+                              ? U[]
+                              : U
+                            : T['isArray'] extends true
+                              ? string[]
+                              : string
+                          : any
+  : any;
+
+// Improved fluent field type that preserves exact type information for better inference
+export interface AxFluentFieldInfo<
+  TType extends AxFieldType['type'] = AxFieldType['type'],
+  TIsArray extends boolean = false,
+  TOptions extends readonly string[] = readonly string[],
+  TIsOptional extends boolean = false,
+> {
+  readonly type: TType;
+  readonly isArray?: TIsArray;
+  readonly options?: TOptions;
+  readonly description?: string;
+  readonly isOptional?: TIsOptional;
+  readonly isInternal?: boolean;
+}
+
+// Helper type to infer TypeScript type from fluent field info
+type InferFluentType<
+  T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
+> = T['type'] extends 'string'
   ? T['isArray'] extends true
     ? string[]
     : string

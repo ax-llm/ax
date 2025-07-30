@@ -2,12 +2,7 @@
 import { ColorLog } from '../util/log.js';
 
 import type { AxField } from './sig.js';
-import type {
-  AxFieldValue,
-  AxGenDeltaOut,
-  AxGenOut,
-  AxProgramUsage,
-} from './types.js';
+import type { AxFieldValue, AxGenDeltaOut, AxProgramUsage } from './types.js';
 
 const colorLog = new ColorLog();
 
@@ -304,11 +299,11 @@ export const parseMarkdownList = (input: string): string[] => {
   return list;
 };
 
-export function mergeDeltas<OUT extends AxGenOut>(
+export function mergeDeltas<OUT>(
   base: AxGenDeltaOut<OUT>[],
   currentDelta: AxGenDeltaOut<OUT>
 ) {
-  type ValueTypeOfAxGenOut = AxGenOut[keyof AxGenOut];
+  type ValueTypeOfAxGenOut = OUT[keyof OUT];
 
   const { index, delta, version } = currentDelta;
 
@@ -328,16 +323,19 @@ export function mergeDeltas<OUT extends AxGenOut>(
     const deltaValue = (delta as Record<string, unknown>)[key];
 
     if (baseValue === undefined && Array.isArray(deltaValue)) {
-      target[key] = [...deltaValue];
+      target[key] = [...deltaValue] as ValueTypeOfAxGenOut;
     } else if (Array.isArray(baseValue) && Array.isArray(deltaValue)) {
       // Concatenate arrays
-      target[key] = [...(baseValue as unknown[]), ...deltaValue];
+      target[key] = [
+        ...(baseValue as unknown[]),
+        ...deltaValue,
+      ] as ValueTypeOfAxGenOut;
     } else if (
       (baseValue === undefined || typeof baseValue === 'string') &&
       typeof deltaValue === 'string'
     ) {
       // Concatenate strings
-      target[key] = `${baseValue ?? ''}${deltaValue}`;
+      target[key] = `${baseValue ?? ''}${deltaValue}` as ValueTypeOfAxGenOut;
     } else {
       // For all other types, overwrite with the new value
       target[key] = deltaValue as ValueTypeOfAxGenOut;
