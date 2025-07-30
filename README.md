@@ -203,6 +203,132 @@ result.category; // TypeScript shows "a" | "b" | "c" - perfect safety!
 The `ax()` function provides the best balance of type safety, performance, and
 readability.
 
+## Migration Guide: API Changes & Deprecations
+
+**Version 13.0.24+** introduces significant API improvements for better type safety and consistency. This section outlines what's changed and how to migrate your code.
+
+### 🚨 Removed Functions (v13.0.24+)
+
+The following functions have been **completely removed** and are no longer available:
+
+#### Field Helper Functions
+- **Removed**: `f.string()`, `f.number()`, `f.boolean()`, `f.json()`, `f.array()`, `f.optional()`, `f.class()`, `f.date()`, `f.datetime()`, `f.image()`, `f.audio()`, `f.file()`, `f.url()`, `f.code()`
+- **Reason**: These functions didn't provide proper TypeScript type inference
+- **Migration**: Use string-based type annotations in signatures
+
+```typescript
+// ❌ REMOVED: Field helper functions
+// const sig = s`input:${f.string("desc")} -> output:${f.array(f.string())}`
+
+// ✅ NEW: String-based type annotations
+const sig = s('input:string "desc" -> output:string[] "array output"')
+```
+
+#### Template Literal Functions  
+- **Removed**: `` ax`template` `` and `` s`template` `` template literal syntax
+- **Reason**: Poor TypeScript inference and runtime overhead
+- **Migration**: Use function call syntax instead
+
+```typescript
+// ❌ REMOVED: Template literal syntax
+// const gen = ax`input:string -> output:string`
+// const sig = s`input:string -> output:string`
+
+// ✅ NEW: Function call syntax  
+const gen = ax('input:string -> output:string')
+const sig = s('input:string -> output:string')
+```
+
+#### Legacy Classes
+- **Removed**: `AxChainOfThought` - No longer needed with modern thinking models (o1, etc.)
+- **Removed**: `AxRAG` - Replaced with `axRAG` built on AxFlow architecture
+
+### 📋 Migration Checklist
+
+**Step 1: Update AI Instance Creation**
+```typescript
+// ❌ OLD: Constructor
+// const ai = new AxAI({ name: 'openai', apiKey: '...' })
+
+// ✅ NEW: Factory function (recommended variable name)
+const llm = ai({ name: 'openai', apiKey: '...' })
+```
+
+**Step 2: Update Signature Creation**
+```typescript
+// ❌ OLD: Constructor or field helpers
+// const sig = new AxSignature('input:string -> output:string')
+// const sig = s`input:${f.string()} -> output:${f.string()}`
+
+// ✅ NEW: String-based signatures
+const sig = s('input:string -> output:string')
+// OR use AxSignature.create() for explicit typing
+const sig = AxSignature.create('input:string -> output:string')
+```
+
+**Step 3: Update Generator Creation**
+```typescript  
+// ❌ OLD: Template literals
+// const gen = ax`input:string -> output:string`
+
+// ✅ NEW: Function call
+const gen = ax('input:string -> output:string')
+```
+
+**Step 4: Update Agent Creation**
+```typescript
+// ❌ OLD: Constructor
+// const agent = new Agent({ name: '...', signature: sig, ai: llm })
+
+// ✅ NEW: Factory function
+const agentInstance = agent({ name: '...', signature: sig, ai: llm })
+```
+
+**Step 5: Update RAG Usage**
+```typescript
+// ❌ OLD: AxRAG class
+// const rag = new AxRAG({ ai: llm, db: vectorDb })
+
+// ✅ NEW: axRAG function (AxFlow-based)
+const rag = axRAG({ ai: llm, db: vectorDb })
+```
+
+### 🎯 Field Type Migration
+
+| Old Field Helper | New String Syntax | Example |
+|------------------|-------------------|---------|
+| `f.string('desc')` | `field:string "desc"` | `userInput:string "User question"` |
+| `f.number('desc')` | `field:number "desc"` | `score:number "Confidence 0-1"` |
+| `f.boolean('desc')` | `field:boolean "desc"` | `isValid:boolean "Is input valid"` |
+| `f.json('desc')` | `field:json "desc"` | `metadata:json "Extra data"` |
+| `f.array(f.string())` | `field:string[]` | `tags:string[] "Keywords"` |
+| `f.optional(f.string())` | `field?:string` | `context?:string "Optional context"` |
+| `f.class(['a','b'], 'desc')` | `field:class "a, b" "desc"` | `category:class "urgent, normal, low" "Priority"` |
+
+### ✅ Benefits of Migration
+
+1. **Better Type Safety**: Full TypeScript inference for all field types
+2. **Improved Performance**: No template literal processing overhead  
+3. **Cleaner Syntax**: More readable and consistent API patterns
+4. **Better IntelliSense**: Enhanced auto-completion and error detection
+5. **Future-Proof**: Aligned with the framework's long-term architecture
+
+### 🔧 Automated Migration
+
+For large codebases, consider using find-and-replace patterns:
+
+```bash
+# Replace template literals
+find . -name "*.ts" -exec sed -i 's/ax`\([^`]*\)`/ax("\1")/g' {} \;
+find . -name "*.ts" -exec sed -i 's/s`\([^`]*\)`/s("\1")/g' {} \;
+
+# Replace constructors  
+find . -name "*.ts" -exec sed -i 's/new AxAI(/ai(/g' {} \;
+find . -name "*.ts" -exec sed -i 's/new Agent(/agent(/g' {} \;
+```
+
+All deprecated patterns will be completely removed in **v15.0.0**. We recommend migrating as soon as possible to take advantage of improved type safety and performance.
+
 ## Output Field Types
 
 | Type                        | Description                               | Usage Example                        | Example Output                                                                    |
@@ -841,8 +967,10 @@ execution and simple, readable code.
 - **🤖 Multi-Model Support**: Use different AI models for different tasks
 - **📊 State Management**: Automatic state evolution with full type safety
 - **🌊 Streaming Support**: Real-time execution with streaming
-- **🔧 Aliases**: Short method names (`.n()`, `.e()`, `.m()`) for rapid
+- **🔧 Aliases**: Short method names (`.n()`, `.e()`, `.m()`, `.r()`) for rapid
   development
+- **✨ Type Inference**: Use `.returns()` or `.r()` for automatic TypeScript type
+  inference on complex flows
 
 ### Basic Example: Document Analysis
 
@@ -869,8 +997,8 @@ const documentAnalyzer = new AxFlow<
     "keywordExtractor",
     (state) => ({ documentText: state.documentText }),
   )
-  // Combine results
-  .map((state) => ({
+  // Use returns() for proper TypeScript type inference
+  .returns((state) => ({
     summary: state.summarizerResult.summary,
     sentiment: state.sentimentAnalyzerResult.sentiment,
     keywords: state.keywordExtractorResult.keywords,
@@ -881,9 +1009,10 @@ const result = await documentAnalyzer.forward(llm, {
   documentText: "AI technology is revolutionary and will change everything...",
 });
 
-console.log("Summary:", result.summary);
-console.log("Sentiment:", result.sentiment);
-console.log("Keywords:", result.keywords);
+// TypeScript now knows the exact return type thanks to .returns()
+console.log("Summary:", result.summary);     // ✨ Fully typed as string
+console.log("Sentiment:", result.sentiment); // ✨ Fully typed as string  
+console.log("Keywords:", result.keywords);   // ✨ Fully typed as string[]
 ```
 
 ### Compact Syntax with Aliases
@@ -892,12 +1021,12 @@ For rapid development, use AxFlow's short aliases:
 
 ```typescript
 // Same functionality, ultra-compact syntax
-const quickAnalyzer = new AxFlow<{ text: string }, { result: string }>()
+const quickAnalyzer = flow<{ text: string }>()
   .n("sum", "text:string -> summary:string") // .n() = .node()
   .n("sent", "text:string -> sentiment:string") // .n() = .node()
   .e("sum", (s) => ({ text: s.text })) // .e() = .execute()
   .e("sent", (s) => ({ text: s.text })) // .e() = .execute()
-  .m((s) => ({ // .m() = .map()
+  .r((s) => ({ // .r() = .returns() for proper type inference
     result:
       `Summary: ${s.sumResult.summary}, Sentiment: ${s.sentResult.sentiment}`,
   }));

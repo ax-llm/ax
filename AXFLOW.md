@@ -197,6 +197,43 @@ flow.m(async (state) => {
 });
 ```
 
+#### `returns(transform: Function)` / `r(transform: Function)`
+Terminal transformation that sets the final output type of the flow. Use this as the last transformation to get proper TypeScript type inference for the flow result.
+
+```typescript
+const typedFlow = flow<{ input: string }>()
+  .map(state => ({ ...state, processed: true, count: 42 }))
+  .returns(state => ({
+    result: state.processed ? "done" : "pending",
+    totalCount: state.count
+  })); // TypeScript now properly infers the output type
+
+// Result is typed as { result: string; totalCount: number }
+const result = await typedFlow.forward(llm, { input: "test" });
+console.log(result.result);      // Type-safe access
+console.log(result.totalCount);  // Type-safe access
+```
+
+**Key Benefits:**
+- **Proper Type Inference**: TypeScript automatically infers the correct return type
+- **Clear Intent**: Explicitly marks the final transformation of your flow
+- **Type Safety**: Full autocomplete and type checking on the result object
+
+**Aliases:** 
+- `returns()` - Full descriptive name
+- `r()` - Short alias (matches `m()` pattern)
+
+```typescript
+// These are equivalent:
+flow.returns(state => ({ output: state.value }))
+flow.r(state => ({ output: state.value }))
+```
+
+**When to Use:**
+- When you want proper TypeScript type inference for complex flows
+- As the final step in flows that transform the state into a specific output format
+- When building reusable flows that need clear output contracts
+
 ### Control Flow Methods
 
 #### `while(condition: Function)` / `endWhile()`
@@ -694,10 +731,7 @@ const contextualFlow = new AxFlow<{ query: string; context?: string }, { respons
 ### Document Processing Pipeline
 
 ```typescript
-const documentPipeline = new AxFlow<
-  { document: string },
-  { summary: string; sentiment: string; keywords: string[] }
->()
+const documentPipeline = flow<{ document: string }>()
   .node('summarizer', 'documentText:string -> summary:string')
   .node('sentimentAnalyzer', 'documentText:string -> sentiment:string')
   .node('keywordExtractor', 'documentText:string -> keywords:string[]')
@@ -707,11 +741,19 @@ const documentPipeline = new AxFlow<
   .execute('sentimentAnalyzer', (state) => ({ documentText: state.document }))
   .execute('keywordExtractor', (state) => ({ documentText: state.document }))
   
-  .map((state) => ({
+  // Use returns() for proper type inference
+  .returns((state) => ({
     summary: state.summarizerResult.summary,
     sentiment: state.sentimentAnalyzerResult.sentiment,
     keywords: state.keywordExtractorResult.keywords
   }));
+
+// TypeScript now knows the exact return type:
+// { summary: string; sentiment: string; keywords: string[] }
+const result = await documentPipeline.forward(llm, { document: "..." });
+console.log(result.summary);    // Fully typed
+console.log(result.sentiment);  // Fully typed
+console.log(result.keywords);   // Fully typed
 ```
 
 ### Quality-Driven Content Creation

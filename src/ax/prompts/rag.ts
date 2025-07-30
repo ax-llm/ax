@@ -120,7 +120,10 @@ export const axRAG = (
 
       // Use the provided queryFn for actual retrieval
       .map(async (state) => {
-        const searchQuery = state.queryGeneratorResult.searchQuery as string;
+        const searchQuery =
+          (state.queryGeneratorResult?.searchQuery as string) ||
+          state.searchQuery ||
+          state.originalQuestion;
         const retrievedDocument = await queryFn(searchQuery);
         return {
           ...state,
@@ -220,7 +223,9 @@ export const axRAG = (
         const queries = state.currentQueries || [];
         const retrievalResults =
           queries.length > 0
-            ? await Promise.all(queries.map((query: string) => queryFn(query)))
+            ? await Promise.all(
+                queries.filter(Boolean).map((query: string) => queryFn(query))
+              )
             : [];
         return {
           ...state,
@@ -303,7 +308,11 @@ export const axRAG = (
 
       // Use queryFn for healing retrieval
       .map(async (state) => {
-        const healingQuery = `${state.originalQuestion} addressing issues: ${(state.currentIssues as string[])?.join(', ') || 'quality improvement'}`;
+        const issues = (state.currentIssues as string[]) || [];
+        const healingQuery =
+          issues.length > 0
+            ? `${state.originalQuestion} addressing issues: ${issues.join(', ')}`
+            : `${state.originalQuestion} quality improvement`;
         const healingDocument = await queryFn(healingQuery);
         return {
           ...state,
@@ -345,7 +354,7 @@ export const axRAG = (
       .merge()
 
       // Final output mapping
-      .map((state) => ({
+      .returns((state) => ({
         finalAnswer: state.currentAnswer,
         totalHops: state.currentHop,
         retrievedContexts: state.retrievedContexts,

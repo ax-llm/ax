@@ -924,7 +924,7 @@ export class AxFlow<
 
       // Return the final state cast to the expected output type
       // The type system ensures this is safe based on the signature inference
-      return state as OUT;
+      return state as any;
     } catch (error) {
       // Log flow error
       if (this.flowLogger) {
@@ -1376,6 +1376,78 @@ export class AxFlow<
     options?: { parallel?: boolean }
   ): AxFlow<IN, OUT, TNodes, TNewState> {
     return this.map(transformOrTransforms as any, options);
+  }
+
+  /**
+   * Terminal transformation that sets the final output type of the flow.
+   * Use this as the last transformation to get proper type inference for the flow result.
+   *
+   * @param transform - Function that transforms the current state to the final output
+   * @returns A new flow with the output type set to the transform result
+   *
+   * @example
+   * ```typescript
+   * const flow = flow<{ input: string }>()
+   *   .map(state => ({ ...state, processed: true }))
+   *   .returns(state => ({
+   *     result: state.processed ? "done" : "pending"
+   *   })) // TypeScript now knows the output is { result: string }
+   * ```
+   */
+  public returns<TNewOut extends Record<string, unknown>>(
+    transform: (_state: TState) => TNewOut
+  ): AxFlow<IN, TNewOut, TNodes, TState> {
+    // Add the transformation to the flow definition
+    // Note: We need to ensure the result extends AxFlowState (Record<string, unknown>)
+    const step: AxFlowStepFunction = async (state: AxFlowState) => {
+      const result = transform(state as TState);
+      return Promise.resolve(result as AxFlowState);
+    };
+
+    if (this.branchContext?.currentBranchValue !== undefined) {
+      const currentBranch =
+        this.branchContext.branches.get(
+          this.branchContext.currentBranchValue
+        ) || [];
+      currentBranch.push(step);
+      this.branchContext.branches.set(
+        this.branchContext.currentBranchValue,
+        currentBranch
+      );
+    } else {
+      this.flowDefinition.push(step);
+
+      // Add to execution planner for automatic parallelization
+      if (this.autoParallelConfig.enabled) {
+        this.executionPlanner.addExecutionStep(
+          step,
+          undefined,
+          undefined,
+          'map', // Treat returns as a special map operation
+          transform
+        );
+      }
+    }
+
+    // Initialize program when flow structure is updated (only if we have nodes)
+    if (this.nodeGenerators.size > 0) {
+      this.ensureProgram();
+    }
+
+    // Return a new flow with the updated output type
+    return this as unknown as AxFlow<IN, TNewOut, TNodes, TState>;
+  }
+
+  /**
+   * Short alias for returns() - r() is to returns() as m() is to map()
+   *
+   * @param transform - Function that transforms the current state to the final output
+   * @returns A new flow with the output type set to the transform result
+   */
+  public r<TNewOut extends Record<string, unknown>>(
+    transform: (_state: TState) => TNewOut
+  ): AxFlow<IN, TNewOut, TNodes, TState> {
+    return this.returns(transform);
   }
 
   /**
