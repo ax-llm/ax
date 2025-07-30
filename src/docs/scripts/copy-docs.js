@@ -39,6 +39,12 @@ const filesToCopy = [
     description:
       'Advanced RAG with multi-hop retrieval and self-healing quality loops',
   },
+  {
+    source: 'MIGRATION.md',
+    dest: 'migration.md',
+    title: 'Migration Guide',
+    description: 'Complete migration guide for Ax v13.0.24+ API changes',
+  },
 ];
 
 // Ensure content/docs directory exists

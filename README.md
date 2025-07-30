@@ -203,131 +203,18 @@ result.category; // TypeScript shows "a" | "b" | "c" - perfect safety!
 The `ax()` function provides the best balance of type safety, performance, and
 readability.
 
-## Migration Guide: API Changes & Deprecations
+## API Changes & Deprecations
 
-**Version 13.0.24+** introduces significant API improvements for better type safety and consistency. This section outlines what's changed and how to migrate your code.
+**Version 14.0.0+** introduces significant API improvements. Some older patterns
+are deprecated and will be removed in v15.0.0:
 
-### 🚨 Removed Functions (v13.0.24+)
+- **Template literals**: `` ax`template` `` and `` s`template` `` → Use
+  `ax('string')` and `s('string')`
+- **Constructors**: `new AxAI()`, `new AxAgent()`, etc. → Use factory functions
+  `ai()`, `agent()`
 
-The following functions have been **completely removed** and are no longer available:
-
-#### Field Helper Functions
-- **Removed**: `f.string()`, `f.number()`, `f.boolean()`, `f.json()`, `f.array()`, `f.optional()`, `f.class()`, `f.date()`, `f.datetime()`, `f.image()`, `f.audio()`, `f.file()`, `f.url()`, `f.code()`
-- **Reason**: These functions didn't provide proper TypeScript type inference
-- **Migration**: Use string-based type annotations in signatures
-
-```typescript
-// ❌ REMOVED: Field helper functions
-// const sig = s`input:${f.string("desc")} -> output:${f.array(f.string())}`
-
-// ✅ NEW: String-based type annotations
-const sig = s('input:string "desc" -> output:string[] "array output"')
-```
-
-#### Template Literal Functions  
-- **Removed**: `` ax`template` `` and `` s`template` `` template literal syntax
-- **Reason**: Poor TypeScript inference and runtime overhead
-- **Migration**: Use function call syntax instead
-
-```typescript
-// ❌ REMOVED: Template literal syntax
-// const gen = ax`input:string -> output:string`
-// const sig = s`input:string -> output:string`
-
-// ✅ NEW: Function call syntax  
-const gen = ax('input:string -> output:string')
-const sig = s('input:string -> output:string')
-```
-
-#### Legacy Classes
-- **Removed**: `AxChainOfThought` - No longer needed with modern thinking models (o1, etc.)
-- **Removed**: `AxRAG` - Replaced with `axRAG` built on AxFlow architecture
-
-### 📋 Migration Checklist
-
-**Step 1: Update AI Instance Creation**
-```typescript
-// ❌ OLD: Constructor
-// const ai = new AxAI({ name: 'openai', apiKey: '...' })
-
-// ✅ NEW: Factory function (recommended variable name)
-const llm = ai({ name: 'openai', apiKey: '...' })
-```
-
-**Step 2: Update Signature Creation**
-```typescript
-// ❌ OLD: Constructor or field helpers
-// const sig = new AxSignature('input:string -> output:string')
-// const sig = s`input:${f.string()} -> output:${f.string()}`
-
-// ✅ NEW: String-based signatures
-const sig = s('input:string -> output:string')
-// OR use AxSignature.create() for explicit typing
-const sig = AxSignature.create('input:string -> output:string')
-```
-
-**Step 3: Update Generator Creation**
-```typescript  
-// ❌ OLD: Template literals
-// const gen = ax`input:string -> output:string`
-
-// ✅ NEW: Function call
-const gen = ax('input:string -> output:string')
-```
-
-**Step 4: Update Agent Creation**
-```typescript
-// ❌ OLD: Constructor
-// const agent = new Agent({ name: '...', signature: sig, ai: llm })
-
-// ✅ NEW: Factory function
-const agentInstance = agent({ name: '...', signature: sig, ai: llm })
-```
-
-**Step 5: Update RAG Usage**
-```typescript
-// ❌ OLD: AxRAG class
-// const rag = new AxRAG({ ai: llm, db: vectorDb })
-
-// ✅ NEW: axRAG function (AxFlow-based)
-const rag = axRAG({ ai: llm, db: vectorDb })
-```
-
-### 🎯 Field Type Migration
-
-| Old Field Helper | New String Syntax | Example |
-|------------------|-------------------|---------|
-| `f.string('desc')` | `field:string "desc"` | `userInput:string "User question"` |
-| `f.number('desc')` | `field:number "desc"` | `score:number "Confidence 0-1"` |
-| `f.boolean('desc')` | `field:boolean "desc"` | `isValid:boolean "Is input valid"` |
-| `f.json('desc')` | `field:json "desc"` | `metadata:json "Extra data"` |
-| `f.array(f.string())` | `field:string[]` | `tags:string[] "Keywords"` |
-| `f.optional(f.string())` | `field?:string` | `context?:string "Optional context"` |
-| `f.class(['a','b'], 'desc')` | `field:class "a, b" "desc"` | `category:class "urgent, normal, low" "Priority"` |
-
-### ✅ Benefits of Migration
-
-1. **Better Type Safety**: Full TypeScript inference for all field types
-2. **Improved Performance**: No template literal processing overhead  
-3. **Cleaner Syntax**: More readable and consistent API patterns
-4. **Better IntelliSense**: Enhanced auto-completion and error detection
-5. **Future-Proof**: Aligned with the framework's long-term architecture
-
-### 🔧 Automated Migration
-
-For large codebases, consider using find-and-replace patterns:
-
-```bash
-# Replace template literals
-find . -name "*.ts" -exec sed -i 's/ax`\([^`]*\)`/ax("\1")/g' {} \;
-find . -name "*.ts" -exec sed -i 's/s`\([^`]*\)`/s("\1")/g' {} \;
-
-# Replace constructors  
-find . -name "*.ts" -exec sed -i 's/new AxAI(/ai(/g' {} \;
-find . -name "*.ts" -exec sed -i 's/new Agent(/agent(/g' {} \;
-```
-
-All deprecated patterns will be completely removed in **v15.0.0**. We recommend migrating as soon as possible to take advantage of improved type safety and performance.
+For detailed migration instructions and automated migration scripts, see
+[**MIGRATION.md**](MIGRATION.md).
 
 ## Output Field Types
 
@@ -969,8 +856,8 @@ execution and simple, readable code.
 - **🌊 Streaming Support**: Real-time execution with streaming
 - **🔧 Aliases**: Short method names (`.n()`, `.e()`, `.m()`, `.r()`) for rapid
   development
-- **✨ Type Inference**: Use `.returns()` or `.r()` for automatic TypeScript type
-  inference on complex flows
+- **✨ Type Inference**: Use `.returns()` or `.r()` for automatic TypeScript
+  type inference on complex flows
 
 ### Basic Example: Document Analysis
 
@@ -1010,9 +897,9 @@ const result = await documentAnalyzer.forward(llm, {
 });
 
 // TypeScript now knows the exact return type thanks to .returns()
-console.log("Summary:", result.summary);     // ✨ Fully typed as string
-console.log("Sentiment:", result.sentiment); // ✨ Fully typed as string  
-console.log("Keywords:", result.keywords);   // ✨ Fully typed as string[]
+console.log("Summary:", result.summary); // ✨ Fully typed as string
+console.log("Sentiment:", result.sentiment); // ✨ Fully typed as string
+console.log("Keywords:", result.keywords); // ✨ Fully typed as string[]
 ```
 
 ### Compact Syntax with Aliases
