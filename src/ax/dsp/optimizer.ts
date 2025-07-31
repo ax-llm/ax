@@ -22,7 +22,7 @@ export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
 // Multi-objective metric function for Pareto optimization
 export type AxMultiMetricFn = <T = any>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
-) => Record<string, number>;
+) => Record<string, number> | Promise<Record<string, number>>;
 
 // Progress tracking interface for real-time updates
 export interface AxOptimizationProgress {
