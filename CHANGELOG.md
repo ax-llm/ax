@@ -1,5 +1,27 @@
 # Changelog
 
+## [14.0.1](https://github.com/ax-llm/ax/compare/13.0.24...14.0.0) (2025-07-31)
+## [14.0.0](https://github.com/ax-llm/ax/compare/13.0.24...14.0.0) (2025-07-30)
+
+### Features
+
+* add AxChatResponse missing fields analysis and enhance type definitions ([23d72a3](https://github.com/ax-llm/ax/commit/23d72a3c062a45b9d7ba61f422b77d7eac16ba30))
+* add comprehensive cursor rules documentation for Ax framework ([d7e1c17](https://github.com/ax-llm/ax/commit/d7e1c17f121d9f1efff79bf9545c1faa1336f084))
+* add comprehensive migration guide for Ax v14.0.0+ API changes ([9a5a706](https://github.com/ax-llm/ax/commit/9a5a7060a48f9eef46efc680b0cdf6b42bff5df2))
+* add schema cleaning functions for Anthropic and Gemini API compatibility ([040f615](https://github.com/ax-llm/ax/commit/040f615b7741829c7c36ffb728a9fd1a21c04c95))
+* add support for file and URL types in Ax framework ([b7e0a78](https://github.com/ax-llm/ax/commit/b7e0a784234229643a8512b70aaf027cb4877f95))
+* enhance Ax framework with new node extension capabilities and type-safe functions ([7d7ea7a](https://github.com/ax-llm/ax/commit/7d7ea7ae5a6921923b50d2c98db40f827b12a972))
+* enhance AxFlow with asynchronous transformation capabilities ([06e17b8](https://github.com/ax-llm/ax/commit/06e17b873f5a97a7bd6a543aaa464f0682f10047))
+* enhance multi-modal support in AxChatRequest and provider capabilities ([38ac67f](https://github.com/ax-llm/ax/commit/38ac67f9fa6afc8a12b800a68546c5ee941d3741))
+* enhance type safety in Ax framework with dynamic signature parsing ([eb4f138](https://github.com/ax-llm/ax/commit/eb4f1387a0e5c9747f72867b5314ceefbf990eb1))
+* expand testing documentation and improve type definitions for Ax framework ([ca96127](https://github.com/ax-llm/ax/commit/ca961276dddc0fe79e1a292f6bddf464d525d4de))
+* extend Ax framework with new AI capabilities and improve type safety ([489e458](https://github.com/ax-llm/ax/commit/489e4583dfad5bba4901f2f843344fbcf3e41bc7))
+* integrate Python optimizer service into Ax MiPRO ([bfcb759](https://github.com/ax-llm/ax/commit/bfcb759abce818c879475f09e90e024ad0dd99b7))
+* introduce axRAG for advanced retrieval-augmented generation capabilities ([dc3e466](https://github.com/ax-llm/ax/commit/dc3e466486910ea79e1f3342a1002013b602efff))
+* introduce fluent API for complex signatures in Ax framework ([f64c5d9](https://github.com/ax-llm/ax/commit/f64c5d9388c29d7c75537d0e310449f91de1bbaf))
+* introduce returns() method for enhanced type inference in AxFlow ([c586bcd](https://github.com/ax-llm/ax/commit/c586bcd283ea50341ef46de9f634ef71b2696a9e))
+* update documentation to include new file and URL field types ([ecd7b38](https://github.com/ax-llm/ax/commit/ecd7b38bc645834d894a8512c15611ee8bcee669))
+
 ## [14.0.0](https://github.com/ax-llm/ax/compare/13.0.23...13.0.24) (2025-07-30)
 
 ### Features
