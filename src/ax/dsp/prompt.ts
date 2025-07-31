@@ -518,23 +518,33 @@ export class AxPromptTemplate {
     if (field.type?.name === 'file') {
       const validateFile = (
         value: Readonly<AxFieldValue>
-      ): { filename: string; mimeType: string; data: string } => {
+      ):
+        | { mimeType: string; data: string }
+        | { mimeType: string; fileUri: string } => {
         if (!value) {
           throw new Error('File field value is required.');
         }
         if (typeof value !== 'object') {
           throw new Error('File field value must be an object.');
         }
-        if (!('filename' in value)) {
-          throw new Error('File field must have filename');
-        }
         if (!('mimeType' in value)) {
           throw new Error('File field must have mimeType');
         }
-        if (!('data' in value)) {
-          throw new Error('File field must have data');
+
+        // Support both data and fileUri formats
+        const hasData = 'data' in value;
+        const hasFileUri = 'fileUri' in value;
+
+        if (!hasData && !hasFileUri) {
+          throw new Error('File field must have either data or fileUri');
         }
-        return value as { filename: string; mimeType: string; data: string };
+        if (hasData && hasFileUri) {
+          throw new Error('File field cannot have both data and fileUri');
+        }
+
+        return value as
+          | { mimeType: string; data: string }
+          | { mimeType: string; fileUri: string };
       };
       let result: ChatRequestUserMessage = [
         { type: 'text', text: `${field.title}: ` as string },
@@ -546,22 +556,34 @@ export class AxPromptTemplate {
         result = result.concat(
           (value as unknown[]).map((v) => {
             const validated = validateFile(v as AxFieldValue);
-            return {
-              type: 'file',
-              filename: validated.filename,
-              mimeType: validated.mimeType,
-              data: validated.data,
-            };
+            return 'fileUri' in validated
+              ? {
+                  type: 'file',
+                  mimeType: validated.mimeType,
+                  fileUri: validated.fileUri,
+                }
+              : {
+                  type: 'file',
+                  mimeType: validated.mimeType,
+                  data: validated.data,
+                };
           })
         );
       } else {
         const validated = validateFile(value);
-        result.push({
-          type: 'file',
-          filename: validated.filename,
-          mimeType: validated.mimeType,
-          data: validated.data,
-        });
+        result.push(
+          'fileUri' in validated
+            ? {
+                type: 'file',
+                mimeType: validated.mimeType,
+                fileUri: validated.fileUri,
+              }
+            : {
+                type: 'file',
+                mimeType: validated.mimeType,
+                data: validated.data,
+              }
+        );
       }
       return result;
     }

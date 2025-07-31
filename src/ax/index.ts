@@ -518,6 +518,7 @@ import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
   type AxField,
   type AxFieldType,
+  type AxFluentFieldInfo,
   AxFluentFieldType,
   type AxIField,
   AxSignature,
@@ -1102,6 +1103,7 @@ export type { AxFlowSubContext };
 export type { AxFlowTypedParallelBranch };
 export type { AxFlowTypedSubContext };
 export type { AxFlowable };
+export type { AxFluentFieldInfo };
 export type { AxForwardable };
 export type { AxFunction };
 export type { AxFunctionHandler };

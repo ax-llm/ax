@@ -379,8 +379,13 @@ type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
                     : { format?: 'wav'; data: string }
                   : T['type'] extends 'file'
                     ? T['isArray'] extends true
-                      ? { mimeType: string; data: string }[]
-                      : { mimeType: string; data: string }
+                      ? (
+                          | { mimeType: string; data: string }
+                          | { mimeType: string; fileUri: string }
+                        )[]
+                      :
+                          | { mimeType: string; data: string }
+                          | { mimeType: string; fileUri: string }
                     : T['type'] extends 'url'
                       ? T['isArray'] extends true
                         ? string[]
@@ -452,8 +457,13 @@ type InferFluentType<
                   : { format?: 'wav'; data: string }
                 : T['type'] extends 'file'
                   ? T['isArray'] extends true
-                    ? { mimeType: string; data: string }[]
-                    : { mimeType: string; data: string }
+                    ? (
+                        | { mimeType: string; data: string }
+                        | { mimeType: string; fileUri: string }
+                      )[]
+                    :
+                        | { mimeType: string; data: string }
+                        | { mimeType: string; fileUri: string }
                   : T['type'] extends 'url'
                     ? T['isArray'] extends true
                       ? string[]

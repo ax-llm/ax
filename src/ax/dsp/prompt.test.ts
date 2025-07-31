@@ -279,4 +279,159 @@ describe('AxPromptTemplate.render', () => {
       });
     });
   });
+
+  describe('File field handling', () => {
+    it('should render file field with data (base64)', () => {
+      const sig = new AxSignature('fileInput:file -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      const result = pt.render(
+        {
+          fileInput: {
+            mimeType: 'application/pdf',
+            data: 'base64data',
+          },
+        },
+        {}
+      );
+
+      expect(result).toHaveLength(2); // system + user message
+
+      // Check user message
+      const userMessage = result.find((m) => m.role === 'user');
+      expect(userMessage).toBeDefined();
+      expect(userMessage!.content).toHaveLength(2);
+      expect(userMessage!.content[0]).toEqual({
+        type: 'text',
+        text: 'File Input: \n',
+      });
+      expect(userMessage!.content[1]).toEqual({
+        type: 'file',
+        mimeType: 'application/pdf',
+        data: 'base64data',
+      });
+    });
+
+    it('should render file field with fileUri (gs:// URL)', () => {
+      const sig = new AxSignature('fileInput:file -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      const result = pt.render(
+        {
+          fileInput: {
+            mimeType: 'application/pdf',
+            fileUri: 'gs://my-bucket/test.pdf',
+          },
+        },
+        {}
+      );
+
+      expect(result).toHaveLength(2); // system + user message
+
+      // Check user message
+      const userMessage = result.find((m) => m.role === 'user');
+      expect(userMessage).toBeDefined();
+      expect(userMessage!.content).toHaveLength(2);
+      expect(userMessage!.content[0]).toEqual({
+        type: 'text',
+        text: 'File Input: \n',
+      });
+      expect(userMessage!.content[1]).toEqual({
+        type: 'file',
+        mimeType: 'application/pdf',
+        fileUri: 'gs://my-bucket/test.pdf',
+      });
+    });
+
+    it('should render array of files with mixed formats', () => {
+      const sig = new AxSignature('fileInputs:file[] -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      const result = pt.render(
+        {
+          fileInputs: [
+            {
+              mimeType: 'application/pdf',
+              data: 'base64data1',
+            },
+            {
+              mimeType: 'application/pdf',
+              fileUri: 'gs://my-bucket/doc2.pdf',
+            },
+          ],
+        },
+        {}
+      );
+
+      expect(result).toHaveLength(2); // system + user message
+
+      // Check user message
+      const userMessage = result.find((m) => m.role === 'user');
+      expect(userMessage).toBeDefined();
+      expect(userMessage!.content).toHaveLength(3);
+
+      // Text prefix
+      expect(userMessage!.content[0]).toEqual({
+        type: 'text',
+        text: 'File Inputs: \n',
+      });
+
+      // First file with data
+      expect(userMessage!.content[1]).toEqual({
+        type: 'file',
+        mimeType: 'application/pdf',
+        data: 'base64data1',
+      });
+
+      // Second file with fileUri
+      expect(userMessage!.content[2]).toEqual({
+        type: 'file',
+        mimeType: 'application/pdf',
+        fileUri: 'gs://my-bucket/doc2.pdf',
+      });
+    });
+
+    it('should validate file field requirements', () => {
+      const sig = new AxSignature('fileInput:file -> responseText:string');
+      const pt = new AxPromptTemplate(sig);
+
+      // Missing mimeType
+      expect(() =>
+        pt.render(
+          {
+            fileInput: {
+              data: 'base64data',
+            },
+          },
+          {}
+        )
+      ).toThrow(/mimeType.*data.*fileUri/);
+
+      // Missing both data and fileUri
+      expect(() =>
+        pt.render(
+          {
+            fileInput: {
+              mimeType: 'application/pdf',
+            },
+          },
+          {}
+        )
+      ).toThrow(/mimeType.*data.*fileUri/);
+
+      // Both data and fileUri present
+      expect(() =>
+        pt.render(
+          {
+            fileInput: {
+              mimeType: 'application/pdf',
+              data: 'base64data',
+              fileUri: 'gs://my-bucket/test.pdf',
+            },
+          },
+          {}
+        )
+      ).toThrow(/mimeType.*data.*fileUri/);
+    });
+  });
 });

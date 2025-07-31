@@ -263,6 +263,20 @@ class AxAIGoogleGeminiImpl
                       return {
                         inlineData: { mimeType: c.mimeType, data: c.image },
                       };
+                    case 'file':
+                      // Support both inline data and fileUri formats
+                      if ('fileUri' in c) {
+                        return {
+                          fileData: {
+                            mimeType: c.mimeType,
+                            fileUri: c.fileUri,
+                          },
+                        };
+                      } else {
+                        return {
+                          inlineData: { mimeType: c.mimeType, data: c.data },
+                        };
+                      }
                     default:
                       throw new Error(
                         `Chat prompt content type not supported (index: ${i})`

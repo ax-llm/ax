@@ -889,3 +889,30 @@ describe('Type-safe field addition methods', () => {
     expect(outputFields[1].name).not.toMatch(/[\s\n\t\r]/);
   });
 });
+
+describe('File type union support', () => {
+  it('should support file type with data field', () => {
+    const sig = new AxSignature('fileInput:file -> responseText:string');
+    const inputFields = sig.getInputFields();
+    expect(inputFields).toHaveLength(1);
+    expect(inputFields[0].name).toBe('fileInput');
+    expect(inputFields[0].type?.name).toBe('file');
+  });
+
+  it('should support file type with fileUri field', () => {
+    const sig = new AxSignature('fileInput:file -> responseText:string');
+    const inputFields = sig.getInputFields();
+    expect(inputFields).toHaveLength(1);
+    expect(inputFields[0].name).toBe('fileInput');
+    expect(inputFields[0].type?.name).toBe('file');
+  });
+
+  it('should support array of files with mixed formats', () => {
+    const sig = new AxSignature('fileInputs:file[] -> responseText:string');
+    const inputFields = sig.getInputFields();
+    expect(inputFields).toHaveLength(1);
+    expect(inputFields[0].name).toBe('fileInputs');
+    expect(inputFields[0].type?.name).toBe('file');
+    expect(inputFields[0].type?.isArray).toBe(true);
+  });
+});

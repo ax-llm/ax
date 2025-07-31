@@ -1,7 +1,12 @@
 /* spell-checker: disable */
 import { describe, expect, it, test } from 'vitest';
 
-import { LRUCache, matchesContent, parseMarkdownList } from './util.js';
+import {
+  LRUCache,
+  matchesContent,
+  parseMarkdownList,
+  validateValue,
+} from './util.js';
 
 // Tests for parseMarkdownList
 describe('parseMarkdownList', () => {
@@ -157,5 +162,91 @@ describe('matchesContent', () => {
       const cachedPrefixesAfterSecondCall = prefixCache.get('are you');
       expect(cachedPrefixesAfterSecondCall).toBe(cachedPrefixes);
     });
+  });
+});
+
+describe('File type validation', () => {
+  it('should validate file with data field', () => {
+    const field = { name: 'testFile', type: { name: 'file' as const } };
+    const value = {
+      filename: 'test.pdf',
+      mimeType: 'application/pdf',
+      data: 'base64data',
+    };
+
+    // Should not throw
+    expect(() => validateValue(field, value)).not.toThrow();
+  });
+
+  it('should validate file with fileUri field', () => {
+    const field = { name: 'testFile', type: { name: 'file' as const } };
+    const value = {
+      filename: 'test.pdf',
+      mimeType: 'application/pdf',
+      fileUri: 'gs://my-bucket/test.pdf',
+    };
+
+    // Should not throw
+    expect(() => validateValue(field, value)).not.toThrow();
+  });
+
+  it('should reject file with both data and fileUri', () => {
+    const field = { name: 'testFile', type: { name: 'file' as const } };
+    const value = {
+      filename: 'test.pdf',
+      mimeType: 'application/pdf',
+      data: 'base64data',
+      fileUri: 'gs://my-bucket/test.pdf',
+    };
+
+    expect(() => validateValue(field, value)).toThrow(
+      /object.*mimeType.*data.*fileUri/
+    );
+  });
+
+  it('should reject file with neither data nor fileUri', () => {
+    const field = { name: 'testFile', type: { name: 'file' as const } };
+    const value = {
+      filename: 'test.pdf',
+      mimeType: 'application/pdf',
+    };
+
+    expect(() => validateValue(field, value)).toThrow(
+      /object.*mimeType.*data.*fileUri/
+    );
+  });
+
+  it('should reject file without required fields', () => {
+    const field = { name: 'testFile', type: { name: 'file' as const } };
+
+    // Missing mimeType
+    expect(() => validateValue(field, { data: 'base64data' })).toThrow();
+
+    // Missing both data and fileUri
+    expect(() =>
+      validateValue(field, { mimeType: 'application/pdf' })
+    ).toThrow();
+  });
+
+  it('should validate array of files with mixed formats', () => {
+    const field = {
+      name: 'testFiles',
+      type: { name: 'file' as const, isArray: true },
+    };
+    const value = [
+      {
+        filename: 'test1.pdf',
+        mimeType: 'application/pdf',
+        data: 'base64data',
+      },
+      {
+        filename: 'test2.pdf',
+        mimeType: 'application/pdf',
+        fileUri: 'gs://my-bucket/test2.pdf',
+      },
+    ];
+
+    // Should not throw
+    expect(() => validateValue(field, value)).not.toThrow();
   });
 });

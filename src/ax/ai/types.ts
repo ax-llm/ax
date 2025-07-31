@@ -187,12 +187,25 @@ export type AxChatRequest<TModel = string> = {
                   duration?: number;
                 }
               | {
-                  /** File content type */
+                  /** File content type with inline data */
                   type: 'file';
-                  /** File data as base64 or file URL */
+                  /** File data as base64 */
                   data: string;
                   /** Original filename */
-                  filename: string;
+                  filename?: string;
+                  /** MIME type of the file */
+                  mimeType: string;
+                  cache?: boolean;
+                  /** Pre-extracted text content for fallback */
+                  extractedText?: string;
+                }
+              | {
+                  /** File content type with cloud storage URI */
+                  type: 'file';
+                  /** File URI (e.g., gs:// URL) */
+                  fileUri: string;
+                  /** Original filename */
+                  filename?: string;
                   /** MIME type of the file */
                   mimeType: string;
                   cache?: boolean;
