@@ -28,6 +28,15 @@ export type AxGenIn = { [key: string]: AxFieldValue };
 
 export type AxGenOut = { [key: string]: AxFieldValue };
 
+/**
+ * @deprecated AxMessage will be updated to a new design within this major version.
+ * The current structure will be replaced in v15.0.0.
+ *
+ * Migration timeline:
+ * - v14.0.0+: Deprecation warnings (current)
+ * - v14.x: New message design introduced alongside existing
+ * - v15.0.0: Complete replacement with new design
+ */
 export type AxMessage<IN> =
   | { role: 'user'; values: IN }
   | { role: 'assistant'; values: IN };

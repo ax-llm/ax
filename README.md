@@ -212,6 +212,7 @@ are deprecated and will be removed in v15.0.0:
   `ax('string')` and `s('string')`
 - **Constructors**: `new AxAI()`, `new AxAgent()`, etc. → Use factory functions
   `ai()`, `agent()`
+- **AxMessage**: Current structure will be replaced with new design in v15.0.0
 
 For detailed migration instructions and automated migration scripts, see
 [**MIGRATION.md**](MIGRATION.md).
