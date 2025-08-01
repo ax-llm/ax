@@ -1,6 +1,6 @@
 import { ai, agent } from '@ax-llm/ax';
 
-// Example tools
+// Example tools with dot notation support
 const searchTool = {
   name: 'searchWeb',
   description: 'Search the web for information',
@@ -8,12 +8,13 @@ const searchTool = {
     type: 'object',
     properties: {
       query: { type: 'string', description: 'Search query' },
+      limit: { type: 'number', description: 'Maximum results' },
     },
     required: ['query'],
   },
-  func: async (args: { query: string }) => {
+  func: async (args: { query: string; limit?: number }) => {
     console.log(`Searching for: ${args.query}`);
-    return `Found 10 results for "${args.query}"`;
+    return `Found results for "${args.query}"`;
   },
 };
 

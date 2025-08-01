@@ -1163,6 +1163,7 @@ export class AxSignature<
 
   /**
    * Inject tool schemas as optional output fields for signature tool calling
+   * Uses dot notation for nested parameters (jq-like syntax)
    */
   public injectToolFields(
     tools: readonly import('../ai/types.js').AxFunction[]
@@ -1170,23 +1171,137 @@ export class AxSignature<
     const newSig = new AxSignature(this);
 
     for (const tool of tools) {
-      const fieldName = this.sanitizeFieldName(tool.name);
-      const fieldType = this.inferToolFieldType(tool.parameters);
+      if (
+        tool.parameters?.properties &&
+        Object.keys(tool.parameters.properties).length > 0
+      ) {
+        // Generate fields for each parameter using dot notation
+        const fields = this.generateToolParameterFields(tool);
 
-      // Check if field already exists to avoid duplicates
-      const exists = newSig.outputFields.some((f) => f.name === fieldName);
-      if (!exists) {
-        newSig.addOutputField({
-          name: fieldName,
-          title: this.formatTitle(tool.name),
-          type: fieldType,
-          description: tool.description || `Result from ${tool.name}`,
-          isOptional: true,
-        });
+        for (const field of fields) {
+          // Check if field already exists to avoid duplicates
+          const exists = newSig.outputFields.some((f) => f.name === field.name);
+          if (!exists) {
+            newSig.addOutputField(field);
+          }
+        }
+      } else {
+        // Fallback for tools without parameters or empty parameters
+        const fieldName = this.sanitizeFieldName(tool.name);
+        const fieldType = this.inferToolFieldType(tool.parameters);
+
+        const exists = newSig.outputFields.some((f) => f.name === fieldName);
+        if (!exists) {
+          newSig.addOutputField({
+            name: fieldName,
+            title: this.formatTitle(tool.name),
+            type: fieldType,
+            description: tool.description || `Parameters for ${tool.name}`,
+            isOptional: true,
+          });
+        }
       }
     }
 
     return newSig;
+  }
+
+  /**
+   * Generate signature fields for tool parameters using dot notation
+   */
+  private generateToolParameterFields(
+    tool: import('../ai/types.js').AxFunction
+  ): AxField[] {
+    const fields: AxField[] = [];
+
+    if (!tool.parameters || !tool.parameters.properties) {
+      return fields;
+    }
+
+    const properties = tool.parameters.properties as Record<string, any>;
+    const required = (tool.parameters.required as string[]) || [];
+
+    const processProperties = (
+      props: Record<string, any>,
+      prefix: string,
+      _parentRequired: string[]
+    ) => {
+      for (const [key, schema] of Object.entries(props)) {
+        const fieldPath = prefix ? `${prefix}.${key}` : key;
+        const fullName = `${tool.name}.${fieldPath}`;
+
+        if (schema.type === 'object' && schema.properties) {
+          // Recursively handle nested objects
+          processProperties(
+            schema.properties,
+            fieldPath,
+            schema.required || []
+          );
+        } else {
+          // Create field for this parameter
+          const fieldType = this.inferParameterType(schema);
+
+          // All tool parameters should be optional since they're for signature tool calling
+          fields.push({
+            name: this.sanitizeFieldName(fullName),
+            title: this.formatParameterTitle(tool.name, fieldPath),
+            type: fieldType,
+            description:
+              schema.description || `${key} parameter for ${tool.name}`,
+            isOptional: true,
+          });
+        }
+      }
+    };
+
+    processProperties(properties, '', required);
+    return fields;
+  }
+
+  /**
+   * Infer signature field type from JSON Schema parameter
+   */
+  private inferParameterType(schema: any): {
+    name: 'string' | 'number' | 'boolean' | 'json';
+    isArray: boolean;
+  } {
+    switch (schema.type) {
+      case 'string':
+        return { name: 'string', isArray: false };
+      case 'number':
+      case 'integer':
+        return { name: 'number', isArray: false };
+      case 'boolean':
+        return { name: 'boolean', isArray: false };
+      case 'array': {
+        const items = schema.items;
+        if (items?.type) {
+          switch (items.type) {
+            case 'string':
+              return { name: 'string', isArray: true };
+            case 'number':
+            case 'integer':
+              return { name: 'number', isArray: true };
+            case 'boolean':
+              return { name: 'boolean', isArray: true };
+            default:
+              return { name: 'json', isArray: true };
+          }
+        }
+        return { name: 'json', isArray: true };
+      }
+      case 'object':
+        return { name: 'json', isArray: false };
+      default:
+        return { name: 'string', isArray: false };
+    }
+  }
+
+  /**
+   * Format parameter title for display
+   */
+  private formatParameterTitle(toolName: string, paramPath: string): string {
+    return `${toolName} ${paramPath.replace(/\./g, ' ')}`;
   }
 
   private sanitizeFieldName(name: string): string {
