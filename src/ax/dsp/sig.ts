@@ -1161,6 +1161,64 @@ export class AxSignature<
 
   public toString = () => this.sigString;
 
+  /**
+   * Inject tool schemas as optional output fields for signature tool calling
+   */
+  public injectToolFields(
+    tools: readonly import('../ai/types.js').AxFunction[]
+  ): AxSignature<_TInput, _TOutput> {
+    const newSig = new AxSignature(this);
+
+    for (const tool of tools) {
+      const fieldName = this.sanitizeFieldName(tool.name);
+      const fieldType = this.inferToolFieldType(tool.parameters);
+
+      // Check if field already exists to avoid duplicates
+      const exists = newSig.outputFields.some((f) => f.name === fieldName);
+      if (!exists) {
+        newSig.addOutputField({
+          name: fieldName,
+          title: this.formatTitle(tool.name),
+          type: fieldType,
+          description: tool.description || `Result from ${tool.name}`,
+          isOptional: true,
+        });
+      }
+    }
+
+    return newSig;
+  }
+
+  private sanitizeFieldName(name: string): string {
+    // Convert camelCase/PascalCase to snake_case
+    return name
+      .replace(/([A-Z])/g, '_$1')
+      .toLowerCase()
+      .replace(/^_|_$/g, '')
+      .replace(/[^a-z0-9_]/g, '_');
+  }
+
+  private formatTitle(name: string): string {
+    // Convert camelCase to Title Case
+    return name
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
+  }
+
+  private inferToolFieldType(parameters?: AxFunctionJSONSchema) {
+    if (
+      !parameters ||
+      !parameters.properties ||
+      Object.keys(parameters.properties).length === 0
+    ) {
+      return { name: 'string' as const, isArray: false };
+    }
+
+    // For tools with parameters, use JSON type to capture the arguments
+    return { name: 'json' as const, isArray: false };
+  }
+
   public toJSON = () => {
     return {
       id: this.hash(),
