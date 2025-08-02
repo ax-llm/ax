@@ -659,6 +659,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
 > {
   constructor({
     apiKey,
+    apiURL,
     config,
     options,
     models,
@@ -741,6 +742,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
 
     super({
       apiKey,
+      apiURL,
       config: {
         ...axAIOpenAIDefaultConfig(),
         ...config,
