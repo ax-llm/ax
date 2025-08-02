@@ -44,6 +44,7 @@ import {
   createFunctionConfig,
   parseFunctions,
 } from './functions.js';
+import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import { axGlobals } from './globals.js';
 import {
   type AxGenMetricsInstruments,
@@ -132,6 +133,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private streamingFieldProcessors: AxFieldProcessor[] = [];
   private excludeContentFromTrace = false;
   private thoughtFieldName: string;
+  private signatureToolCallingManager?: SignatureToolCallingManager;
 
   constructor(
     signature:
@@ -161,6 +163,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     if (options?.functions) {
       this.functions = parseFunctions(options.functions);
+
+      // Initialize SignatureToolCallingManager if enabled
+      if (options?.signatureToolCalling) {
+        this.signatureToolCallingManager = new SignatureToolCallingManager({
+          signatureToolCalling: true,
+          functions: this.functions,
+        });
+      }
     }
   }
 
@@ -351,7 +361,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const { functions, functionCall } = createFunctionConfig(
       functionList,
       definedFunctionCall,
-      firstStep
+      firstStep,
+      options
     );
 
     const res = await this.forwardSendRequest({
@@ -435,16 +446,25 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     if (options?.functions && options.functions.length > 0) {
       const promptTemplateClass =
         this.options?.promptTemplate ?? AxPromptTemplate;
+
+      let signature = this.signature;
+
+      // Use SignatureToolCallingManager to process signature if enabled
+      if (this.signatureToolCallingManager?.isEnabled()) {
+        signature = this.signatureToolCallingManager.processSignature(
+          this.signature
+        );
+      }
+
       const currentPromptTemplateOptions = {
         functions: options.functions,
         thoughtFieldName: this.thoughtFieldName,
       };
       this.promptTemplate = new promptTemplateClass(
-        this.signature,
+        signature,
         currentPromptTemplateOptions
       );
     }
-
     // New logic:
     let prompt: AxChatRequest['chatPrompt'];
 
@@ -839,9 +859,19 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const resultPickerLatency = performance.now() - resultPickerStart;
 
       const selectedResult = buffer[selectedIndex];
-      const result = selectedResult?.delta ?? {};
-      this.trace = { ...values, ...result } as unknown as OUT;
+      let result = selectedResult?.delta ?? {};
 
+      // Use SignatureToolCallingManager to process results if enabled
+      if (this.signatureToolCallingManager?.isEnabled()) {
+        result = (await this.signatureToolCallingManager.processResults(
+          result,
+          {
+            sessionId: options?.sessionId,
+          }
+        )) as OUT;
+      }
+
+      this.trace = { ...values, ...result } as unknown as OUT;
       // Log result picker usage if it was used and debug is enabled
       if (resultPickerUsed && this.isDebug(ai, options)) {
         const logger = this.getLogger(ai, options);
