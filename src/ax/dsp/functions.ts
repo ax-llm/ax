@@ -368,9 +368,15 @@ type FunctionCall = AxChatRequest['functionCall'] | undefined;
 export function createFunctionConfig(
   functionList?: AxInputFunctionType,
   definedFunctionCall?: FunctionCall,
-  firstStep?: boolean
+  firstStep?: boolean,
+  options?: Readonly<AxProgramForwardOptions<any>>
 ): { functions: AxFunction[]; functionCall: FunctionCall } {
   const functionCall = definedFunctionCall;
+
+  // Disable normal tool calling when signatureToolCalling is enabled
+  if (options?.signatureToolCalling) {
+    return { functions: [], functionCall: undefined };
+  }
 
   if (
     !firstStep &&
