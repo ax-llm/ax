@@ -185,6 +185,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private disableSmartModelRouting?: boolean;
   private excludeFieldsFromPassthrough: string[];
   private debug?: boolean;
+  private options?: Readonly<AxAgentOptions>;
 
   private name: string;
   //   private subAgentList?: string
@@ -219,6 +220,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.disableSmartModelRouting = disableSmartModelRouting;
     this.excludeFieldsFromPassthrough = excludeFieldsFromPassthrough ?? [];
     this.debug = debug;
+    this.options = options;
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -437,11 +439,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
     const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    return await this.program.forward(ai, values, {
-      ...options,
+    // Merge stored options with runtime options, with runtime taking precedence
+    const mergedOptions = {
+      ...this.options, // Agent-level options (like functionCallMode)
+      ...options, // Runtime options
       debug,
       functions,
-    });
+    };
+    return await this.program.forward(ai, values, mergedOptions);
   }
 
   public async *streamingForward<T extends Readonly<AxAIService>>(
@@ -450,11 +455,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
     const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    return yield* this.program.streamingForward(ai, values, {
-      ...options,
+    // Merge stored options with runtime options, with runtime taking precedence
+    const mergedOptions = {
+      ...this.options, // Agent-level options (like functionCallMode)
+      ...options, // Runtime options
       debug,
       functions,
-    });
+    };
+    return yield* this.program.streamingForward(ai, values, mergedOptions);
   }
 
   /**

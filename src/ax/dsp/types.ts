@@ -102,7 +102,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   // Behavior control
   fastFail?: boolean;
   showThoughts?: boolean;
-  signatureToolCalling?: boolean;
+  functionCallMode?: 'auto' | 'native' | 'prompt';
 
   // Tracing and logging
   traceLabel?: string;

@@ -373,8 +373,8 @@ export function createFunctionConfig(
 ): { functions: AxFunction[]; functionCall: FunctionCall } {
   const functionCall = definedFunctionCall;
 
-  // Disable normal tool calling when signatureToolCalling is enabled
-  if (options?.signatureToolCalling) {
+  // Disable normal tool calling when using prompt mode
+  if (options?.functionCallMode === 'prompt') {
     return { functions: [], functionCall: undefined };
   }
 

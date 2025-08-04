@@ -17,20 +17,20 @@ const mockFunction = {
   func: vi.fn(),
 };
 
-describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
+describe('Function Call Mode - Normal Tool Calling Control', () => {
   describe('createFunctionConfig', () => {
-    it('should return empty functions when signatureToolCalling is enabled', () => {
+    it('should return empty functions when functionCallMode is prompt', () => {
       const functionList = [mockFunction];
 
-      // Without signatureToolCalling - should return functions
+      // Without functionCallMode - should return functions
       const result1 = createFunctionConfig(functionList, undefined, true, {});
 
       expect(result1.functions).toEqual(functionList);
       expect(result1.functions.length).toBe(1);
 
-      // With signatureToolCalling - should return empty functions
+      // With functionCallMode: 'prompt' - should return empty functions
       const result2 = createFunctionConfig(functionList, undefined, true, {
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
       });
 
       expect(result2.functions).toEqual([]);
@@ -38,24 +38,24 @@ describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
       expect(result2.functionCall).toBeUndefined();
     });
 
-    it('should handle empty function list with signatureToolCalling', () => {
+    it('should handle empty function list with functionCallMode prompt', () => {
       const result = createFunctionConfig(undefined, undefined, true, {
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
       });
 
       expect(result.functions).toEqual([]);
       expect(result.functionCall).toBeUndefined();
     });
 
-    it('should respect other functionCall logic when signatureToolCalling is false', () => {
+    it('should respect other functionCall logic when functionCallMode is native', () => {
       const functionList = [mockFunction];
 
-      // Test that other logic still works when signatureToolCalling is false
+      // Test that other logic still works when functionCallMode is native
       const result = createFunctionConfig(
         functionList,
         'required',
         false, // firstStep = false
-        { signatureToolCalling: false }
+        { functionCallMode: 'native' }
       );
 
       // Should still respect the firstStep + functionCall logic
@@ -65,13 +65,13 @@ describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
   });
 
   describe('AxGen Integration', () => {
-    it('should create SignatureToolCallingManager when signatureToolCalling is enabled', () => {
+    it('should create SignatureToolCallingManager when functionCallMode is set', () => {
       const signature = 'userInput:string -> responseText:string';
 
-      // Create AxGen with signatureToolCalling enabled
+      // Create AxGen with functionCallMode enabled
       const gen = new AxGen(signature, {
         functions: [mockFunction],
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
       });
 
       // Access the private property to check if manager was created
@@ -79,16 +79,15 @@ describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
       const manager = gen.signatureToolCallingManager;
 
       expect(manager).toBeDefined();
-      expect(manager?.isEnabled()).toBe(true);
+      expect(manager?.getMode()).toBe('prompt');
     });
 
-    it('should not create SignatureToolCallingManager when signatureToolCalling is disabled', () => {
+    it('should not create SignatureToolCallingManager when functionCallMode is not set', () => {
       const signature = 'userInput:string -> responseText:string';
 
-      // Create AxGen without signatureToolCalling
+      // Create AxGen without functionCallMode
       const gen = new AxGen(signature, {
         functions: [mockFunction],
-        signatureToolCalling: false,
       });
 
       // Access the private property to check if manager was created
@@ -101,9 +100,9 @@ describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
     it('should not create SignatureToolCallingManager when no functions provided', () => {
       const signature = 'userInput:string -> responseText:string';
 
-      // Create AxGen with signatureToolCalling but no functions
+      // Create AxGen with functionCallMode but no functions
       const gen = new AxGen(signature, {
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
       });
 
       // Access the private property to check if manager was created
@@ -115,20 +114,20 @@ describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
   });
 
   describe('End-to-End Behavior', () => {
-    it('should use signature tool calling and disable normal tool calling in ax function', () => {
+    it('should use prompt mode and disable normal tool calling in ax function', () => {
       const signature = 'userQuestion:string -> responseText:string';
 
-      // Create generator with signature tool calling
+      // Create generator with prompt mode
       const gen = ax(signature, {
         functions: [mockFunction],
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
       });
 
       // Check that SignatureToolCallingManager was created
       // @ts-expect-error - accessing private property for testing
       const manager = gen.signatureToolCallingManager;
       expect(manager).toBeDefined();
-      expect(manager?.isEnabled()).toBe(true);
+      expect(manager?.getMode()).toBe('prompt');
 
       // Verify that the signature can be processed to include tool fields
       const sig = gen.getSignature();
@@ -142,19 +141,20 @@ describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
       );
     });
 
-    it('should use normal tool calling when signatureToolCalling is disabled', () => {
+    it('should use normal tool calling when functionCallMode is native', () => {
       const signature = 'userQuestion:string -> responseText:string';
 
-      // Create generator without signature tool calling
+      // Create generator with native mode
       const gen = ax(signature, {
         functions: [mockFunction],
-        signatureToolCalling: false,
+        functionCallMode: 'native',
       });
 
-      // Check that SignatureToolCallingManager was not created
+      // Check that SignatureToolCallingManager was created but not in prompt mode
       // @ts-expect-error - accessing private property for testing
       const manager = gen.signatureToolCallingManager;
-      expect(manager).toBeUndefined();
+      expect(manager).toBeDefined();
+      expect(manager?.getMode()).toBe('native');
 
       // Verify that the signature was not modified with tool fields
       const sig = gen.getSignature();
@@ -173,30 +173,29 @@ describe('Signature Tool Calling - Normal Tool Calling Disabled', () => {
       const functionList = [mockFunction];
 
       // Test createFunctionConfig mutual exclusion
-      const withSignatureCalling = createFunctionConfig(
+      const withPromptMode = createFunctionConfig(
         functionList,
         undefined,
         true,
-        { signatureToolCalling: true }
+        { functionCallMode: 'prompt' }
       );
 
-      const withoutSignatureCalling = createFunctionConfig(
+      const withNativeMode = createFunctionConfig(
         functionList,
         undefined,
         true,
-        { signatureToolCalling: false }
+        { functionCallMode: 'native' }
       );
 
-      // When signatureToolCalling is enabled, functions should be empty
-      expect(withSignatureCalling.functions).toEqual([]);
+      // When functionCallMode is 'prompt', functions should be empty (prompt mode handles tools)
+      expect(withPromptMode.functions).toEqual([]);
 
-      // When signatureToolCalling is disabled, functions should be present
-      expect(withoutSignatureCalling.functions).toEqual(functionList);
+      // When functionCallMode is 'native', functions should be present (native mode uses AI's function calling)
+      expect(withNativeMode.functions).toEqual(functionList);
 
       // This proves mutual exclusion at the configuration level
       expect(
-        withSignatureCalling.functions.length !==
-          withoutSignatureCalling.functions.length
+        withPromptMode.functions.length !== withNativeMode.functions.length
       ).toBe(true);
     });
   });

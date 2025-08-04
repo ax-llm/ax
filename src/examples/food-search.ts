@@ -1,4 +1,4 @@
-import { AxAgent, type AxFunction, AxSignature, ai } from '@ax-llm/ax';
+import { type AxFunction, agent, ai } from '@ax-llm/ax';
 
 const goodDay = {
   temperature: '27C',
@@ -164,18 +164,14 @@ llm.setOptions({ debug: true });
 const customerQuery =
   "Give me an ideas for lunch today in San Francisco. I like sushi, chinese, indian. Also if its a nice day I'd rather sit outside. Find me something.";
 
-const signature = new AxSignature(
-  `customerQuery:string  -> plan: string "detailed plan to find a place to eat", restaurant:string, priceRange:string "use $ signs to indicate price range"`
-);
+const sig = `customerQuery:string  -> plan: string "detailed plan to find a place to eat", restaurant:string, priceRange:string "use $ signs to indicate price range"`;
 
-const gen = new AxAgent<
-  { customerQuery: string },
-  { restaurant: string; priceRange: string }
->({
+// const _gen = ax(sig);
+
+const gen = agent(sig, {
   name: 'food-search',
   description:
     'Use this agent to find restaurants based on what the customer wants. Use the provided functions to get the weather and find restaurants and finally return the best match',
-  signature,
   functions,
 });
 
@@ -185,6 +181,7 @@ const res = await gen.forward(
   {
     // logger: axCreateDefaultTextLogger(),
     debug: true,
+    stream: false,
   }
 );
 

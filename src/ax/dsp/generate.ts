@@ -44,7 +44,6 @@ import {
   createFunctionConfig,
   parseFunctions,
 } from './functions.js';
-import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import { axGlobals } from './globals.js';
 import {
   type AxGenMetricsInstruments,
@@ -67,7 +66,8 @@ import {
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
-import type { AxSignature, AxIField } from './sig.js';
+import type { AxIField, AxSignature } from './sig.js';
+import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import type {
   AsyncGenDeltaOut,
   AxGenDeltaOut,
@@ -164,10 +164,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     if (options?.functions) {
       this.functions = parseFunctions(options.functions);
 
-      // Initialize SignatureToolCallingManager if enabled
-      if (options?.signatureToolCalling) {
+      // Initialize SignatureToolCallingManager if functionCallMode is set
+      if (options?.functionCallMode) {
         this.signatureToolCallingManager = new SignatureToolCallingManager({
-          signatureToolCalling: true,
+          functionCallMode: options.functionCallMode,
           functions: this.functions,
         });
       }
@@ -358,6 +358,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const firstStep = stepIndex === 0;
     const logger = this.getLogger(ai, options);
 
+    // Pass the function call mode directly to createFunctionConfig
     const { functions, functionCall } = createFunctionConfig(
       functionList,
       definedFunctionCall,
@@ -441,6 +442,20 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const mem = options.mem ?? this.options?.mem ?? new AxMemory();
 
+    // Handle auto mode for function calling
+    if (
+      this.signatureToolCallingManager?.getMode() === 'auto' &&
+      this.functions &&
+      this.functions.length > 0
+    ) {
+      // For auto mode, check if the AI supports native function calling
+      const aiFeatures = ai.getFeatures(options.model);
+      const hasNativeFunctionSupport = aiFeatures.functions;
+      this.signatureToolCallingManager.setUsePromptMode(
+        !hasNativeFunctionSupport
+      );
+    }
+
     let err: ValidationError | AxAssertionError | undefined;
 
     if (options?.functions && options.functions.length > 0) {
@@ -449,8 +464,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       let signature = this.signature;
 
-      // Use SignatureToolCallingManager to process signature if enabled
-      if (this.signatureToolCallingManager?.isEnabled()) {
+      // Use SignatureToolCallingManager to process signature if in prompt mode
+      if (this.signatureToolCallingManager?.isPromptModeEnabled()) {
         signature = this.signatureToolCallingManager.processSignature(
           this.signature
         );
@@ -861,8 +876,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const selectedResult = buffer[selectedIndex];
       let result = selectedResult?.delta ?? {};
 
-      // Use SignatureToolCallingManager to process results if enabled
-      if (this.signatureToolCallingManager?.isEnabled()) {
+      // Use SignatureToolCallingManager to process results if in prompt mode
+      if (this.signatureToolCallingManager?.isPromptModeEnabled()) {
         result = (await this.signatureToolCallingManager.processResults(
           result,
           {

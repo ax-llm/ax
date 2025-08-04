@@ -40,9 +40,9 @@ describe('SignatureToolCalling', () => {
   ];
 
   describe('SignatureToolCallingManager', () => {
-    it('should not modify signature when disabled', () => {
+    it('should not modify signature when in native mode', () => {
       const manager = new SignatureToolCallingManager({
-        signatureToolCalling: false,
+        functionCallMode: 'native',
         functions: mockTools,
       });
 
@@ -53,11 +53,14 @@ describe('SignatureToolCalling', () => {
       expect(processed.getOutputFields()[0].name).toBe('answer');
     });
 
-    it('should inject tool fields with dot notation when enabled', () => {
+    it('should inject tool fields with dot notation when in prompt mode', () => {
       const manager = new SignatureToolCallingManager({
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
         functions: mockTools,
       });
+
+      // Set to prompt mode for this test
+      manager.setUsePromptMode(true);
 
       const signature = AxSignature.create('query:string -> answer:string');
       const processed = manager.processSignature(signature);
@@ -79,9 +82,12 @@ describe('SignatureToolCalling', () => {
 
     it('should process results and execute tools with dot notation', async () => {
       const manager = new SignatureToolCallingManager({
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
         functions: mockTools,
       });
+
+      // Set to prompt mode for this test
+      manager.setUsePromptMode(true);
 
       const results = {
         answer: 'Here is your answer',
@@ -98,9 +104,12 @@ describe('SignatureToolCalling', () => {
 
     it('should skip tool execution when fields are not populated', async () => {
       const manager = new SignatureToolCallingManager({
-        signatureToolCalling: true,
+        functionCallMode: 'prompt',
         functions: mockTools,
       });
+
+      // Set to prompt mode for this test
+      manager.setUsePromptMode(true);
 
       const results = {
         answer: 'Here is your answer',
@@ -112,6 +121,29 @@ describe('SignatureToolCalling', () => {
       expect(processed.answer).toBe('Here is your answer');
       expect(processed.search_web).toBeUndefined();
       expect(processed.calculate).toBeUndefined();
+    });
+
+    it('should support auto mode and allow runtime decisions', () => {
+      const manager = new SignatureToolCallingManager({
+        functionCallMode: 'auto',
+        functions: mockTools,
+      });
+
+      expect(manager.getMode()).toBe('auto');
+
+      // Initially not in prompt mode, but native is true since there are tools and usePromptMode defaults to false
+      expect(manager.isPromptModeEnabled()).toBe(false);
+      expect(manager.isNativeModeEnabled()).toBe(true); // true because !usePromptMode && tools.length > 0
+
+      // Can be set to prompt mode dynamically
+      manager.setUsePromptMode(true);
+      expect(manager.isPromptModeEnabled()).toBe(true);
+      expect(manager.isNativeModeEnabled()).toBe(false);
+
+      // Can be set to native mode dynamically
+      manager.setUsePromptMode(false);
+      expect(manager.isPromptModeEnabled()).toBe(false);
+      expect(manager.isNativeModeEnabled()).toBe(true);
     });
   });
 

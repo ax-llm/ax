@@ -133,6 +133,7 @@ webllm
 Qwen
 apidocs
 audiodata
+videodata
 Typesafe
 contextualizer
 sigtypes

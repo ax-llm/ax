@@ -107,6 +107,70 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
               }
               break;
             }
+            case 'file': {
+              const fileItem = contentItem as {
+                type: 'file';
+                data: string;
+                mimeType: string;
+                filename?: string;
+              };
+              if (!fileItem.data || fileItem.data.trim() === '') {
+                throw new Error(
+                  `User message file content at index ${index} cannot be empty, received: ${value(fileItem.data)}`
+                );
+              }
+              if (!fileItem.mimeType || fileItem.mimeType.trim() === '') {
+                throw new Error(
+                  `User message file content at index ${index} must have a mimeType, received: ${value(fileItem.mimeType)}`
+                );
+              }
+              break;
+            }
+            case 'url': {
+              const urlItem = contentItem as {
+                type: 'url';
+                url: string;
+                title?: string;
+                description?: string;
+              };
+              if (!urlItem.url || urlItem.url.trim() === '') {
+                throw new Error(
+                  `User message url content at index ${index} cannot be empty, received: ${value(urlItem.url)}`
+                );
+              }
+              break;
+            }
+            case 'video': {
+              const videoItem = contentItem as {
+                type: 'video';
+                data: string;
+                mimeType: string;
+              };
+              if (!videoItem.data || videoItem.data.trim() === '') {
+                throw new Error(
+                  `User message video content at index ${index} cannot be empty, received: ${value(videoItem.data)}`
+                );
+              }
+              if (!videoItem.mimeType || videoItem.mimeType.trim() === '') {
+                throw new Error(
+                  `User message video content at index ${index} must have a mimeType, received: ${value(videoItem.mimeType)}`
+                );
+              }
+              break;
+            }
+            case 'code': {
+              const codeItem = contentItem as {
+                type: 'code';
+                code: string;
+                language?: string;
+              };
+              if (!codeItem.code || codeItem.code.trim() === '') {
+                throw new Error(
+                  `User message code content at index ${index} cannot be empty, received: ${value(codeItem.code)}`
+                );
+              }
+              break;
+            }
             default:
               throw new Error(
                 `User message content item at index ${index} has unsupported type: ${value(contentType)}`
