@@ -68,6 +68,66 @@ describe('axValidateChatRequestMessage', () => {
       ).not.toThrow();
     });
 
+    it('should validate file content with fileUri', () => {
+      expect(() =>
+        axValidateChatRequestMessage({
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              fileUri: 'gs://bucket/file.pdf',
+              mimeType: 'application/pdf',
+            },
+          ],
+        })
+      ).not.toThrow();
+    });
+
+    it('should fail for file content with both data and fileUri', () => {
+      expect(() =>
+        axValidateChatRequestMessage({
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              data: 'base64filedata',
+              fileUri: 'gs://bucket/file.pdf',
+              mimeType: 'application/pdf',
+            },
+          ],
+        })
+      ).toThrow(/cannot have both 'data' and 'fileUri'/);
+    });
+
+    it('should fail for file content with neither data nor fileUri', () => {
+      expect(() =>
+        axValidateChatRequestMessage({
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              mimeType: 'application/pdf',
+            },
+          ],
+        })
+      ).toThrow(/must have either 'data' or 'fileUri'/);
+    });
+
+    it('should fail for file content with empty fileUri', () => {
+      expect(() =>
+        axValidateChatRequestMessage({
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              fileUri: '',
+              mimeType: 'application/pdf',
+            },
+          ],
+        })
+      ).toThrow(/fileUri cannot be empty/);
+    });
+
     it('should validate url content', () => {
       expect(() =>
         axValidateChatRequestMessage({
@@ -92,50 +152,6 @@ describe('axValidateChatRequestMessage', () => {
             {
               type: 'url',
               url: 'https://example.com',
-            },
-          ],
-        })
-      ).not.toThrow();
-    });
-
-    it('should validate video content', () => {
-      expect(() =>
-        axValidateChatRequestMessage({
-          role: 'user',
-          content: [
-            {
-              type: 'video',
-              data: 'base64videodata',
-              mimeType: 'video/mp4',
-            },
-          ],
-        })
-      ).not.toThrow();
-    });
-
-    it('should validate code content', () => {
-      expect(() =>
-        axValidateChatRequestMessage({
-          role: 'user',
-          content: [
-            {
-              type: 'code',
-              code: 'console.log("Hello")',
-              language: 'javascript',
-            },
-          ],
-        })
-      ).not.toThrow();
-    });
-
-    it('should validate code content without language', () => {
-      expect(() =>
-        axValidateChatRequestMessage({
-          role: 'user',
-          content: [
-            {
-              type: 'code',
-              code: 'console.log("Hello")',
             },
           ],
         })
@@ -185,34 +201,6 @@ describe('axValidateChatRequestMessage', () => {
       ).toThrow(/cannot be empty/);
     });
 
-    it('should fail for video content without mimeType', () => {
-      expect(() =>
-        axValidateChatRequestMessage({
-          role: 'user',
-          content: [
-            {
-              type: 'video',
-              data: 'base64videodata',
-            },
-          ],
-        })
-      ).toThrow(/must have a mimeType/);
-    });
-
-    it('should fail for empty code', () => {
-      expect(() =>
-        axValidateChatRequestMessage({
-          role: 'user',
-          content: [
-            {
-              type: 'code',
-              code: '',
-            },
-          ],
-        })
-      ).toThrow(/cannot be empty/);
-    });
-
     it('should validate mixed content types', () => {
       expect(() =>
         axValidateChatRequestMessage({
@@ -224,11 +212,10 @@ describe('axValidateChatRequestMessage', () => {
               data: 'base64filedata',
               mimeType: 'application/pdf',
             },
-            { type: 'text', text: 'And this code:' },
+            { type: 'text', text: 'And this URL:' },
             {
-              type: 'code',
-              code: 'console.log("Hello")',
-              language: 'javascript',
+              type: 'url',
+              url: 'https://example.com',
             },
           ],
         })
