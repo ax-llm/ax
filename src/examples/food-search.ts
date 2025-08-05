@@ -1,4 +1,4 @@
-import { type AxFunction, agent, ai } from '@ax-llm/ax';
+import { type AxFunction, agent, ai, s } from '@ax-llm/ax';
 
 const goodDay = {
   temperature: '27C',
@@ -164,9 +164,9 @@ llm.setOptions({ debug: true });
 const customerQuery =
   "Give me an ideas for lunch today in San Francisco. I like sushi, chinese, indian. Also if its a nice day I'd rather sit outside. Find me something.";
 
-const sig = `customerQuery:string  -> plan: string "detailed plan to find a place to eat", restaurant:string, priceRange:string "use $ signs to indicate price range"`;
-
-// const _gen = ax(sig);
+const sig = s(
+  `customerQuery:string  -> plan: string "detailed plan to find a place to eat", restaurant:string, priceRange:string "use $ signs to indicate price range"`
+);
 
 const gen = agent(sig, {
   name: 'food-search',

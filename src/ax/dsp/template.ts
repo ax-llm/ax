@@ -10,11 +10,37 @@ export function s<const T extends string>(
   return AxSignature.create(signature);
 }
 
-// Function for string-based type-safe generator creation
+// Function for type-safe generator creation - supports both strings and AxSignature objects
 export function ax<const T extends string>(
   signature: T,
   options?: Readonly<AxProgramForwardOptions<any>>
-): AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
-  const typedSignature = AxSignature.create(signature);
+): AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
+export function ax<
+  TInput extends Record<string, any>,
+  TOutput extends Record<string, any>,
+>(
+  signature: AxSignature<TInput, TOutput>,
+  options?: Readonly<AxProgramForwardOptions<any>>
+): AxGen<TInput, TOutput>;
+export function ax<
+  T extends string | AxSignature<any, any>,
+  TInput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['inputs']
+    : T extends AxSignature<infer I, any>
+      ? I
+      : never,
+  TOutput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['outputs']
+    : T extends AxSignature<any, infer O>
+      ? O
+      : never,
+>(
+  signature: T,
+  options?: Readonly<AxProgramForwardOptions<any>>
+): AxGen<TInput, TOutput> {
+  const typedSignature =
+    typeof signature === 'string'
+      ? AxSignature.create(signature)
+      : (signature as AxSignature<TInput, TOutput>);
   return new AxGen(typedSignature, options);
 }

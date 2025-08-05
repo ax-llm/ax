@@ -639,19 +639,28 @@ export interface AxAgentConfig<IN extends AxGenIn, OUT extends AxGenOut>
 }
 
 /**
- * Creates a strongly-typed AI agent from a string signature.
+ * Creates a strongly-typed AI agent from a signature.
  * This is the recommended way to create agents, providing better type inference and cleaner syntax.
+ * Supports both string signatures and AxSignature objects.
  *
- * @param signature - The input/output signature as a string (e.g., "userInput:string -> responseText:string")
+ * @param signature - The input/output signature as a string or AxSignature object
  * @param config - Configuration options for the agent
  * @returns A typed agent instance
  *
  * @example
  * ```typescript
+ * // Using string signature
  * const myAgent = agent('userInput:string -> responseText:string', {
  *   name: 'myAgent',
  *   description: 'An agent that processes user input and returns a response',
  *   definition: 'You are a helpful assistant that responds to user queries...'
+ * });
+ *
+ * // Using AxSignature object
+ * const sig = s('userInput:string -> responseText:string');
+ * const myAgent2 = agent(sig, {
+ *   name: 'myAgent2',
+ *   description: 'Same agent but using AxSignature object'
  * });
  *
  * // With child agents
@@ -672,8 +681,34 @@ export function agent<const T extends string>(
     ParseSignature<T>['inputs'],
     ParseSignature<T>['outputs']
   >
-): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
-  const typedSignature = AxSignature.create(signature);
+): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
+export function agent<
+  TInput extends Record<string, any>,
+  TOutput extends Record<string, any>,
+>(
+  signature: AxSignature<TInput, TOutput>,
+  config: AxAgentConfig<TInput, TOutput>
+): AxAgent<TInput, TOutput>;
+export function agent<
+  T extends string | AxSignature<any, any>,
+  TInput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['inputs']
+    : T extends AxSignature<infer I, any>
+      ? I
+      : never,
+  TOutput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['outputs']
+    : T extends AxSignature<any, infer O>
+      ? O
+      : never,
+>(
+  signature: T,
+  config: AxAgentConfig<TInput, TOutput>
+): AxAgent<TInput, TOutput> {
+  const typedSignature =
+    typeof signature === 'string'
+      ? AxSignature.create(signature)
+      : (signature as AxSignature<TInput, TOutput>);
   const { ai, name, description, definition, agents, functions, ...options } =
     config;
 
