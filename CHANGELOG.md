@@ -1,5 +1,18 @@
 # Changelog
 
+## [14.0.2](https://github.com/ax-llm/ax/compare/14.0.0...14.0.1) (2025-08-05)
+
+### Features
+
+* add signature tool calling for non-native tool support ([#298](https://github.com/ax-llm/ax/issues/298)) ([29f4cdb](https://github.com/ax-llm/ax/commit/29f4cdbd200fe4349de7c66531abce6c3b3f24ac))
+* enhance ax() and agent() functions with AxSignature support ([ca860ae](https://github.com/ax-llm/ax/commit/ca860ae8863cde344a397e523787a40ce707b144))
+* enhance validation for media content in chat requests ([aa8e721](https://github.com/ax-llm/ax/commit/aa8e721af574705971da52a183a4022163ad0399))
+
+### Bug Fixes
+
+* enable custom API URL configuration for OpenAI provider ([#299](https://github.com/ax-llm/ax/issues/299)) ([edbb8f4](https://github.com/ax-llm/ax/commit/edbb8f46f87ff79752e446dc55aa1c339046bb10)), closes [#297](https://github.com/ax-llm/ax/issues/297)
+## [14.0.1](https://github.com/ax-llm/ax/compare/14.0.0...14.0.1) (2025-07-31)
+
 ## [14.0.1](https://github.com/ax-llm/ax/compare/13.0.24...14.0.0) (2025-07-31)
 ## [14.0.0](https://github.com/ax-llm/ax/compare/13.0.24...14.0.0) (2025-07-30)
 
