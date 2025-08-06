@@ -67,7 +67,7 @@ describe('Optimizer Interface', () => {
     // Both should have the same compile method signature
     for (const optimizer of optimizers) {
       expect(typeof optimizer.compile).toBe('function');
-      expect(optimizer.compile).toHaveLength(3); // program, metricFn and options
+      expect(optimizer.compile).toHaveLength(4); // program, examples, metricFn and options
     }
   });
 

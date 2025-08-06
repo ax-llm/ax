@@ -469,7 +469,6 @@ import {
 } from './dsp/metrics.js';
 import {
   AxBaseOptimizer,
-  type AxBootstrapCompileOptions,
   type AxBootstrapOptimizerOptions,
   type AxCheckpointLoadFn,
   type AxCheckpointSaveFn,
@@ -480,7 +479,6 @@ import {
   type AxExample,
   type AxMetricFn,
   type AxMetricFnArgs,
-  type AxMiPROCompileOptions,
   type AxMiPROOptimizerOptions,
   type AxMultiMetricFn,
   type AxOptimizationCheckpoint,
@@ -492,6 +490,7 @@ import {
   type AxOptimizerMetricsInstruments,
   type AxOptimizerResult,
   type AxParetoResult,
+  type AxTypedExample,
   axDefaultOptimizerMetricsConfig,
   axGetOptimizerMetricsConfig,
   axUpdateOptimizerMetricsConfig,
@@ -1033,7 +1032,6 @@ export type { AxApacheTikaConvertOptions };
 export type { AxAssertion };
 export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
-export type { AxBootstrapCompileOptions };
 export type { AxBootstrapOptimizerOptions };
 export type { AxChatRequest };
 export type { AxChatResponse };
@@ -1139,7 +1137,6 @@ export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
 export type { AxMetricsConfig };
-export type { AxMiPROCompileOptions };
 export type { AxMiPROOptimizerOptions };
 export type { AxMiPROResult };
 export type { AxMockAIServiceConfig };
@@ -1191,4 +1188,5 @@ export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
 export type { AxTokenUsage };
 export type { AxTunable };
+export type { AxTypedExample };
 export type { AxUsable };

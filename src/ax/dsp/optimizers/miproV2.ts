@@ -5,12 +5,11 @@ import {
   type AxCompileOptions,
   type AxExample,
   type AxMetricFn,
-  type AxMiPROCompileOptions,
   type AxOptimizerArgs,
   type AxOptimizerResult,
+  type AxTypedExample,
 } from '../optimizer.js';
 import type {
-  AxGenIn,
   AxGenOut,
   AxProgramDemos,
   AxResultPickerFunction,
@@ -29,15 +28,12 @@ interface ConfigType extends Record<string, unknown> {
 }
 
 // Extended result interface to include the optimized AxGen
-export interface AxMiPROResult<IN extends AxGenIn, OUT extends AxGenOut>
+export interface AxMiPROResult<IN, OUT extends AxGenOut>
   extends AxOptimizerResult<OUT> {
   optimizedGen?: AxGen<IN, OUT>;
 }
 
-export class AxMiPRO<
-  IN extends AxGenIn = AxGenIn,
-  OUT extends AxGenOut = AxGenOut,
-> extends AxBaseOptimizer<IN, OUT> {
+export class AxMiPRO extends AxBaseOptimizer {
   // MiPRO-specific options
   private maxBootstrappedDemos: number;
   private maxLabeledDemos: number;
@@ -92,7 +88,7 @@ export class AxMiPRO<
     this.fewshotAwareProposer = args.fewshotAwareProposer ?? true;
     this.earlyStoppingTrials = args.earlyStoppingTrials ?? 5;
     this.minImprovementThreshold = args.minImprovementThreshold ?? 0.01;
-    this.bayesianOptimization = args.bayesianOptimization ?? false;
+    this.bayesianOptimization = args.bayesianOptimization ?? true;
     this.acquisitionFunction =
       args.acquisitionFunction ?? 'expected_improvement';
     this.explorationWeight = args.explorationWeight ?? 0.1;
@@ -168,7 +164,7 @@ export class AxMiPRO<
   /**
    * Generates program summary for context-aware instruction generation
    */
-  private async generateProgramSummary(
+  private async generateProgramSummary<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
     ai: Readonly<AxAIService>
   ): Promise<string> {
@@ -316,11 +312,7 @@ Instruction:`;
         }
       }
     } catch (_error) {
-      // if (this.isLoggingEnabled()) {
-      //   this.getLogger()?.(`Failed to generate AI instruction: ${error}`, {
-      //     tags: ['optimizer', 'warning'],
-      //   });
-      // }
+      // AI instruction generation failed, will use fallback templates
     }
 
     // Fallback to enhanced templates if AI generation fails
@@ -348,9 +340,10 @@ Instruction:`;
    * @param options Optional compile options that may override teacher AI
    * @returns Array of generated instruction candidates
    */
-  private async proposeInstructionCandidates(
+  private async proposeInstructionCandidates<IN, OUT extends AxGenOut>(
     _program: Readonly<AxGen<IN, OUT>>,
-    options?: AxCompileOptions
+    options?: AxCompileOptions,
+    examples: readonly AxTypedExample<IN>[] = []
   ): Promise<string[]> {
     const instructions: string[] = [];
     const aiToUse = this.getTeacherOrStudentAI(options);
@@ -359,25 +352,12 @@ Instruction:`;
     let programSummary: string | undefined;
     let datasetSummary: string | undefined;
 
-    // if (this.programAwareProposer) {
-    //   programSummary = await this.generateProgramSummary(program, aiToUse);
-    //   if (this.isLoggingEnabled(options)) {
-    //     this.getLogger(options)?.(`Program summary: ${programSummary}`, {
-    //       tags: ['optimizer', 'config'],
-    //     });
-    //   }
-    // }
 
     if (this.dataAwareProposer) {
       datasetSummary = await this.generateDatasetSummary(
-        this.examples,
+        [...examples] as AxExample[],
         aiToUse
       );
-      // if (this.isLoggingEnabled(options)) {
-      //   this.getLogger(options)?.(`Dataset summary: ${datasetSummary}`, {
-      //     tags: ['optimizer', 'config'],
-      //   });
-      // }
     }
 
     // Generate creative tips for tip-aware proposing
@@ -406,44 +386,44 @@ Instruction:`;
   /**
    * Bootstraps few-shot examples for the program
    */
-  private async bootstrapFewShotExamples(
+  private async bootstrapFewShotExamples<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
-    metricFn: AxMetricFn
-  ): Promise<AxProgramDemos<IN, OUT>[]> {
+    metricFn: AxMetricFn,
+    examples: readonly AxTypedExample<IN>[]
+  ): Promise<AxProgramDemos<any, OUT>[]> {
     // Initialize the bootstrapper for this program
-    const bootstrapper = new AxBootstrapFewShot<IN, OUT>({
+    const bootstrapper = new AxBootstrapFewShot({
       studentAI: this.studentAI,
-      examples: this.examples,
       options: {
         maxDemos: this.maxBootstrappedDemos,
         maxRounds: 3,
-        verboseMode: this.isLoggingEnabled(),
+        verboseMode: this.verbose ?? false,
       },
     });
 
-    const result = await bootstrapper.compile(program, metricFn, {
+    const result = await bootstrapper.compile(program, examples, metricFn, {
       maxDemos: this.maxBootstrappedDemos,
     });
 
-    return (result.demos || []) as AxProgramDemos<IN, OUT>[];
+    return (result.demos || []) as AxProgramDemos<any, OUT>[];
   }
 
   /**
    * Selects labeled examples directly from the training set
    */
-  private selectLabeledExamples(): AxExample[] {
-    const selectedExamples: AxExample[] = [];
+  private selectLabeledExamples<IN>(examples: readonly AxTypedExample<IN>[]): AxTypedExample<IN>[] {
+    const selectedExamples: AxTypedExample<IN>[] = [];
 
     // Random sampling from the training set
     const indices = new Set<number>();
     while (
       indices.size < this.maxLabeledDemos &&
-      indices.size < this.examples.length
+      indices.size < examples.length
     ) {
-      const idx = Math.floor(Math.random() * this.examples.length);
+      const idx = Math.floor(Math.random() * examples.length);
       if (!indices.has(idx)) {
         indices.add(idx);
-        const example = this.examples[idx];
+        const example = examples[idx];
         if (example) {
           selectedExamples.push(example);
         }
@@ -456,12 +436,12 @@ Instruction:`;
   /**
    * Runs optimization to find the best combination of few-shot examples and instructions
    */
-  private async runOptimization(
+  private async runOptimization<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
-    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
-    labeledExamples: readonly AxExample[],
+    bootstrappedDemos: readonly AxProgramDemos<any, OUT>[],
+    labeledExamples: readonly AxTypedExample<IN>[],
     instructions: readonly string[],
-    validationExamples: readonly AxExample[],
+    validationExamples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<{ bestConfig: ConfigType; bestScore: number }> {
@@ -492,6 +472,20 @@ Instruction:`;
     }
 
     // Optimization loop with early stopping and checkpointing
+    const optLogger = this.getOptimizerLogger(options);
+    optLogger?.({
+      name: 'OptimizationStart',
+      value: {
+        optimizerType: 'MiPRO',
+        exampleCount: labeledExamples.length,
+        validationCount: validationExamples.length,
+        config: {
+          numTrials: this.numTrials,
+          numCandidates: instructions.length,
+          bootstrappedDemos: bootstrappedDemos.length,
+        },
+      },
+    });
 
     for (let i = startRound; i < this.numTrials; i++) {
       let config: ConfigType;
@@ -529,6 +523,19 @@ Instruction:`;
         i + 1 // Pass current trial number for adaptive evaluation
       );
 
+      // Log trial completion
+      optLogger?.({
+        name: 'RoundProgress',
+        value: {
+          round: i + 1,
+          totalRounds: this.numTrials,
+          currentScore: score,
+          bestScore: Math.max(score, bestScore),
+          tokensUsed: this.stats.resourceUsage.totalTokens,
+          configuration: config,
+        },
+      });
+
       // Update surrogate model with observed score
       this.updateSurrogateModel(config, score);
 
@@ -540,13 +547,15 @@ Instruction:`;
         bestScore = score;
         bestConfig = config;
         stagnationRounds = 0;
-
-        // if (this.isLoggingEnabled(options)) {
-        //   this.getLogger(options)?.(
-        //     `Trial ${i + 1}/${this.numTrials}: New best score ${bestScore.toFixed(3)}`,
-        //     { tags: ['optimizer', 'progress'] }
-        //   );
-        // }
+        
+        optLogger?.({
+          name: 'BestConfigFound',
+          value: {
+            score: bestScore,
+            config: config,
+            improvement: improvement,
+          },
+        });
       } else {
         stagnationRounds++;
       }
@@ -579,7 +588,7 @@ Instruction:`;
           tokensUsed: this.stats.resourceUsage.totalTokens,
           timeElapsed: Date.now(),
           successfulExamples: this.stats.successfulDemos,
-          totalExamples: this.examples.length,
+          totalExamples: validationExamples.length,
           currentConfiguration: config,
           convergenceInfo: {
             improvement,
@@ -624,10 +633,10 @@ Instruction:`;
     return { bestConfig, bestScore };
   }
 
-  private async evaluateConfig(
+  private async evaluateConfig<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
     config: Readonly<ConfigType>,
-    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
+    bootstrappedDemos: readonly AxProgramDemos<any, OUT>[],
     labeledExamples: readonly AxExample[],
     validationExamples: readonly AxExample[],
     metricFn: AxMetricFn,
@@ -691,9 +700,9 @@ Instruction:`;
         this.stats.totalCalls++;
       } catch (error) {
         // Log the error but continue optimization - student model failures are expected during optimization
-        if (this.isLoggingEnabled()) {
+        if (this.verbose) {
           console.warn(
-            `Student model failed during evaluation: ${error instanceof Error ? error.message : 'Unknown error'}`
+            `[MiPRO] Student model failed during evaluation: ${error instanceof Error ? error.message : 'Unknown error'}`
           );
         }
         // Count failed attempts to track optimization health
@@ -716,11 +725,11 @@ Instruction:`;
     return shuffled;
   }
 
-  private applyConfigToProgram(
+  private applyConfigToProgram<IN, OUT extends AxGenOut>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     program: any,
     config: Readonly<ConfigType>,
-    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
+    bootstrappedDemos: readonly AxProgramDemos<any, OUT>[],
     labeledExamples: readonly AxExample[]
   ): void {
     // Set instruction if the program supports it
@@ -742,20 +751,23 @@ Instruction:`;
   /**
    * The main compile method to run MIPROv2 optimization
    */
-  public async compile(
+  public async compile<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxMiPROResult<IN, OUT>> {
     const startTime = Date.now();
 
+    // Validate examples meet minimum requirements
+    this.validateExamples(examples);
+
     // Initialize random seed if provided
     this.setupRandomSeed();
 
-    // Configure auto settings if provided (cast to access MiPRO-specific options)
-    const miproOptions = options as AxMiPROCompileOptions;
-    if (miproOptions?.auto) {
-      this.configureAuto(miproOptions.auto);
+    // Configure auto settings if provided
+    if (options?.auto) {
+      this.configureAuto(options.auto);
     }
 
     // Check if Python optimizer should be used (based on presence of client)
@@ -768,85 +780,51 @@ Instruction:`;
         );
       }
 
-      this.logger?.({
-        name: 'Notification',
-        id: 'mipro_mode',
-        value: 'Using Python optimizer service for MiPRO optimization',
+      const optLogger = this.getOptimizerLogger(options);
+      optLogger?.({
+        name: 'OptimizationStart',
+        value: {
+          optimizerType: 'MiPRO (Python Service)',
+          exampleCount: Math.floor(examples.length * 0.8),
+          validationCount: Math.ceil(examples.length * 0.2),
+          config: { pythonService: true, endpoint: this.optimizerEndpoint }
+        },
       });
 
-      return await this.compilePython(program, metricFn, options);
+      return await this.compilePython(program, examples, metricFn, options);
     }
 
-    // Use validation set from parent class method
-    const validationExamples =
-      this.getValidationSet(options) ||
-      (miproOptions?.validationExamples ??
-        this.examples.slice(0, Math.floor(this.examples.length * 0.2)));
+    // Auto-split examples into training and validation (80/20 split)
+    const splitIndex = Math.floor(examples.length * 0.8);
+    const trainingExamples = examples.slice(0, splitIndex);
+    const validationExamples = examples.slice(splitIndex);
 
-    // if (this.isLoggingEnabled(options)) {
-    //   this.getLogger(options)?.(
-    //     `Starting MIPROv2 optimization with ${this.numTrials} trials`,
-    //     { tags: ['optimizer', 'start'] }
-    //   );
-    //   this.getLogger(options)?.(
-    //     `Using ${this.examples.length} examples for training and ${validationExamples.length} for validation`,
-    //     { tags: ['optimizer', 'config'] }
-    //   );
-    //   if (this.teacherAI) {
-    //     this.getLogger(options)?.(
-    //       'Using separate teacher model for instruction generation',
-    //       { tags: ['optimizer', 'config'] }
-    //     );
-    //   }
-    // }
 
     // Step 1: Bootstrap few-shot examples
     let bootstrappedDemos: AxProgramDemos<IN, OUT>[] = [];
     if (this.maxBootstrappedDemos > 0) {
       bootstrappedDemos = await this.bootstrapFewShotExamples(
         program,
-        metricFn
+        metricFn,
+        trainingExamples
       );
 
-      // if (this.isLoggingEnabled(options)) {
-      //   this.getLogger(options)?.(
-      //     `Generated ${bootstrappedDemos.length} bootstrapped demonstrations`,
-      //     { tags: ['optimizer', 'result'] }
-      //   );
-      // }
     }
 
     // Step 2: Select labeled examples from training set
-    let labeledExamples: AxExample[] = [];
+    let labeledExamples: AxTypedExample<IN>[] = [];
     if (this.maxLabeledDemos > 0) {
-      labeledExamples = this.selectLabeledExamples();
+      labeledExamples = this.selectLabeledExamples(trainingExamples);
 
-      // if (this.isLoggingEnabled(options)) {
-      //   this.getLogger(options)?.(
-      //     `Selected ${labeledExamples.length} labeled examples from training set`,
-      //     { tags: ['optimizer', 'result'] }
-      //   );
-      // }
     }
 
     // Step 3: Generate instruction candidates
     const instructions = await this.proposeInstructionCandidates(
       program,
-      options
+      options,
+      trainingExamples
     );
 
-    // if (this.isLoggingEnabled(options)) {
-    //   this.getLogger(options)?.(
-    //     `Generated ${instructions.length} instruction candidates`,
-    //     { tags: ['optimizer', 'result'] }
-    //   );
-    //   if (this.hasTeacherAI(options)) {
-    //     this.getLogger(options)?.(
-    //       'Using teacher AI for instruction generation',
-    //       { tags: ['optimizer', 'config'] }
-    //     );
-    //   }
-    // }
 
     // Step 4: Run optimization to find the best configuration
     const { bestConfig, bestScore } = await this.runOptimization(
@@ -859,16 +837,6 @@ Instruction:`;
       options
     );
 
-    // if (this.isLoggingEnabled(options)) {
-    //   this.getLogger(options)?.(
-    //     `Optimization complete. Best score: ${bestScore}`,
-    //     { tags: ['optimizer', 'complete'] }
-    //   );
-    //   this.getLogger(options)?.(
-    //     `Best configuration: ${JSON.stringify(bestConfig)}`,
-    //     { tags: ['optimizer', 'result'] }
-    //   );
-    // }
 
     // Check if target score was reached
     if (this.checkTargetScore(bestScore)) {
@@ -890,7 +858,7 @@ Instruction:`;
       signature = 'input -> output';
     }
 
-    const optimizedGen = new AxGen<IN, OUT>(signature);
+    const optimizedGen = new AxGen(signature);
 
     // Apply the best configuration to the new AxGen
     this.applyConfigToAxGen(
@@ -939,10 +907,10 @@ Instruction:`;
   /**
    * Applies a configuration to an AxGen instance
    */
-  private applyConfigToAxGen(
+  private applyConfigToAxGen<IN, OUT extends AxGenOut>(
     axgen: Readonly<AxGen<IN, OUT>>,
     config: Readonly<ConfigType>,
-    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
+    bootstrappedDemos: readonly AxProgramDemos<any, OUT>[],
     labeledExamples: readonly AxExample[]
   ): void {
     // Set instruction if the AxGen supports it
@@ -1052,7 +1020,7 @@ Instruction:`;
    * @param program Program to validate
    * @returns Validation result with any issues found
    */
-  public validateProgram(_program: Readonly<AxGen<IN, OUT>>): {
+  public validateProgram<IN, OUT extends AxGenOut>(_program: Readonly<AxGen<IN, OUT>>): {
     isValid: boolean;
     issues: string[];
     suggestions: string[];
@@ -1062,26 +1030,8 @@ Instruction:`;
     const suggestions: string[] = [];
 
     // Add MiPRO-specific validation
-    if (
-      this.examples.length <
-      this.maxBootstrappedDemos + this.maxLabeledDemos
-    ) {
-      issues.push(
-        `Not enough examples: need at least ${
-          this.maxBootstrappedDemos + this.maxLabeledDemos
-        }, got ${this.examples.length}`
-      );
-      suggestions.push(
-        'Reduce maxBootstrappedDemos or maxLabeledDemos, or provide more examples'
-      );
-    }
 
-    // Check if validation set is reasonable for MiPRO
-    const validationSetSize = this.getValidationSet().length;
-    if (validationSetSize < 5) {
-      issues.push('Validation set too small for reliable MiPRO optimization');
-      suggestions.push('Provide more examples or a larger validation set');
-    }
+    // Validation is now handled in the compile() method
 
     return {
       isValid: issues.length === 0,
@@ -1253,9 +1203,9 @@ Instruction:`;
   /**
    * Selects the next configuration to evaluate using Bayesian optimization
    */
-  private async selectConfigurationViaBayesianOptimization(
+  private async selectConfigurationViaBayesianOptimization<IN, OUT extends AxGenOut>(
     instructions: readonly string[],
-    bootstrappedDemos: readonly AxProgramDemos<IN, OUT>[],
+    bootstrappedDemos: readonly AxProgramDemos<any, OUT>[],
     labeledExamples: readonly AxExample[]
   ): Promise<ConfigType> {
     const candidates: Array<{ config: ConfigType; acquisitionValue: number }> =
@@ -1296,8 +1246,9 @@ Instruction:`;
    * with the Python optimizer service. For now, it focuses on basic
    * parameter optimization rather than full MiPRO functionality.
    */
-  private async compilePython(
+  private async compilePython<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     _options?: AxCompileOptions
   ): Promise<AxMiPROResult<IN, OUT>> {
@@ -1337,10 +1288,15 @@ Instruction:`;
     const job =
       await this.pythonClient.createOptimizationJob(optimizationRequest);
 
-    this.logger?.({
-      name: 'Notification',
-      id: 'python_job_started',
-      value: `Started Python optimization job ${job.job_id}`,
+    const optLogger = this.getOptimizerLogger();
+    optLogger?.({
+      name: 'OptimizationStart',
+      value: {
+        optimizerType: 'MiPRO (Python)',
+        exampleCount: examples.length,
+        validationCount: 0,
+        config: { jobId: job.job_id, numTrials: this.numTrials }
+      },
     });
 
     let bestScore = Number.NEGATIVE_INFINITY;
@@ -1363,8 +1319,8 @@ Instruction:`;
           metricFn,
           { temperature, bootstrappedDemos },
           this.minibatch
-            ? this.examples.slice(0, this.minibatchSize)
-            : this.examples
+            ? examples.slice(0, this.minibatchSize)
+            : examples
         );
 
         totalTrials++;
@@ -1382,10 +1338,17 @@ Instruction:`;
           // In a full implementation, we'd create an optimized program here
         }
 
-        this.logger?.({
-          name: 'Notification',
-          id: 'python_trial_result',
-          value: `Trial ${trial + 1}: score=${score.toFixed(3)}, temp=${temperature.toFixed(2)}`,
+        const optLogger = this.getOptimizerLogger();
+        optLogger?.({
+          name: 'RoundProgress',
+          value: {
+            round: trial + 1,
+            totalRounds: this.numTrials,
+            currentScore: score,
+            bestScore: Math.max(score, bestScore || 0),
+            tokensUsed: 0,
+            configuration: { temperature },
+          },
         });
 
         // Report progress
@@ -1397,12 +1360,12 @@ Instruction:`;
           tokensUsed: this.stats.estimatedTokenUsage,
           timeElapsed: Date.now() - Date.now(), // Simplified
           successfulExamples: totalTrials,
-          totalExamples: this.examples.length,
+          totalExamples: examples.length,
         });
       } catch (error) {
-        this.logger?.({
+        const optLogger = this.getOptimizerLogger();
+        optLogger?.({
           name: 'Notification',
-          id: 'python_trial_error',
           value: `Trial ${trial + 1} failed: ${error}`,
         });
         // Continue with next trial
@@ -1412,15 +1375,22 @@ Instruction:`;
     // Get final results from Python optimizer
     try {
       const studyResults = await this.pythonClient.getStudyResults(studyName);
-      this.logger?.({
-        name: 'Notification',
-        id: 'python_results',
-        value: `Python optimization completed with ${studyResults.n_trials} trials`,
+      const optLogger = this.getOptimizerLogger();
+      optLogger?.({
+        name: 'OptimizationComplete',
+        value: {
+          bestScore: studyResults.best_value || 0,
+          bestConfiguration: studyResults.best_params || {},
+          stats: {
+            totalCalls: studyResults.n_trials,
+            successfulDemos: studyResults.n_trials,
+          },
+        },
       });
     } catch (error) {
-      this.logger?.({
+      const optLogger = this.getOptimizerLogger();
+      optLogger?.({
         name: 'Notification',
-        id: 'python_results_error',
         value: `Failed to get study results: ${error}`,
       });
     }
@@ -1439,14 +1409,14 @@ Instruction:`;
     return {
       bestScore,
       stats: this.stats,
-      optimizedGen: bestProgram as AxGen<IN, OUT>, // In full implementation, this would be the optimized program
+      optimizedGen: bestProgram as AxGen<any, any>, // In full implementation, this would be the optimized program
     };
   }
 
   /**
    * Simplified evaluation method for Python optimization
    */
-  private async evaluateConfiguration(
+  private async evaluateConfiguration<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
     _config: { temperature: number; bootstrappedDemos: number },

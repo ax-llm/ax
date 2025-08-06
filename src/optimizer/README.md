@@ -6,9 +6,10 @@ HTTP service for Ax LLM optimization using Optuna, FastAPI, and ARQ for backgrou
 
 - **FastAPI**: High-performance async API with automatic documentation
 - **Optuna**: Modern hyperparameter optimization with TPE, pruning, and visualization
-- **ARQ**: Redis-based task queue for long-running optimizations
+- **Optional Redis**: Can run with Redis/ARQ for distributed tasks or in-memory for simplicity
 - **Memory + Persistence**: Runs in-memory by default with optional PostgreSQL persistence
-- **Docker**: Complete containerized setup with Redis and PostgreSQL
+- **Docker**: Complete containerized setup with optional Redis and PostgreSQL
+- **Zero External Dependencies Mode**: Can run entirely in-memory without Redis or PostgreSQL
 
 ## Quick Start
 
@@ -27,11 +28,27 @@ docker-compose down
 
 The API will be available at http://localhost:8000 with interactive docs at http://localhost:8000/docs.
 
-### Manual Setup
+### Manual Setup with uv
 
-1. **Install dependencies:**
+#### Quick Start (No Configuration Required)
+
+1. **Install uv (if not already installed):**
 ```bash
-pip install -e .
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+2. **Install and run:**
+```bash
+uv sync
+uv run ax-optimizer server start
+# That's it! The service runs with in-memory queue by default
+```
+
+#### Production Setup (With Redis for Distributed Tasks)
+
+1. **Install dependencies with Redis support:**
+```bash
+uv sync --group redis
 ```
 
 2. **Start Redis:**
@@ -39,20 +56,20 @@ pip install -e .
 docker run -p 6379:6379 redis:7-alpine
 ```
 
-3. **Configure environment:**
+3. **Enable Redis mode:**
 ```bash
-cp .env.example .env
-# Edit .env as needed
+export USE_MEMORY_QUEUE=false
+# Or create .env file with USE_MEMORY_QUEUE=false
 ```
 
 4. **Start the API server:**
 ```bash
-python -m app.main
+uv run python -m app.main
 ```
 
-5. **Start the worker (in another terminal):**
+5. **Start workers (in another terminal):**
 ```bash
-arq app.tasks.WorkerSettings
+uv run arq app.tasks.WorkerSettings
 ```
 
 ## API Usage
@@ -155,30 +172,54 @@ curl "http://localhost:8000/studies/my_optimization/results"
 
 ## Integration with Ax JavaScript Client
 
-The service is designed to be used by the Ax JavaScript/TypeScript client:
+The service integrates seamlessly with the Ax MiPRO optimizer:
 
 ```typescript
-// Example Ax client usage
-import { AxOptimizer } from '@ax-llm/ax'
+// MiPro with Python service integration
+import { AxMiPRO, ai, ax, type AxMetricFn } from '@ax-llm/ax'
 
-const optimizer = new AxOptimizer({
-  endpoint: 'http://localhost:8000'
-})
+const emailClassifier = ax(
+  'emailText:string -> priority:class "critical, normal, low"'
+);
 
-// Create optimization job
-const job = await optimizer.optimize({
-  parameters: [
-    { name: 'temperature', type: 'float', low: 0.1, high: 2.0 },
-    { name: 'max_tokens', type: 'int', low: 50, high: 500 }
-  ],
-  objective: { name: 'score', direction: 'maximize' },
-  n_trials: 50
-})
+const optimizer = new AxMiPRO({
+  studentAI: ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! }),
+  examples: trainingData,
+  
+  // Python service configuration
+  optimizerEndpoint: 'http://localhost:8000',
+  optimizerTimeout: 60000,
+  optimizerRetries: 3,
+  
+  // Advanced optimization settings
+  numTrials: 100,
+  bayesianOptimization: true,
+  acquisitionFunction: 'expected_improvement',
+});
 
-// Get suggestions and evaluate
-const suggestion = await optimizer.suggest(job.study_name)
-const result = await evaluateModel(suggestion.params)
-await optimizer.evaluate(job.study_name, suggestion.trial_number, result.score)
+// Run optimization
+const result = await optimizer.compile(emailClassifier, metric);
+```
+
+## CLI Usage
+
+The service includes a comprehensive CLI for all operations:
+
+```bash
+# Start server
+uv run ax-optimizer server start --debug
+
+# Create MiPro configuration
+uv run ax-optimizer mipro create-config --output config.json
+
+# Run optimization job
+uv run ax-optimizer optimize --config config.json --monitor
+
+# Monitor job progress
+uv run ax-optimizer monitor <job_id>
+
+# Get results
+uv run ax-optimizer results <study_name>
 ```
 
 ## API Endpoints
@@ -243,23 +284,23 @@ Environment variables:
 
 ```bash
 # Install dev dependencies
-pip install -e .[dev]
+uv sync --group dev
 
 # Run tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=app
+uv run pytest --cov=app
 ```
 
 ### Code Formatting
 
 ```bash
 # Format code
-black app/
+uv run black app/
 
 # Lint code  
-ruff app/
+uv run ruff app/
 ```
 
 ### Adding New Features
