@@ -484,6 +484,8 @@ import {
   type AxOptimizationCheckpoint,
   type AxOptimizationProgress,
   type AxOptimizationStats,
+  type AxOptimizedProgram,
+  AxOptimizedProgramImpl,
   type AxOptimizer,
   type AxOptimizerArgs,
   type AxOptimizerMetricsConfig,
@@ -740,6 +742,7 @@ export { AxMemory };
 export { AxMiPRO };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
+export { AxOptimizedProgramImpl };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
@@ -1149,6 +1152,7 @@ export type { AxMultiProviderConfig };
 export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
+export type { AxOptimizedProgram };
 export type { AxOptimizer };
 export type { AxOptimizerArgs };
 export type { AxOptimizerLoggerData };

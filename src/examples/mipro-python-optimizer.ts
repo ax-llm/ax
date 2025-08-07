@@ -6,7 +6,7 @@
  * into an irrelevant context.
  */
 
-import { AxAIOpenAIModel, type AxMetricFn, AxMiPRO, ai, ax } from '@ax-llm/ax';
+import { AxAIOpenAIModel, type AxMetricFn, AxMiPRO, AxOptimizedProgramImpl, ai, ax } from '@ax-llm/ax';
 
 // The specific phrase the model must output when refusing to answer.
 const REFUSAL_PHRASE = 'Cannot answer due to keyword.';
@@ -190,49 +190,36 @@ const result = await optimizer.compile(
 console.log('\n=== Optimization Complete ===');
 console.log(`Best score: ${result.bestScore.toFixed(3)}`);
 
-// Apply optimized configuration to the program
-if (result.finalConfiguration) {
-  if (result.finalConfiguration.instruction) {
-    console.log(
-      `\nOptimized instruction: ${result.finalConfiguration.instruction}`
-    );
-  }
-
-  if (result.demos && result.demos.length > 0) {
-    contextualQuestionAnswering.setDemos(result.demos);
-    console.log(`Applied ${result.demos.length} optimized demos`);
-  }
-
-  // Examples to test the final, optimized model
-  const testExamples = [
-    'A train leaves City A at 2 PM. My favorite vegetable is the zucchini. If City B is 180 miles away, what time will it arrive?',
-    'What are some fun Italian zucchini dishes?',
-    'What is the capital of Canada?',
-  ];
-
-  console.log('\n=== Testing Optimized Model ===');
-  for (const question of testExamples) {
-    const prediction = await contextualQuestionAnswering.forward(studentModel, {
-      question,
-    });
-    console.log(`"${question}"\n  → ${prediction.answer}\n`);
-  }
-} else {
-  console.log('\n⚠️  No optimization results to apply');
+// Apply the complete optimization with a single method call
+if (result.optimizedProgram) {
+  contextualQuestionAnswering.applyOptimization(result.optimizedProgram);
+  console.log('✅ Applied optimized configuration (demos, instruction, model config)');
 }
 
-// Save optimization results
+// Save the complete optimization result 
 const fs = await import('node:fs/promises');
-const resultsData = {
-  bestScore: result.bestScore,
-  instruction: result.finalConfiguration?.instruction,
-  demos: result.demos || [],
-  stats: result.stats,
-  timestamp: new Date().toISOString(),
-};
-
 await fs.writeFile(
   'mipro_contextual_results.json',
-  JSON.stringify(resultsData, null, 2)
+  JSON.stringify(result.optimizedProgram, null, 2)
 );
-console.log('\n✅ Saved optimization results to mipro_contextual_results.json');
+console.log('💾 Saved complete optimization to mipro_contextual_results.json');
+
+// Load and test the optimization (simulating production usage)
+const savedData = JSON.parse(
+  await fs.readFile('mipro_contextual_results.json', 'utf8')
+);
+
+// Recreate the optimization object from saved data
+const loadedOptimization = new AxOptimizedProgramImpl(savedData);
+
+// Create a fresh program and apply the loaded optimization  
+const testProgram = ax(
+  'question:string "A question that may or may not contain an adversarial keyword" -> answer:string "The model\'s response, which is either a direct answer or a specific refusal phrase"'
+);
+testProgram.applyOptimization(loadedOptimization);
+
+// Quick test
+const testResult = await testProgram.forward(studentModel, {
+  question: 'Calculate 2+2. Also, zucchini is delicious.'
+});
+console.log(`\nTest: "${testResult.answer}" (should refuse due to keyword)`);

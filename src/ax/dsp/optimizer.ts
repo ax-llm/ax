@@ -918,6 +918,7 @@ export const recordOptimizerConfigurationMetric = (
 };
 
 // Simplified result - no program since it's passed to compile
+// Legacy interface - kept for backward compatibility
 export interface AxOptimizerResult<OUT> {
   demos?: AxProgramDemos<any, OUT>[];
   stats: AxOptimizationStats;
@@ -927,6 +928,119 @@ export interface AxOptimizerResult<OUT> {
   // Optimization history for analysis
   scoreHistory?: number[];
   configurationHistory?: Record<string, unknown>[];
+}
+
+// Unified optimization result that consolidates all optimization outputs
+export interface AxOptimizedProgram<OUT = any> {
+  // Core optimization results
+  bestScore: number;
+  stats: AxOptimizationStats;
+  
+  // Program configuration
+  instruction?: string;
+  demos?: AxProgramDemos<any, OUT>[];
+  examples?: AxExample[];
+  
+  // Model configuration
+  modelConfig?: {
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    topK?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    stop?: string | string[];
+    [key: string]: unknown;
+  };
+  
+  // Optimization metadata
+  optimizerType: string;
+  optimizationTime: number;
+  totalRounds: number;
+  converged: boolean;
+  
+  // Historical data for analysis
+  scoreHistory?: number[];
+  configurationHistory?: Record<string, unknown>[];
+  
+  // Apply this optimization to a program
+  applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void;
+}
+
+// Concrete implementation of AxOptimizedProgram
+export class AxOptimizedProgramImpl<OUT = any> implements AxOptimizedProgram<OUT> {
+  public readonly bestScore: number;
+  public readonly stats: AxOptimizationStats;
+  public readonly instruction?: string;
+  public readonly demos?: AxProgramDemos<any, OUT>[];
+  public readonly examples?: AxExample[];
+  public readonly modelConfig?: {
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    topK?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    stop?: string | string[];
+    [key: string]: unknown;
+  };
+  public readonly optimizerType: string;
+  public readonly optimizationTime: number;
+  public readonly totalRounds: number;
+  public readonly converged: boolean;
+  public readonly scoreHistory?: number[];
+  public readonly configurationHistory?: Record<string, unknown>[];
+
+  constructor(config: {
+    bestScore: number;
+    stats: AxOptimizationStats;
+    instruction?: string;
+    demos?: AxProgramDemos<any, OUT>[];
+    examples?: AxExample[];
+    modelConfig?: AxOptimizedProgram<OUT>['modelConfig'];
+    optimizerType: string;
+    optimizationTime: number;
+    totalRounds: number;
+    converged: boolean;
+    scoreHistory?: number[];
+    configurationHistory?: Record<string, unknown>[];
+  }) {
+    this.bestScore = config.bestScore;
+    this.stats = config.stats;
+    this.instruction = config.instruction;
+    this.demos = config.demos;
+    this.examples = config.examples;
+    this.modelConfig = config.modelConfig;
+    this.optimizerType = config.optimizerType;
+    this.optimizationTime = config.optimizationTime;
+    this.totalRounds = config.totalRounds;
+    this.converged = config.converged;
+    this.scoreHistory = config.scoreHistory;
+    this.configurationHistory = config.configurationHistory;
+  }
+
+  public applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void {
+    // Apply demos if available
+    if (this.demos && this.demos.length > 0) {
+      program.setDemos(this.demos as any);
+    }
+
+    // Apply examples if available
+    if (this.examples && this.examples.length > 0) {
+      program.setExamples(this.examples as any);
+    }
+
+    // Apply instruction if available (via program options)
+    if (this.instruction) {
+      // Store instruction in program options for use in prompt generation
+      (program as any)._optimizedInstruction = this.instruction;
+    }
+
+    // Apply model config if available (stored for use in forward calls)
+    if (this.modelConfig) {
+      (program as any)._optimizedModelConfig = this.modelConfig;
+    }
+  }
 }
 
 // Pareto optimization result for multi-objective optimization

@@ -113,45 +113,87 @@ console.log(
 
 ### Step 6: Save Your Optimization Results 💾
 
-**This is crucial for production!** The optimizer creates **demos** - optimized few-shot examples that make your AI perform better. Save them so you don't have to re-optimize every time:
+**This is crucial for production!** The new unified `AxOptimizedProgram` contains everything needed to reproduce your optimization:
 
 ```typescript
 import { promises as fs } from 'fs';
 
-// Save the optimized demos to a JSON file
-if (result.demos) {
+// Apply the optimized configuration using the unified approach
+if (result.optimizedProgram) {
+  // Apply all optimizations in one clean call
+  sentimentAnalyzer.applyOptimization(result.optimizedProgram);
+  
+  console.log(`✨ Applied optimized configuration:`);
+  console.log(`   Score: ${result.optimizedProgram.bestScore.toFixed(3)}`);
+  console.log(`   Optimizer: ${result.optimizedProgram.optimizerType}`);
+  console.log(`   Converged: ${result.optimizedProgram.converged ? '✅' : '❌'}`);
+  
+  // Save the complete optimization result
   await fs.writeFile(
-    'sentiment-analyzer-demos.json', 
-    JSON.stringify(result.demos, null, 2)
+    'sentiment-analyzer-optimization.json',
+    JSON.stringify({
+      version: '2.0',
+      bestScore: result.optimizedProgram.bestScore,
+      instruction: result.optimizedProgram.instruction,
+      demos: result.optimizedProgram.demos,
+      modelConfig: result.optimizedProgram.modelConfig,
+      optimizerType: result.optimizedProgram.optimizerType,
+      optimizationTime: result.optimizedProgram.optimizationTime,
+      totalRounds: result.optimizedProgram.totalRounds,
+      converged: result.optimizedProgram.converged,
+      stats: result.optimizedProgram.stats,
+      timestamp: new Date().toISOString()
+    }, null, 2)
   );
-  console.log('✅ Optimization results saved to sentiment-analyzer-demos.json');
+  console.log('✅ Complete optimization saved to sentiment-analyzer-optimization.json');
 }
 
 // What you just saved:
 console.log('Saved data contains:');
-console.log('- Optimized few-shot examples');
-console.log('- Best-performing input/output pairs'); 
-console.log('- Optimized instruction prompts (MiPRO)');
+console.log('- Optimized few-shot examples (demos)');
+console.log('- Optimized instruction prompts');
+console.log('- Model configuration (temperature, etc.)');
+console.log('- Complete performance metrics');
+console.log('- Optimization metadata and timing');
 console.log(`- Performance score: ${result.bestScore}`);
 ```
 
 ### Step 7: Load and Use in Production 🚀
 
-In your production code, load the saved demos instead of re-optimizing:
+In your production code, recreate and apply the saved optimization:
 
 ```typescript
-// Production app - load pre-optimized demos
+import { AxOptimizedProgramImpl } from '@ax-llm/ax';
+
+// Production app - load pre-optimized configuration
 const sentimentAnalyzer = ax(
   'reviewText:string "Customer review" -> sentiment:class "positive, negative, neutral" "How the customer feels"',
 );
 
 // Load the saved optimization results
-const savedDemos = JSON.parse(
-  await fs.readFile('sentiment-analyzer-demos.json', 'utf8')
+const savedData = JSON.parse(
+  await fs.readFile('sentiment-analyzer-optimization.json', 'utf8')
 );
 
-// Apply the optimization (this makes your AI much smarter!)
-sentimentAnalyzer.setDemos(savedDemos);
+// Recreate the optimized program
+const optimizedProgram = new AxOptimizedProgramImpl({
+  bestScore: savedData.bestScore,
+  stats: savedData.stats,
+  instruction: savedData.instruction,
+  demos: savedData.demos,
+  modelConfig: savedData.modelConfig,
+  optimizerType: savedData.optimizerType,
+  optimizationTime: savedData.optimizationTime,
+  totalRounds: savedData.totalRounds,
+  converged: savedData.converged
+});
+
+// Apply the complete optimization (demos, instruction, model config, etc.)
+sentimentAnalyzer.applyOptimization(optimizedProgram);
+
+console.log(`🚀 Loaded optimization v${savedData.version}`);
+console.log(`   Score: ${optimizedProgram.bestScore.toFixed(3)}`);
+console.log(`   Optimizer: ${optimizedProgram.optimizerType}`);
 
 // Now your AI performs at the optimized level
 const analysis = await sentimentAnalyzer.forward(llm, {
@@ -163,23 +205,37 @@ console.log("Analysis:", analysis.sentiment); // Much more accurate!
 
 ### Step 8: Understanding What You Get 📊
 
-The optimization result contains several important pieces:
+The new unified optimization result provides comprehensive information in one object:
 
 ```typescript
 const result = await optimizer.compile(sentimentAnalyzer, examples, metric);
 
-// What's in the result:
-console.log({
-  bestScore: result.bestScore,           // Best performance achieved (0-1)
-  demos: result.demos?.length,           // Number of optimized examples
-  stats: result.stats.totalCalls,       // How many AI calls were made
-  finalConfiguration: result.finalConfiguration // Optimizer settings used
-});
+// New unified approach - everything in one place:
+if (result.optimizedProgram) {
+  console.log({
+    // Performance metrics
+    bestScore: result.optimizedProgram.bestScore,           // Best performance (0-1)
+    converged: result.optimizedProgram.converged,          // Did optimization converge?
+    totalRounds: result.optimizedProgram.totalRounds,     // Number of optimization rounds
+    optimizationTime: result.optimizedProgram.optimizationTime, // Time taken (ms)
+    
+    // Program configuration
+    instruction: result.optimizedProgram.instruction,      // Optimized prompt
+    demos: result.optimizedProgram.demos?.length,         // Number of few-shot examples
+    modelConfig: result.optimizedProgram.modelConfig,     // Model settings (temperature, etc.)
+    
+    // Optimization metadata
+    optimizerType: result.optimizedProgram.optimizerType, // Which optimizer was used
+    stats: result.optimizedProgram.stats,                 // Detailed statistics
+  });
+}
 
-// The demos are the key output - they contain:
-// - Input examples that work well
-// - Expected output examples  
-// - Optimized instruction text (MiPRO)
+// The unified result contains everything:
+// - Optimized few-shot examples (demos)
+// - Optimized instruction text 
+// - Model configuration (temperature, maxTokens, etc.)
+// - Complete performance statistics
+// - Optimization metadata (type, time, convergence)
 // - Everything needed to reproduce the performance
 ```
 
@@ -189,9 +245,12 @@ console.log({
 ```
 your-app/
 ├── optimizations/
-│   ├── sentiment-analyzer-demos.json     ← Saved optimization results
-│   ├── email-classifier-demos.json       ← Different task
-│   └── product-reviewer-demos.json       ← Another task
+│   ├── sentiment-analyzer-v2.0.json      ← Complete optimization (new format)
+│   ├── email-classifier-v2.0.json        ← Different task
+│   └── product-reviewer-v2.0.json        ← Another task
+├── legacy-optimizations/
+│   ├── sentiment-analyzer-demos.json     ← Legacy demos (v1.0 format)
+│   └── email-classifier-demos.json       ← Old format
 ├── src/
 │   ├── train-models.ts                    ← Training script
 │   └── production-app.ts                  ← Production app
@@ -199,37 +258,90 @@ your-app/
 
 **Environment-specific Loading:**
 ```typescript
-// Load different demos for different environments
-const demoFile = process.env.NODE_ENV === 'production' 
-  ? 'optimizations/sentiment-analyzer-demos-prod.json'
-  : 'optimizations/sentiment-analyzer-demos-dev.json';
+import { AxOptimizedProgramImpl } from '@ax-llm/ax';
 
-const demos = JSON.parse(await fs.readFile(demoFile, 'utf8'));
-sentimentAnalyzer.setDemos(demos);
+// Load different optimizations for different environments
+const optimizationFile = process.env.NODE_ENV === 'production' 
+  ? 'optimizations/sentiment-analyzer-prod-v2.0.json'
+  : 'optimizations/sentiment-analyzer-dev-v2.0.json';
+
+const savedData = JSON.parse(await fs.readFile(optimizationFile, 'utf8'));
+
+// Handle both new unified format and legacy format
+if (savedData.version === '2.0') {
+  // New unified format
+  const optimizedProgram = new AxOptimizedProgramImpl(savedData);
+  sentimentAnalyzer.applyOptimization(optimizedProgram);
+  console.log(`🚀 Loaded unified optimization v${savedData.version}`);
+} else {
+  // Legacy format (backward compatibility)
+  sentimentAnalyzer.setDemos(savedData.demos || savedData);
+  console.log('⚠️  Loaded legacy demo format - consider upgrading');
+}
 ```
 
 **Version Your Optimizations:**
 ```typescript
-// Add metadata to track optimization versions
+// The new format includes comprehensive versioning by default
 const optimizationData = {
-  version: "1.2.0",
-  created: new Date().toISOString(), 
-  score: result.bestScore,
+  version: "2.0",                                    // Format version
+  modelVersion: "1.3.0",                           // Your model version
+  created: new Date().toISOString(),
+  bestScore: result.optimizedProgram.bestScore,
+  instruction: result.optimizedProgram.instruction,
+  demos: result.optimizedProgram.demos,
+  modelConfig: result.optimizedProgram.modelConfig,
+  optimizerType: result.optimizedProgram.optimizerType,
+  optimizationTime: result.optimizedProgram.optimizationTime,
+  totalRounds: result.optimizedProgram.totalRounds,
+  converged: result.optimizedProgram.converged,
+  stats: result.optimizedProgram.stats,
+  environment: process.env.NODE_ENV || 'development',
   modelUsed: "gpt-4o-mini",
-  demos: result.demos
+  trainingDataSize: examples.length
 };
 
 await fs.writeFile(
-  'sentiment-analyzer-v1.2.0.json',
+  'sentiment-analyzer-v1.3.0.json',
   JSON.stringify(optimizationData, null, 2)
 );
 ```
 
-**🎉 Congratulations!** You now understand the complete optimization workflow:
-1. **Train** with examples and metrics
-2. **Save** the optimized demos 
-3. **Load** demos in production for better performance
-4. **Version** and manage your optimizations professionally
+**Helper Functions for Production:**
+```typescript
+// Utility function to load any optimization format
+export async function loadOptimization(filePath: string) {
+  const savedData = JSON.parse(await fs.readFile(filePath, 'utf8'));
+  
+  if (savedData.version === '2.0') {
+    return new AxOptimizedProgramImpl(savedData);
+  } else if (savedData.demos || Array.isArray(savedData)) {
+    // Legacy format - create a minimal optimized program
+    return new AxOptimizedProgramImpl({
+      bestScore: savedData.score || savedData.bestScore || 0,
+      stats: savedData.stats || { totalCalls: 0, successfulDemos: 0, estimatedTokenUsage: 0, earlyStopped: false, resourceUsage: { totalTokens: 0, totalTime: 0, avgLatencyPerEval: 0, costByModel: {} }, convergenceInfo: { converged: false, finalImprovement: 0, stagnationRounds: 0, convergenceThreshold: 0.01 }, bestScore: savedData.score || 0 },
+      demos: savedData.demos || savedData,
+      optimizerType: 'Legacy',
+      optimizationTime: 0,
+      totalRounds: 0,
+      converged: false
+    });
+  }
+  throw new Error('Unknown optimization format');
+}
+
+// Usage in production
+const optimizedProgram = await loadOptimization('optimizations/sentiment-analyzer-prod.json');
+sentimentAnalyzer.applyOptimization(optimizedProgram);
+console.log(`📊 Applied optimization with score: ${optimizedProgram.bestScore.toFixed(3)}`);
+```
+
+**🎉 Congratulations!** You now understand the complete unified optimization workflow:
+1. **Train** with examples and metrics  
+2. **Apply** optimization using `program.applyOptimization(result.optimizedProgram)`
+3. **Save** the complete optimization configuration (demos + instruction + model config)
+4. **Load** and recreate optimization in production using `AxOptimizedProgramImpl`
+5. **Version** and manage your optimizations with comprehensive metadata
 
 ---
 
@@ -960,22 +1072,36 @@ console.log(
   }%`,
 );
 
-// 6. Save the optimization results
-if (result.demos) {
+// 6. Apply and save the optimization results using the unified approach
+if (result.optimizedProgram) {
   const fs = await import('fs/promises');
+  
+  // Apply all optimizations at once
+  productReviewer.applyOptimization(result.optimizedProgram);
+  
+  console.log(`✨ Applied optimized configuration:`);
+  console.log(`   Score: ${result.optimizedProgram.bestScore.toFixed(3)}`);
+  console.log(`   Optimizer: ${result.optimizedProgram.optimizerType}`);
+  console.log(`   Converged: ${result.optimizedProgram.converged ? '✅' : '❌'}`);
+  
+  // Save complete optimization configuration
   await fs.writeFile(
-    'product-reviewer-demos.json',
+    'product-reviewer-optimization.json',
     JSON.stringify({
-      version: "1.0.0",
-      score: result.bestScore,
-      created: new Date().toISOString(),
-      demos: result.demos
+      version: "2.0",
+      bestScore: result.optimizedProgram.bestScore,
+      instruction: result.optimizedProgram.instruction,
+      demos: result.optimizedProgram.demos,
+      modelConfig: result.optimizedProgram.modelConfig,
+      optimizerType: result.optimizedProgram.optimizerType,
+      optimizationTime: result.optimizedProgram.optimizationTime,
+      totalRounds: result.optimizedProgram.totalRounds,
+      converged: result.optimizedProgram.converged,
+      stats: result.optimizedProgram.stats,
+      created: new Date().toISOString()
     }, null, 2)
   );
-  console.log("💾 Optimization results saved!");
-  
-  // Apply demos for immediate testing
-  productReviewer.setDemos(result.demos);
+  console.log("💾 Complete optimization saved to product-reviewer-optimization.json!");
 }
 
 // 7. Test the optimized version
@@ -988,26 +1114,28 @@ const analysis = await productReviewer.forward(llm, {
 console.log("Analysis:", analysis);
 // Expected: rating: '2' or '3', aspect: 'service', recommendation: 'avoid' or 'maybe'
 
-// 8. Later in production - load saved demos:
-// const savedData = JSON.parse(await fs.readFile('product-reviewer-demos.json', 'utf8'));
-// productReviewer.setDemos(savedData.demos);
-// console.log(`Loaded optimization v${savedData.version} with score ${savedData.score}`);
+// 8. Later in production - load complete optimization:
+// import { AxOptimizedProgramImpl } from '@ax-llm/ax';
+// const savedData = JSON.parse(await fs.readFile('product-reviewer-optimization.json', 'utf8'));
+// const optimizedProgram = new AxOptimizedProgramImpl(savedData);
+// productReviewer.applyOptimization(optimizedProgram);
+// console.log(`🚀 Loaded complete optimization v${savedData.version} with score ${savedData.bestScore.toFixed(3)}`);
 ```
 
 ---
 
 ## 🎯 Key Takeaways
 
-1. **Start simple**: 5 examples and basic optimization can give you 20-30%
-   improvement
-2. **Always save your demos**: `JSON.stringify(result.demos)` - this is your optimized AI model!
-3. **Load demos in production**: `program.setDemos(demos)` - no re-optimization needed
-4. **Teacher-student saves money**: Use expensive models to teach cheap ones
-5. **Good examples matter more than lots of examples**: 10 diverse examples beat
-   100 similar ones
-6. **Measure what matters**: Your metric defines what the AI optimizes for
-7. **Version your optimizations**: Track demo versions like code versions
-8. **Demos are portable**: Save once, use anywhere - different environments, apps, etc.
+1. **Start simple**: 5 examples and basic optimization can give you 20-30% improvement
+2. **Use the unified approach**: `program.applyOptimization(result.optimizedProgram)` - one call does everything!
+3. **Save complete optimizations**: New v2.0 format includes demos, instruction, model config, and metadata
+4. **Load optimizations cleanly**: Use `AxOptimizedProgramImpl` to recreate saved optimizations
+5. **Teacher-student saves money**: Use expensive models to teach cheap ones
+6. **Good examples matter more than lots of examples**: 10 diverse examples beat 100 similar ones
+7. **Measure what matters**: Your metric defines what the AI optimizes for
+8. **Version comprehensively**: Track optimization versions, scores, convergence, and metadata
+9. **Backward compatibility**: Legacy demo format still works, but upgrade for better experience
+10. **Production-ready**: The unified approach is designed for enterprise production use
 
 **Ready to optimize your first AI program?** Copy the examples above and start
 experimenting!
@@ -1022,7 +1150,7 @@ refer to the troubleshooting section above.
 ### Essential Imports
 
 ```typescript
-import { ai, ax, AxMiPRO } from "@ax-llm/ax";
+import { ai, ax, AxMiPRO, AxOptimizedProgramImpl } from "@ax-llm/ax";
 ```
 
 ### Basic Pattern (Copy This!)
@@ -1054,7 +1182,11 @@ const optimizer = new AxMiPRO({
   options: { verbose: true },
 });
 const result = await optimizer.compile(program, examples, metric);
-if (result.demos) program.setDemos(result.demos);
+
+// 6. Apply optimization (unified approach)
+if (result.optimizedProgram) {
+  program.applyOptimization(result.optimizedProgram);
+}
 ```
 
 ### Common Field Types
@@ -1082,6 +1214,32 @@ const studentAI = ai({
   config: { model: "gpt-4o-mini" },
 }); // Cheap
 // Use both in optimizer: { studentAI, teacherAI, ... }
+```
+
+### Unified Optimization (New in v14.0+)
+
+```typescript
+// Save complete optimization
+const savedData = {
+  version: "2.0",
+  bestScore: result.optimizedProgram.bestScore,
+  instruction: result.optimizedProgram.instruction,
+  demos: result.optimizedProgram.demos,
+  modelConfig: result.optimizedProgram.modelConfig, // temperature, etc.
+  optimizerType: result.optimizedProgram.optimizerType,
+  // ... all other optimization data
+};
+
+// Load and apply in production
+const optimizedProgram = new AxOptimizedProgramImpl(savedData);
+program.applyOptimization(optimizedProgram); // One call does everything!
+
+// Benefits:
+// ✅ Single object contains all optimization data
+// ✅ One method call applies everything
+// ✅ Complete metadata tracking
+// ✅ Backward compatibility with legacy demos
+// ✅ Production-ready versioning and deployment
 ```
 
 ---

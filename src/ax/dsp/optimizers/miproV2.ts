@@ -2,10 +2,12 @@ import type { AxAIService } from '../../ai/types.js';
 import { AxGen } from '../generate.js';
 import {
   AxBaseOptimizer,
+  AxOptimizedProgramImpl,
   type AxCompileOptions,
   type AxExample,
   type AxMetricFn,
   type AxOptimizerArgs,
+  type AxOptimizedProgram,
   type AxOptimizerResult,
   type AxTypedExample,
 } from '../optimizer.js';
@@ -27,10 +29,11 @@ interface ConfigType extends Record<string, unknown> {
   labeledExamples: number;
 }
 
-// Extended result interface to include the optimized AxGen
+// Extended result interface to include the optimized AxGen and unified optimization result
 export interface AxMiPROResult<IN, OUT extends AxGenOut>
   extends AxOptimizerResult<OUT> {
   optimizedGen?: AxGen<IN, OUT>;
+  optimizedProgram?: AxOptimizedProgram<OUT>;
 }
 
 export class AxMiPRO extends AxBaseOptimizer {
@@ -924,11 +927,31 @@ Instruction:`;
       console.log(`[MiPRO] Returning ${finalDemos.length} final demos`);
     }
 
+    // Create unified optimization result
+    const optimizedProgram = new AxOptimizedProgramImpl<OUT>({
+      bestScore,
+      stats: this.stats,
+      instruction: bestConfig.instruction,
+      demos: finalDemos,
+      examples: labeledExamples.slice(0, bestConfig.labeledExamples) as AxExample[],
+      modelConfig: {
+        // Extract any model configuration that was optimized
+        // For now, keeping it simple but can be extended
+      },
+      optimizerType: 'MiPRO',
+      optimizationTime: Date.now() - startTime,
+      totalRounds: this.currentRound,
+      converged: this.stats.convergenceInfo.converged,
+      scoreHistory: this.stats.convergenceInfo ? [] : undefined,
+      configurationHistory: [] // TODO: Track configuration history during optimization
+    });
+
     return {
       demos: finalDemos,
       stats: this.stats,
       bestScore,
       optimizedGen,
+      optimizedProgram,
       finalConfiguration: {
         instruction: bestConfig.instruction,
         bootstrappedDemos: bestConfig.bootstrappedDemos,
@@ -1341,7 +1364,6 @@ Instruction:`;
     });
 
     let bestScore = Number.NEGATIVE_INFINITY;
-    const bestProgram = program;
     let totalTrials = 0;
 
     // Run optimization trials
@@ -1426,10 +1448,26 @@ Instruction:`;
     // Get final results from Python optimizer
     let finalBestScore = bestScore;
     let finalBestConfig = {};
+    let bestDemos: AxProgramDemos<any, OUT>[] = [];
+    
     try {
       const studyResults = await this.pythonClient.getStudyResults(studyName);
       finalBestScore = studyResults.best_value || bestScore;
       finalBestConfig = studyResults.best_params || {};
+      
+      // If we got a good configuration from Python, generate demos for it
+      if (finalBestConfig && Object.keys(finalBestConfig).length > 0) {
+        const bootstrappedDemos = (finalBestConfig as any).bootstrappedDemos || 0;
+        if (bootstrappedDemos > 0) {
+          // Generate demos using the best configuration
+          bestDemos = await this.bootstrapFewShotExamples(
+            program,
+            metricFn,
+            examples.slice(0, Math.floor(examples.length * 0.8)) // Use training split
+          );
+          bestDemos = bestDemos.slice(0, bootstrappedDemos);
+        }
+      }
     } catch (_error) {
       // Failed to get study results - use local tracking
     }
@@ -1449,14 +1487,53 @@ Instruction:`;
       // Ignore cleanup errors
     }
 
-    // Update stats
-    this.stats.bestScore = bestScore;
+    // Update stats  
+    this.stats.bestScore = finalBestScore;
     this.stats.totalCalls = totalTrials;
+    this.stats.successfulDemos = bestDemos.length;
+
+    // Create optimized generator with best configuration
+    const optimizedGen = new AxGen(program.getSignature());
+    if (bestDemos.length > 0) {
+      optimizedGen.setDemos(bestDemos);
+    }
+    if ((finalBestConfig as any).temperature) {
+      // Store temperature in optimized generator - it will be used in forward calls via model config
+      (optimizedGen as any)._optimizedModelConfig = { 
+        temperature: (finalBestConfig as any).temperature 
+      };
+    }
+
+    // Create unified optimization result for Python path
+    const optimizedProgram = new AxOptimizedProgramImpl<OUT>({
+      bestScore: finalBestScore,
+      stats: this.stats,
+      instruction: undefined, // Python path doesn't optimize instructions yet
+      demos: bestDemos,
+      examples: [],
+      modelConfig: {
+        temperature: (finalBestConfig as any).temperature,
+        // Add other model config parameters as they are optimized
+      },
+      optimizerType: 'MiPRO (Python)',
+      optimizationTime: Date.now() - Date.now(), // TODO: Track actual optimization time
+      totalRounds: this.numTrials,
+      converged: this.stats.convergenceInfo.converged,
+      scoreHistory: [],
+      configurationHistory: []
+    });
 
     return {
-      bestScore,
+      bestScore: finalBestScore,
+      demos: bestDemos,
       stats: this.stats,
-      optimizedGen: bestProgram as AxGen<any, any>, // In full implementation, this would be the optimized program
+      optimizedGen,
+      optimizedProgram,
+      finalConfiguration: {
+        temperature: (finalBestConfig as any).temperature,
+        bootstrappedDemos: (finalBestConfig as any).bootstrappedDemos || 0,
+        ...finalBestConfig,
+      },
     };
   }
 
