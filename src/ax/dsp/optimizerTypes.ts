@@ -32,8 +32,14 @@ export type AxOptimizerLoggerData =
   | {
       name: 'OptimizationComplete';
       value: {
+        optimizerType?: string;
         bestScore: number;
         bestConfiguration: Record<string, unknown>;
+        totalCalls?: number;
+        successRate?: string;
+        explanation?: string;
+        recommendations?: string[];
+        performanceAssessment?: string;
         stats: AxOptimizationStats;
       };
     }

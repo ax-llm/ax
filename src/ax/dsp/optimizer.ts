@@ -1,6 +1,7 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
+import { ax } from '../index.js';
 
 import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
@@ -136,7 +137,6 @@ export type AxOptimizerArgs = {
     | 'probability_improvement';
   explorationWeight?: number;
   sampleCount?: number;
-
 
   // Quality thresholds
   minSuccessRate?: number;
@@ -1055,7 +1055,9 @@ export interface AxOptimizer {
    * @param program Program to validate
    * @returns Validation result with any issues found
    */
-  validateProgram?<IN, OUT extends AxGenOut>(program: Readonly<AxGen<IN, OUT>>): {
+  validateProgram?<IN, OUT extends AxGenOut>(
+    program: Readonly<AxGen<IN, OUT>>
+  ): {
     isValid: boolean;
     issues: string[];
     suggestions: string[];
@@ -1112,7 +1114,6 @@ export interface AxMiPROOptimizerOptions {
   // New option: number of samples to generate per forward call for self-consistency
   sampleCount?: number;
 }
-
 
 // Default cost tracker implementation
 export class AxDefaultCostTracker implements AxCostTracker {
@@ -1211,7 +1212,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   protected readonly optimizerLogger?: AxOptimizerLoggerFunction;
 
   // Checkpoint state
-  private currentRound = 0;
+  protected currentRound = 0;
   private scoreHistory: number[] = [];
   private configurationHistory: Record<string, unknown>[] = [];
 
@@ -1220,6 +1221,9 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
 
   // Metrics instruments
   protected readonly metricsInstruments?: AxOptimizerMetricsInstruments;
+
+  // Result explanation generator
+  private resultExplainer?: ReturnType<typeof ax>;
 
   constructor(args: Readonly<AxOptimizerArgs>) {
     // Set common fields from AxOptimizerArgs
@@ -1257,7 +1261,40 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
 
     // Set up optimizer logging
     this.debugOptimizer = args.debugOptimizer ?? false;
-    this.optimizerLogger = args.optimizerLogger ?? (this.verbose ? axDefaultOptimizerLogger : undefined);
+    this.optimizerLogger =
+      args.optimizerLogger ??
+      (this.verbose ? axDefaultOptimizerLogger : undefined);
+
+    // Initialize result explanation generator
+    this.initializeResultExplainer();
+  }
+
+  /**
+   * Initialize the result explanation generator
+   */
+  private initializeResultExplainer(): void {
+    try {
+      this.resultExplainer = ax(`
+        optimizationScore:number "Final optimization score (0.0 to 1.0)",
+        bestConfiguration:json "Best configuration found during optimization",
+        totalRounds:number "Number of optimization rounds completed",
+        converged:boolean "Whether optimization converged to a stable solution",
+        earlyStoppedReason?:string "Reason for early stopping if applicable",
+        resourcesUsed:json "Tokens, time, and cost consumed during optimization" ->
+        humanExplanation:string "Clear, jargon-free explanation of optimization results for humans",
+        recommendations:string[] "Actionable recommendations based on the results",
+        performanceAssessment:string "Assessment of how well the optimization performed"
+      `);
+    } catch (error) {
+      // If ax generator initialization fails, continue without it
+      this.resultExplainer = undefined;
+      if (this.verbose) {
+        console.warn(
+          '[AxBaseOptimizer] Failed to initialize result explainer:',
+          error
+        );
+      }
+    }
   }
 
   /**
@@ -1357,7 +1394,6 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     });
   }
 
-
   /**
    * Validate that examples meet minimum requirements for optimization
    * @param examples Examples to validate
@@ -1378,7 +1414,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       if (examples.length < 2) {
         throw new Error(
           'At least 2 examples are required for optimization with auto-splitting. ' +
-          'Provide more examples to enable proper train/validation split.'
+            'Provide more examples to enable proper train/validation split.'
         );
       }
     }
@@ -1937,14 +1973,17 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
 
     // NOTE: This evaluation method needs examples to be passed as parameter
     // For now, returning empty predictions array
-    const predictions: { prediction: OUT; example: any }[] = [];
+    const _predictions: { prediction: OUT; example: any }[] = [];
     // for (const ex of examples) {
     //   const prediction = await testProgram.forward(this.studentAI, ex as IN);
     //   predictions.push({ prediction, example: ex });
     // }
 
     // Create validation split from examples (use last 20% or max 5 examples)
-    const valSplitSize = Math.max(1, Math.min(5, Math.floor(examples.length * 0.2)));
+    const valSplitSize = Math.max(
+      1,
+      Math.min(5, Math.floor(examples.length * 0.2))
+    );
     const valSet = examples.slice(-valSplitSize);
     const allScores: Record<string, number[]> = {};
 
@@ -2514,6 +2553,120 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
 
   public getStats(): AxOptimizationStats {
     return { ...this.stats };
+  }
+
+  /**
+   * Generate a human-readable explanation of optimization results
+   */
+  protected async explainOptimizationResults(
+    bestScore: number,
+    bestConfiguration?: Record<string, unknown>,
+    options?: AxCompileOptions
+  ): Promise<
+    | {
+        humanExplanation: string;
+        recommendations: string[];
+        performanceAssessment: string;
+      }
+    | undefined
+  > {
+    if (!this.resultExplainer) {
+      return undefined;
+    }
+
+    try {
+      const ai = this.getTeacherOrStudentAI(options);
+
+      const result = await this.resultExplainer.forward(ai, {
+        optimizationScore: bestScore,
+        bestConfiguration: bestConfiguration || {},
+        totalRounds: Math.max(1, this.currentRound), // Ensure at least 1 round
+        converged: this.stats.convergenceInfo.converged,
+        earlyStoppedReason: this.stats.earlyStopping?.reason || undefined,
+        resourcesUsed: {
+          totalTokens: this.stats.resourceUsage.totalTokens,
+          totalTime: this.stats.resourceUsage.totalTime,
+          avgLatencyPerEval: this.stats.resourceUsage.avgLatencyPerEval,
+          costByModel: this.stats.resourceUsage.costByModel,
+        },
+      });
+
+      return {
+        humanExplanation:
+          result.humanExplanation ||
+          'Optimization completed with mixed results.',
+        recommendations: result.recommendations || [
+          'Review the optimization settings and consider running with more examples.',
+        ],
+        performanceAssessment:
+          result.performanceAssessment ||
+          'Performance assessment not available.',
+      };
+    } catch (error) {
+      if (this.verbose) {
+        console.warn(
+          '[AxBaseOptimizer] Failed to generate result explanation:',
+          error
+        );
+      }
+      return undefined;
+    }
+  }
+
+  /**
+   * Log human-readable optimization completion message
+   */
+  protected async logOptimizationComplete(
+    optimizerType: string,
+    bestScore: number,
+    bestConfiguration?: Record<string, unknown>,
+    options?: AxCompileOptions
+  ): Promise<void> {
+    const optLogger = this.getOptimizerLogger(options);
+    if (!optLogger) return;
+
+    // Generate human-readable explanation
+    const explanation = await this.explainOptimizationResults(
+      bestScore,
+      bestConfiguration,
+      options
+    );
+
+    if (explanation) {
+      optLogger({
+        name: 'OptimizationComplete',
+        value: {
+          optimizerType,
+          bestScore,
+          bestConfiguration: bestConfiguration || {},
+          totalCalls: this.stats.totalCalls,
+          successRate:
+            this.stats.totalCalls > 0
+              ? `${((this.stats.successfulDemos / this.stats.totalCalls) * 100).toFixed(1)}%`
+              : '0.0%',
+          explanation: explanation.humanExplanation,
+          recommendations: explanation.recommendations,
+          performanceAssessment: explanation.performanceAssessment,
+          stats: this.stats,
+        },
+      });
+    } else {
+      // Fallback to basic completion logging
+      optLogger({
+        name: 'OptimizationComplete',
+        value: {
+          optimizerType,
+          bestScore,
+          bestConfiguration: bestConfiguration || {},
+          totalCalls: this.stats.totalCalls,
+          successRate:
+            this.stats.totalCalls > 0
+              ? `${((this.stats.successfulDemos / this.stats.totalCalls) * 100).toFixed(1)}%`
+              : '0.0%',
+          stats: this.stats,
+        },
+      });
+    }
   }
 
   public reset(): void {

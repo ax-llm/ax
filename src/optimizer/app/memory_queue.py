@@ -287,12 +287,15 @@ class InMemoryJobManager:
         # Import here to avoid circular dependency
         from .tasks import run_optimization_task
         
+        # Convert request to dict if it's a Pydantic model
+        request_dict = request.dict() if hasattr(request, 'dict') else request
+        
         # Enqueue the task
         await self.task_queue.enqueue(
             job_id,
             run_optimization_task,
             job_id,
-            request,
+            request_dict,
             study_name
         )
         

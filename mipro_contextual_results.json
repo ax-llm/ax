@@ -1,0 +1,25 @@
+{
+  "bestScore": 0.6,
+  "demos": [],
+  "stats": {
+    "totalCalls": 10,
+    "successfulDemos": 0,
+    "estimatedTokenUsage": 0,
+    "earlyStopped": false,
+    "resourceUsage": {
+      "totalTokens": 0,
+      "totalTime": 0,
+      "avgLatencyPerEval": 0,
+      "costByModel": {}
+    },
+    "convergenceInfo": {
+      "converged": false,
+      "finalImprovement": 0,
+      "stagnationRounds": 0,
+      "convergenceThreshold": 0.01
+    },
+    "bestScore": 0.6,
+    "bestConfiguration": {}
+  },
+  "timestamp": "2025-08-07T04:49:30.218Z"
+}

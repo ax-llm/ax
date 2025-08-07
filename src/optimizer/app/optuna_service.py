@@ -27,6 +27,7 @@ class OptunaService:
     def __init__(self):
         self.studies: Dict[str, optuna.Study] = {}
         self.active_trials: Dict[str, Dict[int, OptunaTrial]] = {}
+        self.study_parameters: Dict[str, List[Parameter]] = {}
     
     def _get_storage_url(self) -> Optional[str]:
         """Get storage URL for persistence."""
@@ -74,8 +75,12 @@ class OptunaService:
                 load_if_exists=True
             )
             
+            # Store parameters in study user_attrs for persistence
+            study.set_user_attr("parameters", [param.dict() for param in request.parameters])
+            
             self.studies[study_name] = study
             self.active_trials[study_name] = {}
+            self.study_parameters[study_name] = request.parameters
             
             logger.info(f"Created study: {study_name}")
             return study_name
@@ -97,6 +102,15 @@ class OptunaService:
                 self.studies[study_name] = study
                 if study_name not in self.active_trials:
                     self.active_trials[study_name] = {}
+                
+                # Load parameters from study user_attrs if not already loaded
+                if study_name not in self.study_parameters:
+                    params_data = study.user_attrs.get("parameters", [])
+                    if params_data:
+                        # Convert dict back to Parameter objects
+                        parameters = [Parameter(**param_dict) for param_dict in params_data]
+                        self.study_parameters[study_name] = parameters
+                
                 return study
             except Exception as e:
                 logger.warning(f"Failed to load study {study_name}: {e}")
@@ -109,15 +123,54 @@ class OptunaService:
         if not study:
             return None
         
+        # Get parameter configuration for this study
+        parameters = self.study_parameters.get(study_name, [])
+        if not parameters:
+            raise ValueError(f"No parameters defined for study {study_name}")
+        
         trial = study.ask()
         trial_number = trial.number
+        
+        # Suggest parameter values using the trial object
+        params = {}
+        for param in parameters:
+            if param.type == ParameterType.FLOAT:
+                if param.low is None or param.high is None:
+                    raise ValueError(f"Float parameter {param.name} must have low and high bounds")
+                if param.log:
+                    value = trial.suggest_float(param.name, float(param.low), float(param.high), log=True)
+                else:
+                    # Only pass step if it's not None
+                    if param.step is not None:
+                        value = trial.suggest_float(param.name, float(param.low), float(param.high), step=param.step)
+                    else:
+                        value = trial.suggest_float(param.name, float(param.low), float(param.high))
+            elif param.type == ParameterType.INT:
+                if param.low is None or param.high is None:
+                    raise ValueError(f"Int parameter {param.name} must have low and high bounds")
+                if param.log:
+                    value = trial.suggest_int(param.name, int(param.low), int(param.high), log=True)
+                else:
+                    # Only pass step if it's not None
+                    if param.step is not None:
+                        value = trial.suggest_int(param.name, int(param.low), int(param.high), step=param.step)
+                    else:
+                        value = trial.suggest_int(param.name, int(param.low), int(param.high))
+            elif param.type == ParameterType.CATEGORICAL:
+                if not param.choices:
+                    raise ValueError(f"Categorical parameter {param.name} must have choices")
+                value = trial.suggest_categorical(param.name, param.choices)
+            else:
+                raise ValueError(f"Unsupported parameter type: {param.type}")
+            
+            params[param.name] = value
         
         # Store active trial
         if study_name not in self.active_trials:
             self.active_trials[study_name] = {}
         self.active_trials[study_name][trial_number] = trial
         
-        return {"trial_number": trial_number, "params": trial.params}
+        return {"trial_number": trial_number, "params": params}
     
     def report_trial_result(
         self, 

@@ -213,6 +213,21 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
     }
 
 
+    // Log human-readable completion message
+    await this.logOptimizationComplete(
+      'BootstrapFewShot',
+      bestScore,
+      {
+        maxRounds: this.maxRounds,
+        maxDemos: this.maxDemos,
+        batchSize: this.batchSize,
+        successRate: bestScore,
+        demosGenerated: demos.length,
+        tracesCollected: this.traces.length,
+      },
+      options
+    );
+
     return {
       demos,
       stats: this.stats,
