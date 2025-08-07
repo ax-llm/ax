@@ -1,5 +1,18 @@
 # Changelog
 
+## [14.0.4](https://github.com/ax-llm/ax/compare/14.0.2...14.0.3) (2025-08-07)
+
+### Features
+
+* add MiPro optimization with Python service integration ([b1fe6e3](https://github.com/ax-llm/ax/commit/b1fe6e373b000765d31bc6cb1f421d3dcfc2a962))
+* enhance MiPro optimizer with result explanation and logging ([2191a25](https://github.com/ax-llm/ax/commit/2191a251317b98debe8fc6dd3eca682f433ec0d6))
+* unify optimization results in MiPro with new AxOptimizedProgram implementation ([305c703](https://github.com/ax-llm/ax/commit/305c703a11afbf849b14634814e91772c59c67b9))
+## [14.0.3](https://github.com/ax-llm/ax/compare/14.0.2...14.0.3) (2025-08-05)
+
+### Features
+
+* enhance validation for file content in chat requests ([4f289af](https://github.com/ax-llm/ax/commit/4f289afedbb3e49196ae82f4f45a9cd674d99ffe))
+
 ## [14.0.3](https://github.com/ax-llm/ax/compare/14.0.1...14.0.2) (2025-08-05)
 
 ### Features
