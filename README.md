@@ -43,6 +43,39 @@ error-correction, multi-step function calling, MCP, RAG, etc
 - Builtin Open Telemetry `gen_ai` support
 - Widely used by startups in prod
 
+## Recent Updates
+
+### v14.0.4 (Latest - Aug 2025)
+
+- **MiPro Python Integration**: Added Python service integration for advanced
+  Bayesian optimization
+- **Enhanced Optimization**: Result explanation and unified optimization results
+  with new AxOptimizedProgram
+- **Improved Logging**: Better optimizer metrics and performance tracking
+
+### v14.0.3 (Aug 2025)
+
+- **Enhanced Validation**: Improved file content validation in chat requests
+- **Signature Tool Calling**: Added support for non-native tool calling
+- **Better Type Safety**: Enhanced ax() and agent() functions with AxSignature
+  support
+
+### v14.0.2 (Aug 2025)
+
+- **Custom OpenAI URLs**: Support for custom API URL configuration
+- **Media Validation**: Enhanced validation for media content in chat requests
+- **Bug Fixes**: Multiple stability improvements
+
+### v14.0.0 (Major Release - July 2025)
+
+- **axRAG**: Advanced retrieval-augmented generation with multi-hop capabilities
+- **Fluent API**: New fluent API for complex signature building
+- **File & URL Types**: Native support for file and URL field types
+- **Enhanced AxFlow**: Asynchronous transformations and better type inference
+- **Migration Guide**: Comprehensive guide for API changes and deprecations
+
+[View Full Changelog](CHANGELOG.md) | [Migration Guide](MIGRATION.md)
+
 ## What's a prompt signature?
 
 <img width="860" alt="shapes at 24-03-31 00 05 55" src="https://github.com/dosco/llm-client/assets/832235/0f0306ea-1812-4a0a-9ed5-76cd908cd26b">
