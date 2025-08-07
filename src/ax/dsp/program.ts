@@ -212,10 +212,14 @@ export class AxProgram<IN, OUT> implements AxUsable {
    */
   public applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void {
     optimizedProgram.applyTo(this as any);
-    
+
     // Propagate to children
     for (const child of Array.from(this.children)) {
-      if (child && 'applyOptimization' in child && typeof child.applyOptimization === 'function') {
+      if (
+        child &&
+        'applyOptimization' in child &&
+        typeof child.applyOptimization === 'function'
+      ) {
         child.applyOptimization(optimizedProgram);
       }
     }

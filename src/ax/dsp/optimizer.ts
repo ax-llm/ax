@@ -1,7 +1,7 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
-import { ax } from '../index.js';
+// FIXME: Circular dependency - import { ax } from '../index.js';
 
 import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
@@ -935,12 +935,12 @@ export interface AxOptimizedProgram<OUT = any> {
   // Core optimization results
   bestScore: number;
   stats: AxOptimizationStats;
-  
+
   // Program configuration
   instruction?: string;
   demos?: AxProgramDemos<any, OUT>[];
   examples?: AxExample[];
-  
+
   // Model configuration
   modelConfig?: {
     temperature?: number;
@@ -952,23 +952,25 @@ export interface AxOptimizedProgram<OUT = any> {
     stop?: string | string[];
     [key: string]: unknown;
   };
-  
+
   // Optimization metadata
   optimizerType: string;
   optimizationTime: number;
   totalRounds: number;
   converged: boolean;
-  
+
   // Historical data for analysis
   scoreHistory?: number[];
   configurationHistory?: Record<string, unknown>[];
-  
+
   // Apply this optimization to a program
   applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void;
 }
 
 // Concrete implementation of AxOptimizedProgram
-export class AxOptimizedProgramImpl<OUT = any> implements AxOptimizedProgram<OUT> {
+export class AxOptimizedProgramImpl<OUT = any>
+  implements AxOptimizedProgram<OUT>
+{
   public readonly bestScore: number;
   public readonly stats: AxOptimizationStats;
   public readonly instruction?: string;
@@ -1337,7 +1339,8 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   protected readonly metricsInstruments?: AxOptimizerMetricsInstruments;
 
   // Result explanation generator
-  private resultExplainer?: ReturnType<typeof ax>;
+  // FIXME: Disabled due to circular dependency - private resultExplainer?: ReturnType<typeof ax>;
+  private resultExplainer?: any;
 
   constructor(args: Readonly<AxOptimizerArgs>) {
     // Set common fields from AxOptimizerArgs
@@ -1385,8 +1388,12 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
 
   /**
    * Initialize the result explanation generator
+   * FIXME: Disabled due to circular dependency with ax() function
    */
   private initializeResultExplainer(): void {
+    // FIXME: Circular dependency - cannot import ax() from index.js
+    this.resultExplainer = undefined;
+    /*
     try {
       this.resultExplainer = ax(`
         optimizationScore:number "Final optimization score (0.0 to 1.0)",
@@ -1409,6 +1416,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
         );
       }
     }
+    */
   }
 
   /**

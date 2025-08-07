@@ -167,7 +167,6 @@ async function demonstrateTeacherStudentOptimization() {
   const optimizer = new AxMiPRO({
     studentAI, // Small model to optimize
     teacherAI, // Large model to guide optimization
-    examples: algorithmTasks,
 
     // Python optimizer integration
     optimizerEndpoint:
@@ -199,6 +198,7 @@ async function demonstrateTeacherStudentOptimization() {
   console.log('⚡ Starting optimization...');
   const optimizationResult = await optimizer.compile(
     algorithmImplementer as any,
+    algorithmTasks,
     implementationQuality
   );
 
@@ -216,9 +216,7 @@ async function demonstrateTeacherStudentOptimization() {
 
   for (const [i, task] of algorithmTasks.slice(0, 2).entries()) {
     try {
-      const afterResult = await optimizedProgram.forward(studentAI, {
-        algorithmName: task.algorithmName,
-      });
+      const afterResult = await optimizedProgram.forward(studentAI, task);
 
       const result = afterResult;
       const score = await implementationQuality({

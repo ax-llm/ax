@@ -77,7 +77,10 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
       aiOpt.modelConfig.max_tokens = this.maxTokensPerGeneration;
     }
 
-    const examplesSample = randomSample([...examples] as AxExample[], this.maxExamples);
+    const examplesSample = randomSample(
+      [...examples] as AxExample[],
+      this.maxExamples
+    );
     const previousSuccessCount = this.traces.length;
 
     // Process examples in batches if batch size > 1
@@ -122,7 +125,10 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
               JSON.stringify(ex).length / 4 + JSON.stringify(res).length / 4;
           }
 
-          const score = await metricFn({ prediction: res, example: ex as AxExample });
+          const score = await metricFn({
+            prediction: res,
+            example: ex as AxExample,
+          });
           const success = score >= 0.5; // Assuming a threshold of 0.5 for success
           if (success) {
             this.traces = [...this.traces, ...program.getTraces()];
@@ -211,7 +217,6 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
       bestScore =
         this.stats.successfulDemos / Math.max(1, this.stats.totalCalls);
     }
-
 
     // Log human-readable completion message
     await this.logOptimizationComplete(

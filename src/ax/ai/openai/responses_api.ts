@@ -321,7 +321,7 @@ export class AxAIOpenAIResponsesImpl<
           reasoningEffort = undefined;
           break;
         case 'minimal':
-          reasoningEffort = 'low';
+          reasoningEffort = 'minimal';
           break;
         case 'low':
           reasoningEffort = 'medium';
@@ -448,7 +448,7 @@ export class AxAIOpenAIResponsesImpl<
         case 'minimal':
           currentReasoning = {
             ...currentReasoning,
-            effort: 'low',
+            effort: 'minimal',
           };
           break;
         case 'low':

@@ -56,6 +56,37 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
   },
+  // GPT-5 models
+  {
+    name: AxAIOpenAIModel.GPT5Nano,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.5,
+    completionTokenCostPer1M: 1.5,
+  },
+  {
+    name: AxAIOpenAIModel.GPT5Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 2,
+    completionTokenCostPer1M: 6,
+  },
+  {
+    name: AxAIOpenAIModel.GPT5,
+    currency: 'usd',
+    promptTokenCostPer1M: 10,
+    completionTokenCostPer1M: 30,
+  },
+  {
+    name: AxAIOpenAIModel.GPT5Chat,
+    currency: 'usd',
+    promptTokenCostPer1M: 12,
+    completionTokenCostPer1M: 36,
+  },
+  {
+    name: AxAIOpenAIModel.GPT5Pro,
+    currency: 'usd',
+    promptTokenCostPer1M: 20,
+    completionTokenCostPer1M: 60,
+  },
   // Reasoning models
   {
     name: AxAIOpenAIModel.O1,
@@ -160,6 +191,37 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
+  },
+  // GPT-5 models
+  {
+    name: AxAIOpenAIResponsesModel.GPT5Nano,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.5,
+    completionTokenCostPer1M: 1.5,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT5Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 2,
+    completionTokenCostPer1M: 6,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT5,
+    currency: 'usd',
+    promptTokenCostPer1M: 10,
+    completionTokenCostPer1M: 30,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT5Chat,
+    currency: 'usd',
+    promptTokenCostPer1M: 12,
+    completionTokenCostPer1M: 36,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT5Pro,
+    currency: 'usd',
+    promptTokenCostPer1M: 20,
+    completionTokenCostPer1M: 60,
   },
   // Reasoning models
   {

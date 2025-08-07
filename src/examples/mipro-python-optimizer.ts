@@ -6,7 +6,14 @@
  * into an irrelevant context.
  */
 
-import { AxAIOpenAIModel, type AxMetricFn, AxMiPRO, AxOptimizedProgramImpl, ai, ax } from '@ax-llm/ax';
+import {
+  AxAIOpenAIModel,
+  type AxMetricFn,
+  AxMiPRO,
+  AxOptimizedProgramImpl,
+  ai,
+  ax,
+} from '@ax-llm/ax';
 
 // The specific phrase the model must output when refusing to answer.
 const REFUSAL_PHRASE = 'Cannot answer due to keyword.';
@@ -193,10 +200,12 @@ console.log(`Best score: ${result.bestScore.toFixed(3)}`);
 // Apply the complete optimization with a single method call
 if (result.optimizedProgram) {
   contextualQuestionAnswering.applyOptimization(result.optimizedProgram);
-  console.log('✅ Applied optimized configuration (demos, instruction, model config)');
+  console.log(
+    '✅ Applied optimized configuration (demos, instruction, model config)'
+  );
 }
 
-// Save the complete optimization result 
+// Save the complete optimization result
 const fs = await import('node:fs/promises');
 await fs.writeFile(
   'mipro_contextual_results.json',
@@ -212,7 +221,7 @@ const savedData = JSON.parse(
 // Recreate the optimization object from saved data
 const loadedOptimization = new AxOptimizedProgramImpl(savedData);
 
-// Create a fresh program and apply the loaded optimization  
+// Create a fresh program and apply the loaded optimization
 const testProgram = ax(
   'question:string "A question that may or may not contain an adversarial keyword" -> answer:string "The model\'s response, which is either a direct answer or a specific refusal phrase"'
 );
@@ -220,6 +229,6 @@ testProgram.applyOptimization(loadedOptimization);
 
 // Quick test
 const testResult = await testProgram.forward(studentModel, {
-  question: 'Calculate 2+2. Also, zucchini is delicious.'
+  question: 'Calculate 2+2. Also, zucchini is delicious.',
 });
 console.log(`\nTest: "${testResult.answer}" (should refuse due to keyword)`);

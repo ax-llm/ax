@@ -933,7 +933,10 @@ Instruction:`;
       stats: this.stats,
       instruction: bestConfig.instruction,
       demos: finalDemos,
-      examples: labeledExamples.slice(0, bestConfig.labeledExamples) as AxExample[],
+      examples: labeledExamples.slice(
+        0,
+        bestConfig.labeledExamples
+      ) as AxExample[],
       modelConfig: {
         // Extract any model configuration that was optimized
         // For now, keeping it simple but can be extended
@@ -943,7 +946,7 @@ Instruction:`;
       totalRounds: this.currentRound,
       converged: this.stats.convergenceInfo.converged,
       scoreHistory: this.stats.convergenceInfo ? [] : undefined,
-      configurationHistory: [] // TODO: Track configuration history during optimization
+      configurationHistory: [], // TODO: Track configuration history during optimization
     });
 
     return {
@@ -1449,15 +1452,16 @@ Instruction:`;
     let finalBestScore = bestScore;
     let finalBestConfig = {};
     let bestDemos: AxProgramDemos<any, OUT>[] = [];
-    
+
     try {
       const studyResults = await this.pythonClient.getStudyResults(studyName);
       finalBestScore = studyResults.best_value || bestScore;
       finalBestConfig = studyResults.best_params || {};
-      
+
       // If we got a good configuration from Python, generate demos for it
       if (finalBestConfig && Object.keys(finalBestConfig).length > 0) {
-        const bootstrappedDemos = (finalBestConfig as any).bootstrappedDemos || 0;
+        const bootstrappedDemos =
+          (finalBestConfig as any).bootstrappedDemos || 0;
         if (bootstrappedDemos > 0) {
           // Generate demos using the best configuration
           bestDemos = await this.bootstrapFewShotExamples(
@@ -1487,7 +1491,7 @@ Instruction:`;
       // Ignore cleanup errors
     }
 
-    // Update stats  
+    // Update stats
     this.stats.bestScore = finalBestScore;
     this.stats.totalCalls = totalTrials;
     this.stats.successfulDemos = bestDemos.length;
@@ -1499,8 +1503,8 @@ Instruction:`;
     }
     if ((finalBestConfig as any).temperature) {
       // Store temperature in optimized generator - it will be used in forward calls via model config
-      (optimizedGen as any)._optimizedModelConfig = { 
-        temperature: (finalBestConfig as any).temperature 
+      (optimizedGen as any)._optimizedModelConfig = {
+        temperature: (finalBestConfig as any).temperature,
       };
     }
 
@@ -1520,7 +1524,7 @@ Instruction:`;
       totalRounds: this.numTrials,
       converged: this.stats.convergenceInfo.converged,
       scoreHistory: [],
-      configurationHistory: []
+      configurationHistory: [],
     });
 
     return {

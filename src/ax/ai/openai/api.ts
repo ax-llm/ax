@@ -58,7 +58,7 @@ export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT41,
+    model: AxAIOpenAIModel.GPT5,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig(),
   });
@@ -69,7 +69,7 @@ export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig<
 > =>
   structuredClone({
     ...axAIOpenAIDefaultConfig(),
-    model: AxAIOpenAIModel.GPT41,
+    model: AxAIOpenAIModel.GPT5Pro,
   });
 
 export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
@@ -77,7 +77,7 @@ export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT41,
+    model: AxAIOpenAIModel.GPT5,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig(),
   });
@@ -87,7 +87,7 @@ export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > => ({
   ...axAIOpenAIDefaultConfig(),
-  model: AxAIOpenAIModel.GPT41Mini,
+  model: AxAIOpenAIModel.GPT5Nano,
 });
 
 export interface AxAIOpenAIArgs<
@@ -294,7 +294,7 @@ class AxAIOpenAIImpl<
           reqValue.reasoning_effort = undefined; // Explicitly set to undefined
           break;
         case 'minimal':
-          reqValue.reasoning_effort = 'low';
+          reqValue.reasoning_effort = 'minimal';
           break;
         case 'low':
           reqValue.reasoning_effort = 'medium';
