@@ -1,4 +1,5 @@
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
+import type { AxOptimizerLoggerData } from './optimizerTypes.js';
 import type { AxFieldValue, AxResultPickerFunction } from './types.js';
 
 export type AxExample = Record<string, AxFieldValue>;
@@ -151,7 +152,7 @@ export type AxOptimizerArgs = {
   verbose?: boolean;
   seed?: number;
   debugOptimizer?: boolean;
-  optimizerLogger?: (data: unknown) => void;
+  optimizerLogger?: (data: AxOptimizerLoggerData) => void;
 };
 
 export interface AxCompileOptions {

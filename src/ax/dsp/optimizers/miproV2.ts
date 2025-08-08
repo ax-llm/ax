@@ -1037,7 +1037,7 @@ Instruction:`;
     let validResults = 0;
     let successCount = 0;
 
-    // Use provided examples set (already minibatched/full-selected by caller)
+    // Use provided examples set (already mini-batched/full-selected by caller)
     const evaluationExamples = examples as readonly AxTypedExample<IN>[];
 
     // Optional: Pre-bootstrap demos once and reuse for this configuration
