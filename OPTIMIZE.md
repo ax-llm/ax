@@ -113,48 +113,57 @@ console.log(
 
 ### Step 6: Save Your Optimization Results 💾
 
-**This is crucial for production!** The new unified `AxOptimizedProgram` contains everything needed to reproduce your optimization:
+**This is crucial for production!** The new unified `AxOptimizedProgram`
+contains everything needed to reproduce your optimization:
 
 ```typescript
-import { promises as fs } from 'fs';
+import { promises as fs } from "fs";
 
 // Apply the optimized configuration using the unified approach
 if (result.optimizedProgram) {
   // Apply all optimizations in one clean call
   sentimentAnalyzer.applyOptimization(result.optimizedProgram);
-  
+
   console.log(`✨ Applied optimized configuration:`);
   console.log(`   Score: ${result.optimizedProgram.bestScore.toFixed(3)}`);
   console.log(`   Optimizer: ${result.optimizedProgram.optimizerType}`);
-  console.log(`   Converged: ${result.optimizedProgram.converged ? '✅' : '❌'}`);
-  
+  console.log(
+    `   Converged: ${result.optimizedProgram.converged ? "✅" : "❌"}`,
+  );
+
   // Save the complete optimization result
   await fs.writeFile(
-    'sentiment-analyzer-optimization.json',
-    JSON.stringify({
-      version: '2.0',
-      bestScore: result.optimizedProgram.bestScore,
-      instruction: result.optimizedProgram.instruction,
-      demos: result.optimizedProgram.demos,
-      modelConfig: result.optimizedProgram.modelConfig,
-      optimizerType: result.optimizedProgram.optimizerType,
-      optimizationTime: result.optimizedProgram.optimizationTime,
-      totalRounds: result.optimizedProgram.totalRounds,
-      converged: result.optimizedProgram.converged,
-      stats: result.optimizedProgram.stats,
-      timestamp: new Date().toISOString()
-    }, null, 2)
+    "sentiment-analyzer-optimization.json",
+    JSON.stringify(
+      {
+        version: "2.0",
+        bestScore: result.optimizedProgram.bestScore,
+        instruction: result.optimizedProgram.instruction,
+        demos: result.optimizedProgram.demos,
+        modelConfig: result.optimizedProgram.modelConfig,
+        optimizerType: result.optimizedProgram.optimizerType,
+        optimizationTime: result.optimizedProgram.optimizationTime,
+        totalRounds: result.optimizedProgram.totalRounds,
+        converged: result.optimizedProgram.converged,
+        stats: result.optimizedProgram.stats,
+        timestamp: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
   );
-  console.log('✅ Complete optimization saved to sentiment-analyzer-optimization.json');
+  console.log(
+    "✅ Complete optimization saved to sentiment-analyzer-optimization.json",
+  );
 }
 
 // What you just saved:
-console.log('Saved data contains:');
-console.log('- Optimized few-shot examples (demos)');
-console.log('- Optimized instruction prompts');
-console.log('- Model configuration (temperature, etc.)');
-console.log('- Complete performance metrics');
-console.log('- Optimization metadata and timing');
+console.log("Saved data contains:");
+console.log("- Optimized few-shot examples (demos)");
+console.log("- Optimized instruction prompts");
+console.log("- Model configuration (temperature, etc.)");
+console.log("- Complete performance metrics");
+console.log("- Optimization metadata and timing");
 console.log(`- Performance score: ${result.bestScore}`);
 ```
 
@@ -163,7 +172,7 @@ console.log(`- Performance score: ${result.bestScore}`);
 In your production code, recreate and apply the saved optimization:
 
 ```typescript
-import { AxOptimizedProgramImpl } from '@ax-llm/ax';
+import { AxOptimizedProgramImpl } from "@ax-llm/ax";
 
 // Production app - load pre-optimized configuration
 const sentimentAnalyzer = ax(
@@ -172,7 +181,7 @@ const sentimentAnalyzer = ax(
 
 // Load the saved optimization results
 const savedData = JSON.parse(
-  await fs.readFile('sentiment-analyzer-optimization.json', 'utf8')
+  await fs.readFile("sentiment-analyzer-optimization.json", "utf8"),
 );
 
 // Recreate the optimized program
@@ -185,7 +194,7 @@ const optimizedProgram = new AxOptimizedProgramImpl({
   optimizerType: savedData.optimizerType,
   optimizationTime: savedData.optimizationTime,
   totalRounds: savedData.totalRounds,
-  converged: savedData.converged
+  converged: savedData.converged,
 });
 
 // Apply the complete optimization (demos, instruction, model config, etc.)
@@ -197,7 +206,7 @@ console.log(`   Optimizer: ${optimizedProgram.optimizerType}`);
 
 // Now your AI performs at the optimized level
 const analysis = await sentimentAnalyzer.forward(llm, {
-  reviewText: "The product arrived quickly but the quality was disappointing"
+  reviewText: "The product arrived quickly but the quality was disappointing",
 });
 
 console.log("Analysis:", analysis.sentiment); // Much more accurate!
@@ -205,7 +214,8 @@ console.log("Analysis:", analysis.sentiment); // Much more accurate!
 
 ### Step 8: Understanding What You Get 📊
 
-The new unified optimization result provides comprehensive information in one object:
+The new unified optimization result provides comprehensive information in one
+object:
 
 ```typescript
 const result = await optimizer.compile(sentimentAnalyzer, examples, metric);
@@ -214,25 +224,25 @@ const result = await optimizer.compile(sentimentAnalyzer, examples, metric);
 if (result.optimizedProgram) {
   console.log({
     // Performance metrics
-    bestScore: result.optimizedProgram.bestScore,           // Best performance (0-1)
-    converged: result.optimizedProgram.converged,          // Did optimization converge?
-    totalRounds: result.optimizedProgram.totalRounds,     // Number of optimization rounds
+    bestScore: result.optimizedProgram.bestScore, // Best performance (0-1)
+    converged: result.optimizedProgram.converged, // Did optimization converge?
+    totalRounds: result.optimizedProgram.totalRounds, // Number of optimization rounds
     optimizationTime: result.optimizedProgram.optimizationTime, // Time taken (ms)
-    
+
     // Program configuration
-    instruction: result.optimizedProgram.instruction,      // Optimized prompt
-    demos: result.optimizedProgram.demos?.length,         // Number of few-shot examples
-    modelConfig: result.optimizedProgram.modelConfig,     // Model settings (temperature, etc.)
-    
+    instruction: result.optimizedProgram.instruction, // Optimized prompt
+    demos: result.optimizedProgram.demos?.length, // Number of few-shot examples
+    modelConfig: result.optimizedProgram.modelConfig, // Model settings (temperature, etc.)
+
     // Optimization metadata
     optimizerType: result.optimizedProgram.optimizerType, // Which optimizer was used
-    stats: result.optimizedProgram.stats,                 // Detailed statistics
+    stats: result.optimizedProgram.stats, // Detailed statistics
   });
 }
 
 // The unified result contains everything:
 // - Optimized few-shot examples (demos)
-// - Optimized instruction text 
+// - Optimized instruction text
 // - Model configuration (temperature, maxTokens, etc.)
 // - Complete performance statistics
 // - Optimization metadata (type, time, convergence)
@@ -242,6 +252,7 @@ if (result.optimizedProgram) {
 ### Step 9: Production Best Practices 📁
 
 **File Organization:**
+
 ```
 your-app/
 ├── optimizations/
@@ -257,18 +268,19 @@ your-app/
 ```
 
 **Environment-specific Loading:**
+
 ```typescript
-import { AxOptimizedProgramImpl } from '@ax-llm/ax';
+import { AxOptimizedProgramImpl } from "@ax-llm/ax";
 
 // Load different optimizations for different environments
-const optimizationFile = process.env.NODE_ENV === 'production' 
-  ? 'optimizations/sentiment-analyzer-prod-v2.0.json'
-  : 'optimizations/sentiment-analyzer-dev-v2.0.json';
+const optimizationFile = process.env.NODE_ENV === "production"
+  ? "optimizations/sentiment-analyzer-prod-v2.0.json"
+  : "optimizations/sentiment-analyzer-dev-v2.0.json";
 
-const savedData = JSON.parse(await fs.readFile(optimizationFile, 'utf8'));
+const savedData = JSON.parse(await fs.readFile(optimizationFile, "utf8"));
 
 // Handle both new unified format and legacy format
-if (savedData.version === '2.0') {
+if (savedData.version === "2.0") {
   // New unified format
   const optimizedProgram = new AxOptimizedProgramImpl(savedData);
   sentimentAnalyzer.applyOptimization(optimizedProgram);
@@ -276,16 +288,17 @@ if (savedData.version === '2.0') {
 } else {
   // Legacy format (backward compatibility)
   sentimentAnalyzer.setDemos(savedData.demos || savedData);
-  console.log('⚠️  Loaded legacy demo format - consider upgrading');
+  console.log("⚠️  Loaded legacy demo format - consider upgrading");
 }
 ```
 
 **Version Your Optimizations:**
+
 ```typescript
 // The new format includes comprehensive versioning by default
 const optimizationData = {
-  version: "2.0",                                    // Format version
-  modelVersion: "1.3.0",                           // Your model version
+  version: "2.0", // Format version
+  modelVersion: "1.3.0", // Your model version
   created: new Date().toISOString(),
   bestScore: result.optimizedProgram.bestScore,
   instruction: result.optimizedProgram.instruction,
@@ -296,51 +309,81 @@ const optimizationData = {
   totalRounds: result.optimizedProgram.totalRounds,
   converged: result.optimizedProgram.converged,
   stats: result.optimizedProgram.stats,
-  environment: process.env.NODE_ENV || 'development',
+  environment: process.env.NODE_ENV || "development",
   modelUsed: "gpt-4o-mini",
-  trainingDataSize: examples.length
+  trainingDataSize: examples.length,
 };
 
 await fs.writeFile(
-  'sentiment-analyzer-v1.3.0.json',
-  JSON.stringify(optimizationData, null, 2)
+  "sentiment-analyzer-v1.3.0.json",
+  JSON.stringify(optimizationData, null, 2),
 );
 ```
 
 **Helper Functions for Production:**
+
 ```typescript
 // Utility function to load any optimization format
 export async function loadOptimization(filePath: string) {
-  const savedData = JSON.parse(await fs.readFile(filePath, 'utf8'));
-  
-  if (savedData.version === '2.0') {
+  const savedData = JSON.parse(await fs.readFile(filePath, "utf8"));
+
+  if (savedData.version === "2.0") {
     return new AxOptimizedProgramImpl(savedData);
   } else if (savedData.demos || Array.isArray(savedData)) {
     // Legacy format - create a minimal optimized program
     return new AxOptimizedProgramImpl({
       bestScore: savedData.score || savedData.bestScore || 0,
-      stats: savedData.stats || { totalCalls: 0, successfulDemos: 0, estimatedTokenUsage: 0, earlyStopped: false, resourceUsage: { totalTokens: 0, totalTime: 0, avgLatencyPerEval: 0, costByModel: {} }, convergenceInfo: { converged: false, finalImprovement: 0, stagnationRounds: 0, convergenceThreshold: 0.01 }, bestScore: savedData.score || 0 },
+      stats: savedData.stats || {
+        totalCalls: 0,
+        successfulDemos: 0,
+        estimatedTokenUsage: 0,
+        earlyStopped: false,
+        resourceUsage: {
+          totalTokens: 0,
+          totalTime: 0,
+          avgLatencyPerEval: 0,
+          costByModel: {},
+        },
+        convergenceInfo: {
+          converged: false,
+          finalImprovement: 0,
+          stagnationRounds: 0,
+          convergenceThreshold: 0.01,
+        },
+        bestScore: savedData.score || 0,
+      },
       demos: savedData.demos || savedData,
-      optimizerType: 'Legacy',
+      optimizerType: "Legacy",
       optimizationTime: 0,
       totalRounds: 0,
-      converged: false
+      converged: false,
     });
   }
-  throw new Error('Unknown optimization format');
+  throw new Error("Unknown optimization format");
 }
 
 // Usage in production
-const optimizedProgram = await loadOptimization('optimizations/sentiment-analyzer-prod.json');
+const optimizedProgram = await loadOptimization(
+  "optimizations/sentiment-analyzer-prod.json",
+);
 sentimentAnalyzer.applyOptimization(optimizedProgram);
-console.log(`📊 Applied optimization with score: ${optimizedProgram.bestScore.toFixed(3)}`);
+console.log(
+  `📊 Applied optimization with score: ${
+    optimizedProgram.bestScore.toFixed(3)
+  }`,
+);
 ```
 
-**🎉 Congratulations!** You now understand the complete unified optimization workflow:
-1. **Train** with examples and metrics  
-2. **Apply** optimization using `program.applyOptimization(result.optimizedProgram)`
-3. **Save** the complete optimization configuration (demos + instruction + model config)
-4. **Load** and recreate optimization in production using `AxOptimizedProgramImpl`
+**🎉 Congratulations!** You now understand the complete unified optimization
+workflow:
+
+1. **Train** with examples and metrics
+2. **Apply** optimization using
+   `program.applyOptimization(result.optimizedProgram)`
+3. **Save** the complete optimization configuration (demos + instruction + model
+   config)
+4. **Load** and recreate optimization in production using
+   `AxOptimizedProgramImpl`
 5. **Version** and manage your optimizations with comprehensive metadata
 
 ---
@@ -364,7 +407,8 @@ console.log(`📊 Applied optimization with score: ${optimizedProgram.bestScore.
 
 ### What Does Optimization Actually Produce? 🎯
 
-**The main output is DEMOS** - these are not just "demo data" but **optimized few-shot examples** that dramatically improve your AI's performance:
+**The main output is DEMOS** - these are not just "demo data" but **optimized
+few-shot examples** that dramatically improve your AI's performance:
 
 ```typescript
 // What demos contain:
@@ -384,12 +428,14 @@ console.log(`📊 Applied optimization with score: ${optimizedProgram.bestScore.
 ```
 
 **Why demos are powerful:**
+
 - ✅ **Portable**: Save as JSON, load anywhere
 - ✅ **Fast**: No re-optimization in production
 - ✅ **Effective**: Often 2-5x performance improvement
 - ✅ **Cost-effective**: Reduce API calls by using cheaper models better
 
 **The workflow:**
+
 1. **Training**: `optimizer.compile()` → produces `result.demos`
 2. **Save**: `JSON.stringify(result.demos)` → save to file/database
 3. **Production**: Load demos → `program.setDemos(demos)` → improved performance
@@ -749,30 +795,39 @@ const optimizer = new AxBootstrapFewShot({
 
 ### 2. Multi-Objective Optimization with `compilePareto`
 
-**The Problem**: Sometimes you care about multiple things at once - accuracy AND speed AND cost. Traditional optimization only handles one objective at a time.
+**The Problem**: Sometimes you care about multiple things at once - accuracy AND
+speed AND cost. Traditional optimization only handles one objective at a time.
 
-**The Solution**: `compilePareto` finds the optimal trade-offs between multiple objectives using Pareto frontier analysis.
+**The Solution**: `compilePareto` finds the optimal trade-offs between multiple
+objectives using Pareto frontier analysis.
 
 #### What is Pareto Optimization?
 
-A solution is "Pareto optimal" if you can't improve one objective without making another objective worse. The collection of all such solutions is called the "Pareto frontier."
+A solution is "Pareto optimal" if you can't improve one objective without making
+another objective worse. The collection of all such solutions is called the
+"Pareto frontier."
 
-**Example**: 
+**Example**:
+
 - Solution A: 90% accuracy, 100ms response time, $0.10 cost
-- Solution B: 85% accuracy, 50ms response time, $0.05 cost  
+- Solution B: 85% accuracy, 50ms response time, $0.05 cost
 - Solution C: 80% accuracy, 200ms response time, $0.08 cost
 
-Solutions A and B are both Pareto optimal (A is more accurate but slower/expensive, B is faster/cheaper but less accurate). Solution C is dominated by both A and B.
+Solutions A and B are both Pareto optimal (A is more accurate but
+slower/expensive, B is faster/cheaper but less accurate). Solution C is
+dominated by both A and B.
 
 #### When to Use `compilePareto`
 
 ✅ **Perfect for:**
+
 - Content moderation (accuracy vs speed vs cost)
 - Customer service routing (response time vs routing accuracy vs resource usage)
 - Email classification (precision vs recall vs processing speed)
 - Product recommendations (relevance vs diversity vs computation cost)
 
 ❌ **Skip for:**
+
 - Single clear objective (use regular `compile`)
 - When one objective is clearly most important
 - Quick prototyping (more complex than single-objective)
@@ -792,17 +847,17 @@ const contentModerator = ax(`
 
 // Training examples
 const examples = [
-  { 
-    userPost: "Great weather today!", 
-    isSafe: "safe", 
-    confidence: 0.95, 
-    reason: "" 
+  {
+    userPost: "Great weather today!",
+    isSafe: "safe",
+    confidence: 0.95,
+    reason: "",
   },
-  { 
-    userPost: "This product sucks and the company is terrible!", 
-    isSafe: "unsafe", 
-    confidence: 0.8, 
-    reason: "Aggressive language" 
+  {
+    userPost: "This product sucks and the company is terrible!",
+    isSafe: "unsafe",
+    confidence: 0.8,
+    reason: "Aggressive language",
   },
   // ... more examples
 ];
@@ -811,49 +866,57 @@ const examples = [
 const multiMetric = ({ prediction, example }) => {
   // Calculate multiple scores
   const accuracy = prediction.isSafe === example.isSafe ? 1 : 0;
-  
+
   // Reward high confidence when correct, penalize when wrong
-  const confidenceScore = prediction.isSafe === example.isSafe 
+  const confidenceScore = prediction.isSafe === example.isSafe
     ? (prediction.confidence || 0)
     : (1 - (prediction.confidence || 0));
-    
+
   // Reward explanations for unsafe content
-  const explanationScore = example.isSafe === "unsafe" 
+  const explanationScore = example.isSafe === "unsafe"
     ? (prediction.reason && prediction.reason.length > 10 ? 1 : 0)
     : 1; // No penalty for safe content
-  
+
   // Return multiple objectives
   return {
-    accuracy,           // Correctness of safety classification
-    confidence: confidenceScore,  // Quality of confidence calibration  
-    explanation: explanationScore // Quality of reasoning
+    accuracy, // Correctness of safety classification
+    confidence: confidenceScore, // Quality of confidence calibration
+    explanation: explanationScore, // Quality of reasoning
   };
 };
 
 // Set up optimizer
 const optimizer = new AxMiPRO({
   studentAI: ai({
-    name: "openai", 
+    name: "openai",
     apiKey: process.env.OPENAI_APIKEY!,
-    config: { model: "gpt-4o-mini" }
+    config: { model: "gpt-4o-mini" },
   }),
   examples,
-  options: { verbose: true }
+  options: { verbose: true },
 });
 
 // Run multi-objective optimization
 console.log("🔄 Finding optimal trade-offs...");
-const result = await optimizer.compilePareto(contentModerator, examples, multiMetric);
+const result = await optimizer.compilePareto(
+  contentModerator,
+  examples,
+  multiMetric,
+);
 
 console.log(`✅ Found ${result.paretoFrontSize} optimal solutions!`);
-console.log(`📊 Hypervolume: ${result.hypervolume?.toFixed(4) || 'N/A'}`);
+console.log(`📊 Hypervolume: ${result.hypervolume?.toFixed(4) || "N/A"}`);
 
 // Explore the Pareto frontier
 result.paretoFront.forEach((solution, index) => {
   console.log(`\n🎯 Solution ${index + 1}:`);
   console.log(`  Accuracy: ${(solution.scores.accuracy * 100).toFixed(1)}%`);
-  console.log(`  Confidence: ${(solution.scores.confidence * 100).toFixed(1)}%`);
-  console.log(`  Explanation: ${(solution.scores.explanation * 100).toFixed(1)}%`);
+  console.log(
+    `  Confidence: ${(solution.scores.confidence * 100).toFixed(1)}%`,
+  );
+  console.log(
+    `  Explanation: ${(solution.scores.explanation * 100).toFixed(1)}%`,
+  );
   console.log(`  Strategy: ${solution.configuration.strategy}`);
   console.log(`  Dominates: ${solution.dominatedSolutions} other solutions`);
 });
@@ -863,7 +926,7 @@ result.paretoFront.forEach((solution, index) => {
 
 ```typescript
 // Option 1: Pick the solution that dominates the most others
-const mostDominant = result.paretoFront.reduce((best, current) => 
+const mostDominant = result.paretoFront.reduce((best, current) =>
   current.dominatedSolutions > best.dominatedSolutions ? current : best
 );
 
@@ -878,10 +941,10 @@ const bestWeighted = result.paretoFront.reduce((best, current) => {
 });
 
 // Option 3: Interactive selection based on business requirements
-const businessOptimal = result.paretoFront.find(solution => 
-  solution.scores.accuracy >= 0.85 &&     // Must be at least 85% accurate
-  solution.scores.confidence >= 0.7 &&    // Must be well-calibrated
-  solution.scores.explanation >= 0.8      // Must explain unsafe content well
+const businessOptimal = result.paretoFront.find((solution) =>
+  solution.scores.accuracy >= 0.85 && // Must be at least 85% accurate
+  solution.scores.confidence >= 0.7 && // Must be well-calibrated
+  solution.scores.explanation >= 0.8 // Must explain unsafe content well
 );
 
 // Apply the chosen solution
@@ -894,34 +957,52 @@ if (businessOptimal?.demos) {
 #### Advanced Multi-Objective Patterns
 
 **Cost-Quality Trade-off**:
+
 ```typescript
 const multiMetric = ({ prediction, example }) => ({
   accuracy: prediction.category === example.category ? 1 : 0,
   cost: 1 / (estimateTokenCost(prediction) + 1), // Inverse cost (higher = cheaper)
-  speed: 1 / (prediction.responseTime || 1000),   // Inverse time (higher = faster)
+  speed: 1 / (prediction.responseTime || 1000), // Inverse time (higher = faster)
 });
 ```
 
 **Precision-Recall Optimization**:
+
 ```typescript
 const multiMetric = ({ prediction, example }) => {
-  const truePositive = prediction.category === "positive" && example.category === "positive" ? 1 : 0;
-  const falsePositive = prediction.category === "positive" && example.category !== "positive" ? 1 : 0;
-  const falseNegative = prediction.category !== "positive" && example.category === "positive" ? 1 : 0;
-  
+  const truePositive =
+    prediction.category === "positive" && example.category === "positive"
+      ? 1
+      : 0;
+  const falsePositive =
+    prediction.category === "positive" && example.category !== "positive"
+      ? 1
+      : 0;
+  const falseNegative =
+    prediction.category !== "positive" && example.category === "positive"
+      ? 1
+      : 0;
+
   return {
-    precision: falsePositive === 0 ? 1 : (truePositive / (truePositive + falsePositive)),
-    recall: falseNegative === 0 ? 1 : (truePositive / (truePositive + falseNegative)),
+    precision: falsePositive === 0
+      ? 1
+      : (truePositive / (truePositive + falsePositive)),
+    recall: falseNegative === 0
+      ? 1
+      : (truePositive / (truePositive + falseNegative)),
   };
 };
 ```
 
 **Customer Satisfaction vs Efficiency**:
+
 ```typescript
 const multiMetric = ({ prediction, example }) => ({
   customerSatisfaction: calculateSatisfactionScore(prediction, example),
   resourceEfficiency: 1 / (prediction.processingSteps || 1),
-  resolutionSpeed: prediction.resolutionTime ? (1 / prediction.resolutionTime) : 0,
+  resolutionSpeed: prediction.resolutionTime
+    ? (1 / prediction.resolutionTime)
+    : 0,
 });
 ```
 
@@ -932,32 +1013,39 @@ const result = await optimizer.compilePareto(program, multiMetric);
 
 // Key properties of AxParetoResult:
 console.log(`Pareto frontier size: ${result.paretoFrontSize}`);
-console.log(`Total solutions generated: ${result.finalConfiguration?.numSolutions}`);
+console.log(
+  `Total solutions generated: ${result.finalConfiguration?.numSolutions}`,
+);
 console.log(`Best single score: ${result.bestScore}`);
 console.log(`Hypervolume (2D only): ${result.hypervolume}`);
 
 // Each solution on the frontier contains:
-result.paretoFront.forEach(solution => {
-  solution.demos;                    // Optimized examples for this solution
-  solution.scores;                   // Scores for each objective
-  solution.configuration;            // How this solution was generated
-  solution.dominatedSolutions;       // How many other solutions this beats
+result.paretoFront.forEach((solution) => {
+  solution.demos; // Optimized examples for this solution
+  solution.scores; // Scores for each objective
+  solution.configuration; // How this solution was generated
+  solution.dominatedSolutions; // How many other solutions this beats
 });
 ```
 
 #### Performance Considerations
 
-- **Runtime**: `compilePareto` runs multiple single-objective optimizations, so it takes 3-10x longer than regular `compile`
+- **Runtime**: `compilePareto` runs multiple single-objective optimizations, so
+  it takes 3-10x longer than regular `compile`
 - **Cost**: Uses more API calls due to multiple optimization runs
 - **Complexity**: Only use when you genuinely need multiple objectives
-- **Scalability**: Works best with 2-4 objectives; more objectives = exponentially more solutions
+- **Scalability**: Works best with 2-4 objectives; more objectives =
+  exponentially more solutions
 
 #### Tips for Success
 
-1. **Start with 2-3 objectives**: More objectives make it harder to choose solutions
+1. **Start with 2-3 objectives**: More objectives make it harder to choose
+   solutions
 2. **Make objectives independent**: Avoid highly correlated objectives
-3. **Scale objectives similarly**: Ensure all objectives range 0-1 for fair comparison
-4. **Use business constraints**: Filter the Pareto frontier by minimum requirements
+3. **Scale objectives similarly**: Ensure all objectives range 0-1 for fair
+   comparison
+4. **Use business constraints**: Filter the Pareto frontier by minimum
+   requirements
 5. **Validate solutions**: Test multiple Pareto-optimal solutions in practice
 
 ### 3. Chain Multiple Programs
@@ -974,7 +1062,11 @@ const classifier = ax(
 );
 
 // Optimize them separately, then chain them
-const extractResult = await extractOptimizer.compile(extractor, extractExamples, extractMetric);
+const extractResult = await extractOptimizer.compile(
+  extractor,
+  extractExamples,
+  extractMetric,
+);
 const classifyResult = await classifyOptimizer.compile(
   classifier,
   classifyExamples,
@@ -1074,34 +1166,42 @@ console.log(
 
 // 6. Apply and save the optimization results using the unified approach
 if (result.optimizedProgram) {
-  const fs = await import('fs/promises');
-  
+  const fs = await import("fs/promises");
+
   // Apply all optimizations at once
   productReviewer.applyOptimization(result.optimizedProgram);
-  
+
   console.log(`✨ Applied optimized configuration:`);
   console.log(`   Score: ${result.optimizedProgram.bestScore.toFixed(3)}`);
   console.log(`   Optimizer: ${result.optimizedProgram.optimizerType}`);
-  console.log(`   Converged: ${result.optimizedProgram.converged ? '✅' : '❌'}`);
-  
+  console.log(
+    `   Converged: ${result.optimizedProgram.converged ? "✅" : "❌"}`,
+  );
+
   // Save complete optimization configuration
   await fs.writeFile(
-    'product-reviewer-optimization.json',
-    JSON.stringify({
-      version: "2.0",
-      bestScore: result.optimizedProgram.bestScore,
-      instruction: result.optimizedProgram.instruction,
-      demos: result.optimizedProgram.demos,
-      modelConfig: result.optimizedProgram.modelConfig,
-      optimizerType: result.optimizedProgram.optimizerType,
-      optimizationTime: result.optimizedProgram.optimizationTime,
-      totalRounds: result.optimizedProgram.totalRounds,
-      converged: result.optimizedProgram.converged,
-      stats: result.optimizedProgram.stats,
-      created: new Date().toISOString()
-    }, null, 2)
+    "product-reviewer-optimization.json",
+    JSON.stringify(
+      {
+        version: "2.0",
+        bestScore: result.optimizedProgram.bestScore,
+        instruction: result.optimizedProgram.instruction,
+        demos: result.optimizedProgram.demos,
+        modelConfig: result.optimizedProgram.modelConfig,
+        optimizerType: result.optimizedProgram.optimizerType,
+        optimizationTime: result.optimizedProgram.optimizationTime,
+        totalRounds: result.optimizedProgram.totalRounds,
+        converged: result.optimizedProgram.converged,
+        stats: result.optimizedProgram.stats,
+        created: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
   );
-  console.log("💾 Complete optimization saved to product-reviewer-optimization.json!");
+  console.log(
+    "💾 Complete optimization saved to product-reviewer-optimization.json!",
+  );
 }
 
 // 7. Test the optimized version
@@ -1126,16 +1226,25 @@ console.log("Analysis:", analysis);
 
 ## 🎯 Key Takeaways
 
-1. **Start simple**: 5 examples and basic optimization can give you 20-30% improvement
-2. **Use the unified approach**: `program.applyOptimization(result.optimizedProgram)` - one call does everything!
-3. **Save complete optimizations**: New v2.0 format includes demos, instruction, model config, and metadata
-4. **Load optimizations cleanly**: Use `AxOptimizedProgramImpl` to recreate saved optimizations
+1. **Start simple**: 5 examples and basic optimization can give you 20-30%
+   improvement
+2. **Use the unified approach**:
+   `program.applyOptimization(result.optimizedProgram)` - one call does
+   everything!
+3. **Save complete optimizations**: New v2.0 format includes demos, instruction,
+   model config, and metadata
+4. **Load optimizations cleanly**: Use `AxOptimizedProgramImpl` to recreate
+   saved optimizations
 5. **Teacher-student saves money**: Use expensive models to teach cheap ones
-6. **Good examples matter more than lots of examples**: 10 diverse examples beat 100 similar ones
+6. **Good examples matter more than lots of examples**: 10 diverse examples beat
+   100 similar ones
 7. **Measure what matters**: Your metric defines what the AI optimizes for
-8. **Version comprehensively**: Track optimization versions, scores, convergence, and metadata
-9. **Backward compatibility**: Legacy demo format still works, but upgrade for better experience
-10. **Production-ready**: The unified approach is designed for enterprise production use
+8. **Version comprehensively**: Track optimization versions, scores,
+   convergence, and metadata
+9. **Backward compatibility**: Legacy demo format still works, but upgrade for
+   better experience
+10. **Production-ready**: The unified approach is designed for enterprise
+    production use
 
 **Ready to optimize your first AI program?** Copy the examples above and start
 experimenting!
@@ -1318,8 +1427,8 @@ where you left off, even after crashes or interruptions.
 ## 🐍 Python Optimization Service Integration
 
 For advanced optimization scenarios requiring sophisticated Bayesian
-optimization, Ax provides a production-ready Python service using Optuna. This
-is particularly powerful for MiPro optimization with complex parameter spaces.
+optimization, Ax uses a production-ready Python service using Optuna. This is
+required for MiPro v2 optimization with complex parameter spaces.
 
 ### When to Use Python Service
 
@@ -1332,11 +1441,8 @@ is particularly powerful for MiPro optimization with complex parameter spaces.
 - Distributed optimization across multiple machines
 - Advanced pruning and sampling strategies
 
-❌ **Stick with TypeScript for:**
-
-- Simple optimizations (< 20 trials)
-- Quick experiments and prototyping
-- When you don't want to manage a separate service
+❌ **Note:** MiPro v2 requires the Python service; local TypeScript fallback is
+no longer supported.
 
 ### Quick Setup with uv
 
@@ -1551,27 +1657,15 @@ config = MiProConfiguration(optimization_level="heavy")
 Switch between local and Python optimization seamlessly:
 
 ```typescript
-// Environment variable controls which optimizer to use
-const usePythonOptimizer = process.env.USE_PYTHON_OPTIMIZER === "true";
-
 const optimizer = new AxMiPRO({
   studentAI,
   examples,
-  numTrials: usePythonOptimizer ? 100 : 20,
-
-  // Python service settings (only used if endpoint is provided)
-  ...(usePythonOptimizer && {
-    optimizerEndpoint: process.env.OPTIMIZER_ENDPOINT ||
-      "http://localhost:8000",
-    bayesianOptimization: true,
-    acquisitionFunction: "expected_improvement",
-  }),
-
+  numTrials: 100,
+  optimizerEndpoint: process.env.OPTIMIZER_ENDPOINT || "http://localhost:8000",
+  bayesianOptimization: true,
+  acquisitionFunction: "expected_improvement",
   onProgress: (update) => {
-    const mode = usePythonOptimizer ? "Python/Bayesian" : "TypeScript/Local";
-    console.log(
-      `[${mode}] Trial ${update.round}: ${update.currentScore.toFixed(3)}`,
-    );
+    console.log(`Trial ${update.round}: ${update.currentScore.toFixed(3)}`);
   },
 });
 ```

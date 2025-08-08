@@ -682,27 +682,12 @@ gen.forward(router, { inputText }, { model: "quick" });
 
 ## AxFlow: Build AI Workflows
 
-**AxFlow** makes it easy to build complex AI workflows with automatic parallel
-execution and simple, readable code.
+**AxFlow** makes it easy to build complex AI workflows with automatic parallel execution and simple, readable code.
 
-### Key Features
-
-- **🚀 Automatic Parallelization**: Runs independent operations in parallel
-  automatically
-- **🎯 Simple API**: Chainable methods that are easy to read and write
-- **🔄 Control Flow**: Loops, branches, and conditional execution
-- **🤖 Multi-Model Support**: Use different AI models for different tasks
-- **📊 State Management**: Automatic state evolution with full type safety
-- **🌊 Streaming Support**: Real-time execution with streaming
-- **🔧 Aliases**: Short method names (`.n()`, `.e()`, `.m()`, `.r()`) for rapid
-  development
-- **✨ Type Inference**: Use `.returns()` or `.r()` for automatic TypeScript
-  type inference on complex flows
-
-### Basic Example: Document Analysis
+### Quick Example
 
 ```typescript
-import { AxAI, AxFlow } from "@ax-llm/ax";
+import { ai, AxFlow } from "@ax-llm/ax";
 
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
@@ -714,158 +699,28 @@ const documentAnalyzer = new AxFlow<
   .node("summarizer", "documentText:string -> summary:string")
   .node("sentimentAnalyzer", "documentText:string -> sentiment:string")
   .node("keywordExtractor", "documentText:string -> keywords:string[]")
-  // These three operations run automatically in parallel! ⚡
+  // These three operations run automatically in parallel!
   .execute("summarizer", (state) => ({ documentText: state.documentText }))
-  .execute(
-    "sentimentAnalyzer",
-    (state) => ({ documentText: state.documentText }),
-  )
-  .execute(
-    "keywordExtractor",
-    (state) => ({ documentText: state.documentText }),
-  )
-  // Use returns() for proper TypeScript type inference
+  .execute("sentimentAnalyzer", (state) => ({ documentText: state.documentText }))
+  .execute("keywordExtractor", (state) => ({ documentText: state.documentText }))
   .returns((state) => ({
     summary: state.summarizerResult.summary,
     sentiment: state.sentimentAnalyzerResult.sentiment,
     keywords: state.keywordExtractorResult.keywords,
   }));
 
-// Execute the workflow
 const result = await documentAnalyzer.forward(llm, {
-  documentText: "AI technology is revolutionary and will change everything...",
-});
-
-// TypeScript now knows the exact return type thanks to .returns()
-console.log("Summary:", result.summary); // ✨ Fully typed as string
-console.log("Sentiment:", result.sentiment); // ✨ Fully typed as string
-console.log("Keywords:", result.keywords); // ✨ Fully typed as string[]
-```
-
-### Compact Syntax with Aliases
-
-For rapid development, use AxFlow's short aliases:
-
-```typescript
-// Same functionality, ultra-compact syntax
-const quickAnalyzer = flow<{ text: string }>()
-  .n("sum", "text:string -> summary:string") // .n() = .node()
-  .n("sent", "text:string -> sentiment:string") // .n() = .node()
-  .e("sum", (s) => ({ text: s.text })) // .e() = .execute()
-  .e("sent", (s) => ({ text: s.text })) // .e() = .execute()
-  .r((s) => ({ // .r() = .returns() for proper type inference
-    result:
-      `Summary: ${s.sumResult.summary}, Sentiment: ${s.sentResult.sentiment}`,
-  }));
-
-const result = await quickAnalyzer.forward(llm, {
-  text: "Building the future of AI applications...",
+  documentText: "AI technology is revolutionary...",
 });
 ```
 
-### Multi-Model Intelligence
+> _"AxFlow doesn't just execute AI workflows—it orchestrates the future of intelligent systems with automatic performance optimization"_
 
-Use different AI models for different tasks:
-
-```typescript
-const fastAI = AxAI.create({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY!,
-  models: [
-    {
-      key: "fast" as const,
-      model: "gpt-4o-mini",
-      description: "Fast responses",
-    },
-  ],
-});
-
-const powerAI = AxAI.create({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY!,
-  models: [
-    {
-      key: "power" as const,
-      model: "gpt-4o",
-      description: "High-quality responses",
-    },
-  ],
-});
-
-// 🌟 The future: AI workflows that adapt and evolve with full resilience
-const autonomousContentEngine = new AxFlow<
-  { concept: string; targetAudience: string },
-  { campaign: string }
->(
-  {
-    errorHandling: {
-      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 60000 },
-      fallbackStrategy: "graceful",
-    },
-    performance: {
-      maxConcurrency: 4,
-      adaptiveConcurrency: true,
-      resourceMonitoring: { responseTimeThreshold: 10000 },
-    },
-  },
-)
-  // Neural network of specialized AI nodes
-  .node(
-    "conceptAnalyzer",
-    "concept:string -> themes:string[], complexity:number",
-  )
-  .node("audienceProfiler", "audience:string -> psychographics:string")
-  .node(
-    "strategyArchitect",
-    "themes:string[], psychographics:string -> strategy:string",
-  )
-  .node(
-    "contentCreator",
-    "strategy:string, complexity:number -> content:string",
-  )
-  .node("qualityOracle", "content:string -> score:number, feedback:string")
-  // 🧠 These run automatically in parallel (different AI models!)
-  .execute("conceptAnalyzer", (s) => ({ concept: s.concept }), {
-    ai: quantumAI,
-  })
-  .execute("audienceProfiler", (s) => ({ audience: s.targetAudience }), {
-    ai: velocityAI,
-  })
-  // 🎯 Strategic architecture with deep reasoning (waits for above)
-  .execute("strategyArchitect", (s) => ({
-    themes: s.conceptAnalyzerResult.themes,
-    psychographics: s.audienceProfilerResult.psychographics,
-  }), { ai: quantumAI })
-  // 🎨 Creative content generation (waits for strategy)
-  .execute("contentCreator", (s) => ({
-    strategy: s.strategyArchitectResult.strategy,
-    complexity: s.conceptAnalyzerResult.complexity,
-  }), { ai: creativityAI })
-  // 🔄 Quality check loop
-  .label("evolve")
-  .execute(
-    "qualityOracle",
-    (s) => ({ content: s.contentCreatorResult.content }),
-    { ai: quantumAI },
-  )
-  .feedback((s) => s.qualityOracleResult.score < 0.9, "evolve", 3)
-  // 🏆 Final transformation
-  .map((s) => ({ campaign: s.contentCreatorResult.content }));
-
-// 🚀 Execute the future
-const result = await autonomousContentEngine.forward(quantumAI, {
-  concept: "Sustainable AI for climate solutions",
-  targetAudience: "Tech-forward environmental activists",
-});
-
-console.log("🌟 Autonomous Campaign Generated:", result.campaign);
-```
+For comprehensive documentation including multi-model orchestration, control flow patterns, and production-ready resilience features, see our detailed [**AxFlow Guide**](AXFLOW.md).
 
 ## Advanced RAG: `axRAG`
 
-**`axRAG`** is a powerful, production-ready RAG (Retrieval-Augmented Generation)
-implementation built on AxFlow that provides advanced multi-hop retrieval,
-self-healing quality loops, and intelligent query refinement.
+**`axRAG`** is a powerful, production-ready RAG (Retrieval-Augmented Generation) implementation built on AxFlow that provides advanced multi-hop retrieval, self-healing quality loops, and intelligent query refinement.
 
 ```typescript
 import { axRAG } from "@ax-llm/ax";
@@ -880,66 +735,13 @@ const rag = axRAG(queryVectorDB, {
 });
 
 const result = await rag.forward(llm, {
-  originalQuestion:
-    "How do ML algorithms impact privacy in financial services?",
+  originalQuestion: "How do ML algorithms impact privacy in financial services?",
 });
 ```
 
-**Key Features:** Multi-hop retrieval, intelligent query refinement, parallel
-sub-query processing, self-healing quality loops, gap analysis, configurable
-performance vs. quality trade-offs.
+**Key Features:** Multi-hop retrieval, intelligent query refinement, parallel sub-query processing, self-healing quality loops, gap analysis, configurable performance vs. quality trade-offs.
 
-For comprehensive documentation, architecture details, and advanced examples,
-see our detailed
-[**AxRAG Guide**](https://github.com/ax-llm/ax/blob/main/AXRAG.md).
-
-> _"AxFlow doesn't just execute AI workflows—it orchestrates the future of
-> intelligent systems with automatic performance optimization"_
-
-### NEW: Parallel Map with Batch Size Control
-
-Execute multiple transformations in parallel with intelligent batch processing
-for optimal resource management:
-
-```typescript
-import { AxFlow } from "@ax-llm/ax";
-
-// Configure batch processing for optimal performance
-const flow = new AxFlow<StateType, ResultType>({
-  batchSize: 5, // Process 5 operations at a time
-})
-  .init({ data: largeDataset })
-  // Execute multiple transforms in parallel with automatic batching
-  .map([
-    (state) => ({ ...state, analysis1: analyzeData(state.data) }),
-    (state) => ({ ...state, analysis2: extractFeatures(state.data) }),
-    (state) => ({ ...state, analysis3: generateSummary(state.data) }),
-    (state) => ({ ...state, analysis4: calculateMetrics(state.data) }),
-    (state) => ({ ...state, analysis5: validateResults(state.data) }),
-  ], { parallel: true })
-  .map((state) => ({
-    final: combineResults([
-      state.analysis1,
-      state.analysis2,
-      state.analysis3,
-      state.analysis4,
-      state.analysis5,
-    ]),
-  }));
-
-// ⚡ Automatic batch processing: runs 5 operations concurrently,
-// then processes remaining operations, maintaining result order
-const result = await flow.forward(llm, { data: dataset });
-```
-
-**🚀 Benefits:**
-
-- **Resource Control**: Prevent memory spikes with large parallel operations
-- **Order Preservation**: Results maintain original order despite batched
-  execution
-- **Performance Tuning**: Optimize batch size for different deployment
-  environments
-- **Rate Limiting**: Works seamlessly with API rate limits and service quotas
+For comprehensive documentation, architecture details, and advanced examples, see our detailed [**AxRAG Guide**](https://github.com/ax-llm/ax/blob/main/AXRAG.md).
 
 ## AI Routing and Load Balancing
 
@@ -1254,113 +1056,50 @@ workflows:
 
 ## Prompt Optimization
 
-Ax provides powerful optimization capabilities to automatically improve your AI programs' performance, accuracy, and cost-effectiveness. The optimizers generate better prompts and examples that can dramatically improve results.
-
-### Basic Optimization Example
+Ax provides powerful automatic optimization that improves your AI programs' performance, accuracy, and cost-effectiveness.
 
 ```typescript
 import { ai, ax, AxMiPRO } from "@ax-llm/ax";
 
 // Create a program to optimize
 const sentimentAnalyzer = ax(
-  'reviewText:string "Customer review" -> sentiment:class "positive, negative, neutral" "Sentiment classification"'
+  'reviewText:string "Customer review" -> sentiment:class "positive, negative, neutral"'
 );
 
-// Provide training examples
-const examples = [
-  { reviewText: "I love this product!", sentiment: "positive" },
-  { reviewText: "Terrible quality, broke immediately", sentiment: "negative" },
-  { reviewText: "It works fine, nothing special", sentiment: "neutral" },
-];
-
-// Set up AI and optimizer
+// Set up optimizer with examples
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
-const optimizer = new AxMiPRO({ studentAI: llm, examples });
+const optimizer = new AxMiPRO({ 
+  studentAI: llm,
+  examples: [
+    { reviewText: "I love this product!", sentiment: "positive" },
+    { reviewText: "Terrible quality", sentiment: "negative" },
+    { reviewText: "It works fine", sentiment: "neutral" },
+  ]
+});
 
-// Define success metric
+// Run optimization with metric
 const metric = ({ prediction, example }) => 
   prediction.sentiment === example.sentiment ? 1 : 0;
 
-// Run optimization
 const result = await optimizer.compile(sentimentAnalyzer, examples, metric);
 
-// Apply the complete optimization (new unified approach)
+// Apply optimized configuration
 if (result.optimizedProgram) {
   sentimentAnalyzer.applyOptimization(result.optimizedProgram);
   console.log(`Improved to ${(result.optimizedProgram.bestScore * 100).toFixed(1)}% accuracy`);
-}
-```
-
-### Saving and Loading Optimizations
-
-```typescript
-import { promises as fs } from 'fs';
-
-// Save the complete optimization result
-if (result.optimizedProgram) {
-  await fs.writeFile(
-    'sentiment-analyzer-optimization.json',
-    JSON.stringify({
-      version: '2.0',
-      bestScore: result.optimizedProgram.bestScore,
-      instruction: result.optimizedProgram.instruction,
-      demos: result.optimizedProgram.demos,
-      modelConfig: result.optimizedProgram.modelConfig,
-      optimizerType: result.optimizedProgram.optimizerType,
-      timestamp: new Date().toISOString()
-    }, null, 2)
-  );
+  
+  // Save for production use
+  await fs.writeFile('optimization.json', 
+    JSON.stringify(result.optimizedProgram, null, 2));
 }
 
 // Load in production
 import { AxOptimizedProgramImpl } from '@ax-llm/ax';
-
-const savedData = JSON.parse(
-  await fs.readFile('sentiment-analyzer-optimization.json', 'utf8')
-);
-
-const optimizedProgram = new AxOptimizedProgramImpl(savedData);
-sentimentAnalyzer.applyOptimization(optimizedProgram);
-
-console.log(`Applied optimization with score: ${optimizedProgram.bestScore.toFixed(3)}`);
+const savedData = JSON.parse(await fs.readFile('optimization.json', 'utf8'));
+sentimentAnalyzer.applyOptimization(new AxOptimizedProgramImpl(savedData));
 ```
 
-### Teacher-Student Cost Optimization
-
-Use expensive models to teach cheaper ones, achieving high performance at low cost:
-
-```typescript
-// Teacher: Smart but expensive (used only during optimization)
-const teacherAI = ai({ 
-  name: "openai", 
-  config: { model: "gpt-4o" } 
-});
-
-// Student: Fast and cheap (used in production)
-const studentAI = ai({ 
-  name: "openai", 
-  config: { model: "gpt-4o-mini" } 
-});
-
-const optimizer = new AxMiPRO({
-  studentAI, // This gets optimized
-  teacherAI, // This helps create better instructions
-  examples,
-});
-
-// Result: Cheap model performs like expensive model
-const result = await optimizer.compile(program, examples, metric);
-```
-
-## Complete Optimization Guide
-
-For comprehensive documentation on optimization strategies, teacher-student
-architectures, cost management, and advanced techniques, see our detailed
-[**Optimization Guide**](https://github.com/ax-llm/ax/blob/main/OPTIMIZE.md).
-
-## Complete AxFlow Guide
-
-AxFlow provides automatic parallel execution, production-ready resilience, and declarative AI workflow orchestration. For comprehensive documentation on building complex AI workflows, multi-model orchestration, control flow patterns, and production-ready systems, see our detailed [**AxFlow Guide**](AXFLOW.md).
+For comprehensive documentation on optimization strategies, teacher-student architectures, and advanced techniques, see our detailed [**Optimization Guide**](https://github.com/ax-llm/ax/blob/main/OPTIMIZE.md).
 
 ## Complete Telemetry Guide
 

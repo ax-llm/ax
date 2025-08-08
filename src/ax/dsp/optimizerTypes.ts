@@ -1,4 +1,4 @@
-import type { AxOptimizationStats } from './optimizer.js';
+import type { AxOptimizationStats } from './common_types.js';
 
 // Optimizer logging types
 export type AxOptimizerLoggerData =

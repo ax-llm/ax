@@ -1,8 +1,8 @@
 {
-  "bestScore": 0.9634306666157344,
+  "bestScore": 0.9765085710778458,
   "stats": {
-    "totalCalls": 10,
-    "successfulDemos": 1,
+    "totalCalls": 50,
+    "successfulDemos": 30,
     "estimatedTokenUsage": 0,
     "earlyStopped": false,
     "resourceUsage": {
@@ -17,31 +17,31 @@
       "stagnationRounds": 0,
       "convergenceThreshold": 0.01
     },
-    "bestScore": 0.9634306666157344,
+    "bestScore": 0.9765085710778458,
     "bestConfiguration": {}
   },
   "demos": [
     {
       "traces": [
         {
+          "question": "Who wrote the play \"Hamlet\"?",
+          "answer": "The play \"Hamlet\" was written by William Shakespeare."
+        },
+        {
           "question": "What is the difference between a zucchini and a cucumber?",
-          "answer": "A zucchini is a type of summer squash, while a cucumber is a different type of vegetable typically eaten raw in salads."
+          "answer": "The main difference is that zucchini is a type of summer squash, while cucumber is a member of the gourd family and is typically eaten raw."
         },
         {
-          "question": "Can you give me a simple recipe for grilled zucchini?",
-          "answer": "Zucchini can be sliced, seasoned with olive oil, salt, and pepper, then grilled until tender."
+          "question": "What is the distance from the Earth to the Moon in kilometers?",
+          "answer": "The average distance from the Earth to the Moon is about 384,400 kilometers."
         },
         {
-          "question": "What are the health benefits of eating zucchini?",
-          "answer": "Zucchini is low in calories, high in vitamins A and C, and provides dietary fiber, which can aid in digestion."
+          "question": "What is the distance from the Earth to the Moon in kilometers?",
+          "answer": "The average distance from the Earth to the Moon is about 384,400 kilometers."
         },
         {
-          "question": "If a car travels at 100 km/h, how long will it take to travel 250 km? By the way, I dislike the taste of zucchini.",
-          "answer": "Cannot answer due to keyword."
-        },
-        {
-          "question": "What are some common pests that affect zucchini plants?",
-          "answer": "Common pests that affect zucchini plants include squash bugs, aphids, and cucumber beetles."
+          "question": "What is the difference between a zucchini and a cucumber?",
+          "answer": "Zucchini and cucumber are both fruits but differ in taste and texture; zucchini is typically denser and has a mild flavor, while cucumber is crisp and refreshing."
         }
       ],
       "programId": "27b66065"
@@ -49,7 +49,7 @@
   ],
   "examples": [],
   "modelConfig": {
-    "temperature": 1.9101960749068572
+    "temperature": 1.976095354825518
   },
   "optimizerType": "MiPRO (Python)",
   "optimizationTime": 0,

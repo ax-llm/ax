@@ -1,209 +1,50 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
+
 // FIXME: Circular dependency - import { ax } from '../index.js';
 
+import type {
+  AxCheckpointLoadFn,
+  AxCheckpointSaveFn,
+  AxCompileOptions,
+  AxCostTracker,
+  AxCostTrackerOptions,
+  AxExample,
+  AxMetricFn,
+  AxMultiMetricFn,
+  AxOptimizationCheckpoint,
+  AxOptimizationProgress,
+  AxOptimizationStats,
+  AxOptimizerArgs,
+  AxTypedExample,
+} from './common_types.js';
 import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
 import { axDefaultOptimizerLogger } from './optimizerLogging.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
-import type { AxFieldValue, AxGenOut, AxProgramDemos } from './types.js';
+import type { AxGenOut, AxProgramDemos } from './types.js';
 
 // Logger utilities are now exported from ./loggers.js
 
-// Common types used by optimizers
-export type AxExample = Record<string, AxFieldValue>;
-
-// Typed example that matches the input type of a program
-export type AxTypedExample<IN = any> = IN & {
-  [key: string]: AxFieldValue;
-};
-
-export type AxMetricFn = <T = any>(
-  arg0: Readonly<{ prediction: T; example: AxExample }>
-) => number | Promise<number>;
-
-export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
-
-// Multi-objective metric function for Pareto optimization
-export type AxMultiMetricFn = <T = any>(
-  arg0: Readonly<{ prediction: T; example: AxExample }>
-) => Record<string, number>;
+// Common types moved to ./common_types.ts
 
 // Progress tracking interface for real-time updates
-export interface AxOptimizationProgress {
-  round: number;
-  totalRounds: number;
-  currentScore: number;
-  bestScore: number;
-  tokensUsed: number;
-  timeElapsed: number;
-  successfulExamples: number;
-  totalExamples: number;
-  currentConfiguration?: Record<string, unknown>;
-  bestConfiguration?: Record<string, unknown>;
-  convergenceInfo?: {
-    improvement: number;
-    stagnationRounds: number;
-    isConverging: boolean;
-  };
-}
+// AxOptimizationProgress moved to ./common_types.ts
 
 // Cost tracking interface for monitoring resource usage
-export interface AxCostTracker {
-  trackTokens(count: number, model: string): void;
-  getCurrentCost(): number;
-  getTokenUsage(): Record<string, number>;
-  getTotalTokens(): number;
-  isLimitReached(): boolean;
-  reset(): void;
-}
+// AxCostTracker moved to ./common_types.ts
 
 // Checkpoint interface for saving/loading optimization state
-export interface AxOptimizationCheckpoint {
-  version: string;
-  timestamp: number;
-  optimizerType: string;
-  optimizerConfig: Record<string, unknown>;
+// AxOptimizationCheckpoint moved to ./common_types.ts
 
-  // Current optimization state
-  currentRound: number;
-  totalRounds: number;
-  bestScore: number;
-  bestConfiguration?: Record<string, unknown>;
+// Simple checkpoint functions moved to ./common_types.ts
 
-  // Historical data
-  scoreHistory: number[];
-  configurationHistory: Record<string, unknown>[];
+// Cost tracker configuration options now provided by ./types
 
-  // Resource usage
-  stats: AxOptimizationStats;
+// AxOptimizerArgs moved to ./common_types.ts
 
-  // Optimizer-specific state
-  optimizerState: Record<string, unknown>;
-
-  // Examples and validation data
-  examples: readonly AxExample[];
-}
-
-// Simple checkpoint functions - users implement these as needed
-export type AxCheckpointSaveFn = (
-  checkpoint: Readonly<AxOptimizationCheckpoint>
-) => Promise<string>;
-export type AxCheckpointLoadFn = (
-  checkpointId: string
-) => Promise<AxOptimizationCheckpoint | null>;
-
-// Cost tracker configuration options
-export interface AxCostTrackerOptions {
-  // Cost-based limits
-  costPerModel?: Record<string, number>;
-  maxCost?: number;
-
-  // Token-based limits
-  maxTokens?: number;
-}
-
-// Enhanced optimizer arguments - no longer includes program or examples
-export type AxOptimizerArgs = {
-  studentAI: AxAIService;
-  teacherAI?: AxAIService; // For generating high-quality examples/corrections
-
-  // Python optimizer service
-  optimizerEndpoint?: string; // Python optimizer service URL
-  optimizerTimeout?: number; // Request timeout (default: 30000ms)
-  optimizerRetries?: number; // Retry attempts (default: 3)
-
-  // MiPRO-specific options (flattened from AxMiPROOptimizerOptions)
-  numCandidates?: number;
-  initTemperature?: number;
-  maxBootstrappedDemos?: number;
-  maxLabeledDemos?: number;
-  numTrials?: number;
-  minibatch?: boolean;
-  minibatchSize?: number;
-  minibatchFullEvalSteps?: number;
-  programAwareProposer?: boolean;
-  dataAwareProposer?: boolean;
-  viewDataBatchSize?: number;
-  tipAwareProposer?: boolean;
-  fewshotAwareProposer?: boolean;
-  earlyStoppingTrials?: number;
-  minImprovementThreshold?: number;
-  bayesianOptimization?: boolean;
-  acquisitionFunction?:
-    | 'expected_improvement'
-    | 'upper_confidence_bound'
-    | 'probability_improvement';
-  explorationWeight?: number;
-  sampleCount?: number;
-
-  // Quality thresholds
-  minSuccessRate?: number;
-  targetScore?: number;
-
-  // Monitoring & callbacks
-  onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
-  onEarlyStop?: (reason: string, stats: Readonly<AxOptimizationStats>) => void;
-  costTracker?: AxCostTracker;
-
-  // Checkpointing
-  checkpointSave?: AxCheckpointSaveFn;
-  checkpointLoad?: AxCheckpointLoadFn;
-  checkpointInterval?: number; // Save checkpoint every N rounds
-  resumeFromCheckpoint?: string; // Checkpoint ID to resume from
-
-  // Logging
-  logger?: AxLoggerFunction;
-  verbose?: boolean;
-
-  // Reproducibility
-  seed?: number;
-
-  // Optimizer logging
-  debugOptimizer?: boolean;
-  optimizerLogger?: AxOptimizerLoggerFunction;
-};
-
-// Enhanced optimization statistics
-export interface AxOptimizationStats {
-  totalCalls: number;
-  successfulDemos: number;
-  estimatedTokenUsage: number;
-  earlyStopped: boolean;
-  earlyStopping?: {
-    bestScoreRound: number;
-    patienceExhausted: boolean;
-    reason: string;
-  };
-  bestScore: number;
-  bestConfiguration?: Record<string, unknown>;
-
-  // Resource usage tracking
-  resourceUsage: {
-    totalTokens: number;
-    totalTime: number;
-    avgLatencyPerEval: number;
-    peakMemoryUsage?: number;
-    costByModel: Record<string, number>;
-  };
-
-  // Quality metrics
-  convergenceInfo: {
-    converged: boolean;
-    finalImprovement: number;
-    stagnationRounds: number;
-    convergenceThreshold: number;
-  };
-
-  // Evaluation breakdown
-  evaluationBreakdown?: {
-    trainingScore: number;
-    validationScore: number;
-    crossValidationScores?: number[];
-    standardDeviation?: number;
-  };
-}
+// AxOptimizationStats moved to ./common_types.ts
 
 // Optimizer metrics configuration interface
 export interface AxOptimizerMetricsConfig {
@@ -1060,35 +901,7 @@ export interface AxParetoResult<OUT = any> extends AxOptimizerResult<OUT> {
   convergenceMetrics?: Record<string, number>;
 }
 
-// Compile options that can override constructor arguments
-export interface AxCompileOptions {
-  // Method-specific options
-  maxIterations?: number;
-  earlyStoppingPatience?: number;
-  verbose?: boolean;
-
-  // Optimizer-specific overrides
-  maxDemos?: number; // Bootstrap-specific
-  auto?: 'light' | 'medium' | 'heavy'; // MiPRO-specific
-
-  // Override args for this specific run
-  overrideTargetScore?: number;
-  overrideCostTracker?: AxCostTracker;
-  overrideTeacherAI?: AxAIService;
-
-  // Progress monitoring overrides
-  overrideOnProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
-  overrideOnEarlyStop?: (
-    reason: string,
-    stats: Readonly<AxOptimizationStats>
-  ) => void;
-
-  // Checkpointing overrides
-  overrideCheckpointSave?: AxCheckpointSaveFn;
-  overrideCheckpointLoad?: AxCheckpointLoadFn;
-  overrideCheckpointInterval?: number;
-  saveCheckpointOnComplete?: boolean;
-}
+// AxCompileOptions moved to ./common_types.ts
 
 // Enhanced base optimizer interface
 export interface AxOptimizer {
@@ -2677,13 +2490,10 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     return { ...this.stats };
   }
 
-  /**
-   * Generate a human-readable explanation of optimization results
-   */
   protected async explainOptimizationResults(
     bestScore: number,
     bestConfiguration?: Record<string, unknown>,
-    options?: AxCompileOptions
+    _options?: AxCompileOptions
   ): Promise<
     | {
         humanExplanation: string;
@@ -2692,49 +2502,49 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       }
     | undefined
   > {
-    if (!this.resultExplainer) {
-      return undefined;
+    const converged = this.stats.convergenceInfo.converged;
+    const totalCalls = this.stats.totalCalls;
+    const successRate =
+      totalCalls > 0 ? (this.stats.successfulDemos / totalCalls) * 100 : 0;
+
+    const humanExplanation = `Optimization finished with best score ${bestScore.toFixed(3)}${
+      bestConfiguration
+        ? ` using configuration ${JSON.stringify(bestConfiguration)}`
+        : ''
+    }. Convergence: ${converged ? 'yes' : 'no'}. Success rate: ${successRate.toFixed(1)}%.`;
+
+    const recommendations: string[] = [];
+    if (!converged) {
+      recommendations.push(
+        'Increase numTrials or relax earlyStoppingTrials to allow further improvement.'
+      );
     }
-
-    try {
-      const ai = this.getTeacherOrStudentAI(options);
-
-      const result = await this.resultExplainer.forward(ai, {
-        optimizationScore: bestScore,
-        bestConfiguration: bestConfiguration || {},
-        totalRounds: Math.max(1, this.currentRound), // Ensure at least 1 round
-        converged: this.stats.convergenceInfo.converged,
-        earlyStoppedReason: this.stats.earlyStopping?.reason || undefined,
-        resourcesUsed: {
-          totalTokens: this.stats.resourceUsage.totalTokens,
-          totalTime: this.stats.resourceUsage.totalTime,
-          avgLatencyPerEval: this.stats.resourceUsage.avgLatencyPerEval,
-          costByModel: this.stats.resourceUsage.costByModel,
-        },
-      });
-
-      return {
-        humanExplanation:
-          result.humanExplanation ||
-          'Optimization completed with mixed results.',
-        recommendations: result.recommendations || [
-          'Review the optimization settings and consider running with more examples.',
-        ],
-        performanceAssessment:
-          result.performanceAssessment ||
-          'Performance assessment not available.',
-      };
-    } catch (error) {
-      if (this.verbose) {
-        console.warn(
-          '[AxBaseOptimizer] Failed to generate result explanation:',
-          error
+    if (typeof this.targetScore === 'number' && bestScore < this.targetScore) {
+      recommendations.push(
+        'Tighten the metric or supply more/better-labeled examples to reach targetScore.'
+      );
+    }
+    if (
+      bestConfiguration &&
+      'bootstrappedDemos' in (bestConfiguration as any)
+    ) {
+      const demos = (bestConfiguration as any).bootstrappedDemos as number;
+      if (typeof demos === 'number' && demos === 0) {
+        recommendations.push(
+          'Consider allowing a small number of bootstrapped demos to boost performance.'
         );
       }
-      return undefined;
     }
-  }
+    if (recommendations.length === 0) {
+      recommendations.push(
+        'Re-run with more trials or different acquisition settings to explore more of the space.'
+      );
+    }
 
+    const performanceAssessment = `Tokens used: ${this.stats.resourceUsage.totalTokens}, rounds: ${this.currentRound}, stagnationRounds: ${this.stats.convergenceInfo.stagnationRounds}.`;
+
+    return { humanExplanation, recommendations, performanceAssessment };
+  }
   /**
    * Log human-readable optimization completion message
    */
@@ -2742,17 +2552,15 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     optimizerType: string,
     bestScore: number,
     bestConfiguration?: Record<string, unknown>,
-    options?: AxCompileOptions
+    options?: AxCompileOptions,
+    explanation?: {
+      humanExplanation: string;
+      recommendations: string[];
+      performanceAssessment: string;
+    }
   ): Promise<void> {
     const optLogger = this.getOptimizerLogger(options);
     if (!optLogger) return;
-
-    // Generate human-readable explanation
-    const explanation = await this.explainOptimizationResults(
-      bestScore,
-      bestConfiguration,
-      options
-    );
 
     if (explanation) {
       optLogger({
@@ -2765,7 +2573,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
           successRate:
             this.stats.totalCalls > 0
               ? `${((this.stats.successfulDemos / this.stats.totalCalls) * 100).toFixed(1)}%`
-              : '0.0%',
+              : 'N/A',
           explanation: explanation.humanExplanation,
           recommendations: explanation.recommendations,
           performanceAssessment: explanation.performanceAssessment,
@@ -2784,7 +2592,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
           successRate:
             this.stats.totalCalls > 0
               ? `${((this.stats.successfulDemos / this.stats.totalCalls) * 100).toFixed(1)}%`
-              : '0.0%',
+              : 'N/A',
           stats: this.stats,
         },
       });

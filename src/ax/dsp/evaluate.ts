@@ -1,6 +1,6 @@
 import type { AxAIService } from '../ai/types.js';
+import type { AxExample, AxMetricFn } from './common_types.js';
 import type { AxGen } from './generate.js';
-import type { AxExample, AxMetricFn } from './optimizer.js';
 import type { AxGenIn, AxGenOut } from './types.js';
 
 export type AxEvaluateArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
