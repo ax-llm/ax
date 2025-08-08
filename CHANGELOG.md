@@ -1,5 +1,21 @@
 # Changelog
 
+## [14.0.5](https://github.com/ax-llm/ax/compare/14.0.3...14.0.4) (2025-08-08)
+
+### Features
+
+* enhance Anthropic API response handling and add demo for thinking separation ([38c5b5d](https://github.com/ax-llm/ax/commit/38c5b5d60f65deaba854ecdf06cc34cb128ad42f))
+* enhance MiPro optimizer with new sampling and result picking features ([92deebd](https://github.com/ax-llm/ax/commit/92deebd64708f74474fffbab8614d6786164ab58))
+* enhance type definitions and re-export common types for optimization ([c178bca](https://github.com/ax-llm/ax/commit/c178bca3871f2567aa2cb77d9574496fd774b1b6))
+* refactor optimization types and enhance MiPro integration ([bd67b18](https://github.com/ax-llm/ax/commit/bd67b180e94a7a16a6d21a7ad143782fc552d224))
+## [14.0.4](https://github.com/ax-llm/ax/compare/14.0.3...14.0.4) (2025-08-07)
+
+### Features
+
+* add MiPro optimization with Python service integration ([b1fe6e3](https://github.com/ax-llm/ax/commit/b1fe6e373b000765d31bc6cb1f421d3dcfc2a962))
+* enhance MiPro optimizer with result explanation and logging ([2191a25](https://github.com/ax-llm/ax/commit/2191a251317b98debe8fc6dd3eca682f433ec0d6))
+* unify optimization results in MiPro with new AxOptimizedProgram implementation ([305c703](https://github.com/ax-llm/ax/commit/305c703a11afbf849b14634814e91772c59c67b9))
+
 ## [14.0.4](https://github.com/ax-llm/ax/compare/14.0.2...14.0.3) (2025-08-07)
 
 ### Features
