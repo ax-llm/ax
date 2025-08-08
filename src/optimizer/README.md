@@ -1,15 +1,20 @@
 # Ax Optimizer Service
 
-HTTP service for Ax LLM optimization using Optuna, FastAPI, and ARQ for background processing.
+HTTP service for Ax LLM optimization using Optuna, FastAPI, and ARQ for
+background processing.
 
 ## Features
 
 - **FastAPI**: High-performance async API with automatic documentation
-- **Optuna**: Modern hyperparameter optimization with TPE, pruning, and visualization
-- **Optional Redis**: Can run with Redis/ARQ for distributed tasks or in-memory for simplicity
-- **Memory + Persistence**: Runs in-memory by default with optional PostgreSQL persistence
+- **Optuna**: Modern hyperparameter optimization with TPE, pruning, and
+  visualization
+- **Optional Redis**: Can run with Redis/ARQ for distributed tasks or in-memory
+  for simplicity
+- **Memory + Persistence**: Runs in-memory by default with optional PostgreSQL
+  persistence
 - **Docker**: Complete containerized setup with optional Redis and PostgreSQL
-- **Zero External Dependencies Mode**: Can run entirely in-memory without Redis or PostgreSQL
+- **Zero External Dependencies Mode**: Can run entirely in-memory without Redis
+  or PostgreSQL
 
 ## Quick Start
 
@@ -26,18 +31,21 @@ docker-compose logs -f
 docker-compose down
 ```
 
-The API will be available at http://localhost:8000 with interactive docs at http://localhost:8000/docs.
+The API will be available at http://localhost:8000 with interactive docs at
+http://localhost:8000/docs.
 
 ### Manual Setup with uv
 
 #### Quick Start (No Configuration Required)
 
 1. **Install uv (if not already installed):**
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 2. **Install and run:**
+
 ```bash
 uv sync
 uv run ax-optimizer server start
@@ -47,27 +55,32 @@ uv run ax-optimizer server start
 #### Production Setup (With Redis for Distributed Tasks)
 
 1. **Install dependencies with Redis support:**
+
 ```bash
 uv sync --group redis
 ```
 
 2. **Start Redis:**
+
 ```bash
 docker run -p 6379:6379 redis:7-alpine
 ```
 
 3. **Enable Redis mode:**
+
 ```bash
 export USE_MEMORY_QUEUE=false
 # Or create .env file with USE_MEMORY_QUEUE=false
 ```
 
 4. **Start the API server:**
+
 ```bash
 uv run python -m app.main
 ```
 
 5. **Start workers (in another terminal):**
+
 ```bash
 uv run arq app.tasks.WorkerSettings
 ```
@@ -113,6 +126,7 @@ curl -X POST "http://localhost:8000/optimize" \
 ```
 
 Response:
+
 ```json
 {
   "job_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -135,6 +149,7 @@ curl -X POST "http://localhost:8000/studies/my_optimization/suggest"
 ```
 
 Response:
+
 ```json
 {
   "trial_number": 0,
@@ -176,25 +191,28 @@ The service integrates seamlessly with the Ax MiPRO optimizer:
 
 ```typescript
 // MiPro with Python service integration
-import { AxMiPRO, ai, ax, type AxMetricFn } from '@ax-llm/ax'
+import { ai, ax, type AxMetricFn, AxMiPRO } from "@ax-llm/ax";
 
 const emailClassifier = ax(
-  'emailText:string -> priority:class "critical, normal, low"'
+  'emailText:string -> priority:class "critical, normal, low"',
 );
 
 const optimizer = new AxMiPRO({
-  studentAI: ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! }),
+  studentAI: ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! }),
   examples: trainingData,
-  
+
   // Python service configuration
-  optimizerEndpoint: 'http://localhost:8000',
+  optimizerEndpoint: "http://localhost:8000",
   optimizerTimeout: 60000,
   optimizerRetries: 3,
-  
+
   // Advanced optimization settings
   numTrials: 100,
   bayesianOptimization: true,
-  acquisitionFunction: 'expected_improvement',
+  acquisitionFunction: "expected_improvement",
+  // Optional: include topP (0.7–1.0) in the search space from TS side
+  // When enabled, suggestions may contain a float param named `topP`
+  optimizeTopP: true,
 });
 
 // Run optimization
@@ -225,12 +243,14 @@ uv run ax-optimizer results <study_name>
 ## API Endpoints
 
 ### Jobs
+
 - `POST /optimize` - Create optimization job
 - `GET /jobs/{job_id}` - Get job status
 - `DELETE /jobs/{job_id}` - Cancel job
 - `GET /jobs` - List recent jobs
 
 ### Studies
+
 - `POST /studies/{study_name}/suggest` - Get parameter suggestions
 - `POST /studies/{study_name}/evaluate` - Report trial results
 - `GET /studies/{study_name}/results` - Get optimization results
@@ -238,6 +258,7 @@ uv run ax-optimizer results <study_name>
 - `GET /studies` - List all studies
 
 ### System
+
 - `GET /health` - Health check
 - `GET /docs` - Interactive API documentation
 
@@ -245,17 +266,17 @@ uv run ax-optimizer results <study_name>
 
 Environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HOST` | `0.0.0.0` | Server host |
-| `PORT` | `8000` | Server port |
-| `DEBUG` | `false` | Debug mode |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
-| `DATABASE_URL` | - | PostgreSQL URL (optional) |
-| `USE_MEMORY_STORAGE` | `true` | Use in-memory storage |
-| `MAX_TRIALS_PER_STUDY` | `1000` | Maximum trials per study |
-| `DEFAULT_TIMEOUT_SECONDS` | `3600` | Default job timeout |
-| `MAX_CONCURRENT_JOBS` | `10` | Maximum concurrent jobs |
+| Variable                  | Default                    | Description               |
+| ------------------------- | -------------------------- | ------------------------- |
+| `HOST`                    | `0.0.0.0`                  | Server host               |
+| `PORT`                    | `8000`                     | Server port               |
+| `DEBUG`                   | `false`                    | Debug mode                |
+| `REDIS_URL`               | `redis://localhost:6379/0` | Redis connection          |
+| `DATABASE_URL`            | -                          | PostgreSQL URL (optional) |
+| `USE_MEMORY_STORAGE`      | `true`                     | Use in-memory storage     |
+| `MAX_TRIALS_PER_STUDY`    | `1000`                     | Maximum trials per study  |
+| `DEFAULT_TIMEOUT_SECONDS` | `3600`                     | Default job timeout       |
+| `MAX_CONCURRENT_JOBS`     | `10`                       | Maximum concurrent jobs   |
 
 ## Architecture
 
@@ -325,7 +346,7 @@ uv run ruff app/
 
 ```yaml
 # docker-compose.prod.yml
-version: '3.8'
+version: "3.8"
 services:
   api:
     image: ax-optimizer:latest
@@ -334,7 +355,7 @@ services:
       - DEBUG=false
     deploy:
       replicas: 3
-  
+
   worker:
     image: ax-optimizer:latest
     command: arq app.tasks.WorkerSettings
@@ -347,7 +368,8 @@ services:
 ### Common Issues
 
 1. **Redis connection failed**: Ensure Redis is running and accessible
-2. **Database connection failed**: Check PostgreSQL configuration and credentials
+2. **Database connection failed**: Check PostgreSQL configuration and
+   credentials
 3. **Job stuck in pending**: Check if ARQ worker is running
 4. **Memory issues**: Consider using persistent storage for large studies
 

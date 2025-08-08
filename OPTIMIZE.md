@@ -1575,6 +1575,10 @@ const optimizer = new AxMiPRO({
   acquisitionFunction: "expected_improvement",
   explorationWeight: 0.15,
 
+  // Self-consistency (MiPRO v2)
+  // Ask the model for multiple independent samples and pick the best with a default majority-vote picker
+  sampleCount: 3,
+
   // Progress tracking
   onProgress: (update) => {
     console.log(`Trial ${update.round}: ${update.currentScore.toFixed(3)}`);
@@ -1584,6 +1588,96 @@ const optimizer = new AxMiPRO({
 // Run optimization
 const result = await optimizer.compile(emailClassifier, examples, metric);
 console.log(`Best score: ${result.bestScore}`);
+```
+
+#### Custom Result Picker (Advanced)
+
+```ts
+import { type AxResultPickerFunction } from "@ax-llm/ax";
+
+// Example: prefer higher confidence, break ties by shortest explanation
+const myPicker: AxResultPickerFunction<any> = async (data) => {
+  if (data.type === "function") {
+    // Choose first non-error function execution
+    const ix = data.results.findIndex((r) => !r.isError);
+    return ix >= 0 ? ix : 0;
+  }
+  // Fields: choose highest confidence; tie-breaker shortest explanation
+  let bestIx = 0;
+  let bestScore = -Infinity;
+  for (const r of data.results) {
+    const sample = r.sample as { confidence?: number; explanation?: string };
+    const score = (sample.confidence ?? 0) -
+      (sample.explanation?.length ?? 0) / 1000;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIx = r.index;
+    }
+  }
+  return bestIx;
+};
+
+const optimizer = new AxMiPRO({
+  studentAI: llm,
+  examples,
+  // Use 5 samples per example and custom picker
+  sampleCount: 5,
+  resultPicker: myPicker,
+});
+```
+
+When to use:
+
+- Use a custom picker when your task has a clear selection heuristic (e.g.,
+  confidence, shortness, scoring rubric) or you want to implement an LLM-judge
+  selection.
+- For classification tasks, the built-in majority-vote default often works well.
+
+#### New/Updated Options (MiPRO v2)
+
+- `sampleCount?: number` (default: 1)
+  - When > 1, MiPRO evaluates each example with multiple samples and uses a
+    default result picker to select the best output per example. Great for tasks
+    where self-consistency helps.
+- Early stopping
+  - Controlled by `earlyStoppingTrials` and `minImprovementThreshold`. MiPRO
+    will stop if no trial improves the best score by at least the threshold for
+    the configured number of trials.
+- Minibatch scheduling
+  - When `minibatch` is true, evaluations run on random minibatches. Every
+    `minibatchFullEvalSteps` trials, MiPRO runs a full evaluation to correct
+    drift from minibatch noise.
+- Expanded logging
+  - Progress is emitted each trial with score and configuration; early stopping
+    is logged; final result includes score/configuration histories and accurate
+    `optimizationTime`.
+
+Note: MiPRO now applies suggested `bootstrappedDemos` during evaluation so that
+the optimizer can learn their true effect on your metric.
+
+#### Hyperparameters vs. MiPRO
+
+MiPRO primarily optimizes the program-level levers emphasized in DSPy/MiPRO
+(instructions, few-shot demos, data-aware proposals). Model hyperparameters
+(e.g., `temperature`, `topP`, penalties) can be included for practical gains;
+tuning `temperature` often helps self-consistency. The original MiPRO work
+focuses on program synthesis and demo selection rather than broad model
+hyperparameter sweeps. If you decide to extend the search space:
+
+- Prefer a small, impactful set (e.g., `temperature`, occasionally `topP`).
+- Keep ranges conservative to avoid noisy evaluations.
+- Measure costs: a larger hyperparameter space increases trials.
+
+Optional: Include topP in MiPRO
+
+```ts
+const optimizer = new AxMiPRO({
+  studentAI: llm,
+  examples,
+  // Keep it off by default; turn on if diversity helps your task
+  optimizeTopP: true, // adds topP (0.7–1.0) to the optimizer search space
+  sampleCount: 3, // pairs well with self-consistency
+});
 ```
 
 ### Environment Variables

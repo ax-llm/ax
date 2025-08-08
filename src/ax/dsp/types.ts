@@ -387,10 +387,7 @@ export type AxOptimizerArgs = {
   targetScore?: number;
 
   onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
-  onEarlyStop?: (
-    reason: string,
-    stats: Readonly<AxOptimizationStats>
-  ) => void;
+  onEarlyStop?: (reason: string, stats: Readonly<AxOptimizationStats>) => void;
   costTracker?: AxCostTracker;
 
   checkpointSave?: AxCheckpointSaveFn;

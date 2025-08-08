@@ -1,5 +1,5 @@
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
-import type { AxFieldValue } from './types.js';
+import type { AxFieldValue, AxResultPickerFunction } from './types.js';
 
 export type AxExample = Record<string, AxFieldValue>;
 
@@ -133,6 +133,11 @@ export type AxOptimizerArgs = {
     | 'probability_improvement';
   explorationWeight?: number;
   sampleCount?: number;
+  // Optional: custom picker used when sampleCount > 1
+  // If omitted, MiPRO uses a default majority-vote picker
+  resultPicker?: AxResultPickerFunction<any>;
+  // Optional: include topP in the Python optimizer search space (0.7–1.0)
+  optimizeTopP?: boolean;
   minSuccessRate?: number;
   targetScore?: number;
   onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
