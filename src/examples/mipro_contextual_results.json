@@ -1,8 +1,8 @@
 {
-  "bestScore": 0.9765085710778458,
+  "bestScore": 1,
   "stats": {
-    "totalCalls": 50,
-    "successfulDemos": 30,
+    "totalCalls": 133,
+    "successfulDemos": 118,
     "estimatedTokenUsage": 0,
     "earlyStopped": false,
     "resourceUsage": {
@@ -17,31 +17,31 @@
       "stagnationRounds": 0,
       "convergenceThreshold": 0.01
     },
-    "bestScore": 0.9765085710778458,
+    "bestScore": 1,
     "bestConfiguration": {}
   },
   "demos": [
     {
       "traces": [
         {
-          "question": "Who wrote the play \"Hamlet\"?",
-          "answer": "The play \"Hamlet\" was written by William Shakespeare."
+          "question": "What are some common pests that affect zucchini plants?",
+          "answer": "Common pests that affect zucchini plants include squash bugs, cucumber beetles, and aphids."
         },
         {
-          "question": "What is the difference between a zucchini and a cucumber?",
-          "answer": "The main difference is that zucchini is a type of summer squash, while cucumber is a member of the gourd family and is typically eaten raw."
+          "question": "What is the chemical formula for water?",
+          "answer": "The chemical formula for water is H2O."
         },
         {
-          "question": "What is the distance from the Earth to the Moon in kilometers?",
-          "answer": "The average distance from the Earth to the Moon is about 384,400 kilometers."
+          "question": "What are the health benefits of eating zucchini?",
+          "answer": "Zucchini is low in calories, high in water content, and provides vitamins A and C, as well as potassium and dietary fiber."
         },
         {
-          "question": "What is the distance from the Earth to the Moon in kilometers?",
-          "answer": "The average distance from the Earth to the Moon is about 384,400 kilometers."
+          "question": "Who was the first person to walk on the moon? My neighbor grows giant zucchini.",
+          "answer": "Cannot answer due to keyword."
         },
         {
-          "question": "What is the difference between a zucchini and a cucumber?",
-          "answer": "Zucchini and cucumber are both fruits but differ in taste and texture; zucchini is typically denser and has a mild flavor, while cucumber is crisp and refreshing."
+          "question": "Can you eat zucchini raw?",
+          "answer": "Yes, zucchini can be eaten raw in salads or as a crunchy snack."
         }
       ],
       "programId": "27b66065"
@@ -49,12 +49,56 @@
   ],
   "examples": [],
   "modelConfig": {
-    "temperature": 1.976095354825518
+    "temperature": 1.0769124240388874
   },
   "optimizerType": "MiPRO (Python)",
-  "optimizationTime": 0,
+  "optimizationTime": 145478,
   "totalRounds": 10,
   "converged": false,
-  "scoreHistory": [],
-  "configurationHistory": []
+  "scoreHistory": [
+    0.5789473684210527,
+    1,
+    0.9473684210526315,
+    0.9473684210526315,
+    0.9473684210526315,
+    0.8421052631578947,
+    0.9473684210526315
+  ],
+  "configurationHistory": [
+    {
+      "temperature": 1.4742795748313158,
+      "bootstrappedDemos": 0,
+      "trialNumber": 1
+    },
+    {
+      "temperature": 1.0769124240388874,
+      "bootstrappedDemos": 3,
+      "trialNumber": 11
+    },
+    {
+      "temperature": 1.9798793050153718,
+      "bootstrappedDemos": 3,
+      "trialNumber": 12
+    },
+    {
+      "temperature": 0.6442616109684978,
+      "bootstrappedDemos": 3,
+      "trialNumber": 13
+    },
+    {
+      "temperature": 1.20259205286663,
+      "bootstrappedDemos": 3,
+      "trialNumber": 14
+    },
+    {
+      "temperature": 1.7382303076555912,
+      "bootstrappedDemos": 2,
+      "trialNumber": 15
+    },
+    {
+      "temperature": 1.1268957384216227,
+      "bootstrappedDemos": 3,
+      "trialNumber": 16
+    }
+  ]
 }

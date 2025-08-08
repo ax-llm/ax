@@ -332,49 +332,52 @@ class AxAIAnthropicImpl
       this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
       this.currentPromptConfig?.showThoughts !== false;
 
-    const results = resp.content
-      .map((msg, index): AxChatResponseResult => {
-        if (msg.type === 'tool_use') {
-          return {
-            index,
-            id: msg.id,
-            functionCalls: [
-              {
-                id: msg.id,
-                type: 'function' as const,
-                function: {
-                  name: msg.name,
-                  params: msg.input,
-                },
-              },
-            ],
-            finishReason,
-          };
-        }
-        if (
-          (msg.type === 'thinking' || msg.type === 'redacted_thinking') &&
-          showThoughts
-        ) {
-          return {
-            index,
-            thought: msg.thinking,
-            id: resp.id,
-            finishReason,
-          };
-        }
-        return {
-          index,
-          content: msg.type === 'text' ? msg.text : '',
-          id: resp.id,
-          finishReason,
-        };
-      })
-      .filter(
-        (result) =>
-          result.content !== '' ||
-          result.thought !== undefined ||
-          result.functionCalls !== undefined
-      );
+    // Aggregate all content blocks into a single result to avoid mixing
+    // thinking text into the normal content while still exposing function calls.
+    let aggregatedContent = '';
+    let aggregatedThought = '';
+    const aggregatedFunctionCalls: NonNullable<
+      AxChatResponseResult['functionCalls']
+    > = [];
+
+    for (const block of resp.content) {
+      switch (block.type) {
+        case 'text':
+          aggregatedContent += block.text ?? '';
+          break;
+        case 'thinking':
+        case 'redacted_thinking':
+          if (showThoughts) {
+            aggregatedThought += block.thinking ?? '';
+          }
+          break;
+        case 'tool_use':
+          aggregatedFunctionCalls.push({
+            id: block.id,
+            type: 'function',
+            function: { name: block.name, params: block.input },
+          });
+          break;
+      }
+    }
+
+    const result: AxChatResponseResult = {
+      index: 0,
+      id: resp.id,
+      finishReason,
+    };
+
+    if (aggregatedContent) {
+      result.content = aggregatedContent;
+    }
+    if (aggregatedThought) {
+      result.thought = aggregatedThought;
+    }
+    if (aggregatedFunctionCalls.length > 0) {
+      result.functionCalls = aggregatedFunctionCalls;
+    }
+
+    const results = [result];
 
     this.tokensUsed = {
       promptTokens: resp.usage.input_tokens,
