@@ -242,6 +242,13 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
         );
       }
 
+      // Treat whitespace-only content as empty
+      if (typeof content === 'string' && content.trim() === '') {
+        throw new Error(
+          `Assistant message content cannot be empty or whitespace-only, received: ${value(content)}`
+        );
+      }
+
       if (functionCalls && !Array.isArray(functionCalls)) {
         throw new Error(
           `Assistant message function calls must be an array, received: ${value(functionCalls)}`

@@ -236,8 +236,8 @@ export class AxAIOpenAIResponses<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThroughts ?? false,
         media: {
           images: {
             supported: false,

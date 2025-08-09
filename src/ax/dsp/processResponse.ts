@@ -278,6 +278,9 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       logger,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
+    // Clear accumulated function calls after processing to avoid re-execution
+    // in subsequent steps (prevents duplicate function results and loops)
+    state.functionCalls = [];
   } else {
     streamingExtractFinalValue(
       signature,

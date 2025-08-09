@@ -129,8 +129,12 @@ class AxAIHuggingFaceImpl
         max_new_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
         repetition_penalty:
           req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-        temperature: req.modelConfig?.temperature ?? this.config.temperature,
-        top_p: req.modelConfig?.topP ?? this.config.topP,
+        ...(req.modelConfig?.temperature !== undefined
+          ? { temperature: req.modelConfig.temperature }
+          : {}),
+        ...(req.modelConfig?.topP !== undefined
+          ? { top_p: req.modelConfig.topP }
+          : {}),
         top_k: req.modelConfig?.topK ?? this.config.topK,
         return_full_text: this.config.returnFullText,
         num_return_sequences: this.config.n,

@@ -60,7 +60,7 @@ const ai = new AxAI({
     stream: true,
   },
   options: {
-    debug: true,
+    debug: false,
   },
 });
 
@@ -101,6 +101,7 @@ console.log(
 response = await chatBot.forward(ai, chat, {
   functions,
   functionCall: 'required',
+  debug: true,
 });
 console.log(`🤖 Bot: ${response.reply}\n`);
 

@@ -117,9 +117,13 @@ class AxAIRekaImpl
       model,
       messages,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      ...(req.modelConfig?.temperature !== undefined
+        ? { temperature: req.modelConfig.temperature }
+        : {}),
       top_k: req.modelConfig?.n ?? this.config.n,
-      top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
+      ...(req.modelConfig?.topP !== undefined
+        ? { top_p: req.modelConfig.topP }
+        : {}),
       stop: req.modelConfig?.stopSequences ?? this.config.stop,
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,

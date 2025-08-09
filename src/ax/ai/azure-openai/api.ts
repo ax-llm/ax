@@ -80,8 +80,8 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThroughts ?? false,
         functionCot: false,
         media: {
           images: {
@@ -115,7 +115,7 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
           supported: false,
           types: [],
         },
-        thinking: mi?.hasThinkingBudget ?? false,
+        thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
       };
     };

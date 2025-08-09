@@ -7,6 +7,14 @@ import type { AxAIFeatures } from './base.js';
 export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
   (AxAIModelListBase<TModelKey> & {
     isInternal?: boolean;
+    /** Optional per-model config applied when this key is used (callers still override) */
+    modelConfig?: AxModelConfig;
+    /** Optional per-model options applied when this key is used (callers still override) */
+    thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
+    showThoughts?: AxAIServiceOptions['showThoughts'];
+    stream?: AxAIServiceOptions['stream'];
+    debug?: AxAIServiceOptions['debug'];
+    useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
   } & ({ model: TModel } | { embedModel: TEmbedModel }))[];
 
 export type AxAIModelListBase<TModelKey> = {
@@ -24,8 +32,14 @@ export type AxModelInfo = {
   promptTokenCostPer1M?: number;
   completionTokenCostPer1M?: number;
   aliases?: string[];
-  hasThinkingBudget?: boolean;
-  hasShowThoughts?: boolean;
+  supported?: {
+    thinkingBudget?: boolean;
+    showThroughts?: boolean;
+  };
+  notSupported?: {
+    temperature?: boolean;
+    topP?: boolean;
+  };
   maxTokens?: number;
   isExpensive?: boolean;
   contextWindow?: number;

@@ -21,7 +21,6 @@ export enum AxAIOpenAIResponsesModel {
   GPT3TextAda001 = 'text-ada-001',
   // GPT-5 models
   GPT5 = 'gpt-5',
-  GPT5Pro = 'gpt-5-pro',
   GPT5Nano = 'gpt-5-nano',
   GPT5Mini = 'gpt-5-mini',
   GPT5Chat = 'gpt-5-chat',

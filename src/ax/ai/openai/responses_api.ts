@@ -354,11 +354,12 @@ export class AxAIOpenAIResponsesImpl<
               req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
           }
         : {
-            temperature:
-              req.modelConfig?.temperature ??
-              this.config.temperature ??
-              undefined,
-            top_p: req.modelConfig?.topP ?? this.config.topP ?? undefined,
+            ...(req.modelConfig?.temperature !== undefined
+              ? { temperature: req.modelConfig.temperature }
+              : {}),
+            ...(req.modelConfig?.topP !== undefined
+              ? { top_p: req.modelConfig.topP }
+              : {}),
             presence_penalty:
               req.modelConfig?.presencePenalty ??
               this.config.presencePenalty ??

@@ -230,8 +230,8 @@ class AxAIAnthropicImpl
     const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens;
     const stopSequences =
       req.modelConfig?.stopSequences ?? this.config.stopSequences;
-    const temperature = req.modelConfig?.temperature ?? this.config.temperature;
-    const topP = req.modelConfig?.topP ?? this.config.topP;
+    const temperature = req.modelConfig?.temperature;
+    const topP = req.modelConfig?.topP; // do not fallback to config by default
     const topK = req.modelConfig?.topK ?? this.config.topK;
     const n = req.modelConfig?.n ?? this.config.n;
 
@@ -297,9 +297,11 @@ class AxAIAnthropicImpl
         ? { stop_sequences: stopSequences }
         : {}),
       // Only include temperature when thinking is not enabled
-      ...(temperature && !thinkingConfig ? { temperature } : {}),
+      ...(temperature !== undefined && !thinkingConfig ? { temperature } : {}),
       // Only include top_p when thinking is not enabled, or when it's >= 0.95
-      ...(topP && (!thinkingConfig || topP >= 0.95) ? { top_p: topP } : {}),
+      ...(topP !== undefined && (!thinkingConfig || topP >= 0.95)
+        ? { top_p: topP }
+        : {}),
       // Only include top_k when thinking is not enabled
       ...(topK && !thinkingConfig ? { top_k: topK } : {}),
       ...toolsChoice,
@@ -630,8 +632,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThroughts ?? false,
         functionCot: true,
         media: {
           images: {
@@ -665,7 +667,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
           supported: true,
           types: ['ephemeral'] as ('ephemeral' | 'persistent')[],
         },
-        thinking: mi?.hasThinkingBudget ?? false,
+        thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
       };
     };

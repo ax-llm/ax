@@ -582,6 +582,104 @@ describe('AxBaseAI', () => {
 
     await expect(ai.chat(chatReq)).rejects.toThrow();
   });
+
+  it('should merge flattened per-key modelConfig and options for chat', async () => {
+    const captured: {
+      req?: AxChatRequest<string> & { modelConfig?: AxModelConfig };
+      options?: AxAIServiceOptions;
+    } = {};
+
+    const impl: AxAIServiceImpl<
+      string,
+      string,
+      AxChatRequest<string>,
+      AxEmbedRequest,
+      AxChatResponse,
+      AxChatResponseResult,
+      AxEmbedResponse
+    > = {
+      createChatReq: vi.fn((req, options) => {
+        captured.req = req as unknown as AxChatRequest<string> & {
+          modelConfig?: AxModelConfig;
+        };
+        captured.options = options;
+        return [
+          { name: 'chat', headers: {} },
+          { ok: true } as unknown as never,
+        ];
+      }),
+      createChatResp: () => ({ results: [] }),
+      getModelConfig: () => ({
+        maxTokens: 256,
+        temperature: 0.1,
+        topP: 0.9,
+        stream: true,
+      }),
+      createChatStreamResp: (delta: unknown) => ({
+        results: [delta as AxChatResponseResult],
+      }),
+      getTokenUsage: () => undefined,
+    };
+
+    const ai = new AxBaseAI(impl, {
+      name: 'merge-test-ai',
+      apiURL: 'http://test',
+      headers: async () => ({}),
+      modelInfo: [{ name: 'm1' } as AxModelInfo],
+      defaults: { model: 'm1' },
+      supportFor: {
+        functions: true,
+        streaming: true,
+        hasThinkingBudget: true,
+        hasShowThoughts: true,
+      } as unknown as AxAIFeatures,
+      models: [
+        {
+          key: 'key1',
+          description: 'Key 1',
+          model: 'm1',
+          modelConfig: { temperature: 0.6, topP: 0.8 },
+          thinkingTokenBudget: 'low',
+          showThoughts: true,
+          stream: true,
+          debug: true,
+        },
+      ],
+    });
+
+    ai.setOptions({ fetch: createMockFetch(createDefaultMockResponse) });
+
+    await ai.chat(
+      {
+        model: 'key1',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        // Per-request should override per-key modelConfig
+        modelConfig: { maxTokens: 999, stream: false },
+      },
+      // Per-request options should override per-key options where provided
+      { stream: false, debug: false }
+    );
+
+    expect(impl.createChatReq).toHaveBeenCalled();
+    expect(captured.req?.modelConfig).toMatchObject({
+      // From per-key modelConfig
+      temperature: 0.6,
+      topP: 0.8,
+      // From per-request override
+      maxTokens: 999,
+      // From per-request options override via modelConfig.stream precedence handling
+      stream: false,
+    });
+
+    // Options merged: per-key defaults present unless overridden by per-call
+    expect(captured.options).toMatchObject({
+      thinkingTokenBudget: 'low',
+      showThoughts: true,
+      // Overridden by call options
+      stream: false,
+      debug: false,
+    });
+  });
 });
 
 describe('setChatResponseEvents', () => {

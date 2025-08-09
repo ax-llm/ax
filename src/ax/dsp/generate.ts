@@ -340,6 +340,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepIndex,
     span,
     traceContext,
+    states,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
@@ -347,13 +348,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepIndex?: number;
     span?: Span;
     traceContext?: Context;
+    states: InternalAxGenState[];
   }>): AsyncGenDeltaOut<OUT> {
     const { sessionId, functions: functionList } = options ?? {};
     const definedFunctionCall =
       options?.functionCall ?? this.options?.functionCall;
     const strictMode = options?.strictMode ?? false;
     const model = options.model;
-    const states = this.createStates(options.sampleCount ?? 1);
     const usage = this.usage;
     const firstStep = stepIndex === 0;
     const logger = this.getLogger(ai, options);
@@ -407,6 +408,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         res,
         mem,
         sessionId,
+        // In non-streaming mode, function calls are executed inside processResponse.
+        // In streaming mode, we already passed functions above; to prevent duplicate
+        // execution when the provider returns both an assistant message and accumulated
+        // functionCalls on finalization, only pass functions here if the response
+        // actually contains functionCalls. Otherwise omit to avoid re-processing.
         functions,
         span,
         strictMode,
@@ -458,7 +464,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     let err: ValidationError | AxAssertionError | undefined;
 
-    if (options?.functions && options.functions.length > 0) {
+    {
       const promptTemplateClass =
         this.options?.promptTemplate ?? AxPromptTemplate;
 
@@ -472,7 +478,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
 
       const currentPromptTemplateOptions = {
-        functions: options.functions,
+        // Prefer per-call functions; fall back to parsed functions from constructor
+        functions: (options?.functions as any) ?? (this.functions as any),
         thoughtFieldName: this.thoughtFieldName,
       };
       this.promptTemplate = new promptTemplateClass(
@@ -488,7 +495,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     if (Array.isArray(values)) {
       // Validate AxMessage array items
-      validateAxMessageArray(values);
+      validateAxMessageArray<IN>(values as AxMessage<IN>[]);
 
       // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
       // For now, assume render will handle the array directly.
@@ -545,6 +552,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             stepIndex: n,
             span,
             traceContext,
+            states,
           });
 
           for await (const result of generator) {
@@ -816,8 +824,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const isStreaming = options?.stream ?? false;
     let success = false;
     let errorCorrectionAttempts = 0;
-    let functionsEnabled = false;
-    const functionsExecuted = 0;
     let resultPickerUsed = false;
 
     try {
@@ -833,9 +839,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           signatureName
         );
       }
-
-      // Check if functions are enabled
-      functionsEnabled = !!(options?.functions || this.functions);
 
       const generator = this._forward1(ai, values, options ?? {});
 
@@ -886,7 +889,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         )) as OUT;
       }
 
-      this.trace = { ...values, ...result } as unknown as OUT;
+      // When values is an AxMessage array, do not spread it into trace; only include result
+      const baseTrace = Array.isArray(values)
+        ? ({} as Record<string, unknown>)
+        : ((values as unknown as Record<string, unknown>) ?? {});
+      this.trace = { ...baseTrace, ...result } as unknown as OUT;
       // Log result picker usage if it was used and debug is enabled
       if (resultPickerUsed && this.isDebug(ai, options)) {
         const logger = this.getLogger(ai, options);
@@ -939,17 +946,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           options?.model ? String(options.model) : undefined
         );
 
-        // Record function calling metrics if functions were used
-        if (functionsEnabled) {
-          recordFunctionCallingMetric(
-            finalMetricsInstruments,
-            functionsEnabled,
-            functionsExecuted,
-            functionsExecuted > 0,
-            false, // function error correction tracking would need more complex logic
-            signatureName
-          );
-        }
+        // Skip per-call function execution metric here; detailed metrics are recorded during processing
 
         // Record error correction metrics
         if (errorCorrectionAttempts > 0) {

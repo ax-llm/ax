@@ -472,8 +472,12 @@ class AxAIGoogleGeminiImpl
 
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      topP: req.modelConfig?.topP ?? this.config.topP,
+      ...(req.modelConfig?.temperature !== undefined
+        ? { temperature: req.modelConfig.temperature }
+        : {}),
+      ...(req.modelConfig?.topP !== undefined
+        ? { topP: req.modelConfig.topP }
+        : {}),
       topK: req.modelConfig?.topK ?? this.config.topK,
       frequencyPenalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
@@ -798,9 +802,8 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
-        functionCot: false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThroughts ?? false,
         media: {
           images: {
             supported: true,
@@ -839,7 +842,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
           supported: false,
           types: [],
         },
-        thinking: mi?.hasThinkingBudget ?? false,
+        thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
       };
     };

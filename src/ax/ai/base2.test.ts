@@ -266,3 +266,56 @@ describe('AxBaseAI - Expensive Model Safety', () => {
     );
   });
 });
+
+describe('AxBaseAI - Per-key flattened merges', () => {
+  it('should merge flattened per-key options for embed without errors', async () => {
+    const impl: AxAIServiceImpl<
+      string,
+      string,
+      AxChatRequest<string>,
+      { texts?: readonly string[]; embedModel?: string },
+      { results: never[] },
+      unknown,
+      { embeddings: readonly (readonly number[])[] }
+    > = {
+      createChatReq: () => [{ name: 'chat', headers: {} }, {} as never],
+      createChatResp: () => ({ results: [] as never[] }),
+      getModelConfig: () => ({ stream: false }),
+      createEmbedReq: () => [{ name: 'embed', headers: {} }, {} as never],
+      createEmbedResp: () => ({ embeddings: [[0.1, 0.2]] }),
+      getTokenUsage: () => undefined,
+    };
+
+    const ai = new AxBaseAI(impl, {
+      name: 'embed-merge-test',
+      apiURL: 'http://test',
+      headers: async () => ({}),
+      modelInfo: [{ name: 'e1' } as AxModelInfo],
+      defaults: { model: 'm1', embedModel: 'e1' },
+      supportFor: {
+        functions: false,
+        streaming: true,
+      } as unknown as import('./base.js').AxAIFeatures,
+      models: [
+        {
+          key: 'eKey',
+          description: 'Embed key',
+          embedModel: 'e1',
+          thinkingTokenBudget: 'minimal',
+          showThoughts: false,
+          stream: true,
+          debug: true,
+        },
+      ],
+    });
+
+    ai.setOptions({
+      fetch: (async () => new Response('{}', { status: 200 })) as never,
+    });
+    const res = await ai.embed(
+      { embedModel: 'eKey', texts: ['x'] },
+      { debug: false }
+    );
+    expect(res.embeddings.length).toBeGreaterThan(0);
+  });
+});

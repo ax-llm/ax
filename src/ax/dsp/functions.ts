@@ -155,9 +155,16 @@ export class AxFunctionProcessor {
     func: Readonly<AxChatResponseFunctionCall>,
     options?: Readonly<AxProgramForwardOptions<MODEL>>
   ) => {
-    const fnSpec = this.funcList.find(
-      (v) => v.name.localeCompare(func.name) === 0
-    );
+    // Normalize names to make provider differences (case, underscores) resilient
+    const normalize = (s: string) =>
+      s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const target = normalize(func.name);
+
+    // First try exact match, then normalized match
+    let fnSpec = this.funcList.find((v) => v.name === func.name);
+    if (!fnSpec) {
+      fnSpec = this.funcList.find((v) => normalize(v.name) === target);
+    }
     if (!fnSpec) {
       throw new Error(`Function not found: ${func.name}`);
     }

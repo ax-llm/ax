@@ -58,7 +58,7 @@ export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT5,
+    model: AxAIOpenAIModel.GPT5Mini,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig(),
   });
@@ -69,7 +69,7 @@ export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig<
 > =>
   structuredClone({
     ...axAIOpenAIDefaultConfig(),
-    model: AxAIOpenAIModel.GPT5Pro,
+    model: AxAIOpenAIModel.GPT5,
   });
 
 export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
@@ -77,7 +77,7 @@ export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT5,
+    model: AxAIOpenAIModel.GPT5Mini,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig(),
   });
@@ -214,29 +214,49 @@ class AxAIOpenAIImpl<
     let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
       messages,
-      response_format: this.config?.responseFormat
-        ? { type: this.config.responseFormat }
-        : undefined,
-      tools,
-      tool_choice: toolsChoice,
+      ...(this.config?.responseFormat
+        ? { response_format: { type: this.config.responseFormat } }
+        : {}),
+      ...(tools ? { tools } : {}),
+      ...(toolsChoice ? { tool_choice: toolsChoice } : {}),
       // For thinking models, don't set these parameters as they're not supported
       ...(isThinkingModel
         ? {}
         : {
-            max_completion_tokens:
-              req.modelConfig?.maxTokens ?? this.config.maxTokens,
-            temperature:
-              req.modelConfig?.temperature ?? this.config.temperature,
-            top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
-            n: req.modelConfig?.n ?? this.config.n,
-            presence_penalty:
-              req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-            ...(frequencyPenalty
+            ...((req.modelConfig?.maxTokens ?? this.config.maxTokens) !==
+            undefined
+              ? {
+                  max_completion_tokens: (req.modelConfig?.maxTokens ??
+                    this.config.maxTokens)!,
+                }
+              : {}),
+            ...(req.modelConfig?.temperature !== undefined
+              ? { temperature: req.modelConfig.temperature }
+              : {}),
+            ...(req.modelConfig?.topP !== undefined
+              ? { top_p: req.modelConfig.topP }
+              : {}),
+            ...((req.modelConfig?.n ?? this.config.n) !== undefined
+              ? { n: (req.modelConfig?.n ?? this.config.n)! }
+              : {}),
+            ...((req.modelConfig?.presencePenalty ??
+              this.config.presencePenalty) !== undefined
+              ? {
+                  presence_penalty: (req.modelConfig?.presencePenalty ??
+                    this.config.presencePenalty)!,
+                }
+              : {}),
+            ...(frequencyPenalty !== undefined
               ? { frequency_penalty: frequencyPenalty }
               : {}),
           }),
-      stop: req.modelConfig?.stopSequences ?? this.config.stop,
-      logit_bias: this.config.logitBias,
+      ...((req.modelConfig?.stopSequences ?? this.config.stop) &&
+      (req.modelConfig?.stopSequences ?? this.config.stop)!.length > 0
+        ? { stop: (req.modelConfig?.stopSequences ?? this.config.stop)! }
+        : {}),
+      ...(this.config.logitBias !== undefined
+        ? { logit_bias: this.config.logitBias }
+        : {}),
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
@@ -696,8 +716,8 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThroughts ?? false,
         media: {
           images: {
             supported: true,
@@ -735,7 +755,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           supported: false,
           types: [],
         },
-        thinking: mi?.hasThinkingBudget ?? false,
+        thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
       };
     };

@@ -177,7 +177,7 @@ console.log(res.answer);
 ```
 
 - Install: `npm i @ax-llm/ax`
-- Run: `OPENAI_APIKEY=... node --import=tsx yourfile.ts`
+- Run: `OPENAI_APIKEY=... node --import=tsx your_file.ts`
 
 ### Pick a provider
 

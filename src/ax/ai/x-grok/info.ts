@@ -16,7 +16,7 @@ export const axModelInfoGrok: AxModelInfo[] = [
     currency: 'USD',
     promptTokenCostPer1M: 0.3,
     completionTokenCostPer1M: 0.5,
-    hasThinkingBudget: true,
+    supported: { thinkingBudget: true },
   },
   {
     name: AxAIGrokModel.Grok3Fast,
@@ -29,6 +29,6 @@ export const axModelInfoGrok: AxModelInfo[] = [
     currency: 'USD',
     promptTokenCostPer1M: 0.6,
     completionTokenCostPer1M: 4.0,
-    hasThinkingBudget: true,
+    supported: { thinkingBudget: true },
   },
 ];

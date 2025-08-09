@@ -158,9 +158,13 @@ class AxAICohereImpl
       ...(toolResults && !message ? { tool_results: toolResults } : {}),
       chat_history: chatHistory,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      ...(req.modelConfig?.temperature !== undefined
+        ? { temperature: req.modelConfig.temperature }
+        : {}),
       k: req.modelConfig?.topK ?? this.config.topK,
-      p: req.modelConfig?.topP ?? this.config.topP,
+      ...(req.modelConfig?.topP !== undefined
+        ? { p: req.modelConfig.topP }
+        : {}),
       frequency_penalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       presence_penalty:
