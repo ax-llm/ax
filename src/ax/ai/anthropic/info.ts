@@ -10,7 +10,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 75.0,
     maxTokens: 32000,
-    supported: { thinkingBudget: true, showThroughts: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIAnthropicModel.Claude4Sonnet,
@@ -18,7 +18,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 64000,
-    supported: { thinkingBudget: true, showThroughts: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   // 3.7
   {
@@ -27,7 +27,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 64000,
-    supported: { thinkingBudget: true, showThroughts: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   // 3.5
   {

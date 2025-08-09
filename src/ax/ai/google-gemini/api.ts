@@ -803,7 +803,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
-        hasShowThoughts: mi?.supported?.showThroughts ?? false,
+        hasShowThoughts: mi?.supported?.showThoughts ?? false,
         media: {
           images: {
             supported: true,

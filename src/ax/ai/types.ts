@@ -34,7 +34,7 @@ export type AxModelInfo = {
   aliases?: string[];
   supported?: {
     thinkingBudget?: boolean;
-    showThroughts?: boolean;
+    showThoughts?: boolean;
   };
   notSupported?: {
     temperature?: boolean;

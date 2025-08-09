@@ -12,7 +12,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 2.5,
     completionTokenCostPer1M: 15.0,
-    supported: { thinkingBudget: true, showThroughts: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIGoogleGeminiModel.Gemini25Flash,
@@ -20,7 +20,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 3.5,
-    supported: { thinkingBudget: true, showThroughts: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIGoogleGeminiModel.Gemini25FlashLite,
@@ -28,7 +28,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.4,
-    supported: { thinkingBudget: true, showThroughts: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIGoogleGeminiModel.Gemini20Flash,
