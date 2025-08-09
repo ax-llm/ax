@@ -1,5 +1,13 @@
 # Changelog
 
+## [14.0.7](https://github.com/ax-llm/ax/compare/14.0.5...14.0.6) (2025-08-09)
+## [14.0.6](https://github.com/ax-llm/ax/compare/14.0.5...14.0.6) (2025-08-09)
+
+### Bug Fixes
+
+* correct spelling of 'showThoughts' in model configurations ([35eeff7](https://github.com/ax-llm/ax/commit/35eeff77ad0f02b5a04026cd841478c7df5e9816))
+* update README and enhance AxBaseAI tests for model configuration merging ([40690b3](https://github.com/ax-llm/ax/commit/40690b3c60795c4cfd3fc5f3f3e71e8656622ff5))
+
 ## [14.0.6](https://github.com/ax-llm/ax/compare/14.0.4...14.0.5) (2025-08-09)
 
 ### Bug Fixes
