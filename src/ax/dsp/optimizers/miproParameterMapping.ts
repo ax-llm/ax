@@ -1,4 +1,4 @@
-import type { AxOptimizerArgs } from '../optimizer.js';
+import type { AxOptimizerArgs } from '../common_types.js';
 import type {
   PythonOptimizationParameter,
   PythonOptimizationRequest,

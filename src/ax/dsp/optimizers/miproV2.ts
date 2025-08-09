@@ -141,7 +141,7 @@ export class AxMiPRO extends AxBaseOptimizer {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly defaultResultPicker: AxResultPickerFunction<any> = async (
-    data
+    data: Parameters<AxResultPickerFunction<any>>[0]
   ) => {
     if (data.type === 'function') {
       const idx = data.results.findIndex((r) => !r.isError);

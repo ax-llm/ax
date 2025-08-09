@@ -27,26 +27,36 @@ error-correction, multi-step function calling, MCP, RAG, etc
 - Standard interface across all top LLMs
 - Prompts compiled from simple signatures
 - Full native end-to-end streaming
-- Support for thinking budget and though tokens
+- Support for thinking budget and thought tokens
 - Build Agents that can call other agents
 - AxFlow workflow orchestration (Beta)
-- Built in MCP, Model Context Protocol support
+- Built-in MCP, Model Context Protocol support
 - Convert docs of any format to text
 - RAG, smart chunking, embedding, querying
-- Works with Vercel AI SDK
+- Integrates with Vercel AI SDK
 - Output validation while streaming
 - Multi-modal DSPy supported
 - Automatic prompt tuning using optimizers
 - OpenTelemetry tracing / observability
-- Production ready Typescript code
-- Lite weight, zero-dependencies
+- Production-ready TypeScript code
+- Lightweight, zero dependencies
 
 ## Production Ready
 
 - No breaking changes (minor versions)
 - Large test coverage
-- Builtin Open Telemetry `gen_ai` support
+- Built-in OpenTelemetry `gen_ai` support
 - Widely used by startups in prod
+
+## Recent Updates
+
+**v14.0.4** - MiPro Python integration, unified optimization results, improved
+logging\
+**v14.0.3** - Enhanced validation, signature tool calling, better type safety\
+**v14.0.2** - Custom OpenAI URLs, media validation, stability improvements\
+**v14.0.0** - axRAG, fluent API, file/URL types, enhanced AxFlow
+
+[View Full Changelog](CHANGELOG.md) | [Migration Guide](MIGRATION.md)
 
 ## What's a prompt signature?
 
@@ -58,165 +68,62 @@ signature is made up of a
 The idea behind prompt signatures is based on work done in the
 "Demonstrate-Search-Predict" paper.
 
-You can have multiple input and output fields, and each field can be of the
-types `string`, `number`, `boolean`, `date`, `datetime`,
-`class "class1, class2"`, `code`, `json`, `image`, `audio`, `file`, `url`, or an
-array of any of these, e.g., `string[]`. When a type is not defined, it defaults
-to `string`.
+You can have multiple input and output fields. See Field Types & Modifiers below
+for supported types and syntax.
 
-### Field Modifiers
+### Field Types and Modifiers
 
-- **Optional fields**: Add `?` after the field name to make it optional (e.g.,
-  `fieldName?:string`)
-- **Internal fields**: Add `!` after the field name to make it internal - useful
-  for reasoning steps that shouldn't be in the final output (e.g.,
+- Types: `string`, `number`, `boolean`, `date`, `datetime`, `json`, `image`,
+  `audio`, `file`, `url`, `code`, `class "a,b,c"`
+- Arrays: add `[]` (e.g., `tags:string[]`)
+- Classifications: `category:class "option1, option2, option3"`
+- Optional: add `?` (e.g., `field?:string`)
+- Internal: add `!` for reasoning fields not in output (e.g.,
   `reasoning!:string`)
-- **Combined**: You can combine modifiers (e.g., `optionalReasoning?!:string`)
 
-### Type-Safe Signatures (Recommended)
-
-The **recommended type-safe** approach uses the `ax()` function with
-string-based signatures, which provide complete TypeScript type inference and
-clean, readable syntax:
+### Type-Safe Signatures
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 
-// Create type-safe generators with ax() function
-const gen1 = ax(
-  "question:string -> answer:string",
-);
-
-// With field types and descriptions - fully type-safe
-const gen2 = ax(
-  'input:string "User input" -> category:class "tech, business, sports" "Content category", confidence:number "Confidence score 0-1"',
-);
-
-// With modifiers - clean syntax
-const gen3 = ax(
-  'text:string -> summary?:string "Brief summary", reasoning!:string "Internal reasoning"',
-);
-
-// TypeScript knows the exact input/output types!
-type Sig2Input = { input: string };
-type Sig2Output = {
-  category: "tech" | "business" | "sports";
-  confidence: number;
-};
-```
-
-### Type-Safe Generator Creation
-
-Create fully typed generators using the `ax()` function with complete type
-inference:
-
-```typescript
-import { ai, ax } from "@ax-llm/ax";
-
-// Create type-safe generators
+// Basic type-safe generator
 const gen = ax("question:string -> answer:string");
 
-// Advanced example with full type safety
+// Advanced with types and descriptions
 const sentimentGen = ax(
-  'text:string "Text to analyze" -> sentiment:class "positive, negative, neutral" "Sentiment classification", confidence:number "Confidence score 0-1"',
+  'text:string "Text to analyze" -> sentiment:class "positive, negative, neutral", confidence:number "0-1 score"',
 );
 
-// TypeScript knows exact types - no any/unknown!
-const result = await sentimentGen.forward(llm, {
-  text: "I love this product!", // TypeScript validates this
-});
-
-// Perfect IntelliSense on result
+// TypeScript provides full type safety
+const result = await sentimentGen.forward(llm, { text: "Great product!" });
 console.log(result.sentiment); // "positive" | "negative" | "neutral"
-console.log(result.confidence); // number
 ```
 
-### Legacy: Template Literal Support (Deprecated)
-
-**Note**: Template literals are deprecated. Use the `ax()` function instead for
-better type safety and performance.
-
-### Why ax() Is Fully Type-Safe
-
-**Type Safety Benefits:**
-
-| Feature                     | `ax()` Function               | Template Literals (Deprecated) | Raw Strings             |
-| --------------------------- | ----------------------------- | ------------------------------ | ----------------------- |
-| **Return Type**             | Fully typed objects           | Limited type info              | `any`                   |
-| **IntelliSense**            | Complete field autocompletion | Basic support                  | No type hints           |
-| **Compile-time Validation** | Catches type errors           | Runtime validation             | Runtime-only validation |
-| **Field Type Inference**    | Exact literal types           | Generic types                  | No types                |
-| **IDE Support**             | Full refactoring support      | Limited                        | None                    |
-| **Performance**             | Faster parsing                | Template overhead              | Fastest                 |
-
-**Example showing the recommended approach:**
+### Fluent API for Complex Signatures
 
 ```typescript
-// ✅ Recommended: ax() function - full type safety
-const recommendedWay = ax(
-  'input:string -> category:class "a, b, c"',
-);
+import { f } from "@ax-llm/ax";
 
-// ❌ Deprecated: Template literal approach
-// const deprecatedWay = ax`input:string -> category:class "a,b,c"`;
+// Build complex signatures programmatically
+const sig = f()
+  .input("userMessage", f.string("User input").optional())
+  .output("response", f.string("AI response"))
+  .output("sentiment", f.class(["positive", "negative", "neutral"]))
+  .build();
 
-// Usage with full type safety:
-const result = await recommendedWay.forward(llm, { input: "test" });
-result.category; // TypeScript shows "a" | "b" | "c" - perfect safety!
+const gen = ax(sig);
 ```
 
-**Best Practices:**
+## API Changes & Deprecations
 
-- **Always use the `ax()` function** for full type safety and performance
-- Use string-based field definitions with descriptions
-- Take advantage of exact literal type inference
-- Use descriptive field names like `userQuestion`, not `question`
-- Use `const llm = ai({})` for AI instances to avoid naming conflicts
+**v14.0.0+** deprecates template literals and constructors. Use factory
+functions: `ai()`, `ax()`, `agent()`. See [**MIGRATION.md**](MIGRATION.md) for
+details.
 
-The `ax()` function provides the best balance of type safety, performance, and
-readability.
+## Field Types Reference
 
-## Output Field Types
-
-| Type                        | Description                               | Usage Example                        | Example Output                                                                    |
-| --------------------------- | ----------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------- |
-| `string`                    | A sequence of characters                  | `fullName:string`                    | `"John Doe"`                                                                      |
-| `number`                    | A numerical value                         | `price:number`                       | `42`                                                                              |
-| `boolean`                   | A true or false value                     | `isValid:boolean`                    | `true`, `false`                                                                   |
-| `date`                      | A date value                              | `startDate:date`                     | `"2023-10-01"`                                                                    |
-| `datetime`                  | A date and time value                     | `createdAt:datetime`                 | `"2023-10-01T12:00:00Z"`                                                          |
-| `json`                      | A JSON object                             | `metadata:json`                      | `{"key": "value"}`                                                                |
-| `image`                     | An image (input only)                     | `photo:image`                        | Base64 encoded image data                                                         |
-| `audio`                     | An audio file (input only)                | `recording:audio`                    | Base64 encoded audio data                                                         |
-| `file`                      | A file with filename, mime type, and data | `document:file`                      | `{"filename": "doc.pdf", "mimeType": "application/pdf", "data": "base64data"}`    |
-| `url`                       | A URL with optional title and description | `website:url`                        | `"https://example.com"` or `{"url": "https://example.com", "title": "Example"}`   |
-| `class "option1,option2"`   | Classification with predefined options    | `category:class "urgent,normal,low"` | `"urgent"`                                                                        |
-| `code`                      | A code block                              | `solution:code "Python solution"`    | `print('Hello, world!')`                                                          |
-| `string[]`                  | An array of strings                       | `tags:string[]`                      | `["example1", "example2"]`                                                        |
-| `number[]`                  | An array of numbers                       | `scores:number[]`                    | `[1, 2, 3]`                                                                       |
-| `boolean[]`                 | An array of boolean values                | `permissions:boolean[]`              | `[true, false, true]`                                                             |
-| `date[]`                    | An array of dates                         | `holidayDates:date[]`                | `["2023-10-01", "2023-10-02"]`                                                    |
-| `datetime[]`                | An array of date and time values          | `logTimestamps:datetime[]`           | `["2023-10-01T12:00:00Z", "2023-10-02T12:00:00Z"]`                                |
-| `file[]`                    | An array of files                         | `attachments:file[]`                 | `[{"filename": "doc1.pdf", "mimeType": "application/pdf", "data": "base64data"}]` |
-| `url[]`                     | An array of URLs                          | `links:url[]`                        | `["https://example.com", {"url": "https://test.com", "title": "Test"}]`           |
-| `class[] "option1,option2"` | Array of classifications                  | `categories:class[] "tech,business"` | `["tech", "business"]`                                                            |
-
-### Important Notes on Field Types
-
-- **Class fields**: Use `class "option1,option2,option3"` to specify the
-  available options. The LLM will choose from these predefined options.
-- **Code fields**: Use `code "description"` for code blocks. Unlike class
-  fields, code fields don't take language parameters in the signature - just a
-  description of what code is expected.
-- **Arrays**: Add `[]` after any type to make it an array (e.g., `string[]`,
-  `class[] "a,b,c"`)
-- **Descriptions**: Add quoted descriptions after field types to provide context
-  to the LLM
-
-By default, Ax enforces strict naming rules for signature fields. To allow
-generic names like `text`, `input`, etc., set
-`axGlobals.signatureStrict = false`. Use with caution as it may reduce signature
-clarity.
+See Field Types and Modifiers above for a concise overview. Example:
+`userInput:string "User question", priority:class "high,low" "Urgency level", tags?:string[] "Optional tags"`
 
 ## LLMs Supported
 
@@ -242,7 +149,7 @@ yarn add @ax-llm/ax
 
 <!-- Or ES modules -->
 <script type="module">
-  import { ax, AxAI, f } from "https://unpkg.com/@ax-llm/ax@latest";
+  import { ai, ax, f } from "https://unpkg.com/@ax-llm/ax@latest";
 </script>
 ```
 
@@ -260,111 +167,176 @@ const llm = ai({
 });
 ```
 
-## Example: Summarize text
+## Quickstart (2 minutes)
 
-```typescript
+### Node (recommended)
+
+```ts
 import { ai, ax } from "@ax-llm/ax";
 
-const textToSummarize = `
-The technological singularity—or simply the singularity[1]—is a hypothetical future point in time at which technological growth becomes uncontrollable and irreversible, resulting in unforeseeable changes to human civilization.[2][3] ...`;
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
 
-const llm = ai({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY as string,
-});
-
-const gen = ax(
-  'textToSummarize:string -> textType:class "note, email, reminder", shortSummary:string "summarize in 5 to 10 words"',
-);
-
-const res = await gen.forward(llm, { textToSummarize });
-
-console.log(">", res);
+const gen = ax("question:string -> answer:string");
+const res = await gen.forward(llm, { question: "Hello!" });
+console.log(res.answer);
 ```
 
-## Example: Using functions for type-safe signatures
+- Install: `npm i @ax-llm/ax`
+- Run: `OPENAI_APIKEY=... node --import=tsx your_file.ts`
+
+### Pick a provider
+
+```ts
+// OpenAI
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+
+// Google Gemini
+const gemini = ai({
+  name: "google-gemini",
+  apiKey: process.env.GOOGLE_APIKEY!,
+});
+```
+
+### Try in the browser
+
+- See Browser (CDN) above and the `web-chat.html` example (requires a CORS
+  proxy).
+
+### Gotchas (1 minute read)
+
+- Use descriptive field names (no generic names like `text`, `input`, `output`).
+- Always pass `llm` to `.forward` and `.streamingForward`.
+- Browser requires `options.corsProxy` for most providers.
+- Media: images `{ mimeType, data }`, audio `{ format, data }`.
+- Template literals/constructors are deprecated — use `ai()`, `ax()`, `agent()`.
+
+### Copy‑paste templates
+
+```ts
+// Summarize
+const summarize = ax(
+  'textToSummarize:string -> shortSummary:string "5-10 words"',
+);
+const out1 = await summarize.forward(llm, { textToSummarize: "Long text..." });
+```
+
+```ts
+// Classify
+const classify = ax(
+  'reviewText:string -> sentiment:class "positive, negative, neutral", confidence:number "0-1"',
+);
+const out2 = await classify.forward(llm, { reviewText: "Great product!" });
+```
+
+```ts
+// Function calling
+const functions = [{
+  name: "getCurrentWeather",
+  description: "get weather for a location",
+  parameters: {
+    type: "object",
+    properties: { location: { type: "string" } },
+    required: ["location"],
+  },
+  func: async ({ location }: { location: string }) => `72°F in ${location}`,
+}];
+
+const answerer = ax("question:string -> answer:string", { functions });
+const out3 = await answerer.forward(llm, { question: "Weather in SF?" });
+```
+
+### First three examples to try
+
+- Summarize: `OPENAI_APIKEY=... npm run tsx ./src/examples/summarize.ts`
+- Classify: `OPENAI_APIKEY=... npm run tsx ./src/examples/simple-classify.ts`
+- Agent: `OPENAI_APIKEY=... npm run tsx ./src/examples/agent.ts`
+
+### Next steps
+
+- Agents: `src/examples/agent.ts`
+- AxFlow: `AXFLOW.md`
+- RAG quick win: `src/examples/rag-docs.ts`
+- Telemetry/Metrics: `TELEMETRY.md`, `src/examples/metrics-export.ts`
+
+## Quick Examples
+
+### Text Summarization
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 
-const llm = ai({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY as string,
-});
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
-// Create a signature using string-based approach
-const gen = ax(
-  'userInput:string "User message or question" -> category:class "question, request, complaint" "Message type", priority:class "high, medium, low" "Urgency level", response:string "Appropriate response", reasoning!:string "Internal reasoning for classification"',
+const summarizer = ax(
+  'textToSummarize:string -> textType:class "note, email, reminder", shortSummary:string "5-10 words"',
 );
 
-const res = await gen.forward(llm, {
+const result = await summarizer.forward(llm, {
+  textToSummarize: "Long text here...",
+});
+console.log(result.shortSummary);
+```
+
+### Customer Support Classification
+
+```typescript
+const classifier = ax(
+  'userInput:string "Customer message" -> category:class "question, request, complaint", priority:class "high, medium, low", response:string "Suggested response", reasoning!:string "Internal analysis"',
+);
+
+const result = await classifier.forward(llm, {
   userInput: "My order hasn't arrived and I need it urgently!",
 });
 
-console.log("Category:", res.category);
-console.log("Priority:", res.priority);
-console.log("Response:", res.response);
-// Note: reasoning is internal and won't appear in final output
+console.log(result.category, result.priority); // "complaint", "high"
+// Note: reasoning! is internal and not in final output
 ```
 
-## Example: Building an agent
-
-Use the agent prompt (framework) to build agents that work with other agents to
-complete tasks. Agents are easy to make with prompt signatures. Try out the
-agent example.
+### Agent Framework
 
 ```typescript
-# npm run tsx ./src/examples/agent.ts
-
-const researcher = new AxAgent({
-  name: 'researcher',
-  description: 'Researcher agent',
-  signature: ax('physicsQuestion:string "physics questions" -> answer:string "reply in bullet points"')
+// Create specialized agents
+const researcher = agent({
+  name: "researcher",
+  signature: ax('physicsQuestion:string -> answer:string "bullet points"'),
 });
 
-const summarizer = new AxAgent({
-  name: 'summarizer',
-  description: 'Summarizer agent',
-  signature: ax('text:string "text to summarize" -> shortSummary:string "summarize in 5 to 10 words"')
+const summarizer = agent({
+  name: "summarizer",
+  signature: ax('text:string -> shortSummary:string "5-10 words"'),
 });
 
-const agent = new AxAgent({
-  name: 'agent',
-  description: 'An agent to research complex topics',
-  signature: ax('question:string -> answer:string'),
-  agents: [researcher, summarizer]
+// Main agent can use other agents
+const mainAgent = agent({
+  name: "researchAgent",
+  signature: ax("question:string -> answer:string"),
+  agents: [researcher, summarizer],
 });
 
-agent.forward(llm, { questions: "How many atoms are there in the universe" })
+const result = await mainAgent.forward(llm, {
+  question: "How many atoms are in the universe?",
+});
 ```
 
 ## Thinking Models Support
 
-Ax provides native support for models with thinking capabilities, allowing you
-to control the thinking token budget and access the model's thoughts. This
-feature helps in understanding the model's reasoning process and optimizing
-token usage.
-
 ```typescript
+// Enable thinking capabilities
 const llm = ai({
   name: "google-gemini",
-  apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    model: "gemini-2.5-flash",
     thinking: { includeThoughts: true },
   },
 });
 
-// Or control thinking budget per request
-const gen = ax("question:string -> answer:string");
-const res = await gen.forward(
-  ai,
-  { question: "What is quantum entanglement?" },
-  { thinkingTokenBudget: "medium" }, // 'minimal', 'low', 'medium', or 'high'
+// Control thinking budget per request
+const result = await gen.forward(llm, {
+  question: "Explain quantum entanglement",
+}, { thinkingTokenBudget: "medium" } // 'minimal', 'low', 'medium', 'high'
 );
 
-// Access thoughts in the response
-console.log(res.thoughts); // Shows the model's reasoning process
+console.log(result.thoughts); // Model's reasoning process
 ```
 
 ## Vector DBs Supported
@@ -381,21 +353,25 @@ database.
 | Pinecone   | 🟡 50%  |
 
 ```typescript
-// Create embeddings from text using an LLM
-const ret = await this.ai.embed({ texts: "hello world" });
+import { ai, AxDB } from "@ax-llm/ax";
 
-// Create an in memory vector db
-const db = new axDB("memory");
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY as string });
+
+// Create embeddings from text using an LLM
+const { embeddings } = await llm.embed({ texts: ["hello world"] });
+
+// Create an in-memory vector db
+const db = new AxDB({ name: "memory" });
 
 // Insert into vector db
-await this.db.upsert({
+await db.upsert({
   id: "abc",
   table: "products",
-  values: ret.embeddings[0],
+  values: embeddings[0],
 });
 
 // Query for similar entries using embeddings
-const matches = await this.db.query({
+const matches = await db.query({
   table: "products",
   values: embeddings[0],
 });
@@ -405,7 +381,7 @@ Alternatively you can use the `AxDBManager` which handles smart chunking,
 embedding and querying everything for you, it makes things almost too easy.
 
 ```typescript
-const manager = new AxDBManager({ ai, db });
+const manager = new AxDBManager({ ai: llm, db });
 await manager.insert(text);
 
 const matches = await manager.query(
@@ -490,6 +466,10 @@ GOOGLE_APIKEY=api-key npm run tsx ./src/examples/chat.ts
 ```
 
 ```typescript
+import { ai, ax, type AxMessage } from "@ax-llm/ax";
+
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY as string });
+
 // Create a chat assistant using string-based signatures
 const chatBot = ax(
   'message:string "A casual message from the user" -> reply:string "A friendly, casual response"',
@@ -532,26 +512,29 @@ saving tokens and costs and reducing latency. Assertions are a powerful way to
 ensure the output matches your requirements; they also work with streaming.
 
 ```typescript
-// setup the prompt program
+import { ai, ax } from "@ax-llm/ax";
+
+// AI service
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY as string });
+
+// Setup the prompt program
 const gen = ax("startNumber:number -> next10Numbers:number[]");
 
-// add a assertion to ensure that the number 5 is not in an output field
+// Add an assertion to ensure that the number 5 is not in an output field
 gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
   return next10Numbers ? !next10Numbers.includes(5) : undefined;
 }, "Numbers 5 is not allowed");
 
-// run the program with streaming enabled
-const res = await gen.forward({ startNumber: 1 }, { stream: true });
+// Run the program with streaming enabled
+const res = await gen.forward(llm, { startNumber: 1 }, { stream: true });
 
-// or run the program with end-to-end streaming
+// Or run the program with end-to-end streaming
 const generator = await gen.streamingForward(
+  llm,
   { startNumber: 1 },
-  {
-    stream: true,
-  },
+  { stream: true },
 );
-for await (const res of generator) {
-}
+for await (const _ of generator) {}
 ```
 
 The above example allows you to validate entire output fields as they are
@@ -580,9 +563,8 @@ gen.addStreamingAssert(
 
 // run the program with streaming enabled
 const res = await gen.forward(
-  {
-    question: "Provide a list of optimizations to speedup LLM inference.",
-  },
+  llm,
+  { question: "Provide a list of optimizations to speed up LLM inference." },
   { stream: true, debug: true },
 );
 ```
@@ -639,7 +621,7 @@ const client = new AxMCPClient(transport, { debug: true });
 await client.init();
 
 // Use the client's functions in an agent
-const memoryAgent = new AxAgent({
+const memoryAgent = agent({
   name: "MemoryAssistant",
   description: "An assistant with persistent memory",
   signature: "input, userId -> response",
@@ -685,7 +667,7 @@ const llm = ai({
 });
 
 // 4. Create an AxAgent that uses the MCP client
-const deepwikiAgent = new AxAgent<
+const deepwikiAgent = agent<
   {
     // Define input types for clarity, matching a potential DeepWiki function
     questionAboutRepo: string;
@@ -805,22 +787,10 @@ gen.forward(router, { inputText }, { model: "quick" });
 **AxFlow** makes it easy to build complex AI workflows with automatic parallel
 execution and simple, readable code.
 
-### Key Features
-
-- **🚀 Automatic Parallelization**: Runs independent operations in parallel
-  automatically
-- **🎯 Simple API**: Chainable methods that are easy to read and write
-- **🔄 Control Flow**: Loops, branches, and conditional execution
-- **🤖 Multi-Model Support**: Use different AI models for different tasks
-- **📊 State Management**: Automatic state evolution with full type safety
-- **🌊 Streaming Support**: Real-time execution with streaming
-- **🔧 Aliases**: Short method names (`.n()`, `.e()`, `.m()`) for rapid
-  development
-
-### Basic Example: Document Analysis
+### Quick Example
 
 ```typescript
-import { AxAI, AxFlow } from "@ax-llm/ax";
+import { ai, AxFlow } from "@ax-llm/ax";
 
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
@@ -832,7 +802,7 @@ const documentAnalyzer = new AxFlow<
   .node("summarizer", "documentText:string -> summary:string")
   .node("sentimentAnalyzer", "documentText:string -> sentiment:string")
   .node("keywordExtractor", "documentText:string -> keywords:string[]")
-  // These three operations run automatically in parallel! ⚡
+  // These three operations run automatically in parallel!
   .execute("summarizer", (state) => ({ documentText: state.documentText }))
   .execute(
     "sentimentAnalyzer",
@@ -842,259 +812,55 @@ const documentAnalyzer = new AxFlow<
     "keywordExtractor",
     (state) => ({ documentText: state.documentText }),
   )
-  // Combine results
-  .map((state) => ({
+  .returns((state) => ({
     summary: state.summarizerResult.summary,
     sentiment: state.sentimentAnalyzerResult.sentiment,
     keywords: state.keywordExtractorResult.keywords,
   }));
 
-// Execute the workflow
 const result = await documentAnalyzer.forward(llm, {
-  documentText: "AI technology is revolutionary and will change everything...",
-});
-
-console.log("Summary:", result.summary);
-console.log("Sentiment:", result.sentiment);
-console.log("Keywords:", result.keywords);
-```
-
-### Compact Syntax with Aliases
-
-For rapid development, use AxFlow's short aliases:
-
-```typescript
-// Same functionality, ultra-compact syntax
-const quickAnalyzer = new AxFlow<{ text: string }, { result: string }>()
-  .n("sum", "text:string -> summary:string") // .n() = .node()
-  .n("sent", "text:string -> sentiment:string") // .n() = .node()
-  .e("sum", (s) => ({ text: s.text })) // .e() = .execute()
-  .e("sent", (s) => ({ text: s.text })) // .e() = .execute()
-  .m((s) => ({ // .m() = .map()
-    result:
-      `Summary: ${s.sumResult.summary}, Sentiment: ${s.sentResult.sentiment}`,
-  }));
-
-const result = await quickAnalyzer.forward(llm, {
-  text: "Building the future of AI applications...",
+  documentText: "AI technology is revolutionary...",
 });
 ```
 
-### Multi-Model Intelligence
+> _"AxFlow doesn't just execute AI workflows—it orchestrates the future of
+> intelligent systems with automatic performance optimization"_
 
-Use different AI models for different tasks:
-
-```typescript
-const fastAI = AxAI.create({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY!,
-  models: [
-    {
-      key: "fast" as const,
-      model: "gpt-4o-mini",
-      description: "Fast responses",
-    },
-  ],
-});
-
-const powerAI = AxAI.create({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY!,
-  models: [
-    {
-      key: "power" as const,
-      model: "gpt-4o",
-      description: "High-quality responses",
-    },
-  ],
-});
-
-// 🌟 The future: AI workflows that adapt and evolve with full resilience
-const autonomousContentEngine = new AxFlow<
-  { concept: string; targetAudience: string },
-  { campaign: string }
->(
-  {
-    errorHandling: {
-      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 60000 },
-      fallbackStrategy: "graceful",
-    },
-    performance: {
-      maxConcurrency: 4,
-      adaptiveConcurrency: true,
-      resourceMonitoring: { responseTimeThreshold: 10000 },
-    },
-  },
-)
-  // Neural network of specialized AI nodes
-  .node(
-    "conceptAnalyzer",
-    "concept:string -> themes:string[], complexity:number",
-  )
-  .node("audienceProfiler", "audience:string -> psychographics:string")
-  .node(
-    "strategyArchitect",
-    "themes:string[], psychographics:string -> strategy:string",
-  )
-  .node(
-    "contentCreator",
-    "strategy:string, complexity:number -> content:string",
-  )
-  .node("qualityOracle", "content:string -> score:number, feedback:string")
-  // 🧠 These run automatically in parallel (different AI models!)
-  .execute("conceptAnalyzer", (s) => ({ concept: s.concept }), {
-    ai: quantumAI,
-  })
-  .execute("audienceProfiler", (s) => ({ audience: s.targetAudience }), {
-    ai: velocityAI,
-  })
-  // 🎯 Strategic architecture with deep reasoning (waits for above)
-  .execute("strategyArchitect", (s) => ({
-    themes: s.conceptAnalyzerResult.themes,
-    psychographics: s.audienceProfilerResult.psychographics,
-  }), { ai: quantumAI })
-  // 🎨 Creative content generation (waits for strategy)
-  .execute("contentCreator", (s) => ({
-    strategy: s.strategyArchitectResult.strategy,
-    complexity: s.conceptAnalyzerResult.complexity,
-  }), { ai: creativityAI })
-  // 🔄 Quality check loop
-  .label("evolve")
-  .execute(
-    "qualityOracle",
-    (s) => ({ content: s.contentCreatorResult.content }),
-    { ai: quantumAI },
-  )
-  .feedback((s) => s.qualityOracleResult.score < 0.9, "evolve", 3)
-  // 🏆 Final transformation
-  .map((s) => ({ campaign: s.contentCreatorResult.content }));
-
-// 🚀 Execute the future
-const result = await autonomousContentEngine.forward(quantumAI, {
-  concept: "Sustainable AI for climate solutions",
-  targetAudience: "Tech-forward environmental activists",
-});
-
-console.log("🌟 Autonomous Campaign Generated:", result.campaign);
-```
+For comprehensive documentation including multi-model orchestration, control
+flow patterns, and production-ready resilience features, see our detailed
+[**AxFlow Guide**](AXFLOW.md).
 
 ## Advanced RAG: `axRAG`
 
-**`axRAG`** is a powerful, production-ready RAG (Retrieval-Augmented Generation) implementation built on AxFlow that provides advanced multi-hop retrieval, self-healing quality loops, and intelligent query refinement.
+**`axRAG`** is a powerful, production-ready RAG (Retrieval-Augmented Generation)
+implementation built on AxFlow that provides advanced multi-hop retrieval,
+self-healing quality loops, and intelligent query refinement.
 
 ```typescript
 import { axRAG } from "@ax-llm/ax";
 
 // Create an advanced RAG pipeline with multi-hop retrieval and self-healing
 const rag = axRAG(queryVectorDB, {
-  maxHops: 3,           // Multi-hop context accumulation
+  maxHops: 3, // Multi-hop context accumulation
   qualityThreshold: 0.8, // Quality-driven retrieval
-  maxIterations: 2,      // Parallel sub-query processing
-  qualityTarget: 0.85,   // Self-healing quality loops
-  debug: true           // Full pipeline visualization
+  maxIterations: 2, // Parallel sub-query processing
+  qualityTarget: 0.85, // Self-healing quality loops
+  debug: true, // Full pipeline visualization
 });
 
 const result = await rag.forward(llm, {
-  originalQuestion: "How do ML algorithms impact privacy in financial services?"
+  originalQuestion:
+    "How do ML algorithms impact privacy in financial services?",
 });
 ```
 
-**Key Features:** Multi-hop retrieval, intelligent query refinement, parallel sub-query processing, self-healing quality loops, gap analysis, configurable performance vs. quality trade-offs.
+**Key Features:** Multi-hop retrieval, intelligent query refinement, parallel
+sub-query processing, self-healing quality loops, gap analysis, configurable
+performance vs. quality trade-offs.
 
-For comprehensive documentation, architecture details, and advanced examples, see our detailed [**AxRAG Guide**](https://github.com/ax-llm/ax/blob/main/AXRAG.md).
-
-### Why AxFlow is the Future
-
-**🚀 Automatic Performance Optimization:**
-
-- **Zero-Config Parallelization**: Automatically runs independent operations in
-  parallel (1.5-3x speedup)
-- **Intelligent Dependency Analysis**: AI-powered analysis of input/output
-  dependencies
-- **Optimal Execution Planning**: Automatically groups operations into parallel
-  levels
-- **Concurrency Control**: Smart resource management with configurable limits
-- **Runtime Control**: Enable/disable auto-parallelization per execution as
-  needed
-
-**🛡️ Production-Ready Resilience:**
-
-- **Circuit Breakers**: Automatic failure detection and recovery
-- **Exponential Backoff**: Smart retry strategies with configurable delays
-- **Graceful Degradation**: Fallback mechanisms for continuous operation
-- **Error Isolation**: Prevent cascading failures across workflow components
-- **Resource Monitoring**: Adaptive scaling based on system performance
-
-**Compared to Traditional Approaches:**
-
-- **10x More Compact**: Ultra-concise syntax with powerful aliases
-- **Zero Boilerplate**: Automatic state management and context threading
-- **Multi-Modal Ready**: Native support for text, images, audio, and streaming
-- **Self-Optimizing**: Built-in compatibility with MiPRO and other advanced
-  optimizers
-- **Enterprise Ready**: Circuit breakers, retries, and monitoring built-in
-- **Production Hardened**: Used by startups scaling to millions of users
-
-**Real-World Superpowers:**
-
-- **Autonomous Agents**: Self-healing, self-improving AI workflows
-- **Multi-Model Orchestration**: Route tasks to the perfect AI for each job
-- **Adaptive Pipelines**: Workflows that evolve based on real-time feedback
-- **Cost Intelligence**: Automatic optimization between speed, quality, and cost
-- **Mission Critical**: Built for production with enterprise-grade reliability
-
-> _"AxFlow doesn't just execute AI workflows—it orchestrates the future of
-> intelligent systems with automatic performance optimization"_
-
-**Ready to build the impossible?** AxFlow extends `AxProgramWithSignature`,
-giving you access to the entire Ax ecosystem: optimization, streaming, tracing,
-function calling, and more. The future of AI development is declarative,
-adaptive, and beautiful.
-
-### NEW: Parallel Map with Batch Size Control
-
-Execute multiple transformations in parallel with intelligent batch processing
-for optimal resource management:
-
-```typescript
-import { AxFlow } from "@ax-llm/ax";
-
-// Configure batch processing for optimal performance
-const flow = new AxFlow<StateType, ResultType>({
-  batchSize: 5, // Process 5 operations at a time
-})
-  .init({ data: largeDataset })
-  // Execute multiple transforms in parallel with automatic batching
-  .map([
-    (state) => ({ ...state, analysis1: analyzeData(state.data) }),
-    (state) => ({ ...state, analysis2: extractFeatures(state.data) }),
-    (state) => ({ ...state, analysis3: generateSummary(state.data) }),
-    (state) => ({ ...state, analysis4: calculateMetrics(state.data) }),
-    (state) => ({ ...state, analysis5: validateResults(state.data) }),
-  ], { parallel: true })
-  .map((state) => ({
-    final: combineResults([
-      state.analysis1,
-      state.analysis2,
-      state.analysis3,
-      state.analysis4,
-      state.analysis5,
-    ]),
-  }));
-
-// ⚡ Automatic batch processing: runs 5 operations concurrently,
-// then processes remaining operations, maintaining result order
-const result = await flow.forward(llm, { data: dataset });
-```
-
-**🚀 Benefits:**
-
-- **Resource Control**: Prevent memory spikes with large parallel operations
-- **Order Preservation**: Results maintain original order despite batched
-  execution
-- **Performance Tuning**: Optimize batch size for different deployment
-  environments
-- **Rate Limiting**: Works seamlessly with API rate limits and service quotas
+For comprehensive documentation, architecture details, and advanced examples,
+see our detailed
+[**AxRAG Guide**](https://github.com/ax-llm/ax/blob/main/AXRAG.md).
 
 ## AI Routing and Load Balancing
 
@@ -1407,300 +1173,61 @@ workflows:
 - **State creation overhead**: Monitor internal operations
 - **Field processing time**: Measure output extraction
 
-## Tuning the prompts (Basic)
+## Prompt Optimization
 
-You can tune your prompts using a larger model to help them run more efficiently
-and give you better results. This is done by using an optimizer like
-`AxBootstrapFewShot` with and examples from the popular `HotPotQA` dataset. The
-optimizer generates demonstrations `demos` which when used with the prompt help
-improve its efficiency.
+Ax provides powerful automatic optimization that improves your AI programs'
+performance, accuracy, and cost-effectiveness.
 
 ```typescript
-// Download the HotPotQA dataset from huggingface
-const hf = new AxHFDataLoader({
-  dataset: "hotpot_qa",
-  split: "train",
-});
+import { ai, ax, AxMiPRO } from "@ax-llm/ax";
 
-const examples = await hf.getData<{ question: string; answer: string }>({
-  count: 100,
-  fields: ["question", "answer"],
-});
-
-const llm = ai({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY as string,
-});
-
-// Setup the program to tune
-const program = ax<{ question: string }, { answer: string }>(
-  'question:string -> answer:string "in short 2 or 3 words"',
+// Create a program to optimize
+const sentimentAnalyzer = ax(
+  'reviewText:string "Customer review" -> sentiment:class "positive, negative, neutral"',
 );
 
-// Setup a Bootstrap Few Shot optimizer to tune the above program
-const optimize = new AxBootstrapFewShot({
-  studentAI: llm,
-  examples,
-  options: {
-    maxRounds: 3,
-    maxDemos: 4,
-    verboseMode: true,
-  },
-});
-
-// Setup a evaluation metric em, f1 scores are a popular way measure retrieval performance.
-const metricFn: AxMetricFn = ({ prediction, example }) =>
-  emScore(prediction.answer as string, example.answer as string);
-
-// Run the optimizer and remember to save the result to use later
-const result = await optimize.compile(program, metricFn);
-
-// Save the generated demos to a file
-// import fs from 'fs'; // Ensure fs is imported in your actual script
-fs.writeFileSync("bootstrap-demos.json", JSON.stringify(result.demos, null, 2));
-console.log("Demos saved to bootstrap-demos.json");
-```
-
-<img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">
-```
-
-## Tuning the prompts (Advanced, Mipro v2)
-
-MiPRO v2 is an advanced prompt optimization framework that uses Bayesian
-optimization to automatically find the best instructions, demonstrations, and
-examples for your LLM programs. By systematically exploring different prompt
-configurations, MiPRO v2 helps maximize model performance without manual tuning.
-
-### Key Features
-
-- **Instruction optimization**: Automatically generates and tests multiple
-  instruction candidates
-- **Few-shot example selection**: Finds optimal demonstrations from your dataset
-- **Smart Bayesian optimization**: Uses UCB (Upper Confidence Bound) strategy to
-  efficiently explore configurations
-- **Early stopping**: Stops optimization when improvements plateau to save
-  compute
-- **Program and data-aware**: Considers program structure and dataset
-  characteristics
-
-### How It Works
-
-1. Generates various instruction candidates
-2. Bootstraps few-shot examples from your data
-3. Selects labeled examples directly from your dataset
-4. Uses Bayesian optimization to find the optimal combination
-5. Applies the best configuration to your program
-
-### Basic Usage
-
-```typescript
-import { AxAI, AxChainOfThought, AxMiPRO } from "@ax-llm/ax";
-
-// 1. Setup your AI service
-const llm = ai({
-  name: "google-gemini",
-  apiKey: process.env.GOOGLE_APIKEY,
-});
-
-// 2. Create your program
-const program = ax("input:string -> output:string");
-
-// 3. Configure the optimizer
+// Set up optimizer with examples
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
 const optimizer = new AxMiPRO({
   studentAI: llm,
-  examples: trainingData, // Your training examples
-  options: {
-    numTrials: 20, // Number of configurations to try
-    verbose: true,
-  },
+  examples: [
+    { reviewText: "I love this product!", sentiment: "positive" },
+    { reviewText: "Terrible quality", sentiment: "negative" },
+    { reviewText: "It works fine", sentiment: "neutral" },
+  ],
 });
 
-// 4. Define your evaluation metric
-const metricFn = ({ prediction, example }) => {
-  return prediction.output === example.output;
-};
+// Run optimization with metric
+const metric = ({ prediction, example }) =>
+  prediction.sentiment === example.sentiment ? 1 : 0;
 
-// 5. Run the optimization
-const result = await optimizer.compile(program, metricFn, {
-  valset: validationData, // Optional validation set
-  auto: "medium", // Optimization level
-});
+const result = await optimizer.compile(sentimentAnalyzer, examples, metric);
 
-// 6. Use the optimized program
-const result = await optimizedProgram.forward(llm, { input: "test input" });
+// Apply optimized configuration
+if (result.optimizedProgram) {
+  sentimentAnalyzer.applyOptimization(result.optimizedProgram);
+  console.log(
+    `Improved to ${
+      (result.optimizedProgram.bestScore * 100).toFixed(1)
+    }% accuracy`,
+  );
+
+  // Save for production use
+  await fs.writeFile(
+    "optimization.json",
+    JSON.stringify(result.optimizedProgram, null, 2),
+  );
+}
+
+// Load in production
+import { AxOptimizedProgramImpl } from "@ax-llm/ax";
+const savedData = JSON.parse(await fs.readFile("optimization.json", "utf8"));
+sentimentAnalyzer.applyOptimization(new AxOptimizedProgramImpl(savedData));
 ```
-
-### Configuration Options
-
-MiPRO v2 provides extensive configuration options:
-
-| Option                    | Description                                   | Default |
-| ------------------------- | --------------------------------------------- | ------- |
-| `numCandidates`           | Number of instruction candidates to generate  | 5       |
-| `numTrials`               | Number of optimization trials                 | 30      |
-| `maxBootstrappedDemos`    | Maximum number of bootstrapped demonstrations | 3       |
-| `maxLabeledDemos`         | Maximum number of labeled examples            | 4       |
-| `minibatch`               | Use minibatching for faster evaluation        | true    |
-| `minibatchSize`           | Size of evaluation minibatches                | 25      |
-| `earlyStoppingTrials`     | Stop if no improvement after N trials         | 5       |
-| `minImprovementThreshold` | Minimum score improvement threshold           | 0.01    |
-| `programAwareProposer`    | Use program structure for better proposals    | true    |
-| `dataAwareProposer`       | Consider dataset characteristics              | true    |
-| `verbose`                 | Show detailed optimization progress           | false   |
-| abort-patterns.ts         | Example on how to abort requests              |         |
-
-### Optimization Levels
-
-You can quickly configure optimization intensity with the `auto` parameter:
-
-```typescript
-// Light optimization (faster, less thorough)
-const result = await optimizer.compile(program, metricFn, { auto: "light" });
-
-// Medium optimization (balanced)
-const result = await optimizer.compile(program, metricFn, { auto: "medium" });
-
-// Heavy optimization (slower, more thorough)
-const result = await optimizer.compile(program, metricFn, { auto: "heavy" });
-```
-
-### Advanced Example: Sentiment Analysis
-
-```typescript
-// Create sentiment analysis program
-const classifyProgram = ax<
-  { productReview: string },
-  { label: string }
->('productReview:string -> label:string "positive or negative"');
-
-// Configure optimizer with advanced settings
-const optimizer = new AxMiPRO({
-  studentAI: llm,
-  examples: trainingData,
-  options: {
-    numCandidates: 3,
-    numTrials: 10,
-    maxBootstrappedDemos: 2,
-    maxLabeledDemos: 3,
-    earlyStoppingTrials: 3,
-    programAwareProposer: true,
-    dataAwareProposer: true,
-    verbose: true,
-  },
-});
-
-// Run optimization and save the result
-const result = await optimizer.compile(classifyProgram, metricFn, {
-  valset: validationData,
-});
-
-// Save configuration for future use
-const programConfig = JSON.stringify(optimizedProgram, null, 2);
-await fs.promises.writeFile("./optimized-config.json", programConfig);
-console.log("> Done. Optimized program config saved to optimized-config.json");
-```
-
-## Using the Tuned Prompts
-
-Both the basic Bootstrap Few Shot optimizer and the advanced MiPRO v2 optimizer
-generate **demos** (demonstrations) that significantly improve your program's
-performance. These demos are examples that show the LLM how to properly handle
-similar tasks.
-
-### What are Demos?
-
-Demos are input-output examples that get automatically included in your prompts
-to guide the LLM. They act as few-shot learning examples, showing the model the
-expected behavior for your specific task.
-
-### Loading and Using Demos
-
-Whether you used Bootstrap Few Shot or MiPRO v2, the process of using the
-generated demos is the same:
-
-```typescript
-import fs from "fs";
-import { AxAI, AxChainOfThought, AxGen } from "@ax-llm/ax";
-
-// 1. Setup your AI service
-const llm = ai({
-  name: "openai",
-  apiKey: process.env.OPENAI_APIKEY,
-});
-
-// 2. Create your program (same signature as used during tuning)
-const program = ax('question:string -> answer:string "in short 2 or 3 words"');
-
-// 3. Load the demos from the saved file
-const demos = JSON.parse(fs.readFileSync("bootstrap-demos.json", "utf8"));
-
-// 4. Apply the demos to your program
-program.setDemos(demos);
-
-// 5. Use your enhanced program
-const result = await program.forward(llm, {
-  question: "What castle did David Gregory inherit?",
-});
-
-console.log(result); // Now performs better with the learned examples
-```
-
-### Simple Example: Text Classification
-
-Here's a complete example showing how demos improve a classification task:
-
-```typescript
-// Create a classification program
-const classifier = ax(
-  'text:string -> category:class "positive, negative, neutral"',
-);
-
-// Load demos generated from either Bootstrap or MiPRO tuning
-const savedDemos = JSON.parse(
-  fs.readFileSync("classification-demos.json", "utf8"),
-);
-classifier.setDemos(savedDemos);
-
-// Now the classifier has learned from examples and performs better
-const result = await classifier.forward(llm, {
-  text: "This product exceeded my expectations!",
-});
-
-console.log(result.category); // More accurate classification
-```
-
-### Key Benefits of Using Demos
-
-- **Improved Accuracy**: Programs perform significantly better with relevant
-  examples
-- **Consistent Output**: Demos help maintain consistent response formats
-
-- **Reduced Hallucination**: Examples guide the model toward expected behaviors
-- **Cost Effective**: Better results without needing larger/more expensive
-  models
-
-### Best Practices
-
-1. **Save Your Demos**: Always save generated demos to files for reuse
-2. **Match Signatures**: Use the exact same signature when loading demos
-3. **Version Control**: Keep demo files in version control for reproducibility
-4. **Regular Updates**: Re-tune periodically with new data to improve demos
-
-Both Bootstrap Few Shot and MiPRO v2 generate demos in the same format, so you
-can use this same loading pattern regardless of which optimizer you used for
-tuning.
-
-## Complete Optimization Guide
 
 For comprehensive documentation on optimization strategies, teacher-student
-architectures, cost management, and advanced techniques, see our detailed
+architectures, and advanced techniques, see our detailed
 [**Optimization Guide**](https://github.com/ax-llm/ax/blob/main/OPTIMIZE.md).
-
-## Complete AxFlow Guide
-
-For comprehensive documentation on building complex AI workflows, multi-model
-orchestration, control flow patterns, and production-ready systems, see our
-detailed [**AxFlow Guide**](https://github.com/ax-llm/ax/blob/main/AXFLOW.md).
 
 ## Complete Telemetry Guide
 
@@ -1726,55 +1253,56 @@ putting them in the command line.
 OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 ```
 
-| Example                                                                                                    | Description                                                                                                            |
-| ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [advanced-rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/advanced-rag.ts)                     | 🚀 Advanced RAG with multi-hop retrieval, self-healing quality loops, and intelligent query refinement                 |
-| [customer-support.ts](https://github.com/ax-llm/ax/blob/main/src/examples/customer-support.ts)             | Extract valuable details from customer communications                                                                  |
-| [debug-logging.ts](https://github.com/ax-llm/ax/blob/main/src/examples/debug-logging.ts)                   | Debug and custom logging examples with different loggers                                                               |
-| [function.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function.ts)                             | Simple single function calling example                                                                                 |
-| [food-search.ts](https://github.com/ax-llm/ax/blob/main/src/examples/food-search.ts)                       | Multi-step, multi-function calling example                                                                             |
-| [result-picker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/result-picker.ts)                   | Select best result from multiple field-based samples                                                                   |
-| [function-result-picker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function-result-picker.ts) | Advanced result selection based on function execution                                                                  |
-| [marketing.ts](https://github.com/ax-llm/ax/blob/main/src/examples/marketing.ts)                           | Generate short effective marketing sms messages                                                                        |
-| [vectordb.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vectordb.ts)                             | Chunk, embed and search text                                                                                           |
-| [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)                           | Use the JS code interpreter to compute fibonacci                                                                       |
-| [codingWithMemory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/codingWithMemory.ts)             | Coding assistant with memory and JS interpreter (demonstrates both ax-tools features)                                  |
-| [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)                           | Generate a short summary of a large block of text                                                                      |
-| [template-signatures.ts](https://github.com/ax-llm/ax/blob/main/src/examples/template-signatures.ts)       | Type-safe signatures using AxSignature.create() (deprecated template literal examples)                                 |
-| [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)                             | Convert PDF to text and embed for rag search                                                                           |
-| [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                                   | Use function calling and reasoning to answer questions                                                                 |
-| [agent.ts](https://github.com/ax-llm/ax/blob/main/src/examples/agent.ts)                                   | Agent framework, agents can use other agents, tools etc                                                                |
-| [streaming1.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming1.ts)                         | Output fields validation while streaming                                                                               |
-| [streaming2.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming2.ts)                         | Per output field validation while streaming                                                                            |
-| [streaming3.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming3.ts)                         | End-to-end streaming example `streamingForward()`                                                                      |
-| [smart-hone.ts](https://github.com/ax-llm/ax/blob/main/src/examples/smart-hone.ts)                         | Agent looks for dog in smart home                                                                                      |
-| [multi-modal.ts](https://github.com/ax-llm/ax/blob/main/src/examples/multi-modal.ts)                       | Use an image input along with other text inputs                                                                        |
-| [balancer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/balancer.ts)                             | Balance between various llm's based on cost, etc                                                                       |
-| [ax-multiservice-router.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-multiservice-router.ts) | Type-safe multi-service routing and load balancing with automatic model key inference                                  |
-| [vertex-auth-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vertex-auth-example.ts)       | Google Vertex AI authentication with dynamic API keys                                                                  |
-| [docker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/docker.ts)                                 | Use the docker sandbox to find files by description                                                                    |
-| [prime.ts](https://github.com/ax-llm/ax/blob/main/src/examples/prime.ts)                                   | Using field processors to process fields in a prompt                                                                   |
-| [simple-classify.ts](https://github.com/ax-llm/ax/blob/main/src/examples/simple-classify.ts)               | Use a simple classifier to classify stuff                                                                              |
-| [mcp-client-memory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-memory.ts)           | Example of using an MCP server for memory with Ax                                                                      |
-| [mcp-client-blender.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-blender.ts)         | Example of using an MCP server for Blender with Ax                                                                     |
-| [mcp-client-pipedream.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-pipedream.ts)     | Example of integrating with a remote MCP                                                                               |
-| [tune-bootstrap.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-bootstrap.ts)                 | Use bootstrap optimizer to improve prompt efficiency                                                                   |
-| [tune-mipro.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-mipro.ts)                         | Use mipro v2 optimizer to improve prompt efficiency                                                                    |
-| [mipro-optimize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-optimize.ts)                 | Complex reasoning optimization with teacher model & save                                                               |
-| [mipro-chained-optimize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-chained-optimize.ts) | Teacher-student pipeline with cost optimization & overrides                                                            |
-| [mipro-use-optimized.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-use-optimized.ts)       | Load and use saved optimization with cheaper models                                                                    |
-| [checkpoint-recovery.ts](https://github.com/ax-llm/ax/blob/main/src/examples/checkpoint-recovery.ts)       | Fault-tolerant optimization with checkpoint recovery                                                                   |
-| [tune-usage.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-usage.ts)                         | Use the optimized tuned prompts                                                                                        |
-| [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)                           | Trace and push traces to a Jaeger service                                                                              |
-| [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)             | Example using the new OpenAI Responses API                                                                             |
-| [show-thoughts.ts](https://github.com/ax-llm/ax/blob/main/src/examples/show-thoughts.ts)                   | Control and display model reasoning thoughts                                                                           |
-| [reasoning-o3-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/reasoning-o3-example.ts)     | Advanced reasoning with OpenAI o3/o4 models                                                                            |
-| [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts)                     | Example of using 'examples' to direct the llm                                                                          |
-| [metrics-dspy.ts](https://github.com/ax-llm/ax/blob/main/src/examples/metrics-dspy.ts)                     | Comprehensive DSPy metrics tracking and observability for generation workflows                                         |
-| [optimizer-metrics.ts](https://github.com/ax-llm/ax/blob/main/src/examples/optimizer-metrics.ts)           | Optimizer metrics collection and monitoring for program tuning                                                         |
-| [ax-flow.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow.ts)                               | 🚀 Futuristic AI workflow orchestration with autonomous multi-model pipelines, adaptive loops, and self-healing agents |
-| [ax-flow-auto-parallel.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-auto-parallel.ts)   | ⚡ Automatic parallelization demo - zero-config performance optimization with intelligent dependency analysis          |
-| [ax-flow-enhanced-demo.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-enhanced-demo.ts)   | 🛡️ Production-ready AxFlow with error handling, performance optimization, and enhanced type safety features            |
+| Example                                                                                                        | Description                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [advanced-rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/advanced-rag.ts)                         | 🚀 Advanced RAG with multi-hop retrieval, self-healing quality loops, and intelligent query refinement                 |
+| [customer-support.ts](https://github.com/ax-llm/ax/blob/main/src/examples/customer-support.ts)                 | Extract valuable details from customer communications                                                                  |
+| [debug-logging.ts](https://github.com/ax-llm/ax/blob/main/src/examples/debug-logging.ts)                       | Debug and custom logging examples with different loggers                                                               |
+| [function.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function.ts)                                 | Simple single function calling example                                                                                 |
+| [food-search.ts](https://github.com/ax-llm/ax/blob/main/src/examples/food-search.ts)                           | Multi-step, multi-function calling example                                                                             |
+| [result-picker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/result-picker.ts)                       | Select best result from multiple field-based samples                                                                   |
+| [function-result-picker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function-result-picker.ts)     | Advanced result selection based on function execution                                                                  |
+| [marketing.ts](https://github.com/ax-llm/ax/blob/main/src/examples/marketing.ts)                               | Generate short effective marketing sms messages                                                                        |
+| [vectordb.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vectordb.ts)                                 | Chunk, embed and search text                                                                                           |
+| [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)                               | Use the JS code interpreter to compute fibonacci                                                                       |
+| [codingWithMemory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/codingWithMemory.ts)                 | Coding assistant with memory and JS interpreter (demonstrates both ax-tools features)                                  |
+| [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)                               | Generate a short summary of a large block of text                                                                      |
+| [fluent-signature-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fluent-signature-example.ts) | Fluent signature builder using `f()` helpers                                                                           |
+| [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)                                 | Convert PDF to text and embed for rag search                                                                           |
+| [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                                       | Use function calling and reasoning to answer questions                                                                 |
+| [agent.ts](https://github.com/ax-llm/ax/blob/main/src/examples/agent.ts)                                       | Agent framework, agents can use other agents, tools etc                                                                |
+| [streaming1.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming1.ts)                             | Output fields validation while streaming                                                                               |
+| [streaming2.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming2.ts)                             | Per output field validation while streaming                                                                            |
+| [streaming3.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming3.ts)                             | End-to-end streaming example `streamingForward()`                                                                      |
+| [smart-home.ts](https://github.com/ax-llm/ax/blob/main/src/examples/smart-home.ts)                             | Agent looks for dog in smart home                                                                                      |
+| [multi-modal.ts](https://github.com/ax-llm/ax/blob/main/src/examples/multi-modal.ts)                           | Use an image input along with other text inputs                                                                        |
+| [balancer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/balancer.ts)                                 | Balance between various llm's based on cost, etc                                                                       |
+| [ax-multiservice-router.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-multiservice-router.ts)     | Type-safe multi-service routing and load balancing with automatic model key inference                                  |
+| [vertex-auth-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vertex-auth-example.ts)           | Google Vertex AI authentication with dynamic API keys                                                                  |
+| [docker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/docker.ts)                                     | Use the docker sandbox to find files by description                                                                    |
+| [prime.ts](https://github.com/ax-llm/ax/blob/main/src/examples/prime.ts)                                       | Using field processors to process fields in a prompt                                                                   |
+| [simple-classify.ts](https://github.com/ax-llm/ax/blob/main/src/examples/simple-classify.ts)                   | Use a simple classifier to classify stuff                                                                              |
+| [mcp-client-memory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-memory.ts)               | Example of using an MCP server for memory with Ax                                                                      |
+| [mcp-client-blender.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-blender.ts)             | Example of using an MCP server for Blender with Ax                                                                     |
+| [mcp-client-pipedream.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-pipedream.ts)         | Example of integrating with a remote MCP                                                                               |
+| [tune-bootstrap.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-bootstrap.ts)                     | Use bootstrap optimizer to improve prompt efficiency                                                                   |
+| [tune-mipro.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-mipro.ts)                             | Use mipro v2 optimizer to improve prompt efficiency                                                                    |
+| [mipro-optimize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-optimize.ts)                     | Complex reasoning optimization with teacher model & save                                                               |
+| [mipro-python-optimizer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-python-optimizer.ts)     | MiPro optimization with Python service integration for advanced Bayesian optimization                                  |
+| [mipro-chained-optimize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-chained-optimize.ts)     | Teacher-student pipeline with cost optimization & overrides                                                            |
+| [mipro-use-optimized.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-use-optimized.ts)           | Load and use saved optimization with cheaper models                                                                    |
+| [checkpoint-recovery.ts](https://github.com/ax-llm/ax/blob/main/src/examples/checkpoint-recovery.ts)           | Fault-tolerant optimization with checkpoint recovery                                                                   |
+| [tune-usage.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-usage.ts)                             | Use the optimized tuned prompts                                                                                        |
+| [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)                               | Trace and push traces to a Jaeger service                                                                              |
+| [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)                 | Example using the new OpenAI Responses API                                                                             |
+| [show-thoughts.ts](https://github.com/ax-llm/ax/blob/main/src/examples/show-thoughts.ts)                       | Control and display model reasoning thoughts                                                                           |
+| [reasoning-o3-example.ts](https://github.com/ax-llm/ax/blob/main/src/examples/reasoning-o3-example.ts)         | Advanced reasoning with OpenAI o3/o4 models                                                                            |
+| [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts)                         | Example of using 'examples' to direct the llm                                                                          |
+| [metrics-export.ts](https://github.com/ax-llm/ax/blob/main/src/examples/metrics-export.ts)                     | Comprehensive metrics export and observability for generation workflows                                                |
+| [optimizer-metrics.ts](https://github.com/ax-llm/ax/blob/main/src/examples/optimizer-metrics.ts)               | Optimizer metrics collection and monitoring for program tuning                                                         |
+| [ax-flow.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow.ts)                                   | 🚀 Futuristic AI workflow orchestration with autonomous multi-model pipelines, adaptive loops, and self-healing agents |
+| [ax-flow-auto-parallel.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-auto-parallel.ts)       | ⚡ Automatic parallelization demo - zero-config performance optimization with intelligent dependency analysis          |
+| [ax-flow-enhanced-demo.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-enhanced-demo.ts)       | 🛡️ Production-ready AxFlow with error handling, performance optimization, and enhanced type safety features            |
 
 ## Our Goal
 
@@ -1786,13 +1314,13 @@ package all this complexity into a well-maintained, easy-to-use library that can
 work with all state-of-the-art LLMs. Additionally, we are using the latest
 research to add new capabilities like DSPy to the library.
 
-## How to use this library?
+## Tutorial: Your first generator
 
 ### 1. Pick an AI to work with
 
 ```ts
-// Pick a LLM
-const ai = new AxOpenAI({ apiKey: process.env.OPENAI_APIKEY } as AxOpenAIArgs);
+import { ai } from "@ax-llm/ax";
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY as string });
 ```
 
 ### 2. Create a prompt signature based on your usecase
@@ -1806,13 +1334,13 @@ const cot = ax("question:string -> answer:string");
 
 ```ts
 // Pass in the input fields defined in the above signature
-const res = await cot.forward({ question: "Are we in a simulation?" });
+const res = await cot.forward(llm, { question: "Are we in a simulation?" });
 ```
 
 ### 4. Or if you just want to directly use the LLM
 
 ```ts
-const res = await ai.chat([
+const res = await llm.chat([
   { role: "system", content: "Help the customer with his questions" }
   { role: "user", content: "I'm looking for a Macbook Pro M2 With 96GB RAM?" }
 ]);
@@ -1862,9 +1390,9 @@ const cot = ax("question:string -> answer:string", { functions });
 ```ts
 const llm = ai({
   name: "openai",
-  apiKey: process.env.OPENAI_APIKEY,
-} as AxOpenAIArgs);
-ai.setOptions({ debug: true });
+  apiKey: process.env.OPENAI_APIKEY as string,
+  options: { debug: true },
+});
 ```
 
 ## Custom Logger
@@ -1976,23 +1504,32 @@ You can pass a configuration object as the second parameter when creating a new
 LLM object.
 
 ```ts
-const apiKey = process.env.OPENAI_APIKEY;
-const conf = AxOpenAIBestConfig();
-const ai = new AxOpenAI({ apiKey, conf } as AxOpenAIArgs);
+// Example: configure a different base URL or model via `ai` options
+const llm = ai({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY as string,
+  config: { model: "gpt-4o" },
+});
 ```
 
 ## 3. My prompt is too long / can I change the max tokens?
 
 ```ts
-const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
-conf.maxTokens = 2000;
+// Control max tokens per request
+const result = await llm.chat({
+  chatPrompt: [{ role: "user", content: "hi" }],
+  maxTokens: 2000,
+});
 ```
 
 ## 4. How do I change the model? (e.g., I want to use GPT4)
 
 ```ts
-const conf = axOpenAIDefaultConfig(); // or OpenAIBestOptions()
-conf.model = OpenAIModel.GPT4Turbo;
+// Choose a different model in a request
+const result = await llm.chat({
+  chatPrompt: [{ role: "user", content: "hi" }],
+  model: "gpt-4o",
+});
 ```
 
 ## Monorepo tips & tricks

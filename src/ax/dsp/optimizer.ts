@@ -25,23 +25,8 @@ import { axDefaultOptimizerLogger } from './optimizerLogging.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
 import type { AxGenOut, AxProgramDemos } from './types.js';
 
-// Re-export types from common_types.js
-export type {
-  AxCheckpointLoadFn,
-  AxCheckpointSaveFn,
-  AxCompileOptions,
-  AxCostTracker,
-  AxCostTrackerOptions,
-  AxExample,
-  AxMetricFn,
-  AxMetricFnArgs,
-  AxMultiMetricFn,
-  AxOptimizationCheckpoint,
-  AxOptimizationProgress,
-  AxOptimizationStats,
-  AxOptimizerArgs,
-  AxTypedExample,
-} from './common_types.js';
+// Shared optimizer-related types are exported exclusively from `common_types.ts`
+// to avoid duplicate type exports when generating the package index.
 
 // Logger utilities are now exported from ./loggers.js
 

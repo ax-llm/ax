@@ -1,13 +1,15 @@
+import type {
+  AxCompileOptions,
+  AxExample,
+  AxMetricFn,
+  AxOptimizerArgs,
+  AxTypedExample,
+} from '../common_types.js';
 import type { AxGen } from '../generate.js';
 import {
   AxBaseOptimizer,
   type AxBootstrapOptimizerOptions,
-  type AxCompileOptions,
-  type AxExample,
-  type AxMetricFn,
-  type AxOptimizerArgs,
   type AxOptimizerResult,
-  type AxTypedExample,
 } from '../optimizer.js';
 import type {
   AxFieldValue,
