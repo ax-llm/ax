@@ -48,6 +48,17 @@ npm install @ax-llm/ax
 import { ai, ax, AxMiPRO } from "@ax-llm/ax";
 ```
 
+**Important**: Ax optimizers depend on a Python optimization service (Optuna).
+For MiPRO v2 and production-scale optimization, you must start the Python
+service before running any optimization. See "Python Optimization Service
+Integration" below. Quick start:
+
+```bash
+cd src/optimizer
+uv sync
+uv run ax-optimizer server start --debug
+```
+
 ### Step 2: Create Your First Optimizable Program
 
 ```typescript
@@ -317,60 +328,6 @@ const optimizationData = {
 await fs.writeFile(
   "sentiment-analyzer-v1.3.0.json",
   JSON.stringify(optimizationData, null, 2),
-);
-```
-
-**Helper Functions for Production:**
-
-```typescript
-// Utility function to load any optimization format
-export async function loadOptimization(filePath: string) {
-  const savedData = JSON.parse(await fs.readFile(filePath, "utf8"));
-
-  if (savedData.version === "2.0") {
-    return new AxOptimizedProgramImpl(savedData);
-  } else if (savedData.demos || Array.isArray(savedData)) {
-    // Legacy format - create a minimal optimized program
-    return new AxOptimizedProgramImpl({
-      bestScore: savedData.score || savedData.bestScore || 0,
-      stats: savedData.stats || {
-        totalCalls: 0,
-        successfulDemos: 0,
-        estimatedTokenUsage: 0,
-        earlyStopped: false,
-        resourceUsage: {
-          totalTokens: 0,
-          totalTime: 0,
-          avgLatencyPerEval: 0,
-          costByModel: {},
-        },
-        convergenceInfo: {
-          converged: false,
-          finalImprovement: 0,
-          stagnationRounds: 0,
-          convergenceThreshold: 0.01,
-        },
-        bestScore: savedData.score || 0,
-      },
-      demos: savedData.demos || savedData,
-      optimizerType: "Legacy",
-      optimizationTime: 0,
-      totalRounds: 0,
-      converged: false,
-    });
-  }
-  throw new Error("Unknown optimization format");
-}
-
-// Usage in production
-const optimizedProgram = await loadOptimization(
-  "optimizations/sentiment-analyzer-prod.json",
-);
-sentimentAnalyzer.applyOptimization(optimizedProgram);
-console.log(
-  `📊 Applied optimization with score: ${
-    optimizedProgram.bestScore.toFixed(3)
-  }`,
 );
 ```
 
