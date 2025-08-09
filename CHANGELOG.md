@@ -1,5 +1,20 @@
 # Changelog
 
+## [14.0.6](https://github.com/ax-llm/ax/compare/14.0.4...14.0.5) (2025-08-09)
+
+### Bug Fixes
+
+* correct spelling of 'showThoughts' in model configurations ([35eeff7](https://github.com/ax-llm/ax/commit/35eeff77ad0f02b5a04026cd841478c7df5e9816))
+* update README and enhance AxBaseAI tests for model configuration merging ([40690b3](https://github.com/ax-llm/ax/commit/40690b3c60795c4cfd3fc5f3f3e71e8656622ff5))
+## [14.0.5](https://github.com/ax-llm/ax/compare/14.0.4...14.0.5) (2025-08-08)
+
+### Features
+
+* enhance Anthropic API response handling and add demo for thinking separation ([38c5b5d](https://github.com/ax-llm/ax/commit/38c5b5d60f65deaba854ecdf06cc34cb128ad42f))
+* enhance MiPro optimizer with new sampling and result picking features ([92deebd](https://github.com/ax-llm/ax/commit/92deebd64708f74474fffbab8614d6786164ab58))
+* enhance type definitions and re-export common types for optimization ([c178bca](https://github.com/ax-llm/ax/commit/c178bca3871f2567aa2cb77d9574496fd774b1b6))
+* refactor optimization types and enhance MiPro integration ([bd67b18](https://github.com/ax-llm/ax/commit/bd67b180e94a7a16a6d21a7ad143782fc552d224))
+
 ## [14.0.5](https://github.com/ax-llm/ax/compare/14.0.3...14.0.4) (2025-08-08)
 
 ### Features
