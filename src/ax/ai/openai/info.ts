@@ -204,6 +204,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
     notSupported: { temperature: true, topP: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5Mini,
@@ -211,6 +212,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 6,
     notSupported: { temperature: true, topP: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5,
@@ -218,6 +220,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 10,
     completionTokenCostPer1M: 30,
     notSupported: { temperature: true, topP: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5Chat,
@@ -225,6 +228,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 12,
     completionTokenCostPer1M: 36,
     notSupported: { temperature: true, topP: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5,
@@ -232,6 +236,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 20,
     completionTokenCostPer1M: 60,
     notSupported: { temperature: true, topP: true },
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   // Reasoning models
   {

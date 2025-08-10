@@ -2,6 +2,33 @@ import type { AxChatRequest, AxChatResponseResult } from './types.js';
 
 type AxChatRequestMessage = AxChatRequest['chatPrompt'][number];
 
+function formatForMessage(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2);
+  } catch {
+    return String(v);
+  }
+}
+
+function raiseValidationError(
+  issue: string,
+  args: {
+    item?: unknown;
+    fieldPath?: string;
+    value?: unknown;
+    note?: string;
+  } = {}
+): never {
+  const lines: string[] = [issue];
+  if (args.fieldPath !== undefined) lines.push(`Field: ${args.fieldPath}`);
+  if (args.value !== undefined)
+    lines.push(`Value: ${formatForMessage(args.value)}`);
+  if (args.note) lines.push(`Note: ${args.note}`);
+  if (args.item !== undefined)
+    lines.push(`Chat item: ${formatForMessage(args.item)}`);
+  throw new Error(lines.join('\n'));
+}
+
 /**
  * Validates a chat request message item to ensure it meets the required criteria
  * @param item - The chat request message to validate
@@ -49,9 +76,9 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
     case 'user': {
       const content =
         typeof item === 'object' && item !== null && 'content' in item
-          ? item.content
+          ? (item as any).content
           : undefined;
-      if (!content) {
+      if (content === undefined) {
         throw new Error(
           `User message content cannot be undefined, received: ${value(content)}`
         );
@@ -222,37 +249,135 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
     case 'assistant': {
       const content =
         typeof item === 'object' && item !== null && 'content' in item
-          ? item.content
+          ? (item as any).content
           : undefined;
+
       const functionCalls =
         typeof item === 'object' && item !== null && 'functionCalls' in item
-          ? item.functionCalls
+          ? (item as any).functionCalls
           : undefined;
 
-      // Assistant messages can have empty content if they have function calls
-      if (!content && !functionCalls) {
-        throw new Error(
-          `Assistant message must have either content or function calls, received content: ${value(content)}, functionCalls: ${value(functionCalls)}`
+      const hasNonEmptyContent =
+        typeof content === 'string' && content.trim() !== '';
+      const hasFunctionCalls =
+        Array.isArray(functionCalls) && functionCalls.length > 0;
+
+      if (!hasNonEmptyContent && !hasFunctionCalls) {
+        raiseValidationError(
+          'Assistant message must include non-empty content or at least one function call',
+          {
+            fieldPath: 'content | functionCalls',
+            value: { content, functionCalls },
+            item,
+          }
         );
       }
 
-      if (content && typeof content !== 'string') {
-        throw new Error(
-          `Assistant message content must be a string, received: ${value(content)}`
+      if (content !== undefined && typeof content !== 'string') {
+        raiseValidationError('Assistant message content must be a string', {
+          fieldPath: 'content',
+          value: content,
+          item,
+        });
+      }
+
+      if (functionCalls !== undefined && !Array.isArray(functionCalls)) {
+        raiseValidationError(
+          'Assistant message functionCalls must be an array when provided',
+          {
+            fieldPath: 'functionCalls',
+            value: functionCalls,
+            item,
+          }
         );
       }
 
-      // Treat whitespace-only content as empty
-      if (typeof content === 'string' && content.trim() === '') {
-        throw new Error(
-          `Assistant message content cannot be empty or whitespace-only, received: ${value(content)}`
-        );
+      if (Array.isArray(functionCalls)) {
+        for (let i = 0; i < functionCalls.length; i++) {
+          const fc = functionCalls[i];
+          if (!fc || typeof fc !== 'object') {
+            raiseValidationError('functionCalls entry must be an object', {
+              fieldPath: `functionCalls[${i}]`,
+              value: fc,
+              item,
+            });
+          }
+          if (
+            !('id' in fc) ||
+            typeof (fc as any).id !== 'string' ||
+            (fc as any).id.trim() === ''
+          ) {
+            raiseValidationError(
+              'functionCalls entry must include a non-empty string id',
+              {
+                fieldPath: `functionCalls[${i}].id`,
+                value: (fc as any).id,
+                item,
+              }
+            );
+          }
+          if (!('type' in fc) || (fc as any).type !== 'function') {
+            raiseValidationError(
+              "functionCalls entry must have type 'function'",
+              {
+                fieldPath: `functionCalls[${i}].type`,
+                value: (fc as any).type,
+                item,
+              }
+            );
+          }
+          if (!('function' in fc) || !(fc as any).function) {
+            raiseValidationError(
+              'functionCalls entry must include a function object',
+              {
+                fieldPath: `functionCalls[${i}].function`,
+                value: (fc as any).function,
+                item,
+              }
+            );
+          } else {
+            const funcObj = (fc as any).function;
+            if (
+              !('name' in funcObj) ||
+              typeof funcObj.name !== 'string' ||
+              funcObj.name.trim() === ''
+            ) {
+              raiseValidationError(
+                'functionCalls entry must include a non-empty function name',
+                {
+                  fieldPath: `functionCalls[${i}].function.name`,
+                  value: funcObj?.name,
+                  item,
+                }
+              );
+            }
+            if (funcObj.params !== undefined) {
+              if (
+                typeof funcObj.params !== 'string' &&
+                typeof funcObj.params !== 'object'
+              ) {
+                raiseValidationError(
+                  'functionCalls entry params must be a string or object when provided',
+                  {
+                    fieldPath: `functionCalls[${i}].function.params`,
+                    value: funcObj.params,
+                    item,
+                  }
+                );
+              }
+            }
+          }
+        }
       }
 
-      if (functionCalls && !Array.isArray(functionCalls)) {
-        throw new Error(
-          `Assistant message function calls must be an array, received: ${value(functionCalls)}`
-        );
+      if ((item as any).name !== undefined) {
+        const name = (item as any).name;
+        if (typeof name !== 'string' || name.trim() === '') {
+          raiseValidationError(
+            'Assistant message name must be a non-empty string when provided',
+            { fieldPath: 'name', value: name, item }
+          );
+        }
       }
       break;
     }
@@ -285,6 +410,20 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
       if (typeof result !== 'string') {
         throw new Error(
           `Function message result must be a string, received: ${value(result)}`
+        );
+      }
+
+      if (
+        (item as any).isError !== undefined &&
+        typeof (item as any).isError !== 'boolean'
+      ) {
+        raiseValidationError(
+          'Function message isError must be a boolean when provided',
+          {
+            fieldPath: 'isError',
+            value: (item as any).isError,
+            item,
+          }
         );
       }
       break;
