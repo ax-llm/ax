@@ -76,12 +76,12 @@ export type RequestFunctionDefinition = NonNullable<
 
 // Content parts for input messages
 export interface AxAIOpenAIResponsesInputTextContentPart {
-  readonly type: 'text';
+  readonly type: 'input_text';
   text: string; // Made mutable for stream aggregation
 }
 
 export interface AxAIOpenAIResponsesInputImageUrlContentPart {
-  readonly type: 'image_url';
+  readonly type: 'input_image';
   readonly image_url: {
     readonly url: string;
     readonly details?: 'low' | 'high' | 'auto';
@@ -99,7 +99,9 @@ export interface AxAIOpenAIResponsesInputAudioContentPart {
 export type AxAIOpenAIResponsesInputContentPart =
   | AxAIOpenAIResponsesInputTextContentPart
   | AxAIOpenAIResponsesInputImageUrlContentPart
-  | AxAIOpenAIResponsesInputAudioContentPart;
+  | AxAIOpenAIResponsesInputAudioContentPart
+  // Allow referencing prior assistant outputs in the input context
+  | AxAIOpenAIResponsesOutputTextContentPart;
 
 // Input Item: Message
 export interface AxAIOpenAIResponsesInputMessageItem {
@@ -281,7 +283,8 @@ export interface AxAIOpenAIResponsesResponse {
   readonly output: ReadonlyArray<AxAIOpenAIResponsesOutputItem>;
   readonly usage?: {
     readonly prompt_tokens: number;
-    readonly completion_tokens: number; // Or output_tokens / generated_tokens
+    readonly completion_tokens?: number; // Some variants use output_tokens
+    readonly output_tokens?: number; // Alias seen in some responses
     readonly total_tokens: number;
     // reasoning_tokens?: number // if applicable and included
   } | null;

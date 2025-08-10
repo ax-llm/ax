@@ -111,12 +111,12 @@ export class AxAIOpenAIResponsesImpl<
       content.map((part: UserMessageContentItem) => {
         // AxUserMessageContentItem ensures part is one of {type: text}, {type: image}, {type: audio}
         if (part.type === 'text') {
-          return { type: 'text', text: part.text };
+          return { type: 'input_text', text: part.text };
         }
         if (part.type === 'image') {
           const url = `data:${part.mimeType};base64,${part.image}`;
           return {
-            type: 'image_url',
+            type: 'input_image',
             image_url: { url, details: part.details ?? 'auto' },
           };
         }
@@ -167,7 +167,13 @@ export class AxAIOpenAIResponsesImpl<
         (msg.role === 'assistant' && msg.content)
       ) {
         if (typeof msg.content === 'string') {
-          mappedContent = msg.content;
+          if (msg.role === 'system') {
+            mappedContent = msg.content;
+          } else {
+            mappedContent = [
+              { type: 'input_text', text: msg.content },
+            ] as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
+          }
         } else if (Array.isArray(msg.content)) {
           // Only for user role typically
           mappedContent = this.mapInternalContentToResponsesInput(
@@ -368,6 +374,8 @@ export class AxAIOpenAIResponsesImpl<
               req.modelConfig?.frequencyPenalty ??
               this.config.frequencyPenalty ??
               undefined,
+            max_output_tokens:
+              req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
           }),
       stream: req.modelConfig?.stream ?? this.config.stream ?? false, // Sourced from modelConfig or global config
       // Optional fields from AxAIOpenAIResponsesRequest that need to be in Mutable for initialization
@@ -496,7 +504,7 @@ export class AxAIOpenAIResponsesImpl<
     if (usage) {
       this.tokensUsed = {
         promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
+        completionTokens: usage.completion_tokens ?? usage.output_tokens ?? 0,
         totalTokens: usage.total_tokens,
       };
     }
@@ -1053,7 +1061,10 @@ export class AxAIOpenAIResponsesImpl<
         if (event.response.usage) {
           this.tokensUsed = {
             promptTokens: event.response.usage.prompt_tokens,
-            completionTokens: event.response.usage.completion_tokens,
+            completionTokens:
+              event.response.usage.completion_tokens ??
+              event.response.usage.output_tokens ??
+              0,
             totalTokens: event.response.usage.total_tokens,
           };
         }
