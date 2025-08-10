@@ -217,15 +217,48 @@ class AxAIAnthropicImpl
 
     const messages = createMessages(otherMessages);
 
-    const tools: AxAIAnthropicChatRequest['tools'] = req.functions?.map(
-      (v) => ({
+    // Compose tools from request function definitions and static config tools
+    const functionToolsFromReq: AxAIAnthropicChatRequest['tools'] | undefined =
+      req.functions?.map((v) => ({
         name: v.name,
         description: v.description,
         input_schema: v.parameters
           ? cleanSchemaForAnthropic(v.parameters)
           : undefined,
-      })
-    );
+      }));
+
+    const configToolsRaw = this.config.tools ?? [];
+    const configToolsCleaned: AxAIAnthropicChatRequest['tools'] =
+      configToolsRaw.map((tool: any) => {
+        if (tool && typeof tool === 'object' && 'type' in tool) {
+          // Server tools (e.g., web_search) are passed through as-is
+          return tool;
+        }
+        // Function-style tools: ensure input_schema is cleaned
+        return {
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.input_schema
+            ? cleanSchemaForAnthropic(tool.input_schema)
+            : undefined,
+          ...(tool.cache_control ? { cache_control: tool.cache_control } : {}),
+        };
+      });
+
+    let tools: AxAIAnthropicChatRequest['tools'] | undefined = [
+      ...(functionToolsFromReq ?? []),
+      ...configToolsCleaned,
+    ];
+
+    // Anthropic Vertex does not support server tools like web_search; filter them out
+    if (this.isVertex && tools.length > 0) {
+      tools = tools.filter(
+        (t: any) => !(t && typeof t === 'object' && 'type' in t)
+      );
+    }
+    if (tools.length === 0) {
+      tools = undefined;
+    }
 
     const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens;
     const stopSequences =
@@ -305,7 +338,7 @@ class AxAIAnthropicImpl
       // Only include top_k when thinking is not enabled
       ...(topK && !thinkingConfig ? { top_k: topK } : {}),
       ...toolsChoice,
-      ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(tools ? { tools } : {}),
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
       ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
@@ -476,6 +509,14 @@ class AxAIAnthropicImpl
           };
         }
       }
+      if (
+        contentBlock.type === 'web_search_tool_result' ||
+        contentBlock.type === 'server_tool_use'
+      ) {
+        return {
+          results: [{ index, content: '' }],
+        };
+      }
     }
 
     if (resp.type === 'content_block_delta') {
@@ -509,7 +550,7 @@ class AxAIAnthropicImpl
       if (delta.type === 'input_json_delta') {
         const id = sstate.indexIdMap[resp.index];
         if (!id) {
-          throw new Error(`invalid streaming index no id found: ${resp.index}`);
+          return { results: [{ index, content: '' }] };
         }
         const functionCalls = [
           {

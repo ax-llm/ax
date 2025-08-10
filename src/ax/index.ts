@@ -19,14 +19,17 @@ import {
   type AxAIAnthropicContentBlockStartEvent,
   type AxAIAnthropicContentBlockStopEvent,
   type AxAIAnthropicErrorEvent,
+  type AxAIAnthropicFunctionTool,
   type AxAIAnthropicMessageDeltaEvent,
   type AxAIAnthropicMessageStartEvent,
   type AxAIAnthropicMessageStopEvent,
   AxAIAnthropicModel,
   type AxAIAnthropicPingEvent,
+  type AxAIAnthropicRequestTool,
   type AxAIAnthropicThinkingConfig,
   type AxAIAnthropicThinkingTokenBudgetLevels,
   AxAIAnthropicVertexModel,
+  type AxAIAnthropicWebSearchTool,
 } from './ai/anthropic/types.js';
 import {
   AxAIAzureOpenAI,
@@ -854,12 +857,15 @@ export type { AxAIAnthropicContentBlockDeltaEvent };
 export type { AxAIAnthropicContentBlockStartEvent };
 export type { AxAIAnthropicContentBlockStopEvent };
 export type { AxAIAnthropicErrorEvent };
+export type { AxAIAnthropicFunctionTool };
 export type { AxAIAnthropicMessageDeltaEvent };
 export type { AxAIAnthropicMessageStartEvent };
 export type { AxAIAnthropicMessageStopEvent };
 export type { AxAIAnthropicPingEvent };
+export type { AxAIAnthropicRequestTool };
 export type { AxAIAnthropicThinkingConfig };
 export type { AxAIAnthropicThinkingTokenBudgetLevels };
+export type { AxAIAnthropicWebSearchTool };
 export type { AxAIArgs };
 export type { AxAIAzureOpenAIArgs };
 export type { AxAIAzureOpenAIConfig };
