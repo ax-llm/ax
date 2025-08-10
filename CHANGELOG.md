@@ -1,5 +1,13 @@
 # Changelog
 
+## [14.0.8](https://github.com/ax-llm/ax/compare/14.0.6...14.0.7) (2025-08-10)
+
+### Features
+
+* add support for new tool types in Anthropic API ([367dad0](https://github.com/ax-llm/ax/commit/367dad056faae1a8c6a849cd7ff22c765498569a))
+* enhance chat request message validation and model info ([3bea574](https://github.com/ax-llm/ax/commit/3bea574e60494b9099dd145cb1f1887baadc3d29))
+## [14.0.7](https://github.com/ax-llm/ax/compare/14.0.6...14.0.7) (2025-08-09)
+
 ## [14.0.7](https://github.com/ax-llm/ax/compare/14.0.5...14.0.6) (2025-08-09)
 ## [14.0.6](https://github.com/ax-llm/ax/compare/14.0.5...14.0.6) (2025-08-09)
 
