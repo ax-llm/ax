@@ -105,36 +105,54 @@ export class AxAIOpenAIResponsesImpl<
   }
 
   private mapInternalContentToResponsesInput(
-    content: ReadonlyArray<UserMessageContentItem> // Expects an array of content items, string case handled by caller
+    content: ReadonlyArray<UserMessageContentItem>, // Expects an array of content items, string case handled by caller
+    role: 'user' | 'assistant'
   ): ReadonlyArray<AxAIOpenAIResponsesInputContentPart> {
-    const mappedParts: Mutable<AxAIOpenAIResponsesInputContentPart>[] =
-      content.map((part: UserMessageContentItem) => {
-        // AxUserMessageContentItem ensures part is one of {type: text}, {type: image}, {type: audio}
-        if (part.type === 'text') {
-          return { type: 'input_text', text: part.text };
+    const mappedParts: Mutable<AxAIOpenAIResponsesInputContentPart>[] = [];
+
+    for (const part of content) {
+      if (part.type === 'text') {
+        if (role === 'assistant') {
+          mappedParts.push({
+            type: 'output_text',
+            text: part.text,
+          } as unknown as AxAIOpenAIResponsesInputContentPart);
+        } else {
+          mappedParts.push({ type: 'input_text', text: part.text });
         }
-        if (part.type === 'image') {
-          const url = `data:${part.mimeType};base64,${part.image}`;
-          return {
-            type: 'input_image',
-            image_url: { url, details: part.details ?? 'auto' },
-          };
-        }
-        if (part.type === 'audio') {
-          return {
-            type: 'input_audio',
-            input_audio: {
-              data: part.data,
-              format: part.format === 'wav' ? 'wav' : undefined,
-            },
-          };
-        }
-        // This should be exhaustive given AxUserMessageContentItem's definition
-        const ExhaustiveCheck: never = part;
-        throw new Error(
-          `Unsupported content part: ${JSON.stringify(ExhaustiveCheck)}`
-        );
-      });
+        continue;
+      }
+
+      if (role === 'assistant') {
+        // Assistant message content in input must be output types only. Skip non-text parts.
+        continue;
+      }
+
+      if (part.type === 'image') {
+        const url = `data:${part.mimeType};base64,${part.image}`;
+        mappedParts.push({
+          type: 'input_image',
+          image_url: { url, details: part.details ?? 'auto' },
+        } as const);
+        continue;
+      }
+      if (part.type === 'audio') {
+        mappedParts.push({
+          type: 'input_audio',
+          input_audio: {
+            data: part.data,
+            format: part.format === 'wav' ? 'wav' : undefined,
+          },
+        } as const);
+        continue;
+      }
+
+      const ExhaustiveCheck: never = part;
+      throw new Error(
+        `Unsupported content part: ${JSON.stringify(ExhaustiveCheck)}`
+      );
+    }
+
     return mappedParts as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
   }
 
@@ -169,15 +187,19 @@ export class AxAIOpenAIResponsesImpl<
         if (typeof msg.content === 'string') {
           if (msg.role === 'system') {
             mappedContent = msg.content;
+          } else if (msg.role === 'assistant') {
+            mappedContent = [
+              { type: 'output_text', text: msg.content },
+            ] as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
           } else {
             mappedContent = [
               { type: 'input_text', text: msg.content },
             ] as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
           }
         } else if (Array.isArray(msg.content)) {
-          // Only for user role typically
           mappedContent = this.mapInternalContentToResponsesInput(
-            msg.content as ReadonlyArray<UserMessageContentItem>
+            msg.content as ReadonlyArray<UserMessageContentItem>,
+            msg.role === 'assistant' ? 'assistant' : 'user'
           );
         } else {
           // Handle cases where content might be undefined for assistant, or unexpected type
