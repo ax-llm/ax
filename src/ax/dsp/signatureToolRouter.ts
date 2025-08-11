@@ -1,4 +1,6 @@
+import { trace } from '@opentelemetry/api';
 import type { AxFunction, AxFunctionHandler } from '../ai/types.js';
+import { axGlobals } from './globals.js';
 
 export interface SignatureToolRouterResult {
   toolResults: Record<string, unknown>;
@@ -83,14 +85,47 @@ export class SignatureToolRouter {
     // Ensure args is an object for tools with parameters
     const toolArgs = typeof args === 'object' && args !== null ? args : {};
 
-    // Execute the tool
-    const handler = tool.func as AxFunctionHandler;
-    const result = await handler(toolArgs, {
-      sessionId: options?.sessionId,
-      traceId: options?.traceId,
-    });
+    const tracer = axGlobals.tracer ?? trace.getTracer('ax');
 
-    return result;
+    if (!tracer) {
+      const handler = tool.func as AxFunctionHandler;
+      return await handler(toolArgs, {
+        sessionId: options?.sessionId,
+        traceId: options?.traceId,
+      });
+    }
+
+    return await tracer.startActiveSpan(`Tool: ${tool.name}`, async (span) => {
+      try {
+        span.setAttributes?.({
+          'tool.name': tool.name,
+          'tool.mode': 'prompt',
+        });
+        const handler = tool.func as AxFunctionHandler;
+        const result = await handler(toolArgs, {
+          sessionId: options?.sessionId,
+          traceId: span.spanContext().traceId,
+        });
+
+        // Emit success event
+        span.addEvent('gen_ai.tool.message', {
+          name: tool.name,
+          args: JSON.stringify(toolArgs),
+          result:
+            typeof result === 'string' ? result : JSON.stringify(result ?? ''),
+        });
+        return result;
+      } catch (error) {
+        span.recordException(error as Error);
+        span.addEvent('function.error', {
+          name: tool.name,
+          message: (error as Error).toString(),
+        });
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
   }
 
   /**

@@ -1,4 +1,6 @@
 import { logFunctionError, logFunctionResults } from '../ai/debug.js';
+// Note: We intentionally avoid importing OpenTelemetry types directly here to
+// keep this module portable across environments that may not resolve OTel types.
 import type {
   AxAIService,
   AxChatRequest,
@@ -117,7 +119,7 @@ export class AxFunctionProcessor {
   private executeFunction = async <MODEL>(
     fnSpec: Readonly<AxFunction>,
     func: Readonly<AxChatResponseFunctionCall>,
-    options?: Readonly<AxProgramForwardOptions<MODEL>>
+    options?: Readonly<AxProgramForwardOptions<MODEL> & { traceId?: string }>
   ) => {
     let args: unknown;
 
@@ -130,6 +132,7 @@ export class AxFunctionProcessor {
     const opt = options
       ? {
           sessionId: options.sessionId,
+          traceId: options.traceId,
           ai: options.ai,
         }
       : undefined;
@@ -153,7 +156,7 @@ export class AxFunctionProcessor {
 
   public execute = async <MODEL>(
     func: Readonly<AxChatResponseFunctionCall>,
-    options?: Readonly<AxProgramForwardOptions<MODEL>>
+    options?: Readonly<AxProgramForwardOptions<MODEL> & { traceId?: string }>
   ) => {
     // Normalize names to make provider differences (case, underscores) resilient
     const normalize = (s: string) =>
@@ -237,7 +240,7 @@ type ProcessFunctionsArgs = {
   mem: Readonly<AxMemory>;
   sessionId?: string;
   traceId?: string;
-  span?: import('@opentelemetry/api').Span;
+  span?: any;
   excludeContentFromTrace?: boolean;
   index: number;
   functionResultFormatter?: (result: unknown) => string;
@@ -250,6 +253,7 @@ export const processFunctions = async ({
   functionCalls,
   mem,
   sessionId,
+  traceId,
   span,
   excludeContentFromTrace,
   index,
@@ -265,80 +269,167 @@ export const processFunctions = async ({
       throw new Error(`Function ${func.name} did not return an ID`);
     }
 
-    const promise: Promise<AxFunctionResult | undefined> = funcProc
-      .execute(func, { sessionId, ai, functionResultFormatter })
-      .then((functionResult) => {
-        functionsExecuted.add(func.name.toLowerCase());
+    const tracer = ai.getOptions().tracer ?? axGlobals.tracer;
 
-        // Add telemetry event for successful function call
-        if (span) {
-          const eventData: { name: string; args?: string; result?: string } = {
-            name: func.name,
-          };
-          if (!excludeContentFromTrace) {
-            eventData.args = func.args;
-            eventData.result = functionResult ?? '';
+    if (!tracer) {
+      // Fallback: no tracer configured, execute directly
+      return funcProc
+        .execute(func, { sessionId, ai, functionResultFormatter, traceId })
+        .then((functionResult) => {
+          functionsExecuted.add(func.name.toLowerCase());
+          if (span) {
+            const eventData: { name: string; args?: string; result?: string } =
+              {
+                name: func.name,
+              };
+            if (!excludeContentFromTrace) {
+              eventData.args = func.args;
+              eventData.result = functionResult ?? '';
+            }
+            span.addEvent('function.call', eventData);
           }
-          span.addEvent('function.call', eventData);
-        }
+          return {
+            result: functionResult ?? '',
+            role: 'function' as const,
+            functionId: func.id,
+            index,
+          };
+        })
+        .catch((e) => {
+          if (!(e instanceof FunctionError)) {
+            throw e;
+          }
+          const result = e.getFixingInstructions();
+          if (span) {
+            const errorEventData: {
+              name: string;
+              args?: string;
+              message: string;
+              fixing_instructions?: string;
+            } = {
+              name: func.name,
+              message: e.toString(),
+            };
+            if (!excludeContentFromTrace) {
+              errorEventData.args = func.args;
+              errorEventData.fixing_instructions = result;
+            }
+            span.addEvent('function.error', errorEventData);
+          }
+          if (ai.getOptions().debug) {
+            logFunctionError(e, index, result, logger);
+          }
+          return {
+            functionId: func.id,
+            isError: true,
+            index,
+            result,
+            role: 'function' as const,
+          };
+        });
+    }
 
-        return {
-          result: functionResult ?? '',
-          role: 'function' as const,
-          functionId: func.id,
-          index,
-        };
-      })
-      .catch((e) => {
-        if (!(e instanceof FunctionError)) {
+    // Start a child span for the tool call (parent context will be derived from the active context)
+    return tracer.startActiveSpan(
+      `Tool: ${func.name}`,
+      async (toolSpan: any) => {
+        try {
+          toolSpan?.setAttributes?.({
+            'tool.name': func.name,
+            'tool.mode': 'native',
+            'function.id': func.id,
+            'session.id': sessionId ?? '',
+          });
+          const functionResult = await funcProc.execute(func, {
+            sessionId,
+            ai,
+            functionResultFormatter,
+            traceId: toolSpan?.spanContext?.().traceId ?? traceId,
+          });
+
+          functionsExecuted.add(func.name.toLowerCase());
+
+          if (!excludeContentFromTrace) {
+            toolSpan.addEvent('gen_ai.tool.message', {
+              name: func.name,
+              args: func.args,
+              result: functionResult ?? '',
+            });
+          } else {
+            toolSpan.addEvent('gen_ai.tool.message', { name: func.name });
+          }
+
+          // Back-compat event on parent span if present
+          if (span) {
+            const eventData: { name: string; args?: string; result?: string } =
+              {
+                name: func.name,
+              };
+            if (!excludeContentFromTrace) {
+              eventData.args = func.args;
+              eventData.result = functionResult ?? '';
+            }
+            span.addEvent('function.call', eventData);
+          }
+
+          return {
+            result: functionResult ?? '',
+            role: 'function' as const,
+            functionId: func.id,
+            index,
+          };
+        } catch (e) {
+          // Error path
+          toolSpan?.recordException?.(e as Error);
+          if (e instanceof FunctionError) {
+            const result = e.getFixingInstructions();
+            const errorEventData: {
+              name: string;
+              args?: string;
+              message: string;
+              fixing_instructions?: string;
+            } = {
+              name: func.name,
+              message: e.toString(),
+            };
+            if (!excludeContentFromTrace) {
+              errorEventData.args = func.args;
+              errorEventData.fixing_instructions = result;
+            }
+            toolSpan?.addEvent?.('function.error', errorEventData);
+
+            if (ai.getOptions().debug) {
+              logFunctionError(e, index, result, logger);
+            }
+
+            return {
+              functionId: func.id,
+              isError: true,
+              index,
+              result,
+              role: 'function' as const,
+            };
+          }
           throw e;
+        } finally {
+          toolSpan?.end?.();
         }
-        const result = e.getFixingInstructions();
-
-        // Add telemetry event for function error
-        if (span) {
-          const errorEventData: {
-            name: string;
-            args?: string;
-            message: string;
-            fixing_instructions?: string;
-          } = {
-            name: func.name,
-            message: e.toString(),
-          };
-          if (!excludeContentFromTrace) {
-            errorEventData.args = func.args;
-            errorEventData.fixing_instructions = result;
-          }
-          span.addEvent('function.error', errorEventData);
-        }
-
-        if (ai.getOptions().debug) {
-          logFunctionError(e, index, result, logger);
-        }
-
-        return {
-          functionId: func.id,
-          isError: true,
-          index,
-          result,
-          role: 'function' as const,
-        };
-      });
-
-    return promise;
+      }
+    );
   });
 
   // Wait for all promises to resolve
   const results = await Promise.all(promises);
-  const functionResults = results.filter((result) => result !== undefined);
+  const functionResults: AxFunctionResult[] = (
+    results as Array<AxFunctionResult | undefined>
+  ).filter((r): r is AxFunctionResult => r !== undefined);
 
   mem.addFunctionResults(functionResults, sessionId);
 
   // Log successful function results if debug is enabled
   if (ai.getOptions().debug) {
     const successfulResults = functionResults.filter(
-      (result) => !result.isError
+      (result: AxFunctionResult) => !result.isError
     );
     if (successfulResults.length > 0) {
       logFunctionResults(successfulResults, logger);

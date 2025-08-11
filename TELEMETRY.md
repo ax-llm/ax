@@ -393,6 +393,108 @@ and the new `gen_ai` semantic conventions.
 }
 ```
 
+### 🛠️ Function/Tool Call Tracing
+
+Ax traces each function/tool invocation as a child span of the active generation
+(AxGen) span. This works for both native function calling and signature
+prompt-mode tool routing.
+
+What you get automatically when a tracer is configured:
+
+- A child span per tool call with clear parent-child relationships
+- Standardized attributes and events
+- Content redaction that respects `excludeContentFromTrace`
+
+Span naming and attributes
+
+```typescript
+// Span name
+//   Tool: <functionName>
+
+// Standard attributes (examples)
+{
+  'tool.name': '<functionName>',
+  'tool.mode': 'native' | 'prompt',
+  'function.id': '<providerFunctionId?>',
+  'session.id': '<sessionId?>'
+  // Optionally, inherited or added context like gen_ai.system/model from parent
+}
+```
+
+Events
+
+```typescript
+// On success
+{
+  name: 'gen_ai.tool.message',
+  attributes: {
+    args?: string,   // omitted when excludeContentFromTrace=true
+    result?: string  // omitted when excludeContentFromTrace=true
+  }
+}
+
+// On error
+{
+  name: 'function.error',
+  attributes: {
+    name: '<functionName>',
+    message: '<errorMessage>',
+    fixing_instructions?: '<hint text>' // when available
+  }
+}
+```
+
+Prompt-mode vs native
+
+- Native: `tool.mode='native'` spans are created when the provider returns a
+  function call.
+- Prompt-mode: `tool.mode='prompt'` spans are created when signature-injected
+  tool fields trigger execution.
+
+Developer guidance
+
+- Do not pass tracer or meter into your tool functions. Ax starts spans around
+  your tool handler and relies on OpenTelemetry context propagation.
+- If you need correlation inside your function, use `trace.getActiveSpan()` or
+  read `extra.sessionId`/`extra.traceId` parameters your handler already
+  receives.
+
+Modern example with factory functions
+
+```ts
+import { ai, ax } from "@ax-llm/ax";
+
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+
+const summarize = ax(
+  'documentText:string "Text to summarize" -> summaryText:string "Summary"',
+);
+
+// Provide tools; Ax will create a child span per call
+const tools = [
+  {
+    name: "fetchUrl",
+    description: "Fetches content from a URL",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The URL to fetch" },
+      },
+      required: ["url"],
+    },
+    async func(args) {
+      const res = await fetch(args.url);
+      return await res.text();
+    },
+  },
+];
+
+const result = await summarize.forward(llm, { documentText: "..." }, {
+  functions: tools,
+  functionCallMode: "auto", // native when supported, prompt-mode otherwise
+});
+```
+
 ---
 
 ## 🎯 Common Observability Patterns

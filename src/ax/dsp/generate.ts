@@ -384,6 +384,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         res,
         mem,
         sessionId,
+        traceId: span ? (span as any).spanContext?.().traceId : undefined,
         functions,
         strictMode,
         span,
@@ -408,6 +409,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         res,
         mem,
         sessionId,
+        traceId: span ? (span as any).spanContext?.().traceId : undefined,
         // In non-streaming mode, function calls are executed inside processResponse.
         // In streaming mode, we already passed functions above; to prevent duplicate
         // execution when the provider returns both an assistant message and accumulated
