@@ -27,14 +27,13 @@ const packageJson = JSON.parse(packageJsonData);
 packageJson.main = './index.cjs';
 packageJson.module = './index.js';
 packageJson.types = './index.d.ts';
-packageJson.browser = './index.global.js';
 packageJson.exports = {
   '.': {
     types: './index.d.ts',
-    browser: './index.global.js',
     import: './index.js',
     require: './index.cjs',
   },
+  './index.global.js': './index.global.js',
   './*': {
     types: './*.d.ts',
     import: './*.js',
