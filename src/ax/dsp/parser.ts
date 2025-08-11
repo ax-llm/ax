@@ -353,7 +353,7 @@ class SignatureParser {
         type = { name: typeName, isArray };
 
         // Validate specific type constraints for input fields
-        if ((typeName === 'image' || typeName === 'audio') && isArray) {
+        if (typeName === 'audio' && isArray) {
           throw new SignatureValidationError(
             `Input field "${name}": Arrays of ${typeName} are not supported`,
             this.position,

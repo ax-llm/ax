@@ -1503,7 +1503,7 @@ function validateFieldType(
       );
     }
 
-    if (type.isArray && (type.name === 'image' || type.name === 'audio')) {
+    if (type.isArray && type.name === 'audio') {
       throw new AxSignatureValidationError(
         `Arrays of ${type.name} are not supported`,
         field.name,
