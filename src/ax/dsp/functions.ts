@@ -211,7 +211,19 @@ export const parseFunctions = (
 
   for (const fn of functions.filter((v) => v.parameters)) {
     if (fn.parameters) {
-      validateJSONSchema(fn.parameters);
+      try {
+        validateJSONSchema(fn.parameters);
+      } catch (e) {
+        if (e instanceof Error) {
+          throw new Error(
+            `Function '${fn.name}' parameters schema is invalid.\n` +
+              `${e.message}\n` +
+              'Tip: Arrays must include an "items" schema (e.g., { items: { type: "string" } } or items: { type: "object", properties: { ... } }).',
+            { cause: e }
+          );
+        }
+        throw e;
+      }
     }
   }
 
