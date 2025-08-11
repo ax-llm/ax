@@ -124,7 +124,7 @@ See Field Types and Modifiers above for a concise overview. Example:
 
 `Google Gemini`, `OpenAI`, `OpenAI Responses`, `Azure OpenAI`, `Anthropic`,
 `X Grok`, `TogetherAI`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`,
-`Reka`, `Hugging Face`
+`Reka`, `Hugging Face`, `OpenRouter`
 
 ## Install
 

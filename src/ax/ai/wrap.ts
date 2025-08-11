@@ -39,6 +39,7 @@ import {
   type AxAIOpenAIResponsesArgs,
 } from './openai/responses_api_base.js';
 import type { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
+import { AxAIOpenRouter, type AxAIOpenRouterArgs } from './openrouter/api.js';
 import { AxAIReka, type AxAIRekaArgs } from './reka/api.js';
 import { AxAITogether, type AxAITogetherArgs } from './together/api.js';
 import type {
@@ -67,6 +68,7 @@ export type AxAIArgs<TModelKey> =
     >
   | AxAIAzureOpenAIArgs<TModelKey>
   | AxAITogetherArgs<TModelKey>
+  | AxAIOpenRouterArgs<TModelKey>
   | AxAIAnthropicArgs<TModelKey>
   | AxAIGroqArgs<TModelKey>
   | AxAIGoogleGeminiArgs<TModelKey>
@@ -180,6 +182,9 @@ export class AxAI<TModelKey = string>
         break;
       case 'together':
         this.ai = new AxAITogether<TModelKey>(options);
+        break;
+      case 'openrouter':
+        this.ai = new AxAIOpenRouter<TModelKey>(options);
         break;
       case 'cohere':
         this.ai = new AxAICohere<TModelKey>(options);

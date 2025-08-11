@@ -274,6 +274,11 @@ import {
   type AxAIOpenAIResponsesWebSearchToolCall,
 } from './ai/openai/responses_types.js';
 import {
+  AxAIOpenRouter,
+  type AxAIOpenRouterArgs,
+  axAIOpenRouterDefaultConfig,
+} from './ai/openrouter/api.js';
+import {
   axAnalyzeChatPromptRequirements,
   axProcessContentForProvider,
 } from './ai/processor.js';
@@ -692,6 +697,7 @@ export { AxAIOpenAIResponses };
 export { AxAIOpenAIResponsesBase };
 export { AxAIOpenAIResponsesImpl };
 export { AxAIOpenAIResponsesModel };
+export { AxAIOpenRouter };
 export { AxAIRefusalError };
 export { AxAIReka };
 export { AxAIRekaModel };
@@ -789,6 +795,7 @@ export { axAIOpenAIFastConfig };
 export { axAIOpenAIResponsesBestConfig };
 export { axAIOpenAIResponsesCreativeConfig };
 export { axAIOpenAIResponsesDefaultConfig };
+export { axAIOpenRouterDefaultConfig };
 export { axAIRekaBestConfig };
 export { axAIRekaCreativeConfig };
 export { axAIRekaDefaultConfig };
@@ -1011,6 +1018,7 @@ export type { AxAIOpenAIResponsesWebSearchCallSearchingEvent };
 export type { AxAIOpenAIResponsesWebSearchToolCall };
 export type { AxAIOpenAIUrlCitation };
 export type { AxAIOpenAIUsage };
+export type { AxAIOpenRouterArgs };
 export type { AxAIRekaArgs };
 export type { AxAIRekaChatRequest };
 export type { AxAIRekaChatResponse };
