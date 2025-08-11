@@ -1,5 +1,21 @@
 # Changelog
 
+## [14.0.11](https://github.com/ax-llm/ax/compare/14.0.9...14.0.10) (2025-08-11)
+
+### Features
+
+* add OpenAI web search example and improve JSON schema validation ([b71ecf5](https://github.com/ax-llm/ax/commit/b71ecf5b4363a5cf84877fc12a6492e2b0e9c352))
+* add OpenRouter support and example ([f616c0a](https://github.com/ax-llm/ax/commit/f616c0acf77c87b7bb795b932e0591ae8b2e9bb4))
+
+### Bug Fixes
+
+* update project words list to include 'openrouter' ([f8c2f58](https://github.com/ax-llm/ax/commit/f8c2f589f15d2aec562711bcf9379710a41dadb5))
+## [14.0.10](https://github.com/ax-llm/ax/compare/14.0.9...14.0.10) (2025-08-10)
+
+### Features
+
+* enhance response mapping for OpenAI integration ([61204ce](https://github.com/ax-llm/ax/commit/61204cea71704c37e832be96cc99c97853ca6ca4))
+
 ## [14.0.10](https://github.com/ax-llm/ax/compare/14.0.8...14.0.9) (2025-08-10)
 
 ### Features
