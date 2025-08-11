@@ -8,6 +8,7 @@ import type {
 import type { AxAIMemory } from '../mem/types.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxInputFunctionType } from './functions.js';
+import type { AxOptimizedProgram } from './optimizer.js';
 import type { AxPromptTemplate } from './prompt.js';
 import type { AxSignature } from './sig.js';
 
@@ -202,6 +203,7 @@ export interface AxTunable<IN, OUT> {
   setParentId: (parentId: string) => void;
   getTraces: () => AxProgramTrace<IN, OUT>[];
   setDemos: (demos: readonly AxProgramDemos<IN, OUT>[]) => void;
+  applyOptimization: (optimizedProgram: AxOptimizedProgram<OUT>) => void;
 }
 
 export interface AxUsable {

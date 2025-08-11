@@ -500,6 +500,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.program.setSignature(signature);
   }
 
+  public applyOptimization(optimizedProgram: any): void {
+    (this.program as any).applyOptimization?.(optimizedProgram);
+  }
+
   private getDebug<T extends Readonly<AxAIService>>(
     ai: AxAIService,
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>

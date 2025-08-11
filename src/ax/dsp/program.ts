@@ -15,7 +15,7 @@ import type {
 
 import { mergeProgramUsage, validateValue } from './util.js';
 
-export class AxProgram<IN, OUT> implements AxUsable {
+export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
   protected signature: AxSignature;
   protected sigHash: string;
 

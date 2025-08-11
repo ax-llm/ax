@@ -1,6 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, functional/prefer-immutable-types */
+
+import type { Meter, Tracer } from '@opentelemetry/api';
+import {
+  context,
+  type Context as OtelContext,
+  SpanKind,
+  trace,
+} from '@opentelemetry/api';
 import type { AxAIService } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
+import type { AxOptimizedProgram } from '../dsp/optimizer.js';
 import { AxProgram } from '../dsp/program.js';
 import type { AxFieldType } from '../dsp/sig.js';
 import { type AxField, AxSignature, f } from '../dsp/sig.js';
@@ -78,6 +87,7 @@ export class AxFlow<
   TState extends AxFlowState = IN, // Current evolving state type
 > implements AxFlowable<IN, OUT>
 {
+  private static _ctorWarned = false;
   private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map();
   private readonly flowDefinition: AxFlowStepFunction[] = [];
   private readonly nodeGenerators: Map<
@@ -104,6 +114,12 @@ export class AxFlow<
   // Verbose logging support
   private readonly flowLogger?: AxFlowLoggerFunction;
   private readonly timingLogger?: ReturnType<typeof createTimingLogger>;
+
+  // Default AI options to propagate to node forwards (e.g., tracer, meter)
+  private readonly defaultAIOptions?: Readonly<{
+    tracer?: Tracer;
+    meter?: Meter;
+  }>;
 
   /**
    * Converts a string to camelCase for valid field names
@@ -584,7 +600,16 @@ export class AxFlow<
     batchSize?: number;
     logger?: AxFlowLoggerFunction;
     debug?: boolean;
+    tracer?: Tracer;
+    meter?: Meter;
   }) {
+    if (!AxFlow._ctorWarned) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[AxFlow] new AxFlow() is deprecated. Use flow() factory instead.'
+      );
+      AxFlow._ctorWarned = true;
+    }
     // Initialize configuration with defaults
     this.autoParallelConfig = {
       enabled: options?.autoParallel !== false, // Default to true
@@ -606,6 +631,14 @@ export class AxFlow<
     this.timingLogger = this.flowLogger
       ? createTimingLogger(this.flowLogger)
       : undefined;
+
+    // Capture default AI options to propagate to node executions
+    if (options?.tracer || options?.meter) {
+      this.defaultAIOptions = {
+        tracer: options.tracer,
+        meter: options.meter,
+      };
+    }
   }
 
   /**
@@ -634,9 +667,15 @@ export class AxFlow<
    * Initializes the program field every time something is  added to the graph
    */
   private ensureProgram(): void {
-    // Create program with inferred signature
     const signature = this.inferSignatureFromFlow();
-    this.program = new AxProgram<IN, OUT>(signature);
+    if (!this.program) {
+      this.program = new AxProgram<IN, OUT>(signature);
+      for (const [_nodeName, nodeProgram] of Array.from(this.nodeGenerators)) {
+        this.program.register(nodeProgram as any);
+      }
+      return;
+    }
+    this.program.setSignature(signature);
   }
 
   public setExamples(
@@ -850,16 +889,50 @@ export class AxFlow<
         });
       }
 
+      // Determine tracer and create a parent span/context if available
+      const tracer: Tracer | undefined =
+        (options as any)?.tracer ?? this.defaultAIOptions?.tracer;
+      const providedCtx: OtelContext | undefined = (options as any)
+        ?.traceContext;
+
+      let parentSpan:
+        | ReturnType<NonNullable<typeof tracer>['startSpan']>
+        | undefined;
+      let parentCtx: OtelContext | undefined = providedCtx;
+      if (tracer) {
+        const execPlan = this.getExecutionPlan();
+        const spanName = (options as any)?.traceLabel
+          ? `AxFlow > ${(options as any).traceLabel}`
+          : 'AxFlow';
+        parentSpan = tracer.startSpan(spanName, {
+          kind: SpanKind.INTERNAL,
+          attributes: {
+            total_steps: execPlan.totalSteps,
+            parallel_groups: execPlan.parallelGroups,
+            max_parallelism: execPlan.maxParallelism,
+            auto_parallel_enabled: execPlan.autoParallelEnabled,
+          },
+        });
+        const baseCtx = providedCtx ?? context.active();
+        parentCtx = trace.setSpan(baseCtx, parentSpan);
+      }
+
       // Create execution context object
       // This provides consistent access to AI service and options for all steps
-      const context = {
+      const execContext = {
         mainAi: ai,
-        mainOptions: options
-          ? {
-              ...options,
-              model: options.model ? String(options.model) : undefined,
-            }
-          : undefined,
+        mainOptions: ((): AxProgramForwardOptions<string> | undefined => {
+          const merged: AxProgramForwardOptions<string> = {
+            ...(this.defaultAIOptions ?? {}),
+            ...(options as any),
+          } as AxProgramForwardOptions<string>;
+          if ((options as any)?.model)
+            merged.model = String((options as any).model);
+          if (tracer) merged.tracer = tracer;
+          if (parentCtx) (merged as any).traceContext = parentCtx;
+          // If nothing to merge and no defaults, return undefined
+          return Object.keys(merged).length > 0 ? merged : undefined;
+        })(),
       } as const;
 
       // Determine execution strategy based on configuration
@@ -886,7 +959,7 @@ export class AxFlow<
         const result = await this.executeStepsWithLogging(
           optimizedSteps,
           state,
-          context,
+          execContext,
           true
         );
         state = result.finalState;
@@ -900,7 +973,7 @@ export class AxFlow<
         const result = await this.executeStepsWithLogging(
           this.flowDefinition,
           state,
-          context,
+          execContext,
           false
         );
         state = result.finalState;
@@ -922,6 +995,9 @@ export class AxFlow<
         });
       }
 
+      // End parent span if created
+      if (parentSpan) parentSpan.end();
+
       // Return the final state cast to the expected output type
       // The type system ensures this is safe based on the signature inference
       return state as any;
@@ -935,6 +1011,9 @@ export class AxFlow<
           state,
         });
       }
+      // End parent span on error (if created)
+      // @ts-expect-error runtime-scoped variable defined above
+      if (typeof parentSpan !== 'undefined' && parentSpan) parentSpan.end();
       throw error;
     }
   }
@@ -1256,23 +1335,20 @@ export class AxFlow<
         ? transformOrTransforms
         : [transformOrTransforms];
 
-      // Create a parallel map step using the existing parallel infrastructure pattern
       const parallelMapStep = async (state: AxFlowState) => {
-        // Execute transforms with batch size control
         const orderedResults = await processBatches(
           transforms,
           async (transform, _index) => {
-            // Apply each transform to the state - handle both sync and async transforms
             const result = transform(state as TState);
-            // If the result is a promise, await it; otherwise return it directly
             return Promise.resolve(result);
           },
           this.autoParallelConfig.batchSize
         );
-
-        // For parallel map, merge results by taking the last one (most recent state)
-        // or if only one transform, return that result
-        return orderedResults[orderedResults.length - 1];
+        const merged = orderedResults.reduce<AxFlowState>(
+          (acc, res) => ({ ...acc, ...res }),
+          state
+        );
+        return merged;
       };
 
       // Add the parallel step to the flow
@@ -1289,13 +1365,13 @@ export class AxFlow<
       } else {
         this.flowDefinition.push(parallelMapStep);
 
-        // Register with execution planner as parallel operation
         if (this.autoParallelConfig.enabled) {
           this.executionPlanner.addExecutionStep(
             parallelMapStep,
             undefined,
             undefined,
-            'parallel-map'
+            'parallel-map',
+            transforms as any
           );
         }
       }
@@ -1524,7 +1600,10 @@ export class AxFlow<
     ) => {
       // Determine AI service and options using fallback logic
       const ai = dynamicContext?.ai ?? context.mainAi;
-      const options = dynamicContext?.options ?? context.mainOptions;
+      const options = {
+        ...(context.mainOptions ?? {}),
+        ...(dynamicContext?.options ?? {}),
+      } as AxProgramForwardOptions<string> | undefined;
 
       // Map the state to node inputs (with type safety)
       const nodeInputs = mapping(state as TState);
@@ -1615,6 +1694,27 @@ export class AxFlow<
       TNodes,
       AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
     >;
+  }
+
+  /**
+   * Apply optimized configuration to this flow and all node programs.
+   */
+  public applyOptimization(optimizedProgram: AxOptimizedProgram<any>): void {
+    // Apply to underlying program if created
+    if (this.program && 'applyOptimization' in this.program) {
+      (this.program as any).applyOptimization(optimizedProgram);
+    }
+
+    // Propagate to all registered node generators
+    for (const [_nodeName, nodeProgram] of Array.from(this.nodeGenerators)) {
+      if (
+        nodeProgram &&
+        'applyOptimization' in nodeProgram &&
+        typeof (nodeProgram as any).applyOptimization === 'function'
+      ) {
+        (nodeProgram as any).applyOptimization(optimizedProgram);
+      }
+    }
   }
 
   /**
@@ -1747,6 +1847,16 @@ export class AxFlow<
       // Evaluate the branch predicate to determine which branch to execute
       const branchValue = branchContext.predicate(state);
       const branchSteps = branchContext.branches.get(branchValue);
+
+      if (this.flowLogger) {
+        this.flowLogger({
+          name: 'BranchEvaluation',
+          timestamp: Date.now(),
+          branchValue,
+          hasMatchingBranch: !!branchSteps,
+          branchStepsCount: branchSteps?.length ?? 0,
+        } as any);
+      }
 
       if (!branchSteps) {
         // No matching branch found - return state unchanged

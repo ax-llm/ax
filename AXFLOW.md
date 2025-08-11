@@ -621,6 +621,47 @@ const selfHealingFlow = new AxFlow<{ input: string }, { output: string }>()
 
 ## Advanced Features
 
+### Instrumentation and Optimization (v13.0.24+)
+
+- Deprecation: prefer `flow()` factory over `new AxFlow()`.
+- Tracing: pass a Tracer via `flow({ tracer })` or
+  `flow.forward(llm, input, { tracer, traceContext })`.
+  - A parent span is created at the flow boundary (if `tracer` is provided).
+  - The parent span context is propagated to all node `.forward()` calls via
+    `options.traceContext`.
+  - Pass an OpenTelemetry Context for `traceContext` (not a Span). Use
+    `@opentelemetry/api` `context.active()` or similar.
+- Meter: pass `meter` the same way as `tracer`; it is propagated to node
+  forwards.
+- Demos/Examples routing: `flow.setDemos(demos)` routes by `programId` to the
+  correct prompts, similar to DSPy. The flow maintains an internal `AxProgram`
+  and registers all child nodes; each node filters demos by `programId`.
+- Optimization: `flow.applyOptimization(optimizedProgram)` applies to the flow’s
+  internal program and all registered child nodes.
+- Parallel map: `flow.map([...], { parallel: true })` merges all transform
+  outputs back into state.
+
+Example
+
+```ts
+import { ai, flow } from "@ax-llm/ax";
+import { context, trace } from "@opentelemetry/api";
+
+const llm = ai({ name: "mock" });
+const tracer = trace.getTracer("axflow");
+
+const wf = flow<{ userQuestion: string }>()
+  .node("summarizer", "documentText:string -> summaryText:string")
+  .execute("summarizer", (s) => ({ documentText: s.userQuestion }))
+  .returns((s) => ({ finalAnswer: (s as any).summarizerResult.summaryText }));
+
+const parentCtx = context.active();
+const out = await wf.forward(llm, { userQuestion: "hi" }, {
+  tracer,
+  traceContext: parentCtx,
+});
+```
+
 ### 1. Auto-Parallelization
 
 AxFlow automatically analyzes dependencies and runs independent operations in

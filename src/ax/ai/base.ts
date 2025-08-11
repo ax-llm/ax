@@ -129,14 +129,11 @@ export interface AxBaseAIArgs<TModel, TEmbedModel, TModelKey> {
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
   structuredClone({
     temperature: 0,
-    topK: 40,
-    topP: 0.9,
   });
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
     temperature: 0.4,
-    topP: 0.7,
     frequencyPenalty: 0.2,
   });
 
