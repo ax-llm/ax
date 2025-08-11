@@ -129,7 +129,7 @@ See Field Types and Modifiers above for a concise overview. Example:
 
 `Google Gemini`, `OpenAI`, `OpenAI Responses`, `Azure OpenAI`, `Anthropic`,
 `X Grok`, `TogetherAI`, `Cohere`, `Mistral`, `Groq`, `DeepSeek`, `Ollama`,
-`Reka`, `Hugging Face`
+`Reka`, `Hugging Face`, `OpenRouter`
 
 ## Install
 
@@ -344,13 +344,6 @@ console.log(result.thoughts); // Model's reasoning process
 Vector databases are critical to building LLM workflows. We have clean
 abstractions over popular vector databases and our own quick in-memory vector
 database.
-
-| Provider   | Tested  |
-| ---------- | ------- |
-| In Memory  | 🟢 100% |
-| Weaviate   | 🟢 100% |
-| Cloudflare | 🟡 50%  |
-| Pinecone   | 🟡 50%  |
 
 ```typescript
 import { ai, AxDB } from "@ax-llm/ax";
