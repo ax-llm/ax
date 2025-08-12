@@ -239,13 +239,13 @@ describe('signature parsing', () => {
     ).toThrow('Unexpected content after signature');
   });
 
-  it('validates array constraints for media types', () => {
+  it('allows array constraints for image and audio types', () => {
     expect(() =>
-      parseSignature('userImage:image[] -> responseText:string')
-    ).toThrow('Arrays of image are not supported');
+      parseSignature('userImages:image[] -> responseText:string')
+    ).not.toThrow();
     expect(() =>
-      parseSignature('userAudio:audio[] -> responseText:string')
-    ).toThrow('Arrays of audio are not supported');
+      parseSignature('userAudios:audio[] -> responseText:string')
+    ).not.toThrow();
   });
 
   it('allows valid descriptive field names', () => {
