@@ -263,6 +263,13 @@ class AxAIGoogleGeminiImpl
                       return {
                         inlineData: { mimeType: c.mimeType, data: c.image },
                       };
+                    case 'audio':
+                      return {
+                        inlineData: {
+                          mimeType: `audio/${c.format ?? 'mp3'}`,
+                          data: c.data,
+                        },
+                      };
                     case 'file':
                       // Support both inline data and fileUri formats
                       if ('fileUri' in c) {
