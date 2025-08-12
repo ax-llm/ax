@@ -399,7 +399,13 @@ class AxAIOpenAIImpl<
         id: `${choice.index}`,
         content: choice.message.content ?? undefined,
         thought: choice.message.reasoning_content,
-        annotations: choice.message.annotations,
+        citations: choice.message.annotations
+          ?.filter((a) => a?.type === 'url_citation' && (a as any).url_citation)
+          .map((a) => ({
+            url: (a as any).url_citation?.url,
+            title: (a as any).url_citation?.title,
+            description: (a as any).url_citation?.description,
+          })),
         functionCalls,
         finishReason,
       };
@@ -481,7 +487,15 @@ class AxAIOpenAIImpl<
           content: content ?? undefined,
           role,
           thought,
-          annotations,
+          citations: annotations
+            ?.filter(
+              (a) => a?.type === 'url_citation' && (a as any).url_citation
+            )
+            .map((a) => ({
+              url: (a as any).url_citation?.url,
+              title: (a as any).url_citation?.title,
+              description: (a as any).url_citation?.description,
+            })),
           functionCalls,
           finishReason,
           id,

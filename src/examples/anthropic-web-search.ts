@@ -16,7 +16,6 @@ const llm = ai({
         type: 'web_search_20250305',
         name: 'web_search',
         max_uses: 3,
-        allowed_domains: ['wikipedia.org', 'docs.anthropic.com'],
         user_location: {
           type: 'approximate',
           city: 'San Francisco',
@@ -29,9 +28,13 @@ const llm = ai({
   },
 });
 
-const result = await askWithSearch.forward(llm, {
-  userQuestion:
-    'When was Claude Shannon born? Provide a concise answer and include citations.',
-});
-
-console.log(result.responseText);
+await askWithSearch.forward(
+  llm,
+  {
+    userQuestion: 'Whats happening in the NFL right now in short',
+  },
+  {
+    stream: true,
+    debug: true,
+  }
+);

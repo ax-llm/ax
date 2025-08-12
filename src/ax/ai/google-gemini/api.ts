@@ -664,6 +664,22 @@ class AxAIGoogleGeminiImpl
             ];
           }
         }
+        // Map citation metadata to normalized citations
+        const cms = candidate.citationMetadata?.citations;
+        if (Array.isArray(cms) && cms.length) {
+          const toIso = (d?: { year: number; month: number; day: number }) =>
+            d
+              ? `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`
+              : undefined;
+          result.citations = cms
+            .filter((c) => typeof c?.uri === 'string')
+            .map((c) => ({
+              url: c.uri,
+              title: c.title,
+              license: c.license,
+              publicationDate: toIso(c.publicationDate),
+            }));
+        }
         return result;
       }
     );

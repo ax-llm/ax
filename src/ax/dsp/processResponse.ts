@@ -52,9 +52,9 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     args.functions !== undefined &&
     args.functions.length > 0;
 
-  // Each streamed chunk contains a `modelUsage` object, with accumulated token usage data.
-  // We'll only keep track of the latest modelUsage to push at the end.
+  // Track latest modelUsage and aggregate citations across chunks
   let lastChunkUsage: AxModelUsage | undefined;
+  const aggregatedCitations: NonNullable<AxModelUsage['citations']> = [];
 
   // Handle ReadableStream async iteration for browser compatibility
   const reader = res.getReader();
@@ -63,9 +63,6 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
       const { done, value } = await reader.read();
 
       if (done) {
-        if (lastChunkUsage) {
-          usage.push(lastChunkUsage);
-        }
         break;
       }
       const v = value;
@@ -74,6 +71,22 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
       }
 
       for (const result of v.results) {
+        // Collect citations if present
+        if (Array.isArray(result.citations)) {
+          for (const c of result.citations) {
+            if (c?.url) {
+              aggregatedCitations.push({
+                url: c.url,
+                title: c.title,
+                description: c.description,
+                license: c.license,
+                publicationDate: c.publicationDate,
+                snippet: c.snippet,
+              });
+            }
+          }
+        }
+
         if (
           (!result.content || result.content === '') &&
           (!result.thought || result.thought === '') &&
@@ -105,6 +118,28 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
       ...args,
       state,
     });
+  }
+
+  // Attach aggregated citations to usage and push (and log)
+  if (lastChunkUsage) {
+    if (aggregatedCitations.length) {
+      const dedup = Array.from(
+        new Map(
+          aggregatedCitations
+            .filter((c) => c.url)
+            .map((c) => [c.url as string, c])
+        ).values()
+      );
+      lastChunkUsage.citations = dedup;
+    }
+    usage.push(lastChunkUsage);
+    // Emit usage log event when logger is available
+    if (args.logger) {
+      args.logger({
+        name: 'ChatResponseUsage',
+        value: structuredClone(lastChunkUsage),
+      });
+    }
   }
 }
 
@@ -361,6 +396,25 @@ export async function* processResponse<OUT>({
 
   mem.addResponse(results, sessionId);
 
+  // Aggregate citations across results
+  const citations: NonNullable<AxModelUsage['citations']> = [];
+  for (const r of results) {
+    if (Array.isArray(r?.citations)) {
+      for (const c of r.citations) {
+        if (c?.url) {
+          citations.push({
+            url: c.url,
+            title: c.title,
+            description: c.description,
+            license: c.license,
+            publicationDate: c.publicationDate,
+            snippet: c.snippet,
+          });
+        }
+      }
+    }
+  }
+
   for (const result of results) {
     const state = states[result.index];
 
@@ -369,7 +423,22 @@ export async function* processResponse<OUT>({
     }
 
     if (res.modelUsage) {
-      usage.push(res.modelUsage);
+      const dedup = Array.from(
+        new Map(
+          citations.filter((c) => c.url).map((c) => [c.url as string, c])
+        ).values()
+      );
+      const modelUsage: AxModelUsage = {
+        ...res.modelUsage,
+        ...(dedup.length ? { citations: dedup } : {}),
+      };
+      usage.push(modelUsage);
+      if (logger) {
+        logger({
+          name: 'ChatResponseUsage',
+          value: structuredClone(modelUsage),
+        });
+      }
     }
 
     if (result.functionCalls?.length) {

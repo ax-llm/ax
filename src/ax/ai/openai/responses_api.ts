@@ -540,6 +540,8 @@ export class AxAIOpenAIResponsesImpl<
           currentResult.content = contentToText(item.content, id);
           currentResult.finishReason =
             item.status === 'completed' ? 'stop' : 'content_filter';
+          // Extract annotations from output_text parts
+          currentResult.citations = extractAnnotationsFromContent(item.content);
           break;
 
         case 'reasoning':
@@ -732,6 +734,9 @@ export class AxAIOpenAIResponsesImpl<
               event.item.content,
               event.item.id
             );
+            baseResult.citations = extractAnnotationsFromContent(
+              event.item.content
+            );
             break;
           case 'function_call':
             baseResult.id = event.item.id;
@@ -914,6 +919,9 @@ export class AxAIOpenAIResponsesImpl<
         // Content part added - return the initial text if any
         baseResult.id = event.item_id;
         baseResult.content = contentToText([event.part], event.item_id);
+        baseResult.citations = extractAnnotationsFromContent([
+          event.part as any,
+        ]);
         break;
 
       case 'response.output_text.delta':
@@ -1058,6 +1066,12 @@ export class AxAIOpenAIResponsesImpl<
             baseResult.id = event.item.id;
             baseResult.finishReason =
               event.item.status === 'completed' ? 'stop' : 'error';
+            if (!baseResult.citations || baseResult.citations.length === 0) {
+              const anns = extractAnnotationsFromContent(
+                event.item.content || []
+              );
+              if (anns) baseResult.citations = anns;
+            }
             break;
           case 'function_call':
           case 'file_search_call':
@@ -1182,3 +1196,30 @@ const contentToText = (
     .map((c) => c.text)
     .join('\n');
 };
+
+// Extract URL citations from output_text annotations into normalized citations
+function extractAnnotationsFromContent(
+  content: ReadonlyArray<
+    | AxAIOpenAIResponsesOutputTextContentPart
+    | AxAIOpenAIResponsesOutputRefusalContentPart
+  >
+): AxChatResponseResult['citations'] | undefined {
+  const annos: NonNullable<AxChatResponseResult['citations']> = [];
+  for (const p of content ?? []) {
+    if (
+      (p as any)?.type === 'output_text' &&
+      Array.isArray((p as any).annotations)
+    ) {
+      for (const a of (p as any).annotations) {
+        if (a && a.type === 'url_citation' && typeof a.url === 'string') {
+          annos.push({
+            url: a.url,
+            title: a.title,
+            description: a.description,
+          });
+        }
+      }
+    }
+  }
+  return annos.length ? annos : undefined;
+}

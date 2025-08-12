@@ -375,10 +375,26 @@ class AxAIAnthropicImpl
       AxChatResponseResult['functionCalls']
     > = [];
 
+    // Collect citations from text blocks (citations are embedded here)
+    const citations: NonNullable<AxChatResponseResult['citations']> = [];
+
     for (const block of resp.content) {
       switch (block.type) {
         case 'text':
           aggregatedContent += block.text ?? '';
+          // Map citations if present on the text block
+          if (Array.isArray((block as any).citations)) {
+            for (const c of (block as any).citations) {
+              if (c?.url) {
+                citations.push({
+                  url: String(c.url),
+                  title: typeof c.title === 'string' ? c.title : undefined,
+                  snippet:
+                    typeof c.cited_text === 'string' ? c.cited_text : undefined,
+                });
+              }
+            }
+          }
           break;
         case 'thinking':
         case 'redacted_thinking':
@@ -410,6 +426,9 @@ class AxAIAnthropicImpl
     }
     if (aggregatedFunctionCalls.length > 0) {
       result.functionCalls = aggregatedFunctionCalls;
+    }
+    if (citations.length > 0) {
+      result.citations = citations;
     }
 
     const results = [result];
@@ -469,8 +488,27 @@ class AxAIAnthropicImpl
         resp as unknown as AxAIAnthropicContentBlockStartEvent;
 
       if (contentBlock.type === 'text') {
+        const annos: NonNullable<AxChatResponseResult['citations']> = [];
+        if (Array.isArray((contentBlock as any).citations)) {
+          for (const c of (contentBlock as any).citations) {
+            if (c?.url) {
+              annos.push({
+                url: String(c.url),
+                title: typeof c.title === 'string' ? c.title : undefined,
+                snippet:
+                  typeof c.cited_text === 'string' ? c.cited_text : undefined,
+              });
+            }
+          }
+        }
         return {
-          results: [{ index, content: contentBlock.text }],
+          results: [
+            {
+              index,
+              content: contentBlock.text,
+              ...(annos.length ? { citations: annos } : {}),
+            },
+          ],
         };
       }
       if (contentBlock.type === 'thinking') {
@@ -521,9 +559,52 @@ class AxAIAnthropicImpl
 
     if (resp.type === 'content_block_delta') {
       const { delta } = resp as unknown as AxAIAnthropicContentBlockDeltaEvent;
+      // Emit standalone annotations when Anthropic streams citations separately
+      if ((delta as any).type === 'citations_delta') {
+        const c = (delta as any).citation;
+        if (c && typeof c.url === 'string' && c.url.length > 0) {
+          const annos: NonNullable<AxChatResponseResult['citations']> = [
+            {
+              url: String(c.url),
+              title: typeof c.title === 'string' ? c.title : undefined,
+              snippet:
+                typeof c.cited_text === 'string' ? c.cited_text : undefined,
+            },
+          ];
+          return {
+            results: [
+              {
+                index,
+                content: '',
+                citations: annos,
+              },
+            ],
+          };
+        }
+        return { results: [{ index, content: '' }] };
+      }
       if (delta.type === 'text_delta') {
+        const annos: NonNullable<AxChatResponseResult['citations']> = [];
+        if (Array.isArray((delta as any).citations)) {
+          for (const c of (delta as any).citations) {
+            if (c?.url) {
+              annos.push({
+                url: String(c.url),
+                title: typeof c.title === 'string' ? c.title : undefined,
+                snippet:
+                  typeof c.cited_text === 'string' ? c.cited_text : undefined,
+              });
+            }
+          }
+        }
         return {
-          results: [{ index, content: delta.text }],
+          results: [
+            {
+              index,
+              content: delta.text,
+              ...(annos.length ? { citations: annos } : {}),
+            },
+          ],
         };
       }
       if (delta.type === 'thinking_delta') {

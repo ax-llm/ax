@@ -116,18 +116,7 @@ export type AxChatResponseResult = {
     type: 'function';
     function: { name: string; params?: string | object };
   }[];
-  annotations?: {
-    type: 'url_citation';
-    url_citation: {
-      url: string;
-      title?: string;
-      description?: string;
-      license?: string; // Content license information
-      publicationDate?: string; // ISO date string
-      snippet?: string; // Relevant text excerpt
-      confidenceScore?: number; // 0-1 confidence in citation
-    };
-  }[];
+  citations?: AxCitation[];
   finishReason?:
     | 'stop'
     | 'length'
@@ -143,10 +132,21 @@ export type AxChatResponseResult = {
   };
 };
 
+// Normalized citation shape used across providers
+export type AxCitation = {
+  url: string;
+  title?: string;
+  description?: string;
+  license?: string;
+  publicationDate?: string;
+  snippet?: string;
+};
+
 export type AxModelUsage = {
   ai: string;
   model: string;
   tokens?: AxTokenUsage;
+  citations?: AxCitation[];
 };
 
 export type AxChatResponse = {
@@ -421,6 +421,10 @@ export type AxLoggerData =
         sample: number[];
         truncated: boolean;
       }[];
+    }
+  | {
+      name: 'ChatResponseUsage';
+      value: AxModelUsage;
     };
 
 export type AxLoggerFunction = (message: AxLoggerData) => void;

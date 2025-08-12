@@ -251,6 +251,20 @@ export function mergeProgramUsage(
       tokens.completionTokens += usage?.tokens?.completionTokens ?? 0;
       tokens.totalTokens += usage?.tokens?.totalTokens ?? 0;
       currentUsage.tokens = tokens;
+
+      // Merge citations and dedupe by URL
+      const existing = currentUsage.citations ?? [];
+      const incoming = usage.citations ?? [];
+      if (incoming.length) {
+        const seen = new Set(existing.map((c) => c.url));
+        for (const c of incoming) {
+          if (c?.url && !seen.has(c.url)) {
+            existing.push(c);
+            seen.add(c.url);
+          }
+        }
+        currentUsage.citations = existing;
+      }
     }
   }
 
