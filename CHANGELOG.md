@@ -1,5 +1,28 @@
 # Changelog
 
+## [14.0.12](https://github.com/ax-llm/ax/compare/14.0.10...14.0.11) (2025-08-12)
+
+### Features
+
+* enhance ax function with customizable thought key support ([1e02d29](https://github.com/ax-llm/ax/commit/1e02d29e1cef7dffacf521599f6d743d1a912c37))
+* enhance AxFlow with instrumentation and optimization features ([0e39a24](https://github.com/ax-llm/ax/commit/0e39a249c076e24445dccbf74181275fa9fe5254))
+* implement citation handling and logging in response processing ([a0aeb77](https://github.com/ax-llm/ax/commit/a0aeb77f1aa74829eb37243174165f3c24b2ac4a))
+* implement function/tool call tracing for enhanced observability ([58664d0](https://github.com/ax-llm/ax/commit/58664d0d8164af5558dce51e0dba70e294d68f82))
+
+### Bug Fixes
+
+* update package exports for browser compatibility ([191d4a3](https://github.com/ax-llm/ax/commit/191d4a3f61d494a9cea6482b81dadf240210e73e))
+## [14.0.11](https://github.com/ax-llm/ax/compare/14.0.10...14.0.11) (2025-08-11)
+
+### Features
+
+* add OpenAI web search example and improve JSON schema validation ([b71ecf5](https://github.com/ax-llm/ax/commit/b71ecf5b4363a5cf84877fc12a6492e2b0e9c352))
+* add OpenRouter support and example ([f616c0a](https://github.com/ax-llm/ax/commit/f616c0acf77c87b7bb795b932e0591ae8b2e9bb4))
+
+### Bug Fixes
+
+* update project words list to include 'openrouter' ([f8c2f58](https://github.com/ax-llm/ax/commit/f8c2f589f15d2aec562711bcf9379710a41dadb5))
+
 ## [14.0.11](https://github.com/ax-llm/ax/compare/14.0.9...14.0.10) (2025-08-11)
 
 ### Features
