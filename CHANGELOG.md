@@ -1,5 +1,23 @@
 # Changelog
 
+## [14.0.13](https://github.com/ax-llm/ax/compare/14.0.11...14.0.12) (2025-08-12)
+
+### Features
+
+* support `image[]` and `audio[]` in signatures ([#307](https://github.com/ax-llm/ax/issues/307)) ([15259d0](https://github.com/ax-llm/ax/commit/15259d0f53e8d65bf89182b35d665770601b16b4))
+## [14.0.12](https://github.com/ax-llm/ax/compare/14.0.11...14.0.12) (2025-08-12)
+
+### Features
+
+* enhance ax function with customizable thought key support ([1e02d29](https://github.com/ax-llm/ax/commit/1e02d29e1cef7dffacf521599f6d743d1a912c37))
+* enhance AxFlow with instrumentation and optimization features ([0e39a24](https://github.com/ax-llm/ax/commit/0e39a249c076e24445dccbf74181275fa9fe5254))
+* implement citation handling and logging in response processing ([a0aeb77](https://github.com/ax-llm/ax/commit/a0aeb77f1aa74829eb37243174165f3c24b2ac4a))
+* implement function/tool call tracing for enhanced observability ([58664d0](https://github.com/ax-llm/ax/commit/58664d0d8164af5558dce51e0dba70e294d68f82))
+
+### Bug Fixes
+
+* update package exports for browser compatibility ([191d4a3](https://github.com/ax-llm/ax/commit/191d4a3f61d494a9cea6482b81dadf240210e73e))
+
 ## [14.0.12](https://github.com/ax-llm/ax/compare/14.0.10...14.0.11) (2025-08-12)
 
 ### Features
