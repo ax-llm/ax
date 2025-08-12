@@ -1,5 +1,16 @@
 # Changelog
 
+## [14.0.14](https://github.com/ax-llm/ax/compare/14.0.12...14.0.13) (2025-08-12)
+
+### Features
+
+* add comprehensive API and Quick Start documentation ([4fbbf45](https://github.com/ax-llm/ax/commit/4fbbf452c5e0736ceb5a598d2d46a97c36eee7f1))
+## [14.0.13](https://github.com/ax-llm/ax/compare/14.0.12...14.0.13) (2025-08-12)
+
+### Features
+
+* support `image[]` and `audio[]` in signatures ([#307](https://github.com/ax-llm/ax/issues/307)) ([15259d0](https://github.com/ax-llm/ax/commit/15259d0f53e8d65bf89182b35d665770601b16b4))
+
 ## [14.0.13](https://github.com/ax-llm/ax/compare/14.0.11...14.0.12) (2025-08-12)
 
 ### Features
