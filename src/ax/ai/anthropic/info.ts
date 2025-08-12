@@ -5,6 +5,14 @@ import { AxAIAnthropicModel } from './types.js';
 export const axModelInfoAnthropic: AxModelInfo[] = [
   // 4
   {
+    name: AxAIAnthropicModel.Claude41Opus,
+    currency: 'usd',
+    promptTokenCostPer1M: 15.0,
+    completionTokenCostPer1M: 75.0,
+    maxTokens: 32000,
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
+  {
     name: AxAIAnthropicModel.Claude4Opus,
     currency: 'usd',
     promptTokenCostPer1M: 15.0,

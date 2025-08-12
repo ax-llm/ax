@@ -322,6 +322,7 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
+  AxCitation,
   AxEmbedRequest,
   AxEmbedResponse,
   AxFunction,
@@ -1058,6 +1059,7 @@ export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
+export type { AxCitation };
 export type { AxCompileOptions };
 export type { AxContentProcessingServices };
 export type { AxCostTracker };

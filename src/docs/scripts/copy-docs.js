@@ -11,7 +11,25 @@ const filesToCopy = [
     source: 'README.md',
     dest: 'readme.md',
     title: 'Documentation',
-    description: 'Ax, DSPy for TypeScript - Complete documentation',
+    description: 'Ax - Build Reliable AI Apps in TypeScript',
+  },
+  {
+    source: 'QUICKSTART.md',
+    dest: 'quickstart.md',
+    title: 'Quick Start',
+    description: 'Get from zero to your first AI application in 5 minutes',
+  },
+  {
+    source: 'DSPY.md',
+    dest: 'dspy.md',
+    title: 'DSPy Concepts',
+    description: 'The revolutionary approach to building with LLMs',
+  },
+  {
+    source: 'API.md',
+    dest: 'api.md',
+    title: 'API Reference',
+    description: 'Complete API documentation for Ax',
   },
   {
     source: 'OPTIMIZE.md',

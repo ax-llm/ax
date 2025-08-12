@@ -20,7 +20,7 @@
     "@astrojs/check": "^0.9.4",
     "@astrojs/react": "^4.3.0",
     "@astrojs/tailwind": "^6.0.2",
-    "@ax-llm/ax": "14.0.11",
+    "@ax-llm/ax": "file:../ax",
     "@mlc-ai/web-llm": "^0.2.79",
     "@tailwindcss/typography": "^0.5.16",
     "astro": "^5.12.9",

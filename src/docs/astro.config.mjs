@@ -9,7 +9,7 @@ export default defineConfig({
   integrations: [tailwind(), react()],
   vite: {
     optimizeDeps: {
-      exclude: ['@ax-llm/ax'],
+      include: ['@ax-llm/ax'],
     },
   },
   markdown: {
