@@ -43,14 +43,6 @@ error-correction, multi-step function calling, MCP, RAG, etc
 - Built-in OpenTelemetry `gen_ai` support
 - Widely used by startups in prod
 
-## Recent Updates
-
-**v14.0.4** - MiPro Python integration, unified optimization results, improved
-logging\
-**v14.0.3** - Enhanced validation, signature tool calling, better type safety\
-**v14.0.2** - Custom OpenAI URLs, media validation, stability improvements\
-**v14.0.0** - axRAG, fluent API, file/URL types, enhanced AxFlow
-
 [View Full Changelog](CHANGELOG.md) | [Migration Guide](MIGRATION.md)
 
 ## What's a prompt signature?
