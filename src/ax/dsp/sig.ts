@@ -1502,14 +1502,6 @@ function validateFieldType(
         `${type.name} types can only be used in input fields`
       );
     }
-
-    if (type.isArray && type.name === 'audio') {
-      throw new AxSignatureValidationError(
-        `Arrays of ${type.name} are not supported`,
-        field.name,
-        `Use a single ${type.name} type instead`
-      );
-    }
   }
 
   if (type.name === 'class') {

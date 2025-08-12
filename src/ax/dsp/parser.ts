@@ -351,16 +351,6 @@ class SignatureParser {
         const typeName = this.parseTypeNotClass();
         const isArray = this.match('[]');
         type = { name: typeName, isArray };
-
-        // Validate specific type constraints for input fields
-        if (typeName === 'audio' && isArray) {
-          throw new SignatureValidationError(
-            `Input field "${name}": Arrays of ${typeName} are not supported`,
-            this.position,
-            this.getErrorContext(),
-            `Use a single ${typeName} type instead: "${typeName}"`
-          );
-        }
       } catch (error) {
         if (error instanceof SignatureValidationError) {
           throw error;

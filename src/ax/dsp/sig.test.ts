@@ -239,13 +239,13 @@ describe('signature parsing', () => {
     ).toThrow('Unexpected content after signature');
   });
 
-  it('allows array constraints for image types only', () => {
+  it('allows array constraints for image and audio types', () => {
     expect(() =>
       parseSignature('userImages:image[] -> responseText:string')
     ).not.toThrow();
     expect(() =>
       parseSignature('userAudios:audio[] -> responseText:string')
-    ).toThrow('Arrays of audio are not supported');
+    ).not.toThrow();
   });
 
   it('allows valid descriptive field names', () => {
