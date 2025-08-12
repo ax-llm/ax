@@ -8,11 +8,6 @@ import rehypeSlug from 'rehype-slug';
 export default defineConfig({
   integrations: [tailwind(), react()],
   vite: {
-    resolve: {
-      alias: {
-        '@ax-llm/ax': '@ax-llm/ax/dist/index.js',
-      },
-    },
     optimizeDeps: {
       exclude: ['@ax-llm/ax'],
     },

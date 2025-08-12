@@ -45,7 +45,7 @@ const EXAMPLE_SIGNATURES = [
 export default function NotebookPlayground() {
   const [cells, setCells] = useState<Cell[]>([
     {
-      id: `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `cell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       content:
         'userQuestion:string "User input question" -> assistantResponse:string "AI assistant response"',
       createdAt: new Date(),
@@ -118,7 +118,7 @@ export default function NotebookPlayground() {
             parsed.cells.map((c: any) => ({
               id:
                 c.id ||
-                `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                `cell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
               content:
                 c.content ||
                 'userQuestion:string "User input question" -> assistantResponse:string "AI assistant response"',
@@ -191,7 +191,7 @@ export default function NotebookPlayground() {
   ]);
 
   const generateCellId = useCallback(() => {
-    return `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `cell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   }, []);
 
   const addCell = useCallback(
