@@ -140,3 +140,5 @@ sigtypes
 AXFLOW
 configtestagent
 openrouter
+anns
+annos
