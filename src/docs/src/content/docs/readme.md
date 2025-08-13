@@ -7,7 +7,9 @@ description: "Ax - Build Reliable AI Apps in TypeScript"
 
 **Stop wrestling with prompts. Start shipping AI features.**
 
-Ax brings DSPy's revolutionary approach to TypeScript – just describe what you want, and let the framework handle the rest. Production-ready, type-safe, and works with all major LLMs.
+Ax brings DSPy's revolutionary approach to TypeScript – just describe what you
+want, and let the framework handle the rest. Production-ready, type-safe, and
+works with all major LLMs.
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
@@ -22,69 +24,105 @@ import { ai, ax } from "@ax-llm/ax";
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
 
 // 2. Say what you want
-const classifier = ax('review:string -> sentiment:class "positive, negative, neutral"');
+const classifier = ax(
+  'review:string -> sentiment:class "positive, negative, neutral"',
+);
 
 // 3. Get type-safe results
-const result = await classifier.forward(llm, { 
-  review: "This product is amazing!" 
+const result = await classifier.forward(llm, {
+  review: "This product is amazing!",
 });
 console.log(result.sentiment); // "positive" ✨
 ```
 
-**That's it.** No prompt engineering. No trial and error. It works with GPT-4, Claude, Gemini, or any LLM.
+**That's it.** No prompt engineering. No trial and error. It works with GPT-4,
+Claude, Gemini, or any LLM.
 
 ## Why Thousands of Developers Choose Ax
 
 ### 🎯 **Define Once, Run Anywhere**
-Write your logic once. Switch between OpenAI, Anthropic, Google, or 15+ providers with one line. No rewrites needed.
+
+Write your logic once. Switch between OpenAI, Anthropic, Google, or 15+
+providers with one line. No rewrites needed.
 
 ### ⚡ **Ship 10x Faster**
-Stop tweaking prompts. Define inputs → outputs. The framework generates optimal prompts automatically.
+
+Stop tweaking prompts. Define inputs → outputs. The framework generates optimal
+prompts automatically.
 
 ### 🛡️ **Production-Ready from Day One**
-Built-in streaming, validation, error handling, observability. Used by startups in production handling millions of requests.
+
+Built-in streaming, validation, error handling, observability. Used by startups
+in production handling millions of requests.
 
 ### 🚀 **Gets Smarter Over Time**
-Train your programs with examples. Watch accuracy improve automatically. No ML expertise needed.
+
+Train your programs with examples. Watch accuracy improve automatically. No ML
+expertise needed.
 
 ## Real Apps, Real Simple
 
-### Intelligent Customer Support
-```typescript
-const supportAgent = ax(`
-  message:string -> 
-  category:class "billing, technical, general",
-  priority:class "high, medium, low",
-  response:string
-`);
-// Complete ticket routing + response generation in 4 lines
-```
+### Extract Structured Data from Customer Emails
 
-### Multi-Modal Analysis
-```typescript
-const analyzer = ax("image:image, question:string -> answer:string");
-// Computer vision without the complexity
-```
-
-### Smart Document Processing
 ```typescript
 const extractor = ax(`
-  document:string -> 
-  summary:string,
-  keyPoints:string[],
-  actionItems:string[]
+  customerEmail:string, currentDate:datetime -> 
+  priority:class "high, normal, low",
+  sentiment:class "positive, negative, neutral",
+  ticketNumber?:number,
+  nextSteps:string[],
+  estimatedResponseTime:string
 `);
-// Extract structured data from any document
+
+const result = await extractor.forward(ai, {
+  customerEmail: "Order #12345 hasn't arrived. Need this resolved immediately!",
+  currentDate: new Date(),
+});
+// Automatically extracts all fields with proper types and validation
+```
+
+### Build Agents That Use Tools (ReAct Pattern)
+
+```typescript
+const assistant = ax(
+  "question:string -> answer:string",
+  {
+    functions: [
+      { name: "getCurrentWeather", func: weatherAPI },
+      { name: "searchNews", func: newsAPI },
+    ],
+  },
+);
+
+const result = await assistant.forward(ai, {
+  question: "What's the weather in Tokyo and any news about it?",
+});
+// AI automatically calls both functions and combines results
+```
+
+### Multi-Modal Analysis with Images
+
+```typescript
+const analyzer = ax(`
+  image:image, question:string ->
+  description:string,
+  mainColors:string[],
+  category:class "electronics, clothing, food, other",
+  estimatedPrice:string
+`);
+// Process images and text together seamlessly
 ```
 
 ## Quick Start
 
 ### Install
+
 ```bash
 npm install @ax-llm/ax
 ```
 
 ### Your First AI Feature (2 minutes)
+
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 
@@ -98,14 +136,15 @@ const translator = ax(`
 
 const result = await translator.forward(llm, {
   text: "Hello world",
-  language: "Spanish"
+  language: "Spanish",
 });
 console.log(result.translation); // "Hola mundo"
 ```
 
 ## Powerful Features, Zero Complexity
 
-- ✅ **15+ LLM Providers** - OpenAI, Anthropic, Google, Mistral, Ollama, and more
+- ✅ **15+ LLM Providers** - OpenAI, Anthropic, Google, Mistral, Ollama, and
+  more
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
@@ -119,37 +158,56 @@ console.log(result.translation); // "Hola mundo"
 ## Learn More
 
 ### 🚀 Quick Wins
-- [**Getting Started Guide**](https://github.com/ax-llm/ax/blob/main/QUICKSTART.md) - Set up in 5 minutes
-- [**DSPy Concepts**](https://github.com/ax-llm/ax/blob/main/DSPY.md) - Understand the revolutionary approach
-- [**Examples**](#examples) - Copy-paste templates for common use cases
+
+- [**Getting Started Guide**](/quickstart/) -
+  Set up in 5 minutes
+- [**Examples Guide**](/examples/) -
+  Comprehensive examples with explanations
+- [**DSPy Concepts**](/dspy/) -
+  Understand the revolutionary approach
 
 ### 📚 Deep Dives
-- [**AxFlow Workflows**](https://github.com/ax-llm/ax/blob/main/AXFLOW.md) - Build complex AI systems
-- [**Optimization Guide**](https://github.com/ax-llm/ax/blob/main/OPTIMIZE.md) - Make your programs smarter
-- [**Advanced RAG**](https://github.com/ax-llm/ax/blob/main/AXRAG.md) - Production search & retrieval
-- [**API Reference**](https://github.com/ax-llm/ax/blob/main/API.md) - Complete documentation
+
+- [**AxFlow Workflows**](/axflow/) -
+  Build complex AI systems
+- [**Optimization Guide**](/optimize/) -
+  Make your programs smarter
+- [**Advanced RAG**](/axrag/) -
+  Production search & retrieval
+- [**API Reference**](/api/) -
+  Complete documentation
 
 ## Examples
 
 Run any example:
+
 ```bash
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 ```
 
-### Essential Examples
-- [summarize.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/summarize.ts) - Text summarization
-- [simple-classify.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/simple-classify.ts) - Classification tasks
-- [agent.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/agent.ts) - Agent framework basics
-- [streaming1.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/streaming1.ts) - Real-time streaming
-- [multi-modal.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/multi-modal.ts) - Image + text processing
+### Core Examples
+
+- [extract.ts](https://github.com/ax-llm/ax/blob/main/src/examples/extract.ts) - Extract structured data from text
+- [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts) - ReAct pattern with function calling
+- [agent.ts](https://github.com/ax-llm/ax/blob/main/src/examples/agent.ts) - Multi-agent collaboration
+- [streaming1.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming1.ts) - Real-time streaming responses
+- [multi-modal.ts](https://github.com/ax-llm/ax/blob/main/src/examples/multi-modal.ts) - Image + text processing
 
 ### Production Patterns
-- [customer-support.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/customer-support.ts) - Customer service automation
-- [advanced-rag.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/advanced-rag.ts) - Enterprise RAG implementation
-- [ax-flow.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/ax-flow.ts) - Complex workflow orchestration
-- [tune-mipro.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/tune-mipro.ts) - Automatic optimization
 
-[View All 50+ Examples →](https://github.com/AxAI-Dev/ax/tree/main/src/examples/)
+- [customer-support.ts](https://github.com/ax-llm/ax/blob/main/src/examples/customer-support.ts) - Complete support
+  system
+- [food-search.ts](https://github.com/ax-llm/ax/blob/main/src/examples/food-search.ts) - Restaurant recommendations
+  with tools
+- [simple-optimizer-test.ts](https://github.com/ax-llm/ax/blob/main/src/examples/simple-optimizer-test.ts) - Automatic
+  optimization
+- [mipro-python-optimizer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-python-optimizer.ts) - Advanced
+  MIPRO optimization
+- [ax-flow-enhanced-demo.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-enhanced-demo.ts) - Complex
+  workflows
+
+[📚 **View Full Examples Guide** →](/examples/)\
+[View All 70+ Examples →](https://github.com/ax-llm/ax/blob/main/src/examples/)
 
 ## Join the Community
 
@@ -172,10 +230,11 @@ MIT - Use it anywhere, build anything.
 
 ---
 
-**Ready to build the future?** Stop fighting with prompts. Start shipping with signatures.
+**Ready to build the future?** Stop fighting with prompts. Start shipping with
+signatures.
 
 ```bash
 npm install @ax-llm/ax
 ```
 
-*Built with ❤️ by developers, for developers.*
+_Built with ❤️ by developers, for developers._

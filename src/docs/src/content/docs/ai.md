@@ -590,4 +590,4 @@ Common environment variables:
 
 ---
 
-For more examples and patterns, see the [examples directory](https://github.com/AxAI-Dev/ax/tree/main/src/examples/).
+For more examples and patterns, see the [examples directory](https://github.com/ax-llm/ax/blob/main/src/examples/).

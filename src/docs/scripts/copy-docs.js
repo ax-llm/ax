@@ -83,6 +83,13 @@ const filesToCopy = [
     title: 'Migration Guide',
     description: 'Complete migration guide for Ax v13.0.24+ API changes',
   },
+  {
+    source: 'EXAMPLES.md',
+    sourceDir: docsDir,
+    dest: 'examples.md',
+    title: 'Examples Guide',
+    description: 'Comprehensive examples showcasing Ax framework capabilities',
+  },
 ];
 
 // Ensure directories exist
@@ -97,22 +104,54 @@ if (!fs.existsSync(publicDir)) {
 function rewriteRelativeLinks(content, _currentFile) {
   let modifiedContent = content;
 
-  // Rewrite relative markdown links to point to docs routes
-  // [text](./FILE.md) -> [text](/docs/file)
-  // [text](../FILE.md) -> [text](/docs/file)
+  // Rewrite GitHub or relative links containing docs/<name>.md to relative links /<lower_case_name>/
+  modifiedContent = modifiedContent.replace(
+    /\[([^\]]+)\]\((?:https:\/\/github\.com\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/)?(?:\.\.\/)*docs\/([^\/\)]+)\.md\)/gi,
+    (_match, text, name) => {
+      const route = name.toLowerCase();
+      return `[${text}](/${route}/)`;
+    }
+  );
+
+  // Rewrite relative markdown links to point to docs routes (for files not in docs/)
+  // [text](./FILE.md) -> [text](/file/)
+  // [text](../FILE.md) -> [text](/file/)
   modifiedContent = modifiedContent.replace(
     /\[([^\]]+)\]\(\.?\/?([A-Z]+)\.md\)/gi,
     (_match, text, file) => {
       const route = file.toLowerCase();
-      return `[${text}](/docs/${route})`;
+      return `[${text}](/${route}/)`;
     }
   );
 
-  // Rewrite src/ paths to GitHub URLs
+  // Prefix all other relative URLs with GitHub base URL
   modifiedContent = modifiedContent.replace(
-    /\[([^\]]+)\]\((\.\.\/)?src\/([^)]+)\)/g,
-    (_match, text, _dots, path) => {
-      return `[${text}](https://github.com/AxAI-Dev/ax/tree/main/src/${path})`;
+    /\[([^\]]+)\]\((?!https?:\/\/|\/|#)([^)]+)\)/g,
+    (_match, text, path) => {
+      return `[${text}](https://github.com/ax-llm/ax/blob/main/${path})`;
+    }
+  );
+
+  return modifiedContent;
+}
+
+// Function to rewrite links for llm.txt file
+function rewriteLinksForLLM(content) {
+  let modifiedContent = content;
+
+  // Rewrite GitHub blob URLs to raw URLs
+  modifiedContent = modifiedContent.replace(
+    /https:\/\/github\.com\/ax-llm\/ax\/blob\/([^\/]+)\//g,
+    'https://raw.githubusercontent.com/ax-llm/ax/refs/heads/$1/'
+  );
+
+  // Prefix all relative URLs with raw GitHub URL
+  modifiedContent = modifiedContent.replace(
+    /\[([^\]]+)\]\((?!https?:\/\/|\/\/|#)([^)]+)\)/g,
+    (_match, text, path) => {
+      // Remove any leading ./ or ../
+      const cleanPath = path.replace(/^(\.\.\/)+/, '').replace(/^\.\//, '');
+      return `[${text}](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/${cleanPath})`;
     }
   );
 
@@ -164,13 +203,14 @@ description: "${file.description}"
       `✓ Copied ${file.source} → src/content/docs/${file.dest} (with frontmatter)`
     );
 
-    // Add to llm.txt content (using original without frontmatter modifications)
+    // Add to llm.txt content (using original without frontmatter modifications but with link rewrites)
+    const llmProcessedContent = rewriteLinksForLLM(originalContent);
     llmContent += `
 # ${file.title}
 # Source: ${file.source}
 # ${file.description}
 
-${originalContent}
+${llmProcessedContent}
 
 ================================================================================
 
