@@ -35,14 +35,16 @@ const filesToCopy = [
     sourceDir: docsDir,
     dest: 'signatures.md',
     title: 'Signatures Guide',
-    description: 'Complete guide to DSPy signatures - from basics to advanced patterns',
+    description:
+      'Complete guide to DSPy signatures - from basics to advanced patterns',
   },
   {
     source: 'AI.md',
     sourceDir: docsDir,
     dest: 'ai.md',
     title: 'AI Providers',
-    description: 'Complete guide to all supported AI providers and their features',
+    description:
+      'Complete guide to all supported AI providers and their features',
   },
   {
     source: 'OPTIMIZE.md',
@@ -92,21 +94,29 @@ if (!fs.existsSync(publicDir)) {
 }
 
 // Function to rewrite relative links for Astro
-function rewriteRelativeLinks(content, currentFile) {
+function rewriteRelativeLinks(content, _currentFile) {
+  let modifiedContent = content;
+
   // Rewrite relative markdown links to point to docs routes
   // [text](./FILE.md) -> [text](/docs/file)
   // [text](../FILE.md) -> [text](/docs/file)
-  content = content.replace(/\[([^\]]+)\]\(\.?\/?([A-Z]+)\.md\)/gi, (match, text, file) => {
-    const route = file.toLowerCase();
-    return `[${text}](/docs/${route})`;
-  });
-  
+  modifiedContent = modifiedContent.replace(
+    /\[([^\]]+)\]\(\.?\/?([A-Z]+)\.md\)/gi,
+    (_match, text, file) => {
+      const route = file.toLowerCase();
+      return `[${text}](/docs/${route})`;
+    }
+  );
+
   // Rewrite src/ paths to GitHub URLs
-  content = content.replace(/\[([^\]]+)\]\((\.\.\/)?src\/([^)]+)\)/g, (match, text, dots, path) => {
-    return `[${text}](https://github.com/AxAI-Dev/ax/tree/main/src/${path})`;
-  });
-  
-  return content;
+  modifiedContent = modifiedContent.replace(
+    /\[([^\]]+)\]\((\.\.\/)?src\/([^)]+)\)/g,
+    (_match, text, _dots, path) => {
+      return `[${text}](https://github.com/AxAI-Dev/ax/tree/main/src/${path})`;
+    }
+  );
+
+  return modifiedContent;
 }
 
 // Collect all content for llm.txt
@@ -125,7 +135,7 @@ for (const file of filesToCopy) {
 
   if (fs.existsSync(sourcePath)) {
     let content = fs.readFileSync(sourcePath, 'utf-8');
-    
+
     // Store original content for llm.txt before modifications
     const originalContent = content;
 
@@ -136,7 +146,7 @@ for (const file of filesToCopy) {
         content = content.substring(endOfFrontmatter + 3).trimStart();
       }
     }
-    
+
     // Rewrite relative links for Astro
     content = rewriteRelativeLinks(content, file.source);
 
@@ -153,7 +163,7 @@ description: "${file.description}"
     console.log(
       `✓ Copied ${file.source} → src/content/docs/${file.dest} (with frontmatter)`
     );
-    
+
     // Add to llm.txt content (using original without frontmatter modifications)
     llmContent += `
 # ${file.title}
