@@ -349,8 +349,8 @@ import { agent, ai } from "@ax-llm/ax";
 
 If you encounter issues during migration:
 
-1. Check the [examples directory](src/examples/) for updated patterns
-2. Refer to the main [README.md](README.md) for current API usage
+1. Check the [examples directory](https://github.com/AxAI-Dev/ax/tree/main/src/examples/) for updated patterns
+2. Refer to the main [README.md](/docs/readme) for current API usage
 3. Join our [Discord community](https://discord.gg/DSHg3dU7dW) for support
 4. Open an issue on [GitHub](https://github.com/ax-llm/ax/issues)
 

@@ -137,19 +137,19 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 ```
 
 ### Essential Examples
-- [summarize.ts](src/examples/summarize.ts) - Text summarization
-- [simple-classify.ts](src/examples/simple-classify.ts) - Classification tasks
-- [agent.ts](src/examples/agent.ts) - Agent framework basics
-- [streaming1.ts](src/examples/streaming1.ts) - Real-time streaming
-- [multi-modal.ts](src/examples/multi-modal.ts) - Image + text processing
+- [summarize.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/summarize.ts) - Text summarization
+- [simple-classify.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/simple-classify.ts) - Classification tasks
+- [agent.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/agent.ts) - Agent framework basics
+- [streaming1.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/streaming1.ts) - Real-time streaming
+- [multi-modal.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/multi-modal.ts) - Image + text processing
 
 ### Production Patterns
-- [customer-support.ts](src/examples/customer-support.ts) - Customer service automation
-- [advanced-rag.ts](src/examples/advanced-rag.ts) - Enterprise RAG implementation
-- [ax-flow.ts](src/examples/ax-flow.ts) - Complex workflow orchestration
-- [tune-mipro.ts](src/examples/tune-mipro.ts) - Automatic optimization
+- [customer-support.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/customer-support.ts) - Customer service automation
+- [advanced-rag.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/advanced-rag.ts) - Enterprise RAG implementation
+- [ax-flow.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/ax-flow.ts) - Complex workflow orchestration
+- [tune-mipro.ts](https://github.com/AxAI-Dev/ax/tree/main/src/examples/tune-mipro.ts) - Automatic optimization
 
-[View All 50+ Examples →](src/examples/)
+[View All 50+ Examples →](https://github.com/AxAI-Dev/ax/tree/main/src/examples/)
 
 ## Join the Community
 

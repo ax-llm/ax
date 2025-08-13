@@ -240,11 +240,11 @@ const llm = ai({
 
 Now that you have the basics:
 
-1. **Explore Examples** - Check out the [examples directory](src/examples/) for real-world patterns
-2. **Learn DSPy Concepts** - Understand the [revolutionary approach](DSPY.md)
-3. **Build Workflows** - Create complex systems with [AxFlow](AXFLOW.md)
-4. **Optimize Performance** - Make your programs smarter with [optimization](OPTIMIZE.md)
-5. **Add Observability** - Monitor production apps with [telemetry](TELEMETRY.md)
+1. **Explore Examples** - Check out the [examples directory](https://github.com/AxAI-Dev/ax/tree/main/src/examples/) for real-world patterns
+2. **Learn DSPy Concepts** - Understand the [revolutionary approach](/docs/dspy)
+3. **Build Workflows** - Create complex systems with [AxFlow](/docs/axflow)
+4. **Optimize Performance** - Make your programs smarter with [optimization](/docs/optimize)
+5. **Add Observability** - Monitor production apps with [telemetry](/docs/telemetry)
 
 ## Need Help?
 

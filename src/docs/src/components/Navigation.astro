@@ -38,6 +38,8 @@
           <div class="absolute hidden group-hover:block top-full pt-2 w-48">
             <div class="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-lg shadow-lg py-2">
               <a href="/dspy" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">DSPy Concepts</a>
+              <a href="/signatures" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Signatures Guide</a>
+              <a href="/ai" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">AI Providers</a>
               <a href="/optimize" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Optimization</a>
               <a href="/axflow" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">AxFlow</a>
               <a href="/axrag" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">AxRAG</a>
@@ -46,10 +48,10 @@
           </div>
         </div>
         <a
-          href="/api"
+          href="/apidocs"
           class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors"
         >
-          API Ref
+          API Docs
         </a>
         <div class="relative group">
           <button class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors inline-flex items-center space-x-1">
@@ -60,6 +62,8 @@
           <div class="absolute hidden group-hover:block top-full left-0 right-0 h-2"></div>
           <div class="absolute hidden group-hover:block top-full pt-2 w-48">
             <div class="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-lg shadow-lg py-2">
+              <a href="/llm.txt" target="_blank" class="block px-4 py-2 text-sm font-semibold text-purple-600 dark:text-purple-400 hover:bg-gray-50 dark:hover:bg-gray-800">📄 LLM Docs (txt)</a>
+              <div class="mx-4 my-1 border-t border-gray-200 dark:border-gray-700"></div>
               <a href="https://deepwiki.com/ax-llm/ax" target="_blank" rel="noopener noreferrer" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">DeepWiki AI</a>
               <a href="/apidocs" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">TypeDoc</a>
               <a href="/migration" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Migration</a>
@@ -70,6 +74,19 @@
 
       <!-- Right Section: Dark Mode Toggle, Badges & GitHub -->
       <div class="flex items-center space-x-3">
+        <!-- LLM Docs Icon -->
+        <a
+          href="/llm.txt"
+          target="_blank"
+          class="p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          aria-label="LLM Documentation (Plain Text)"
+          title="LLM Documentation (Plain Text)"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+          </svg>
+        </a>
+        
         <!-- Dark Mode Toggle -->
         <button
           id="theme-toggle"
@@ -152,11 +169,13 @@
       <div class="flex flex-col space-y-1">
         <a href="/quickstart" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">Quick Start</a>
         <a href="/dspy" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">DSPy Concepts</a>
-        <a href="/api" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">API Reference</a>
+        <a href="/signatures" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">Signatures Guide</a>
+        <a href="/apidocs" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">API Docs</a>
         
         <div class="pt-2 pb-1 px-4">
           <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Guides</div>
         </div>
+        <a href="/ai" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">AI Providers</a>
         <a href="/optimize" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">Optimization</a>
         <a href="/axflow" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">AxFlow</a>
         <a href="/axrag" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">AxRAG</a>
@@ -165,6 +184,7 @@
         <div class="pt-2 pb-1 px-4">
           <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Resources</div>
         </div>
+        <a href="/llm.txt" target="_blank" class="px-4 py-3 text-base font-semibold text-purple-600 dark:text-purple-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">📄 LLM Docs (txt)</a>
         <a href="/migration" class="px-4 py-3 text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">Migration Guide</a>
         <a
           href="https://deepwiki.com/ax-llm/ax"

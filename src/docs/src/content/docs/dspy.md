@@ -175,14 +175,14 @@ DSPy isn't just another LLM library. It's a fundamental shift in how we build AI
 ## Ready to Build the Future?
 
 ### Quick Wins
-- [Simple Examples](src/examples/) - Start here
-- [Streaming Magic](src/examples/streaming1.ts) - Real-time validation
-- [Multi-Modal](src/examples/multi-modal.ts) - Images + text together
+- [Simple Examples](https://github.com/AxAI-Dev/ax/tree/main/src/examples/) - Start here
+- [Streaming Magic](https://github.com/AxAI-Dev/ax/tree/main/src/examples/streaming1.ts) - Real-time validation
+- [Multi-Modal](https://github.com/AxAI-Dev/ax/tree/main/src/examples/multi-modal.ts) - Images + text together
 
 ### Level Up
-- [Optimization Guide](OPTIMIZE.md) - Make your programs smarter
-- [AxFlow Workflows](AXFLOW.md) - Build complex systems
-- [Advanced RAG](AXRAG.md) - Production search & retrieval
+- [Optimization Guide](/docs/optimize) - Make your programs smarter
+- [AxFlow Workflows](/docs/axflow) - Build complex systems
+- [Advanced RAG](/docs/axrag) - Production search & retrieval
 
 ### Join the Revolution
 - 🐦 [Follow Updates](https://twitter.com/dosco)
