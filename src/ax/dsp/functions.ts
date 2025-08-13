@@ -245,6 +245,7 @@ type ProcessFunctionsArgs = {
   index: number;
   functionResultFormatter?: (result: unknown) => string;
   logger: AxLoggerFunction;
+  debug: boolean;
 };
 
 export const processFunctions = async ({
@@ -259,6 +260,7 @@ export const processFunctions = async ({
   index,
   functionResultFormatter,
   logger,
+  debug,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -316,7 +318,7 @@ export const processFunctions = async ({
             }
             span.addEvent('function.error', errorEventData);
           }
-          if (ai.getOptions().debug) {
+          if (debug) {
             logFunctionError(e, index, result, logger);
           }
           return {
@@ -398,7 +400,7 @@ export const processFunctions = async ({
             }
             toolSpan?.addEvent?.('function.error', errorEventData);
 
-            if (ai.getOptions().debug) {
+            if (debug) {
               logFunctionError(e, index, result, logger);
             }
 
@@ -427,7 +429,7 @@ export const processFunctions = async ({
   mem.addFunctionResults(functionResults, sessionId);
 
   // Log successful function results if debug is enabled
-  if (ai.getOptions().debug) {
+  if (debug) {
     const successfulResults = functionResults.filter(
       (result: AxFunctionResult) => !result.isError
     );

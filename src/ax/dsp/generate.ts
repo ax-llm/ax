@@ -357,6 +357,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const model = options.model;
     const usage = this.usage;
     const firstStep = stepIndex === 0;
+    const debug = this.isDebug(ai, options);
     const logger = this.getLogger(ai, options);
 
     // Pass the function call mode directly to createFunctionConfig
@@ -398,6 +399,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
         logger,
+        debug,
         functionResultFormatter:
           options?.functionResultFormatter ??
           this.options?.functionResultFormatter,
@@ -426,6 +428,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
         logger,
+        debug,
         functionResultFormatter:
           options?.functionResultFormatter ??
           this.options?.functionResultFormatter,

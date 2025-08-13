@@ -272,8 +272,6 @@ export class AxDockerSession {
   }
 
   async executeCommand(command: string) {
-    console.log('Executing command:', command);
-
     if (!this.containerId) {
       throw new Error('No container created or connected');
     }

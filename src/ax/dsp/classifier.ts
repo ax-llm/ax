@@ -2,7 +2,7 @@ import type { AxAIService } from '../ai/types.js';
 import { AxDBMemory, type AxDBState } from '../db/memory.js';
 import { ColorLog } from '../util/log.js';
 
-const colorLog = new ColorLog();
+const _colorLog = new ColorLog();
 
 export interface AxSimpleClassifierForwardOptions {
   cutoff?: number;
@@ -85,14 +85,6 @@ export class AxSimpleClassifier {
     if (typeof options?.cutoff === 'number') {
       const { cutoff } = options;
       m = m.filter((m) => m.score <= cutoff);
-    }
-
-    if (this.debug) {
-      console.log(
-        `${colorLog.whiteBright(`query: ${text}`)}\n${colorLog.greenBright(
-          JSON.stringify(m.map((m) => `${m.id}, ${m.score}`))
-        )}`
-      );
     }
 
     const matchedClass = m.at(0);

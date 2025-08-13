@@ -38,6 +38,7 @@ type ProcessStreamingResponseArgs = Readonly<
   thoughtFieldName: string;
   signature: AxSignature;
   excludeContentFromTrace: boolean;
+  debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
 };
 
@@ -45,6 +46,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
   res,
   usage,
   states,
+  debug,
   ...args
 }: ProcessStreamingResponseArgs): AsyncGenDeltaOut<OUT> {
   const skipEarlyFail =
@@ -133,8 +135,8 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
       lastChunkUsage.citations = dedup;
     }
     usage.push(lastChunkUsage);
-    // Emit usage log event when logger is available
-    if (args.logger) {
+    // Emit usage log event when debug is enabled and logger is available
+    if (debug && args.logger) {
       // Create a copy without citations for the usage event
       const usageWithoutCitations = structuredClone(lastChunkUsage);
       delete usageWithoutCitations.citations;
@@ -323,6 +325,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       excludeContentFromTrace,
       functionResultFormatter,
       logger,
+      debug,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     // Clear accumulated function calls after processing to avoid re-execution
@@ -394,6 +397,7 @@ export async function* processResponse<OUT>({
   signature,
   functionResultFormatter,
   logger,
+  debug,
 }: Readonly<AxResponseHandlerArgs<AxChatResponse>> & {
   states: InternalAxGenState[];
   usage: AxModelUsage[];
@@ -402,6 +406,7 @@ export async function* processResponse<OUT>({
   fieldProcessors: AxFieldProcessor[];
   thoughtFieldName: string;
   signature: AxSignature;
+  debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
 }): AsyncGenDeltaOut<OUT> {
   const results = res.results ?? [];
@@ -445,7 +450,7 @@ export async function* processResponse<OUT>({
         ...(dedup.length ? { citations: dedup } : {}),
       };
       usage.push(modelUsage);
-      if (logger) {
+      if (debug && logger) {
         // Create a copy without citations for the usage event
         const usageWithoutCitations = structuredClone(modelUsage);
         delete usageWithoutCitations.citations;
@@ -484,6 +489,7 @@ export async function* processResponse<OUT>({
           index: result.index,
           functionResultFormatter,
           logger,
+          debug,
         });
 
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);

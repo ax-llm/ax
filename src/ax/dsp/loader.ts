@@ -55,7 +55,6 @@ export class AxHFDataLoader {
 
     const url = `${this.baseUrl}?dataset=${ds}&config=${this.config}&split=${this.split}&offset=${offset}&length=${length}`;
 
-    console.log('Downloading data from API.');
     this.rows = (await this.fetchDataFromAPI(url)) as AxDataRow[];
     return this.rows;
   }
