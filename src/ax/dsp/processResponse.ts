@@ -107,6 +107,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
           result,
           skipEarlyFail,
           state,
+          debug,
         });
       }
     }
@@ -119,6 +120,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     yield* finalizeStreamingResponse<OUT>({
       ...args,
       state,
+      debug,
     });
   }
 
@@ -302,6 +304,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   streamingFieldProcessors,
   functionResultFormatter,
   logger,
+  debug,
 }: FinalizeStreamingResponseArgs) {
   const funcs = parseFunctionCalls(
     ai,
@@ -325,7 +328,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       excludeContentFromTrace,
       functionResultFormatter,
       logger,
-      debug,
+      debug: debug,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     // Clear accumulated function calls after processing to avoid re-execution

@@ -106,7 +106,7 @@ function rewriteRelativeLinks(content, _currentFile) {
 
   // Rewrite GitHub or relative links containing docs/<name>.md to relative links /<lower_case_name>/
   modifiedContent = modifiedContent.replace(
-    /\[([^\]]+)\]\((?:https:\/\/github\.com\/[^\/]+\/[^\/]+\/[^\/]+\/[^\/]+\/)?(?:\.\.\/)*docs\/([^\/\)]+)\.md\)/gi,
+    /\[([^\]]+)\]\((?:https:\/\/github\.com\/[^/]+\/[^/]+\/[^/]+\/[^/]+\/)?(?:\.\.\/)*docs\/([^/)]+)\.md\)/gi,
     (_match, text, name) => {
       const route = name.toLowerCase();
       return `[${text}](/${route}/)`;
@@ -141,7 +141,7 @@ function rewriteLinksForLLM(content) {
 
   // Rewrite GitHub blob URLs to raw URLs
   modifiedContent = modifiedContent.replace(
-    /https:\/\/github\.com\/ax-llm\/ax\/blob\/([^\/]+)\//g,
+    /https:\/\/github\.com\/ax-llm\/ax\/blob\/([^/]+)\//g,
     'https://raw.githubusercontent.com/ax-llm/ax/refs/heads/$1/'
   );
 
