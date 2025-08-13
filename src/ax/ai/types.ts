@@ -425,6 +425,10 @@ export type AxLoggerData =
   | {
       name: 'ChatResponseUsage';
       value: AxModelUsage;
+    }
+  | {
+      name: 'ChatResponseCitations';
+      value: AxCitation[];
     };
 
 export type AxLoggerFunction = (message: AxLoggerData) => void;

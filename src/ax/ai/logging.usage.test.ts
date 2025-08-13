@@ -4,7 +4,7 @@ import { AxMockAIService } from './mock/api.js';
 import type { AxLoggerData } from './types.js';
 
 describe('Logging includes usage with citations', () => {
-  it('emits ChatResponseUsage with tokens and citations when debug is enabled', async () => {
+  it('emits ChatResponseUsage and ChatResponseCitations when debug is enabled', async () => {
     const logs: AxLoggerData[] = [];
 
     const ai = new AxMockAIService({
@@ -38,12 +38,17 @@ describe('Logging includes usage with citations', () => {
       { stream: false, debug: true }
     );
 
+    // Check ChatResponseUsage event (without citations)
     const usageLogs = logs.filter((l) => l.name === 'ChatResponseUsage');
     expect(usageLogs.length).toBeGreaterThan(0);
-    const last = usageLogs.at(-1)!;
-    expect(last.value.tokens?.totalTokens).toBe(5);
-    expect((last.value.citations ?? []).map((c) => c.url)).toEqual([
-      'https://site.test',
-    ]);
+    const lastUsage = usageLogs.at(-1)!;
+    expect(lastUsage.value.tokens?.totalTokens).toBe(5);
+    expect(lastUsage.value.citations).toBeUndefined();
+
+    // Check ChatResponseCitations event
+    const citationLogs = logs.filter((l) => l.name === 'ChatResponseCitations');
+    expect(citationLogs.length).toBeGreaterThan(0);
+    const lastCitation = citationLogs.at(-1)!;
+    expect(lastCitation.value.map((c) => c.url)).toEqual(['https://site.test']);
   });
 });

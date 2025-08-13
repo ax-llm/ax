@@ -135,10 +135,22 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     usage.push(lastChunkUsage);
     // Emit usage log event when logger is available
     if (args.logger) {
+      // Create a copy without citations for the usage event
+      const usageWithoutCitations = structuredClone(lastChunkUsage);
+      delete usageWithoutCitations.citations;
+
       args.logger({
         name: 'ChatResponseUsage',
-        value: structuredClone(lastChunkUsage),
+        value: usageWithoutCitations,
       });
+
+      // Emit separate citations event if they exist
+      if (lastChunkUsage.citations && lastChunkUsage.citations.length > 0) {
+        args.logger({
+          name: 'ChatResponseCitations',
+          value: lastChunkUsage.citations,
+        });
+      }
     }
   }
 }
@@ -434,10 +446,22 @@ export async function* processResponse<OUT>({
       };
       usage.push(modelUsage);
       if (logger) {
+        // Create a copy without citations for the usage event
+        const usageWithoutCitations = structuredClone(modelUsage);
+        delete usageWithoutCitations.citations;
+
         logger({
           name: 'ChatResponseUsage',
-          value: structuredClone(modelUsage),
+          value: usageWithoutCitations,
         });
+
+        // Emit separate citations event if they exist
+        if (modelUsage.citations && modelUsage.citations.length > 0) {
+          logger({
+            name: 'ChatResponseCitations',
+            value: modelUsage.citations,
+          });
+        }
       }
     }
 
