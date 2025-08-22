@@ -64,7 +64,7 @@
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
   },
-  "homepage": "https://github.com/@ax-llm/ax#readme",
+  "homepage": "https://github.com/ax-llm/ax#readme",
   "directories": {
     "example": "examples"
   },
