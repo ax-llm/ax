@@ -271,7 +271,25 @@ export const streamingExtractFinalValue = (
   const forceFinalize = options?.forceFinalize ?? false;
 
   if (xstate.currField) {
-    const val = content.substring(xstate.s).trim();
+    let endIndex = content.length;
+
+    // Look for the next field boundary to avoid including content from other fields
+    const outputFields = sig.getOutputFields();
+    for (const otherField of outputFields) {
+      if (otherField.name === xstate.currField.name) {
+        continue;
+      }
+
+      // Look for the next field title after current position
+      const nextFieldPattern = `\n${otherField.title}:`;
+      const nextFieldIndex = content.indexOf(nextFieldPattern, xstate.s);
+
+      if (nextFieldIndex !== -1 && nextFieldIndex < endIndex) {
+        endIndex = nextFieldIndex;
+      }
+    }
+
+    const val = content.substring(xstate.s, endIndex).trim();
     const parsedValue = validateAndParseFieldValue(xstate.currField, val);
     if (parsedValue !== undefined) {
       values[xstate.currField.name] = parsedValue;
@@ -296,7 +314,7 @@ export const streamingExtractFinalValue = (
   }
 
   // Check for optional fields that might have been missed by streaming parser
-  parseOptionalFieldsFromFullContent(sig, values, content);
+  parseMissedFieldsFromFullContent(sig, values, content);
 
   // Check all previous required fields before processing current field
   // In streaming scenarios (non-strict), defer missing-required enforcement until end
@@ -321,57 +339,48 @@ export const streamingExtractFinalValue = (
   }
 };
 
-// Helper function to parse optional fields from full content that streaming parser might have missed
-const parseOptionalFieldsFromFullContent = (
+// Helper function to parse missed fields from full content that streaming parser might have missed
+const parseMissedFieldsFromFullContent = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
   content: string
 ) => {
   const outputFields = sig.getOutputFields();
 
+  // Process content line by line for more precise field extraction
+  const lines = content.split('\n');
+
   for (const field of outputFields) {
-    // Skip if field is not optional or already found
-    if (!field.isOptional || field.name in values) {
+    // Skip if field is already found
+    if (field.name in values) {
       continue;
     }
 
-    // Look for field.title pattern in content
+    // Look for field.title pattern in each line
     const prefix = `${field.title}:`;
-    const fieldIndex = content.indexOf(prefix);
 
-    if (fieldIndex === -1) {
-      continue;
-    }
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith(prefix)) {
+        // Extract the value after the colon
+        const fieldValue = trimmedLine.substring(prefix.length).trim();
 
-    // Extract content after the field prefix
-    const startIndex = fieldIndex + prefix.length;
-    let endIndex = content.length;
-
-    // Find the end of this field's content by looking for the next field or end of content
-    for (const otherField of outputFields) {
-      if (otherField.name === field.name) {
-        continue;
-      }
-
-      const otherPrefix = `${otherField.title}:`;
-      const otherFieldIndex = content.indexOf(otherPrefix, startIndex);
-
-      if (otherFieldIndex !== -1 && otherFieldIndex < endIndex) {
-        endIndex = otherFieldIndex;
-      }
-    }
-
-    // Extract and validate the field value
-    const fieldValue = content.substring(startIndex, endIndex).trim();
-
-    if (fieldValue) {
-      try {
-        const parsedValue = validateAndParseFieldValue(field, fieldValue);
-        if (parsedValue !== undefined) {
-          values[field.name] = parsedValue;
+        if (fieldValue) {
+          try {
+            const parsedValue = validateAndParseFieldValue(field, fieldValue);
+            if (parsedValue !== undefined) {
+              values[field.name] = parsedValue;
+              break; // Found the field, stop looking
+            }
+          } catch (e) {
+            // Only ignore validation errors for optional fields
+            if (!field.isOptional) {
+              throw e;
+            }
+            // Ignore validation errors for optional fields in this fallback parser
+          }
         }
-      } catch {
-        // Ignore validation errors for optional fields in this fallback parser
+        break; // Found the field marker, stop looking even if value was empty
       }
     }
   }

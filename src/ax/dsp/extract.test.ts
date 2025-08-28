@@ -168,8 +168,8 @@ Model Answer 2: false`;
     const content = `Plan: First, I will check the weather in San Francisco to determine if it's a nice day for outdoor seating. Then, I will search for restaurants in San Francisco that offer sushi, Chinese, or Indian cuisine, prioritizing outdoor seating if the weather is good. Finally, I will suggest a suitable restaurant.
 getCurrentWeather location: San Francisco
 findRestaurants location: San Francisco
-findRestaurants cuisine: sushi, chinese, indian
 findRestaurants outdoor: true
+findRestaurants cuisine: sushi, chinese, indian
 findRestaurants priceRange: $$-$$$
 `;
 

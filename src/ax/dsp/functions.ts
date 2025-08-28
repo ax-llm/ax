@@ -185,7 +185,7 @@ export class AxFunctionProcessor {
     } as const;
   };
 
-  public execute = async <MODEL>(
+  public executeWithDetails = async <MODEL>(
     func: Readonly<AxChatResponseFunctionCall>,
     options?: Readonly<
       AxProgramForwardOptions<MODEL> & {
@@ -221,6 +221,19 @@ export class AxFunctionProcessor {
       }
       throw e;
     }
+  };
+
+  public execute = async <MODEL>(
+    func: Readonly<AxChatResponseFunctionCall>,
+    options?: Readonly<
+      AxProgramForwardOptions<MODEL> & {
+        traceId?: string;
+        stopFunctionNames?: readonly string[];
+      }
+    >
+  ): Promise<string> => {
+    const result = await this.executeWithDetails<MODEL>(func, options);
+    return result.formatted;
   };
 }
 
@@ -328,7 +341,7 @@ export const processFunctions = async ({
 
     if (!tracer) {
       return funcProc
-        .execute(func, {
+        .executeWithDetails(func, {
           sessionId,
           ai,
           functionResultFormatter,
@@ -427,7 +440,7 @@ export const processFunctions = async ({
             rawResult,
             parsedArgs,
           }: { formatted: string; rawResult: unknown; parsedArgs: unknown } =
-            await funcProc.execute(func, {
+            await funcProc.executeWithDetails(func, {
               sessionId,
               ai,
               functionResultFormatter,
