@@ -1,10 +1,10 @@
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import fs from 'fs-extra';
 
 const packagePath = process.cwd();
 const buildPath = path.join(packagePath, './dist');
 
-const packageJsonData = await fs.readFile(
+const packageJsonData = await readFile(
   path.resolve(packagePath, './package.json'),
   'utf8'
 );
@@ -46,8 +46,9 @@ delete packageJson.devDependencies;
 delete packageJson.scripts;
 
 // Write the modified package.json to the build folder
-await fs.writeJson(path.resolve(buildPath, './package.json'), packageJson, {
-  spaces: 2,
-});
+await writeFile(
+  path.resolve(buildPath, './package.json'),
+  JSON.stringify(packageJson, null, 2)
+);
 
 console.log('package.json has been modified and copied to the build folder.');
