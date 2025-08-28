@@ -1,9 +1,10 @@
 import type { AxFunction } from '../ai/types.js';
-import type { AxSignature } from './sig.js';
+import type { AxChatResponseFunctionCall } from './functions.js';
+import type { AxField, AxSignature } from './sig.js';
 import { SignatureToolRouter } from './signatureToolRouter.js';
+import { injectToolFields } from './sigTools.js';
 
 export interface SignatureToolCallingOptions {
-  functionCallMode?: 'auto' | 'native' | 'prompt';
   functions?: AxFunction[];
 }
 
@@ -11,82 +12,63 @@ export interface SignatureToolCallingOptions {
  * Manages signature tool calling functionality
  */
 export class SignatureToolCallingManager {
-  private functionCallMode: 'auto' | 'native' | 'prompt';
   private tools: AxFunction[];
-  private router?: SignatureToolRouter;
-  private usePromptMode: boolean = false;
+  private router: SignatureToolRouter;
+  private injectedToolFieldNames: Set<string> = new Set();
 
-  constructor(options: SignatureToolCallingOptions) {
-    this.functionCallMode = options.functionCallMode ?? 'auto';
-    this.tools = options.functions ?? [];
-
-    // For now, we'll initialize based on the mode
-    // In auto mode, we'll determine this later when we have AI instance
-    if (this.functionCallMode === 'prompt' && this.tools.length > 0) {
-      this.usePromptMode = true;
-      this.router = new SignatureToolRouter(this.tools);
-    }
-  }
-
-  /**
-   * Set whether to use prompt mode based on AI capabilities
-   */
-  setUsePromptMode(usePrompt: boolean): void {
-    this.usePromptMode = usePrompt;
-    if (usePrompt && this.tools.length > 0 && !this.router) {
-      this.router = new SignatureToolRouter(this.tools);
-    }
+  constructor(tools: AxFunction[]) {
+    this.tools = tools;
+    this.router = new SignatureToolRouter(tools);
   }
 
   /**
    * Get the current function call mode
    */
-  getMode(): 'auto' | 'native' | 'prompt' {
-    return this.functionCallMode;
-  }
+  // Mode is implicitly 'prompt' when this manager exists
 
   /**
    * Process signature for tool injection if prompt mode is enabled
    */
   processSignature(signature: AxSignature): AxSignature {
-    if (this.usePromptMode && this.tools.length > 0) {
-      return signature.injectToolFields(this.tools);
-    }
-    return signature;
+    const { signature: injected } = injectToolFields(this.tools, signature);
+
+    // Track which fields were injected so extraction can treat them as optional if needed
+    const injectedNames = new Set(
+      injected.getOutputFields().map((f: AxField) => f.name) as string[]
+    );
+    const originalNames = new Set(
+      signature.getOutputFields().map((f: AxField) => f.name) as string[]
+    );
+    this.injectedToolFieldNames = new Set(
+      [...injectedNames].filter(
+        (n: string) => !originalNames.has(n)
+      ) as string[]
+    );
+    return injected;
   }
 
   /**
-   * Process results and execute tools if prompt mode is enabled
+   * Process results and return function calls (no execution)
    */
   async processResults(
     results: Record<string, unknown>,
     options?: { sessionId?: string; traceId?: string }
-  ): Promise<Record<string, unknown>> {
-    if (this.usePromptMode && this.router) {
-      const processed = await this.router.route(results, options);
-      return processed.remainingFields;
-    }
-    return results;
+  ): Promise<AxChatResponseFunctionCall[] | undefined> {
+    const { functionCalls } = await this.router.route(results, options);
+    return functionCalls.length > 0 ? functionCalls : undefined;
   }
 
   /**
-   * Check if prompt mode is enabled
+   * Return names of fields injected for prompt-mode tools
    */
-  isPromptModeEnabled(): boolean {
-    return this.usePromptMode;
-  }
-
-  /**
-   * Check if we should use native function calling
-   */
-  isNativeModeEnabled(): boolean {
-    return !this.usePromptMode && this.tools.length > 0;
+  getInjectedToolFieldNames(): string[] {
+    return Array.from(this.injectedToolFieldNames);
   }
 
   /**
    * Get the tool router if available
    */
-  getRouter(): SignatureToolRouter | undefined {
+  getRouter(): SignatureToolRouter {
     return this.router;
   }
 }

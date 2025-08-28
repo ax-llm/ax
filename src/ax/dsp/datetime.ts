@@ -3,7 +3,10 @@ import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import utc from 'dayjs/plugin/utc.js';
 
-import { ValidationError } from './errors.js';
+import {
+  createInvalidDateError,
+  createInvalidDateTimeError,
+} from './errors.js';
 import type { AxField } from './sig.js';
 
 // Extend Day.js with required plugins
@@ -23,7 +26,7 @@ export function parseLLMFriendlyDate(
       return;
     }
     const message = (err as Error).message;
-    throw new ValidationError({ fields: [field], message, value: dateStr });
+    throw createInvalidDateError(field, dateStr, message);
   }
 }
 
@@ -54,7 +57,7 @@ export function parseLLMFriendlyDateTime(
       return;
     }
     const message = (err as Error).message;
-    throw new ValidationError({ fields: [field], message, value: dateStr });
+    throw createInvalidDateTimeError(field, dateStr, message);
   }
 }
 

@@ -41,6 +41,7 @@ import type { extractionState } from './extract.js';
 import type { AxFieldProcessor } from './fieldProcessor.js';
 import {
   type AxChatResponseFunctionCall,
+  AxStopFunctionCallException,
   createFunctionConfig,
   parseFunctions,
 } from './functions.js';
@@ -128,7 +129,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
   private options?: Omit<AxProgramForwardOptions<any>, 'functions'>;
-  private functions?: AxFunction[];
+  private functions: AxFunction[];
   private fieldProcessors: AxFieldProcessor[] = [];
   private streamingFieldProcessors: AxFieldProcessor[] = [];
   private excludeContentFromTrace = false;
@@ -159,19 +160,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     this.asserts = this.options?.asserts ?? [];
     this.streamingAsserts = this.options?.streamingAsserts ?? [];
     this.excludeContentFromTrace = options?.excludeContentFromTrace ?? false;
+    this.functions = options?.functions
+      ? parseFunctions(options.functions)
+      : [];
     this.usage = [];
-
-    if (options?.functions) {
-      this.functions = parseFunctions(options.functions);
-
-      // Initialize SignatureToolCallingManager if functionCallMode is set
-      if (options?.functionCallMode) {
-        this.signatureToolCallingManager = new SignatureToolCallingManager({
-          functionCallMode: options.functionCallMode,
-          functions: this.functions,
-        });
-      }
-    }
   }
 
   private getSignatureName(): string {
@@ -291,6 +283,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const chatPrompt = mem?.history(selectedIndex, sessionId) ?? [];
 
+    // History transformation for prompt-mode is handled centrally in base.ts
+
     if (chatPrompt.length === 0) {
       throw new Error('No chat prompt found');
     }
@@ -306,9 +300,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const firstStep = stepIndex === 0;
     const logger = this.getLogger(ai, options);
 
+    // Do not send native functions to the provider when emulating via prompt mode
+    functions = this.signatureToolCallingManager ? [] : functions;
+
     const res = await ai.chat(
       {
         chatPrompt,
+        // Do not send native functions to the provider when emulating via prompt mode
         functions,
         functionCall,
         modelConfig,
@@ -327,6 +325,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         abortSignal: options?.abortSignal,
         stepIndex,
         logger,
+        functionCallMode:
+          options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto',
       }
     );
 
@@ -341,6 +341,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     span,
     traceContext,
     states,
+    stopFunctionNames,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
@@ -349,14 +350,23 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     span?: Span;
     traceContext?: Context;
     states: InternalAxGenState[];
+    stopFunctionNames?: readonly string[];
   }>): AsyncGenDeltaOut<OUT> {
     const { sessionId, functions: functionList } = options ?? {};
+
+    const functionResultFormatter =
+      options?.functionResultFormatter ?? this.options?.functionResultFormatter;
+
     const definedFunctionCall =
       options?.functionCall ?? this.options?.functionCall;
+
+    const signatureToolCallingManager = this.signatureToolCallingManager;
+
     const strictMode = options?.strictMode ?? false;
     const model = options.model;
     const usage = this.usage;
     const firstStep = stepIndex === 0;
+
     const debug = this.isDebug(ai, options);
     const logger = this.getLogger(ai, options);
 
@@ -400,9 +410,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         signature: this.signature,
         logger,
         debug,
-        functionResultFormatter:
-          options?.functionResultFormatter ??
-          this.options?.functionResultFormatter,
+        functionResultFormatter,
+        signatureToolCallingManager,
+        stopFunctionNames,
       });
     } else {
       yield* processResponse<OUT>({
@@ -412,11 +422,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         mem,
         sessionId,
         traceId: span ? (span as any).spanContext?.().traceId : undefined,
-        // In non-streaming mode, function calls are executed inside processResponse.
-        // In streaming mode, we already passed functions above; to prevent duplicate
-        // execution when the provider returns both an assistant message and accumulated
-        // functionCalls on finalization, only pass functions here if the response
-        // actually contains functionCalls. Otherwise omit to avoid re-processing.
         functions,
         span,
         strictMode,
@@ -429,9 +434,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         signature: this.signature,
         logger,
         debug,
-        functionResultFormatter:
-          options?.functionResultFormatter ??
-          this.options?.functionResultFormatter,
+        functionResultFormatter,
+        signatureToolCallingManager,
+        stopFunctionNames,
       });
     }
   }
@@ -444,54 +449,69 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     span?: Span,
     traceContext?: Context
   ): AxGenStreamingOut<OUT> {
-    const stopFunction = (
-      options?.stopFunction ?? this.options?.stopFunction
-    )?.toLowerCase();
+    const rawStop = options?.stopFunction ?? this.options?.stopFunction;
+    const stopFunctionNames = Array.isArray(rawStop)
+      ? rawStop.map((s) => s.toLowerCase())
+      : rawStop
+        ? [rawStop.toLowerCase()]
+        : undefined;
 
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10;
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10;
 
     const mem = options.mem ?? this.options?.mem ?? new AxMemory();
 
-    // Handle auto mode for function calling
-    if (
-      this.signatureToolCallingManager?.getMode() === 'auto' &&
-      this.functions &&
-      this.functions.length > 0
-    ) {
-      // For auto mode, check if the AI supports native function calling
-      const aiFeatures = ai.getFeatures(options.model);
-      const hasNativeFunctionSupport = aiFeatures.functions;
-      this.signatureToolCallingManager.setUsePromptMode(
-        !hasNativeFunctionSupport
+    const functions = [
+      ...this.functions,
+      ...(options.functions ? parseFunctions(options.functions) : []),
+    ];
+
+    const hasFunctions = functions && functions.length > 0;
+
+    const functionCallMode =
+      options.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
+
+    // Handle prompt mode
+    if (hasFunctions && functionCallMode === 'prompt') {
+      this.signatureToolCallingManager = new SignatureToolCallingManager(
+        functions
       );
     }
+
+    // Handle auto mode
+    if (
+      hasFunctions &&
+      functionCallMode === 'auto' &&
+      !ai.getFeatures(options.model).functions
+    )
+      this.signatureToolCallingManager = new SignatureToolCallingManager(
+        functions
+      );
 
     let err: ValidationError | AxAssertionError | undefined;
 
-    {
-      const promptTemplateClass =
-        this.options?.promptTemplate ?? AxPromptTemplate;
+    const promptTemplateClass =
+      this.options?.promptTemplate ?? AxPromptTemplate;
 
-      let signature = this.signature;
-
-      // Use SignatureToolCallingManager to process signature if in prompt mode
-      if (this.signatureToolCallingManager?.isPromptModeEnabled()) {
-        signature = this.signatureToolCallingManager.processSignature(
-          this.signature
-        );
-      }
-
-      const currentPromptTemplateOptions = {
-        // Prefer per-call functions; fall back to parsed functions from constructor
-        functions: (options?.functions as any) ?? (this.functions as any),
-        thoughtFieldName: this.thoughtFieldName,
-      };
-      this.promptTemplate = new promptTemplateClass(
-        signature,
-        currentPromptTemplateOptions
+    // Use SignatureToolCallingManager to process signature if in prompt mode
+    if (this.signatureToolCallingManager) {
+      this.signature = this.signatureToolCallingManager.processSignature(
+        this.signature
       );
+      this.setSignature(this.signature);
     }
+
+    const currentPromptTemplateOptions = {
+      // Prefer per-call functions; fall back to parsed functions from constructor
+      functions: this.signatureToolCallingManager ? [] : functions,
+      thoughtFieldName: this.thoughtFieldName,
+    };
+
+    this.promptTemplate = new promptTemplateClass(
+      this.signature,
+      currentPromptTemplateOptions
+    );
+
     // New logic:
     let prompt: AxChatRequest['chatPrompt'];
 
@@ -558,6 +578,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             span,
             traceContext,
             states,
+            stopFunctionNames,
           });
 
           for await (const result of generator) {
@@ -572,7 +593,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
           const shouldContinue = shouldContinueSteps(
             mem,
-            stopFunction,
+            stopFunctionNames,
             states,
             options?.sessionId
           );
@@ -664,6 +685,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             handleRefusalErrorForGenerate(
               args as HandleErrorForGenerateArgs<AxAIRefusalError>
             );
+          } else if (e instanceof AxStopFunctionCallException) {
+            throw e;
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
@@ -882,17 +905,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const resultPickerLatency = performance.now() - resultPickerStart;
 
       const selectedResult = buffer[selectedIndex];
-      let result = selectedResult?.delta ?? {};
-
-      // Use SignatureToolCallingManager to process results if in prompt mode
-      if (this.signatureToolCallingManager?.isPromptModeEnabled()) {
-        result = (await this.signatureToolCallingManager.processResults(
-          result,
-          {
-            sessionId: options?.sessionId,
-          }
-        )) as OUT;
-      }
+      const result = selectedResult?.delta ?? {};
 
       // When values is an AxMessage array, do not spread it into trace; only include result
       const baseTrace = Array.isArray(values)

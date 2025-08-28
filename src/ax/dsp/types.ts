@@ -97,7 +97,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   // Functions and calls
   functions?: AxInputFunctionType;
   functionCall?: AxChatRequest['functionCall'];
-  stopFunction?: string;
+  stopFunction?: string | string[];
   functionResultFormatter?: (result: unknown) => string;
 
   // Behavior control

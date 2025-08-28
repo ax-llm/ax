@@ -447,6 +447,7 @@ export type AxAIServiceOptions = {
   debugHideSystemPrompt?: boolean;
   traceContext?: Context;
   stream?: boolean;
+  functionCallMode?: 'auto' | 'native' | 'prompt';
   thinkingTokenBudget?:
     | 'minimal'
     | 'low'

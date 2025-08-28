@@ -14,6 +14,28 @@ import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonschema.js';
 import type { AxProgramForwardOptions } from './types.js';
 
+export class AxStopFunctionCallException extends Error {
+  public readonly calls: ReadonlyArray<{
+    func: Readonly<AxFunction>;
+    args: unknown;
+    result: unknown;
+  }>;
+
+  constructor(
+    calls: ReadonlyArray<{
+      func: Readonly<AxFunction>;
+      args: unknown;
+      result: unknown;
+    }>
+  ) {
+    super(
+      `Stop function executed: ${calls.map((c) => c.func.name).join(', ')}`
+    );
+    this.name = 'AxStopFunctionCallException';
+    this.calls = calls;
+  }
+}
+
 export class AxFunctionError extends Error {
   constructor(
     private fields: {
@@ -119,7 +141,12 @@ export class AxFunctionProcessor {
   private executeFunction = async <MODEL>(
     fnSpec: Readonly<AxFunction>,
     func: Readonly<AxChatResponseFunctionCall>,
-    options?: Readonly<AxProgramForwardOptions<MODEL> & { traceId?: string }>
+    options?: Readonly<
+      AxProgramForwardOptions<MODEL> & {
+        traceId?: string;
+        stopFunctionNames?: readonly string[];
+      }
+    >
   ) => {
     let args: unknown;
 
@@ -148,22 +175,33 @@ export class AxFunctionProcessor {
           : await fnSpec.func(args);
     }
 
-    // Use the formatter from options or fall back to globals
     const formatter =
       options?.functionResultFormatter ?? axGlobals.functionResultFormatter;
-    return formatter(res);
+    const formatted = formatter(res);
+    return {
+      formatted: String(formatted),
+      rawResult: res,
+      parsedArgs: args,
+    } as const;
   };
 
   public execute = async <MODEL>(
     func: Readonly<AxChatResponseFunctionCall>,
-    options?: Readonly<AxProgramForwardOptions<MODEL> & { traceId?: string }>
-  ) => {
-    // Normalize names to make provider differences (case, underscores) resilient
+    options?: Readonly<
+      AxProgramForwardOptions<MODEL> & {
+        traceId?: string;
+        stopFunctionNames?: readonly string[];
+      }
+    >
+  ): Promise<{
+    formatted: string;
+    rawResult: unknown;
+    parsedArgs: unknown;
+  }> => {
     const normalize = (s: string) =>
       s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     const target = normalize(func.name);
 
-    // First try exact match, then normalized match
     let fnSpec = this.funcList.find((v) => v.name === func.name);
     if (!fnSpec) {
       fnSpec = this.funcList.find((v) => normalize(v.name) === target);
@@ -175,7 +213,6 @@ export class AxFunctionProcessor {
       throw new Error(`No handler for function: ${func.name}`);
     }
 
-    // execute value function calls
     try {
       return await this.executeFunction<MODEL>(fnSpec, func, options);
     } catch (e) {
@@ -246,6 +283,7 @@ type ProcessFunctionsArgs = {
   functionResultFormatter?: (result: unknown) => string;
   logger: AxLoggerFunction;
   debug: boolean;
+  stopFunctionNames?: readonly string[];
 };
 
 export const processFunctions = async ({
@@ -261,9 +299,24 @@ export const processFunctions = async ({
   functionResultFormatter,
   logger,
   debug,
+  stopFunctionNames,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
+  const stopMatches: Array<{
+    func: Readonly<AxFunction>;
+    args: unknown;
+    result: unknown;
+  }> = [];
+
+  const findFunctionSpec = (name: string): Readonly<AxFunction> | undefined => {
+    const normalize = (s: string) =>
+      s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const target = normalize(name);
+    let spec = functionList.find((v) => v.name === name);
+    if (!spec) spec = functionList.find((v) => normalize(v.name) === target);
+    return spec;
+  };
 
   // Map each function call to a promise that resolves to the function result or null
   const promises = functionCalls.map((func) => {
@@ -274,29 +327,57 @@ export const processFunctions = async ({
     const tracer = ai.getOptions().tracer ?? axGlobals.tracer;
 
     if (!tracer) {
-      // Fallback: no tracer configured, execute directly
       return funcProc
-        .execute(func, { sessionId, ai, functionResultFormatter, traceId })
-        .then((functionResult) => {
-          functionsExecuted.add(func.name.toLowerCase());
-          if (span) {
-            const eventData: { name: string; args?: string; result?: string } =
-              {
+        .execute(func, {
+          sessionId,
+          ai,
+          functionResultFormatter,
+          traceId,
+          stopFunctionNames,
+        })
+        .then(
+          ({
+            formatted,
+            rawResult,
+            parsedArgs,
+          }: {
+            formatted: string;
+            rawResult: unknown;
+            parsedArgs: unknown;
+          }) => {
+            functionsExecuted.add(func.name.toLowerCase());
+            if (stopFunctionNames?.includes(func.name.toLowerCase())) {
+              const spec = findFunctionSpec(func.name);
+              if (spec) {
+                stopMatches.push({
+                  func: spec,
+                  args: parsedArgs as any,
+                  result: rawResult,
+                });
+              }
+            }
+            if (span) {
+              const eventData: {
+                name: string;
+                args?: string;
+                result?: string;
+              } = {
                 name: func.name,
               };
-            if (!excludeContentFromTrace) {
-              eventData.args = func.args;
-              eventData.result = functionResult ?? '';
+              if (!excludeContentFromTrace) {
+                eventData.args = func.args;
+                eventData.result = formatted ?? '';
+              }
+              span.addEvent('function.call', eventData);
             }
-            span.addEvent('function.call', eventData);
+            return {
+              result: formatted ?? '',
+              role: 'function' as const,
+              functionId: func.id,
+              index,
+            };
           }
-          return {
-            result: functionResult ?? '',
-            role: 'function' as const,
-            functionId: func.id,
-            index,
-          };
-        })
+        )
         .catch((e) => {
           if (!(e instanceof FunctionError)) {
             throw e;
@@ -331,7 +412,6 @@ export const processFunctions = async ({
         });
     }
 
-    // Start a child span for the tool call (parent context will be derived from the active context)
     return tracer.startActiveSpan(
       `Tool: ${func.name}`,
       async (toolSpan: any) => {
@@ -342,26 +422,41 @@ export const processFunctions = async ({
             'function.id': func.id,
             'session.id': sessionId ?? '',
           });
-          const functionResult = await funcProc.execute(func, {
-            sessionId,
-            ai,
-            functionResultFormatter,
-            traceId: toolSpan?.spanContext?.().traceId ?? traceId,
-          });
+          const {
+            formatted,
+            rawResult,
+            parsedArgs,
+          }: { formatted: string; rawResult: unknown; parsedArgs: unknown } =
+            await funcProc.execute(func, {
+              sessionId,
+              ai,
+              functionResultFormatter,
+              traceId: toolSpan?.spanContext?.().traceId ?? traceId,
+              stopFunctionNames,
+            });
 
           functionsExecuted.add(func.name.toLowerCase());
+          if (stopFunctionNames?.includes(func.name.toLowerCase())) {
+            const spec = findFunctionSpec(func.name);
+            if (spec) {
+              stopMatches.push({
+                func: spec,
+                args: parsedArgs as any,
+                result: rawResult,
+              });
+            }
+          }
 
           if (!excludeContentFromTrace) {
             toolSpan.addEvent('gen_ai.tool.message', {
               name: func.name,
               args: func.args,
-              result: functionResult ?? '',
+              result: formatted ?? '',
             });
           } else {
             toolSpan.addEvent('gen_ai.tool.message', { name: func.name });
           }
 
-          // Back-compat event on parent span if present
           if (span) {
             const eventData: { name: string; args?: string; result?: string } =
               {
@@ -369,19 +464,18 @@ export const processFunctions = async ({
               };
             if (!excludeContentFromTrace) {
               eventData.args = func.args;
-              eventData.result = functionResult ?? '';
+              eventData.result = formatted ?? '';
             }
             span.addEvent('function.call', eventData);
           }
 
           return {
-            result: functionResult ?? '',
+            result: formatted ?? '',
             role: 'function' as const,
             functionId: func.id,
             index,
           };
         } catch (e) {
-          // Error path
           toolSpan?.recordException?.(e as Error);
           if (e instanceof FunctionError) {
             const result = e.getFixingInstructions();
@@ -442,6 +536,10 @@ export const processFunctions = async ({
     mem.addTag('error', sessionId);
   }
 
+  if (stopMatches.length > 0) {
+    throw new AxStopFunctionCallException(stopMatches);
+  }
+
   return functionsExecuted;
 };
 
@@ -481,14 +579,9 @@ export function createFunctionConfig(
   functionList?: AxInputFunctionType,
   definedFunctionCall?: FunctionCall,
   firstStep?: boolean,
-  options?: Readonly<AxProgramForwardOptions<any>>
+  _options?: Readonly<AxProgramForwardOptions<any>>
 ): { functions: AxFunction[]; functionCall: FunctionCall } {
   const functionCall = definedFunctionCall;
-
-  // Disable normal tool calling when using prompt mode
-  if (options?.functionCallMode === 'prompt') {
-    return { functions: [], functionCall: undefined };
-  }
 
   if (
     !firstStep &&

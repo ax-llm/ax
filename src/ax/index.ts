@@ -468,6 +468,7 @@ import {
   AxFunctionError,
   AxFunctionProcessor,
   type AxInputFunctionType,
+  AxStopFunctionCallException,
 } from './dsp/functions.js';
 import {
   AxGen,
@@ -764,6 +765,7 @@ export { AxSignatureBuilder };
 export { AxSimpleClassifier };
 export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
+export { AxStopFunctionCallException };
 export { AxStringUtil };
 export { AxTestPrompt };
 export { agent };

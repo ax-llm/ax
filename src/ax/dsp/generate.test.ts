@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { validateAxMessageArray } from '../ai/base.js';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
-
-import { AxGen } from './generate.js';
+import { AxStopFunctionCallException } from './functions.js';
+import { AxGen, type AxGenerateError } from './generate.js';
 import { AxSignature } from './sig.js';
 import type { AxProgramForwardOptions } from './types.js';
 
@@ -138,6 +138,168 @@ describe('AxGen forward and streamingForward', () => {
     expect(response.modelAnswer).toContain('chunk 1');
     expect(response.modelAnswer).toContain('chunk 2');
     expect(response.modelAnswer).toContain('chunk 3');
+  });
+});
+
+describe('stopFunction behavior', () => {
+  it('throws AxStopFunctionCallException for string stopFunction', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            functionCalls: [
+              {
+                id: '1',
+                type: 'function',
+                function: { name: 'getTime', params: '{}' },
+              },
+            ],
+            finishReason: 'function_call',
+          },
+        ],
+      },
+    });
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      'userQuestion:string -> modelAnswer:string',
+      {
+        functions: [
+          {
+            name: 'getTime',
+            description: 'returns now',
+            func: () => 'NOW',
+          },
+        ],
+      }
+    );
+
+    try {
+      await gen.forward(
+        ai as any,
+        { userQuestion: 'call tool' },
+        { stopFunction: 'getTime' }
+      );
+      throw new Error('Expected AxStopFunctionCallException');
+    } catch (e) {
+      const ex =
+        e instanceof AxStopFunctionCallException
+          ? e
+          : (e as AxGenerateError).cause;
+      expect(ex).toBeInstanceOf(AxStopFunctionCallException);
+      const stop = ex as AxStopFunctionCallException;
+      expect(stop.calls?.length).toBe(1);
+      expect(stop.calls?.[0]?.func.name).toBe('getTime');
+      expect(stop.calls?.[0]?.result).toBe('NOW');
+    }
+  });
+
+  it('throws AxStopFunctionCallException for any match in string[]', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            functionCalls: [
+              {
+                id: '1',
+                type: 'function',
+                function: { name: 'toolB', params: '{}' },
+              },
+            ],
+            finishReason: 'function_call',
+          },
+        ],
+      },
+    });
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      'userQuestion:string -> modelAnswer:string',
+      {
+        functions: [
+          { name: 'toolA', description: 'A', func: () => 'A' },
+          { name: 'toolB', description: 'B', func: () => 'B' },
+        ],
+      }
+    );
+
+    try {
+      await gen.forward(
+        ai as any,
+        { userQuestion: 'call B' },
+        { stopFunction: ['toolA', 'toolB'] }
+      );
+      throw new Error('Expected AxStopFunctionCallException');
+    } catch (e) {
+      const ex =
+        e instanceof AxStopFunctionCallException
+          ? e
+          : (e as AxGenerateError).cause;
+      expect(ex).toBeInstanceOf(AxStopFunctionCallException);
+      const stop = ex as AxStopFunctionCallException;
+      expect(stop.calls?.length).toBeGreaterThanOrEqual(1);
+      expect(stop.calls?.[0]?.func.name).toBe('toolB');
+      expect(stop.calls?.[0]?.result).toBe('B');
+    }
+  });
+
+  it('aggregates multiple parallel stop function matches', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            functionCalls: [
+              {
+                id: '1',
+                type: 'function',
+                function: { name: 'toolA', params: '{}' },
+              },
+              {
+                id: '2',
+                type: 'function',
+                function: { name: 'toolB', params: '{}' },
+              },
+            ],
+            finishReason: 'function_call',
+          },
+        ],
+      },
+    });
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      'userQuestion:string -> modelAnswer:string',
+      {
+        functions: [
+          { name: 'toolA', description: 'A', func: () => 'A' },
+          { name: 'toolB', description: 'B', func: () => 'B' },
+        ],
+      }
+    );
+
+    try {
+      await gen.forward(
+        ai as any,
+        { userQuestion: 'call both' },
+        { stopFunction: ['toolA', 'toolB'] }
+      );
+      throw new Error('Expected AxStopFunctionCallException');
+    } catch (e) {
+      const ex =
+        e instanceof AxStopFunctionCallException
+          ? e
+          : (e as AxGenerateError).cause;
+      expect(ex).toBeInstanceOf(AxStopFunctionCallException);
+      const stop = ex as AxStopFunctionCallException;
+      expect(stop.calls?.length).toBe(2);
+      const names = (stop.calls ?? []).map((c) => c.func.name).sort();
+      expect(names).toEqual(['toolA', 'toolB']);
+      const results = (stop.calls ?? []).map((c) => c.result).sort();
+      expect(results).toEqual(['A', 'B']);
+    }
   });
 });
 

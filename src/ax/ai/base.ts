@@ -1121,9 +1121,51 @@ export class AxBaseAI<
     this.lastUsedChatModel = model;
     this.lastUsedModelConfig = modelConfig;
 
+    if (debug) {
+      logChatRequest(
+        req.chatPrompt,
+        options?.stepIndex ?? 0,
+        options?.logger ?? this.logger,
+        options?.debugHideSystemPrompt
+      );
+    }
+
+    // After logging, optionally emulate prompt-based function mode centrally
+    const providerSupportsFunctions = this.getFeatures(model).functions;
+    const requestedFunctionCallMode = options?.functionCallMode ?? 'auto';
+    const shouldEmulatePromptMode =
+      requestedFunctionCallMode === 'prompt' ||
+      (requestedFunctionCallMode === 'auto' && !providerSupportsFunctions);
+
+    const effectiveReq = shouldEmulatePromptMode
+      ? {
+          ...req,
+          chatPrompt: req.chatPrompt.map((msg) => {
+            if (msg.role === 'assistant') {
+              const { content, name, cache } = msg;
+              return {
+                role: 'assistant' as const,
+                content,
+                name,
+                cache,
+              } as typeof msg;
+            }
+            if (msg.role === 'function') {
+              const content = msg.result;
+              return {
+                role: 'user' as const,
+                content,
+              } as (typeof req.chatPrompt)[number];
+            }
+            return msg;
+          }),
+          functions: [],
+        }
+      : req;
+
     const fn = async () => {
       const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
-        req,
+        effectiveReq,
         options
       );
 
@@ -1149,15 +1191,6 @@ export class AxBaseAI<
       );
       return res;
     };
-
-    if (debug) {
-      logChatRequest(
-        req.chatPrompt,
-        options?.stepIndex ?? 0,
-        options?.logger ?? this.logger,
-        options?.debugHideSystemPrompt
-      );
-    }
 
     const rt = options?.rateLimiter ?? this.rt;
     const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();

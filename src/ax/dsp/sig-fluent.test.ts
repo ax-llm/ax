@@ -138,4 +138,28 @@ describe('AxSignatureBuilder fluent API', () => {
       f().input('userInput', f.string('Input')).build();
     }).toThrow();
   });
+
+  it('should preserve insertion order for inputs and outputs without prepend', () => {
+    const sig = f()
+      .input('firstInput', f.string('first'))
+      .input('secondInput', f.number('second'))
+      .input('thirdInput', f.boolean('third'))
+      .output('firstOutput', f.string('first out'))
+      .output('secondOutput', f.string('second out'))
+      .build();
+
+    const inputs = sig.getInputFields().map((f) => f.name);
+    const outputs = sig.getOutputFields().map((f) => f.name);
+
+    expect(inputs).toEqual(['firstInput', 'secondInput', 'thirdInput']);
+    expect(outputs).toEqual(['firstOutput', 'secondOutput']);
+
+    const rendered = sig.toString();
+    expect(rendered.indexOf('firstInput:string')).toBeLessThan(
+      rendered.indexOf('secondInput:number')
+    );
+    expect(rendered.indexOf('secondInput:number')).toBeLessThan(
+      rendered.indexOf('thirdInput:boolean')
+    );
+  });
 });

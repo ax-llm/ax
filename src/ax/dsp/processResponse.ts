@@ -24,6 +24,7 @@ import {
 import { parseFunctionCalls, processFunctions } from './functions.js';
 import type { AxResponseHandlerArgs, InternalAxGenState } from './generate.js';
 import type { AxSignature } from './sig.js';
+import type { SignatureToolCallingManager } from './signatureToolCalling.js';
 import type { AsyncGenDeltaOut, AxGenOut, DeltaOut } from './types.js';
 
 type ProcessStreamingResponseArgs = Readonly<
@@ -40,6 +41,8 @@ type ProcessStreamingResponseArgs = Readonly<
   excludeContentFromTrace: boolean;
   debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
+  signatureToolCallingManager: SignatureToolCallingManager | undefined;
+  stopFunctionNames?: readonly string[];
 };
 
 export async function* processStreamingResponse<OUT extends AxGenOut>({
@@ -176,6 +179,7 @@ type ProcessStreamingResponseArgs2 = Readonly<
     result: AxChatResponse['results'][number];
     skipEarlyFail: boolean;
     state: InternalAxGenState;
+    treatAllFieldsOptional?: boolean;
   }
 >;
 
@@ -185,6 +189,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
   sessionId,
   strictMode,
   skipEarlyFail,
+  treatAllFieldsOptional,
   state,
   signature,
   streamingFieldProcessors,
@@ -228,7 +233,11 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       state.values,
       state.xstate,
       state.content,
-      { strictMode, skipEarlyFail }
+      {
+        strictMode,
+        skipEarlyFail,
+        treatAllFieldsOptional,
+      }
     );
 
     if (skip) {
@@ -303,15 +312,16 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   fieldProcessors,
   streamingFieldProcessors,
   functionResultFormatter,
+  signatureToolCallingManager,
   logger,
   debug,
+  stopFunctionNames,
 }: FinalizeStreamingResponseArgs) {
-  const funcs = parseFunctionCalls(
-    ai,
-    state.functionCalls,
-    state.values,
-    model
-  );
+  // Prefer native function calls when provided
+  const funcs = !signatureToolCallingManager
+    ? parseFunctionCalls(ai, state.functionCalls, state.values, model)
+    : undefined;
+
   if (funcs) {
     if (!functions) {
       throw new Error('Functions are not defined');
@@ -329,19 +339,74 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       functionResultFormatter,
       logger,
       debug: debug,
+      stopFunctionNames,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     // Clear accumulated function calls after processing to avoid re-execution
     // in subsequent steps (prevents duplicate function results and loops)
     state.functionCalls = [];
   } else {
+    const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
     streamingExtractFinalValue(
       signature,
       state.values,
       state.xstate,
       state.content,
-      strictMode
+      {
+        strictMode,
+        treatAllFieldsOptional,
+        deferRequiredCheckForStreaming: true,
+        forceFinalize: true,
+      }
     );
+
+    // If no native function calls and prompt-mode is enabled, parse from text content
+    if (signatureToolCallingManager) {
+      const promptFuncs = await signatureToolCallingManager.processResults(
+        state.values
+      );
+
+      if (promptFuncs && promptFuncs.length > 0) {
+        if (!functions) {
+          throw new Error('Functions are not defined');
+        }
+
+        // Mirror native function-call processing
+        const fx = await processFunctions({
+          ai,
+          functionList: functions,
+          functionCalls: promptFuncs,
+          mem,
+          sessionId,
+          traceId,
+          span,
+          index: state.index,
+          excludeContentFromTrace,
+          functionResultFormatter,
+          logger,
+          debug,
+          stopFunctionNames,
+        });
+        state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
+
+        // Record assistant functionCalls in memory for observability
+        mem.updateResult(
+          {
+            name: undefined,
+            content: state.content,
+            functionCalls: promptFuncs.map((fc) => ({
+              id: fc.id,
+              type: 'function' as const,
+              function: { name: fc.name, params: fc.args },
+            })),
+            index: state.index,
+          },
+          sessionId
+        );
+        // After executing tools, skip further streaming of values in finalize
+        return;
+      }
+    }
 
     await assertStreamingAssertions(
       streamingAsserts,
@@ -401,6 +466,8 @@ export async function* processResponse<OUT>({
   functionResultFormatter,
   logger,
   debug,
+  signatureToolCallingManager,
+  stopFunctionNames,
 }: Readonly<AxResponseHandlerArgs<AxChatResponse>> & {
   states: InternalAxGenState[];
   usage: AxModelUsage[];
@@ -411,8 +478,11 @@ export async function* processResponse<OUT>({
   signature: AxSignature;
   debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
+  signatureToolCallingManager?: SignatureToolCallingManager;
+  stopFunctionNames?: readonly string[];
 }): AsyncGenDeltaOut<OUT> {
   const results = res.results ?? [];
+  const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
 
   mem.addResponse(results, sessionId);
 
@@ -473,9 +543,43 @@ export async function* processResponse<OUT>({
       }
     }
 
+    // if signatureToolCallingManager is defined, we need to process the function calls and add update the result in memory
+    if (signatureToolCallingManager && result.content) {
+      if (result.thought && result.thought.length > 0) {
+        state.values[thoughtFieldName] = result.thought;
+      }
+
+      extractValues(signature, state.values, result.content, {
+        strictMode,
+        treatAllFieldsOptional,
+      });
+
+      const promptFuncs = await signatureToolCallingManager.processResults(
+        state.values
+      );
+
+      const functionCalls = promptFuncs?.map((fc) => ({
+        id: fc.id,
+        type: 'function' as const,
+        function: { name: fc.name, params: fc.args },
+      }));
+
+      if (functionCalls && functionCalls.length > 0) {
+        mem.updateResult(
+          {
+            name: result.name,
+            content: result.content,
+            functionCalls,
+            index: result.index,
+          },
+          sessionId
+        );
+      }
+    }
+
     if (result.functionCalls?.length) {
       const funcs = parseFunctionCalls(ai, result.functionCalls, state.values);
-      if (funcs) {
+      if (funcs && funcs.length > 0) {
         if (!functions) {
           throw new Error('Functions are not defined');
         }
@@ -493,6 +597,7 @@ export async function* processResponse<OUT>({
           functionResultFormatter,
           logger,
           debug,
+          stopFunctionNames,
         });
 
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
@@ -502,17 +607,21 @@ export async function* processResponse<OUT>({
         state.values[thoughtFieldName] = result.thought;
       }
 
-      extractValues(signature, state.values, result.content, strictMode);
-      await assertAssertions(asserts, state.values);
+      extractValues(signature, state.values, result.content, {
+        strictMode,
+        treatAllFieldsOptional,
+      });
+    }
 
-      if (fieldProcessors.length) {
-        await processFieldProcessors(
-          fieldProcessors,
-          state.values,
-          mem,
-          sessionId
-        );
-      }
+    await assertAssertions(asserts, state.values);
+
+    if (fieldProcessors.length) {
+      await processFieldProcessors(
+        fieldProcessors,
+        state.values,
+        mem,
+        sessionId
+      );
     }
 
     if (result.finishReason === 'length') {
@@ -556,7 +665,7 @@ export async function* processResponse<OUT>({
 
 export function shouldContinueSteps(
   mem: AxAIMemory,
-  stopFunction: string | undefined,
+  stopFunction: readonly string[] | undefined,
   states: InternalAxGenState[],
   sessionId?: string
 ) {
@@ -567,8 +676,9 @@ export function shouldContinueSteps(
   }
 
   for (const [index, state] of states.entries()) {
-    const stopFunctionExecuted =
-      stopFunction && state.functionsExecuted.has(stopFunction);
+    const stopFunctionExecuted = stopFunction
+      ? Array.from(stopFunction).some((s) => state.functionsExecuted.has(s))
+      : false;
 
     const chat = lastMemItem.chat[index];
 

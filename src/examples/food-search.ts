@@ -130,7 +130,6 @@ const llm = ai({
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
     // model: AxAIGoogleGeminiModel.Gemini25Pro,
-    stream: false,
     thinking: { thinkingTokenBudget: 200 },
   },
 });
@@ -181,7 +180,8 @@ const res = await gen.forward(
   {
     // logger: axCreateDefaultTextLogger(),
     debug: true,
-    stream: false,
+    stream: true,
+    // functionCallMode: 'prompt',
   }
 );
 
