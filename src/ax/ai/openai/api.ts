@@ -171,11 +171,10 @@ class AxAIOpenAIImpl<
     };
   }
 
-  createChatReq(
+  createChatReq = (
     req: Readonly<AxInternalChatRequest<TModel>>,
-
     config: Readonly<AxAIServiceOptions>
-  ): [AxAPI, AxAIOpenAIChatRequest<TModel>] {
+  ): [AxAPI, AxAIOpenAIChatRequest<TModel>] => {
     const model = req.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -336,11 +335,11 @@ class AxAIOpenAIImpl<
     }
 
     return [apiConfig, reqValue];
-  }
+  };
 
-  createEmbedReq(
+  createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest<TEmbedModel>>
-  ): [AxAPI, AxAIOpenAIEmbedRequest<TEmbedModel>] {
+  ): [AxAPI, AxAIOpenAIEmbedRequest<TEmbedModel>] => {
     const model = req.embedModel;
 
     if (!model) {
@@ -362,7 +361,7 @@ class AxAIOpenAIImpl<
     };
 
     return [apiConfig, reqValue];
-  }
+  };
 
   createChatResp(resp: Readonly<AxAIOpenAIChatResponse>): AxChatResponse {
     const { id, usage, choices, error } = resp;

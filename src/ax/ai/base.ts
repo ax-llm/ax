@@ -1500,7 +1500,8 @@ export class AxBaseAI<
       throw new Error('createEmbedResp not implemented');
     }
 
-    const createEmbedReq = this.aiImpl.createEmbedReq;
+    // Bind provider implementation method to preserve `this` and satisfy TS
+    const createEmbedReq = this.aiImpl.createEmbedReq!.bind(this.aiImpl);
     const debug = options?.debug ?? this.debug;
 
     const req = {
