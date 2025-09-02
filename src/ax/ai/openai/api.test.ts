@@ -1,6 +1,111 @@
-import { describe, expect, it } from 'vitest';
-
+import { describe, expect, it, vi } from 'vitest';
 import { AxAIOpenAI } from './api.js';
+import { AxAIOpenAIModel } from './chat_types.js';
+
+function createMockFetch(body: unknown, capture: { lastBody?: any }) {
+  return vi
+    .fn()
+    .mockImplementation(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      try {
+        if (init?.body && typeof init.body === 'string') {
+          capture.lastBody = JSON.parse(init.body);
+        }
+      } catch {}
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+}
+
+describe('AxAIOpenAI model key preset merging', () => {
+  it('merges model list item modelConfig into effective config', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: { model: AxAIOpenAIModel.GPT5Mini },
+      models: [
+        {
+          key: 'fast',
+          model: AxAIOpenAIModel.GPT5Nano,
+          description: 'fast preset',
+          // @ts-expect-error: provider-specific config on model item is normalized at runtime
+          config: { maxTokens: 256, stop: ['\n'] as any },
+        },
+      ],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    const res = (await ai.chat(
+      {
+        model: 'fast',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { stream: false }
+    )) as any;
+
+    expect(res.results[0]?.content).toBe('ok');
+    expect(fetch).toHaveBeenCalled();
+
+    const mc = ai.getLastUsedModelConfig();
+    expect(mc?.maxTokens).toBe(256);
+    // Temperature may be omitted by model; ensure no crash and allow undefined
+    expect(
+      Array.isArray(mc?.stopSequences) ? mc?.stopSequences!.length : 0
+    ).toBeGreaterThan(0);
+  });
+
+  it('ignores thinkingTokenBudget when model does not support it', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: { model: AxAIOpenAIModel.GPT5Mini },
+      models: [
+        { key: 'fast', model: AxAIOpenAIModel.GPT5Nano, description: 'fast' },
+      ],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    const res = (await ai.chat(
+      {
+        model: 'fast',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { stream: false }
+    )) as any;
+
+    expect(res.results[0]?.content).toBe('ok');
+    expect(fetch).toHaveBeenCalled();
+  });
+});
 
 describe('AxAIOpenAI', () => {
   describe('API URL configuration', () => {

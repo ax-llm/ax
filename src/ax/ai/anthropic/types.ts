@@ -29,6 +29,10 @@ export enum AxAIAnthropicVertexModel {
 export type AxAIAnthropicThinkingConfig = {
   type: 'enabled';
   budget_tokens: number;
+  /** Optional: numeric budget hint used in config normalization */
+  thinkingTokenBudget?: number;
+  /** Optional: include provider thinking content in outputs */
+  includeThoughts?: boolean;
 };
 
 export type AxAIAnthropicThinkingTokenBudgetLevels = {

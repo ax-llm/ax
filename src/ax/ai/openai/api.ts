@@ -773,6 +773,64 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       };
     };
 
+    // Normalize per-model presets to allow provider-specific item.config to influence defaults
+    const normalizedModels = models?.map((item) => {
+      const anyItem = item as any;
+      const cfg = anyItem?.config as
+        | Partial<AxAIOpenAIConfig<AxAIOpenAIModel, AxAIOpenAIEmbedModel>>
+        | undefined;
+      if (!cfg) return item;
+
+      const modelConfig: Partial<AxModelConfig> = {};
+      if (cfg.maxTokens !== undefined) modelConfig.maxTokens = cfg.maxTokens;
+      if (cfg.temperature !== undefined)
+        modelConfig.temperature = cfg.temperature;
+      if (cfg.topP !== undefined) modelConfig.topP = cfg.topP;
+      if (cfg.presencePenalty !== undefined)
+        modelConfig.presencePenalty = cfg.presencePenalty as number;
+      if (cfg.frequencyPenalty !== undefined)
+        modelConfig.frequencyPenalty = cfg.frequencyPenalty as number;
+      // Support both AxModelConfig.stopSequences and OpenAI's stop
+      const stopSeq = (cfg as any).stopSequences ?? (cfg as any).stop;
+      if (stopSeq !== undefined)
+        modelConfig.stopSequences = stopSeq as string[];
+      if (cfg.n !== undefined) modelConfig.n = cfg.n as number;
+      if (cfg.stream !== undefined) modelConfig.stream = cfg.stream as boolean;
+
+      const out: any = { ...anyItem };
+      if (Object.keys(modelConfig).length > 0) {
+        out.modelConfig = { ...(anyItem.modelConfig ?? {}), ...modelConfig };
+      }
+
+      // Map numeric thinking budget to closest Ax level for convenience
+      const numericBudget = (cfg as any)?.thinking?.thinkingTokenBudget;
+      if (typeof numericBudget === 'number') {
+        const candidates = [
+          ['minimal', 200],
+          ['low', 800],
+          ['medium', 5000],
+          ['high', 10000],
+          ['highest', 24500],
+        ] as const;
+        let bestName: 'minimal' | 'low' | 'medium' | 'high' | 'highest' =
+          'minimal';
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (const [name, value] of candidates) {
+          const diff = Math.abs(numericBudget - value);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestName = name as typeof bestName;
+          }
+        }
+        out.thinkingTokenBudget = bestName;
+      }
+      if ((cfg as any)?.thinking?.includeThoughts !== undefined) {
+        out.showThoughts = !!(cfg as any).thinking.includeThoughts;
+      }
+
+      return out as typeof item;
+    });
+
     super({
       apiKey,
       apiURL,
@@ -782,7 +840,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       },
       options,
       modelInfo,
-      models,
+      models: normalizedModels ?? models,
       supportFor,
     });
 

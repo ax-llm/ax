@@ -870,6 +870,68 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       };
     };
 
+    // Normalize per-model presets: allow provider-specific config on each model list item
+    const normalizedModels = models?.map((item) => {
+      const anyItem = item as any;
+      const cfg = anyItem?.config as
+        | Partial<AxAIGoogleGeminiConfig>
+        | undefined;
+      if (!cfg) return item;
+
+      // Extract AxModelConfig-compatible fields and merge into modelConfig
+      const modelConfig: Partial<AxModelConfig> = {};
+      if (cfg.maxTokens !== undefined) modelConfig.maxTokens = cfg.maxTokens;
+      if (cfg.temperature !== undefined)
+        modelConfig.temperature = cfg.temperature;
+      if (cfg.topP !== undefined) modelConfig.topP = cfg.topP;
+      if (cfg.topK !== undefined) modelConfig.topK = cfg.topK as number;
+      if (cfg.presencePenalty !== undefined)
+        modelConfig.presencePenalty = cfg.presencePenalty as number;
+      if (cfg.frequencyPenalty !== undefined)
+        modelConfig.frequencyPenalty = cfg.frequencyPenalty as number;
+      if (cfg.stopSequences !== undefined)
+        modelConfig.stopSequences = cfg.stopSequences as string[];
+      if ((cfg as any).endSequences !== undefined)
+        (modelConfig as any).endSequences = (cfg as any).endSequences;
+      if (cfg.stream !== undefined) modelConfig.stream = cfg.stream as boolean;
+      if (cfg.n !== undefined) modelConfig.n = cfg.n as number;
+
+      const out: any = { ...anyItem };
+      if (Object.keys(modelConfig).length > 0) {
+        out.modelConfig = { ...(anyItem.modelConfig ?? {}), ...modelConfig };
+      }
+
+      // Map exact numeric thinking budget to the closest supported level
+      const numericBudget = cfg.thinking?.thinkingTokenBudget;
+      if (typeof numericBudget === 'number') {
+        const levels = Config.thinkingTokenBudgetLevels;
+        const candidates = [
+          ['minimal', levels?.minimal ?? 200],
+          ['low', levels?.low ?? 800],
+          ['medium', levels?.medium ?? 5000],
+          ['high', levels?.high ?? 10000],
+          ['highest', levels?.highest ?? 24500],
+        ] as const;
+        let bestName: 'minimal' | 'low' | 'medium' | 'high' | 'highest' =
+          'minimal';
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (const [name, value] of candidates) {
+          const diff = Math.abs(numericBudget - value);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestName = name as typeof bestName;
+          }
+        }
+        out.thinkingTokenBudget = bestName;
+      }
+      // If includeThoughts is provided (with or without numeric budget), map to showThoughts
+      if (cfg.thinking?.includeThoughts !== undefined) {
+        out.showThoughts = !!cfg.thinking.includeThoughts;
+      }
+
+      return out as typeof item;
+    });
+
     super(aiImpl, {
       name: 'GoogleGeminiAI',
       apiURL,
@@ -881,7 +943,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       },
       options,
       supportFor,
-      models,
+      models: normalizedModels ?? models,
     });
   }
 }

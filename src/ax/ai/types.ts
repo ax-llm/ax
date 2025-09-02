@@ -8,7 +8,7 @@ export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
   (AxAIModelListBase<TModelKey> & {
     isInternal?: boolean;
     /** Optional per-model config applied when this key is used (callers still override) */
-    modelConfig?: AxModelConfig;
+    modelConfig?: Omit<AxModelConfig, 'model' | 'embedModel'>;
     /** Optional per-model options applied when this key is used (callers still override) */
     thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
     showThoughts?: AxAIServiceOptions['showThoughts'];
