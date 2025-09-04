@@ -351,11 +351,7 @@ class OAuthHelper {
     // If we already have a valid token, return it
     const existing =
       options.currentToken ?? (await this.getStoredToken(resource, issuer));
-    if (
-      existing &&
-      existing.accessToken &&
-      !this.isExpired(existing.expiresAt)
-    ) {
+    if (existing?.accessToken && !this.isExpired(existing.expiresAt)) {
       return { token: existing, issuer, asMeta, resource };
     }
 
@@ -473,7 +469,7 @@ class OAuthHelper {
   private async refreshToken(
     refreshToken: string,
     resource: string,
-    issuer: string,
+    _issuer: string,
     asMeta: any
   ): Promise<TokenSet> {
     const body = new URLSearchParams();
@@ -545,10 +541,12 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
   private async openSSEWithFetch(
     headers: Record<string, string>
   ): Promise<void> {
+    const ac = new AbortController();
+    this.sseAbort = ac;
     const res = await fetch(this.sseUrl, {
       method: 'GET',
       headers,
-      signal: (this.sseAbort = new AbortController()).signal,
+      signal: ac.signal,
     });
 
     if (res.status === 401) {
@@ -579,7 +577,9 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
   private createEndpointReady(): Promise<void> {
     if (!this.endpointReady) {
       let resolver!: () => void;
-      const promise = new Promise<void>((resolve) => (resolver = resolve));
+      const promise = new Promise<void>((resolve) => {
+        resolver = resolve;
+      });
       this.endpointReady = { resolve: resolver, promise };
     }
     return this.endpointReady.promise;
@@ -626,7 +626,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
             // Resolve relative paths against sseUrl origin
             if (!/^https?:\/\//i.test(uri)) {
               const base = new URL(this.sseUrl);
-              uri = base.origin + (uri.startsWith('/') ? uri : '/' + uri);
+              uri = base.origin + (uri.startsWith('/') ? uri : `/${uri}`);
             }
             this.endpoint = uri;
             if (this.endpointReady) {
@@ -720,7 +720,7 @@ export class AxMCPHTTPSSETransport implements AxMCPTransport {
     }
 
     const contentType = res.headers.get('Content-Type');
-    if (contentType && contentType.includes('application/json')) {
+    if (contentType?.includes('application/json')) {
       const json = (await res.json()) as AxMCPJSONRPCResponse<unknown>;
       this.pendingRequests.delete(message.id);
       return json;
