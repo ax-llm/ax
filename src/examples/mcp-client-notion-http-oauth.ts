@@ -62,7 +62,7 @@ Using HTTP transport for communication with Notion MCP server.
   const notionAgent = agent('userRequest:string -> assistantResponse:string', {
     name: 'NotionAssistant',
     description:
-      'You are an assistant that can interact with Notion documents and data via HTTP. Execute the user\'s request without question and to the best of your abilities.',
+      "You are an assistant that can interact with Notion documents and data via HTTP. Execute the user's request without question and to the best of your abilities.",
     functions: [client],
   });
 
@@ -82,10 +82,13 @@ async function runNotionExample() {
 
   console.log('\n--- Requesting Notion document summary ---');
   const response = await notionAgent.forward(llm, {
-    userRequest: 'Give me a high-level structural summary of my entire notion workspace.',
+    userRequest:
+      'Give me a high-level structural summary of my entire notion workspace.',
   });
 
-  console.log('User: Give me a high-level structural summary of my entire notion workspace.');
+  console.log(
+    'User: Give me a high-level structural summary of my entire notion workspace.'
+  );
   console.log(`Assistant: ${response.assistantResponse}`);
 }
 

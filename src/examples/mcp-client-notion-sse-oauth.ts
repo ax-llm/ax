@@ -61,7 +61,7 @@ async function createNotionAgent() {
   const notionAgent = agent('userRequest:string -> assistantResponse:string', {
     name: 'NotionAssistantSSE',
     description:
-      'You are an assistant that can interact with Notion documents and data via SSE. Execute the user\'s request without question and to the best of your abilities.',
+      "You are an assistant that can interact with Notion documents and data via SSE. Execute the user's request without question and to the best of your abilities.",
     functions: [client],
   });
 
@@ -81,10 +81,13 @@ async function runNotionSSEExample() {
 
   console.log('\n--- Requesting Notion document summary (SSE) ---');
   const response = await notionAgent.forward(llm, {
-    userRequest: 'Give me a high-level structural summary of my entire notion workspace.',
+    userRequest:
+      'Give me a high-level structural summary of my entire notion workspace.',
   });
 
-  console.log('User: Give me a high-level structural summary of my entire notion workspace.');
+  console.log(
+    'User: Give me a high-level structural summary of my entire notion workspace.'
+  );
   console.log(`Assistant: ${response.assistantResponse}`);
 }
 
