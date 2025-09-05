@@ -275,15 +275,16 @@ export class AxGEPA extends AxBaseOptimizer {
     ).map((p) => p.idx);
 
     let _prevHypervolume: number | undefined;
-    const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as
-      | number
-      | undefined;
-    const rolloutBudgetPareto =
-      rolloutBudgetParetoRaw !== undefined &&
-      Number.isFinite(rolloutBudgetParetoRaw) &&
-      rolloutBudgetParetoRaw > 0
-        ? Math.floor(rolloutBudgetParetoRaw)
-        : undefined;
+    const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as number;
+    if (
+      !Number.isFinite(rolloutBudgetParetoRaw) ||
+      rolloutBudgetParetoRaw <= 0
+    ) {
+      throw new Error(
+        'AxGEPA: options.maxMetricCalls must be set to a positive integer'
+      );
+    }
+    const rolloutBudgetPareto = Math.floor(rolloutBudgetParetoRaw);
 
     for (let t = 0; t < this.numTrials; t++) {
       if (

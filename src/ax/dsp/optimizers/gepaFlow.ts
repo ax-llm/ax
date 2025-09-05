@@ -258,15 +258,13 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     let stagnation = 0;
     const triedMerges = new Set<string>();
 
-    const rolloutBudgetRaw = (options as any)?.maxMetricCalls as
-      | number
-      | undefined;
-    const rolloutBudget =
-      rolloutBudgetRaw !== undefined &&
-      Number.isFinite(rolloutBudgetRaw) &&
-      rolloutBudgetRaw > 0
-        ? Math.floor(rolloutBudgetRaw)
-        : undefined;
+    const rolloutBudgetRaw = (options as any)?.maxMetricCalls as number;
+    if (!Number.isFinite(rolloutBudgetRaw) || rolloutBudgetRaw <= 0) {
+      throw new Error(
+        'AxGEPA-Flow: options.maxMetricCalls must be set to a positive integer'
+      );
+    }
+    const rolloutBudget = Math.floor(rolloutBudgetRaw);
 
     for (let t = 0; t < this.numTrials; t++) {
       if (
