@@ -42,6 +42,8 @@ export class AxGEPA extends AxBaseOptimizer {
   private tieEpsilon: number;
   private feedbackMemorySize: number;
   private feedbackMemory: string[] = [];
+  private mergeMax: number;
+  private mergesUsed = 0;
 
   // Local histories for result object
   private localScoreHistory: number[] = [];
@@ -77,6 +79,9 @@ export class AxGEPA extends AxBaseOptimizer {
     this.tieEpsilon = Number.isFinite(argTieEps!) ? (argTieEps as number) : 0;
     const argFbMem = (args as any)?.feedbackMemorySize as number | undefined;
     this.feedbackMemorySize = Math.max(0, Math.floor(argFbMem ?? 4));
+    const argMergeMax = (args as any)?.mergeMax as number | undefined;
+    this.mergeMax = Math.max(0, Math.floor(argMergeMax ?? 5));
+    this.mergesUsed = 0;
 
     // Hook convergence threshold to base stats
     this.stats.convergenceInfo.convergenceThreshold =
@@ -90,6 +95,7 @@ export class AxGEPA extends AxBaseOptimizer {
     this.localScoreHistory = [];
     this.localConfigurationHistory = [];
     this.feedbackMemory = [];
+    this.mergesUsed = 0;
   }
 
   /**
@@ -218,26 +224,44 @@ export class AxGEPA extends AxBaseOptimizer {
         ? randomSubset(examples, Math.min(this.minibatchSize, examples.length))
         : examples;
 
-      // Propose child via reflection
-      const childInstr = await this.reflectInstruction(
-        candidates[parentIdx]!.instruction,
-        program,
-        mini,
-        // Provide a scalar metric for reflection only; not used for acceptance
-        async ({ prediction, example }) => {
-          const scores = await (metricFn as unknown as AxMultiMetricFn)({
-            prediction,
-            example,
-          });
-          const vals = Object.values(scores || {});
-          return vals.length
-            ? vals.reduce((a, b) => a + b, 0) / vals.length
-            : 0;
-        },
-        options
-      );
+      const useMerge =
+        this.crossoverEvery > 0 &&
+        (t + 1) % this.crossoverEvery === 0 &&
+        candidates.length > 1 &&
+        this.mergesUsed < this.mergeMax;
 
-      // Dominance-based acceptance on minibatch (vector)
+      let childInstr = candidates[parentIdx]!.instruction;
+      let strategy: 'reflective_mutation' | 'merge' = 'reflective_mutation';
+
+      if (useMerge) {
+        let second = selectCandidatePareto(perInstanceScores).index;
+        if (second === parentIdx) second = (parentIdx + 1) % candidates.length;
+        childInstr = await this.mergeInstructions(
+          candidates[parentIdx]!.instruction,
+          candidates[second]!.instruction,
+          options
+        );
+        strategy = 'merge';
+        this.mergesUsed += 1;
+      } else {
+        childInstr = await this.reflectInstruction(
+          candidates[parentIdx]!.instruction,
+          program,
+          mini,
+          async ({ prediction, example }) => {
+            const scores = await (metricFn as unknown as AxMultiMetricFn)({
+              prediction,
+              example,
+            });
+            const vals = Object.values(scores || {});
+            return vals.length
+              ? vals.reduce((a, b) => a + b, 0) / vals.length
+              : 0;
+          },
+          options
+        );
+      }
+
       const parentMiniVec = await evalOnSet(
         candidates[parentIdx]!.instruction,
         mini
@@ -258,7 +282,7 @@ export class AxGEPA extends AxBaseOptimizer {
           totalRounds: this.numTrials,
         },
         'GEPA',
-        { strategy: 'reflective_mutation', paretoSetSize: paretoSet.length },
+        { strategy, paretoSetSize: paretoSet.length },
         childMiniScalar,
         {
           instructionLen: candidates[parentIdx]!.instruction.length,

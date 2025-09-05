@@ -35,6 +35,9 @@ export class AxGEPAFlow extends AxBaseOptimizer {
   private sampleCount: number;
   private crossoverEvery: number;
   private tieEpsilon: number;
+  private paretoSetSize: number;
+  private mergeMax: number;
+  private mergesUsed = 0;
 
   constructor(args: Readonly<AxOptimizerArgs>) {
     super(args);
@@ -55,6 +58,16 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       ? Number((args as any)?.tieEpsilon)
       : 0;
 
+    const argPareto = (args as any)?.paretoSetSize as number | undefined;
+    this.paretoSetSize =
+      argPareto && argPareto > 0
+        ? Math.min(1000, Math.max(5, Math.floor(argPareto)))
+        : Math.max(10, Math.min(200, this.minibatchSize * 3));
+
+    const argMergeMax = (args as any)?.mergeMax as number | undefined;
+    this.mergeMax = Math.max(0, Math.floor(argMergeMax ?? 5));
+    this.mergesUsed = 0;
+
     this.stats.convergenceInfo.convergenceThreshold =
       this.minImprovementThreshold;
   }
@@ -63,6 +76,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     super.reset();
     this.stats.convergenceInfo.convergenceThreshold =
       this.minImprovementThreshold;
+    this.mergesUsed = 0;
   }
 
   public configureAuto(level: 'light' | 'medium' | 'heavy'): void {
@@ -114,7 +128,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       validationExamples && validationExamples.length > 0
         ? validationExamples
         : examples
-    ).slice(0, Math.max(10, Math.min(200, this.minibatchSize * 3)));
+    ).slice(0, this.paretoSetSize);
 
     const optLogger = this.getOptimizerLogger(options);
     optLogger?.({
@@ -200,6 +214,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       candidates.map((c, idx) => ({ idx, scores: c.scores }))
     ).map((p) => p.idx);
     let stagnation = 0;
+    const triedMerges = new Set<string>();
 
     const rolloutBudget = (options as any)?.budgetRollouts as
       | number
@@ -235,26 +250,92 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       const moduleIndex = t % nodes.length; // round-robin module selection
       const module = nodes[moduleIndex]!;
 
-      if (useCrossover) {
-        // Sample a second parent via per-instance Pareto sampling as well
+      if (useCrossover && this.mergesUsed < this.mergeMax) {
         let second = selectCandidatePareto(perInstanceScores).index;
         if (second === parentIdx) second = (parentIdx + 1) % candidates.length;
-        proposedCfg = this.systemAwareMerge(
-          candidates,
-          parentIdx,
-          second,
-          (ia, ib) => {
-            // prefer the one with higher avg scalar on paretoSet
-            const sa =
-              Object.values(candidates[ia]!.scores).reduce((a, b) => a + b, 0) /
-              Math.max(Object.keys(candidates[ia]!.scores).length, 1);
-            const sb =
-              Object.values(candidates[ib]!.scores).reduce((a, b) => a + b, 0) /
-              Math.max(Object.keys(candidates[ib]!.scores).length, 1);
-            return sa >= sb ? ia : ib;
+
+        const ancestors = (idx: number): number[] => {
+          const path: number[] = [];
+          let cur: number | undefined = idx;
+          while (cur !== undefined) {
+            path.push(cur);
+            cur = candidates[cur]?.parent;
           }
-        );
-        strategy = 'system_merge';
+          return path;
+        };
+        const Ai = ancestors(parentIdx);
+        const Aj = ancestors(second);
+        const common = Ai.find((x) => Aj.includes(x));
+
+        let doMerge = true;
+        if (!common) doMerge = false;
+        if (Aj.includes(parentIdx) || Ai.includes(second)) doMerge = false;
+        if (doMerge) {
+          const cfgA = candidates[common!]!.cfg;
+          const cfgI = candidates[parentIdx]!.cfg;
+          const cfgJ = candidates[second]!.cfg;
+          let desirable = false;
+          const allKeys = new Set([
+            ...Object.keys(cfgA),
+            ...Object.keys(cfgI),
+            ...Object.keys(cfgJ),
+          ]);
+          for (const k of allKeys) {
+            const pa = cfgA[k];
+            const pi = cfgI[k];
+            const pj = cfgJ[k];
+            if ((pi === pa && pj !== pi) || (pj === pa && pi !== pj)) {
+              desirable = true;
+              break;
+            }
+          }
+          if (!desirable) doMerge = false;
+        }
+
+        if (doMerge) {
+          proposedCfg = this.systemAwareMerge(
+            candidates,
+            parentIdx,
+            second,
+            (ia, ib) => {
+              const sa =
+                Object.values(candidates[ia]!.scores).reduce(
+                  (a, b) => a + b,
+                  0
+                ) / Math.max(Object.keys(candidates[ia]!.scores).length, 1);
+              const sb =
+                Object.values(candidates[ib]!.scores).reduce(
+                  (a, b) => a + b,
+                  0
+                ) / Math.max(Object.keys(candidates[ib]!.scores).length, 1);
+              return sa >= sb ? ia : ib;
+            }
+          );
+          strategy = 'system_merge';
+          this.mergesUsed += 1;
+        } else {
+          const currentInstr = candidates[parentIdx]!.cfg[module.name]!;
+          const newInstr = await this.reflectModuleInstruction(
+            module.name,
+            currentInstr,
+            flow,
+            nodes,
+            { ...candidates[parentIdx]!.cfg },
+            mini,
+            async ({ prediction, example }) => {
+              const scores = await (metricFn as unknown as AxMultiMetricFn)({
+                prediction,
+                example,
+              });
+              const vals = Object.values(scores || {});
+              return vals.length
+                ? vals.reduce((a, b) => a + b, 0) / vals.length
+                : 0;
+            },
+            options
+          );
+          proposedCfg[module.name] = newInstr;
+        }
       } else {
         const currentInstr = candidates[parentIdx]!.cfg[module.name]!;
         const newInstr = await this.reflectModuleInstruction(
@@ -264,7 +345,6 @@ export class AxGEPAFlow extends AxBaseOptimizer {
           nodes,
           { ...candidates[parentIdx]!.cfg },
           mini,
-          // Scalar for reflection only
           async ({ prediction, example }) => {
             const scores = await (metricFn as unknown as AxMultiMetricFn)({
               prediction,
