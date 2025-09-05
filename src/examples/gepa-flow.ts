@@ -1,9 +1,21 @@
-import { AxAI, AxAIOpenAIModel, AxGEPA, ax } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, AxGEPAFlow, AxFlow } from '@ax-llm/ax';
 
-// Two-objective demo: accuracy (classification) + brevity (short rationale)
-const emailClassifier = ax(
-  'emailText:string "Email content" -> priority:class "high, normal, low" "Priority level", rationale:string "One concise sentence"'
-);
+// Two-objective flow: classify priority and produce a brief rationale
+const flowEmail = AxFlow.create<{ emailText: string }>()
+  .n('classifier', 'emailText:string -> priority:class "high, normal, low"')
+  .n(
+    'rationale',
+    'emailText:string, priority:string -> rationale:string "One concise sentence"'
+  )
+  .e('classifier', (s) => ({ emailText: s.emailText }))
+  .e('rationale', (s) => ({
+    emailText: s.emailText,
+    priority: s.classifierResult.priority,
+  }))
+  .m((s) => ({
+    priority: s.classifierResult.priority,
+    rationale: s.rationaleResult.rationale,
+  }));
 
 // Train/validation sets
 const train = [
@@ -41,7 +53,6 @@ const metric = async ({
   const rationale: string =
     typeof prediction?.rationale === 'string' ? prediction.rationale : '';
   const len = rationale.length;
-  // Piecewise brevity: reward short, penalize long
   const brevity = len <= 30 ? 1 : len <= 60 ? 0.7 : len <= 100 ? 0.4 : 0.1;
   return { accuracy: acc, brevity } as Record<string, number>;
 };
@@ -64,12 +75,12 @@ async function main() {
     config: { model: AxAIOpenAIModel.GPT4O },
   });
 
-  const optimizer = new AxGEPA({
+  const optimizer = new AxGEPAFlow({
     studentAI: student,
     teacherAI: teacher,
     numTrials: 16,
     minibatch: true,
-    minibatchSize: 5,
+    minibatchSize: 6,
     earlyStoppingTrials: 5,
     minImprovementThreshold: -0.001,
     sampleCount: 1,
@@ -77,9 +88,11 @@ async function main() {
     debugOptimizer: false,
   });
 
-  console.log('🚀 Running GEPA Pareto optimization (accuracy + brevity)...');
-  const result = await optimizer.compilePareto(
-    emailClassifier as any,
+  console.log(
+    '🚀 Running GEPA-Flow Pareto optimization (accuracy + brevity)...'
+  );
+  const result = await optimizer.compile(
+    flowEmail as any,
     train,
     metric as any,
     { auto: 'medium', verbose: true, validationExamples: val } as any
@@ -89,7 +102,6 @@ async function main() {
   console.log(`Front size: ${result.paretoFrontSize}`);
   console.log(`Hypervolume (2D): ${result.hypervolume ?? 'N/A'}`);
 
-  // Show up to top 5 frontier points (by dominatedSolutions desc)
   const frontier = [...result.paretoFront]
     .sort((a, b) => (b.dominatedSolutions || 0) - (a.dominatedSolutions || 0))
     .slice(0, 5);
@@ -102,31 +114,9 @@ async function main() {
       `  #${i + 1}: accuracy=${acc.toFixed(3)}, brevity=${brev.toFixed(3)}, config=${JSON.stringify(p.configuration)}`
     );
   }
-
-  // Choose a compromise (weighted scalarization) for illustration
-  const choose = (wAcc = 0.7, wBrev = 0.3) => {
-    let best = frontier[0];
-    let bestScore = -Infinity;
-    for (const p of frontier) {
-      const acc = (p.scores as any).accuracy ?? 0;
-      const brev = (p.scores as any).brevity ?? 0;
-      const s = wAcc * acc + wBrev * brev;
-      if (s > bestScore) {
-        bestScore = s;
-        best = p;
-      }
-    }
-    return { best, bestScore };
-  };
-
-  const { best, bestScore } = choose();
-  console.log(
-    `\n🎯 Chosen compromise score (0.7*acc + 0.3*brev): ${bestScore.toFixed(3)}`
-  );
-  console.log(`Chosen configuration: ${JSON.stringify(best.configuration)}`);
 }
 
 main().catch((err) => {
-  console.error('💥 GEPA Pareto example failed:', err);
+  console.error('💥 GEPA-Flow Pareto example failed:', err);
   process.exit(1);
 });

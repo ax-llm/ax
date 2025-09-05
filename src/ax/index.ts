@@ -515,9 +515,9 @@ import {
   axDefaultOptimizerLogger,
 } from './dsp/optimizerLogging.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
-import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
 import { AxGEPA } from './dsp/optimizers/gepa.js';
 import { AxGEPAFlow } from './dsp/optimizers/gepaFlow.js';
+import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
 import type {
   AxOptimizerLoggerData,
   AxOptimizerLoggerFunction,
@@ -744,6 +744,8 @@ export { AxFlowTypedSubContextImpl };
 export { AxFluentFieldType };
 export { AxFunctionError };
 export { AxFunctionProcessor };
+export { AxGEPA };
+export { AxGEPAFlow };
 export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
@@ -755,8 +757,6 @@ export { AxMCPStreambleHTTPTransport };
 export { AxMediaNotSupportedError };
 export { AxMemory };
 export { AxMiPRO };
-export { AxGEPA };
-export { AxGEPAFlow };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
 export { AxOptimizedProgramImpl };

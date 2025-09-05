@@ -86,7 +86,7 @@ export class AxGEPA extends AxBaseOptimizer {
   /**
    * Main compile: reflective instruction optimization for a single AxGen program
    */
-  public async compile<IN, OUT extends AxGenOut>(
+  private async compileLegacy<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
     examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
@@ -388,10 +388,10 @@ export class AxGEPA extends AxBaseOptimizer {
   /**
    * Multi-objective GEPA: reflective evolution with Pareto frontier
    */
-  public async compilePareto<IN, OUT extends AxGenOut>(
+  public async compile<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
     examples: readonly AxTypedExample<IN>[],
-    metricFn: AxMultiMetricFn,
+    metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>> {
     const startTime = Date.now();
@@ -440,7 +440,10 @@ export class AxGEPA extends AxBaseOptimizer {
           } as any
         );
         this.stats.totalCalls += 1;
-        const scores = await metricFn({ prediction, example: ex as any });
+        const scores = await (metricFn as unknown as AxMultiMetricFn)({
+          prediction,
+          example: ex as any,
+        });
         return scores || {};
       } catch {
         return {};
@@ -524,7 +527,10 @@ export class AxGEPA extends AxBaseOptimizer {
         mini,
         // Provide a scalar metric for reflection only; not used for acceptance
         async ({ prediction, example }) => {
-          const scores = await metricFn({ prediction, example });
+          const scores = await (metricFn as unknown as AxMultiMetricFn)({
+            prediction,
+            example,
+          });
           const vals = Object.values(scores || {});
           return vals.length
             ? vals.reduce((a, b) => a + b, 0) / vals.length
