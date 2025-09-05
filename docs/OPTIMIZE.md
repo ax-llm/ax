@@ -750,7 +750,7 @@ const optimizer = new AxBootstrapFewShot({
 });
 ```
 
-### 2. Multi-Objective Optimization with `compilePareto`
+### 2. Multi-Objective Optimization (GEPA uses `compile`; MiPRO uses `compilePareto`)
 
 **The Problem**: Sometimes you care about multiple things at once - accuracy AND
 speed AND cost. Traditional optimization only handles one objective at a time.
