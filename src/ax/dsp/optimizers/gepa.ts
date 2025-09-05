@@ -384,6 +384,7 @@ export class AxGEPA extends AxBaseOptimizer {
           let allowed = Sa <= Math.min(Si, Sj) && desirable;
           let childInstrMerged = '';
           let descSig: 'i' | 'j' = 'i';
+          let attempted = false;
           if (allowed) {
             const triKey = `${i}|${j}|${a}`;
             if (this.mergeAttemptKeys.has(triKey)) {
@@ -457,6 +458,7 @@ export class AxGEPA extends AxBaseOptimizer {
                 const idxs = chosen.slice(0, Math.min(K, allIdx.length));
 
                 const subsample = idxs.map((z) => paretoSet[z]!);
+                attempted = true;
                 const newSubArr = await evalOnSetScalar(
                   childInstrMerged,
                   subsample
@@ -500,8 +502,10 @@ export class AxGEPA extends AxBaseOptimizer {
               }
             }
           }
-          // Skip reflective this iteration
-          continue;
+          if (attempted) {
+            // Skip reflective this iteration
+            continue;
+          }
         }
       }
 
