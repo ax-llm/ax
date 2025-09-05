@@ -24,3 +24,5 @@ site/dist
 *.webm
 *.txt
 __pycache__
+
+gepa/

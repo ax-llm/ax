@@ -1,6 +1,7 @@
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
 import type { AxOptimizerLoggerData } from './optimizerTypes.js';
 import type { AxFieldValue, AxResultPickerFunction } from './types.js';
+import type { AxGEPAAdapter } from './optimizers/gepaAdapter.js';
 
 export type AxExample = Record<string, AxFieldValue>;
 
@@ -173,4 +174,9 @@ export interface AxCompileOptions {
   overrideCheckpointLoad?: AxCheckpointLoadFn;
   overrideCheckpointInterval?: number;
   saveCheckpointOnComplete?: boolean;
+  // GEPA core options (adapter-based)
+  gepaAdapter?: AxGEPAAdapter<any, any, any>;
+  skipPerfectScore?: boolean;
+  perfectScore?: number;
+  maxMetricCalls?: number;
 }

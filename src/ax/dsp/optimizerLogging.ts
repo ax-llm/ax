@@ -71,8 +71,17 @@ export const axCreateDefaultOptimizerColorLogger = (
                 ? cl.red(` ↓${Math.abs(improvement).toFixed(3)}`)
                 : '';
 
+          const totalRounds =
+            typeof data.value.totalRounds === 'number' &&
+            data.value.totalRounds > 0
+              ? data.value.totalRounds
+              : typeof (config as any).totalRounds === 'number' &&
+                  (config as any).totalRounds > 0
+                ? (config as any).totalRounds
+                : 0;
+
           formattedMessage =
-            `${cl.yellow('● ')}${cl.whiteBright(`Round ${data.value.round}/${data.value.totalRounds}`)}` +
+            `${cl.yellow('● ')}${cl.whiteBright(`Round ${data.value.round}/${totalRounds}`)}` +
             (config.trialNumber !== undefined
               ? cl.gray(` [Trial #${config.trialNumber}]`)
               : '') +
