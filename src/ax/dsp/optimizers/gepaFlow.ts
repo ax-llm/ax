@@ -314,6 +314,24 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       },
     ];
 
+    // Track per-instance scalar scores on validation set for Algorithm 2 selection
+    const perInstanceScores: number[][] = [];
+    const evalOnSetScalar = async (
+      cfg: Readonly<Record<string, string>>,
+      set: readonly AxTypedExample<IN>[]
+    ): Promise<number[]> => {
+      const out: number[] = [];
+      for (const ex of set) {
+        const vec = await evalOne(cfg, ex);
+        const vals = Object.values(vec);
+        out.push(
+          vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
+        );
+      }
+      return out;
+    };
+    perInstanceScores.push(await evalOnSetScalar(baseInstrs, paretoSet));
+
     // Initialize archive
     let archive = buildFront(
       candidates.map((c, idx) => ({ idx, scores: c.scores }))
@@ -332,17 +350,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         break;
       }
 
-      // Parent selection from archive by crowding distance
-      const frontForCD = archive.map((idx) => ({
-        idx,
-        scores: candidates[idx]!.scores,
-      }));
-      const crowd = computeCrowding(frontForCD);
-      const weights = archive.map((idx) => {
-        const w = crowd.get(idx) ?? 0;
-        return Number.isFinite(w) ? Math.max(w, 1e-6) : 1e6;
-      });
-      const parentIdx = weightedPick(archive, weights);
+      // Parent selection via per-instance Pareto sampling (Algorithm 2)
+      const parentIdx = selectCandidatePareto(perInstanceScores).index;
 
       const mini = this.minibatch
         ? randomSubset(examples, Math.min(this.minibatchSize, examples.length))
@@ -364,7 +373,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       const module = nodes[moduleIndex]!;
 
       if (useCrossover) {
-        let second = weightedPick(archive, weights);
+        // Sample a second parent via per-instance Pareto sampling as well
+        let second = selectCandidatePareto(perInstanceScores).index;
         if (second === parentIdx) second = (parentIdx + 1) % candidates.length;
         proposedCfg = this.systemAwareMerge(
           candidates,
@@ -451,6 +461,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         parent: parentIdx,
         scores: childVec,
       });
+      // Store per-instance scalar scores for Algorithm 2 selection
+      perInstanceScores.push(await evalOnSetScalar(proposedCfg, paretoSet));
 
       const beforeSize = archive.length;
       const hvBefore =
