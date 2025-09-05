@@ -179,9 +179,22 @@ export interface AxCompileOptions {
   overrideCheckpointInterval?: number;
   saveCheckpointOnComplete?: boolean;
   // GEPA extras
+  /** D_pareto: validation subset used for candidate selection */
   validationExamples?: readonly AxTypedExample<any>[];
+  /** D_feedback: training subset used to gather reflective feedback */
+  feedbackExamples?: readonly AxTypedExample<any>[];
+  /** Optional rollout budget cap (counts evaluator calls) */
   budgetRollouts?: number;
+  /** Optional textual feedback function μ_f, e.g., evaluator traces per example */
   feedbackFn?: (
     arg: Readonly<{ prediction: any; example: AxExample }>
   ) => string | string[] | undefined;
+  /** Acceptance policy: 'sigma' (σ′ > σ) or 'dominance' (vector dominance). Defaults to 'sigma'. */
+  acceptanceMode?: 'sigma' | 'dominance';
+  /** Epsilon used with acceptanceMode 'sigma' (σ′ > σ + eps). Defaults to 0. */
+  acceptanceEpsilon?: number;
+  /** Scalarizer for multi-metric vectors; overrides average() */
+  paretoScalarize?: (scores: Readonly<Record<string, number>>) => number;
+  /** Convenience: specify a metric key to scalarize with that single metric. */
+  paretoMetricKey?: string;
 }

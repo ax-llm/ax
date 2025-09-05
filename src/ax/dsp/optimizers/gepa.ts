@@ -114,11 +114,20 @@ export class AxGEPA extends AxBaseOptimizer {
     const validationExamples = (options as any)?.validationExamples as
       | readonly AxTypedExample<IN>[]
       | undefined;
+    const feedbackExamples = (options as any)?.feedbackExamples as
+      | readonly AxTypedExample<IN>[]
+      | undefined;
+
     const paretoSet = (
       validationExamples && validationExamples.length > 0
         ? validationExamples
         : examples
     ).slice(0, this.paretoSetSize);
+
+    const feedbackSet =
+      feedbackExamples && feedbackExamples.length > 0
+        ? feedbackExamples
+        : examples;
 
     // Evaluate one example -> objective vector
     const evalOne = async (
@@ -169,6 +178,19 @@ export class AxGEPA extends AxBaseOptimizer {
       },
     ];
 
+    // Scalarizer for multi-metric vectors
+    const scalarize = (v: Readonly<Record<string, number>>): number => {
+      const key = (options as any)?.paretoMetricKey as string | undefined;
+      const fn = (options as any)?.paretoScalarize as
+        | ((scores: Readonly<Record<string, number>>) => number)
+        | undefined;
+      if (typeof fn === 'function') return fn(v);
+      if (key)
+        return Number.isFinite(v[key] as number) ? (v[key] as number) : 0;
+      const vals = Object.values(v);
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    };
+
     // Track per-instance scalar scores on the validation/Pareto set for Algorithm 2 selection
     const perInstanceScores: number[][] = [];
     const evalOnSetScalar = async (
@@ -178,10 +200,7 @@ export class AxGEPA extends AxBaseOptimizer {
       const out: number[] = [];
       for (const ex of set) {
         const vec = await evalOne(instruction, ex);
-        const vals = Object.values(vec);
-        out.push(
-          vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
-        );
+        out.push(scalarize(vec));
       }
       return out;
     };
@@ -221,8 +240,11 @@ export class AxGEPA extends AxBaseOptimizer {
       const parentIdx = selectCandidatePareto(perInstanceScores).index;
 
       const mini = this.minibatch
-        ? randomSubset(examples, Math.min(this.minibatchSize, examples.length))
-        : examples;
+        ? randomSubset(
+            feedbackSet,
+            Math.min(this.minibatchSize, feedbackSet.length)
+          )
+        : feedbackSet;
 
       const useMerge =
         this.crossoverEvery > 0 &&
@@ -267,10 +289,8 @@ export class AxGEPA extends AxBaseOptimizer {
         mini
       );
       const childMiniVec = await evalOnSet(childInstr, mini);
-      const childMiniScalar = (() => {
-        const vals = Object.values(childMiniVec);
-        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-      })();
+      const parentMiniScalar = scalarize(parentMiniVec);
+      const childMiniScalar = scalarize(childMiniVec);
 
       this.currentRound = t + 1;
       await this.updateOptimizationProgress(
@@ -291,11 +311,16 @@ export class AxGEPA extends AxBaseOptimizer {
         { ...(options ?? {}), maxIterations: this.numTrials }
       );
 
-      const accepted = dominatesVectorEps(
-        childMiniVec,
-        parentMiniVec,
-        this.tieEpsilon
-      );
+      const accMode =
+        ((options as any)?.acceptanceMode as
+          | 'sigma'
+          | 'dominance'
+          | undefined) ?? 'sigma';
+      const sigmaEps = Number((options as any)?.acceptanceEpsilon ?? 0);
+      const accepted =
+        accMode === 'dominance'
+          ? dominatesVectorEps(childMiniVec, parentMiniVec, this.tieEpsilon)
+          : childMiniScalar > parentMiniScalar + sigmaEps;
       if (!accepted) {
         if (++stagnation >= this.earlyStoppingTrials) break;
         continue;
@@ -340,14 +365,7 @@ export class AxGEPA extends AxBaseOptimizer {
     // Pick bestScore as max scalarized score on frontier
     const bestScore =
       pareto.length > 0
-        ? Math.max(
-            ...pareto.map((p) => {
-              const vals = Object.values(p.scores);
-              return vals.length
-                ? vals.reduce((a, b) => a + b, 0) / vals.length
-                : 0;
-            })
-          )
+        ? Math.max(...pareto.map((p) => scalarize(p.scores)))
         : 0;
 
     // Compute hypervolume (2D only)

@@ -120,8 +120,11 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     if (!nodes || nodes.length === 0)
       throw new Error('AxGEPAFlow: flow has no nodes to optimize');
 
-    // Validation/Pareto set
+    // Validation/Pareto set and Feedback/Training set
     const validationExamples = (options as any)?.validationExamples as
+      | readonly AxTypedExample<IN>[]
+      | undefined;
+    const feedbackExamples = (options as any)?.feedbackExamples as
       | readonly AxTypedExample<IN>[]
       | undefined;
     const paretoSet = (
@@ -129,6 +132,10 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         ? validationExamples
         : examples
     ).slice(0, this.paretoSetSize);
+    const feedbackSet =
+      feedbackExamples && feedbackExamples.length > 0
+        ? feedbackExamples
+        : examples;
 
     const optLogger = this.getOptimizerLogger(options);
     optLogger?.({
@@ -191,6 +198,19 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       },
     ];
 
+    // Scalarizer for multi-metric vectors
+    const scalarize = (v: Readonly<Record<string, number>>): number => {
+      const key = (options as any)?.paretoMetricKey as string | undefined;
+      const fn = (options as any)?.paretoScalarize as
+        | ((scores: Readonly<Record<string, number>>) => number)
+        | undefined;
+      if (typeof fn === 'function') return fn(v);
+      if (key)
+        return Number.isFinite(v[key] as number) ? (v[key] as number) : 0;
+      const vals = Object.values(v);
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    };
+
     // Track per-instance scalar scores on validation set for Algorithm 2 selection
     const perInstanceScores: number[][] = [];
     const evalOnSetScalar = async (
@@ -200,10 +220,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       const out: number[] = [];
       for (const ex of set) {
         const vec = await evalOne(cfg, ex);
-        const vals = Object.values(vec);
-        out.push(
-          vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
-        );
+        out.push(scalarize(vec));
       }
       return out;
     };
@@ -232,8 +249,11 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       const parentIdx = selectCandidatePareto(perInstanceScores).index;
 
       const mini = this.minibatch
-        ? randomSubset(examples, Math.min(this.minibatchSize, examples.length))
-        : examples;
+        ? randomSubset(
+            feedbackSet,
+            Math.min(this.minibatchSize, feedbackSet.length)
+          )
+        : feedbackSet;
 
       // Decide strategy: reflective mutation or periodic system-aware merge
       const useCrossover =
@@ -293,26 +313,31 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         }
 
         if (doMerge) {
-          proposedCfg = this.systemAwareMerge(
-            candidates,
-            parentIdx,
-            second,
-            (ia, ib) => {
-              const sa =
-                Object.values(candidates[ia]!.scores).reduce(
-                  (a, b) => a + b,
-                  0
-                ) / Math.max(Object.keys(candidates[ia]!.scores).length, 1);
-              const sb =
-                Object.values(candidates[ib]!.scores).reduce(
-                  (a, b) => a + b,
-                  0
-                ) / Math.max(Object.keys(candidates[ib]!.scores).length, 1);
-              return sa >= sb ? ia : ib;
+          // Guard: skip if (i,j,a) tried before
+          const i0 = Math.min(parentIdx, second);
+          const j0 = Math.max(parentIdx, second);
+          const key = `${i0}|${j0}|${common}`;
+          if (!triedMerges.has(key)) {
+            // Guard: S[a] > min(S[i], S[j])
+            const Sa = scalarize(candidates[common!]!.scores);
+            const Si = scalarize(candidates[parentIdx]!.scores);
+            const Sj = scalarize(candidates[second]!.scores);
+            if (Sa <= Math.min(Si, Sj)) {
+              proposedCfg = this.systemAwareMerge(
+                candidates,
+                parentIdx,
+                second,
+                (ia, ib) => {
+                  const sa = scalarize(candidates[ia]!.scores);
+                  const sb = scalarize(candidates[ib]!.scores);
+                  return sa >= sb ? ia : ib;
+                }
+              );
+              strategy = 'system_merge';
+              this.mergesUsed += 1;
+              triedMerges.add(key);
             }
-          );
-          strategy = 'system_merge';
-          this.mergesUsed += 1;
+          }
         } else {
           const currentInstr = candidates[parentIdx]!.cfg[module.name]!;
           const newInstr = await this.reflectModuleInstruction(
@@ -366,10 +391,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         mini as any
       );
       const childMiniVec = await evalOnSet(proposedCfg, mini as any);
-      const childMiniScalar = (() => {
-        const vals = Object.values(childMiniVec);
-        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-      })();
+      const parentMiniScalar = scalarize(parentMiniVec);
+      const childMiniScalar = scalarize(childMiniVec);
 
       this.currentRound = t + 1;
       await this.updateOptimizationProgress(
@@ -387,11 +410,16 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         { ...(options ?? {}), maxIterations: this.numTrials }
       );
 
-      const accepted = dominatesVectorEps(
-        childMiniVec,
-        parentMiniVec,
-        this.tieEpsilon
-      );
+      const accMode =
+        ((options as any)?.acceptanceMode as
+          | 'sigma'
+          | 'dominance'
+          | undefined) ?? 'sigma';
+      const sigmaEps = Number((options as any)?.acceptanceEpsilon ?? 0);
+      const accepted =
+        accMode === 'dominance'
+          ? dominatesVectorEps(childMiniVec, parentMiniVec, this.tieEpsilon)
+          : childMiniScalar > parentMiniScalar + sigmaEps;
       if (!accepted) {
         if (++stagnation >= this.earlyStoppingTrials) break;
         continue;
@@ -430,14 +458,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     );
     const bestScore =
       pareto.length > 0
-        ? Math.max(
-            ...pareto.map((p) => {
-              const vals = Object.values(p.scores);
-              return vals.length
-                ? vals.reduce((a, b) => a + b, 0) / vals.length
-                : 0;
-            })
-          )
+        ? Math.max(...pareto.map((p) => scalarize(p.scores)))
         : 0;
     const hv = hypervolume2D(pareto.map((p) => p.scores));
 
