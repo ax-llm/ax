@@ -765,6 +765,47 @@ export class AxFlow<
   }
 
   /**
+   * Expose node programs for system-level operations (optimization, inspection)
+   */
+  public getNodePrograms(): ReadonlyArray<{
+    name: string;
+    program: AxProgrammable<any, any>;
+  }> {
+    return Array.from(this.nodeGenerators).map(([name, program]) => ({
+      name,
+      program,
+    }));
+  }
+
+  /**
+   * Attempt to set instruction on a node if supported (AxGen.
+   * setInstruction is optional; returns true if applied)
+   */
+  public setNodeInstruction(name: string, instruction: string): boolean {
+    const prog = this.nodeGenerators.get(name);
+    if (!prog) return false;
+    const anyProg = prog as any;
+    if (typeof anyProg.setInstruction === 'function') {
+      try {
+        anyProg.setInstruction(instruction);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Bulk-apply instructions to nodes; ignores names that don’t exist or nodes without instruction setter
+   */
+  public setAllNodeInstructions(map: Readonly<Record<string, string>>): void {
+    for (const [name, instr] of Object.entries(map)) {
+      this.setNodeInstruction(name, instr);
+    }
+  }
+
+  /**
    * Gets a detailed trace report broken down by node name.
    * This provides visibility into the execution traces for each node.
    *
