@@ -238,11 +238,11 @@ export class AxGEPA extends AxBaseOptimizer {
         const front = new Set<number>();
         for (let k = 0; k < perInstanceScores.length; k++) {
           const v = perInstanceScores[k]![i]!;
-          if (v > best) {
+          if (v > best + this.tieEpsilon) {
             best = v;
             front.clear();
             front.add(k);
-          } else if (v === best) {
+          } else if (Math.abs(v - best) <= this.tieEpsilon) {
             front.add(k);
           }
         }
@@ -270,23 +270,20 @@ export class AxGEPA extends AxBaseOptimizer {
 
     // Initialize Pareto archive (indices into candidates)
     let archive = buildParetoFront(
-      candidates.map((c, idx) => ({ idx, scores: c.scores }))
+      candidates.map((c, idx) => ({ idx, scores: c.scores })),
+      this.tieEpsilon
     ).map((p) => p.idx);
 
     let _prevHypervolume: number | undefined;
     const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as
       | number
       | undefined;
-    if (
-      rolloutBudgetParetoRaw === undefined ||
-      !Number.isFinite(rolloutBudgetParetoRaw) ||
-      rolloutBudgetParetoRaw <= 0
-    ) {
-      throw new Error(
-        'AxGEPA: options.maxMetricCalls is required (>0) for GEPA parity'
-      );
-    }
-    const rolloutBudgetPareto = Math.floor(rolloutBudgetParetoRaw);
+    const rolloutBudgetPareto =
+      rolloutBudgetParetoRaw !== undefined &&
+      Number.isFinite(rolloutBudgetParetoRaw) &&
+      rolloutBudgetParetoRaw > 0
+        ? Math.floor(rolloutBudgetParetoRaw)
+        : undefined;
 
     for (let t = 0; t < this.numTrials; t++) {
       if (
@@ -303,11 +300,11 @@ export class AxGEPA extends AxBaseOptimizer {
         const front = new Set<number>();
         for (let k = 0; k < perInstanceScores.length; k++) {
           const v = perInstanceScores[k]![i]!;
-          if (v > best) {
+          if (v > best + this.tieEpsilon) {
             best = v;
             front.clear();
             front.add(k);
-          } else if (v === best) {
+          } else if (Math.abs(v - best) <= this.tieEpsilon) {
             front.add(k);
           }
         }
@@ -467,7 +464,7 @@ export class AxGEPA extends AxBaseOptimizer {
                 const id1Sum = idxs.reduce((a, z) => a + (s1[z] ?? 0), 0);
                 const id2Sum = idxs.reduce((a, z) => a + (s2[z] ?? 0), 0);
 
-                if (newSum >= Math.max(id1Sum, id2Sum)) {
+                if (newSum >= Math.max(id1Sum, id2Sum) + this.tieEpsilon) {
                   const childVec = await evalOnSet(childInstrMerged, paretoSet);
                   candidates.push({
                     instruction: childInstrMerged,
@@ -483,7 +480,8 @@ export class AxGEPA extends AxBaseOptimizer {
                       archive.map((idx) => candidates[idx]!.scores)
                     ) ?? 0;
                   archive = buildParetoFront(
-                    candidates.map((c, idx) => ({ idx, scores: c.scores }))
+                    candidates.map((c, idx) => ({ idx, scores: c.scores })),
+                    this.tieEpsilon
                   ).map((p) => p.idx);
                   const hvAfter =
                     hypervolume2D(
@@ -682,10 +680,10 @@ export class AxGEPA extends AxBaseOptimizer {
       );
 
       const accepted =
-        childMiniSum > parentMiniSum &&
+        childMiniSum > parentMiniSum + this.tieEpsilon &&
         (adapterParentSum === undefined ||
           adapterChildSum === undefined ||
-          adapterChildSum > adapterParentSum);
+          adapterChildSum > adapterParentSum + this.tieEpsilon);
       if (!accepted) {
         if (++stagnation >= this.earlyStoppingTrials) break;
         continue;
@@ -705,7 +703,8 @@ export class AxGEPA extends AxBaseOptimizer {
       const hvBefore =
         hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
       archive = buildParetoFront(
-        candidates.map((c, idx) => ({ idx, scores: c.scores }))
+        candidates.map((c, idx) => ({ idx, scores: c.scores })),
+        this.tieEpsilon
       ).map((p) => p.idx);
       const hvAfter =
         hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
@@ -729,7 +728,8 @@ export class AxGEPA extends AxBaseOptimizer {
       candidates.map((c, idx) => ({
         idx,
         scores: c.scores,
-      }))
+      })),
+      this.tieEpsilon
     );
 
     // Pick bestScore as max scalarized score on frontier

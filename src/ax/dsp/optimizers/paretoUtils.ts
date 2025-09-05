@@ -43,7 +43,8 @@ export function buildParetoFront(
   items: ReadonlyArray<{
     idx: number;
     scores: Readonly<Record<string, number>>;
-  }>
+  }>,
+  eps = 0
 ): Array<{
   idx: number;
   scores: Readonly<Record<string, number>>;
@@ -59,11 +60,12 @@ export function buildParetoFront(
     let isDominated = false;
     for (let j = 0; j < items.length; j++) {
       if (i === j) continue;
-      if (dominatesVector(items[j]!.scores, items[i]!.scores)) {
+      if (dominatesVectorEps(items[j]!.scores, items[i]!.scores, eps)) {
         isDominated = true;
         break;
       }
-      if (dominatesVector(items[i]!.scores, items[j]!.scores)) dominatedCount++;
+      if (dominatesVectorEps(items[i]!.scores, items[j]!.scores, eps))
+        dominatedCount++;
     }
     if (!isDominated)
       front.push({

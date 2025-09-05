@@ -252,7 +252,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
 
     // Initialize archive
     let archive = buildParetoFront(
-      candidates.map((c, idx) => ({ idx, scores: c.scores }))
+      candidates.map((c, idx) => ({ idx, scores: c.scores })),
+      this.tieEpsilon
     ).map((p) => p.idx);
     let stagnation = 0;
     const triedMerges = new Set<string>();
@@ -260,16 +261,12 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     const rolloutBudgetRaw = (options as any)?.maxMetricCalls as
       | number
       | undefined;
-    if (
-      rolloutBudgetRaw === undefined ||
-      !Number.isFinite(rolloutBudgetRaw) ||
-      rolloutBudgetRaw <= 0
-    ) {
-      throw new Error(
-        'AxGEPAFlow: options.maxMetricCalls is required (>0) for GEPA parity'
-      );
-    }
-    const rolloutBudget = Math.floor(rolloutBudgetRaw);
+    const rolloutBudget =
+      rolloutBudgetRaw !== undefined &&
+      Number.isFinite(rolloutBudgetRaw) &&
+      rolloutBudgetRaw > 0
+        ? Math.floor(rolloutBudgetRaw)
+        : undefined;
 
     for (let t = 0; t < this.numTrials; t++) {
       if (
@@ -287,11 +284,11 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         const front = new Set<number>();
         for (let k = 0; k < perInstanceScores.length; k++) {
           const v = perInstanceScores[k]![i]!;
-          if (v > best) {
+          if (v > best + this.tieEpsilon) {
             best = v;
             front.clear();
             front.add(k);
-          } else if (v === best) {
+          } else if (Math.abs(v - best) <= this.tieEpsilon) {
             front.add(k);
           }
         }
@@ -457,7 +454,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
           const id1Sum = idxs.reduce((a, z) => a + (s1[z] ?? 0), 0);
           const id2Sum = idxs.reduce((a, z) => a + (s2[z] ?? 0), 0);
 
-          if (newSum >= Math.max(id1Sum, id2Sum)) {
+          if (newSum >= Math.max(id1Sum, id2Sum) + this.tieEpsilon) {
             // ACCEPT: full eval and add
             const childVec = await evalOnSet(mergedCfg, paretoSet);
             candidates.push({ cfg: mergedCfg, parent: a, scores: childVec });
@@ -466,7 +463,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
             const hvBefore =
               hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
             archive = buildParetoFront(
-              candidates.map((c, idx) => ({ idx, scores: c.scores }))
+              candidates.map((c, idx) => ({ idx, scores: c.scores })),
+              this.tieEpsilon
             ).map((p) => p.idx);
             const hvAfter =
               hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
@@ -499,7 +497,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         : feedbackSet;
 
       // Skip reflective mutation if minibatch is already perfect
-      if ((options as any)?.skipPerfectScore) {
+      if ((options as any)?.skipPerfectScore ?? true) {
         const perfect = Number((options as any)?.perfectScore ?? 1);
         const parentMiniScores = await evalOnSetScalar(
           candidates[parentIdx]!.cfg,
@@ -757,10 +755,10 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       );
 
       const accepted =
-        childMiniSum > parentMiniSum &&
+        childMiniSum > parentMiniSum + this.tieEpsilon &&
         (adapterParentSum === undefined ||
           adapterChildSum === undefined ||
-          adapterChildSum > adapterParentSum);
+          adapterChildSum > adapterParentSum + this.tieEpsilon);
       if (!accepted) {
         if (++stagnation >= this.earlyStoppingTrials) break;
         continue;
@@ -780,7 +778,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       const hvBefore =
         hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
       archive = buildParetoFront(
-        candidates.map((c, idx) => ({ idx, scores: c.scores }))
+        candidates.map((c, idx) => ({ idx, scores: c.scores })),
+        this.tieEpsilon
       ).map((p) => p.idx);
       const hvAfter =
         hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
@@ -800,7 +799,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
 
     // Build Pareto frontier and metrics
     const pareto = buildParetoFront(
-      candidates.map((c, idx) => ({ idx, scores: c.scores }))
+      candidates.map((c, idx) => ({ idx, scores: c.scores })),
+      this.tieEpsilon
     );
     const bestScore =
       pareto.length > 0
