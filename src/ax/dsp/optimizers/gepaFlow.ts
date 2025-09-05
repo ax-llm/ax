@@ -107,6 +107,17 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         : examples
     ).slice(0, Math.max(10, Math.min(200, this.minibatchSize * 3)));
 
+    const optLogger = this.getOptimizerLogger(options);
+    optLogger?.({
+      name: 'OptimizationStart',
+      value: {
+        optimizerType: 'GEPA-Flow',
+        exampleCount: examples.length,
+        validationCount: paretoSet.length,
+        config: { numTrials: this.numTrials, minibatch: this.minibatch },
+      },
+    });
+
     // Helpers local to Pareto compile
     const avgVec = (
       arrs: ReadonlyArray<Record<string, number>>
@@ -416,7 +427,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
           mutatedModule: module.name,
           totalRounds: this.numTrials,
         },
-        'GEPA-Flow-Pareto',
+        'GEPA-Flow',
         { strategy, paretoSetSize: paretoSet.length },
         childMiniScalar,
         { idx: parentIdx },
@@ -476,12 +487,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     const hv = hypervolume2D(pareto.map((p) => p.scores));
 
     this.stats.convergenceInfo.converged = true;
-    this.recordParetoMetrics(
-      pareto.length,
-      candidates.length,
-      'GEPA-Flow-Pareto',
-      hv
-    );
+    this.recordParetoMetrics(pareto.length, candidates.length, 'GEPA-Flow', hv);
 
     return {
       demos: [],
