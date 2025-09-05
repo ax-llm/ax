@@ -86,6 +86,7 @@ async function main() {
     sampleCount: 1,
     verbose: true,
     debugOptimizer: false,
+    seed: 42,
   });
 
   console.log(
@@ -95,7 +96,12 @@ async function main() {
     flowEmail as any,
     train,
     metric as any,
-    { auto: 'medium', verbose: true, validationExamples: val } as any
+    {
+      auto: 'medium',
+      verbose: true,
+      validationExamples: val,
+      maxMetricCalls: 240,
+    } as any
   );
 
   console.log('\n✅ Pareto optimization complete');

@@ -19,7 +19,6 @@ import {
   buildParetoFront,
   hypervolume2D,
   average,
-  randomSubset,
   avgVec,
   selectProgramCandidateFromInstanceFronts,
   removeDominatedProgramsByInstanceFronts,
@@ -42,6 +41,18 @@ export class AxGEPAFlow extends AxBaseOptimizer {
   private mergesDue = 0;
   private totalMergesTested = 0;
   private lastIterFoundNewProgram = false;
+  private rngState: number;
+  private mergeAttemptKeys = new Set<string>();
+  private mergeCompositionKeys = new Set<string>();
+  private samplerState: {
+    epoch: number;
+    shuffled: number[];
+    freq: Map<number, number>;
+  } = {
+    epoch: -1,
+    shuffled: [],
+    freq: new Map(),
+  };
 
   constructor(args: Readonly<AxOptimizerArgs>) {
     super(args);
@@ -62,6 +73,11 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       ? Number((args as any)?.tieEpsilon)
       : 0;
 
+    // Seeded RNG for deterministic sampling/merges
+    const seedRaw = (args as any)?.seed;
+    const seedNum = Number.isFinite(seedRaw) ? Math.floor(Number(seedRaw)) : 0;
+    this.rngState = seedNum && seedNum !== 0 ? seedNum : 123456789;
+
     const argPareto = (args as any)?.paretoSetSize as number | undefined;
     this.paretoSetSize =
       argPareto && argPareto > 0
@@ -81,6 +97,14 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     this.stats.convergenceInfo.convergenceThreshold =
       this.minImprovementThreshold;
     this.mergesUsed = 0;
+    this.mergesDue = 0;
+    this.totalMergesTested = 0;
+    this.lastIterFoundNewProgram = false;
+    this.mergeAttemptKeys.clear();
+    this.mergeCompositionKeys.clear();
+    this.samplerState.epoch = -1;
+    this.samplerState.shuffled = [];
+    this.samplerState.freq.clear();
   }
 
   public configureAuto(level: 'light' | 'medium' | 'heavy'): void {
@@ -237,8 +261,19 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     let stagnation = 0;
     const triedMerges = new Set<string>();
 
-    const rolloutBudget = ((options as any)?.maxMetricCalls ??
-      (options as any)?.budgetRollouts) as number | undefined;
+    const rolloutBudgetRaw = (options as any)?.maxMetricCalls as
+      | number
+      | undefined;
+    if (
+      rolloutBudgetRaw === undefined ||
+      !Number.isFinite(rolloutBudgetRaw) ||
+      rolloutBudgetRaw <= 0
+    ) {
+      throw new Error(
+        'AxGEPAFlow: options.maxMetricCalls is required (>0) for GEPA parity'
+      );
+    }
+    const rolloutBudget = Math.floor(rolloutBudgetRaw);
 
     for (let t = 0; t < this.numTrials; t++) {
       if (
@@ -252,7 +287,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       const nInst = perInstanceScores[0]?.length ?? 0;
       const instanceFronts: Array<Set<number>> = [];
       for (let i = 0; i < nInst; i++) {
-        let best = -Infinity;
+        let best = Number.NEGATIVE_INFINITY;
         const front = new Set<number>();
         for (let k = 0; k < perInstanceScores.length; k++) {
           const v = perInstanceScores[k]![i]!;
@@ -295,7 +330,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         };
 
         const rngPick = <T>(arr: readonly T[]): T | undefined =>
-          arr.length ? arr[Math.floor(Math.random() * arr.length)]! : undefined;
+          arr.length ? arr[Math.floor(this.rand() * arr.length)]! : undefined;
 
         // Try up to 10 random pairs to find a viable (i, j, ancestor)
         let picked: { i: number; j: number; a: number } | undefined;
@@ -340,7 +375,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
           const weights = desirables.map((a) =>
             Math.max(1e-9, perProgScores[a]!)
           );
-          let r = Math.random() * weights.reduce((s, w) => s + w, 0);
+          let r = this.rand() * weights.reduce((s, w) => s + w, 0);
           let a = desirables[desirables.length - 1]!;
           for (let idx = 0; idx < desirables.length; idx++) {
             if (r < weights[idx]!) {
@@ -350,6 +385,14 @@ export class AxGEPAFlow extends AxBaseOptimizer {
             r -= weights[idx]!;
           }
 
+          // Ancestor guard: Sa <= min(Si, Sj)
+          const Sa = perProgScores[a]!;
+          const Si = perProgScores[i]!;
+          const Sj = perProgScores[j]!;
+          if (Sa > Math.min(Si, Sj)) continue;
+          const triKey = `${i}|${j}|${a}`;
+          if (this.mergeAttemptKeys.has(triKey)) continue;
+          this.mergeAttemptKeys.add(triKey);
           const key = `${i}|${j}|${a}`;
           if (triedMerges.has(key)) continue;
           picked = { i, j, a };
@@ -361,9 +404,15 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         if (picked) {
           const { i, j, a } = picked;
           // Build merged candidate (system-aware)
-          const mergedCfg = this.systemAwareMerge(candidates, i, j, (ia, ib) =>
-            perProgScores[ia]! >= perProgScores[ib]! ? ia : ib
+          const { cfg: mergedCfg, descSig } = this.systemAwareMergeWithSig(
+            candidates,
+            i,
+            j,
+            (ia, ib) => (perProgScores[ia]! >= perProgScores[ib]! ? ia : ib)
           );
+          const compKey = `${Math.min(i, j)}|${Math.max(i, j)}|${descSig}`;
+          if (this.mergeCompositionKeys.has(compKey)) continue;
+          this.mergeCompositionKeys.add(compKey);
 
           // Targeted subsample selection on validation set (parents' per-instance subscores)
           const s1 = perInstanceScores[i]!;
@@ -380,7 +429,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
             const out: number[] = [];
             const used = new Set<number>();
             while (out.length < k) {
-              const idx = Math.floor(Math.random() * arr.length);
+              const idx = Math.floor(this.rand() * arr.length);
               if (!used.has(idx)) {
                 used.add(idx);
                 out.push(arr[idx]!);
@@ -440,16 +489,16 @@ export class AxGEPAFlow extends AxBaseOptimizer {
 
       const parentIdx = selectProgramCandidateFromInstanceFronts(
         instanceFronts,
-        perProgScores
+        perProgScores,
+        () => this.rand()
       );
 
       // Clear merge flag before reflective
       this.lastIterFoundNewProgram = false;
 
       const mini = this.minibatch
-        ? randomSubset(
-            feedbackSet,
-            Math.min(this.minibatchSize, feedbackSet.length)
+        ? this.nextMinibatchIndices(feedbackSet.length, t).map(
+            (z) => feedbackSet[z]!
           )
         : feedbackSet;
 
@@ -485,7 +534,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       let adapterChildSum: number | undefined;
 
       if (useCrossover && this.mergesUsed < this.mergeMax) {
-        let second = (parentIdx + 1) % candidates.length;
+        const second = (parentIdx + 1) % candidates.length;
 
         const ancestors = (idx: number): number[] => {
           const path: number[] = [];
@@ -686,19 +735,19 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         }
       }
 
-      // Dominance-based acceptance on minibatch
-      const parentMiniVec = await evalOnSet(
+      // Strict acceptance on minibatch sum (parity with source)
+      const parentMiniArr = await evalOnSetScalar(
         candidates[parentIdx]!.cfg,
         mini as any
       );
-      const childMiniVec = await evalOnSet(proposedCfg, mini as any);
-      const parentMiniScalar = scalarize(parentMiniVec);
-      const childMiniScalar = scalarize(childMiniVec);
+      const childMiniArr = await evalOnSetScalar(proposedCfg, mini as any);
+      const parentMiniSum = parentMiniArr.reduce((a, b) => a + b, 0);
+      const childMiniSum = childMiniArr.reduce((a, b) => a + b, 0);
 
       this.currentRound = t + 1;
       await this.updateOptimizationProgress(
         this.currentRound,
-        childMiniScalar,
+        childMiniSum,
         {
           modules: nodes.length,
           mutatedModule: module.name,
@@ -706,13 +755,13 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         },
         'GEPA-Flow',
         { strategy, paretoSetSize: paretoSet.length },
-        childMiniScalar,
+        childMiniSum,
         { idx: parentIdx },
         { ...(options ?? {}), maxIterations: this.numTrials }
       );
 
       const accepted =
-        childMiniScalar > parentMiniScalar &&
+        childMiniSum > parentMiniSum &&
         (adapterParentSum === undefined ||
           adapterChildSum === undefined ||
           adapterChildSum > adapterParentSum);
@@ -953,6 +1002,113 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       0,
       2000
     );
+  }
+
+  private updateSamplerShuffled(trainSize: number): void {
+    const ids = Array.from({ length: trainSize }, (_, i) => i);
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rand() * (i + 1));
+      [ids[i], ids[j]] = [ids[j]!, ids[i]!];
+    }
+    for (const i of ids)
+      this.samplerState.freq.set(i, (this.samplerState.freq.get(i) ?? 0) + 1);
+    const mb = this.minibatchSize;
+    const mod = trainSize % mb;
+    const numToPad = mod === 0 ? 0 : mb - mod;
+    const candidates = Array.from({ length: trainSize }, (_, i) => i).sort(
+      (a, b) =>
+        (this.samplerState.freq.get(a) ?? 0) -
+        (this.samplerState.freq.get(b) ?? 0)
+    );
+    const padded = [...ids];
+    for (let k = 0; k < numToPad; k++) {
+      const id = candidates[k % candidates.length]!;
+      padded.push(id);
+      this.samplerState.freq.set(id, (this.samplerState.freq.get(id) ?? 0) + 1);
+    }
+    this.samplerState.shuffled = padded;
+    this.samplerState.epoch += 1;
+  }
+
+  private nextMinibatchIndices(trainSize: number, iteration: number): number[] {
+    if (this.samplerState.epoch === -1) {
+      this.samplerState.epoch = 0;
+      this.updateSamplerShuffled(trainSize);
+    }
+    const mb = this.minibatchSize;
+    const blocksPerEpoch = Math.max(
+      1,
+      Math.floor(this.samplerState.shuffled.length / mb)
+    );
+    const currEpoch = Math.floor(iteration / blocksPerEpoch);
+    while (currEpoch >= this.samplerState.epoch) {
+      this.updateSamplerShuffled(trainSize);
+    }
+    const base = (iteration * mb) % this.samplerState.shuffled.length;
+    return this.samplerState.shuffled.slice(base, base + mb);
+  }
+
+  private systemAwareMergeWithSig(
+    candidates: ReadonlyArray<{ cfg: Record<string, string>; parent?: number }>,
+    i: number,
+    j: number,
+    pickBetter: (idxA: number, idxB: number) => number
+  ): { cfg: Record<string, string>; descSig: string } {
+    const ancestors = (idx: number): number[] => {
+      const path: number[] = [];
+      let cur: number | undefined = idx;
+      while (cur !== undefined) {
+        path.push(cur);
+        cur = candidates[cur]?.parent;
+      }
+      return path;
+    };
+    const Ai = ancestors(i);
+    const Aj = ancestors(j);
+    const common = Ai.find((x) => Aj.includes(x));
+    const a = common ?? i;
+
+    const cfgA = candidates[a]!.cfg;
+    const cfgI = candidates[i]!.cfg;
+    const cfgJ = candidates[j]!.cfg;
+
+    const merged: Record<string, string> = {};
+    const picks: ('i' | 'j')[] = [];
+    const allKeys = Array.from(
+      new Set([
+        ...Object.keys(cfgA),
+        ...Object.keys(cfgI),
+        ...Object.keys(cfgJ),
+      ])
+    ).sort();
+    for (const k of allKeys) {
+      const pa = cfgA[k];
+      const pi = cfgI[k];
+      const pj = cfgJ[k];
+      if (pi === pa && pj !== pi) {
+        merged[k] = pj!;
+        picks.push('j');
+      } else if (pj === pa && pi !== pj) {
+        merged[k] = pi!;
+        picks.push('i');
+      } else if (pi !== pj && pi !== pa && pj !== pa) {
+        const pick = pickBetter(i, j);
+        merged[k] = pick === i ? pi! : pj!;
+        picks.push(pick === i ? 'i' : 'j');
+      } else {
+        merged[k] = pi ?? pj ?? pa!;
+        picks.push('i');
+      }
+    }
+    return { cfg: merged, descSig: picks.join('|') };
+  }
+
+  private rand(): number {
+    // xorshift32
+    this.rngState ^= this.rngState << 13;
+    this.rngState ^= this.rngState >>> 17;
+    this.rngState ^= this.rngState << 5;
+    return ((this.rngState >>> 0) as number) / 4294967296;
   }
 
   private systemAwareMerge(

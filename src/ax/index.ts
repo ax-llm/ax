@@ -516,6 +516,10 @@ import {
 } from './dsp/optimizerLogging.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
 import { AxGEPA } from './dsp/optimizers/gepa.js';
+import type {
+  AxGEPAAdapter,
+  AxGEPAEvaluationBatch,
+} from './dsp/optimizers/gepaAdapter.js';
 import { AxGEPAFlow } from './dsp/optimizers/gepaFlow.js';
 import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
 import type {
@@ -1135,6 +1139,8 @@ export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxFunctionResult };
 export type { AxFunctionResultFormatter };
+export type { AxGEPAAdapter };
+export type { AxGEPAEvaluationBatch };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
 export type { AxGenMetricsInstruments };

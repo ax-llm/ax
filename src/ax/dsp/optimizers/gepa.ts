@@ -7,21 +7,14 @@ import type {
   AxOptimizerArgs,
   AxTypedExample,
 } from '../common_types.js';
-import { AxGen } from '../generate.js';
-import {
-  AxBaseOptimizer,
-  AxOptimizedProgramImpl,
-  type AxOptimizedProgram,
-  type AxParetoResult,
-} from '../optimizer.js';
+import type { AxGen } from '../generate.js';
+import { AxBaseOptimizer, type AxParetoResult } from '../optimizer.js';
 import type { AxGenOut } from '../types.js';
 import { ax } from '../template.js';
 import {
   buildParetoFront,
   hypervolume2D,
-  dominatesVectorEps,
   average,
-  randomSubset,
   selectCandidatePareto,
   avgVec,
   selectProgramCandidateFromInstanceFronts,
@@ -51,12 +44,27 @@ export class AxGEPA extends AxBaseOptimizer {
   private totalMergesTested = 0;
   private lastIterFoundNewProgram = false;
 
+  private rngState: number = 123456789;
+  private samplerState: {
+    epoch: number;
+    shuffled: number[];
+    freq: Map<number, number>;
+  } = {
+    epoch: -1,
+    shuffled: [],
+    freq: new Map(),
+  };
+
   // Local histories for result object
   private localScoreHistory: number[] = [];
   private localConfigurationHistory: Record<string, unknown>[] = [];
 
   constructor(args: Readonly<AxOptimizerArgs>) {
     super(args);
+
+    const seedRaw = (args as any)?.seed;
+    const seedNum = Number.isFinite(seedRaw) ? Math.floor(Number(seedRaw)) : 0;
+    this.rngState = seedNum && seedNum !== 0 ? seedNum : 123456789;
 
     this.numTrials = args.numTrials ?? 30;
     this.minibatch = args.minibatch ?? true;
@@ -105,6 +113,9 @@ export class AxGEPA extends AxBaseOptimizer {
     this.mergesDue = 0;
     this.totalMergesTested = 0;
     this.lastIterFoundNewProgram = false;
+    this.samplerState.epoch = -1;
+    this.samplerState.shuffled = [];
+    this.samplerState.freq.clear();
   }
 
   /**
@@ -220,7 +231,7 @@ export class AxGEPA extends AxBaseOptimizer {
       const nInst = perInstanceScores[0]?.length ?? 0;
       const instanceFronts: Array<Set<number>> = [];
       for (let i = 0; i < nInst; i++) {
-        let best = -Infinity;
+        let best = Number.NEGATIVE_INFINITY;
         const front = new Set<number>();
         for (let k = 0; k < perInstanceScores.length; k++) {
           const v = perInstanceScores[k]![i]!;
@@ -260,8 +271,19 @@ export class AxGEPA extends AxBaseOptimizer {
     ).map((p) => p.idx);
 
     let prevHypervolume: number | undefined;
-    const rolloutBudgetPareto = ((options as any)?.maxMetricCalls ??
-      (options as any)?.budgetRollouts) as number | undefined;
+    const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as
+      | number
+      | undefined;
+    if (
+      rolloutBudgetParetoRaw === undefined ||
+      !Number.isFinite(rolloutBudgetParetoRaw) ||
+      rolloutBudgetParetoRaw <= 0
+    ) {
+      throw new Error(
+        'AxGEPA: options.maxMetricCalls is required (>0) for GEPA parity'
+      );
+    }
+    const rolloutBudgetPareto = Math.floor(rolloutBudgetParetoRaw);
 
     for (let t = 0; t < this.numTrials; t++) {
       if (
@@ -274,7 +296,7 @@ export class AxGEPA extends AxBaseOptimizer {
       const nInst = perInstanceScores[0]?.length ?? 0;
       const instanceFronts: Array<Set<number>> = [];
       for (let i = 0; i < nInst; i++) {
-        let best = -Infinity;
+        let best = Number.NEGATIVE_INFINITY;
         const front = new Set<number>();
         for (let k = 0; k < perInstanceScores.length; k++) {
           const v = perInstanceScores[k]![i]!;
@@ -306,7 +328,7 @@ export class AxGEPA extends AxBaseOptimizer {
           return path;
         };
         const rngPick = <T>(arr: readonly T[]): T | undefined =>
-          arr.length ? arr[Math.floor(Math.random() * arr.length)]! : undefined;
+          arr.length ? arr[Math.floor(this.rand() * arr.length)]! : undefined;
         // Merge candidates = union of reduced instance fronts
         const reducedFronts = removeDominatedProgramsByInstanceFronts(
           instanceFronts,
@@ -331,7 +353,7 @@ export class AxGEPA extends AxBaseOptimizer {
           if (commons.length === 0) continue;
           // Choose ancestor weighted by valset agg score
           const weights = commons.map((a) => Math.max(1e-9, perProgScores[a]!));
-          let r = Math.random() * weights.reduce((s, w) => s + w, 0);
+          let r = this.rand() * weights.reduce((s, w) => s + w, 0);
           let a = commons[commons.length - 1]!;
           for (let idx = 0; idx < commons.length; idx++) {
             if (r < weights[idx]!) {
@@ -368,7 +390,7 @@ export class AxGEPA extends AxBaseOptimizer {
             const out: number[] = [];
             const used = new Set<number>();
             while (out.length < k) {
-              const idx = Math.floor(Math.random() * arr.length);
+              const idx = Math.floor(this.rand() * arr.length);
               if (!used.has(idx)) {
                 used.add(idx);
                 out.push(arr[idx]!);
@@ -427,13 +449,13 @@ export class AxGEPA extends AxBaseOptimizer {
 
       const parentIdx = selectProgramCandidateFromInstanceFronts(
         instanceFronts,
-        perProgScores
+        perProgScores,
+        () => this.rand()
       );
 
       const mini = this.minibatch
-        ? randomSubset(
-            feedbackSet,
-            Math.min(this.minibatchSize, feedbackSet.length)
+        ? this.nextMinibatchIndices(feedbackSet.length, t).map(
+            (z: number) => feedbackSet[z]!
           )
         : feedbackSet;
 
@@ -461,7 +483,7 @@ export class AxGEPA extends AxBaseOptimizer {
       let adapterChildSum: number | undefined;
 
       if (useMerge) {
-        let second = (parentIdx + 1) % candidates.length;
+        const second = (parentIdx + 1) % candidates.length;
         childInstr = await this.mergeInstructions(
           candidates[parentIdx]!.instruction,
           candidates[second]!.instruction,
@@ -573,18 +595,18 @@ export class AxGEPA extends AxBaseOptimizer {
         }
       }
 
-      const parentMiniVec = await evalOnSet(
+      const parentMiniArr = await evalOnSetScalar(
         candidates[parentIdx]!.instruction,
         mini
       );
-      const childMiniVec = await evalOnSet(childInstr, mini);
-      const parentMiniScalar = scalarize(parentMiniVec);
-      const childMiniScalar = scalarize(childMiniVec);
+      const childMiniArr = await evalOnSetScalar(childInstr, mini);
+      const parentMiniSum = parentMiniArr.reduce((a, b) => a + b, 0);
+      const childMiniSum = childMiniArr.reduce((a, b) => a + b, 0);
 
       this.currentRound = t + 1;
       await this.updateOptimizationProgress(
         this.currentRound,
-        childMiniScalar,
+        childMiniSum,
         {
           instructionLen: childInstr.length,
           parent: parentIdx,
@@ -592,7 +614,7 @@ export class AxGEPA extends AxBaseOptimizer {
         },
         'GEPA',
         { strategy, paretoSetSize: paretoSet.length },
-        childMiniScalar,
+        childMiniSum,
         {
           instructionLen: candidates[parentIdx]!.instruction.length,
           idx: parentIdx,
@@ -601,7 +623,7 @@ export class AxGEPA extends AxBaseOptimizer {
       );
 
       const accepted =
-        childMiniScalar > parentMiniScalar &&
+        childMiniSum > parentMiniSum &&
         (adapterParentSum === undefined ||
           adapterChildSum === undefined ||
           adapterChildSum > adapterParentSum);
@@ -893,6 +915,57 @@ export class AxGEPA extends AxBaseOptimizer {
       2000
     );
   }
+
+  private updateSamplerShuffled(trainSize: number): void {
+    const ids = Array.from({ length: trainSize }, (_, i) => i);
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rand() * (i + 1));
+      [ids[i], ids[j]] = [ids[j]!, ids[i]!];
+    }
+    for (const i of ids)
+      this.samplerState.freq.set(i, (this.samplerState.freq.get(i) ?? 0) + 1);
+    const mb = this.minibatchSize;
+    const mod = trainSize % mb;
+    const numToPad = mod === 0 ? 0 : mb - mod;
+    const candidates = Array.from({ length: trainSize }, (_, i) => i).sort(
+      (a, b) =>
+        (this.samplerState.freq.get(a) ?? 0) -
+        (this.samplerState.freq.get(b) ?? 0)
+    );
+    const padded = [...ids];
+    for (let k = 0; k < numToPad; k++) {
+      const id = candidates[k % candidates.length]!;
+      padded.push(id);
+      this.samplerState.freq.set(id, (this.samplerState.freq.get(id) ?? 0) + 1);
+    }
+    this.samplerState.shuffled = padded;
+    this.samplerState.epoch += 1;
+  }
+
+  private nextMinibatchIndices(trainSize: number, iteration: number): number[] {
+    if (this.samplerState.epoch === -1) {
+      this.samplerState.epoch = 0;
+      this.updateSamplerShuffled(trainSize);
+    }
+    const mb = this.minibatchSize;
+    const blocksPerEpoch = Math.max(
+      1,
+      Math.floor(this.samplerState.shuffled.length / mb)
+    );
+    const currEpoch = Math.floor(iteration / blocksPerEpoch);
+    while (currEpoch >= this.samplerState.epoch)
+      this.updateSamplerShuffled(trainSize);
+    const base = (iteration * mb) % this.samplerState.shuffled.length;
+    return this.samplerState.shuffled.slice(base, base + mb);
+  }
+
+  private rand(): number {
+    this.rngState ^= this.rngState << 13;
+    this.rngState ^= this.rngState >>> 17;
+    this.rngState ^= this.rngState << 5;
+    return ((this.rngState >>> 0) as number) / 4294967296;
+  }
+
   private async mergeInstructions(
     instructionA: string,
     instructionB: string,

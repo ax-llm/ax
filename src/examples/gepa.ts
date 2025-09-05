@@ -75,6 +75,7 @@ async function main() {
     sampleCount: 1,
     verbose: true,
     debugOptimizer: false,
+    seed: 42,
   });
 
   console.log('🚀 Running GEPA Pareto optimization (accuracy + brevity)...');
@@ -82,7 +83,12 @@ async function main() {
     emailClassifier as any,
     train,
     metric as any,
-    { auto: 'medium', verbose: true, validationExamples: val } as any
+    {
+      auto: 'medium',
+      verbose: true,
+      validationExamples: val,
+      maxMetricCalls: 200,
+    } as any
   );
 
   console.log('\n✅ Pareto optimization complete');
@@ -106,7 +112,7 @@ async function main() {
   // Choose a compromise (weighted scalarization) for illustration
   const choose = (wAcc = 0.7, wBrev = 0.3) => {
     let best = frontier[0];
-    let bestScore = -Infinity;
+    let bestScore = Number.NEGATIVE_INFINITY;
     for (const p of frontier) {
       const acc = (p.scores as any).accuracy ?? 0;
       const brev = (p.scores as any).brevity ?? 0;

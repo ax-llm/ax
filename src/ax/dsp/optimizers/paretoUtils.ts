@@ -162,7 +162,7 @@ export function selectCandidatePareto(S: number[][]): { index: number } {
   const nInst = S[0]?.length ?? 0;
   if (nCand <= 1 || nInst === 0) return { index: 0 };
 
-  const bestPerInst: number[] = new Array(nInst).fill(-Infinity);
+  const bestPerInst: number[] = new Array(nInst).fill(Number.NEGATIVE_INFINITY);
   for (let i = 0; i < nInst; i++) {
     for (let k = 0; k < nCand; k++)
       bestPerInst[i] = Math.max(bestPerInst[i], S[k]![i]!);
@@ -292,7 +292,8 @@ export function removeDominatedProgramsByInstanceFronts(
 
 export function selectProgramCandidateFromInstanceFronts(
   fronts: ReadonlyArray<Readonly<Set<number>>>,
-  scores: ReadonlyArray<number>
+  scores: ReadonlyArray<number>,
+  rng?: () => number
 ): number {
   const reduced = removeDominatedProgramsByInstanceFronts(fronts, scores);
   const freq: Record<number, number> = {};
@@ -305,6 +306,7 @@ export function selectProgramCandidateFromInstanceFronts(
     for (let k = 0; k < count; k++) sampling.push(p);
   }
   if (sampling.length === 0) return 0;
-  const idx = Math.floor(Math.random() * sampling.length);
+  const r = typeof rng === 'function' ? rng() : Math.random();
+  const idx = Math.floor(r * sampling.length);
   return sampling[idx]!;
 }
