@@ -84,308 +84,6 @@ export class AxGEPA extends AxBaseOptimizer {
   }
 
   /**
-   * Main compile: reflective instruction optimization for a single AxGen program
-   */
-  private async compileLegacy<IN, OUT extends AxGenOut>(
-    program: Readonly<AxGen<IN, OUT>>,
-    examples: readonly AxTypedExample<IN>[],
-    metricFn: AxMetricFn,
-    options?: AxCompileOptions
-  ): Promise<{
-    bestScore: number;
-    stats: ReturnType<AxGEPA['getStats']>;
-    optimizedProgram?: AxOptimizedProgram<OUT>;
-  }> {
-    const startTime = Date.now();
-
-    // Validate examples
-    this.validateExamples(examples);
-    // Auto presets
-    if (options?.auto) this.configureAuto(options.auto);
-
-    // Partition feedback vs pareto validation sets
-    const feedbackSet = examples;
-    const validationExamples = (options as any)?.validationExamples as
-      | readonly AxTypedExample<IN>[]
-      | undefined;
-    const paretoSet = (
-      validationExamples && validationExamples.length > 0
-        ? validationExamples
-        : examples
-    ).slice(0, this.paretoSetSize);
-
-    // Initialize candidate pool with base instruction
-    const baseInstruction = await this.getBaseInstruction(program);
-    const candidates: {
-      instruction: string;
-      parent?: number;
-      parent2?: number;
-    }[] = [{ instruction: baseInstruction }];
-
-    // Scores matrix: candidates x paretoSet
-    const S: number[][] = [];
-    S.push(
-      await this.evaluateOnSet(
-        program,
-        candidates[0]!.instruction,
-        paretoSet,
-        metricFn
-      )
-    );
-
-    // Book-keeping
-    let bestIdx = 0;
-    let bestAvg = average(S[0]!);
-    let stagnationRounds = 0;
-
-    const optLogger = this.getOptimizerLogger();
-    optLogger?.({
-      name: 'OptimizationStart',
-      value: {
-        optimizerType: 'GEPA',
-        exampleCount: examples.length,
-        validationCount: paretoSet.length,
-        config: { numTrials: this.numTrials, minibatch: this.minibatch },
-      },
-    });
-
-    // Trials loop: propose → minibatch check → full val → accept
-    const rolloutBudget = (options as any)?.budgetRollouts as
-      | number
-      | undefined;
-    for (let t = 0; t < this.numTrials; t++) {
-      // Select parent via Pareto-based sampling
-      const parent = selectCandidatePareto(S);
-      const parentIdx = parent.index;
-
-      // Build minibatch from feedback set
-      const mini = this.minibatch
-        ? randomSubset(
-            feedbackSet,
-            Math.min(this.minibatchSize, feedbackSet.length)
-          )
-        : feedbackSet;
-
-      // Decide strategy: reflective mutation or periodic crossover
-      const useCrossover =
-        this.crossoverEvery > 0 &&
-        (t + 1) % this.crossoverEvery === 0 &&
-        candidates.length > 1;
-
-      let proposedInstruction: string;
-      let parentMiniScore: number;
-      let strategy: 'reflective_mutation' | 'crossover' = 'reflective_mutation';
-      let parent2Idx: number | undefined;
-
-      if (useCrossover) {
-        // Select a second parent (different from first)
-        let second = selectCandidatePareto(S).index;
-        if (second === parentIdx) second = (parentIdx + 1) % candidates.length;
-        parent2Idx = second;
-
-        // Evaluate both parents on minibatch and take the better as baseline
-        const p1 = await this.evaluateAvg(
-          program,
-          candidates[parentIdx]!.instruction,
-          mini,
-          metricFn
-        );
-        const p2 = await this.evaluateAvg(
-          program,
-          candidates[second]!.instruction,
-          mini,
-          metricFn
-        );
-        parentMiniScore = Math.max(p1, p2);
-
-        proposedInstruction = await this.mergeInstructions(
-          candidates[parentIdx]!.instruction,
-          candidates[second]!.instruction,
-          options
-        );
-        strategy = 'crossover';
-      } else {
-        // Reflectively mutate instruction from minibatch signals
-        proposedInstruction = await this.reflectInstruction(
-          candidates[parentIdx]!.instruction,
-          program,
-          mini,
-          metricFn,
-          options
-        );
-        // Minibatch acceptance baseline from the selected parent
-        parentMiniScore = await this.evaluateAvg(
-          program,
-          candidates[parentIdx]!.instruction,
-          mini,
-          metricFn
-        );
-      }
-
-      const childMiniScore = await this.evaluateAvg(
-        program,
-        proposedInstruction,
-        mini,
-        metricFn
-      );
-
-      const accepted =
-        childMiniScore > parentMiniScore + this.minImprovementThreshold ||
-        Math.abs(childMiniScore - parentMiniScore) <= this.tieEpsilon;
-
-      // Update round stats & progress regardless
-      this.currentRound = t + 1;
-      this.localScoreHistory.push(childMiniScore);
-      this.localConfigurationHistory.push({
-        instructionLen: proposedInstruction.length,
-        parent: parentIdx,
-      });
-      await this.updateOptimizationProgress(
-        this.currentRound,
-        childMiniScore,
-        {
-          instructionLen: proposedInstruction.length,
-          parent: parentIdx,
-          ...(parent2Idx !== undefined ? { parent2: parent2Idx } : {}),
-          totalRounds: this.numTrials,
-        },
-        'GEPA',
-        { strategy, paretoSetSize: paretoSet.length },
-        bestAvg,
-        {
-          instructionLen: candidates[bestIdx]!.instruction.length,
-          idx: bestIdx,
-        },
-        { ...(options ?? {}), maxIterations: this.numTrials }
-      );
-      this.onProgress?.({
-        round: t + 1,
-        totalRounds: this.numTrials,
-        currentScore: childMiniScore,
-        bestScore: bestAvg,
-        tokensUsed: this.stats.estimatedTokenUsage,
-        timeElapsed: Date.now() - startTime,
-        successfulExamples: this.stats.successfulDemos,
-        totalExamples: examples.length,
-      });
-
-      // Budget check
-      if (
-        rolloutBudget !== undefined &&
-        this.stats.totalCalls >= Math.max(1, Math.floor(rolloutBudget))
-      ) {
-        optLogger?.({
-          name: 'EarlyStopping',
-          value: {
-            reason: `Rollout budget exhausted (${rolloutBudget})`,
-            finalScore: bestAvg,
-            round: this.currentRound,
-          },
-        });
-        this.onEarlyStop?.(`Rollout budget exhausted`, this.stats);
-        break;
-      }
-
-      if (!accepted) {
-        stagnationRounds++;
-        if (
-          this.earlyStoppingTrials > 0 &&
-          stagnationRounds >= this.earlyStoppingTrials
-        ) {
-          optLogger?.({
-            name: 'EarlyStopping',
-            value: {
-              reason: `No minibatch improvement ≥ ${this.minImprovementThreshold} for ${this.earlyStoppingTrials} trials`,
-              finalScore: bestAvg,
-              round: this.currentRound,
-            },
-          });
-          this.onEarlyStop?.(
-            `No improvement for ${this.earlyStoppingTrials} trials`,
-            this.stats
-          );
-          break;
-        }
-        continue;
-      }
-
-      // Accept: add candidate, evaluate on full pareto set
-      candidates.push({
-        instruction: proposedInstruction,
-        parent: parentIdx,
-        ...(parent2Idx !== undefined ? { parent2: parent2Idx } : {}),
-      });
-      const childIdx = candidates.length - 1;
-      const childVec = await this.evaluateOnSet(
-        program,
-        proposedInstruction,
-        paretoSet,
-        metricFn
-      );
-      S.push(childVec);
-
-      const childAvg = average(childVec);
-      if (childAvg > bestAvg + this.minImprovementThreshold) {
-        bestAvg = childAvg;
-        bestIdx = childIdx;
-        stagnationRounds = 0;
-      } else {
-        stagnationRounds++;
-      }
-
-      if (
-        this.earlyStoppingTrials > 0 &&
-        stagnationRounds >= this.earlyStoppingTrials
-      ) {
-        optLogger?.({
-          name: 'EarlyStopping',
-          value: {
-            reason: `No validation improvement ≥ ${this.minImprovementThreshold} for ${this.earlyStoppingTrials} accepted candidates`,
-            finalScore: bestAvg,
-            round: this.currentRound,
-          },
-        });
-        this.onEarlyStop?.(
-          `No improvement for ${this.earlyStoppingTrials} accepted candidates`,
-          this.stats
-        );
-        break;
-      }
-    }
-
-    // Build optimized program output
-    const bestInstruction = candidates[bestIdx]!.instruction;
-    const optimizedProgram = new AxOptimizedProgramImpl<OUT>({
-      bestScore: bestAvg,
-      stats: this.stats,
-      instruction: bestInstruction,
-      demos: [],
-      examples: [],
-      modelConfig: undefined,
-      optimizerType: 'GEPA',
-      optimizationTime: Date.now() - startTime,
-      totalRounds: this.currentRound,
-      converged: this.stats.convergenceInfo.converged,
-      scoreHistory: [...this.localScoreHistory],
-      configurationHistory: [...this.localConfigurationHistory],
-    });
-
-    // Log completion
-    await this.logOptimizationComplete(
-      'GEPA',
-      bestAvg,
-      { instructionLen: bestInstruction.length },
-      options
-    );
-
-    return {
-      bestScore: bestAvg,
-      stats: this.stats,
-      optimizedProgram,
-    };
-  }
-
-  /**
    * Multi-objective GEPA: reflective evolution with Pareto frontier
    */
   public async compile<IN, OUT extends AxGenOut>(
@@ -478,7 +176,7 @@ export class AxGEPA extends AxBaseOptimizer {
     optLogger?.({
       name: 'OptimizationStart',
       value: {
-        optimizerType: 'GEPA-Pareto',
+        optimizerType: 'GEPA',
         exampleCount: examples.length,
         validationCount: paretoSet.length,
         config: { numTrials: this.numTrials, minibatch: this.minibatch },
@@ -559,7 +257,7 @@ export class AxGEPA extends AxBaseOptimizer {
           parent: parentIdx,
           totalRounds: this.numTrials,
         },
-        'GEPA-Pareto',
+        'GEPA',
         { strategy: 'reflective_mutation', paretoSetSize: paretoSet.length },
         childMiniScalar,
         {
@@ -632,12 +330,7 @@ export class AxGEPA extends AxBaseOptimizer {
     this.stats.convergenceInfo.converged = true;
 
     // Record metrics for monitoring
-    this.recordParetoMetrics(
-      pareto.length,
-      candidates.length,
-      'GEPA-Pareto',
-      hv
-    );
+    this.recordParetoMetrics(pareto.length, candidates.length, 'GEPA', hv);
 
     return {
       demos: [],
@@ -652,7 +345,7 @@ export class AxGEPA extends AxBaseOptimizer {
       paretoFrontSize: pareto.length,
       hypervolume: hv,
       finalConfiguration: {
-        strategy: 'gepa_pareto',
+        strategy: 'gepa',
         candidates: candidates.length,
       },
     } as AxParetoResult<OUT>;
