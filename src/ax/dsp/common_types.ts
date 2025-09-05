@@ -1,6 +1,7 @@
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
 import type { AxOptimizerLoggerData } from './optimizerTypes.js';
 import type { AxFieldValue, AxResultPickerFunction } from './types.js';
+import type { AxGEPAAdapter } from './optimizers/gepaAdapter.js';
 
 export type AxExample = Record<string, AxFieldValue>;
 
@@ -139,11 +140,6 @@ export type AxOptimizerArgs = {
   resultPicker?: AxResultPickerFunction<any>;
   // Optional: include topP in the Python optimizer search space (0.7–1.0)
   optimizeTopP?: boolean;
-  // GEPA-specific optional knobs
-  paretoSetSize?: number;
-  crossoverEvery?: number;
-  tieEpsilon?: number;
-  feedbackMemorySize?: number;
   minSuccessRate?: number;
   targetScore?: number;
   onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
@@ -178,23 +174,9 @@ export interface AxCompileOptions {
   overrideCheckpointLoad?: AxCheckpointLoadFn;
   overrideCheckpointInterval?: number;
   saveCheckpointOnComplete?: boolean;
-  // GEPA extras
-  /** D_pareto: validation subset used for candidate selection */
-  validationExamples?: readonly AxTypedExample<any>[];
-  /** D_feedback: training subset used to gather reflective feedback */
-  feedbackExamples?: readonly AxTypedExample<any>[];
-  /** Optional rollout budget cap (counts evaluator calls) */
-  budgetRollouts?: number;
-  /** Optional textual feedback function μ_f, e.g., evaluator traces per example */
-  feedbackFn?: (
-    arg: Readonly<{ prediction: any; example: AxExample }>
-  ) => string | string[] | undefined;
-  /** Acceptance policy: 'sigma' (σ′ > σ) or 'dominance' (vector dominance). Defaults to 'sigma'. */
-  acceptanceMode?: 'sigma' | 'dominance';
-  /** Epsilon used with acceptanceMode 'sigma' (σ′ > σ + eps). Defaults to 0. */
-  acceptanceEpsilon?: number;
-  /** Scalarizer for multi-metric vectors; overrides average() */
-  paretoScalarize?: (scores: Readonly<Record<string, number>>) => number;
-  /** Convenience: specify a metric key to scalarize with that single metric. */
-  paretoMetricKey?: string;
+  // GEPA core options (adapter-based)
+  gepaAdapter?: AxGEPAAdapter<any, any, any>;
+  skipPerfectScore?: boolean;
+  perfectScore?: number;
+  maxMetricCalls?: number;
 }

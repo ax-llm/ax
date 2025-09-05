@@ -227,3 +227,84 @@ export function avgVec(
     out[k] = s / Math.max(counts[k] || 1, 1);
   return out;
 }
+
+// ===== GEPA instance-front utilities (align with reference) =====
+
+export function removeDominatedProgramsByInstanceFronts(
+  fronts: ReadonlyArray<Readonly<Set<number>>>,
+  scores: ReadonlyArray<number>
+): Array<Set<number>> {
+  // Gather all program indices present in any front
+  const allPrograms = new Set<number>();
+  for (const f of fronts) for (const p of f) allPrograms.add(p);
+  const programs = Array.from(allPrograms);
+
+  // Sort ascending by aggregate score (like reference)
+  const sorted = [...programs].sort(
+    (a, b) => (scores[a] ?? 0) - (scores[b] ?? 0)
+  );
+
+  const dominated = new Set<number>();
+
+  const isDominated = (y: number, others: ReadonlySet<number>): boolean => {
+    // y is dominated if for every front that contains y, there exists
+    // at least one program from 'others' that is also in that front
+    for (const front of fronts) {
+      if (!front.has(y)) continue;
+      let found = false;
+      for (const o of others) {
+        if (front.has(o)) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return false; // in this front, no dominator present
+    }
+    return true;
+  };
+
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const y of sorted) {
+      if (dominated.has(y)) continue;
+      const others = new Set(
+        sorted.filter((p) => p !== y && !dominated.has(p))
+      );
+      if (isDominated(y, others)) {
+        dominated.add(y);
+        progress = true;
+        break;
+      }
+    }
+  }
+
+  const dominators = sorted.filter((p) => !dominated.has(p));
+  const dominatorSet = new Set(dominators);
+
+  // Filter each front to only include dominators
+  return fronts.map((front) => {
+    const nf = new Set<number>();
+    for (const p of front) if (dominatorSet.has(p)) nf.add(p);
+    return nf;
+  });
+}
+
+export function selectProgramCandidateFromInstanceFronts(
+  fronts: ReadonlyArray<Readonly<Set<number>>>,
+  scores: ReadonlyArray<number>
+): number {
+  const reduced = removeDominatedProgramsByInstanceFronts(fronts, scores);
+  const freq: Record<number, number> = {};
+  for (const f of reduced) {
+    for (const p of f) freq[p] = (freq[p] || 0) + 1;
+  }
+  const sampling: number[] = [];
+  for (const [pStr, count] of Object.entries(freq)) {
+    const p = Number(pStr);
+    for (let k = 0; k < count; k++) sampling.push(p);
+  }
+  if (sampling.length === 0) return 0;
+  const idx = Math.floor(Math.random() * sampling.length);
+  return sampling[idx]!;
+}

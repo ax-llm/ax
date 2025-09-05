@@ -20,10 +20,11 @@ import {
   hypervolume2D,
   average,
   randomSubset,
-  selectCandidatePareto,
   avgVec,
-  dominatesVectorEps,
+  selectProgramCandidateFromInstanceFronts,
+  removeDominatedProgramsByInstanceFronts,
 } from './paretoUtils.js';
+import type { AxGEPAAdapter } from './gepaAdapter.js';
 
 /** Flow-aware GEPA (system-level reflective evolution with module selection + system-aware merge) */
 export class AxGEPAFlow extends AxBaseOptimizer {
@@ -38,6 +39,9 @@ export class AxGEPAFlow extends AxBaseOptimizer {
   private paretoSetSize: number;
   private mergeMax: number;
   private mergesUsed = 0;
+  private mergesDue = 0;
+  private totalMergesTested = 0;
+  private lastIterFoundNewProgram = false;
 
   constructor(args: Readonly<AxOptimizerArgs>) {
     super(args);
@@ -233,9 +237,8 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     let stagnation = 0;
     const triedMerges = new Set<string>();
 
-    const rolloutBudget = (options as any)?.budgetRollouts as
-      | number
-      | undefined;
+    const rolloutBudget = ((options as any)?.maxMetricCalls ??
+      (options as any)?.budgetRollouts) as number | undefined;
 
     for (let t = 0; t < this.numTrials; t++) {
       if (
@@ -245,8 +248,203 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         break;
       }
 
-      // Parent selection via per-instance Pareto sampling (Algorithm 2)
-      const parentIdx = selectCandidatePareto(perInstanceScores).index;
+      // Parent selection via per-instance fronts (frequency sampling)
+      const nInst = perInstanceScores[0]?.length ?? 0;
+      const instanceFronts: Array<Set<number>> = [];
+      for (let i = 0; i < nInst; i++) {
+        let best = -Infinity;
+        const front = new Set<number>();
+        for (let k = 0; k < perInstanceScores.length; k++) {
+          const v = perInstanceScores[k]![i]!;
+          if (v > best) {
+            best = v;
+            front.clear();
+            front.add(k);
+          } else if (v === best) {
+            front.add(k);
+          }
+        }
+        instanceFronts.push(front);
+      }
+      const perProgScores = perInstanceScores.map((arr) => average(arr));
+
+      // Scheduled merge attempt (parity with source): only when mergesDue>0 and lastIterFoundNewProgram
+      if (
+        this.mergeMax > 0 &&
+        this.mergesDue > 0 &&
+        this.lastIterFoundNewProgram
+      ) {
+        // Build dominator merge candidates from reduced instance fronts
+        const reducedFronts = removeDominatedProgramsByInstanceFronts(
+          instanceFronts,
+          perProgScores
+        );
+        const mergeCandidatesSet = new Set<number>();
+        for (const f of reducedFronts)
+          for (const p of f) mergeCandidatesSet.add(p);
+        const mergeCandidates = Array.from(mergeCandidatesSet);
+
+        const ancestors = (idx: number): number[] => {
+          const path: number[] = [];
+          let cur: number | undefined = idx;
+          while (cur !== undefined) {
+            path.push(cur);
+            cur = candidates[cur]?.parent;
+          }
+          return path;
+        };
+
+        const rngPick = <T>(arr: readonly T[]): T | undefined =>
+          arr.length ? arr[Math.floor(Math.random() * arr.length)]! : undefined;
+
+        // Try up to 10 random pairs to find a viable (i, j, ancestor)
+        let picked: { i: number; j: number; a: number } | undefined;
+        for (let attempts = 0; attempts < 10 && !picked; attempts++) {
+          if (mergeCandidates.length < 2) break;
+          let i = rngPick(mergeCandidates)!;
+          let j = rngPick(mergeCandidates)!;
+          if (i === j) continue;
+          if (j < i) [i, j] = [j, i];
+          const Ai = new Set(ancestors(i));
+          const Aj = new Set(ancestors(j));
+          if (Ai.has(j) || Aj.has(i)) continue; // cannot merge ancestor with descendant
+          const commons = [...Ai].filter((x) => Aj.has(x));
+          if (commons.length === 0) continue;
+
+          // Filter ancestors using desirability (at least one module where ancestor matches one child but differs from the other)
+          const desirables: number[] = [];
+          for (const a of commons) {
+            const cfgA = candidates[a]!.cfg;
+            const cfgI = candidates[i]!.cfg;
+            const cfgJ = candidates[j]!.cfg;
+            let ok = false;
+            const allKeys = new Set([
+              ...Object.keys(cfgA),
+              ...Object.keys(cfgI),
+              ...Object.keys(cfgJ),
+            ]);
+            for (const k of allKeys) {
+              const pa = cfgA[k];
+              const pi = cfgI[k];
+              const pj = cfgJ[k];
+              if ((pi === pa && pj !== pi) || (pj === pa && pi !== pj)) {
+                ok = true;
+                break;
+              }
+            }
+            if (ok) desirables.push(a);
+          }
+          if (desirables.length === 0) continue;
+
+          // Weight ancestors by aggregate score
+          const weights = desirables.map((a) =>
+            Math.max(1e-9, perProgScores[a]!)
+          );
+          let r = Math.random() * weights.reduce((s, w) => s + w, 0);
+          let a = desirables[desirables.length - 1]!;
+          for (let idx = 0; idx < desirables.length; idx++) {
+            if (r < weights[idx]!) {
+              a = desirables[idx]!;
+              break;
+            }
+            r -= weights[idx]!;
+          }
+
+          const key = `${i}|${j}|${a}`;
+          if (triedMerges.has(key)) continue;
+          picked = { i, j, a };
+        }
+
+        // Clear scheduling flag before reflective (parity)
+        this.lastIterFoundNewProgram = false;
+
+        if (picked) {
+          const { i, j, a } = picked;
+          // Build merged candidate (system-aware)
+          const mergedCfg = this.systemAwareMerge(candidates, i, j, (ia, ib) =>
+            perProgScores[ia]! >= perProgScores[ib]! ? ia : ib
+          );
+
+          // Targeted subsample selection on validation set (parents' per-instance subscores)
+          const s1 = perInstanceScores[i]!;
+          const s2 = perInstanceScores[j]!;
+          const allIdx = Array.from({ length: s1.length }, (_, z) => z);
+          const p1 = allIdx.filter((z) => (s1[z] ?? 0) > (s2[z] ?? 0));
+          const p2 = allIdx.filter((z) => (s2[z] ?? 0) > (s1[z] ?? 0));
+          const p3 = allIdx.filter((z) => !(p1.includes(z) || p2.includes(z)));
+          const K = 5;
+          const nEach = Math.ceil(K / 3);
+          const pickSome = (arr: number[], k: number): number[] => {
+            if (k <= 0 || arr.length === 0) return [];
+            if (arr.length <= k) return [...arr];
+            const out: number[] = [];
+            const used = new Set<number>();
+            while (out.length < k) {
+              const idx = Math.floor(Math.random() * arr.length);
+              if (!used.has(idx)) {
+                used.add(idx);
+                out.push(arr[idx]!);
+              }
+            }
+            return out;
+          };
+          const chosen: number[] = [];
+          chosen.push(...pickSome(p1, Math.min(nEach, p1.length)));
+          chosen.push(...pickSome(p2, Math.min(nEach, p2.length)));
+          const rem = K - chosen.length;
+          chosen.push(...pickSome(p3, Math.max(0, rem)));
+          // Fill remaining from rest
+          const remaining = K - chosen.length;
+          if (remaining > 0) {
+            const unused = allIdx.filter((z) => !chosen.includes(z));
+            chosen.push(
+              ...pickSome(unused, Math.min(remaining, unused.length))
+            );
+          }
+          const idxs = chosen.slice(0, Math.min(K, allIdx.length));
+
+          const subsample = idxs.map((z) => paretoSet[z]!);
+          const newSubScoresArr = await evalOnSetScalar(
+            mergedCfg,
+            subsample as any
+          );
+          const newSum = newSubScoresArr.reduce((a, b) => a + b, 0);
+          const id1Sum = idxs.reduce((a, z) => a + (s1[z] ?? 0), 0);
+          const id2Sum = idxs.reduce((a, z) => a + (s2[z] ?? 0), 0);
+
+          if (newSum >= Math.max(id1Sum, id2Sum)) {
+            // ACCEPT: full eval and add
+            const childVec = await evalOnSet(mergedCfg, paretoSet);
+            candidates.push({ cfg: mergedCfg, parent: a, scores: childVec });
+            perInstanceScores.push(await evalOnSetScalar(mergedCfg, paretoSet));
+            const beforeSize = archive.length;
+            const hvBefore =
+              hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
+            archive = buildParetoFront(
+              candidates.map((c, idx) => ({ idx, scores: c.scores }))
+            ).map((p) => p.idx);
+            const hvAfter =
+              hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
+            if (archive.length > beforeSize || hvAfter > hvBefore + 1e-6)
+              stagnation = 0;
+            this.mergesDue -= 1;
+            this.totalMergesTested += 1;
+            triedMerges.add(`${Math.min(i, j)}|${Math.max(i, j)}|${a}`);
+          }
+          // Skip reflective this iteration
+          continue;
+        } else {
+          // No merge attempted; fall through to reflective (flag cleared above)
+        }
+      }
+
+      const parentIdx = selectProgramCandidateFromInstanceFronts(
+        instanceFronts,
+        perProgScores
+      );
+
+      // Clear merge flag before reflective
+      this.lastIterFoundNewProgram = false;
 
       const mini = this.minibatch
         ? randomSubset(
@@ -255,11 +453,23 @@ export class AxGEPAFlow extends AxBaseOptimizer {
           )
         : feedbackSet;
 
-      // Decide strategy: reflective mutation or periodic system-aware merge
-      const useCrossover =
-        this.crossoverEvery > 0 &&
-        (t + 1) % this.crossoverEvery === 0 &&
-        candidates.length > 1;
+      // Skip reflective mutation if minibatch is already perfect
+      if ((options as any)?.skipPerfectScore) {
+        const perfect = Number((options as any)?.perfectScore ?? 1);
+        const parentMiniScores = await evalOnSetScalar(
+          candidates[parentIdx]!.cfg,
+          mini as any
+        );
+        if (
+          parentMiniScores.length > 0 &&
+          parentMiniScores.every((s) => s >= perfect)
+        ) {
+          continue;
+        }
+      }
+
+      // Scheduled merges are handled above; disable periodic merges
+      const useCrossover = false as const;
 
       let proposedCfg: Record<string, string> = {
         ...candidates[parentIdx]!.cfg,
@@ -270,9 +480,12 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       const moduleIndex = t % nodes.length; // round-robin module selection
       const module = nodes[moduleIndex]!;
 
+      // For adapter-based strict acceptance
+      let adapterParentSum: number | undefined;
+      let adapterChildSum: number | undefined;
+
       if (useCrossover && this.mergesUsed < this.mergeMax) {
-        let second = selectCandidatePareto(perInstanceScores).index;
-        if (second === parentIdx) second = (parentIdx + 1) % candidates.length;
+        let second = (parentIdx + 1) % candidates.length;
 
         const ancestors = (idx: number): number[] => {
           const path: number[] = [];
@@ -340,7 +553,105 @@ export class AxGEPAFlow extends AxBaseOptimizer {
           }
         } else {
           const currentInstr = candidates[parentIdx]!.cfg[module.name]!;
-          const newInstr = await this.reflectModuleInstruction(
+          const adapter = (options as any)?.gepaAdapter as
+            | AxGEPAAdapter
+            | undefined;
+          let newInstr: string | undefined;
+          if (adapter) {
+            try {
+              const evalParent = await adapter.evaluate(
+                mini as any,
+                { ...candidates[parentIdx]!.cfg },
+                true
+              );
+              adapterParentSum = Array.isArray(evalParent?.scores)
+                ? evalParent.scores.reduce((a, b) => a + (Number(b) || 0), 0)
+                : undefined;
+              const reflDs = adapter.make_reflective_dataset(
+                { ...candidates[parentIdx]!.cfg },
+                evalParent as any,
+                [module.name]
+              );
+              const proposedMap = await (adapter.propose_new_texts?.(
+                { ...candidates[parentIdx]!.cfg },
+                reflDs,
+                [module.name]
+              ) as any);
+              const proposedText = proposedMap?.[module.name];
+              if (typeof proposedText === 'string' && proposedText.length > 0) {
+                newInstr = proposedText;
+              }
+            } catch {}
+          }
+          if (!newInstr) {
+            newInstr = await this.reflectModuleInstruction(
+              module.name,
+              currentInstr,
+              flow,
+              nodes,
+              { ...candidates[parentIdx]!.cfg },
+              mini,
+              async ({ prediction, example }) => {
+                const scores = await (metricFn as unknown as AxMultiMetricFn)({
+                  prediction,
+                  example,
+                });
+                const vals = Object.values(scores || {});
+                return vals.length
+                  ? vals.reduce((a, b) => a + b, 0) / vals.length
+                  : 0;
+              },
+              options
+            );
+          }
+          proposedCfg[module.name] = newInstr!;
+          if (adapter && adapterParentSum !== undefined) {
+            try {
+              const evalChild = await adapter.evaluate(
+                mini as any,
+                proposedCfg,
+                false
+              );
+              adapterChildSum = Array.isArray(evalChild?.scores)
+                ? evalChild.scores.reduce((a, b) => a + (Number(b) || 0), 0)
+                : undefined;
+            } catch {}
+          }
+        }
+      } else {
+        const currentInstr = candidates[parentIdx]!.cfg[module.name]!;
+        const adapter = (options as any)?.gepaAdapter as
+          | AxGEPAAdapter
+          | undefined;
+        let newInstr: string | undefined;
+        if (adapter) {
+          try {
+            const evalParent = await adapter.evaluate(
+              mini as any,
+              { ...candidates[parentIdx]!.cfg },
+              true
+            );
+            adapterParentSum = Array.isArray(evalParent?.scores)
+              ? evalParent.scores.reduce((a, b) => a + (Number(b) || 0), 0)
+              : undefined;
+            const reflDs = adapter.make_reflective_dataset(
+              { ...candidates[parentIdx]!.cfg },
+              evalParent as any,
+              [module.name]
+            );
+            const proposedMap = await (adapter.propose_new_texts?.(
+              { ...candidates[parentIdx]!.cfg },
+              reflDs,
+              [module.name]
+            ) as any);
+            const proposedText = proposedMap?.[module.name];
+            if (typeof proposedText === 'string' && proposedText.length > 0) {
+              newInstr = proposedText;
+            }
+          } catch {}
+        }
+        if (!newInstr) {
+          newInstr = await this.reflectModuleInstruction(
             module.name,
             currentInstr,
             flow,
@@ -359,30 +670,20 @@ export class AxGEPAFlow extends AxBaseOptimizer {
             },
             options
           );
-          proposedCfg[module.name] = newInstr;
         }
-      } else {
-        const currentInstr = candidates[parentIdx]!.cfg[module.name]!;
-        const newInstr = await this.reflectModuleInstruction(
-          module.name,
-          currentInstr,
-          flow,
-          nodes,
-          { ...candidates[parentIdx]!.cfg },
-          mini,
-          async ({ prediction, example }) => {
-            const scores = await (metricFn as unknown as AxMultiMetricFn)({
-              prediction,
-              example,
-            });
-            const vals = Object.values(scores || {});
-            return vals.length
-              ? vals.reduce((a, b) => a + b, 0) / vals.length
-              : 0;
-          },
-          options
-        );
-        proposedCfg[module.name] = newInstr;
+        proposedCfg[module.name] = newInstr!;
+        if (adapter && adapterParentSum !== undefined) {
+          try {
+            const evalChild = await adapter.evaluate(
+              mini as any,
+              proposedCfg,
+              false
+            );
+            adapterChildSum = Array.isArray(evalChild?.scores)
+              ? evalChild.scores.reduce((a, b) => a + (Number(b) || 0), 0)
+              : undefined;
+          } catch {}
+        }
       }
 
       // Dominance-based acceptance on minibatch
@@ -410,16 +711,11 @@ export class AxGEPAFlow extends AxBaseOptimizer {
         { ...(options ?? {}), maxIterations: this.numTrials }
       );
 
-      const accMode =
-        ((options as any)?.acceptanceMode as
-          | 'sigma'
-          | 'dominance'
-          | undefined) ?? 'sigma';
-      const sigmaEps = Number((options as any)?.acceptanceEpsilon ?? 0);
       const accepted =
-        accMode === 'dominance'
-          ? dominatesVectorEps(childMiniVec, parentMiniVec, this.tieEpsilon)
-          : childMiniScalar > parentMiniScalar + sigmaEps;
+        childMiniScalar > parentMiniScalar &&
+        (adapterParentSum === undefined ||
+          adapterChildSum === undefined ||
+          adapterChildSum > adapterParentSum);
       if (!accepted) {
         if (++stagnation >= this.earlyStoppingTrials) break;
         continue;
@@ -449,6 +745,11 @@ export class AxGEPAFlow extends AxBaseOptimizer {
       } else {
         stagnation++;
         if (stagnation >= this.earlyStoppingTrials) break;
+      }
+      // Schedule merge attempt for next iteration (parity)
+      this.lastIterFoundNewProgram = true;
+      if (this.mergeMax > 0 && this.totalMergesTested < this.mergeMax) {
+        this.mergesDue += 1;
       }
     }
 
