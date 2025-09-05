@@ -15,7 +15,6 @@ import {
   buildParetoFront,
   hypervolume2D,
   average,
-  selectCandidatePareto,
   avgVec,
   selectProgramCandidateFromInstanceFronts,
   removeDominatedProgramsByInstanceFronts,
@@ -127,7 +126,7 @@ export class AxGEPA extends AxBaseOptimizer {
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>> {
-    const startTime = Date.now();
+    const _startTime = Date.now();
     this.validateExamples(examples);
     if (options?.auto) this.configureAuto(options.auto);
 
@@ -270,7 +269,7 @@ export class AxGEPA extends AxBaseOptimizer {
       candidates.map((c, idx) => ({ idx, scores: c.scores }))
     ).map((p) => p.idx);
 
-    let prevHypervolume: number | undefined;
+    let _prevHypervolume: number | undefined;
     const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as
       | number
       | undefined;

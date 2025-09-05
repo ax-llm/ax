@@ -7,11 +7,7 @@ import type {
   AxOptimizerArgs,
   AxTypedExample,
 } from '../common_types.js';
-import {
-  AxBaseOptimizer,
-  AxOptimizedProgramImpl,
-  type AxParetoResult,
-} from '../optimizer.js';
+import { AxBaseOptimizer, type AxParetoResult } from '../optimizer.js';
 import type { AxGenOut } from '../types.js';
 import { ax } from '../template.js';
 import type { AxFlow } from '../../flow/flow.js';
@@ -136,7 +132,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>> {
-    const startTime = Date.now();
+    const _startTime = Date.now();
     const flow = program as unknown as AxFlow<any, OUT>;
     this.validateExamples(examples);
     if (options?.auto) this.configureAuto(options.auto);
@@ -918,7 +914,7 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     options?: AxCompileOptions
   ): Promise<string> {
     // tuples unused but left for parity with single-module version
-    const tuples: Array<{
+    const _tuples: Array<{
       input: AxExample;
       prediction: unknown;
       score: number;
