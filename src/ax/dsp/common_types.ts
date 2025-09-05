@@ -139,6 +139,11 @@ export type AxOptimizerArgs = {
   resultPicker?: AxResultPickerFunction<any>;
   // Optional: include topP in the Python optimizer search space (0.7–1.0)
   optimizeTopP?: boolean;
+  // GEPA-specific optional knobs
+  paretoSetSize?: number;
+  crossoverEvery?: number;
+  tieEpsilon?: number;
+  feedbackMemorySize?: number;
   minSuccessRate?: number;
   targetScore?: number;
   onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
@@ -173,4 +178,10 @@ export interface AxCompileOptions {
   overrideCheckpointLoad?: AxCheckpointLoadFn;
   overrideCheckpointInterval?: number;
   saveCheckpointOnComplete?: boolean;
+  // GEPA extras
+  validationExamples?: readonly AxTypedExample<any>[];
+  budgetRollouts?: number;
+  feedbackFn?: (
+    arg: Readonly<{ prediction: any; example: AxExample }>
+  ) => string | string[] | undefined;
 }

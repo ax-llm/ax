@@ -516,6 +516,7 @@ import {
 } from './dsp/optimizerLogging.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
 import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
+import { AxGEPA } from './dsp/optimizers/gepa.js';
 import type {
   AxOptimizerLoggerData,
   AxOptimizerLoggerFunction,
@@ -753,6 +754,7 @@ export { AxMCPStreambleHTTPTransport };
 export { AxMediaNotSupportedError };
 export { AxMemory };
 export { AxMiPRO };
+export { AxGEPA };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
 export { AxOptimizedProgramImpl };
