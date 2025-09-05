@@ -42,6 +42,8 @@ export class AxGEPA extends AxBaseOptimizer {
   private mergesDue = 0;
   private totalMergesTested = 0;
   private lastIterFoundNewProgram = false;
+  private mergeAttemptKeys = new Set<string>();
+  private mergeCompositionKeys = new Set<string>();
 
   private rngState: number = 123456789;
   private samplerState: {
@@ -93,7 +95,7 @@ export class AxGEPA extends AxBaseOptimizer {
     const argFbMem = (args as any)?.feedbackMemorySize as number | undefined;
     this.feedbackMemorySize = Math.max(0, Math.floor(argFbMem ?? 4));
     const argMergeMax = (args as any)?.mergeMax as number | undefined;
-    this.mergeMax = Math.max(0, Math.floor(argMergeMax ?? 5));
+    this.mergeMax = Math.max(0, Math.floor(argMergeMax ?? 0));
     this.mergesUsed = 0;
 
     // Hook convergence threshold to base stats
@@ -112,6 +114,8 @@ export class AxGEPA extends AxBaseOptimizer {
     this.mergesDue = 0;
     this.totalMergesTested = 0;
     this.lastIterFoundNewProgram = false;
+    this.mergeAttemptKeys.clear();
+    this.mergeCompositionKeys.clear();
     this.samplerState.epoch = -1;
     this.samplerState.shuffled = [];
     this.samplerState.freq.clear();
@@ -369,77 +373,133 @@ export class AxGEPA extends AxBaseOptimizer {
 
         if (picked) {
           const { i, j, a } = picked;
-          const childInstrMerged = await this.mergeInstructions(
-            candidates[i]!.instruction,
-            candidates[j]!.instruction,
-            options
-          );
-          // Targeted subsample selection on validation set
-          const s1 = perInstanceScores[i]!;
-          const s2 = perInstanceScores[j]!;
-          const allIdx = Array.from({ length: s1.length }, (_, z) => z);
-          const p1 = allIdx.filter((z) => (s1[z] ?? 0) > (s2[z] ?? 0));
-          const p2 = allIdx.filter((z) => (s2[z] ?? 0) > (s1[z] ?? 0));
-          const p3 = allIdx.filter((z) => !(p1.includes(z) || p2.includes(z)));
-          const K = 5;
-          const nEach = Math.ceil(K / 3);
-          const pickSome = (arr: number[], k: number): number[] => {
-            if (k <= 0 || arr.length === 0) return [];
-            if (arr.length <= k) return [...arr];
-            const out: number[] = [];
-            const used = new Set<number>();
-            while (out.length < k) {
-              const idx = Math.floor(this.rand() * arr.length);
-              if (!used.has(idx)) {
-                used.add(idx);
-                out.push(arr[idx]!);
+          // Ancestor guard + desirability filter for single-component merge
+          const Sa = perProgScores[a]!;
+          const Si = perProgScores[i]!;
+          const Sj = perProgScores[j]!;
+          const instrA = candidates[a]!.instruction;
+          const instrI = candidates[i]!.instruction;
+          const instrJ = candidates[j]!.instruction;
+          const desirable =
+            (instrI === instrA && instrJ !== instrI) ||
+            (instrJ === instrA && instrI !== instrJ);
+          let allowed = Sa <= Math.min(Si, Sj) && desirable;
+          let childInstrMerged = '';
+          let descSig: 'i' | 'j' = 'i';
+          if (allowed) {
+            const triKey = `${i}|${j}|${a}`;
+            if (this.mergeAttemptKeys.has(triKey)) {
+              allowed = false;
+            } else {
+              if (instrI === instrA && instrJ !== instrI) {
+                childInstrMerged = instrJ;
+                descSig = 'j';
+              } else if (instrJ === instrA && instrI !== instrJ) {
+                childInstrMerged = instrI;
+                descSig = 'i';
+              } else if (
+                instrI !== instrA &&
+                instrJ !== instrA &&
+                instrI !== instrJ
+              ) {
+                if (Si > Sj || (Si === Sj && this.rand() < 0.5)) {
+                  childInstrMerged = instrI;
+                  descSig = 'i';
+                } else {
+                  childInstrMerged = instrJ;
+                  descSig = 'j';
+                }
+              } else {
+                childInstrMerged = instrI;
+                descSig = 'i';
+              }
+              const compKey = `${Math.min(i, j)}|${Math.max(i, j)}|${descSig}`;
+              if (this.mergeCompositionKeys.has(compKey)) {
+                allowed = false;
+              } else {
+                this.mergeAttemptKeys.add(triKey);
+                this.mergeCompositionKeys.add(compKey);
+                // Targeted subsample selection on validation set
+                const s1 = perInstanceScores[i]!;
+                const s2 = perInstanceScores[j]!;
+                const allIdx = Array.from({ length: s1.length }, (_, z) => z);
+                const p1 = allIdx.filter((z) => (s1[z] ?? 0) > (s2[z] ?? 0));
+                const p2 = allIdx.filter((z) => (s2[z] ?? 0) > (s1[z] ?? 0));
+                const p3 = allIdx.filter(
+                  (z) => !(p1.includes(z) || p2.includes(z))
+                );
+                const K = 5;
+                const nEach = Math.ceil(K / 3);
+                const pickSome = (arr: number[], k: number): number[] => {
+                  if (k <= 0 || arr.length === 0) return [];
+                  if (arr.length <= k) return [...arr];
+                  const out: number[] = [];
+                  const used = new Set<number>();
+                  while (out.length < k) {
+                    const idx = Math.floor(this.rand() * arr.length);
+                    if (!used.has(idx)) {
+                      used.add(idx);
+                      out.push(arr[idx]!);
+                    }
+                  }
+                  return out;
+                };
+                const chosen: number[] = [];
+                chosen.push(...pickSome(p1, Math.min(nEach, p1.length)));
+                chosen.push(...pickSome(p2, Math.min(nEach, p2.length)));
+                const rem = K - chosen.length;
+                chosen.push(...pickSome(p3, Math.max(0, rem)));
+                const remaining = K - chosen.length;
+                if (remaining > 0) {
+                  const unused = allIdx.filter((z) => !chosen.includes(z));
+                  chosen.push(
+                    ...pickSome(unused, Math.min(remaining, unused.length))
+                  );
+                }
+                const idxs = chosen.slice(0, Math.min(K, allIdx.length));
+
+                const subsample = idxs.map((z) => paretoSet[z]!);
+                const newSubArr = await evalOnSetScalar(
+                  childInstrMerged,
+                  subsample
+                );
+                const newSum = newSubArr.reduce((a, b) => a + b, 0);
+                const id1Sum = idxs.reduce((a, z) => a + (s1[z] ?? 0), 0);
+                const id2Sum = idxs.reduce((a, z) => a + (s2[z] ?? 0), 0);
+
+                if (newSum >= Math.max(id1Sum, id2Sum)) {
+                  const childVec = await evalOnSet(childInstrMerged, paretoSet);
+                  candidates.push({
+                    instruction: childInstrMerged,
+                    parent: a,
+                    scores: childVec,
+                  });
+                  perInstanceScores.push(
+                    await evalOnSetScalar(childInstrMerged, paretoSet)
+                  );
+                  const beforeSize = archive.length;
+                  const hvBefore =
+                    hypervolume2D(
+                      archive.map((idx) => candidates[idx]!.scores)
+                    ) ?? 0;
+                  archive = buildParetoFront(
+                    candidates.map((c, idx) => ({ idx, scores: c.scores }))
+                  ).map((p) => p.idx);
+                  const hvAfter =
+                    hypervolume2D(
+                      archive.map((idx) => candidates[idx]!.scores)
+                    ) ?? 0;
+                  if (
+                    archive.length > beforeSize ||
+                    hvAfter > hvBefore + 1e-6
+                  ) {
+                    stagnation = 0;
+                  }
+                  this.mergesDue -= 1;
+                  this.totalMergesTested += 1;
+                }
               }
             }
-            return out;
-          };
-          const chosen: number[] = [];
-          chosen.push(...pickSome(p1, Math.min(nEach, p1.length)));
-          chosen.push(...pickSome(p2, Math.min(nEach, p2.length)));
-          const rem = K - chosen.length;
-          chosen.push(...pickSome(p3, Math.max(0, rem)));
-          const remaining = K - chosen.length;
-          if (remaining > 0) {
-            const unused = allIdx.filter((z) => !chosen.includes(z));
-            chosen.push(
-              ...pickSome(unused, Math.min(remaining, unused.length))
-            );
-          }
-          const idxs = chosen.slice(0, Math.min(K, allIdx.length));
-
-          const subsample = idxs.map((z) => paretoSet[z]!);
-          const newSubArr = await evalOnSetScalar(childInstrMerged, subsample);
-          const newSum = newSubArr.reduce((a, b) => a + b, 0);
-          const id1Sum = idxs.reduce((a, z) => a + (s1[z] ?? 0), 0);
-          const id2Sum = idxs.reduce((a, z) => a + (s2[z] ?? 0), 0);
-
-          if (newSum >= Math.max(id1Sum, id2Sum)) {
-            const childVec = await evalOnSet(childInstrMerged, paretoSet);
-            candidates.push({
-              instruction: childInstrMerged,
-              parent: a,
-              scores: childVec,
-            });
-            perInstanceScores.push(
-              await evalOnSetScalar(childInstrMerged, paretoSet)
-            );
-            const beforeSize = archive.length;
-            const hvBefore =
-              hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
-            archive = buildParetoFront(
-              candidates.map((c, idx) => ({ idx, scores: c.scores }))
-            ).map((p) => p.idx);
-            const hvAfter =
-              hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
-            if (archive.length > beforeSize || hvAfter > hvBefore + 1e-6) {
-              stagnation = 0;
-            }
-            this.mergesDue -= 1;
-            this.totalMergesTested += 1;
           }
           // Skip reflective this iteration
           continue;
@@ -458,8 +518,8 @@ export class AxGEPA extends AxBaseOptimizer {
           )
         : feedbackSet;
 
-      // Skip reflection if all minibatch scores are perfect
-      if ((options as any)?.skipPerfectScore) {
+      // Skip reflection if all minibatch scores are perfect (default: true)
+      if ((options as any)?.skipPerfectScore ?? true) {
         const perfect = Number((options as any)?.perfectScore ?? 1);
         const parentMiniScores = await evalOnSetScalar(
           candidates[parentIdx]!.instruction,
@@ -657,6 +717,11 @@ export class AxGEPA extends AxBaseOptimizer {
         stagnation++;
         if (stagnation >= this.earlyStoppingTrials) break;
       }
+      // Schedule merge attempt for next iteration (parity)
+      this.lastIterFoundNewProgram = true;
+      if (this.mergeMax > 0 && this.totalMergesTested < this.mergeMax) {
+        this.mergesDue += 1;
+      }
     }
 
     // Build Pareto frontier of candidate average vectors
@@ -666,12 +731,6 @@ export class AxGEPA extends AxBaseOptimizer {
         scores: c.scores,
       }))
     );
-
-    // Schedule merge attempt for next iteration (parity)
-    this.lastIterFoundNewProgram = true;
-    if (this.mergeMax > 0 && this.totalMergesTested < this.mergeMax) {
-      this.mergesDue += 1;
-    }
 
     // Pick bestScore as max scalarized score on frontier
     const bestScore =
