@@ -1,0 +1,124 @@
+import { fetchJSON, stripTrailingSlash } from '../util/http.js';
+
+export function parseWWWAuthenticateForResourceMetadata(
+  www: string | null
+): string | null {
+  if (!www) return null;
+  const match =
+    www.match(/resource_metadata\s*=\s*"([^"]+)"/i) ||
+    www.match(/resource_metadata\s*=\s*([^,\s]+)/i);
+  return match ? match[1] : null;
+}
+
+export async function discoverResourceAndAS(
+  requestedUrl: string,
+  wwwAuthenticate: string | null
+): Promise<{ resource: string; issuers: string[] }> {
+  const headerUrl = parseWWWAuthenticateForResourceMetadata(wwwAuthenticate);
+
+  if (headerUrl) {
+    const rsMeta = await fetchJSON<any>(headerUrl);
+    const expectedResource = stripTrailingSlash(
+      new URL(requestedUrl).toString().split('?')[0]!
+    );
+    const rsResource = stripTrailingSlash(rsMeta.resource ?? '');
+    if (!rsResource || rsResource !== expectedResource) {
+      throw new Error(
+        `Protected resource metadata 'resource' mismatch. Expected ${expectedResource} but got ${rsResource}`
+      );
+    }
+    const issuers: string[] = Array.isArray(rsMeta.authorization_servers)
+      ? rsMeta.authorization_servers
+      : [];
+    if (issuers.length === 0) {
+      throw new Error(
+        'No authorization_servers advertised by protected resource'
+      );
+    }
+    return { resource: expectedResource, issuers };
+  }
+
+  // No header param; attempt well-known derivations with and without path component
+  const u = new URL(requestedUrl);
+  const trimmedPath = u.pathname.replace(/\/+$/, '');
+  const candidates: Array<{ url: string; expected: string }> = [];
+  if (trimmedPath && trimmedPath !== '/') {
+    candidates.push({
+      url: `${u.origin}/.well-known/oauth-protected-resource${trimmedPath}`,
+      expected: `${u.origin}${trimmedPath}`,
+    });
+  }
+  candidates.push({
+    url: `${u.origin}/.well-known/oauth-protected-resource`,
+    expected: `${u.origin}`,
+  });
+
+  let lastErr: unknown;
+  for (const c of candidates) {
+    try {
+      const meta = await fetchJSON<any>(c.url);
+      const rsResource = stripTrailingSlash(meta.resource ?? '');
+      const exp = stripTrailingSlash(c.expected);
+      if (!rsResource || rsResource !== exp) {
+        throw new Error(
+          `Protected resource metadata 'resource' mismatch. Expected ${exp} but got ${rsResource}`
+        );
+      }
+      const issuers: string[] = Array.isArray(meta.authorization_servers)
+        ? meta.authorization_servers
+        : [];
+      if (issuers.length === 0) {
+        throw new Error(
+          'No authorization_servers advertised by protected resource'
+        );
+      }
+      return { resource: exp, issuers };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error(
+    `Failed to resolve protected resource metadata via well-known endpoints. Last error: ${String(lastErr)}`
+  );
+}
+
+export async function discoverASMetadata(issuer: string): Promise<any> {
+  const u = new URL(issuer);
+  const path = u.pathname.replace(/^\/+/, '');
+  const endpoints: string[] = [];
+  if (path) {
+    endpoints.push(
+      `${u.origin}/.well-known/oauth-authorization-server/${path}`
+    );
+    endpoints.push(`${u.origin}/.well-known/openid-configuration/${path}`);
+    endpoints.push(
+      `${u.origin}/${path.replace(/\/+$/, '')}/.well-known/openid-configuration`
+    );
+  } else {
+    endpoints.push(`${u.origin}/.well-known/oauth-authorization-server`);
+    endpoints.push(`${u.origin}/.well-known/openid-configuration`);
+  }
+
+  let lastErr: unknown;
+  for (const e of endpoints) {
+    try {
+      const meta = await fetchJSON<any>(e);
+      if (!meta.authorization_endpoint || !meta.token_endpoint) {
+        throw new Error('AS metadata missing endpoints');
+      }
+      const methods: string[] | undefined =
+        meta.code_challenge_methods_supported;
+      if (!methods || !methods.includes('S256')) {
+        throw new Error(
+          'Authorization server does not advertise PKCE S256 support'
+        );
+      }
+      return meta;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error(
+    `Failed to discover AS metadata for ${issuer}: ${String(lastErr)}`
+  );
+}
