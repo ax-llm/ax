@@ -34,9 +34,63 @@ export const axCreateDefaultOptimizerColorLogger = (
         break;
 
       case 'RoundProgress':
-        formattedMessage =
-          `${cl.yellow('● ')}${cl.whiteBright(`Round ${data.value.round}/${data.value.totalRounds}`)}\n` +
-          `  ${cl.white('Score:')} ${cl.green(data.value.currentScore.toFixed(3))} ${cl.white('(best:')} ${cl.greenBright(data.value.bestScore.toFixed(3))}${cl.white(')')}\n`;
+        {
+          const config = data.value.configuration || {};
+          const configParts = [];
+
+          // Add temperature if present
+          if (
+            config.temperature !== undefined &&
+            typeof config.temperature === 'number'
+          ) {
+            configParts.push(`T=${config.temperature.toFixed(2)}`);
+          }
+
+          // Add bootstrapped demos if present
+          if (config.bootstrappedDemos !== undefined) {
+            configParts.push(`demos=${config.bootstrappedDemos}`);
+          }
+
+          // Add any other numeric configs
+          Object.entries(config).forEach(([key, value]) => {
+            if (
+              key !== 'temperature' &&
+              key !== 'bootstrappedDemos' &&
+              key !== 'trialNumber' &&
+              typeof value === 'number'
+            ) {
+              configParts.push(`${key}=${value.toFixed(2)}`);
+            }
+          });
+
+          const improvement = data.value.currentScore - data.value.bestScore;
+          const improvementStr =
+            improvement > 0
+              ? cl.greenBright(` ↑${improvement.toFixed(3)}`)
+              : improvement < 0
+                ? cl.red(` ↓${Math.abs(improvement).toFixed(3)}`)
+                : '';
+
+          const totalRounds =
+            typeof data.value.totalRounds === 'number' &&
+            data.value.totalRounds > 0
+              ? data.value.totalRounds
+              : typeof (config as any).totalRounds === 'number' &&
+                  (config as any).totalRounds > 0
+                ? (config as any).totalRounds
+                : 0;
+
+          formattedMessage =
+            `${cl.yellow('● ')}${cl.whiteBright(`Round ${data.value.round}/${totalRounds}`)}` +
+            (config.trialNumber !== undefined
+              ? cl.gray(` [Trial #${config.trialNumber}]`)
+              : '') +
+            '\n' +
+            `  ${cl.white('Score:')} ${cl.green(data.value.currentScore.toFixed(3))} ${cl.white('(best:')} ${cl.greenBright(data.value.bestScore.toFixed(3))}${cl.white(')')}${improvementStr}\n` +
+            (configParts.length > 0
+              ? `  ${cl.white('Config:')} ${cl.cyan(configParts.join(', '))}\n`
+              : '');
+        }
         break;
 
       case 'EarlyStopping':
@@ -50,14 +104,40 @@ export const axCreateDefaultOptimizerColorLogger = (
         break;
 
       case 'OptimizationComplete':
-        formattedMessage =
-          `\n${cl.green('● ')}${cl.whiteBright('Optimization Complete')}\n` +
-          `${lightDivider}\n` +
-          `  ${cl.white('Best Score:')} ${cl.greenBright(data.value.bestScore.toFixed(3))}\n` +
-          `  ${cl.white('Best Config:')} ${cl.cyan(JSON.stringify(data.value.bestConfiguration).slice(0, 80))}${JSON.stringify(data.value.bestConfiguration).length > 80 ? '...' : ''}\n` +
-          `  ${cl.white('Total Calls:')} ${cl.white(data.value.stats.totalCalls?.toString() || 'N/A')}\n` +
-          `  ${cl.white('Success Rate:')} ${cl.green(`${(((data.value.stats.successfulDemos || 0) / Math.max(data.value.stats.totalCalls || 1, 1)) * 100).toFixed(1)}%`)}\n` +
-          `${heavyDivider}\n`;
+        {
+          let explanationSection = '';
+
+          // Add human-readable explanation if available
+          if (data.value.explanation) {
+            explanationSection += `\n${cl.blueBright('📊 Summary:')}\n  ${cl.white(data.value.explanation)}\n`;
+          }
+
+          // Add performance assessment if available
+          if (data.value.performanceAssessment) {
+            explanationSection += `\n${cl.yellowBright('⚡ Performance:')}\n  ${cl.white(data.value.performanceAssessment)}\n`;
+          }
+
+          // Add recommendations if available
+          if (
+            data.value.recommendations &&
+            data.value.recommendations.length > 0
+          ) {
+            explanationSection += `\n${cl.greenBright('💡 Recommendations:')}\n`;
+            data.value.recommendations.forEach((rec: string, idx: number) => {
+              explanationSection += `  ${cl.white(`${idx + 1}.`)} ${cl.white(rec)}\n`;
+            });
+          }
+
+          formattedMessage =
+            `\n${cl.green('● ')}${cl.whiteBright('Optimization Complete')}\n` +
+            `${lightDivider}\n` +
+            `  ${cl.white('Best Score:')} ${cl.greenBright(data.value.bestScore.toFixed(3))}\n` +
+            `  ${cl.white('Best Config:')} ${cl.cyan(JSON.stringify(data.value.bestConfiguration).slice(0, 80))}${JSON.stringify(data.value.bestConfiguration).length > 80 ? '...' : ''}\n` +
+            `  ${cl.white('Total Calls:')} ${cl.white(data.value.stats?.totalCalls?.toString() || 'N/A')}\n` +
+            `  ${cl.white('Success Rate:')} ${cl.green(`${(((data.value.stats?.successfulDemos || 0) / Math.max(data.value.stats?.totalCalls || 1, 1)) * 100).toFixed(1)}%`)}\n` +
+            explanationSection +
+            `${heavyDivider}\n`;
+        }
         break;
 
       case 'ConfigurationProposal':

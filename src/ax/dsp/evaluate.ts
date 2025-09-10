@@ -1,6 +1,6 @@
 import type { AxAIService } from '../ai/types.js';
+import type { AxExample, AxMetricFn } from './common_types.js';
 import type { AxGen } from './generate.js';
-import type { AxExample, AxMetricFn } from './optimizer.js';
 import type { AxGenIn, AxGenOut } from './types.js';
 
 export type AxEvaluateArgs<IN extends AxGenIn, OUT extends AxGenOut> = {
@@ -53,24 +53,21 @@ export class AxTestPrompt<
         );
         // Continue with next example - score remains 0 for this example
       }
-
-      // Setting updateProgressBar's 3rd argument is a count/value that represents progress.
-      // If it specifically needs a 'success count', this might need adjustment.
-      // For now, using sumOfScores, but it might represent total score, not #successes.
-      // If AxMetricFn is always 0 or 1, sumOfScores is equivalent to successCount.
-      // const et = Date.now() - st;
-      // updateProgressBar(i, total, sumOfScores, et, 'Testing Prompt', 30);
     }
 
     const averageScore = total > 0 ? sumOfScores / total : 0;
-    console.log(
-      '\nPerformance: ',
-      sumOfScores,
-      '/',
-      total,
-      'Average Score: ',
-      averageScore,
-      '\n'
-    );
+
+    // Only log performance results when debug is enabled
+    if (this.ai.getOptions().debug) {
+      console.log(
+        '\nPerformance: ',
+        sumOfScores,
+        '/',
+        total,
+        'Average Score: ',
+        averageScore,
+        '\n'
+      );
+    }
   }
 }

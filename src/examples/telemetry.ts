@@ -65,7 +65,7 @@ const ai = new AxAI({
   modelInfo: [
     {
       name: 'gemini-2.5-flash-preview-04-17',
-      hasThinkingBudget: true,
+      supported: { thinkingBudget: true },
     },
   ],
 });

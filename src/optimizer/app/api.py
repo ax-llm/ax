@@ -21,6 +21,12 @@ from .models import (
 from .optuna_service import optuna_service
 from .tasks import job_manager
 
+# Configure logging for this module
+logging.basicConfig(
+    level=logging.INFO if not settings.DEBUG else logging.DEBUG,
+    format="[%(asctime)s] [%(levelname)8s] [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app
@@ -42,15 +48,28 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Log startup information."""
+    logger.info("Ax Optimizer Service Started")
+    logger.info(f"Debug mode: {settings.DEBUG}")
+    logger.info(f"Redis available: {settings.is_redis_available}")
+    logger.info(f"Memory storage: {settings.USE_MEMORY_STORAGE}")
+    logger.info(f"Memory queue: {settings.USE_MEMORY_QUEUE}")
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    logger.info("Health check requested")
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 
 @app.post("/optimize", response_model=JobResponse)
 async def create_optimization_job(request: OptimizationRequest):
     """Create a new optimization job."""
+    logger.info(f"Creating optimization job for study: {request.study_name}")
+    logger.debug(f"Request parameters: {request.dict()}")
     try:
         # Generate job ID and study name
         job_id = str(uuid.uuid4())
@@ -63,6 +82,7 @@ async def create_optimization_job(request: OptimizationRequest):
         await job_manager.create_job(job_id, request, actual_study_name)
         
         # Enqueue the optimization task
+        logger.info(f"Enqueueing optimization task for job {job_id}")
         await job_manager.enqueue_optimization(job_id, request, actual_study_name)
         
         return JobResponse(

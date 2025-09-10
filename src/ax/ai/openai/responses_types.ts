@@ -19,6 +19,11 @@ export enum AxAIOpenAIResponsesModel {
   GPT35TextDavinci002 = 'text-davinci-002',
   GPT3TextBabbage002 = 'text-babbage-002',
   GPT3TextAda001 = 'text-ada-001',
+  // GPT-5 models
+  GPT5 = 'gpt-5',
+  GPT5Nano = 'gpt-5-nano',
+  GPT5Mini = 'gpt-5-mini',
+  GPT5Chat = 'gpt-5-chat',
   // Reasoning models
   O1Pro = 'o1-pro',
   O1 = 'o1',
@@ -71,12 +76,12 @@ export type RequestFunctionDefinition = NonNullable<
 
 // Content parts for input messages
 export interface AxAIOpenAIResponsesInputTextContentPart {
-  readonly type: 'text';
+  readonly type: 'input_text';
   text: string; // Made mutable for stream aggregation
 }
 
 export interface AxAIOpenAIResponsesInputImageUrlContentPart {
-  readonly type: 'image_url';
+  readonly type: 'input_image';
   readonly image_url: {
     readonly url: string;
     readonly details?: 'low' | 'high' | 'auto';
@@ -94,7 +99,9 @@ export interface AxAIOpenAIResponsesInputAudioContentPart {
 export type AxAIOpenAIResponsesInputContentPart =
   | AxAIOpenAIResponsesInputTextContentPart
   | AxAIOpenAIResponsesInputImageUrlContentPart
-  | AxAIOpenAIResponsesInputAudioContentPart;
+  | AxAIOpenAIResponsesInputAudioContentPart
+  // Allow referencing prior assistant outputs in the input context
+  | AxAIOpenAIResponsesOutputTextContentPart;
 
 // Input Item: Message
 export interface AxAIOpenAIResponsesInputMessageItem {
@@ -177,7 +184,7 @@ export interface AxAIOpenAIResponsesRequest<TModel = AxAIOpenAIResponsesModel> {
   readonly parallel_tool_calls?: boolean | null;
   readonly previous_response_id?: string | null;
   readonly reasoning?: {
-    readonly effort?: 'low' | 'medium' | 'high' | null;
+    readonly effort?: 'minimal' | 'low' | 'medium' | 'high' | null;
     readonly summary?: 'auto' | 'concise' | 'detailed' | null; // 'generate_summary' is deprecated
   } | null;
   readonly service_tier?: 'auto' | 'default' | 'flex' | null;
@@ -276,7 +283,8 @@ export interface AxAIOpenAIResponsesResponse {
   readonly output: ReadonlyArray<AxAIOpenAIResponsesOutputItem>;
   readonly usage?: {
     readonly prompt_tokens: number;
-    readonly completion_tokens: number; // Or output_tokens / generated_tokens
+    readonly completion_tokens?: number; // Some variants use output_tokens
+    readonly output_tokens?: number; // Alias seen in some responses
     readonly total_tokens: number;
     // reasoning_tokens?: number // if applicable and included
   } | null;
@@ -742,7 +750,7 @@ export type AxAIOpenAIResponsesConfig<TModel, TEmbedModel> = Omit<
   logprobs?: number;
   echo?: boolean;
   dimensions?: number;
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
   reasoningSummary?: 'auto' | 'concise' | 'detailed';
   store?: boolean;
   systemPrompt?: string;

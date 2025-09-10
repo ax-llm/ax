@@ -12,25 +12,19 @@ describe('Enhanced AxChatResponse Types', () => {
       const result: AxChatResponseResult = {
         index: 0,
         content: 'This is a response with a citation.',
-        annotations: [
+        citations: [
           {
-            type: 'url_citation',
-            url_citation: {
-              url: 'https://example.com/article',
-              title: 'Example Article',
-              description: 'An example article description',
-            },
+            url: 'https://example.com/article',
+            title: 'Example Article',
+            description: 'An example article description',
           },
         ],
       };
 
-      expect(result.annotations).toBeDefined();
-      expect(result.annotations![0].type).toBe('url_citation');
-      expect(result.annotations![0].url_citation.url).toBe(
-        'https://example.com/article'
-      );
-      expect(result.annotations![0].url_citation.title).toBe('Example Article');
-      expect(result.annotations![0].url_citation.description).toBe(
+      expect(result.citations).toBeDefined();
+      expect(result.citations![0].url).toBe('https://example.com/article');
+      expect(result.citations![0].title).toBe('Example Article');
+      expect(result.citations![0].description).toBe(
         'An example article description'
       );
     });
@@ -39,60 +33,47 @@ describe('Enhanced AxChatResponse Types', () => {
       const result: AxChatResponseResult = {
         index: 0,
         content: 'Academic response with rich citation metadata.',
-        annotations: [
+        citations: [
           {
-            type: 'url_citation',
-            url_citation: {
-              url: 'https://academic.example.com/paper',
-              title: 'Research Paper on AI',
-              description: 'A comprehensive study on artificial intelligence',
-              license: 'CC BY 4.0',
-              publicationDate: '2024-01-15T10:30:00Z',
-              snippet: 'The key finding was that AI models perform better...',
-              confidenceScore: 0.95,
-            },
+            url: 'https://academic.example.com/paper',
+            title: 'Research Paper on AI',
+            description: 'A comprehensive study on artificial intelligence',
+            license: 'CC BY 4.0',
+            publicationDate: '2024-01-15T10:30:00Z',
+            snippet: 'The key finding was that AI models perform better...',
           },
         ],
       };
 
-      const citation = result.annotations![0].url_citation;
+      const citation = result.citations![0];
       expect(citation.license).toBe('CC BY 4.0');
       expect(citation.publicationDate).toBe('2024-01-15T10:30:00Z');
       expect(citation.snippet).toBe(
         'The key finding was that AI models perform better...'
       );
-      expect(citation.confidenceScore).toBe(0.95);
     });
 
     it('should support multiple citations with mixed metadata', () => {
       const result: AxChatResponseResult = {
         index: 0,
         content: 'Response with multiple sources.',
-        annotations: [
+        citations: [
           {
-            type: 'url_citation',
-            url_citation: {
-              url: 'https://source1.com',
-              title: 'Source 1',
-              confidenceScore: 0.9,
-            },
+            url: 'https://source1.com',
+            title: 'Source 1',
           },
           {
-            type: 'url_citation',
-            url_citation: {
-              url: 'https://source2.com',
-              title: 'Source 2',
-              license: 'MIT',
-              snippet: 'Relevant excerpt from source 2',
-            },
+            url: 'https://source2.com',
+            title: 'Source 2',
+            license: 'MIT',
+            snippet: 'Relevant excerpt from source 2',
           },
         ],
       };
 
-      expect(result.annotations).toHaveLength(2);
-      expect(result.annotations![0].url_citation.confidenceScore).toBe(0.9);
-      expect(result.annotations![1].url_citation.license).toBe('MIT');
-      expect(result.annotations![1].url_citation.snippet).toBe(
+      expect(result.citations).toHaveLength(2);
+      expect(result.citations![1].license).toBe('MIT');
+      expect(result.citations![1].snippet).toBe(
         'Relevant excerpt from source 2'
       );
     });
@@ -100,24 +81,10 @@ describe('Enhanced AxChatResponse Types', () => {
     it('should validate confidence score range', () => {
       const validResult: AxChatResponseResult = {
         index: 0,
-        content: 'Response with valid confidence score.',
-        annotations: [
-          {
-            type: 'url_citation',
-            url_citation: {
-              url: 'https://example.com',
-              confidenceScore: 0.75,
-            },
-          },
-        ],
+        content: 'Response with citation.',
+        citations: [{ url: 'https://example.com' }],
       };
-
-      expect(
-        validResult.annotations![0].url_citation.confidenceScore
-      ).toBeGreaterThanOrEqual(0);
-      expect(
-        validResult.annotations![0].url_citation.confidenceScore
-      ).toBeLessThanOrEqual(1);
+      expect(validResult.citations![0].url).toBe('https://example.com');
     });
   });
 
@@ -302,20 +269,14 @@ describe('Enhanced AxChatResponse Types', () => {
             index: 0,
             content:
               'Based on recent research, AI models show significant improvement.',
-            annotations: [
+            citations: [
               {
-                type: 'url_citation',
-                url_citation: {
-                  url: 'https://research.ai/paper-2024',
-                  title: 'AI Model Performance Study 2024',
-                  description:
-                    'Comprehensive analysis of AI model improvements',
-                  license: 'CC BY-SA 4.0',
-                  publicationDate: '2024-03-15T09:00:00Z',
-                  snippet:
-                    'Recent experiments demonstrate a 25% improvement...',
-                  confidenceScore: 0.92,
-                },
+                url: 'https://research.ai/paper-2024',
+                title: 'AI Model Performance Study 2024',
+                description: 'Comprehensive analysis of AI model improvements',
+                license: 'CC BY-SA 4.0',
+                publicationDate: '2024-03-15T09:00:00Z',
+                snippet: 'Recent experiments demonstrate a 25% improvement...',
               },
             ],
             logprobs: {
@@ -349,9 +310,9 @@ describe('Enhanced AxChatResponse Types', () => {
       };
 
       // Verify all fields are properly typed and accessible
-      expect(
-        response.results[0].annotations![0].url_citation.confidenceScore
-      ).toBe(0.92);
+      expect(response.results[0].citations![0].title).toBe(
+        'AI Model Performance Study 2024'
+      );
       expect(
         response.results[0].logprobs!.content![0].topLogprobs![1].token
       ).toBe('According');

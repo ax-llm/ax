@@ -4,6 +4,7 @@ export class ColorLog {
   private readonly ANSI_GREEN_BRIGHT = '\x1b[92m';
   private readonly ANSI_BLUE_BRIGHT = '\x1b[94m';
   private readonly ANSI_RED_BRIGHT = '\x1b[91m';
+  private readonly ANSI_YELLOW_BRIGHT = '\x1b[93m';
 
   private readonly ANSI_YELLOW = '\x1b[93m';
   private readonly ANSI_RED = '\x1b[91m';
@@ -48,6 +49,10 @@ export class ColorLog {
 
   public yellow(text: string): string {
     return this.colorize(text, this.ANSI_YELLOW);
+  }
+
+  public yellowBright(text: string): string {
+    return this.colorize(text, this.ANSI_YELLOW_BRIGHT);
   }
 
   public red(text: string): string {

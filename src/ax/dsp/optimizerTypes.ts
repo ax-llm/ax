@@ -1,4 +1,4 @@
-import type { AxOptimizationStats } from './optimizer.js';
+import type { AxOptimizationStats } from './common_types.js';
 
 // Optimizer logging types
 export type AxOptimizerLoggerData =
@@ -32,8 +32,14 @@ export type AxOptimizerLoggerData =
   | {
       name: 'OptimizationComplete';
       value: {
+        optimizerType?: string;
         bestScore: number;
         bestConfiguration: Record<string, unknown>;
+        totalCalls?: number;
+        successRate?: string;
+        explanation?: string;
+        recommendations?: string[];
+        performanceAssessment?: string;
         stats: AxOptimizationStats;
       };
     }

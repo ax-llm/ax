@@ -14,6 +14,11 @@ export enum AxAIOpenAIModel {
   GPT35TextDavinci002 = 'text-davinci-002',
   GPT3TextBabbage002 = 'text-babbage-002',
   GPT3TextAda001 = 'text-ada-001',
+  // GPT-5 models
+  GPT5 = 'gpt-5',
+  GPT5Nano = 'gpt-5-nano',
+  GPT5Mini = 'gpt-5-mini',
+  GPT5Chat = 'gpt-5-chat',
   // Reasoning models
   O1 = 'o1',
   O1Mini = 'o1-mini',
@@ -55,7 +60,7 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   logprobs?: number;
   echo?: boolean;
   dimensions?: number;
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
   store?: boolean;
   serviceTier?: 'auto' | 'default' | 'flex';
   webSearchOptions?: {
@@ -101,7 +106,7 @@ export interface AxAIOpenAIResponseDelta<T> {
 
 export type AxAIOpenAIChatRequest<TModel> = {
   model: TModel;
-  reasoning_effort?: 'low' | 'medium' | 'high';
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
   store?: boolean;
   messages: (
     | { role: 'system'; content: string }

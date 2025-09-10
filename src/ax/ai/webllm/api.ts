@@ -195,8 +195,12 @@ class AxAIWebLLMImpl
       messages,
       ...(tools?.length ? { tools } : {}),
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      top_p: req.modelConfig?.topP ?? this.config.topP,
+      ...(req.modelConfig?.temperature !== undefined
+        ? { temperature: req.modelConfig.temperature }
+        : {}),
+      ...(req.modelConfig?.topP !== undefined
+        ? { top_p: req.modelConfig.topP }
+        : {}),
       presence_penalty:
         req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
       frequency_penalty:

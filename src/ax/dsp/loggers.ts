@@ -183,6 +183,45 @@ export const axCreateDefaultColorLogger = (
             formattedMessage += `\n${divider}\n`;
         });
         break;
+      case 'ChatResponseUsage': {
+        formattedMessage = `${cl.greenBright('\n[ CHAT RESPONSE USAGE ]')}\n`;
+        const usage = typedData.value;
+        formattedMessage += `${cl.white('AI:')} ${usage.ai}\n`;
+        formattedMessage += `${cl.white('Model:')} ${usage.model}\n`;
+        if (usage.tokens) {
+          formattedMessage += `${cl.white('Total Tokens:')} ${usage.tokens.totalTokens}\n`;
+          formattedMessage += `${cl.white('Prompt Tokens:')} ${usage.tokens.promptTokens}\n`;
+          formattedMessage += `${cl.white('Completion Tokens:')} ${usage.tokens.completionTokens}\n`;
+          if (usage.tokens.thoughtsTokens !== undefined) {
+            formattedMessage += `${cl.white('Thoughts Tokens:')} ${usage.tokens.thoughtsTokens}\n`;
+          }
+          if (usage.tokens.reasoningTokens !== undefined) {
+            formattedMessage += `${cl.white('Reasoning Tokens:')} ${usage.tokens.reasoningTokens}\n`;
+          }
+          if (usage.tokens.cacheCreationTokens !== undefined) {
+            formattedMessage += `${cl.white('Cache Creation Tokens:')} ${usage.tokens.cacheCreationTokens}\n`;
+          }
+          if (usage.tokens.cacheReadTokens !== undefined) {
+            formattedMessage += `${cl.white('Cache Read Tokens:')} ${usage.tokens.cacheReadTokens}\n`;
+          }
+          if (usage.tokens.serviceTier !== undefined) {
+            formattedMessage += `${cl.white('Service Tier:')} ${usage.tokens.serviceTier}\n`;
+          }
+        }
+        formattedMessage += divider;
+        break;
+      }
+      case 'ChatResponseCitations': {
+        formattedMessage = `${cl.blueBright('\n[ CHAT RESPONSE CITATIONS ]')}\n`;
+        typedData.value.forEach((citation) => {
+          formattedMessage += `${cl.white('- ')}${cl.cyan(citation.title || citation.url)}\n`;
+          if (citation.description) {
+            formattedMessage += `  ${cl.gray(citation.description)}\n`;
+          }
+        });
+        formattedMessage += divider;
+        break;
+      }
       default:
         formattedMessage = cl.gray(JSON.stringify(typedData, null, 2));
     }
@@ -280,6 +319,45 @@ export const axCreateDefaultTextLogger = (
             formattedMessage += `\n${divider}\n`;
         });
         break;
+      case 'ChatResponseUsage': {
+        formattedMessage = '\n[ CHAT RESPONSE USAGE ]\n';
+        const textUsage = typedData.value;
+        formattedMessage += `AI: ${textUsage.ai}\n`;
+        formattedMessage += `Model: ${textUsage.model}\n`;
+        if (textUsage.tokens) {
+          formattedMessage += `Total Tokens: ${textUsage.tokens.totalTokens}\n`;
+          formattedMessage += `Prompt Tokens: ${textUsage.tokens.promptTokens}\n`;
+          formattedMessage += `Completion Tokens: ${textUsage.tokens.completionTokens}\n`;
+          if (textUsage.tokens.thoughtsTokens !== undefined) {
+            formattedMessage += `Thoughts Tokens: ${textUsage.tokens.thoughtsTokens}\n`;
+          }
+          if (textUsage.tokens.reasoningTokens !== undefined) {
+            formattedMessage += `Reasoning Tokens: ${textUsage.tokens.reasoningTokens}\n`;
+          }
+          if (textUsage.tokens.cacheCreationTokens !== undefined) {
+            formattedMessage += `Cache Creation Tokens: ${textUsage.tokens.cacheCreationTokens}\n`;
+          }
+          if (textUsage.tokens.cacheReadTokens !== undefined) {
+            formattedMessage += `Cache Read Tokens: ${textUsage.tokens.cacheReadTokens}\n`;
+          }
+          if (textUsage.tokens.serviceTier !== undefined) {
+            formattedMessage += `Service Tier: ${textUsage.tokens.serviceTier}\n`;
+          }
+        }
+        formattedMessage += `${divider}\n`;
+        break;
+      }
+      case 'ChatResponseCitations': {
+        formattedMessage = '\n[ CHAT RESPONSE CITATIONS ]\n';
+        typedData.value.forEach((citation) => {
+          formattedMessage += `- ${citation.title || citation.url}\n`;
+          if (citation.description) {
+            formattedMessage += `  ${citation.description}\n`;
+          }
+        });
+        formattedMessage += `${divider}\n`;
+        break;
+      }
       default:
         formattedMessage = JSON.stringify(typedData, null, 2);
     }

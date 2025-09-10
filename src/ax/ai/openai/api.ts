@@ -58,7 +58,7 @@ export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT41,
+    model: AxAIOpenAIModel.GPT5Mini,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultConfig(),
   });
@@ -69,7 +69,7 @@ export const axAIOpenAIBestConfig = (): AxAIOpenAIConfig<
 > =>
   structuredClone({
     ...axAIOpenAIDefaultConfig(),
-    model: AxAIOpenAIModel.GPT41,
+    model: AxAIOpenAIModel.GPT5,
   });
 
 export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
@@ -77,7 +77,7 @@ export const axAIOpenAICreativeConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > =>
   structuredClone({
-    model: AxAIOpenAIModel.GPT41,
+    model: AxAIOpenAIModel.GPT5Mini,
     embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     ...axBaseAIDefaultCreativeConfig(),
   });
@@ -87,7 +87,7 @@ export const axAIOpenAIFastConfig = (): AxAIOpenAIConfig<
   AxAIOpenAIEmbedModel
 > => ({
   ...axAIOpenAIDefaultConfig(),
-  model: AxAIOpenAIModel.GPT41Mini,
+  model: AxAIOpenAIModel.GPT5Nano,
 });
 
 export interface AxAIOpenAIArgs<
@@ -171,11 +171,10 @@ class AxAIOpenAIImpl<
     };
   }
 
-  createChatReq(
+  createChatReq = (
     req: Readonly<AxInternalChatRequest<TModel>>,
-
     config: Readonly<AxAIServiceOptions>
-  ): [AxAPI, AxAIOpenAIChatRequest<TModel>] {
+  ): [AxAPI, AxAIOpenAIChatRequest<TModel>] => {
     const model = req.model;
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
@@ -214,29 +213,49 @@ class AxAIOpenAIImpl<
     let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
       messages,
-      response_format: this.config?.responseFormat
-        ? { type: this.config.responseFormat }
-        : undefined,
-      tools,
-      tool_choice: toolsChoice,
+      ...(this.config?.responseFormat
+        ? { response_format: { type: this.config.responseFormat } }
+        : {}),
+      ...(tools ? { tools } : {}),
+      ...(toolsChoice ? { tool_choice: toolsChoice } : {}),
       // For thinking models, don't set these parameters as they're not supported
       ...(isThinkingModel
         ? {}
         : {
-            max_completion_tokens:
-              req.modelConfig?.maxTokens ?? this.config.maxTokens,
-            temperature:
-              req.modelConfig?.temperature ?? this.config.temperature,
-            top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
-            n: req.modelConfig?.n ?? this.config.n,
-            presence_penalty:
-              req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-            ...(frequencyPenalty
+            ...((req.modelConfig?.maxTokens ?? this.config.maxTokens) !==
+            undefined
+              ? {
+                  max_completion_tokens: (req.modelConfig?.maxTokens ??
+                    this.config.maxTokens)!,
+                }
+              : {}),
+            ...(req.modelConfig?.temperature !== undefined
+              ? { temperature: req.modelConfig.temperature }
+              : {}),
+            ...(req.modelConfig?.topP !== undefined
+              ? { top_p: req.modelConfig.topP }
+              : {}),
+            ...((req.modelConfig?.n ?? this.config.n) !== undefined
+              ? { n: (req.modelConfig?.n ?? this.config.n)! }
+              : {}),
+            ...((req.modelConfig?.presencePenalty ??
+              this.config.presencePenalty) !== undefined
+              ? {
+                  presence_penalty: (req.modelConfig?.presencePenalty ??
+                    this.config.presencePenalty)!,
+                }
+              : {}),
+            ...(frequencyPenalty !== undefined
               ? { frequency_penalty: frequencyPenalty }
               : {}),
           }),
-      stop: req.modelConfig?.stopSequences ?? this.config.stop,
-      logit_bias: this.config.logitBias,
+      ...((req.modelConfig?.stopSequences ?? this.config.stop) &&
+      (req.modelConfig?.stopSequences ?? this.config.stop)!.length > 0
+        ? { stop: (req.modelConfig?.stopSequences ?? this.config.stop)! }
+        : {}),
+      ...(this.config.logitBias !== undefined
+        ? { logit_bias: this.config.logitBias }
+        : {}),
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
@@ -294,7 +313,7 @@ class AxAIOpenAIImpl<
           reqValue.reasoning_effort = undefined; // Explicitly set to undefined
           break;
         case 'minimal':
-          reqValue.reasoning_effort = 'low';
+          reqValue.reasoning_effort = 'minimal';
           break;
         case 'low':
           reqValue.reasoning_effort = 'medium';
@@ -316,11 +335,11 @@ class AxAIOpenAIImpl<
     }
 
     return [apiConfig, reqValue];
-  }
+  };
 
-  createEmbedReq(
+  createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest<TEmbedModel>>
-  ): [AxAPI, AxAIOpenAIEmbedRequest<TEmbedModel>] {
+  ): [AxAPI, AxAIOpenAIEmbedRequest<TEmbedModel>] => {
     const model = req.embedModel;
 
     if (!model) {
@@ -342,7 +361,7 @@ class AxAIOpenAIImpl<
     };
 
     return [apiConfig, reqValue];
-  }
+  };
 
   createChatResp(resp: Readonly<AxAIOpenAIChatResponse>): AxChatResponse {
     const { id, usage, choices, error } = resp;
@@ -379,7 +398,13 @@ class AxAIOpenAIImpl<
         id: `${choice.index}`,
         content: choice.message.content ?? undefined,
         thought: choice.message.reasoning_content,
-        annotations: choice.message.annotations,
+        citations: choice.message.annotations
+          ?.filter((a) => a?.type === 'url_citation' && (a as any).url_citation)
+          .map((a) => ({
+            url: (a as any).url_citation?.url,
+            title: (a as any).url_citation?.title,
+            description: (a as any).url_citation?.description,
+          })),
         functionCalls,
         finishReason,
       };
@@ -461,7 +486,15 @@ class AxAIOpenAIImpl<
           content: content ?? undefined,
           role,
           thought,
-          annotations,
+          citations: annotations
+            ?.filter(
+              (a) => a?.type === 'url_citation' && (a as any).url_citation
+            )
+            .map((a) => ({
+              url: (a as any).url_citation?.url,
+              title: (a as any).url_citation?.title,
+              description: (a as any).url_citation?.description,
+            })),
           functionCalls,
           finishReason,
           id,
@@ -659,6 +692,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
 > {
   constructor({
     apiKey,
+    apiURL,
     config,
     options,
     models,
@@ -695,8 +729,8 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThoughts ?? false,
         media: {
           images: {
             supported: true,
@@ -734,20 +768,79 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           supported: false,
           types: [],
         },
-        thinking: mi?.hasThinkingBudget ?? false,
+        thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
       };
     };
 
+    // Normalize per-model presets to allow provider-specific item.config to influence defaults
+    const normalizedModels = models?.map((item) => {
+      const anyItem = item as any;
+      const cfg = anyItem?.config as
+        | Partial<AxAIOpenAIConfig<AxAIOpenAIModel, AxAIOpenAIEmbedModel>>
+        | undefined;
+      if (!cfg) return item;
+
+      const modelConfig: Partial<AxModelConfig> = {};
+      if (cfg.maxTokens !== undefined) modelConfig.maxTokens = cfg.maxTokens;
+      if (cfg.temperature !== undefined)
+        modelConfig.temperature = cfg.temperature;
+      if (cfg.topP !== undefined) modelConfig.topP = cfg.topP;
+      if (cfg.presencePenalty !== undefined)
+        modelConfig.presencePenalty = cfg.presencePenalty as number;
+      if (cfg.frequencyPenalty !== undefined)
+        modelConfig.frequencyPenalty = cfg.frequencyPenalty as number;
+      // Support both AxModelConfig.stopSequences and OpenAI's stop
+      const stopSeq = (cfg as any).stopSequences ?? (cfg as any).stop;
+      if (stopSeq !== undefined)
+        modelConfig.stopSequences = stopSeq as string[];
+      if (cfg.n !== undefined) modelConfig.n = cfg.n as number;
+      if (cfg.stream !== undefined) modelConfig.stream = cfg.stream as boolean;
+
+      const out: any = { ...anyItem };
+      if (Object.keys(modelConfig).length > 0) {
+        out.modelConfig = { ...(anyItem.modelConfig ?? {}), ...modelConfig };
+      }
+
+      // Map numeric thinking budget to closest Ax level for convenience
+      const numericBudget = (cfg as any)?.thinking?.thinkingTokenBudget;
+      if (typeof numericBudget === 'number') {
+        const candidates = [
+          ['minimal', 200],
+          ['low', 800],
+          ['medium', 5000],
+          ['high', 10000],
+          ['highest', 24500],
+        ] as const;
+        let bestName: 'minimal' | 'low' | 'medium' | 'high' | 'highest' =
+          'minimal';
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (const [name, value] of candidates) {
+          const diff = Math.abs(numericBudget - value);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestName = name as typeof bestName;
+          }
+        }
+        out.thinkingTokenBudget = bestName;
+      }
+      if ((cfg as any)?.thinking?.includeThoughts !== undefined) {
+        out.showThoughts = !!(cfg as any).thinking.includeThoughts;
+      }
+
+      return out as typeof item;
+    });
+
     super({
       apiKey,
+      apiURL,
       config: {
         ...axAIOpenAIDefaultConfig(),
         ...config,
       },
       options,
       modelInfo,
-      models,
+      models: normalizedModels ?? models,
       supportFor,
     });
 

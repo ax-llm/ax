@@ -10,11 +10,72 @@ export function s<const T extends string>(
   return AxSignature.create(signature);
 }
 
-// Function for string-based type-safe generator creation
-export function ax<const T extends string>(
+// Function for type-safe generator creation - supports both strings and AxSignature objects
+export function ax<
+  const T extends string,
+  ThoughtKey extends string = 'thought',
+>(
   signature: T,
-  options?: Readonly<AxProgramForwardOptions<any>>
-): AxGen<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
-  const typedSignature = AxSignature.create(signature);
-  return new AxGen(typedSignature, options);
+  options?: Readonly<
+    AxProgramForwardOptions<any> & { thoughtFieldName?: ThoughtKey }
+  >
+): AxGen<
+  ParseSignature<T>['inputs'],
+  ParseSignature<T>['outputs'] &
+    (string extends ThoughtKey
+      ? { thought?: string }
+      : { [P in ThoughtKey]?: string })
+>;
+export function ax<
+  TInput extends Record<string, any>,
+  TOutput extends Record<string, any>,
+  ThoughtKey extends string = 'thought',
+>(
+  signature: AxSignature<TInput, TOutput>,
+  options?: Readonly<
+    AxProgramForwardOptions<any> & { thoughtFieldName?: ThoughtKey }
+  >
+): AxGen<
+  TInput,
+  TOutput &
+    (string extends ThoughtKey
+      ? { thought?: string }
+      : { [P in ThoughtKey]?: string })
+>;
+export function ax<
+  T extends string | AxSignature<any, any>,
+  ThoughtKey extends string = 'thought',
+  TInput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['inputs']
+    : T extends AxSignature<infer I, any>
+      ? I
+      : never,
+  TOutput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['outputs']
+    : T extends AxSignature<any, infer O>
+      ? O
+      : never,
+>(
+  signature: T,
+  options?: Readonly<
+    AxProgramForwardOptions<any> & { thoughtFieldName?: ThoughtKey }
+  >
+): AxGen<
+  TInput,
+  TOutput &
+    (string extends ThoughtKey
+      ? { thought?: string }
+      : { [P in ThoughtKey]?: string })
+> {
+  const typedSignature =
+    typeof signature === 'string'
+      ? AxSignature.create(signature)
+      : (signature as AxSignature<TInput, TOutput>);
+  return new AxGen<
+    TInput,
+    TOutput &
+      (string extends ThoughtKey
+        ? { thought?: string }
+        : { [P in ThoughtKey]?: string })
+  >(typedSignature, options as any);
 }

@@ -188,6 +188,19 @@ export const validateJSONSchema = (
         } else {
           validateSchemaObject(schema.items, `${path}items.`);
         }
+      } else {
+        // Enforce JSON Schema requirement that arrays specify an items schema
+        errors.push({
+          path: path || 'root',
+          issue:
+            'Array schema is missing an "items" definition (required by JSON Schema and all LLM providers for function tools)',
+          fix: 'Add an "items" schema describing the array element type, e.g., items: { type: "string" } or items: { type: "object", properties: { ... } }',
+          example: [
+            'type: "array",',
+            'description: "List of step strings"',
+            'items: { type: "string" }',
+          ].join('\n'),
+        });
       }
     }
   };

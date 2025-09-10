@@ -239,13 +239,13 @@ describe('signature parsing', () => {
     ).toThrow('Unexpected content after signature');
   });
 
-  it('validates array constraints for media types', () => {
+  it('allows array constraints for image and audio types', () => {
     expect(() =>
-      parseSignature('userImage:image[] -> responseText:string')
-    ).toThrow('Arrays of image are not supported');
+      parseSignature('userImages:image[] -> responseText:string')
+    ).not.toThrow();
     expect(() =>
-      parseSignature('userAudio:audio[] -> responseText:string')
-    ).toThrow('Arrays of audio are not supported');
+      parseSignature('userAudios:audio[] -> responseText:string')
+    ).not.toThrow();
   });
 
   it('allows valid descriptive field names', () => {
@@ -887,5 +887,32 @@ describe('Type-safe field addition methods', () => {
     // Verify no whitespace characters in field names
     expect(outputFields[0].name).not.toMatch(/[\s\n\t\r]/);
     expect(outputFields[1].name).not.toMatch(/[\s\n\t\r]/);
+  });
+});
+
+describe('File type union support', () => {
+  it('should support file type with data field', () => {
+    const sig = new AxSignature('fileInput:file -> responseText:string');
+    const inputFields = sig.getInputFields();
+    expect(inputFields).toHaveLength(1);
+    expect(inputFields[0].name).toBe('fileInput');
+    expect(inputFields[0].type?.name).toBe('file');
+  });
+
+  it('should support file type with fileUri field', () => {
+    const sig = new AxSignature('fileInput:file -> responseText:string');
+    const inputFields = sig.getInputFields();
+    expect(inputFields).toHaveLength(1);
+    expect(inputFields[0].name).toBe('fileInput');
+    expect(inputFields[0].type?.name).toBe('file');
+  });
+
+  it('should support array of files with mixed formats', () => {
+    const sig = new AxSignature('fileInputs:file[] -> responseText:string');
+    const inputFields = sig.getInputFields();
+    expect(inputFields).toHaveLength(1);
+    expect(inputFields[0].name).toBe('fileInputs');
+    expect(inputFields[0].type?.name).toBe('file');
+    expect(inputFields[0].type?.isArray).toBe(true);
   });
 });

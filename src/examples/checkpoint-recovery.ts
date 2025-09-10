@@ -201,7 +201,6 @@ if (existingCheckpoints.length > 0) {
 // Create optimizer with simple checkpoint functions
 const optimizer = new AxMiPRO({
   studentAI: ai,
-  examples,
   checkpointSave,
   checkpointLoad,
   checkpointInterval: 3, // Save every 3 rounds
@@ -216,10 +215,15 @@ console.log('\nStarting optimization...');
 console.log('💡 Tip: This shows how simple checkpoint functions can be!');
 
 try {
-  const result = await optimizer.compile(sentimentAnalyzer as any, metric, {
-    verbose: true,
-    saveCheckpointOnComplete: true, // Save final checkpoint
-  });
+  const result = await optimizer.compile(
+    sentimentAnalyzer as any,
+    examples,
+    metric,
+    {
+      verbose: true,
+      saveCheckpointOnComplete: true, // Save final checkpoint
+    }
+  );
 
   console.log('\n✅ Optimization complete!');
   console.log(`Final score: ${(result.bestScore * 100).toFixed(1)}%`);

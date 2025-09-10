@@ -105,7 +105,9 @@ type FileResult =
   ParseSignature<'userQuestion:string, fileData:file -> responseText:string'>;
 expectType<{
   userQuestion: string;
-  fileData: { mimeType: string; data: string };
+  fileData:
+    | { mimeType: string; data: string }
+    | { mimeType: string; fileUri: string };
 }>({} as FileResult['inputs']);
 expectType<{ responseText: string }>({} as FileResult['outputs']);
 

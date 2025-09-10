@@ -4,35 +4,7 @@ import { ColorLog } from '../util/log.js';
 import type { AxField } from './sig.js';
 import type { AxFieldValue, AxGenDeltaOut, AxProgramUsage } from './types.js';
 
-const colorLog = new ColorLog();
-
-export const updateProgressBar = (
-  current: number,
-  total: number,
-  success: number,
-  _elapsedTime: number, // in seconds
-  msg: string,
-  progressBarWidth = 20 // Default width of the progress bar
-): void => {
-  const percentage = ((current / total) * 100).toFixed(1);
-  const filledBarLength = Math.round((progressBarWidth * current) / total);
-  const emptyBarLength = progressBarWidth - filledBarLength;
-  const filledBar = colorLog.blueBright('█'.repeat(filledBarLength));
-  const emptyBar = ' '.repeat(emptyBarLength);
-  const successRate = total > 0 ? ((success / total) * 100).toFixed(1) : '0.0';
-
-  // More user-friendly message
-  const friendlyMsg = msg.includes('Running MIPROv2 optimization')
-    ? 'Testing prompt variations'
-    : msg.includes('Tuning Prompt')
-      ? 'Generating training examples'
-      : msg;
-
-  // Use newline instead of carriage return to avoid overwriting structured logs
-  console.log(
-    `│  ${friendlyMsg}: ${current}/${total} (${colorLog.yellow(percentage)}%) |${filledBar}${emptyBar}| Success rate: ${colorLog.greenBright(successRate)}%\n`
-  );
-};
+const _colorLog = new ColorLog();
 
 export const validateValue = (
   field: Readonly<AxField>,
@@ -128,15 +100,21 @@ export const validateValue = (
   }
 
   const validFile = (val: Readonly<AxFieldValue>): boolean => {
-    if (
-      !val ||
-      typeof val !== 'object' ||
-      !('filename' in val) ||
-      !('mimeType' in val) ||
-      !('data' in val)
-    ) {
+    if (!val || typeof val !== 'object' || !('mimeType' in val)) {
       return false;
     }
+
+    // Support both data and fileUri formats
+    const hasData = 'data' in val;
+    const hasFileUri = 'fileUri' in val;
+
+    if (!hasData && !hasFileUri) {
+      return false;
+    }
+    if (hasData && hasFileUri) {
+      return false; // Cannot have both
+    }
+
     return true;
   };
 
@@ -145,12 +123,14 @@ export const validateValue = (
     if (Array.isArray(value)) {
       for (const item of value) {
         if (!validFile(item)) {
-          msg = 'object ({ filename: string; mimeType: string; data: string })';
+          msg =
+            'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
           break;
         }
       }
     } else if (!validFile(value)) {
-      msg = 'object ({ filename: string; mimeType: string; data: string })';
+      msg =
+        'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
     }
 
     if (msg) {
@@ -243,6 +223,20 @@ export function mergeProgramUsage(
       tokens.completionTokens += usage?.tokens?.completionTokens ?? 0;
       tokens.totalTokens += usage?.tokens?.totalTokens ?? 0;
       currentUsage.tokens = tokens;
+
+      // Merge citations and dedupe by URL
+      const existing = currentUsage.citations ?? [];
+      const incoming = usage.citations ?? [];
+      if (incoming.length) {
+        const seen = new Set(existing.map((c) => c.url));
+        for (const c of incoming) {
+          if (c?.url && !seen.has(c.url)) {
+            existing.push(c);
+            seen.add(c.url);
+          }
+        }
+        currentUsage.citations = existing;
+      }
     }
   }
 

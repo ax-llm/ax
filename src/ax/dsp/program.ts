@@ -1,3 +1,4 @@
+import type { AxOptimizedProgram } from './optimizer.js';
 import { AxInstanceRegistry } from './registry.js';
 import { AxSignature } from './sig.js';
 import type {
@@ -14,7 +15,7 @@ import type {
 
 import { mergeProgramUsage, validateValue } from './util.js';
 
-export class AxProgram<IN, OUT> implements AxUsable {
+export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
   protected signature: AxSignature;
   protected sigHash: string;
 
@@ -202,6 +203,25 @@ export class AxProgram<IN, OUT> implements AxUsable {
 
     for (const child of Array.from(this.children)) {
       child?.setDemos(demos);
+    }
+  }
+
+  /**
+   * Apply optimized configuration to this program
+   * @param optimizedProgram The optimized program configuration to apply
+   */
+  public applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void {
+    optimizedProgram.applyTo(this as any);
+
+    // Propagate to children
+    for (const child of Array.from(this.children)) {
+      if (
+        child &&
+        'applyOptimization' in child &&
+        typeof child.applyOptimization === 'function'
+      ) {
+        child.applyOptimization(optimizedProgram);
+      }
     }
   }
 }

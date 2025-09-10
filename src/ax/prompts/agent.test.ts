@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
+import { s } from '../dsp/template.js';
 import type { AxMessage } from '../dsp/types.js';
 
-import { AxAgent } from './agent.js';
+import { AxAgent, agent } from './agent.js';
 
 // Helper function to create streaming responses
 function createStreamingResponse(
@@ -466,5 +467,173 @@ describe('AxAgent', () => {
         constructedAgent.getFunction().description
       );
     });
+  });
+});
+
+describe('Enhanced agent() function with AxSignature Support', () => {
+  const mockAI = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: {
+      results: [
+        {
+          index: 0,
+          content: 'Mocked AI response',
+          finishReason: 'stop',
+        },
+      ],
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      },
+    },
+  });
+
+  it('should work with string signatures in agent()', () => {
+    const testAgent = agent('userInput:string -> responseText:string', {
+      name: 'testAgent',
+      description:
+        'A test agent that processes user input and returns a response',
+      ai: mockAI,
+    });
+
+    expect(testAgent).toBeInstanceOf(AxAgent);
+    expect(testAgent.getSignature().getInputFields()).toHaveLength(1);
+    expect(testAgent.getSignature().getOutputFields()).toHaveLength(1);
+    expect(testAgent.getSignature().getInputFields()[0]?.name).toBe(
+      'userInput'
+    );
+    expect(testAgent.getSignature().getOutputFields()[0]?.name).toBe(
+      'responseText'
+    );
+  });
+
+  it('should work with AxSignature objects in agent()', () => {
+    const signature = s('userInput:string -> responseText:string');
+    const testAgent = agent(signature, {
+      name: 'testAgent',
+      description:
+        'A test agent that processes user input and returns a response',
+      ai: mockAI,
+    });
+
+    expect(testAgent).toBeInstanceOf(AxAgent);
+    expect(testAgent.getSignature().getInputFields()).toHaveLength(1);
+    expect(testAgent.getSignature().getOutputFields()).toHaveLength(1);
+    expect(testAgent.getSignature().getInputFields()[0]?.name).toBe(
+      'userInput'
+    );
+    expect(testAgent.getSignature().getOutputFields()[0]?.name).toBe(
+      'responseText'
+    );
+  });
+
+  it('should maintain proper type inference with complex AxSignature in agent()', () => {
+    const signature = s(
+      'emailText:string, priority:number -> category:string, confidence:number'
+    );
+    const testAgent = agent(signature, {
+      name: 'emailAgent',
+      description:
+        'An agent that categorizes emails based on content and priority',
+      ai: mockAI,
+    });
+
+    // Should maintain all field information
+    expect(testAgent.getSignature().getInputFields()).toHaveLength(2);
+    expect(testAgent.getSignature().getOutputFields()).toHaveLength(2);
+    expect(testAgent.getSignature().getInputFields()[0]?.name).toBe(
+      'emailText'
+    );
+    expect(testAgent.getSignature().getInputFields()[1]?.name).toBe('priority');
+    expect(testAgent.getSignature().getOutputFields()[0]?.name).toBe(
+      'category'
+    );
+    expect(testAgent.getSignature().getOutputFields()[1]?.name).toBe(
+      'confidence'
+    );
+  });
+
+  it('should handle both overloads seamlessly in agent()', () => {
+    const stringSig = 'userInput:string -> agentOutput:string';
+    const axSig = s('userInput:string -> agentOutput:string');
+
+    const agent1 = agent(stringSig, {
+      name: 'agent1',
+      description: 'First agent using string signature',
+      ai: mockAI,
+    });
+    const agent2 = agent(axSig, {
+      name: 'agent2',
+      description: 'Second agent using AxSignature object',
+      ai: mockAI,
+    });
+
+    // Both should have same signature structure (ignoring description differences)
+    expect(agent1.getSignature().getInputFields()).toEqual(
+      agent2.getSignature().getInputFields()
+    );
+    expect(agent1.getSignature().getOutputFields()).toEqual(
+      agent2.getSignature().getOutputFields()
+    );
+  });
+
+  it('should pass through all config options correctly', () => {
+    const sig = s('userInput:string -> responseText:string');
+    const definition =
+      'You are a helpful assistant that provides clear, accurate responses to user questions. Always be polite and informative.';
+
+    const testAgent = agent(sig, {
+      name: 'configTestAgent',
+      description: 'An agent to test configuration passing',
+      definition,
+      ai: mockAI,
+      debug: true,
+      disableSmartModelRouting: true,
+    });
+
+    expect(testAgent.getFunction().name).toBe('configtestagent'); // camelCase conversion
+    expect(testAgent.getFunction().description).toBe(
+      'An agent to test configuration passing'
+    );
+    // Definition is used as the program description
+    expect(testAgent.getSignature().getDescription()).toBe(definition);
+  });
+
+  it('should work without ai parameter in config', () => {
+    const testAgent = agent('userInput:string -> responseText:string', {
+      name: 'noAiAgent',
+      description: 'An agent without built-in AI service',
+    });
+
+    expect(testAgent).toBeInstanceOf(AxAgent);
+    expect(testAgent.getSignature().getInputFields()[0]?.name).toBe(
+      'userInput'
+    );
+    expect(testAgent.getSignature().getOutputFields()[0]?.name).toBe(
+      'responseText'
+    );
+  });
+
+  it('should produce equivalent results to AxAgent.create()', () => {
+    const signature = 'userInput:string -> responseText:string';
+    const config = {
+      name: 'equivalentAgent',
+      description: 'An agent to test equivalence with AxAgent.create',
+      ai: mockAI,
+    };
+
+    const factoryAgent = agent(signature, config);
+    const staticAgent = AxAgent.create(signature, config);
+
+    expect(factoryAgent.getSignature().toString()).toBe(
+      staticAgent.getSignature().toString()
+    );
+    expect(factoryAgent.getFunction().name).toBe(
+      staticAgent.getFunction().name
+    );
+    expect(factoryAgent.getFunction().description).toBe(
+      staticAgent.getFunction().description
+    );
   });
 });

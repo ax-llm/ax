@@ -1,20 +1,20 @@
+import { s } from '@ax-llm/ax';
 import {
   AlertCircle,
   CheckCircle,
   Lightbulb,
-  XCircle,
   Loader2,
+  XCircle,
 } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAutocompleteItems } from '../lib/autocomplete';
-import { AxSignature } from '@ax-llm/ax';
 
 // Simple signature parser to replace the deleted signature-parser.ts
 function parseSignature(content: string) {
   try {
     // Try to parse as AxSignature
-    const _signature = new AxSignature(content);
+    s(content);
 
     // Extract field information from signature
     const inputFields: any[] = [];
@@ -49,6 +49,7 @@ function parseSignature(content: string) {
     };
   }
 }
+
 import type { AutocompleteItem, EditorState } from '../types/editor';
 import TypeDropdown from './TypeDropdown';
 import { Badge } from './ui/badge';
@@ -326,12 +327,6 @@ export default function AdvancedSignatureBuilder() {
     const x = rect.left + currentColumn * charWidth + 16; // 16px for padding
     const y = rect.top + currentLine * lineHeight + lineHeight + 16; // Position below current line
 
-    // Determine if we're in an input field context
-    const beforeCursor = editorState.content.substring(0, position);
-    const _isInputField =
-      !beforeCursor.includes('->') ||
-      beforeCursor.lastIndexOf('->') < beforeCursor.lastIndexOf(',');
-
     setEditorState((prev) => ({
       ...prev,
       typeDropdownVisible: true,
@@ -445,83 +440,6 @@ export default function AdvancedSignatureBuilder() {
     }, 0);
   }, []);
 
-  const _generateCode = useCallback(() => {
-    const { parsedSignature } = editorState;
-    if (!parsedSignature.valid) return '';
-
-    // Helper function to build field string representation (same as in execution logic)
-    const buildFieldString = (field: any): string => {
-      let fieldStr = field.name;
-
-      // Add type
-      if (field.type === 'class' && field.classOptions) {
-        fieldStr += `:class "${field.classOptions.join(', ')}"`;
-      } else if (field.type === 'code' && field.codeLanguage) {
-        // Code types default to string in string-based signatures
-        fieldStr += ':string';
-      } else if (field.type && field.type !== 'string') {
-        fieldStr += `:${field.type}`;
-        if (field.isArray) {
-          fieldStr = fieldStr.replace(`:${field.type}`, `:${field.type}[]`);
-        }
-      } else if (field.isArray) {
-        fieldStr += ':string[]';
-      }
-
-      // Add optional marker
-      if (field.isOptional) {
-        const colonIndex = fieldStr.indexOf(':');
-        if (colonIndex > -1) {
-          fieldStr = `${fieldStr.substring(0, colonIndex)}?${fieldStr.substring(colonIndex)}`;
-        } else {
-          fieldStr += '?';
-        }
-      }
-
-      // Add internal marker
-      if (field.isInternal) {
-        const colonIndex = fieldStr.indexOf(':');
-        if (colonIndex > -1) {
-          fieldStr = `${fieldStr.substring(0, colonIndex)}!${fieldStr.substring(colonIndex)}`;
-        } else {
-          fieldStr += '!';
-        }
-      }
-
-      // Add description
-      if (field.description) {
-        fieldStr += ` "${field.description}"`;
-      }
-
-      return fieldStr;
-    };
-
-    // Build signature string
-    let signatureStr = '';
-    if (parsedSignature.description) {
-      signatureStr += `"${parsedSignature.description}" `;
-    }
-
-    // Build input and output field strings
-    const inputFieldsStr = parsedSignature.inputFields
-      .map((field: any) => buildFieldString(field))
-      .join(', ');
-
-    const outputFieldsStr = parsedSignature.outputFields
-      .map((field: any) => buildFieldString(field))
-      .join(', ');
-
-    // Combine into full signature string
-    signatureStr += `${inputFieldsStr} -> ${outputFieldsStr}`;
-
-    return `// ${parsedSignature.description || 'Generated signature'}
-const mySignature = ax('${signatureStr}');`;
-  }, [editorState.parsedSignature]);
-
-  const _copyToClipboard = useCallback((text: string) => {
-    navigator.clipboard.writeText(text);
-  }, []);
-
   const loadModel = useCallback(async () => {
     setModelStatus('loading');
     setLoadingProgress(0);
@@ -530,7 +448,7 @@ const mySignature = ax('${signatureStr}');`;
 
     try {
       // Import WebLLM and Ax dynamically
-      const [{ CreateWebWorkerMLCEngine }, { AxAI }] = await Promise.all([
+      const [{ CreateWebWorkerMLCEngine }, { ai }] = await Promise.all([
         import('@mlc-ai/web-llm'),
         import('@ax-llm/ax'),
       ]);
@@ -552,7 +470,7 @@ const mySignature = ax('${signatureStr}');`;
       );
 
       // Create Ax AI instance with the loaded engine
-      const ai = new AxAI({
+      const llm = ai({
         name: 'webllm',
         engine: engine,
         config: {
@@ -562,7 +480,7 @@ const mySignature = ax('${signatureStr}');`;
       });
 
       setLoadedEngine(engine);
-      setLoadedAI(ai);
+      setLoadedAI(llm);
       setModelStatus('ready');
       setLoadingText('Model loaded and ready!');
     } catch (error) {

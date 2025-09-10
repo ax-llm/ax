@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax",
-  "version": "14.0.0",
+  "version": "14.0.20",
   "type": "module",
   "description": "The best library to work with LLMs",
   "repository": {
@@ -60,7 +60,7 @@
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
   },
-  "homepage": "https://github.com/@ax-llm/ax#readme",
+  "homepage": "https://github.com/ax-llm/ax#readme",
   "author": "Vikram <https://twitter.com/dosco>",
   "devDependencies": {
     "@types/uuid": "^10.0.0"

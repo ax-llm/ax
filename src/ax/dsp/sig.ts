@@ -379,8 +379,13 @@ type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
                     : { format?: 'wav'; data: string }
                   : T['type'] extends 'file'
                     ? T['isArray'] extends true
-                      ? { mimeType: string; data: string }[]
-                      : { mimeType: string; data: string }
+                      ? (
+                          | { mimeType: string; data: string }
+                          | { mimeType: string; fileUri: string }
+                        )[]
+                      :
+                          | { mimeType: string; data: string }
+                          | { mimeType: string; fileUri: string }
                     : T['type'] extends 'url'
                       ? T['isArray'] extends true
                         ? string[]
@@ -452,8 +457,13 @@ type InferFluentType<
                   : { format?: 'wav'; data: string }
                 : T['type'] extends 'file'
                   ? T['isArray'] extends true
-                    ? { mimeType: string; data: string }[]
-                    : { mimeType: string; data: string }
+                    ? (
+                        | { mimeType: string; data: string }
+                        | { mimeType: string; fileUri: string }
+                      )[]
+                    :
+                        | { mimeType: string; data: string }
+                        | { mimeType: string; fileUri: string }
                   : T['type'] extends 'url'
                     ? T['isArray'] extends true
                       ? string[]
@@ -1317,14 +1327,6 @@ function validateFieldType(
         `${type.name} type is not supported in output fields`,
         field.name,
         `${type.name} types can only be used in input fields`
-      );
-    }
-
-    if (type.isArray && (type.name === 'image' || type.name === 'audio')) {
-      throw new AxSignatureValidationError(
-        `Arrays of ${type.name} are not supported`,
-        field.name,
-        `Use a single ${type.name} type instead`
       );
     }
   }

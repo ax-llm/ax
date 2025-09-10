@@ -2,207 +2,58 @@ import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
 
+// FIXME: Circular dependency - import { ax } from '../index.js';
+
+import type {
+  AxCheckpointLoadFn,
+  AxCheckpointSaveFn,
+  AxCompileOptions,
+  AxCostTracker,
+  AxCostTrackerOptions,
+  AxExample,
+  AxMetricFn,
+  AxMultiMetricFn,
+  AxOptimizationCheckpoint,
+  AxOptimizationProgress,
+  AxOptimizationStats,
+  AxOptimizerArgs,
+  AxTypedExample,
+} from './common_types.js';
 import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
 import { axDefaultOptimizerLogger } from './optimizerLogging.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
-import type { AxFieldValue, AxGenOut, AxProgramDemos } from './types.js';
+import type { AxGenOut, AxProgramDemos } from './types.js';
+
+// Shared optimizer-related types are exported exclusively from `common_types.ts`
+// to avoid duplicate type exports when generating the package index.
 
 // Logger utilities are now exported from ./loggers.js
-
-// Common types used by optimizers
-export type AxExample = Record<string, AxFieldValue>;
-
-export type AxMetricFn = <T = any>(
-  arg0: Readonly<{ prediction: T; example: AxExample }>
-) => number | Promise<number>;
-
-export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
 
 // Multi-objective metric function for Pareto optimization
 export type AxMultiMetricFn = <T = any>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
 ) => Record<string, number> | Promise<Record<string, number>>;
 
+// Common types moved to ./common_types.ts
+
+
 // Progress tracking interface for real-time updates
-export interface AxOptimizationProgress {
-  round: number;
-  totalRounds: number;
-  currentScore: number;
-  bestScore: number;
-  tokensUsed: number;
-  timeElapsed: number;
-  successfulExamples: number;
-  totalExamples: number;
-  currentConfiguration?: Record<string, unknown>;
-  bestConfiguration?: Record<string, unknown>;
-  convergenceInfo?: {
-    improvement: number;
-    stagnationRounds: number;
-    isConverging: boolean;
-  };
-}
+// AxOptimizationProgress moved to ./common_types.ts
 
 // Cost tracking interface for monitoring resource usage
-export interface AxCostTracker {
-  trackTokens(count: number, model: string): void;
-  getCurrentCost(): number;
-  getTokenUsage(): Record<string, number>;
-  getTotalTokens(): number;
-  isLimitReached(): boolean;
-  reset(): void;
-}
+// AxCostTracker moved to ./common_types.ts
 
 // Checkpoint interface for saving/loading optimization state
-export interface AxOptimizationCheckpoint {
-  version: string;
-  timestamp: number;
-  optimizerType: string;
-  optimizerConfig: Record<string, unknown>;
+// AxOptimizationCheckpoint moved to ./common_types.ts
 
-  // Current optimization state
-  currentRound: number;
-  totalRounds: number;
-  bestScore: number;
-  bestConfiguration?: Record<string, unknown>;
+// Simple checkpoint functions moved to ./common_types.ts
 
-  // Historical data
-  scoreHistory: number[];
-  configurationHistory: Record<string, unknown>[];
+// Cost tracker configuration options now provided by ./types
 
-  // Resource usage
-  stats: AxOptimizationStats;
+// AxOptimizerArgs moved to ./common_types.ts
 
-  // Optimizer-specific state
-  optimizerState: Record<string, unknown>;
-
-  // Examples and validation data
-  examples: readonly AxExample[];
-  validationSet?: readonly AxExample[];
-}
-
-// Simple checkpoint functions - users implement these as needed
-export type AxCheckpointSaveFn = (
-  checkpoint: Readonly<AxOptimizationCheckpoint>
-) => Promise<string>;
-export type AxCheckpointLoadFn = (
-  checkpointId: string
-) => Promise<AxOptimizationCheckpoint | null>;
-
-// Cost tracker configuration options
-export interface AxCostTrackerOptions {
-  // Cost-based limits
-  costPerModel?: Record<string, number>;
-  maxCost?: number;
-
-  // Token-based limits
-  maxTokens?: number;
-}
-
-// Enhanced optimizer arguments - no longer includes program
-export type AxOptimizerArgs = {
-  studentAI: AxAIService;
-  teacherAI?: AxAIService; // For generating high-quality examples/corrections
-  examples: readonly AxExample[];
-
-  // Python optimizer service
-  optimizerEndpoint?: string; // Python optimizer service URL
-  optimizerTimeout?: number; // Request timeout (default: 30000ms)
-  optimizerRetries?: number; // Retry attempts (default: 3)
-
-  // MiPRO-specific options (flattened from AxMiPROOptimizerOptions)
-  numCandidates?: number;
-  initTemperature?: number;
-  maxBootstrappedDemos?: number;
-  maxLabeledDemos?: number;
-  numTrials?: number;
-  minibatch?: boolean;
-  minibatchSize?: number;
-  minibatchFullEvalSteps?: number;
-  programAwareProposer?: boolean;
-  dataAwareProposer?: boolean;
-  viewDataBatchSize?: number;
-  tipAwareProposer?: boolean;
-  fewshotAwareProposer?: boolean;
-  earlyStoppingTrials?: number;
-  minImprovementThreshold?: number;
-  bayesianOptimization?: boolean;
-  acquisitionFunction?:
-    | 'expected_improvement'
-    | 'upper_confidence_bound'
-    | 'probability_improvement';
-  explorationWeight?: number;
-  sampleCount?: number;
-
-  // Evaluation strategy
-  validationSet?: readonly AxExample[];
-
-  // Quality thresholds
-  minSuccessRate?: number;
-  targetScore?: number;
-
-  // Monitoring & callbacks
-  onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
-  onEarlyStop?: (reason: string, stats: Readonly<AxOptimizationStats>) => void;
-  costTracker?: AxCostTracker;
-
-  // Checkpointing
-  checkpointSave?: AxCheckpointSaveFn;
-  checkpointLoad?: AxCheckpointLoadFn;
-  checkpointInterval?: number; // Save checkpoint every N rounds
-  resumeFromCheckpoint?: string; // Checkpoint ID to resume from
-
-  // Logging
-  logger?: AxLoggerFunction;
-  verbose?: boolean;
-
-  // Reproducibility
-  seed?: number;
-
-  // Optimizer logging
-  debugOptimizer?: boolean;
-  optimizerLogger?: AxOptimizerLoggerFunction;
-};
-
-// Enhanced optimization statistics
-export interface AxOptimizationStats {
-  totalCalls: number;
-  successfulDemos: number;
-  estimatedTokenUsage: number;
-  earlyStopped: boolean;
-  earlyStopping?: {
-    bestScoreRound: number;
-    patienceExhausted: boolean;
-    reason: string;
-  };
-  bestScore: number;
-  bestConfiguration?: Record<string, unknown>;
-
-  // Resource usage tracking
-  resourceUsage: {
-    totalTokens: number;
-    totalTime: number;
-    avgLatencyPerEval: number;
-    peakMemoryUsage?: number;
-    costByModel: Record<string, number>;
-  };
-
-  // Quality metrics
-  convergenceInfo: {
-    converged: boolean;
-    finalImprovement: number;
-    stagnationRounds: number;
-    convergenceThreshold: number;
-  };
-
-  // Evaluation breakdown
-  evaluationBreakdown?: {
-    trainingScore: number;
-    validationScore: number;
-    crossValidationScores?: number[];
-    standardDeviation?: number;
-  };
-}
+// AxOptimizationStats moved to ./common_types.ts
 
 // Optimizer metrics configuration interface
 export interface AxOptimizerMetricsConfig {
@@ -917,6 +768,7 @@ export const recordOptimizerConfigurationMetric = (
 };
 
 // Simplified result - no program since it's passed to compile
+// Legacy interface - kept for backward compatibility
 export interface AxOptimizerResult<OUT> {
   demos?: AxProgramDemos<any, OUT>[];
   stats: AxOptimizationStats;
@@ -926,6 +778,121 @@ export interface AxOptimizerResult<OUT> {
   // Optimization history for analysis
   scoreHistory?: number[];
   configurationHistory?: Record<string, unknown>[];
+}
+
+// Unified optimization result that consolidates all optimization outputs
+export interface AxOptimizedProgram<OUT = any> {
+  // Core optimization results
+  bestScore: number;
+  stats: AxOptimizationStats;
+
+  // Program configuration
+  instruction?: string;
+  demos?: AxProgramDemos<any, OUT>[];
+  examples?: AxExample[];
+
+  // Model configuration
+  modelConfig?: {
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    topK?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    stop?: string | string[];
+    [key: string]: unknown;
+  };
+
+  // Optimization metadata
+  optimizerType: string;
+  optimizationTime: number;
+  totalRounds: number;
+  converged: boolean;
+
+  // Historical data for analysis
+  scoreHistory?: number[];
+  configurationHistory?: Record<string, unknown>[];
+
+  // Apply this optimization to a program
+  applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void;
+}
+
+// Concrete implementation of AxOptimizedProgram
+export class AxOptimizedProgramImpl<OUT = any>
+  implements AxOptimizedProgram<OUT>
+{
+  public readonly bestScore: number;
+  public readonly stats: AxOptimizationStats;
+  public readonly instruction?: string;
+  public readonly demos?: AxProgramDemos<any, OUT>[];
+  public readonly examples?: AxExample[];
+  public readonly modelConfig?: {
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    topK?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    stop?: string | string[];
+    [key: string]: unknown;
+  };
+  public readonly optimizerType: string;
+  public readonly optimizationTime: number;
+  public readonly totalRounds: number;
+  public readonly converged: boolean;
+  public readonly scoreHistory?: number[];
+  public readonly configurationHistory?: Record<string, unknown>[];
+
+  constructor(config: {
+    bestScore: number;
+    stats: AxOptimizationStats;
+    instruction?: string;
+    demos?: AxProgramDemos<any, OUT>[];
+    examples?: AxExample[];
+    modelConfig?: AxOptimizedProgram<OUT>['modelConfig'];
+    optimizerType: string;
+    optimizationTime: number;
+    totalRounds: number;
+    converged: boolean;
+    scoreHistory?: number[];
+    configurationHistory?: Record<string, unknown>[];
+  }) {
+    this.bestScore = config.bestScore;
+    this.stats = config.stats;
+    this.instruction = config.instruction;
+    this.demos = config.demos;
+    this.examples = config.examples;
+    this.modelConfig = config.modelConfig;
+    this.optimizerType = config.optimizerType;
+    this.optimizationTime = config.optimizationTime;
+    this.totalRounds = config.totalRounds;
+    this.converged = config.converged;
+    this.scoreHistory = config.scoreHistory;
+    this.configurationHistory = config.configurationHistory;
+  }
+
+  public applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void {
+    // Apply demos if available
+    if (this.demos && this.demos.length > 0) {
+      program.setDemos(this.demos as any);
+    }
+
+    // Apply examples if available
+    if (this.examples && this.examples.length > 0) {
+      program.setExamples(this.examples as any);
+    }
+
+    // Apply instruction if available (via program options)
+    if (this.instruction) {
+      // Store instruction in program options for use in prompt generation
+      (program as any)._optimizedInstruction = this.instruction;
+    }
+
+    // Apply model config if available (stored for use in forward calls)
+    if (this.modelConfig) {
+      (program as any)._optimizedModelConfig = this.modelConfig;
+    }
+  }
 }
 
 // Pareto optimization result for multi-objective optimization
@@ -943,44 +910,21 @@ export interface AxParetoResult<OUT = any> extends AxOptimizerResult<OUT> {
   convergenceMetrics?: Record<string, number>;
 }
 
-// Compile options that can override constructor arguments
-export interface AxCompileOptions {
-  // Method-specific options
-  maxIterations?: number;
-  earlyStoppingPatience?: number;
-  verbose?: boolean;
-
-  // Override args for this specific run
-  overrideValidationSet?: readonly AxExample[];
-  overrideTargetScore?: number;
-  overrideCostTracker?: AxCostTracker;
-  overrideTeacherAI?: AxAIService;
-
-  // Progress monitoring overrides
-  overrideOnProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
-  overrideOnEarlyStop?: (
-    reason: string,
-    stats: Readonly<AxOptimizationStats>
-  ) => void;
-
-  // Checkpointing overrides
-  overrideCheckpointSave?: AxCheckpointSaveFn;
-  overrideCheckpointLoad?: AxCheckpointLoadFn;
-  overrideCheckpointInterval?: number;
-  saveCheckpointOnComplete?: boolean;
-}
+// AxCompileOptions moved to ./common_types.ts
 
 // Enhanced base optimizer interface
-export interface AxOptimizer<IN = any, OUT extends AxGenOut = any> {
+export interface AxOptimizer {
   /**
    * Optimize a program using the provided metric function
-   * @param program The program to optimize (moved from constructor)
+   * @param program The program to optimize
+   * @param examples Training examples (typed based on the program) - will be auto-split into train/validation
    * @param metricFn Evaluation metric function to assess program performance
-   * @param options Optional configuration options that can override constructor settings
+   * @param options Optional configuration options
    * @returns Optimization result containing demos, stats, and configuration
    */
-  compile(
+  compile<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxOptimizerResult<OUT>>;
@@ -988,12 +932,14 @@ export interface AxOptimizer<IN = any, OUT extends AxGenOut = any> {
   /**
    * Optimize a program with real-time streaming updates
    * @param program The program to optimize
+   * @param examples Training examples
    * @param metricFn Evaluation metric function
    * @param options Optional configuration options
    * @returns Async iterator yielding optimization progress
    */
-  compileStream?(
+  compileStream?<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): AsyncIterableIterator<AxOptimizationProgress>;
@@ -1001,12 +947,14 @@ export interface AxOptimizer<IN = any, OUT extends AxGenOut = any> {
   /**
    * Multi-objective optimization using Pareto frontier
    * @param program The program to optimize
+   * @param examples Training examples
    * @param metricFn Multi-objective metric function
    * @param options Optional configuration options
    * @returns Pareto optimization result
    */
-  compilePareto?(
+  compilePareto?<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>>;
@@ -1045,7 +993,9 @@ export interface AxOptimizer<IN = any, OUT extends AxGenOut = any> {
    * @param program Program to validate
    * @returns Validation result with any issues found
    */
-  validateProgram?(program: Readonly<AxGen<IN, OUT>>): {
+  validateProgram?<IN, OUT extends AxGenOut>(
+    program: Readonly<AxGen<IN, OUT>>
+  ): {
     isValid: boolean;
     issues: string[];
     suggestions: string[];
@@ -1101,29 +1051,6 @@ export interface AxMiPROOptimizerOptions {
 
   // New option: number of samples to generate per forward call for self-consistency
   sampleCount?: number;
-}
-
-// Legacy compile options (for backward compatibility)
-export interface AxBootstrapCompileOptions extends AxCompileOptions {
-  validationExamples?: readonly AxExample[];
-  maxDemos?: number;
-  teacherProgram?: Readonly<AxGen<any, any>>;
-}
-
-export interface AxMiPROCompileOptions extends AxCompileOptions {
-  validationExamples?: readonly AxExample[];
-  teacher?: Readonly<AxGen<any, any>>;
-  auto?: 'light' | 'medium' | 'heavy';
-
-  // Enhanced MiPRO options
-  instructionCandidates?: string[];
-  customProposer?: (
-    context: Readonly<{
-      programSummary: string;
-      dataSummary: string;
-      previousInstructions: string[];
-    }>
-  ) => Promise<string[]>;
 }
 
 // Default cost tracker implementation
@@ -1192,14 +1119,10 @@ export class AxDefaultCostTracker implements AxCostTracker {
  * Abstract base class for optimizers that provides common functionality
  * and standardized handling of AxOptimizerArgs
  */
-export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
-  implements AxOptimizer<IN, OUT>
-{
+export abstract class AxBaseOptimizer implements AxOptimizer {
   // Common AxOptimizerArgs fields
   protected readonly studentAI: AxAIService;
   protected readonly teacherAI?: AxAIService;
-  protected readonly examples: readonly AxExample[];
-  protected readonly validationSet?: readonly AxExample[];
   protected readonly targetScore?: number;
   protected readonly minSuccessRate?: number;
   protected readonly onProgress?: (
@@ -1227,7 +1150,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   protected readonly optimizerLogger?: AxOptimizerLoggerFunction;
 
   // Checkpoint state
-  private currentRound = 0;
+  protected currentRound = 0;
   private scoreHistory: number[] = [];
   private configurationHistory: Record<string, unknown>[] = [];
 
@@ -1237,16 +1160,14 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   // Metrics instruments
   protected readonly metricsInstruments?: AxOptimizerMetricsInstruments;
 
-  constructor(args: Readonly<AxOptimizerArgs>) {
-    if (args.examples.length === 0) {
-      throw new Error('No examples found');
-    }
+  // Result explanation generator
+  // FIXME: Disabled due to circular dependency - private resultExplainer?: ReturnType<typeof ax>;
+  private resultExplainer?: any;
 
+  constructor(args: Readonly<AxOptimizerArgs>) {
     // Set common fields from AxOptimizerArgs
     this.studentAI = args.studentAI;
     this.teacherAI = args.teacherAI;
-    this.examples = args.examples;
-    this.validationSet = args.validationSet;
     this.targetScore = args.targetScore;
     this.minSuccessRate = args.minSuccessRate;
     this.onProgress = args.onProgress;
@@ -1279,7 +1200,45 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
 
     // Set up optimizer logging
     this.debugOptimizer = args.debugOptimizer ?? false;
-    this.optimizerLogger = args.optimizerLogger;
+    this.optimizerLogger =
+      args.optimizerLogger ??
+      (this.verbose ? axDefaultOptimizerLogger : undefined);
+
+    // Initialize result explanation generator
+    this.initializeResultExplainer();
+  }
+
+  /**
+   * Initialize the result explanation generator
+   * FIXME: Disabled due to circular dependency with ax() function
+   */
+  private initializeResultExplainer(): void {
+    // FIXME: Circular dependency - cannot import ax() from index.js
+    this.resultExplainer = undefined;
+    /*
+    try {
+      this.resultExplainer = ax(`
+        optimizationScore:number "Final optimization score (0.0 to 1.0)",
+        bestConfiguration:json "Best configuration found during optimization",
+        totalRounds:number "Number of optimization rounds completed",
+        converged:boolean "Whether optimization converged to a stable solution",
+        earlyStoppedReason?:string "Reason for early stopping if applicable",
+        resourcesUsed:json "Tokens, time, and cost consumed during optimization" ->
+        humanExplanation:string "Clear, jargon-free explanation of optimization results for humans",
+        recommendations:string[] "Actionable recommendations based on the results",
+        performanceAssessment:string "Assessment of how well the optimization performed"
+      `);
+    } catch (error) {
+      // If ax generator initialization fails, continue without it
+      this.resultExplainer = undefined;
+      if (this.verbose) {
+        console.warn(
+          '[AxBaseOptimizer] Failed to initialize result explainer:',
+          error
+        );
+      }
+    }
+    */
   }
 
   /**
@@ -1380,14 +1339,37 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   }
 
   /**
-   * Get the validation set, with fallback to a split of examples
+   * Validate that examples meet minimum requirements for optimization
+   * @param examples Examples to validate
+   * @param requireSplit Whether this optimizer requires train/validation split (default: true)
+   * @throws Error if examples don't meet minimum requirements
    */
-  protected getValidationSet(options?: AxCompileOptions): readonly AxExample[] {
-    return (
-      options?.overrideValidationSet ||
-      this.validationSet ||
-      this.examples.slice(0, Math.floor(this.examples.length * 0.2))
-    );
+  protected validateExamples<IN>(
+    examples: readonly AxTypedExample<IN>[],
+    requireSplit = true
+  ): void {
+    if (!examples || examples.length === 0) {
+      throw new Error('At least 1 example is required for optimization');
+    }
+
+    if (requireSplit) {
+      // For auto-splitting optimizers, we need at least 2 examples
+      // (1 for training, 1 for validation)
+      if (examples.length < 2) {
+        throw new Error(
+          'At least 2 examples are required for optimization with auto-splitting. ' +
+            'Provide more examples to enable proper train/validation split.'
+        );
+      }
+    }
+
+    // Warn if very few examples
+    const recommendedMin = requireSplit ? 10 : 5;
+    if (examples.length < recommendedMin && this.verbose) {
+      console.warn(
+        `[Ax Optimizer] Warning: Only ${examples.length} examples provided. Consider providing more examples (${recommendedMin}+ recommended) for better optimization results.`
+      );
+    }
   }
 
   /**
@@ -1452,8 +1434,9 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   /**
    * Abstract method that must be implemented by concrete optimizers
    */
-  public abstract compile(
+  public abstract compile<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): Promise<AxOptimizerResult<OUT>>;
@@ -1461,12 +1444,14 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   /**
    * Optimize a program with real-time streaming updates
    * @param program The program to optimize
+   * @param examples Training examples
    * @param metricFn Evaluation metric function
    * @param options Optional configuration options
    * @returns Async iterator yielding optimization progress
    */
-  public async *compileStream(
+  public async *compileStream<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
     options?: AxCompileOptions
   ): AsyncIterableIterator<AxOptimizationProgress> {
@@ -1536,7 +1521,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
       );
     };
 
-    const compileResult = await this.compile(program, metricFn, {
+    const compileResult = await this.compile(program, examples, metricFn, {
       ...options,
       overrideOnProgress: onProgress,
       overrideOnEarlyStop: onEarlyStop,
@@ -1572,12 +1557,14 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
    * Multi-objective optimization using Pareto frontier
    * Default implementation that leverages the single-objective compile method
    * @param program The program to optimize
+   * @param examples Training examples
    * @param metricFn Multi-objective metric function that returns multiple scores
    * @param options Optional configuration options
    * @returns Pareto optimization result with frontier of non-dominated solutions
    */
-  public async compilePareto(
+  public async compilePareto<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>> {
@@ -1587,6 +1574,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
     // Strategy 1: Generate different weighted combinations of objectives
     const solutions = await this.generateWeightedSolutions(
       program,
+      examples,
       metricFn,
       options
     );
@@ -1594,6 +1582,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
     // Strategy 2: Generate constraint-based solutions (optimize one objective while constraining others)
     const constraintSolutions = await this.generateConstraintSolutions(
       program,
+      examples,
       metricFn,
       options
     );
@@ -1664,8 +1653,9 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   /**
    * Generate solutions using different weighted combinations of objectives
    */
-  private async generateWeightedSolutions(
+  private async generateWeightedSolutions<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<
@@ -1682,10 +1672,13 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
     }> = [];
 
     // First, determine the objectives by running the metric on a sample
-    const sampleExample = this.examples[0]!;
+    if (!examples || examples.length === 0) {
+      throw new Error('No examples provided for Pareto optimization');
+    }
+    const sampleExample = examples[0]!;
     const samplePrediction = await program.forward(
       this.getAIService(false, options),
-      sampleExample as IN
+      sampleExample as any
     );
     const sampleScores = await metricFn({
       prediction: samplePrediction,
@@ -1725,7 +1718,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
 
       try {
         // Use the concrete optimizer's compile method
-        const result = await this.compile(program, weightedMetric, {
+        const result = await this.compile(program, examples, weightedMetric, {
           ...options,
           verbose: false, // Suppress inner optimization logs
         });
@@ -1734,7 +1727,8 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
         const scores = await this.evaluateWithMultiObjective(
           program,
           result,
-          metricFn
+          metricFn,
+          examples
         );
 
         solutions.push({
@@ -1762,8 +1756,9 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   /**
    * Generate solutions using constraint-based optimization
    */
-  private async generateConstraintSolutions(
+  private async generateConstraintSolutions<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<
@@ -1780,10 +1775,13 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
     }> = [];
 
     // Get objectives from a sample evaluation
-    const sampleExample = this.examples[0]!;
+    if (!examples || examples.length === 0) {
+      throw new Error('No examples provided for multi-objective optimization');
+    }
+    const sampleExample = examples[0]!;
     const samplePrediction = await program.forward(
       this.getAIService(false, options),
-      sampleExample as IN
+      sampleExample as any
     );
     const sampleScores = await metricFn({
       prediction: samplePrediction,
@@ -1823,7 +1821,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
       };
 
       try {
-        const result = await this.compile(program, constraintMetric, {
+        const result = await this.compile(program, examples, constraintMetric, {
           ...options,
           verbose: false,
         });
@@ -1831,7 +1829,8 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
         const scores = await this.evaluateWithMultiObjective(
           program,
           result,
-          metricFn
+          metricFn,
+          examples
         );
 
         solutions.push({
@@ -1905,27 +1904,35 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   /**
    * Evaluate a single-objective result with multi-objective metrics
    */
-  private async evaluateWithMultiObjective(
+  private async evaluateWithMultiObjective<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
     result: Readonly<AxOptimizerResult<OUT>>,
-    metricFn: AxMultiMetricFn
+    metricFn: AxMultiMetricFn,
+    examples: readonly AxTypedExample<IN>[]
   ): Promise<Record<string, number>> {
     const testProgram = new AxGen(program.getSignature());
     if (result.demos) {
       testProgram.setDemos(result.demos);
     }
 
-    const predictions = [];
-    for (const ex of this.examples) {
-      const prediction = await testProgram.forward(this.studentAI, ex as IN);
-      predictions.push({ prediction, example: ex });
-    }
+    // NOTE: This evaluation method needs examples to be passed as parameter
+    // For now, returning empty predictions array
+    const _predictions: { prediction: OUT; example: any }[] = [];
+    // for (const ex of examples) {
+    //   const prediction = await testProgram.forward(this.studentAI, ex as IN);
+    //   predictions.push({ prediction, example: ex });
+    // }
 
-    const valSet = this.getValidationSet();
+    // Create validation split from examples (use last 20% or max 5 examples)
+    const valSplitSize = Math.max(
+      1,
+      Math.min(5, Math.floor(examples.length * 0.2))
+    );
+    const valSet = examples.slice(-valSplitSize);
     const allScores: Record<string, number[]> = {};
 
     // Evaluate on validation set
-    const evalSet = valSet.slice(0, Math.min(5, valSet.length));
+    const evalSet = valSet;
 
     for (const example of evalSet) {
       try {
@@ -1960,7 +1967,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
   /**
    * Find the Pareto frontier from a set of solutions
    */
-  private findParetoFrontier(
+  private findParetoFrontier<OUT extends AxGenOut>(
     solutions: Array<{
       scores: Record<string, number>;
       demos?: AxProgramDemos<any, OUT>[];
@@ -2121,8 +2128,7 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
         configurationHistory: [...this.configurationHistory],
         stats: { ...this.stats },
         optimizerState,
-        examples: this.examples,
-        validationSet: this.validationSet,
+        examples: [], // examples now passed to compile
       };
 
       checkpointId = await saveFn(checkpoint);
@@ -2312,8 +2318,8 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
         this.metricsInstruments,
         inputFields,
         outputFields,
-        this.examples.length,
-        this.getValidationSet().length,
+        0, // this.examples.length - now in options
+        0, // this.getValidationSet().length - now in options
         optimizerType
       );
     }
@@ -2491,6 +2497,115 @@ export abstract class AxBaseOptimizer<IN = any, OUT extends AxGenOut = any>
 
   public getStats(): AxOptimizationStats {
     return { ...this.stats };
+  }
+
+  protected async explainOptimizationResults(
+    bestScore: number,
+    bestConfiguration?: Record<string, unknown>,
+    _options?: AxCompileOptions
+  ): Promise<
+    | {
+        humanExplanation: string;
+        recommendations: string[];
+        performanceAssessment: string;
+      }
+    | undefined
+  > {
+    const converged = this.stats.convergenceInfo.converged;
+    const totalCalls = this.stats.totalCalls;
+    const successRate =
+      totalCalls > 0 ? (this.stats.successfulDemos / totalCalls) * 100 : 0;
+
+    const humanExplanation = `Optimization finished with best score ${bestScore.toFixed(3)}${
+      bestConfiguration
+        ? ` using configuration ${JSON.stringify(bestConfiguration)}`
+        : ''
+    }. Convergence: ${converged ? 'yes' : 'no'}. Success rate: ${successRate.toFixed(1)}%.`;
+
+    const recommendations: string[] = [];
+    if (!converged) {
+      recommendations.push(
+        'Increase numTrials or relax earlyStoppingTrials to allow further improvement.'
+      );
+    }
+    if (typeof this.targetScore === 'number' && bestScore < this.targetScore) {
+      recommendations.push(
+        'Tighten the metric or supply more/better-labeled examples to reach targetScore.'
+      );
+    }
+    if (
+      bestConfiguration &&
+      'bootstrappedDemos' in (bestConfiguration as any)
+    ) {
+      const demos = (bestConfiguration as any).bootstrappedDemos as number;
+      if (typeof demos === 'number' && demos === 0) {
+        recommendations.push(
+          'Consider allowing a small number of bootstrapped demos to boost performance.'
+        );
+      }
+    }
+    if (recommendations.length === 0) {
+      recommendations.push(
+        'Re-run with more trials or different acquisition settings to explore more of the space.'
+      );
+    }
+
+    const performanceAssessment = `Tokens used: ${this.stats.resourceUsage.totalTokens}, rounds: ${this.currentRound}, stagnationRounds: ${this.stats.convergenceInfo.stagnationRounds}.`;
+
+    return { humanExplanation, recommendations, performanceAssessment };
+  }
+  /**
+   * Log human-readable optimization completion message
+   */
+  protected async logOptimizationComplete(
+    optimizerType: string,
+    bestScore: number,
+    bestConfiguration?: Record<string, unknown>,
+    options?: AxCompileOptions,
+    explanation?: {
+      humanExplanation: string;
+      recommendations: string[];
+      performanceAssessment: string;
+    }
+  ): Promise<void> {
+    const optLogger = this.getOptimizerLogger(options);
+    if (!optLogger) return;
+
+    if (explanation) {
+      optLogger({
+        name: 'OptimizationComplete',
+        value: {
+          optimizerType,
+          bestScore,
+          bestConfiguration: bestConfiguration || {},
+          totalCalls: this.stats.totalCalls,
+          successRate:
+            this.stats.totalCalls > 0
+              ? `${((this.stats.successfulDemos / this.stats.totalCalls) * 100).toFixed(1)}%`
+              : 'N/A',
+          explanation: explanation.humanExplanation,
+          recommendations: explanation.recommendations,
+          performanceAssessment: explanation.performanceAssessment,
+          stats: this.stats,
+        },
+      });
+    } else {
+      // Fallback to basic completion logging
+      optLogger({
+        name: 'OptimizationComplete',
+        value: {
+          optimizerType,
+          bestScore,
+          bestConfiguration: bestConfiguration || {},
+          totalCalls: this.stats.totalCalls,
+          successRate:
+            this.stats.totalCalls > 0
+              ? `${((this.stats.successfulDemos / this.stats.totalCalls) * 100).toFixed(1)}%`
+              : 'N/A',
+          stats: this.stats,
+        },
+      });
+    }
   }
 
   public reset(): void {

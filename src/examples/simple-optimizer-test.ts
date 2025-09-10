@@ -36,7 +36,6 @@ const ai = new AxAI({
 
 const optimizer = new AxBootstrapFewShot({
   studentAI: ai,
-  examples,
   optimizerLogger: axDefaultOptimizerLogger,
   debugOptimizer: true,
   verbose: false, // Keep it clean
@@ -48,7 +47,11 @@ const optimizer = new AxBootstrapFewShot({
 
 console.log('Starting clean optimization...\n');
 
-const result = await optimizer.compile(emailClassifier as any, metric);
+const result = await optimizer.compile(
+  emailClassifier as any,
+  examples,
+  metric
+);
 
 console.log('\n✅ Optimization Complete!');
 console.log(`📊 Best Score: ${result.bestScore}`);

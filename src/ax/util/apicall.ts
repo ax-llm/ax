@@ -737,8 +737,6 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                         metrics.streamChunks = chunkCount;
                         metrics.lastChunkTime = Date.now();
 
-                        console.log('!!!!>>>>>>>>>parsed', parsed);
-
                         controller.enqueue(parsed);
 
                         api.span?.addEvent('stream.chunk', {

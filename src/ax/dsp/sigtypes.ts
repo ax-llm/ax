@@ -61,7 +61,9 @@ export interface TypeMap {
   datetime: Date;
   image: { mimeType: string; data: string };
   audio: { format?: 'wav'; data: string };
-  file: { mimeType: string; data: string };
+  file:
+    | { mimeType: string; data: string }
+    | { mimeType: string; fileUri: string };
   url: string;
   code: string;
 }

@@ -1,0 +1,99 @@
+{
+  "bestScore": 1,
+  "stats": {
+    "totalCalls": 133,
+    "successfulDemos": 118,
+    "estimatedTokenUsage": 0,
+    "earlyStopped": false,
+    "resourceUsage": {
+      "totalTokens": 0,
+      "totalTime": 0,
+      "avgLatencyPerEval": 0,
+      "costByModel": {}
+    },
+    "convergenceInfo": {
+      "converged": false,
+      "finalImprovement": 0,
+      "stagnationRounds": 0,
+      "convergenceThreshold": 0.01
+    },
+    "bestScore": 1,
+    "bestConfiguration": {}
+  },
+  "demos": [
+    {
+      "traces": [
+        {
+          "question": "What are some common pests that affect zucchini plants?",
+          "answer": "Common pests that affect zucchini plants include squash bugs, cucumber beetles, and aphids."
+        },
+        {
+          "question": "What is the chemical formula for water?",
+          "answer": "The chemical formula for water is H2O."
+        },
+        {
+          "question": "What are the health benefits of eating zucchini?",
+          "answer": "Zucchini is low in calories, high in water content, and provides vitamins A and C, as well as potassium and dietary fiber."
+        },
+        {
+          "question": "Who was the first person to walk on the moon? My neighbor grows giant zucchini.",
+          "answer": "Cannot answer due to keyword."
+        },
+        {
+          "question": "Can you eat zucchini raw?",
+          "answer": "Yes, zucchini can be eaten raw in salads or as a crunchy snack."
+        }
+      ],
+      "programId": "27b66065"
+    }
+  ],
+  "examples": [],
+  "modelConfig": {
+    "temperature": 1.0769124240388874
+  },
+  "optimizerType": "MiPRO (Python)",
+  "optimizationTime": 145478,
+  "totalRounds": 10,
+  "converged": false,
+  "scoreHistory": [
+    0.5789473684210527, 1, 0.9473684210526315, 0.9473684210526315,
+    0.9473684210526315, 0.8421052631578947, 0.9473684210526315
+  ],
+  "configurationHistory": [
+    {
+      "temperature": 1.4742795748313158,
+      "bootstrappedDemos": 0,
+      "trialNumber": 1
+    },
+    {
+      "temperature": 1.0769124240388874,
+      "bootstrappedDemos": 3,
+      "trialNumber": 11
+    },
+    {
+      "temperature": 1.9798793050153718,
+      "bootstrappedDemos": 3,
+      "trialNumber": 12
+    },
+    {
+      "temperature": 0.6442616109684978,
+      "bootstrappedDemos": 3,
+      "trialNumber": 13
+    },
+    {
+      "temperature": 1.20259205286663,
+      "bootstrappedDemos": 3,
+      "trialNumber": 14
+    },
+    {
+      "temperature": 1.7382303076555912,
+      "bootstrappedDemos": 2,
+      "trialNumber": 15
+    },
+    {
+      "temperature": 1.1268957384216227,
+      "bootstrappedDemos": 3,
+      "trialNumber": 16
+    }
+  ]
+}

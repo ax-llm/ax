@@ -8,6 +8,7 @@ import type {
 import type { AxAIMemory } from '../mem/types.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxInputFunctionType } from './functions.js';
+import type { AxOptimizedProgram } from './optimizer.js';
 import type { AxPromptTemplate } from './prompt.js';
 import type { AxSignature } from './sig.js';
 
@@ -28,6 +29,15 @@ export type AxGenIn = { [key: string]: AxFieldValue };
 
 export type AxGenOut = { [key: string]: AxFieldValue };
 
+/**
+ * @deprecated AxMessage will be updated to a new design within this major version.
+ * The current structure will be replaced in v15.0.0.
+ *
+ * Migration timeline:
+ * - v14.0.0+: Deprecation warnings (current)
+ * - v14.x: New message design introduced alongside existing
+ * - v15.0.0: Complete replacement with new design
+ */
 export type AxMessage<IN> =
   | { role: 'user'; values: IN }
   | { role: 'assistant'; values: IN };
@@ -87,12 +97,13 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   // Functions and calls
   functions?: AxInputFunctionType;
   functionCall?: AxChatRequest['functionCall'];
-  stopFunction?: string;
+  stopFunction?: string | string[];
   functionResultFormatter?: (result: unknown) => string;
 
   // Behavior control
   fastFail?: boolean;
   showThoughts?: boolean;
+  functionCallMode?: 'auto' | 'native' | 'prompt';
 
   // Tracing and logging
   traceLabel?: string;
@@ -192,6 +203,7 @@ export interface AxTunable<IN, OUT> {
   setParentId: (parentId: string) => void;
   getTraces: () => AxProgramTrace<IN, OUT>[];
   setDemos: (demos: readonly AxProgramDemos<IN, OUT>[]) => void;
+  applyOptimization: (optimizedProgram: AxOptimizedProgram<OUT>) => void;
 }
 
 export interface AxUsable {
@@ -219,3 +231,10 @@ export interface AxProgramOptions {
 // === Signature Parsing Types ===
 // Type system moved to sigtypes.ts for better organization and features
 export type { ParseSignature } from './sigtypes.js';
+
+// =========================
+// Optimizer shared type defs
+// =========================
+
+// Shared optimizer-related types are exported exclusively from `common_types.ts`
+// to avoid duplicate type exports when generating the package index.

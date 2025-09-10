@@ -5,6 +5,7 @@ import { AxBaseAI } from '../base.js';
 import type {
   AxAIInputModelList,
   AxAIServiceOptions,
+  AxModelConfig,
   AxModelInfo,
 } from '../types.js';
 import type {
@@ -142,10 +143,69 @@ export class AxAIOpenAIResponsesBase<
       TResponsesReq
     >(config, options?.streamingUsage ?? true, responsesReqUpdater);
 
-    // Convert models to the expected format if needed
-    const formattedModels = models as
-      | AxAIInputModelList<TModel, TEmbedModel, TModelKey>
-      | undefined;
+    // Normalize per-model presets: allow provider-specific config on each model list item
+    const normalizedModels = (
+      models as AxAIInputModelList<TModel, TEmbedModel, TModelKey> | undefined
+    )?.map((item) => {
+      const anyItem = item as any;
+      const cfg = anyItem?.config as
+        | Partial<
+            AxAIOpenAIResponsesConfig<AxAIOpenAIResponsesModel, TEmbedModel>
+          >
+        | undefined;
+      if (!cfg) return item;
+
+      const modelConfig: Partial<AxModelConfig> = {};
+      if ((cfg as any).maxTokens !== undefined)
+        modelConfig.maxTokens = (cfg as any).maxTokens;
+      if ((cfg as any).temperature !== undefined)
+        modelConfig.temperature = (cfg as any).temperature;
+      if ((cfg as any).topP !== undefined) modelConfig.topP = (cfg as any).topP;
+      if ((cfg as any).presencePenalty !== undefined)
+        modelConfig.presencePenalty = (cfg as any).presencePenalty as number;
+      if ((cfg as any).frequencyPenalty !== undefined)
+        modelConfig.frequencyPenalty = (cfg as any).frequencyPenalty as number;
+      const stopSeq = (cfg as any).stopSequences ?? (cfg as any).stop;
+      if (stopSeq !== undefined)
+        modelConfig.stopSequences = stopSeq as string[];
+      if ((cfg as any).n !== undefined)
+        modelConfig.n = (cfg as any).n as number;
+      if ((cfg as any).stream !== undefined)
+        modelConfig.stream = (cfg as any).stream as boolean;
+
+      const out: any = { ...anyItem };
+      if (Object.keys(modelConfig).length > 0) {
+        out.modelConfig = { ...(anyItem.modelConfig ?? {}), ...modelConfig };
+      }
+
+      // Map optional numeric thinking budget to closest Ax level for convenience
+      const numericBudget = (cfg as any)?.thinking?.thinkingTokenBudget;
+      if (typeof numericBudget === 'number') {
+        const candidates = [
+          ['minimal', 200],
+          ['low', 800],
+          ['medium', 5000],
+          ['high', 10000],
+          ['highest', 24500],
+        ] as const;
+        let bestName: 'minimal' | 'low' | 'medium' | 'high' | 'highest' =
+          'minimal';
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (const [name, value] of candidates) {
+          const diff = Math.abs(numericBudget - value);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestName = name as typeof bestName;
+          }
+        }
+        out.thinkingTokenBudget = bestName;
+      }
+      if ((cfg as any)?.thinking?.includeThoughts !== undefined) {
+        out.showThoughts = !!(cfg as any).thinking.includeThoughts;
+      }
+
+      return out as typeof item;
+    });
 
     super(aiImpl, {
       name: 'OpenAI',
@@ -158,7 +218,7 @@ export class AxAIOpenAIResponsesBase<
       },
       options,
       supportFor,
-      models: formattedModels,
+      models: normalizedModels,
     });
   }
 }
@@ -236,8 +296,8 @@ export class AxAIOpenAIResponses<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThoughts ?? false,
         media: {
           images: {
             supported: false,

@@ -70,13 +70,11 @@ describe('Postbuild Script', () => {
     expect(generatedPackageJson.exports['.'].import).toBe('./index.js');
     expect(generatedPackageJson.exports['.'].require).toBe('./index.cjs');
     expect(generatedPackageJson.exports['.'].types).toBe('./index.d.ts');
-    expect(generatedPackageJson.exports['.'].browser).toBe('./index.global.js');
 
     // Verify legacy fields
     expect(generatedPackageJson.main).toBe('./index.cjs');
     expect(generatedPackageJson.module).toBe('./index.js');
     expect(generatedPackageJson.types).toBe('./index.d.ts');
-    expect(generatedPackageJson.browser).toBe('./index.global.js');
 
     // Verify cleanup
     expect(generatedPackageJson.devDependencies).toBeUndefined();

@@ -158,9 +158,13 @@ class AxAICohereImpl
       ...(toolResults && !message ? { tool_results: toolResults } : {}),
       chat_history: chatHistory,
       max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
+      ...(req.modelConfig?.temperature !== undefined
+        ? { temperature: req.modelConfig.temperature }
+        : {}),
       k: req.modelConfig?.topK ?? this.config.topK,
-      p: req.modelConfig?.topP ?? this.config.topP,
+      ...(req.modelConfig?.topP !== undefined
+        ? { p: req.modelConfig.topP }
+        : {}),
       frequency_penalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       presence_penalty:
@@ -319,6 +323,36 @@ export class AxAICohere<TModelKey> extends AxBaseAI<
 
     const aiImpl = new AxAICohereImpl(Config);
 
+    // Normalize per-model presets: allow provider-specific config on each model list item
+    const normalizedModels = models?.map((item) => {
+      const anyItem = item as any;
+      const cfg = anyItem?.config as Partial<AxAICohereConfig> | undefined;
+      if (!cfg) return item;
+
+      const modelConfig: Partial<AxModelConfig> = {};
+      if (cfg.maxTokens !== undefined) modelConfig.maxTokens = cfg.maxTokens;
+      if (cfg.temperature !== undefined)
+        modelConfig.temperature = cfg.temperature;
+      if (cfg.topP !== undefined) modelConfig.topP = cfg.topP;
+      if (cfg.topK !== undefined) modelConfig.topK = cfg.topK as number;
+      if (cfg.presencePenalty !== undefined)
+        modelConfig.presencePenalty = cfg.presencePenalty as number;
+      if (cfg.frequencyPenalty !== undefined)
+        modelConfig.frequencyPenalty = cfg.frequencyPenalty as number;
+      if (cfg.stopSequences !== undefined)
+        modelConfig.stopSequences = cfg.stopSequences as string[];
+      if ((cfg as any).endSequences !== undefined)
+        (modelConfig as any).endSequences = (cfg as any).endSequences;
+      if (cfg.stream !== undefined) modelConfig.stream = cfg.stream as boolean;
+      if (cfg.n !== undefined) modelConfig.n = cfg.n as number;
+
+      const out: any = { ...anyItem };
+      if (Object.keys(modelConfig).length > 0) {
+        out.modelConfig = { ...(anyItem.modelConfig ?? {}), ...modelConfig };
+      }
+      return out as typeof item;
+    });
+
     super(aiImpl, {
       name: 'Cohere',
       apiURL: 'https://api.cohere.ai/v1',
@@ -360,7 +394,7 @@ export class AxAICohere<TModelKey> extends AxBaseAI<
         multiTurn: true,
       },
       options,
-      models,
+      models: normalizedModels ?? models,
     });
   }
 }

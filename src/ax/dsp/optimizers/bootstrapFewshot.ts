@@ -1,10 +1,14 @@
+import type {
+  AxCompileOptions,
+  AxExample,
+  AxMetricFn,
+  AxOptimizerArgs,
+  AxTypedExample,
+} from '../common_types.js';
 import type { AxGen } from '../generate.js';
 import {
   AxBaseOptimizer,
-  type AxBootstrapCompileOptions,
   type AxBootstrapOptimizerOptions,
-  type AxMetricFn,
-  type AxOptimizerArgs,
   type AxOptimizerResult,
 } from '../optimizer.js';
 import type {
@@ -21,10 +25,7 @@ interface ModelConfig {
   [key: string]: number | string | boolean | undefined;
 }
 
-export class AxBootstrapFewShot<
-  IN = any,
-  OUT extends AxGenOut = any,
-> extends AxBaseOptimizer<IN, OUT> {
+export class AxBootstrapFewShot extends AxBaseOptimizer {
   private maxRounds: number;
   private maxDemos: number;
   private maxExamples: number;
@@ -34,7 +35,7 @@ export class AxBootstrapFewShot<
   private maxTokensPerGeneration: number;
   private verboseMode: boolean;
   private debugMode: boolean;
-  private traces: AxProgramTrace<IN, OUT>[] = [];
+  private traces: AxProgramTrace<any, any>[] = [];
 
   constructor(
     args: Readonly<AxOptimizerArgs & { options?: AxBootstrapOptimizerOptions }>
@@ -58,12 +59,13 @@ export class AxBootstrapFewShot<
     // The base class provides methods to access teacher AI with fallbacks
   }
 
-  private async compileRound(
+  private async compileRound<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     roundIndex: number,
     metricFn: AxMetricFn,
-    options?: { maxRounds?: number; maxDemos?: number } | undefined
-  ) {
+    options?: AxCompileOptions
+  ): Promise<void> {
     const _st = Date.now();
     const maxDemos = options?.maxDemos ?? this.maxDemos;
     const aiOpt = {
@@ -77,20 +79,23 @@ export class AxBootstrapFewShot<
       aiOpt.modelConfig.max_tokens = this.maxTokensPerGeneration;
     }
 
-    const examples = randomSample(this.examples, this.maxExamples);
+    const examplesSample = randomSample(
+      [...examples] as AxExample[],
+      this.maxExamples
+    );
     const previousSuccessCount = this.traces.length;
 
     // Process examples in batches if batch size > 1
-    for (let i = 0; i < examples.length; i += this.batchSize) {
+    for (let i = 0; i < examplesSample.length; i += this.batchSize) {
       if (i > 0) {
         aiOpt.modelConfig.temperature = 0.7 + 0.001 * i;
       }
 
-      const batch = examples.slice(i, i + this.batchSize);
+      const batch = examplesSample.slice(i, i + this.batchSize);
 
       // Process batch sequentially for now (could be parallelized if AI service supports it)
       for (const ex of batch) {
-        if (!ex) {
+        if (!ex || typeof ex !== 'object') {
           continue;
         }
 
@@ -122,7 +127,10 @@ export class AxBootstrapFewShot<
               JSON.stringify(ex).length / 4 + JSON.stringify(res).length / 4;
           }
 
-          const score = await metricFn({ prediction: res, example: ex });
+          const score = await metricFn({
+            prediction: res,
+            example: ex as AxExample,
+          });
           const success = score >= 0.5; // Assuming a threshold of 0.5 for success
           if (success) {
             this.traces = [...this.traces, ...program.getTraces()];
@@ -172,11 +180,15 @@ export class AxBootstrapFewShot<
     }
   }
 
-  public async compile(
+  public async compile<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
-    options?: AxBootstrapCompileOptions
+    options?: AxCompileOptions
   ): Promise<AxOptimizerResult<OUT>> {
+    // Validate examples meet minimum requirements (Bootstrap doesn't split)
+    this.validateExamples(examples, false);
+
     const maxRounds = options?.maxIterations ?? this.maxRounds;
     this.traces = [];
 
@@ -184,7 +196,7 @@ export class AxBootstrapFewShot<
     this.reset();
 
     for (let i = 0; i < maxRounds; i++) {
-      await this.compileRound(program, i, metricFn, options);
+      await this.compileRound(program, examples, i, metricFn, options);
 
       // Break early if early stopping was triggered
       if (this.stats.earlyStopped) {
@@ -198,7 +210,7 @@ export class AxBootstrapFewShot<
       );
     }
 
-    const demos: AxProgramDemos<IN, OUT>[] = groupTracesByKeys(this.traces);
+    const demos: AxProgramDemos<any, OUT>[] = groupTracesByKeys(this.traces);
 
     // Calculate best score from traces
     let bestScore = 0;
@@ -208,12 +220,20 @@ export class AxBootstrapFewShot<
         this.stats.successfulDemos / Math.max(1, this.stats.totalCalls);
     }
 
-    // if (this.verboseMode || this.debugMode) {
-    //   this.getLogger()?.(
-    //     `Bootstrap complete. Generated ${demos.length} demos with ${bestScore.toFixed(3)} success rate`,
-    //     { tags: ['optimizer', 'complete'] }
-    //   );
-    // }
+    // Log human-readable completion message
+    await this.logOptimizationComplete(
+      'BootstrapFewShot',
+      bestScore,
+      {
+        maxRounds: this.maxRounds,
+        maxDemos: this.maxDemos,
+        batchSize: this.batchSize,
+        successRate: bestScore,
+        demosGenerated: demos.length,
+        tracesCollected: this.traces.length,
+      },
+      options
+    );
 
     return {
       demos,
@@ -231,7 +251,7 @@ export class AxBootstrapFewShot<
 
 function groupTracesByKeys<IN, OUT>(
   programTraces: readonly AxProgramTrace<IN, OUT>[]
-): AxProgramDemos<IN, OUT>[] {
+): AxProgramDemos<any, any>[] {
   const groupedTraces = new Map<string, Record<string, AxFieldValue>[]>();
 
   // Group all traces by their keys
@@ -247,7 +267,7 @@ function groupTracesByKeys<IN, OUT>(
   }
 
   // Convert the Map into an array of ProgramDemos
-  const programDemosArray: AxProgramDemos<IN, OUT>[] = [];
+  const programDemosArray: AxProgramDemos<any, any>[] = [];
   groupedTraces.forEach((traces, programId) => {
     programDemosArray.push({
       traces: traces as unknown as (OUT & IN)[],

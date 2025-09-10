@@ -1,6 +1,7 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIAnthropicModel {
+  Claude41Opus = 'claude-opus-4-1-20250805',
   Claude4Opus = 'claude-opus-4-20250514',
   Claude4Sonnet = 'claude-sonnet-4-20250514',
   Claude37Sonnet = 'claude-3-7-sonnet-latest',
@@ -28,6 +29,10 @@ export enum AxAIAnthropicVertexModel {
 export type AxAIAnthropicThinkingConfig = {
   type: 'enabled';
   budget_tokens: number;
+  /** Optional: numeric budget hint used in config normalization */
+  thinkingTokenBudget?: number;
+  /** Optional: include provider thinking content in outputs */
+  includeThoughts?: boolean;
 };
 
 export type AxAIAnthropicThinkingTokenBudgetLevels = {
@@ -38,10 +43,39 @@ export type AxAIAnthropicThinkingTokenBudgetLevels = {
   highest?: number;
 };
 
+// Function-style tool definition (Anthropic JSON tool)
+export type AxAIAnthropicFunctionTool = {
+  name: string;
+  description: string;
+  input_schema?: object;
+} & AxAIAnthropicChatRequestCacheParam;
+
+// Server tool: Web Search (see Anthropic docs)
+// https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/web-search-tool
+export type AxAIAnthropicWebSearchTool = {
+  type: 'web_search_20250305';
+  name: string; // typically "web_search"
+  max_uses?: number;
+  allowed_domains?: string[];
+  blocked_domains?: string[];
+  user_location?: {
+    type: 'approximate';
+    city?: string;
+    region?: string;
+    country?: string;
+    timezone?: string;
+  };
+};
+
+export type AxAIAnthropicRequestTool =
+  | AxAIAnthropicFunctionTool
+  | AxAIAnthropicWebSearchTool;
+
 export type AxAIAnthropicConfig = AxModelConfig & {
   model: AxAIAnthropicModel | AxAIAnthropicVertexModel;
   thinking?: AxAIAnthropicThinkingConfig;
   thinkingTokenBudgetLevels?: AxAIAnthropicThinkingTokenBudgetLevels;
+  tools?: ReadonlyArray<AxAIAnthropicRequestTool>;
 };
 
 export type AxAIAnthropicChatRequestCacheParam = {
@@ -105,11 +139,7 @@ export type AxAIAnthropicChatRequest = {
             )[];
       }
   )[];
-  tools?: ({
-    name: string;
-    description: string;
-    input_schema?: object;
-  } & AxAIAnthropicChatRequestCacheParam)[];
+  tools?: AxAIAnthropicRequestTool[];
   tool_choice?: { type: 'auto' | 'any' } | { type: 'tool'; name?: string };
   max_tokens?: number; // Maximum number of tokens to generate
   // Optional metadata about the request
@@ -205,6 +235,19 @@ export interface AxAIAnthropicContentBlockStartEvent {
         id: string;
         name: string;
         input: object;
+      }
+    | {
+        // Server-side tool invocation (e.g., web_search)
+        type: 'server_tool_use';
+        id: string;
+        name: string;
+        input: object;
+      }
+    | {
+        // Server tool result container (we ignore its payload in responses)
+        type: 'web_search_tool_result';
+        tool_use_id: string;
+        content: unknown[];
       }
     | {
         type: 'thinking';

@@ -19,14 +19,17 @@ import {
   type AxAIAnthropicContentBlockStartEvent,
   type AxAIAnthropicContentBlockStopEvent,
   type AxAIAnthropicErrorEvent,
+  type AxAIAnthropicFunctionTool,
   type AxAIAnthropicMessageDeltaEvent,
   type AxAIAnthropicMessageStartEvent,
   type AxAIAnthropicMessageStopEvent,
   AxAIAnthropicModel,
   type AxAIAnthropicPingEvent,
+  type AxAIAnthropicRequestTool,
   type AxAIAnthropicThinkingConfig,
   type AxAIAnthropicThinkingTokenBudgetLevels,
   AxAIAnthropicVertexModel,
+  type AxAIAnthropicWebSearchTool,
 } from './ai/anthropic/types.js';
 import {
   AxAIAzureOpenAI,
@@ -271,6 +274,11 @@ import {
   type AxAIOpenAIResponsesWebSearchToolCall,
 } from './ai/openai/responses_types.js';
 import {
+  AxAIOpenRouter,
+  type AxAIOpenRouterArgs,
+  axAIOpenRouterDefaultConfig,
+} from './ai/openrouter/api.js';
+import {
   axAnalyzeChatPromptRequirements,
   axProcessContentForProvider,
 } from './ai/processor.js';
@@ -314,6 +322,7 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
+  AxCitation,
   AxEmbedRequest,
   AxEmbedResponse,
   AxFunction,
@@ -431,6 +440,22 @@ import {
   AxSimpleClassifierClass,
   type AxSimpleClassifierForwardOptions,
 } from './dsp/classifier.js';
+import type {
+  AxCheckpointLoadFn,
+  AxCheckpointSaveFn,
+  AxCompileOptions,
+  AxCostTracker,
+  AxCostTrackerOptions,
+  AxExample,
+  AxMetricFn,
+  AxMetricFnArgs,
+  AxMultiMetricFn,
+  AxOptimizationCheckpoint,
+  AxOptimizationProgress,
+  AxOptimizationStats,
+  AxOptimizerArgs,
+  AxTypedExample,
+} from './dsp/common_types.js';
 import { AxEvalUtil } from './dsp/eval.js';
 import { type AxEvaluateArgs, AxTestPrompt } from './dsp/evaluate.js';
 import type {
@@ -443,6 +468,7 @@ import {
   AxFunctionError,
   AxFunctionProcessor,
   type AxInputFunctionType,
+  AxStopFunctionCallException,
 } from './dsp/functions.js';
 import {
   AxGen,
@@ -469,25 +495,12 @@ import {
 } from './dsp/metrics.js';
 import {
   AxBaseOptimizer,
-  type AxBootstrapCompileOptions,
   type AxBootstrapOptimizerOptions,
-  type AxCheckpointLoadFn,
-  type AxCheckpointSaveFn,
-  type AxCompileOptions,
-  type AxCostTracker,
-  type AxCostTrackerOptions,
   AxDefaultCostTracker,
-  type AxExample,
-  type AxMetricFn,
-  type AxMetricFnArgs,
-  type AxMiPROCompileOptions,
   type AxMiPROOptimizerOptions,
-  type AxMultiMetricFn,
-  type AxOptimizationCheckpoint,
-  type AxOptimizationProgress,
-  type AxOptimizationStats,
+  type AxOptimizedProgram,
+  AxOptimizedProgramImpl,
   type AxOptimizer,
-  type AxOptimizerArgs,
   type AxOptimizerMetricsConfig,
   type AxOptimizerMetricsInstruments,
   type AxOptimizerResult,
@@ -502,6 +515,12 @@ import {
   axDefaultOptimizerLogger,
 } from './dsp/optimizerLogging.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
+import { AxGEPA } from './dsp/optimizers/gepa.js';
+import type {
+  AxGEPAAdapter,
+  AxGEPAEvaluationBatch,
+} from './dsp/optimizers/gepaAdapter.js';
+import { AxGEPAFlow } from './dsp/optimizers/gepaFlow.js';
 import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
 import type {
   AxOptimizerLoggerData,
@@ -518,6 +537,7 @@ import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
   type AxField,
   type AxFieldType,
+  type AxFluentFieldInfo,
   AxFluentFieldType,
   type AxIField,
   AxSignature,
@@ -685,6 +705,7 @@ export { AxAIOpenAIResponses };
 export { AxAIOpenAIResponsesBase };
 export { AxAIOpenAIResponsesImpl };
 export { AxAIOpenAIResponsesModel };
+export { AxAIOpenRouter };
 export { AxAIRefusalError };
 export { AxAIReka };
 export { AxAIRekaModel };
@@ -727,6 +748,8 @@ export { AxFlowTypedSubContextImpl };
 export { AxFluentFieldType };
 export { AxFunctionError };
 export { AxFunctionProcessor };
+export { AxGEPA };
+export { AxGEPAFlow };
 export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
@@ -740,6 +763,7 @@ export { AxMemory };
 export { AxMiPRO };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
+export { AxOptimizedProgramImpl };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
@@ -749,6 +773,7 @@ export { AxSignatureBuilder };
 export { AxSimpleClassifier };
 export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
+export { AxStopFunctionCallException };
 export { AxStringUtil };
 export { AxTestPrompt };
 export { agent };
@@ -781,6 +806,7 @@ export { axAIOpenAIFastConfig };
 export { axAIOpenAIResponsesBestConfig };
 export { axAIOpenAIResponsesCreativeConfig };
 export { axAIOpenAIResponsesDefaultConfig };
+export { axAIOpenRouterDefaultConfig };
 export { axAIRekaBestConfig };
 export { axAIRekaCreativeConfig };
 export { axAIRekaDefaultConfig };
@@ -849,12 +875,15 @@ export type { AxAIAnthropicContentBlockDeltaEvent };
 export type { AxAIAnthropicContentBlockStartEvent };
 export type { AxAIAnthropicContentBlockStopEvent };
 export type { AxAIAnthropicErrorEvent };
+export type { AxAIAnthropicFunctionTool };
 export type { AxAIAnthropicMessageDeltaEvent };
 export type { AxAIAnthropicMessageStartEvent };
 export type { AxAIAnthropicMessageStopEvent };
 export type { AxAIAnthropicPingEvent };
+export type { AxAIAnthropicRequestTool };
 export type { AxAIAnthropicThinkingConfig };
 export type { AxAIAnthropicThinkingTokenBudgetLevels };
+export type { AxAIAnthropicWebSearchTool };
 export type { AxAIArgs };
 export type { AxAIAzureOpenAIArgs };
 export type { AxAIAzureOpenAIConfig };
@@ -1000,6 +1029,7 @@ export type { AxAIOpenAIResponsesWebSearchCallSearchingEvent };
 export type { AxAIOpenAIResponsesWebSearchToolCall };
 export type { AxAIOpenAIUrlCitation };
 export type { AxAIOpenAIUsage };
+export type { AxAIOpenRouterArgs };
 export type { AxAIRekaArgs };
 export type { AxAIRekaChatRequest };
 export type { AxAIRekaChatResponse };
@@ -1032,7 +1062,6 @@ export type { AxApacheTikaConvertOptions };
 export type { AxAssertion };
 export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
-export type { AxBootstrapCompileOptions };
 export type { AxBootstrapOptimizerOptions };
 export type { AxChatRequest };
 export type { AxChatResponse };
@@ -1040,6 +1069,7 @@ export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
+export type { AxCitation };
 export type { AxCompileOptions };
 export type { AxContentProcessingServices };
 export type { AxCostTracker };
@@ -1102,12 +1132,15 @@ export type { AxFlowSubContext };
 export type { AxFlowTypedParallelBranch };
 export type { AxFlowTypedSubContext };
 export type { AxFlowable };
+export type { AxFluentFieldInfo };
 export type { AxForwardable };
 export type { AxFunction };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxFunctionResult };
 export type { AxFunctionResultFormatter };
+export type { AxGEPAAdapter };
+export type { AxGEPAEvaluationBatch };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
 export type { AxGenMetricsInstruments };
@@ -1137,7 +1170,6 @@ export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
 export type { AxMetricsConfig };
-export type { AxMiPROCompileOptions };
 export type { AxMiPROOptimizerOptions };
 export type { AxMiPROResult };
 export type { AxMockAIServiceConfig };
@@ -1150,6 +1182,7 @@ export type { AxMultiProviderConfig };
 export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
+export type { AxOptimizedProgram };
 export type { AxOptimizer };
 export type { AxOptimizerArgs };
 export type { AxOptimizerLoggerData };
@@ -1189,4 +1222,5 @@ export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
 export type { AxTokenUsage };
 export type { AxTunable };
+export type { AxTypedExample };
 export type { AxUsable };

@@ -1,6 +1,7 @@
 import { context, type Span, SpanKind } from '@opentelemetry/api';
 import { axGlobals } from '../dsp/globals.js';
 import { defaultLogger } from '../dsp/loggers.js';
+import type { AxMessage } from '../dsp/types.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { apiCall } from '../util/apicall.js';
 import { randomUUID } from '../util/crypto.js';
@@ -50,6 +51,7 @@ import type {
   AxModelInfo,
   AxModelUsage,
 } from './types.js';
+import { axValidateChatRequestMessage } from './validate.js';
 
 export interface AxAIFeatures {
   functions: boolean;
@@ -127,14 +129,11 @@ export interface AxBaseAIArgs<TModel, TEmbedModel, TModelKey> {
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
   structuredClone({
     temperature: 0,
-    topK: 40,
-    topP: 0.9,
   });
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
     temperature: 0.4,
-    topP: 0.7,
     frequencyPenalty: 0.2,
   });
 
@@ -256,7 +255,7 @@ export class AxBaseAI<
     this.setOptions(options);
 
     if (models) {
-      validateModels(models);
+      _validateModels(models);
     }
   }
 
@@ -876,8 +875,45 @@ export class AxBaseAI<
     let isError = false;
     let result: AxChatResponse | ReadableStream<AxChatResponse>;
 
+    // Merge per-model-key default options if a key entry provides them
+    const modelKeyEntry = this.getModelByKey(
+      req.model as TModel | TEmbedModel | TModelKey
+    );
+    const mergedOptions: Readonly<AxAIServiceOptions> = {
+      ...(modelKeyEntry
+        ? {
+            thinkingTokenBudget: (
+              modelKeyEntry as {
+                thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
+              }
+            ).thinkingTokenBudget,
+            showThoughts: (
+              modelKeyEntry as {
+                showThoughts?: AxAIServiceOptions['showThoughts'];
+              }
+            ).showThoughts,
+            stream: (
+              modelKeyEntry as {
+                stream?: AxAIServiceOptions['stream'];
+              }
+            ).stream,
+            debug: (
+              modelKeyEntry as {
+                debug?: AxAIServiceOptions['debug'];
+              }
+            ).debug,
+            useExpensiveModel: (
+              modelKeyEntry as {
+                useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
+              }
+            ).useExpensiveModel,
+          }
+        : undefined),
+      ...options,
+    } as AxAIServiceOptions;
+
     try {
-      result = await this._chat1(req, options);
+      result = await this._chat1(req, mergedOptions);
       return result;
     } catch (error) {
       isError = true;
@@ -903,7 +939,7 @@ export class AxBaseAI<
 
       // Record additional metrics if successful
       if (!isError) {
-        this.recordChatMetrics(req, options, result!);
+        this.recordChatMetrics(req, mergedOptions, result!);
       }
     }
   }
@@ -915,15 +951,38 @@ export class AxBaseAI<
     const model =
       this.getModel(req.model) ?? (req.model as TModel) ?? this.defaults.model;
 
-    // Validate chat prompt messages for empty content
-    if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
-      validateAxMessageArray(req.chatPrompt);
+    // Validate chat prompt messages
+    if (Array.isArray(req.chatPrompt)) {
+      for (const item of req.chatPrompt) {
+        axValidateChatRequestMessage(item);
+      }
     }
 
+    // Merge per-model-key default modelConfig if provided
+    const modelKeyEntry = this.getModelByKey(
+      req.model as TModel | TEmbedModel | TModelKey
+    );
     const modelConfig = {
       ...this.aiImpl.getModelConfig(),
+      ...(modelKeyEntry
+        ? (modelKeyEntry as { modelConfig?: AxModelConfig }).modelConfig
+        : undefined),
       ...req.modelConfig,
-    };
+    } as AxModelConfig;
+
+    const selectedModelInfo = this.modelInfo.find(
+      (info) => info.name === (model as string)
+    );
+    if (selectedModelInfo?.notSupported?.temperature) {
+      if ('temperature' in modelConfig) {
+        delete (modelConfig as { temperature?: number }).temperature;
+      }
+    }
+    if (selectedModelInfo?.notSupported?.topP) {
+      if ('topP' in modelConfig) {
+        delete (modelConfig as { topP?: number }).topP;
+      }
+    }
 
     // Check for thinkingTokenBudget support
     if (
@@ -1040,7 +1099,7 @@ export class AxBaseAI<
     span?: Span
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     if (!this.aiImpl.createChatReq) {
-      throw new Error('generateChatReq not implemented');
+      throw new Error('createChatReq not implemented');
     }
 
     const debug = options?.debug ?? this.debug;
@@ -1062,9 +1121,51 @@ export class AxBaseAI<
     this.lastUsedChatModel = model;
     this.lastUsedModelConfig = modelConfig;
 
+    if (debug) {
+      logChatRequest(
+        req.chatPrompt,
+        options?.stepIndex ?? 0,
+        options?.logger ?? this.logger,
+        options?.debugHideSystemPrompt
+      );
+    }
+
+    // After logging, optionally emulate prompt-based function mode centrally
+    const providerSupportsFunctions = this.getFeatures(model).functions;
+    const requestedFunctionCallMode = options?.functionCallMode ?? 'auto';
+    const shouldEmulatePromptMode =
+      requestedFunctionCallMode === 'prompt' ||
+      (requestedFunctionCallMode === 'auto' && !providerSupportsFunctions);
+
+    const effectiveReq = shouldEmulatePromptMode
+      ? {
+          ...req,
+          chatPrompt: req.chatPrompt.map((msg) => {
+            if (msg.role === 'assistant') {
+              const { content, name, cache } = msg;
+              return {
+                role: 'assistant' as const,
+                content,
+                name,
+                cache,
+              } as typeof msg;
+            }
+            if (msg.role === 'function') {
+              const content = msg.result;
+              return {
+                role: 'user' as const,
+                content,
+              } as (typeof req.chatPrompt)[number];
+            }
+            return msg;
+          }),
+          functions: [],
+        }
+      : req;
+
     const fn = async () => {
       const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
-        req,
+        effectiveReq,
         options
       );
 
@@ -1091,21 +1192,12 @@ export class AxBaseAI<
       return res;
     };
 
-    if (debug) {
-      logChatRequest(
-        req.chatPrompt,
-        options?.stepIndex ?? 0,
-        options?.logger ?? this.logger,
-        options?.debugHideSystemPrompt
-      );
-    }
-
     const rt = options?.rateLimiter ?? this.rt;
     const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
 
     if (modelConfig.stream) {
       if (!this.aiImpl.createChatStreamResp) {
-        throw new Error('generateChatStreamResp not implemented');
+        throw new Error('createChatStreamResp not implemented');
       }
 
       const respFn = this.aiImpl.createChatStreamResp.bind(this);
@@ -1166,10 +1258,38 @@ export class AxBaseAI<
         const sourceStream = rv as ReadableStream<TChatResponseDelta>;
         const transformState = {};
         const transformedValues: AxChatResponse[] = [];
-
+        const abortSignal = options?.abortSignal ?? this.abortSignal;
         return new ReadableStream<AxChatResponse>({
-          start(controller) {
+          start: (controller) => {
             const reader = sourceStream.getReader();
+
+            const onAbort = () => {
+              try {
+                reader.cancel().catch(() => {});
+              } catch {}
+              try {
+                this.recordAbortMetric('chat');
+              } catch {}
+              try {
+                if (span?.isRecording()) span.end();
+              } catch {}
+              try {
+                // DOMException is available in browsers; fallback to Error if unavailable
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                controller.error(new DOMException('Aborted', 'AbortError'));
+              } catch {
+                controller.error(new Error('Aborted'));
+              }
+            };
+
+            if (abortSignal) {
+              if (abortSignal.aborted) {
+                onAbort();
+                return;
+              }
+              abortSignal.addEventListener('abort', onAbort, { once: true });
+            }
 
             async function read() {
               try {
@@ -1192,8 +1312,18 @@ export class AxBaseAI<
                 }
               } catch (error) {
                 controller.error(error);
+                if (span?.isRecording()) {
+                  try {
+                    span.end();
+                  } catch {}
+                }
               } finally {
                 reader.releaseLock();
+                if (abortSignal) {
+                  try {
+                    abortSignal.removeEventListener('abort', onAbort);
+                  } catch {}
+                }
               }
             }
 
@@ -1212,7 +1342,7 @@ export class AxBaseAI<
     }
 
     if (!this.aiImpl.createChatResp) {
-      throw new Error('generateChatResp not implemented');
+      throw new Error('createChatResp not implemented');
     }
 
     const res = this.aiImpl.createChatResp(rv as TChatResponse);
@@ -1255,8 +1385,45 @@ export class AxBaseAI<
     let isError = false;
     let result: AxEmbedResponse | undefined;
 
+    // Merge per-model-key default options if a key entry provides them
+    const modelKeyEntry = this.getModelByKey(
+      req.embedModel as TModel | TEmbedModel | TModelKey
+    );
+    const mergedOptions: Readonly<AxAIServiceOptions> = {
+      ...(modelKeyEntry
+        ? {
+            thinkingTokenBudget: (
+              modelKeyEntry as {
+                thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
+              }
+            ).thinkingTokenBudget,
+            showThoughts: (
+              modelKeyEntry as {
+                showThoughts?: AxAIServiceOptions['showThoughts'];
+              }
+            ).showThoughts,
+            stream: (
+              modelKeyEntry as {
+                stream?: AxAIServiceOptions['stream'];
+              }
+            ).stream,
+            debug: (
+              modelKeyEntry as {
+                debug?: AxAIServiceOptions['debug'];
+              }
+            ).debug,
+            useExpensiveModel: (
+              modelKeyEntry as {
+                useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
+              }
+            ).useExpensiveModel,
+          }
+        : undefined),
+      ...options,
+    } as AxAIServiceOptions;
+
     try {
-      result = await this._embed1(req, options);
+      result = await this._embed1(req, mergedOptions);
       return result;
     } catch (error) {
       isError = true;
@@ -1301,7 +1468,7 @@ export class AxBaseAI<
     }
 
     if (this.tracer) {
-      await this.tracer?.startActiveSpan(
+      return await this.tracer.startActiveSpan(
         'AI Embed Request',
         {
           kind: SpanKind.SERVER,
@@ -1313,15 +1480,11 @@ export class AxBaseAI<
         },
         options?.traceContext ?? context.active(),
         async (span) => {
-          try {
-            return await this._embed2(embedModel, req, options, span);
-          } finally {
-            span.end();
-          }
+          return await this._embed2(embedModel, req, options, span);
         }
       );
     }
-    return this._embed2(embedModel, req, options);
+    return await this._embed2(embedModel, req, options);
   }
 
   private async _embed2(
@@ -1331,13 +1494,14 @@ export class AxBaseAI<
     span?: Span
   ): Promise<AxEmbedResponse> {
     if (!this.aiImpl.createEmbedReq) {
-      throw new Error('generateEmbedReq not implemented');
+      throw new Error('createEmbedReq not implemented');
     }
     if (!this.aiImpl.createEmbedResp) {
-      throw new Error('generateEmbedResp not implemented');
+      throw new Error('createEmbedResp not implemented');
     }
 
-    const createEmbedReq = this.aiImpl.createEmbedReq;
+    // Bind provider implementation method to preserve `this` and satisfy TS
+    const createEmbedReq = this.aiImpl.createEmbedReq!.bind(this.aiImpl);
     const debug = options?.debug ?? this.debug;
 
     const req = {
@@ -1377,8 +1541,9 @@ export class AxBaseAI<
       return res;
     };
 
-    const resValue = this.rt
-      ? await this.rt(fn, { modelUsage: this.embedModelUsage })
+    const rt = options?.rateLimiter ?? this.rt;
+    const resValue = rt
+      ? await rt(fn, { modelUsage: this.embedModelUsage })
       : await fn();
     const res = this.aiImpl.createEmbedResp?.(resValue as TEmbedResponse);
 
@@ -1536,7 +1701,7 @@ export function setChatResponseEvents(
   excludeContentFromTrace?: boolean
 ) {
   if (res.modelUsage?.tokens) {
-    const thoughTokens = res.modelUsage.tokens.thoughtsTokens
+    const thoughtsTokensEntry = res.modelUsage.tokens.thoughtsTokens
       ? {
           [axSpanAttributes.LLM_USAGE_THOUGHTS_TOKENS]:
             res.modelUsage.tokens.thoughtsTokens,
@@ -1549,7 +1714,7 @@ export function setChatResponseEvents(
         res.modelUsage.tokens.completionTokens ?? 0,
       [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
         res.modelUsage.tokens.totalTokens,
-      ...thoughTokens,
+      ...thoughtsTokensEntry,
     });
   }
 
@@ -1603,28 +1768,30 @@ export function setChatResponseEvents(
   }
 }
 
-export function validateAxMessageArray<T>(values: T[]): void {
-  // Validate AxMessage array items
-  for (let i = 0; i < values.length; i++) {
-    const message = values[i];
+export function validateAxMessageArray<T>(
+  values: ReadonlyArray<AxMessage<T>>
+): void {
+  let index = 0;
+  for (const message of values) {
     if (!message || typeof message !== 'object') {
       throw new Error(
-        `AxMessage array validation failed: Item at index ${i} is not a valid message object`
+        `AxMessage array validation failed: Item at index ${index} is not a valid message object`
       );
     }
-    if (
-      'content' in message &&
-      typeof message.content === 'string' &&
-      message.content.trim() === ''
-    ) {
+    if (message.role !== 'user' && message.role !== 'assistant') {
       throw new Error(
-        `AxMessage array validation failed: Item at index ${i} has empty content`
+        `AxMessage array validation failed: Item at index ${index} has invalid role: ${
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (message as any).role
+        }`
       );
     }
+    // The current AxMessage design accepts any "values" payload. Do not enforce non-empty object.
+    index++;
   }
 }
 
-function validateModels<TModel, TEmbedModel, TModelKey>(
+function _validateModels<TModel, TEmbedModel, TModelKey>(
   models: Readonly<AxAIInputModelList<TModel, TEmbedModel, TModelKey>>
 ): void {
   // Validate duplicate keys in models.

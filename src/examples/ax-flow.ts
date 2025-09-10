@@ -1,7 +1,7 @@
 // AxFlow usage examples: full method names and aliases
-import { AxAI, AxAIGoogleGeminiModel, AxFlow, flow } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, AxFlow, ai, flow } from '@ax-llm/ax';
 
-const ai = new AxAI({
+const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
@@ -53,7 +53,10 @@ const flowAlias1 = AxFlow.create<{ ticketMessage: string }>()
   .m((state) => ({ supportResponse: state.responderResult.supportResponse }));
 
 // Aliases example 2 - Simplified code review system with auto-parallelization
-const flowAlias2 = new AxFlow<{ codeSnippet: string }, { codeReview: string }>({
+const flowAlias2 = AxFlow.create<
+  { codeSnippet: string },
+  { codeReview: string }
+>({
   autoParallel: true,
 })
   .n(
@@ -72,7 +75,7 @@ const flowAlias2 = new AxFlow<{ codeSnippet: string }, { codeReview: string }>({
   .m((s) => ({ codeReview: s.reviewGeneratorResult.codeReview }));
 
 // Branch example - Content moderation system
-const flowBranch = new AxFlow<
+const flowBranch = AxFlow.create<
   { userPost: string; postType: string },
   { moderationAction: string }
 >()
@@ -203,7 +206,7 @@ const flowBatchedParallel = flow<{ documentBatch: string }>()
 
 console.log('=== Document Analysis Pipeline ===');
 const resultFull = await flowFull.forward(
-  ai,
+  llm,
   {
     documentContent:
       'This is a sample business document about quarterly earnings.',
@@ -213,46 +216,46 @@ const resultFull = await flowFull.forward(
 console.log('Document analysis complete:', resultFull);
 
 console.log('\n=== Customer Support Ticket Processing ===');
-const resultAlias1 = await flowAlias1.forward(ai, {
+const resultAlias1 = await flowAlias1.forward(llm, {
   ticketMessage: 'My order is delayed and I need urgent help!',
 });
 console.log('Support ticket processed:', resultAlias1);
 
 console.log('\n=== Code Review System ===');
-const resultAlias2 = await flowAlias2.forward(ai, {
+const resultAlias2 = await flowAlias2.forward(llm, {
   codeSnippet: 'function add(a, b) { return a + b; }',
 });
 console.log('Code review complete:', resultAlias2);
 
 console.log('\n=== Content Moderation System ===');
-const resultBranch = await flowBranch.forward(ai, {
+const resultBranch = await flowBranch.forward(llm, {
   userPost: 'Great product recommendation!',
   postType: 'social',
 });
 console.log('Moderation decision:', resultBranch);
 
 console.log('\n=== Research Paper Analysis ===');
-const resultParallel = await flowParallel.forward(ai, {
+const resultParallel = await flowParallel.forward(llm, {
   paperAbstract:
     'This paper presents a novel approach to machine learning optimization.',
 });
 console.log('Paper scoring complete:', resultParallel);
 
 console.log('\n=== Iterative Writing Improvement ===');
-const resultWhile = await flowWhile.forward(ai, {
+const resultWhile = await flowWhile.forward(llm, {
   draftArticle: 'AI is changing the world in many ways.',
 });
 console.log('Writing improvement complete:', resultWhile);
 
 console.log('\n=== Multi-hop RAG Research ===');
-const resultRAG = await flowRAG.forward(ai, {
+const resultRAG = await flowRAG.forward(llm, {
   researchQuestion:
     'What are the latest developments in quantum computing applications?',
 });
 console.log('Research complete:', resultRAG);
 
 console.log('\n=== Batched Parallel Processing ===');
-const resultBatched = await flowBatchedParallel.forward(ai, {
+const resultBatched = await flowBatchedParallel.forward(llm, {
   documentBatch: 'Sample document content for parallel processing',
 });
 console.log('Batched processing complete:', resultBatched);

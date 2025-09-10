@@ -41,6 +41,7 @@ import type { extractionState } from './extract.js';
 import type { AxFieldProcessor } from './fieldProcessor.js';
 import {
   type AxChatResponseFunctionCall,
+  AxStopFunctionCallException,
   createFunctionConfig,
   parseFunctions,
 } from './functions.js';
@@ -66,7 +67,8 @@ import {
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
-import type { AxSignature, AxIField } from './sig.js';
+import type { AxIField, AxSignature } from './sig.js';
+import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import type {
   AsyncGenDeltaOut,
   AxGenDeltaOut,
@@ -127,11 +129,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private asserts: AxAssertion[];
   private streamingAsserts: AxStreamingAssertion[];
   private options?: Omit<AxProgramForwardOptions<any>, 'functions'>;
-  private functions?: AxFunction[];
+  private functions: AxFunction[];
   private fieldProcessors: AxFieldProcessor[] = [];
   private streamingFieldProcessors: AxFieldProcessor[] = [];
   private excludeContentFromTrace = false;
   private thoughtFieldName: string;
+  private signatureToolCallingManager?: SignatureToolCallingManager;
 
   constructor(
     signature:
@@ -157,11 +160,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     this.asserts = this.options?.asserts ?? [];
     this.streamingAsserts = this.options?.streamingAsserts ?? [];
     this.excludeContentFromTrace = options?.excludeContentFromTrace ?? false;
+    this.functions = options?.functions
+      ? parseFunctions(options.functions)
+      : [];
     this.usage = [];
-
-    if (options?.functions) {
-      this.functions = parseFunctions(options.functions);
-    }
   }
 
   private getSignatureName(): string {
@@ -281,6 +283,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const chatPrompt = mem?.history(selectedIndex, sessionId) ?? [];
 
+    // History transformation for prompt-mode is handled centrally in base.ts
+
     if (chatPrompt.length === 0) {
       throw new Error('No chat prompt found');
     }
@@ -296,9 +300,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const firstStep = stepIndex === 0;
     const logger = this.getLogger(ai, options);
 
+    // Do not send native functions to the provider when emulating via prompt mode
+    functions = this.signatureToolCallingManager ? [] : functions;
+
     const res = await ai.chat(
       {
         chatPrompt,
+        // Do not send native functions to the provider when emulating via prompt mode
         functions,
         functionCall,
         modelConfig,
@@ -317,6 +325,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         abortSignal: options?.abortSignal,
         stepIndex,
         logger,
+        functionCallMode:
+          options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto',
       }
     );
 
@@ -330,6 +340,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepIndex,
     span,
     traceContext,
+    states,
+    stopFunctionNames,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
@@ -337,21 +349,33 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepIndex?: number;
     span?: Span;
     traceContext?: Context;
+    states: InternalAxGenState[];
+    stopFunctionNames?: readonly string[];
   }>): AsyncGenDeltaOut<OUT> {
     const { sessionId, functions: functionList } = options ?? {};
+
+    const functionResultFormatter =
+      options?.functionResultFormatter ?? this.options?.functionResultFormatter;
+
     const definedFunctionCall =
       options?.functionCall ?? this.options?.functionCall;
+
+    const signatureToolCallingManager = this.signatureToolCallingManager;
+
     const strictMode = options?.strictMode ?? false;
     const model = options.model;
-    const states = this.createStates(options.sampleCount ?? 1);
     const usage = this.usage;
     const firstStep = stepIndex === 0;
+
+    const debug = this.isDebug(ai, options);
     const logger = this.getLogger(ai, options);
 
+    // Pass the function call mode directly to createFunctionConfig
     const { functions, functionCall } = createFunctionConfig(
       functionList,
       definedFunctionCall,
-      firstStep
+      firstStep,
+      options
     );
 
     const res = await this.forwardSendRequest({
@@ -371,6 +395,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         res,
         mem,
         sessionId,
+        traceId: span ? (span as any).spanContext?.().traceId : undefined,
         functions,
         strictMode,
         span,
@@ -384,9 +409,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
         logger,
-        functionResultFormatter:
-          options?.functionResultFormatter ??
-          this.options?.functionResultFormatter,
+        debug,
+        functionResultFormatter,
+        signatureToolCallingManager,
+        stopFunctionNames,
       });
     } else {
       yield* processResponse<OUT>({
@@ -395,6 +421,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         res,
         mem,
         sessionId,
+        traceId: span ? (span as any).spanContext?.().traceId : undefined,
         functions,
         span,
         strictMode,
@@ -406,9 +433,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
         logger,
-        functionResultFormatter:
-          options?.functionResultFormatter ??
-          this.options?.functionResultFormatter,
+        debug,
+        functionResultFormatter,
+        signatureToolCallingManager,
+        stopFunctionNames,
       });
     }
   }
@@ -421,29 +449,68 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     span?: Span,
     traceContext?: Context
   ): AxGenStreamingOut<OUT> {
-    const stopFunction = (
-      options?.stopFunction ?? this.options?.stopFunction
-    )?.toLowerCase();
+    const rawStop = options?.stopFunction ?? this.options?.stopFunction;
+    const stopFunctionNames = Array.isArray(rawStop)
+      ? rawStop.map((s) => s.toLowerCase())
+      : rawStop
+        ? [rawStop.toLowerCase()]
+        : undefined;
 
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10;
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10;
 
     const mem = options.mem ?? this.options?.mem ?? new AxMemory();
 
-    let err: ValidationError | AxAssertionError | undefined;
+    const functions = [
+      ...this.functions,
+      ...(options.functions ? parseFunctions(options.functions) : []),
+    ];
 
-    if (options?.functions && options.functions.length > 0) {
-      const promptTemplateClass =
-        this.options?.promptTemplate ?? AxPromptTemplate;
-      const currentPromptTemplateOptions = {
-        functions: options.functions,
-        thoughtFieldName: this.thoughtFieldName,
-      };
-      this.promptTemplate = new promptTemplateClass(
-        this.signature,
-        currentPromptTemplateOptions
+    const hasFunctions = functions && functions.length > 0;
+
+    const functionCallMode =
+      options.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
+
+    // Handle prompt mode
+    if (hasFunctions && functionCallMode === 'prompt') {
+      this.signatureToolCallingManager = new SignatureToolCallingManager(
+        functions
       );
     }
+
+    // Handle auto mode
+    if (
+      hasFunctions &&
+      functionCallMode === 'auto' &&
+      !ai.getFeatures(options.model).functions
+    )
+      this.signatureToolCallingManager = new SignatureToolCallingManager(
+        functions
+      );
+
+    let err: ValidationError | AxAssertionError | undefined;
+
+    const promptTemplateClass =
+      this.options?.promptTemplate ?? AxPromptTemplate;
+
+    // Use SignatureToolCallingManager to process signature if in prompt mode
+    if (this.signatureToolCallingManager) {
+      this.signature = this.signatureToolCallingManager.processSignature(
+        this.signature
+      );
+      this.setSignature(this.signature);
+    }
+
+    const currentPromptTemplateOptions = {
+      // Prefer per-call functions; fall back to parsed functions from constructor
+      functions: this.signatureToolCallingManager ? [] : functions,
+      thoughtFieldName: this.thoughtFieldName,
+    };
+
+    this.promptTemplate = new promptTemplateClass(
+      this.signature,
+      currentPromptTemplateOptions
+    );
 
     // New logic:
     let prompt: AxChatRequest['chatPrompt'];
@@ -453,7 +520,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     if (Array.isArray(values)) {
       // Validate AxMessage array items
-      validateAxMessageArray(values);
+      validateAxMessageArray<IN>(values as AxMessage<IN>[]);
 
       // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
       // For now, assume render will handle the array directly.
@@ -510,6 +577,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             stepIndex: n,
             span,
             traceContext,
+            states,
+            stopFunctionNames,
           });
 
           for await (const result of generator) {
@@ -524,7 +593,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
           const shouldContinue = shouldContinueSteps(
             mem,
-            stopFunction,
+            stopFunctionNames,
             states,
             options?.sessionId
           );
@@ -616,6 +685,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             handleRefusalErrorForGenerate(
               args as HandleErrorForGenerateArgs<AxAIRefusalError>
             );
+          } else if (e instanceof AxStopFunctionCallException) {
+            throw e;
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
@@ -781,8 +852,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const isStreaming = options?.stream ?? false;
     let success = false;
     let errorCorrectionAttempts = 0;
-    let functionsEnabled = false;
-    const functionsExecuted = 0;
     let resultPickerUsed = false;
 
     try {
@@ -798,9 +867,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           signatureName
         );
       }
-
-      // Check if functions are enabled
-      functionsEnabled = !!(options?.functions || this.functions);
 
       const generator = this._forward1(ai, values, options ?? {});
 
@@ -840,8 +906,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       const selectedResult = buffer[selectedIndex];
       const result = selectedResult?.delta ?? {};
-      this.trace = { ...values, ...result } as unknown as OUT;
 
+      // When values is an AxMessage array, do not spread it into trace; only include result
+      const baseTrace = Array.isArray(values)
+        ? ({} as Record<string, unknown>)
+        : ((values as unknown as Record<string, unknown>) ?? {});
+      this.trace = { ...baseTrace, ...result } as unknown as OUT;
       // Log result picker usage if it was used and debug is enabled
       if (resultPickerUsed && this.isDebug(ai, options)) {
         const logger = this.getLogger(ai, options);
@@ -894,17 +964,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           options?.model ? String(options.model) : undefined
         );
 
-        // Record function calling metrics if functions were used
-        if (functionsEnabled) {
-          recordFunctionCallingMetric(
-            finalMetricsInstruments,
-            functionsEnabled,
-            functionsExecuted,
-            functionsExecuted > 0,
-            false, // function error correction tracking would need more complex logic
-            signatureName
-          );
-        }
+        // Skip per-call function execution metric here; detailed metrics are recorded during processing
 
         // Record error correction metrics
         if (errorCorrectionAttempts > 0) {

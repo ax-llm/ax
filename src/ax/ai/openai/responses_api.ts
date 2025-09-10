@@ -105,36 +105,54 @@ export class AxAIOpenAIResponsesImpl<
   }
 
   private mapInternalContentToResponsesInput(
-    content: ReadonlyArray<UserMessageContentItem> // Expects an array of content items, string case handled by caller
+    content: ReadonlyArray<UserMessageContentItem>, // Expects an array of content items, string case handled by caller
+    role: 'user' | 'assistant'
   ): ReadonlyArray<AxAIOpenAIResponsesInputContentPart> {
-    const mappedParts: Mutable<AxAIOpenAIResponsesInputContentPart>[] =
-      content.map((part: UserMessageContentItem) => {
-        // AxUserMessageContentItem ensures part is one of {type: text}, {type: image}, {type: audio}
-        if (part.type === 'text') {
-          return { type: 'text', text: part.text };
+    const mappedParts: Mutable<AxAIOpenAIResponsesInputContentPart>[] = [];
+
+    for (const part of content) {
+      if (part.type === 'text') {
+        if (role === 'assistant') {
+          mappedParts.push({
+            type: 'output_text',
+            text: part.text,
+          } as unknown as AxAIOpenAIResponsesInputContentPart);
+        } else {
+          mappedParts.push({ type: 'input_text', text: part.text });
         }
-        if (part.type === 'image') {
-          const url = `data:${part.mimeType};base64,${part.image}`;
-          return {
-            type: 'image_url',
-            image_url: { url, details: part.details ?? 'auto' },
-          };
-        }
-        if (part.type === 'audio') {
-          return {
-            type: 'input_audio',
-            input_audio: {
-              data: part.data,
-              format: part.format === 'wav' ? 'wav' : undefined,
-            },
-          };
-        }
-        // This should be exhaustive given AxUserMessageContentItem's definition
-        const ExhaustiveCheck: never = part;
-        throw new Error(
-          `Unsupported content part: ${JSON.stringify(ExhaustiveCheck)}`
-        );
-      });
+        continue;
+      }
+
+      if (role === 'assistant') {
+        // Assistant message content in input must be output types only. Skip non-text parts.
+        continue;
+      }
+
+      if (part.type === 'image') {
+        const url = `data:${part.mimeType};base64,${part.image}`;
+        mappedParts.push({
+          type: 'input_image',
+          image_url: { url, details: part.details ?? 'auto' },
+        } as const);
+        continue;
+      }
+      if (part.type === 'audio') {
+        mappedParts.push({
+          type: 'input_audio',
+          input_audio: {
+            data: part.data,
+            format: part.format === 'wav' ? 'wav' : undefined,
+          },
+        } as const);
+        continue;
+      }
+
+      const ExhaustiveCheck: never = part;
+      throw new Error(
+        `Unsupported content part: ${JSON.stringify(ExhaustiveCheck)}`
+      );
+    }
+
     return mappedParts as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
   }
 
@@ -167,11 +185,21 @@ export class AxAIOpenAIResponsesImpl<
         (msg.role === 'assistant' && msg.content)
       ) {
         if (typeof msg.content === 'string') {
-          mappedContent = msg.content;
+          if (msg.role === 'system') {
+            mappedContent = msg.content;
+          } else if (msg.role === 'assistant') {
+            mappedContent = [
+              { type: 'output_text', text: msg.content },
+            ] as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
+          } else {
+            mappedContent = [
+              { type: 'input_text', text: msg.content },
+            ] as ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
+          }
         } else if (Array.isArray(msg.content)) {
-          // Only for user role typically
           mappedContent = this.mapInternalContentToResponsesInput(
-            msg.content as ReadonlyArray<UserMessageContentItem>
+            msg.content as ReadonlyArray<UserMessageContentItem>,
+            msg.role === 'assistant' ? 'assistant' : 'user'
           );
         } else {
           // Handle cases where content might be undefined for assistant, or unexpected type
@@ -321,7 +349,7 @@ export class AxAIOpenAIResponsesImpl<
           reasoningEffort = undefined;
           break;
         case 'minimal':
-          reasoningEffort = 'low';
+          reasoningEffort = 'minimal';
           break;
         case 'low':
           reasoningEffort = 'medium';
@@ -354,11 +382,12 @@ export class AxAIOpenAIResponsesImpl<
               req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
           }
         : {
-            temperature:
-              req.modelConfig?.temperature ??
-              this.config.temperature ??
-              undefined,
-            top_p: req.modelConfig?.topP ?? this.config.topP ?? undefined,
+            ...(req.modelConfig?.temperature !== undefined
+              ? { temperature: req.modelConfig.temperature }
+              : {}),
+            ...(req.modelConfig?.topP !== undefined
+              ? { top_p: req.modelConfig.topP }
+              : {}),
             presence_penalty:
               req.modelConfig?.presencePenalty ??
               this.config.presencePenalty ??
@@ -367,6 +396,8 @@ export class AxAIOpenAIResponsesImpl<
               req.modelConfig?.frequencyPenalty ??
               this.config.frequencyPenalty ??
               undefined,
+            max_output_tokens:
+              req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
           }),
       stream: req.modelConfig?.stream ?? this.config.stream ?? false, // Sourced from modelConfig or global config
       // Optional fields from AxAIOpenAIResponsesRequest that need to be in Mutable for initialization
@@ -448,7 +479,7 @@ export class AxAIOpenAIResponsesImpl<
         case 'minimal':
           currentReasoning = {
             ...currentReasoning,
-            effort: 'low',
+            effort: 'minimal',
           };
           break;
         case 'low':
@@ -495,7 +526,7 @@ export class AxAIOpenAIResponsesImpl<
     if (usage) {
       this.tokensUsed = {
         promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
+        completionTokens: usage.completion_tokens ?? usage.output_tokens ?? 0,
         totalTokens: usage.total_tokens,
       };
     }
@@ -509,6 +540,8 @@ export class AxAIOpenAIResponsesImpl<
           currentResult.content = contentToText(item.content, id);
           currentResult.finishReason =
             item.status === 'completed' ? 'stop' : 'content_filter';
+          // Extract annotations from output_text parts
+          currentResult.citations = extractAnnotationsFromContent(item.content);
           break;
 
         case 'reasoning':
@@ -701,6 +734,9 @@ export class AxAIOpenAIResponsesImpl<
               event.item.content,
               event.item.id
             );
+            baseResult.citations = extractAnnotationsFromContent(
+              event.item.content
+            );
             break;
           case 'function_call':
             baseResult.id = event.item.id;
@@ -883,6 +919,9 @@ export class AxAIOpenAIResponsesImpl<
         // Content part added - return the initial text if any
         baseResult.id = event.item_id;
         baseResult.content = contentToText([event.part], event.item_id);
+        baseResult.citations = extractAnnotationsFromContent([
+          event.part as any,
+        ]);
         break;
 
       case 'response.output_text.delta':
@@ -1027,6 +1066,12 @@ export class AxAIOpenAIResponsesImpl<
             baseResult.id = event.item.id;
             baseResult.finishReason =
               event.item.status === 'completed' ? 'stop' : 'error';
+            if (!baseResult.citations || baseResult.citations.length === 0) {
+              const anns = extractAnnotationsFromContent(
+                event.item.content || []
+              );
+              if (anns) baseResult.citations = anns;
+            }
             break;
           case 'function_call':
           case 'file_search_call':
@@ -1052,7 +1097,10 @@ export class AxAIOpenAIResponsesImpl<
         if (event.response.usage) {
           this.tokensUsed = {
             promptTokens: event.response.usage.prompt_tokens,
-            completionTokens: event.response.usage.completion_tokens,
+            completionTokens:
+              event.response.usage.completion_tokens ??
+              event.response.usage.output_tokens ??
+              0,
             totalTokens: event.response.usage.total_tokens,
           };
         }
@@ -1148,3 +1196,30 @@ const contentToText = (
     .map((c) => c.text)
     .join('\n');
 };
+
+// Extract URL citations from output_text annotations into normalized citations
+function extractAnnotationsFromContent(
+  content: ReadonlyArray<
+    | AxAIOpenAIResponsesOutputTextContentPart
+    | AxAIOpenAIResponsesOutputRefusalContentPart
+  >
+): AxChatResponseResult['citations'] | undefined {
+  const annos: NonNullable<AxChatResponseResult['citations']> = [];
+  for (const p of content ?? []) {
+    if (
+      (p as any)?.type === 'output_text' &&
+      Array.isArray((p as any).annotations)
+    ) {
+      for (const a of (p as any).annotations) {
+        if (a && a.type === 'url_citation' && typeof a.url === 'string') {
+          annos.push({
+            url: a.url,
+            title: a.title,
+            description: a.description,
+          });
+        }
+      }
+    }
+  }
+  return annos.length ? annos : undefined;
+}

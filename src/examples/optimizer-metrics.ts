@@ -54,7 +54,7 @@ const examples = [
 ];
 
 // Validation examples
-const validationExamples = [
+const _validationExamples = [
   {
     emailText: 'EMERGENCY: Database connection failed',
     category: 'urgent',
@@ -85,8 +85,6 @@ const metricFn: AxMetricFn = async ({ prediction, example }) => {
 // Create optimizer with metrics enabled
 const optimizer = new AxBootstrapFewShot({
   studentAI: ai,
-  examples,
-  validationSet: validationExamples,
   targetScore: 0.9,
   verbose: true,
   options: {
@@ -101,7 +99,11 @@ const main = async () => {
 
   // Run optimization
   const startTime = Date.now();
-  const result = await optimizer.compile(emailClassifier as any, metricFn);
+  const result = await optimizer.compile(
+    emailClassifier as any,
+    examples,
+    metricFn
+  );
   const duration = Date.now() - startTime;
 
   console.log('\n=== Optimization Results ===');

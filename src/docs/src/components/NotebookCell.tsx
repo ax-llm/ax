@@ -1,3 +1,4 @@
+import { ax, axCreateDefaultTextLogger, s } from '@ax-llm/ax';
 import {
   AlertCircle,
   CheckCircle,
@@ -70,7 +71,7 @@ export default function NotebookCell({
   const [showDebugLogs, setShowDebugLogs] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Parse signature with AxSignature whenever content changes
+  // Parse signature with ax s() function whenever content changes
   useEffect(() => {
     const parseSignature = async () => {
       try {
@@ -81,8 +82,7 @@ export default function NotebookCell({
           return;
         }
 
-        const { AxSignature } = await import('@ax-llm/ax');
-        const signature = new AxSignature(content);
+        const signature = s(content);
         setAxSignature(signature);
         setSignatureError(null);
 
@@ -91,9 +91,15 @@ export default function NotebookCell({
       } catch (error) {
         console.error('Signature parsing error:', error);
         setAxSignature(null);
-        setSignatureError(
-          error instanceof Error ? error.message : 'Invalid signature'
-        );
+        const message =
+          error && typeof error === 'object' && 'message' in error
+            ? String((error as any).message)
+            : 'Invalid signature';
+        const suggestion =
+          error && typeof error === 'object' && 'suggestion' in error
+            ? String((error as any).suggestion)
+            : '';
+        setSignatureError(suggestion ? `${message}\n${suggestion}` : message);
         onUpdateCellSignature?.(cellId, null);
       }
     };
@@ -284,18 +290,11 @@ export default function NotebookCell({
 
   // Create debug logger using Ax built-in logger functions
   const createDebugLogger = async (logsArray: string[]) => {
-    // Import the Ax logger functions
-    const { axCreateDefaultTextLogger } = await import('@ax-llm/ax');
-
-    // Create a function to capture log messages to the local array
     const logCapture = (message: string) => {
-      console.log(message); // Also log to console for immediate feedback
+      console.log(message);
       logsArray.push(message);
     };
-
-    // Create the Ax logger with our capture function
     const logger = axCreateDefaultTextLogger(logCapture);
-
     return logger;
   };
 
@@ -317,11 +316,8 @@ export default function NotebookCell({
       // Create debug logger using Ax built-in logger
       const logger = await createDebugLogger(debugLogsArray);
 
-      // Import AxGen exactly like the working example
-      const { AxGen } = await import('@ax-llm/ax');
-
-      // Create AxGen directly from the text signature
-      const signature = new AxGen(content);
+      // Create generator directly from the text signature
+      const generator = ax(content);
 
       // Prepare input data from the input fields with reference resolution
       const inputData: Record<string, any> = {};
@@ -332,8 +328,8 @@ export default function NotebookCell({
       // Resolve references to actual values
       const resolvedInputData = resolveReferences(inputData);
 
-      // Execute the signature with debug logger passed in options
-      const result = await signature.forward(loadedAI, resolvedInputData, {
+      // Execute the generator with debug logger passed in options
+      const result = await generator.forward(loadedAI, resolvedInputData, {
         debug: true,
         logger: logger,
       });
@@ -540,7 +536,7 @@ export default function NotebookCell({
                                 />
                               </div>
                             </div>
-                            {field.type === 'string' &&
+                            {field.type?.name === 'string' &&
                             field.name.toLowerCase().includes('text') ? (
                               <Textarea
                                 id={`${cellId}-${field.name}`}
@@ -560,7 +556,9 @@ export default function NotebookCell({
                               <Input
                                 id={`${cellId}-${field.name}`}
                                 type={
-                                  field.type === 'number' ? 'number' : 'text'
+                                  field.type?.name === 'number'
+                                    ? 'number'
+                                    : 'text'
                                 }
                                 placeholder={
                                   field.description || `Enter ${field.name}`

@@ -1,4 +1,4 @@
-import type { AxAIWebLLMModel } from '@ax-llm/ax';
+import { type AxAIWebLLMModel, ai } from '@ax-llm/ax';
 import { Loader2, Menu, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import NotebookCell from './NotebookCell';
@@ -45,7 +45,7 @@ const EXAMPLE_SIGNATURES = [
 export default function NotebookPlayground() {
   const [cells, setCells] = useState<Cell[]>([
     {
-      id: `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `cell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       content:
         'userQuestion:string "User input question" -> assistantResponse:string "AI assistant response"',
       createdAt: new Date(),
@@ -60,9 +60,15 @@ export default function NotebookPlayground() {
   const [cellSignatures, setCellSignatures] = useState<Record<string, any>>({});
 
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [providerType, setProviderType] = useState<'webllm' | 'openrouter'>(
+    'webllm'
+  );
   const [selectedModel, setSelectedModel] = useState(
     'Llama-3.2-1B-Instruct-q4f32_1-MLC'
   );
+  const [openRouterModel, setOpenRouterModel] = useState('openrouter/auto');
+  const [openRouterApiKey, setOpenRouterApiKey] = useState('');
+  const [rememberApiKey, setRememberApiKey] = useState(true);
   const [modelStatus, setModelStatus] = useState<
     'idle' | 'loading' | 'ready' | 'error'
   >('idle');
@@ -72,6 +78,9 @@ export default function NotebookPlayground() {
   const [loadedAI, setLoadedAI] = useState<any>(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>(
+    'idle'
+  );
 
   // Detect dark mode
   useEffect(() => {
@@ -89,19 +98,100 @@ export default function NotebookPlayground() {
     return () => observer.disconnect();
   }, []);
 
-  // Reset model status when model selection changes
+  // Reset on provider/model changes
   useEffect(() => {
-    if (modelStatus === 'ready') {
-      setModelStatus('idle');
-      setLoadedEngine(null);
-      setLoadedAI(null);
-      setLoadingProgress(0);
-      setLoadingText('Ready to load model');
+    setModelStatus('idle');
+    setLoadedEngine(null);
+    setLoadedAI(null);
+    setLoadingProgress(0);
+    setLoadingText('Ready');
+  }, [selectedModel, providerType, openRouterModel]);
+
+  // Load from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('ax-notebook-playground-v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.cells)) {
+          setCells(
+            parsed.cells.map((c: any) => ({
+              id:
+                c.id ||
+                `cell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+              content:
+                c.content ||
+                'userQuestion:string "User input question" -> assistantResponse:string "AI assistant response"',
+              createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
+            }))
+          );
+        }
+        if (
+          parsed.providerType === 'openrouter' ||
+          parsed.providerType === 'webllm'
+        ) {
+          setProviderType(parsed.providerType);
+        }
+        if (typeof parsed.selectedModel === 'string') {
+          setSelectedModel(parsed.selectedModel);
+        }
+        if (typeof parsed.openRouterModel === 'string') {
+          setOpenRouterModel(parsed.openRouterModel);
+        }
+        if (typeof parsed.rememberApiKey === 'boolean') {
+          setRememberApiKey(parsed.rememberApiKey);
+        }
+        if (
+          parsed.rememberApiKey &&
+          typeof parsed.openRouterApiKey === 'string'
+        ) {
+          setOpenRouterApiKey(parsed.openRouterApiKey);
+        }
+      }
+    } catch (_e) {
+      // ignore
     }
-  }, [selectedModel]);
+  }, []);
+
+  // Autosave to localStorage (debounced)
+  useEffect(() => {
+    setSaveState('saving');
+    const t = setTimeout(() => {
+      try {
+        const payload = {
+          cells: cells.map((c) => ({
+            id: c.id,
+            content: c.content,
+            createdAt: c.createdAt.toISOString(),
+          })),
+          providerType,
+          selectedModel,
+          openRouterModel,
+          rememberApiKey,
+          openRouterApiKey: rememberApiKey ? openRouterApiKey : undefined,
+        };
+        localStorage.setItem(
+          'ax-notebook-playground-v1',
+          JSON.stringify(payload)
+        );
+        setSaveState('saved');
+        setTimeout(() => setSaveState('idle'), 800);
+      } catch (_e) {
+        setSaveState('idle');
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [
+    cells,
+    providerType,
+    selectedModel,
+    openRouterModel,
+    openRouterApiKey,
+    rememberApiKey,
+  ]);
 
   const generateCellId = useCallback(() => {
-    return `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `cell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   }, []);
 
   const addCell = useCallback(
@@ -151,74 +241,54 @@ export default function NotebookPlayground() {
   const loadModel = useCallback(async () => {
     setModelStatus('loading');
     setLoadingProgress(0);
-    setLoadingText('Checking WebLLM availability...');
+    setLoadingText(
+      providerType === 'webllm'
+        ? 'Checking WebLLM availability...'
+        : 'Configuring OpenRouter...'
+    );
 
     try {
-      // Check if we're in a browser environment
-      if (typeof window === 'undefined') {
-        throw new Error('WebLLM requires a browser environment');
+      if (providerType === 'webllm') {
+        if (typeof window === 'undefined') {
+          throw new Error('WebLLM requires a browser environment');
+        }
+        setLoadingText('Loading WebLLM library...');
+        const { MLCEngine } = await import('@mlc-ai/web-llm');
+        setLoadingText('Creating WebLLM engine...');
+        const engine = new MLCEngine();
+        engine.setInitProgressCallback((progress: any) => {
+          const percentage = Math.round(progress.progress * 100);
+          setLoadingProgress(percentage);
+          setLoadingText(`${progress.text} (${percentage}%)`);
+        });
+        await engine.reload(selectedModel);
+        setLoadingText('Creating AI instance...');
+        const llm = ai({
+          name: 'webllm',
+          engine,
+          config: { model: selectedModel as AxAIWebLLMModel, stream: false },
+          options: { debug: true },
+        });
+        setLoadedEngine(engine);
+        setLoadedAI(llm);
+        setModelStatus('ready');
+        setLoadingProgress(100);
+      } else {
+        if (!openRouterApiKey) {
+          throw new Error('OpenRouter API key is required');
+        }
+        setLoadingText('Connecting to OpenRouter...');
+        const llm = ai({
+          name: 'openrouter',
+          apiKey: openRouterApiKey,
+          config: { model: openRouterModel, stream: false },
+          options: { debug: true },
+        });
+        setLoadedAI(llm);
+        setModelStatus('ready');
+        setLoadingProgress(100);
+        setLoadingText('Connected');
       }
-
-      setLoadingText('Loading WebLLM library...');
-      console.log('Attempting to import WebLLM...');
-
-      // Import WebLLM exactly like the working example
-      const { MLCEngine } = await import('@mlc-ai/web-llm');
-      const { AxAI } = await import('@ax-llm/ax');
-
-      console.log('WebLLM MLCEngine loaded:', MLCEngine);
-      console.log('AxAI loaded:', AxAI);
-
-      setLoadingText('Creating WebLLM engine...');
-      console.log('Creating WebLLM engine with model:', selectedModel);
-
-      // Initialize WebLLM engine exactly like the working example
-      const engine = new MLCEngine();
-
-      // Set up progress callback exactly like the working example
-      engine.setInitProgressCallback((progress: any) => {
-        console.log('Loading progress:', progress);
-        const percentage = Math.round(progress.progress * 100);
-        setLoadingProgress(percentage);
-        setLoadingText(`${progress.text} (${percentage}%)`);
-      });
-
-      // Load the selected model exactly like the working example
-      await engine.reload(selectedModel);
-      console.log(
-        'Model loaded, engine methods:',
-        Object.getOwnPropertyNames(engine)
-      );
-      console.log(
-        'Engine chat methods:',
-        Object.getOwnPropertyNames(engine.chat || {})
-      );
-      console.log(
-        'Engine completions methods:',
-        Object.getOwnPropertyNames(engine.chat?.completions || {})
-      );
-
-      setLoadingText('Creating Ax AI instance...');
-
-      // Initialize Ax AI with WebLLM exactly like the working example
-      console.log('Creating AxAI instance with engine:', engine);
-      const ai = new AxAI({
-        name: 'webllm',
-        engine: engine,
-        config: {
-          model: selectedModel as AxAIWebLLMModel,
-          stream: false,
-        },
-        options: {
-          debug: true,
-        },
-      });
-      console.log('AxAI instance created:', ai);
-
-      setLoadedEngine(engine);
-      setLoadedAI(ai);
-      setModelStatus('ready');
-      setLoadingProgress(100);
     } catch (error) {
       console.error('Detailed error loading model:', error);
       setModelStatus('error');
@@ -226,7 +296,7 @@ export default function NotebookPlayground() {
       // Provide more specific error messages
       let errorMessage = 'Failed to load model';
       if (error instanceof Error) {
-        if (error.message.includes('WebLLM')) {
+        if (providerType === 'webllm' && error.message.includes('WebLLM')) {
           errorMessage = `WebLLM library error: ${error.message}`;
         } else if (error.message.includes('worker')) {
           errorMessage = `Web Worker error: ${error.message}`;
@@ -242,7 +312,7 @@ export default function NotebookPlayground() {
 
       setLoadingText(errorMessage);
     }
-  }, [selectedModel]);
+  }, [selectedModel, providerType, openRouterApiKey, openRouterModel]);
 
   // Update cell signature when parsed
   const updateCellSignature = useCallback((cellId: string, signature: any) => {
@@ -449,6 +519,13 @@ export default function NotebookPlayground() {
             <span className="text-sm text-muted-foreground">
               {cells.length} {cells.length === 1 ? 'cell' : 'cells'}
             </span>
+            <span className="text-xs px-2 py-1 rounded border text-muted-foreground">
+              {saveState === 'saving'
+                ? 'Saving…'
+                : saveState === 'saved'
+                  ? 'Saved'
+                  : 'Autosave on'}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Button onClick={() => addCell()} variant="outline" size="sm">
@@ -479,7 +556,9 @@ export default function NotebookPlayground() {
                       />
                       <h3 className="font-semibold text-lg">
                         {modelStatus === 'idle'
-                          ? 'Model Not Loaded'
+                          ? providerType === 'webllm'
+                            ? 'Model Not Loaded'
+                            : 'Not Connected'
                           : modelStatus === 'loading'
                             ? 'Loading Model...'
                             : 'Model Load Failed'}
@@ -488,44 +567,113 @@ export default function NotebookPlayground() {
 
                     {modelStatus === 'idle' && (
                       <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                          Load a model to start using the notebook cells
-                        </p>
-                        <div>
-                          <label className="text-sm font-medium block mb-3">
-                            Select Model
-                          </label>
-                          <select
-                            className="w-full p-3 border rounded-md bg-background text-sm"
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value)}
+                        <div className="space-y-3 text-left">
+                          <div>
+                            <label className="text-sm font-medium block">
+                              Provider
+                            </label>
+                            <select
+                              className="w-full p-3 border rounded-md bg-background text-sm"
+                              value={providerType}
+                              onChange={(e) =>
+                                setProviderType(e.target.value as any)
+                              }
+                            >
+                              <option value="webllm">Local (WebLLM)</option>
+                              <option value="openrouter">
+                                OpenRouter (Cloud)
+                              </option>
+                            </select>
+                          </div>
+                          {providerType === 'webllm' ? (
+                            <div>
+                              <label className="text-sm font-medium block mb-3">
+                                Select Model
+                              </label>
+                              <select
+                                className="w-full p-3 border rounded-md bg-background text-sm"
+                                value={selectedModel}
+                                onChange={(e) =>
+                                  setSelectedModel(e.target.value)
+                                }
+                              >
+                                <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
+                                  Llama 3.2 1B Instruct (Fastest)
+                                </option>
+                                <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
+                                  Llama 3.2 3B Instruct
+                                </option>
+                                <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
+                                  Llama 3.1 8B Instruct (Better Quality)
+                                </option>
+                                <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
+                                  Phi 3.5 Mini Instruct
+                                </option>
+                                <option value="gemma-2-2b-it-q4f32_1-MLC">
+                                  Gemma 2 2B Instruct
+                                </option>
+                              </select>
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Running locally in your browser with WebLLM
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <div>
+                                <label className="text-sm font-medium block mb-2">
+                                  OpenRouter API Key
+                                </label>
+                                <input
+                                  className="w-full p-3 border rounded-md bg-background text-sm"
+                                  type="password"
+                                  placeholder="Enter your OpenRouter API key"
+                                  value={openRouterApiKey}
+                                  onChange={(e) =>
+                                    setOpenRouterApiKey(e.target.value)
+                                  }
+                                />
+                                <div className="flex items-center gap-2 mt-2">
+                                  <input
+                                    id="remember-key-mobile"
+                                    type="checkbox"
+                                    checked={rememberApiKey}
+                                    onChange={(e) =>
+                                      setRememberApiKey(e.target.checked)
+                                    }
+                                  />
+                                  <label
+                                    htmlFor="remember-key-mobile"
+                                    className="text-xs text-muted-foreground"
+                                  >
+                                    Remember key in this browser
+                                  </label>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium block mb-2">
+                                  Model
+                                </label>
+                                <input
+                                  className="w-full p-3 border rounded-md bg-background text-sm"
+                                  type="text"
+                                  placeholder="e.g. openrouter/auto or anthropic/claude-3.5-sonnet"
+                                  value={openRouterModel}
+                                  onChange={(e) =>
+                                    setOpenRouterModel(e.target.value)
+                                  }
+                                />
+                              </div>
+                            </div>
+                          )}
+                          <Button
+                            onClick={loadModel}
+                            className="w-full bg-blue-600 hover:bg-blue-700 py-3"
                           >
-                            <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
-                              Llama 3.2 1B Instruct (Fastest)
-                            </option>
-                            <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
-                              Llama 3.2 3B Instruct
-                            </option>
-                            <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
-                              Llama 3.1 8B Instruct (Better Quality)
-                            </option>
-                            <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
-                              Phi 3.5 Mini Instruct
-                            </option>
-                            <option value="gemma-2-2b-it-q4f32_1-MLC">
-                              Gemma 2 2B Instruct
-                            </option>
-                          </select>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Running locally in your browser with WebLLM
-                          </p>
+                            {providerType === 'webllm'
+                              ? 'Load Model'
+                              : 'Connect'}
+                          </Button>
                         </div>
-                        <Button
-                          onClick={loadModel}
-                          className="w-full bg-blue-600 hover:bg-blue-700 py-3"
-                        >
-                          Load Model
-                        </Button>
                       </div>
                     )}
 
@@ -610,34 +758,98 @@ export default function NotebookPlayground() {
               </button>
             </div>
             <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-              <div>
-                <label className="text-sm font-medium block mb-3">Model</label>
+              {/* Provider & Model */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium block">Provider</label>
                 <select
                   className="w-full p-3 border rounded-md bg-background text-sm"
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  value={providerType}
+                  onChange={(e) => setProviderType(e.target.value as any)}
                   disabled={modelStatus === 'loading'}
                 >
-                  <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
-                    Llama 3.2 1B Instruct (Fastest)
-                  </option>
-                  <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
-                    Llama 3.2 3B Instruct
-                  </option>
-                  <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
-                    Llama 3.1 8B Instruct (Better Quality)
-                  </option>
-                  <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
-                    Phi 3.5 Mini Instruct
-                  </option>
-                  <option value="gemma-2-2b-it-q4f32_1-MLC">
-                    Gemma 2 2B Instruct
-                  </option>
+                  <option value="webllm">Local (WebLLM)</option>
+                  <option value="openrouter">OpenRouter (Cloud)</option>
                 </select>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Running locally in your browser with WebLLM
-                </p>
               </div>
+
+              {providerType === 'webllm' ? (
+                <div>
+                  <label className="text-sm font-medium block mb-3">
+                    Model
+                  </label>
+                  <select
+                    className="w-full p-3 border rounded-md bg-background text-sm"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    disabled={modelStatus === 'loading'}
+                  >
+                    <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
+                      Llama 3.2 1B Instruct (Fastest)
+                    </option>
+                    <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
+                      Llama 3.2 3B Instruct
+                    </option>
+                    <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
+                      Llama 3.1 8B Instruct (Better Quality)
+                    </option>
+                    <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
+                      Phi 3.5 Mini Instruct
+                    </option>
+                    <option value="gemma-2-2b-it-q4f32_1-MLC">
+                      Gemma 2 2B Instruct
+                    </option>
+                  </select>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Running locally in your browser with WebLLM
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium block mb-2">
+                      OpenRouter API Key
+                    </label>
+                    <input
+                      className="w-full p-3 border rounded-md bg-background text-sm"
+                      type="password"
+                      placeholder="Enter your OpenRouter API key"
+                      value={openRouterApiKey}
+                      onChange={(e) => setOpenRouterApiKey(e.target.value)}
+                      disabled={modelStatus === 'loading'}
+                    />
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        id="remember-key"
+                        type="checkbox"
+                        checked={rememberApiKey}
+                        onChange={(e) => setRememberApiKey(e.target.checked)}
+                      />
+                      <label
+                        htmlFor="remember-key"
+                        className="text-xs text-muted-foreground"
+                      >
+                        Remember key in this browser
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-2">
+                      Model
+                    </label>
+                    <input
+                      className="w-full p-3 border rounded-md bg-background text-sm"
+                      type="text"
+                      placeholder="e.g. openrouter/auto or anthropic/claude-3.5-sonnet"
+                      value={openRouterModel}
+                      onChange={(e) => setOpenRouterModel(e.target.value)}
+                      disabled={modelStatus === 'loading'}
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Uses OpenAI-compatible API at openrouter.ai
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Model Status */}
               <div className="flex items-start gap-3">
@@ -654,7 +866,11 @@ export default function NotebookPlayground() {
                 />
                 <div className="text-sm flex-1 leading-relaxed">
                   {modelStatus === 'idle' ? (
-                    'Ready to load model'
+                    providerType === 'webllm' ? (
+                      'Ready to load model'
+                    ) : (
+                      'Ready to connect'
+                    )
                   ) : modelStatus === 'loading' ? (
                     <div className="space-y-1">
                       <div className="font-medium">Loading Model...</div>
@@ -665,10 +881,14 @@ export default function NotebookPlayground() {
                   ) : modelStatus === 'ready' ? (
                     <div className="space-y-1">
                       <div className="font-medium text-green-700 dark:text-green-300">
-                        Model Ready
+                        {providerType === 'webllm'
+                          ? 'Model Ready'
+                          : 'Connected'}
                       </div>
                       <div className="text-muted-foreground text-xs">
-                        {selectedModel} loaded and ready to use
+                        {providerType === 'webllm'
+                          ? `${selectedModel} loaded and ready to use`
+                          : `${openRouterModel} ready`}
                       </div>
                     </div>
                   ) : (
@@ -699,7 +919,7 @@ export default function NotebookPlayground() {
                 </div>
               )}
 
-              {/* Load Model Button */}
+              {/* Load/Connect Button */}
               <div className="pt-4 border-t">
                 <Button
                   onClick={loadModel}
@@ -710,12 +930,20 @@ export default function NotebookPlayground() {
                   {modelStatus === 'loading' ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading Model...
+                      {providerType === 'webllm'
+                        ? 'Loading Model...'
+                        : 'Connecting...'}
                     </>
                   ) : modelStatus === 'ready' ? (
-                    'Reload Model'
-                  ) : (
+                    providerType === 'webllm' ? (
+                      'Reload Model'
+                    ) : (
+                      'Reconnect'
+                    )
+                  ) : providerType === 'webllm' ? (
                     'Load Model'
+                  ) : (
+                    'Connect'
                   )}
                 </Button>
               </div>

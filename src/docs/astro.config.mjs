@@ -1,18 +1,22 @@
-import tailwind from '@astrojs/tailwind';
 import react from '@astrojs/react';
+import tailwind from '@astrojs/tailwind';
 import { defineConfig } from 'astro/config';
-import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
+import rehypeSlug from 'rehype-slug';
 
 // https://astro.build/config
 export default defineConfig({
   integrations: [tailwind(), react()],
+  vite: {
+    optimizeDeps: {
+      include: ['@ax-llm/ax'],
+    },
+  },
   markdown: {
-    // Use Shiki for better syntax highlighting performance
+    // Use Shiki for consistent highlighting in dev and production
     syntaxHighlight: 'shiki',
     shikiConfig: {
       theme: 'github-light',
-      // Add more languages as needed
       langs: [
         'javascript',
         'typescript',

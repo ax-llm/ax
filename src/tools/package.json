@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax-tools",
-  "version": "14.0.0",
+  "version": "14.0.20",
   "type": "module",
   "description": "Ax tools package",
   "repository": {
@@ -32,7 +32,7 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ax-llm/ax": "14.0.0"
+    "@ax-llm/ax": "14.0.20"
   },
   "files": [
     "**/*"
@@ -40,7 +40,7 @@
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
   },
-  "homepage": "https://github.com/@ax-llm/ax#readme",
+  "homepage": "https://github.com/ax-llm/ax#readme",
   "author": "Vikram <https://twitter.com/dosco>",
   "devDependencies": {}
 }

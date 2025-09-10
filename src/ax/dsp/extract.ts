@@ -1,7 +1,14 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
-import { ValidationError } from './errors.js';
+import {
+  createExpectedRequiredFieldNotFoundError,
+  createInvalidArrayError,
+  createInvalidJsonError,
+  createMissingRequiredFieldsError,
+  createRequiredFieldMissingError,
+  createTypeValidationError,
+} from './errors.js';
 import type { AxField, AxSignature } from './sig.js';
 import type { AxGenOut, GenDeltaOut } from './types.js';
 import { matchesContent, parseMarkdownList } from './util.js';
@@ -10,11 +17,29 @@ export const extractValues = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
   content: string,
-  strictMode = false
+  options?: { strictMode?: boolean; treatAllFieldsOptional?: boolean }
 ) => {
-  const xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
-  streamingExtractValues(sig, values, xstate, content, { strictMode });
-  streamingExtractFinalValue(sig, values, xstate, content, strictMode);
+  const strictMode = options?.strictMode ?? false;
+  const treatAllFieldsOptional = options?.treatAllFieldsOptional ?? false;
+  const skipEarlyFail = options?.treatAllFieldsOptional ?? false;
+
+  const xstate: extractionState = {
+    extractedFields: [],
+    streamedIndex: {},
+    s: -1,
+  };
+
+  streamingExtractValues(sig, values, xstate, content, {
+    strictMode,
+    skipEarlyFail,
+    treatAllFieldsOptional,
+  });
+
+  streamingExtractFinalValue(sig, values, xstate, content, {
+    strictMode,
+    treatAllFieldsOptional,
+    forceFinalize: true,
+  });
 
   // Filter out internal fields
   for (const field of sig.getOutputFields()) {
@@ -50,16 +75,14 @@ const checkMissingRequiredFields = (
   }
 
   if (missingFields.length > 0) {
-    throw new ValidationError({
-      message: `Required ${missingFields.length === 1 ? 'field' : 'fields'} not found`,
-      fields: missingFields,
-    });
+    throw createMissingRequiredFieldsError(missingFields);
   }
 };
 
 export interface StreamingExtractValuesOptions {
   strictMode?: boolean;
   skipEarlyFail?: boolean;
+  treatAllFieldsOptional?: boolean;
 }
 
 export const streamingExtractValues = (
@@ -73,121 +96,110 @@ export const streamingExtractValues = (
   const fields = sig.getOutputFields();
   let expectedField: AxField | undefined;
 
-  for (const [index, field] of fields.entries()) {
-    // If the field is the current field and it's not assumed, skip it
-    if (index === xstate.currFieldIndex && !xstate.inAssumedField) {
-      continue;
+  // Keep scanning and extracting until we run out of matches
+  while (true) {
+    // Build list of candidate fields to try next
+    const doNotTry = new Set<number>();
+    if (xstate.currFieldIndex !== undefined && !xstate.inAssumedField) {
+      doNotTry.add(xstate.currFieldIndex);
     }
 
-    // If field is already in values and it's not the current field and it's not assumed, skip it
-    if (
-      field.name in values &&
-      !(index === xstate.currFieldIndex && xstate.inAssumedField)
-    ) {
-      continue;
-    }
+    // for (const [i, f] of fields.entries()) {
+    //   if (
+    //     f.name in values &&
+    //     !(i === xstate.currFieldIndex && xstate.inAssumedField)
+    //   ) {
+    //     doNotTry.add(i);
+    //   }
+    // }
 
-    const isFirst = xstate.extractedFields.length === 0;
-    const prefix = `${(isFirst ? '' : '\n') + field.title}:`;
+    const candidates = fields
+      .map((f, i) => ({ field: f, index: i }))
+      .filter(({ index }) => !doNotTry.has(index));
 
-    let e = matchesContent(content, prefix, xstate.s);
-    let prefixLen = prefix.length;
+    // Find earliest matching candidate (supports out-of-order fields)
+    let chosenIndex: number | undefined;
+    let chosenField: AxField | undefined;
+    let e = -1;
+    let prefixLen = 0;
 
-    switch (e) {
-      case -1:
-        if (skipEarlyFail) {
-          continue;
-        }
+    for (const { index, field } of candidates) {
+      const isFirst = xstate.extractedFields.length === 0;
+      const prefix = `${(isFirst ? '' : '\n') + field.title}:`;
+      const match = matchesContent(content, prefix, xstate.s);
 
-        // If there is only one field then we assume the content is streaming to the first field
-        // Note: optimization for single field responses (only in non-strict mode)
-        if (
-          !strictMode &&
-          fields.length === 1 &&
-          xstate.currField === undefined
-        ) {
-          xstate.inAssumedField = true;
-          expectedField = field;
-          prefixLen = 0;
-          e = 0;
-          break;
-        }
-
-        // For multiple fields, we need to be more strategic about when to assign content
-        // without prefixes to a field. We should first scan all fields to see if any
-        // have proper prefixes before assigning content to the first field.
-
-        // If this is the first field we're checking and no field has been extracted yet
-        if (
-          xstate.currField === undefined &&
-          xstate.extractedFields.length === 0
-        ) {
-          // In strict mode, we need proper field prefixes for the first required field
-          if (strictMode && !field.isOptional) {
-            throw new ValidationError({
-              message: 'Expected (Required) field not found',
-              fields: [field],
-            });
-          }
-
-          // For non-strict mode, we need to check if ANY field has a proper prefix
-          // before assigning content to the first field
-          if (!strictMode) {
-            // Look ahead to see if any other field has a proper prefix
-            let foundValidFieldPrefix = false;
-            for (let i = index; i < fields.length; i++) {
-              const futureField = fields[i];
-              if (!futureField) continue;
-
-              const futurePrefix = `${(xstate.extractedFields.length === 0 ? '' : '\n') + futureField.title}:`;
-              const futureMatch = matchesContent(
-                content,
-                futurePrefix,
-                xstate.s
-              );
-              if (futureMatch >= 0) {
-                foundValidFieldPrefix = true;
-                break;
-              }
-            }
-
-            // If no valid field prefix found anywhere, assign to first field
-            if (!foundValidFieldPrefix) {
-              xstate.inAssumedField = true;
-              expectedField = field;
-              prefixLen = 0;
-              e = 0;
-              break;
-            }
-          }
-        }
-
-        expectedField = field.isOptional ? undefined : field;
-        continue; // Field is not found, continue to the next field
-      case -2:
+      if (match === -2) {
         return true; // Partial match at end, skip and gather more content
-      case -3:
+      }
+      if (match === -3) {
         return true; // String is only whitespace, skip and gather more content
-      case -4:
+      }
+      if (match === -4) {
         xstate.inBlock = true;
         return true; // String is only backticks, skip and gather more content
+      }
+      if (match >= 0 && (e === -1 || match < e)) {
+        e = match;
+        prefixLen = prefix.length;
+        chosenIndex = index;
+        chosenField = field;
+      }
     }
-    // We found a field!!!
 
-    // If the field we found is not the expected field, throw an error
-    if (expectedField && expectedField.name !== field.name) {
-      throw new ValidationError({
-        message: 'Expected (Required) field not found',
-        fields: [expectedField],
-      });
+    if (e === -1) {
+      // Nothing matched this iteration
+      if (skipEarlyFail) {
+        return;
+      }
+      if (
+        !strictMode &&
+        xstate.currField === undefined &&
+        xstate.extractedFields.length === 0 &&
+        fields.length === 1
+      ) {
+        // Assume single field
+        xstate.inAssumedField = true;
+        xstate.currField = fields[0];
+        xstate.currFieldIndex = 0;
+        if (!xstate.extractedFields.includes(fields[0])) {
+          xstate.extractedFields.push(fields[0]);
+        }
+        if (xstate.streamedIndex[fields[0].name] === undefined) {
+          xstate.streamedIndex[fields[0].name] = 0;
+        }
+        return;
+      }
+
+      if (
+        strictMode &&
+        xstate.currField === undefined &&
+        xstate.extractedFields.length === 0
+      ) {
+        const firstRequiredField = fields.find((f) => !f.isOptional);
+        if (firstRequiredField) {
+          throw createExpectedRequiredFieldNotFoundError(firstRequiredField);
+        }
+      }
+      break;
+    }
+
+    // We found a field!!!
+    if (
+      expectedField &&
+      chosenField &&
+      expectedField.name !== chosenField.name
+    ) {
+      throw createExpectedRequiredFieldNotFoundError(expectedField);
     }
 
     if (xstate.currField !== undefined && xstate.inAssumedField) {
-      // We're transitioning from assumed field to explicit field
-      // We need to preserve the content that was already assigned to the assumed field
+      // Preserve content assigned to the assumed field
       const assumedFieldContent = content.substring(0, e).trim();
-      if (assumedFieldContent && xstate.currField.name === field.name) {
-        // If the assumed field is the same as the current field, combine the content
+      if (
+        assumedFieldContent &&
+        chosenField &&
+        xstate.currField.name === chosenField.name
+      ) {
         const parsedValue = validateAndParseFieldValue(
           xstate.currField,
           assumedFieldContent
@@ -196,7 +208,6 @@ export const streamingExtractValues = (
           values[xstate.currField.name] = parsedValue;
         }
       } else if (assumedFieldContent) {
-        // If they're different fields, save the assumed field content
         const parsedValue = validateAndParseFieldValue(
           xstate.currField,
           assumedFieldContent
@@ -211,7 +222,7 @@ export const streamingExtractValues = (
       xstate.currField = undefined;
     }
 
-    // Lets wrap up the last field which is still the current field
+    // Wrap previous field content
     if (xstate.currField) {
       const val = content.substring(xstate.s, e).trim();
       const parsedValue = validateAndParseFieldValue(xstate.currField, val);
@@ -225,18 +236,17 @@ export const streamingExtractValues = (
       }
     }
 
-    // Lets update the state for the new current field
-
+    // Move to new current field
     xstate.s = e + prefixLen;
-    xstate.currField = field;
-    xstate.currFieldIndex = index;
-
-    if (!xstate.extractedFields.includes(field)) {
-      xstate.extractedFields.push(field);
+    if (chosenField !== undefined && chosenIndex !== undefined) {
+      xstate.currField = chosenField;
+      xstate.currFieldIndex = chosenIndex;
     }
-
-    if (xstate.streamedIndex[field.name] === undefined) {
-      xstate.streamedIndex[field.name] = 0;
+    if (chosenField && !xstate.extractedFields.includes(chosenField)) {
+      xstate.extractedFields.push(chosenField);
+    }
+    if (chosenField && xstate.streamedIndex[chosenField.name] === undefined) {
+      xstate.streamedIndex[chosenField.name] = 0;
     }
   }
 };
@@ -247,11 +257,39 @@ export const streamingExtractFinalValue = (
   // eslint-disable-next-line functional/prefer-immutable-types
   xstate: extractionState,
   content: string,
-  strictMode = false
+  options?: {
+    strictMode?: boolean;
+    treatAllFieldsOptional?: boolean;
+    deferRequiredCheckForStreaming?: boolean;
+    forceFinalize?: boolean;
+  }
 ) => {
-  if (xstate.currField) {
-    const val = content.substring(xstate.s).trim();
+  const strictMode = options?.strictMode ?? false;
+  const treatAllFieldsOptional = options?.treatAllFieldsOptional ?? false;
+  const deferRequiredCheckForStreaming =
+    options?.deferRequiredCheckForStreaming ?? false;
+  const forceFinalize = options?.forceFinalize ?? false;
 
+  if (xstate.currField) {
+    let endIndex = content.length;
+
+    // Look for the next field boundary to avoid including content from other fields
+    const outputFields = sig.getOutputFields();
+    for (const otherField of outputFields) {
+      if (otherField.name === xstate.currField.name) {
+        continue;
+      }
+
+      // Look for the next field title after current position
+      const nextFieldPattern = `\n${otherField.title}:`;
+      const nextFieldIndex = content.indexOf(nextFieldPattern, xstate.s);
+
+      if (nextFieldIndex !== -1 && nextFieldIndex < endIndex) {
+        endIndex = nextFieldIndex;
+      }
+    }
+
+    const val = content.substring(xstate.s, endIndex).trim();
     const parsedValue = validateAndParseFieldValue(xstate.currField, val);
     if (parsedValue !== undefined) {
       values[xstate.currField.name] = parsedValue;
@@ -269,73 +307,80 @@ export const streamingExtractFinalValue = (
         (field) => !field.isOptional
       );
       if (firstRequiredField) {
-        throw new ValidationError({
-          message: 'Expected field not found',
-          fields: [firstRequiredField],
-        });
+        throw createExpectedRequiredFieldNotFoundError(firstRequiredField);
       }
       // If only optional fields exist, ignore unprefixed content in strict mode
     }
   }
 
   // Check for optional fields that might have been missed by streaming parser
-  parseOptionalFieldsFromFullContent(sig, values, content);
+  parseMissedFieldsFromFullContent(sig, values, content);
 
   // Check all previous required fields before processing current field
-  checkMissingRequiredFields(xstate, values, sig.getOutputFields());
+  // In streaming scenarios (non-strict), defer missing-required enforcement until end
+  if (!treatAllFieldsOptional) {
+    const streamingInProgress =
+      xstate.currField !== undefined ||
+      (xstate.extractedFields?.length ?? 0) > 0;
+
+    if (strictMode || forceFinalize) {
+      checkMissingRequiredFields(xstate, values, sig.getOutputFields());
+    } else if (deferRequiredCheckForStreaming) {
+      if (!streamingInProgress) {
+        checkMissingRequiredFields(xstate, values, sig.getOutputFields());
+      }
+    } else {
+      // Default behavior: if streaming is still in progress (mid-stream),
+      // defer required checks until end of stream.
+      if (!streamingInProgress) {
+        checkMissingRequiredFields(xstate, values, sig.getOutputFields());
+      }
+    }
+  }
 };
 
-// Helper function to parse optional fields from full content that streaming parser might have missed
-const parseOptionalFieldsFromFullContent = (
+// Helper function to parse missed fields from full content that streaming parser might have missed
+const parseMissedFieldsFromFullContent = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
   content: string
 ) => {
   const outputFields = sig.getOutputFields();
 
+  // Process content line by line for more precise field extraction
+  const lines = content.split('\n');
+
   for (const field of outputFields) {
-    // Skip if field is not optional or already found
-    if (!field.isOptional || field.name in values) {
+    // Skip if field is already found
+    if (field.name in values) {
       continue;
     }
 
-    // Look for field.title pattern in content
+    // Look for field.title pattern in each line
     const prefix = `${field.title}:`;
-    const fieldIndex = content.indexOf(prefix);
 
-    if (fieldIndex === -1) {
-      continue;
-    }
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith(prefix)) {
+        // Extract the value after the colon
+        const fieldValue = trimmedLine.substring(prefix.length).trim();
 
-    // Extract content after the field prefix
-    const startIndex = fieldIndex + prefix.length;
-    let endIndex = content.length;
-
-    // Find the end of this field's content by looking for the next field or end of content
-    for (const otherField of outputFields) {
-      if (otherField.name === field.name) {
-        continue;
-      }
-
-      const otherPrefix = `${otherField.title}:`;
-      const otherFieldIndex = content.indexOf(otherPrefix, startIndex);
-
-      if (otherFieldIndex !== -1 && otherFieldIndex < endIndex) {
-        endIndex = otherFieldIndex;
-      }
-    }
-
-    // Extract and validate the field value
-    const fieldValue = content.substring(startIndex, endIndex).trim();
-
-    if (fieldValue) {
-      try {
-        const parsedValue = validateAndParseFieldValue(field, fieldValue);
-        if (parsedValue !== undefined) {
-          values[field.name] = parsedValue;
+        if (fieldValue) {
+          try {
+            const parsedValue = validateAndParseFieldValue(field, fieldValue);
+            if (parsedValue !== undefined) {
+              values[field.name] = parsedValue;
+              break; // Found the field, stop looking
+            }
+          } catch (e) {
+            // Only ignore validation errors for optional fields
+            if (!field.isOptional) {
+              throw e;
+            }
+            // Ignore validation errors for optional fields in this fallback parser
+          }
         }
-      } catch {
-        // Ignore validation errors for optional fields in this fallback parser
+        break; // Found the field marker, stop looking even if value was empty
       }
     }
   }
@@ -427,7 +472,8 @@ export function* yieldDelta<OUT extends AxGenOut>(
   const pos = xstate.streamedIndex[fieldName] ?? 0;
   const isFirstChunk = pos === 0;
 
-  const d1 = content.substring(s + pos, e);
+  const startIndex = (s < 0 ? 0 : s) + pos;
+  const d1 = content.substring(startIndex, e);
   if (d1.length === 0) {
     return;
   }
@@ -520,11 +566,7 @@ function validateAndParseFieldValue(
     if (field.isOptional) {
       return;
     }
-    throw new ValidationError({
-      message: 'Required field is missing',
-      fields: [field],
-      value: fieldValue,
-    });
+    throw createRequiredFieldMissingError(field);
   }
 
   let value: unknown | undefined;
@@ -535,11 +577,7 @@ function validateAndParseFieldValue(
       value = JSON.parse(text);
       return value;
     } catch (e) {
-      throw new ValidationError({
-        message: `Invalid JSON: ${(e as Error).message}`,
-        fields: [field],
-        value: fieldValue,
-      });
+      throw createInvalidJsonError(field, (e as Error).message);
     }
   }
 
@@ -555,11 +593,7 @@ function validateAndParseFieldValue(
         throw new Error('Expected an array');
       }
     } catch (e) {
-      throw new ValidationError({
-        message: `Invalid Array: ${(e as Error).message}`,
-        fields: [field],
-        value: fieldValue,
-      });
+      throw createInvalidArrayError(field, (e as Error).message);
     }
   }
 
@@ -575,11 +609,7 @@ function validateAndParseFieldValue(
       value = convertValueToType(field, fieldValue);
     }
   } catch (e) {
-    throw new ValidationError({
-      message: (e as Error).message,
-      fields: [field],
-      value: fieldValue,
-    });
+    throw createTypeValidationError(field, fieldValue, (e as Error).message);
   }
 
   if (typeof value === 'string' && value === '') {

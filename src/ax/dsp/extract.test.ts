@@ -129,6 +129,61 @@ Model Answer 2: false`;
       modelAnswer2: false,
     });
   });
+
+  test('extractValues plan/restaurants scenario', () => {
+    const sig = new AxSignature({
+      inputs: [{ name: 'userInput' }],
+      outputs: [
+        { name: 'plan', title: 'Plan', type: { name: 'string' } },
+        {
+          name: 'get_current_weather_location',
+          title: 'getCurrentWeather location',
+          type: { name: 'string' },
+        },
+        {
+          name: 'find_restaurants_location',
+          title: 'findRestaurants location',
+          type: { name: 'string' },
+        },
+        {
+          name: 'find_restaurants_outdoor',
+          title: 'findRestaurants outdoor',
+          type: { name: 'boolean' },
+        },
+        {
+          name: 'find_restaurants_cuisine',
+          title: 'findRestaurants cuisine',
+          type: { name: 'string' },
+        },
+        {
+          name: 'find_restaurants_price_range',
+          title: 'findRestaurants priceRange',
+          type: { name: 'string' },
+          isOptional: true,
+        },
+      ],
+    });
+
+    const values: Record<string, unknown> = {};
+    const content = `Plan: First, I will check the weather in San Francisco to determine if it's a nice day for outdoor seating. Then, I will search for restaurants in San Francisco that offer sushi, Chinese, or Indian cuisine, prioritizing outdoor seating if the weather is good. Finally, I will suggest a suitable restaurant.
+getCurrentWeather location: San Francisco
+findRestaurants location: San Francisco
+findRestaurants outdoor: true
+findRestaurants cuisine: sushi, chinese, indian
+findRestaurants priceRange: $$-$$$
+`;
+
+    extractValues(sig, values, content);
+
+    expect(values).toEqual({
+      plan: "First, I will check the weather in San Francisco to determine if it's a nice day for outdoor seating. Then, I will search for restaurants in San Francisco that offer sushi, Chinese, or Indian cuisine, prioritizing outdoor seating if the weather is good. Finally, I will suggest a suitable restaurant.",
+      get_current_weather_location: 'San Francisco',
+      find_restaurants_location: 'San Francisco',
+      find_restaurants_cuisine: 'sushi, chinese, indian',
+      find_restaurants_outdoor: true,
+      find_restaurants_price_range: '$$-$$$',
+    });
+  });
 });
 
 describe('streamingExtractValues', () => {
@@ -140,12 +195,15 @@ describe('streamingExtractValues', () => {
     // First chunk
     let content = 'Model Answer 1: First ';
     streamingExtractValues(sig, values, state, content);
+    streamingExtractFinalValue(sig, values, state, content);
     content += 'output content\n';
     streamingExtractValues(sig, values, state, content);
     content += 'Model Answer 2: Second ';
     streamingExtractValues(sig, values, state, content);
     content += 'output content';
-    streamingExtractFinalValue(sig, values, state, content, false);
+    streamingExtractFinalValue(sig, values, state, content, {
+      strictMode: false,
+    });
 
     expect(values).toEqual({
       modelAnswer1: 'First output content',
@@ -163,7 +221,9 @@ describe('streamingExtractValues', () => {
     streamingExtractValues(sig, values, state, content);
     content += 'el Answer 1: Content here';
     streamingExtractValues(sig, values, state, content);
-    streamingExtractFinalValue(sig, values, state, content, false);
+    streamingExtractFinalValue(sig, values, state, content, {
+      strictMode: false,
+    });
 
     expect(values).toEqual({
       modelAnswer1: 'Content here',
@@ -192,7 +252,9 @@ describe('streamingExtractValues', () => {
       content += chunk;
       streamingExtractValues(sig, values, state, content);
     }
-    streamingExtractFinalValue(sig, values, state, content, false);
+    streamingExtractFinalValue(sig, values, state, content, {
+      strictMode: false,
+    });
 
     expect(values).toEqual({
       modelAnswer1: 'First content here',
@@ -212,10 +274,66 @@ describe('streamingExtractValues', () => {
     content += ', "second", ';
     streamingExtractValues(sig, values, state, content);
     content += '"third"]';
-    streamingExtractFinalValue(sig, values, state, content, false);
+    streamingExtractFinalValue(sig, values, state, content, {
+      strictMode: false,
+    });
 
     expect(values).toEqual({
       modelAnswer1: ['first', 'second', 'third'],
+    });
+  });
+
+  test('does not append next field content to previous field (restaurant plan scenario)', () => {
+    const sig = new AxSignature({
+      inputs: [{ name: 'userInput' }],
+      outputs: [
+        { name: 'plan', title: 'Plan', type: { name: 'string' } },
+        {
+          name: 'get_current_weather_location',
+          title: 'getCurrentWeather location',
+          type: { name: 'string' },
+        },
+        {
+          name: 'find_restaurants_location',
+          title: 'findRestaurants location',
+          type: { name: 'string' },
+        },
+        {
+          name: 'find_restaurants_outdoor',
+          title: 'findRestaurants outdoor',
+          type: { name: 'boolean' },
+        },
+        {
+          name: 'find_restaurants_cuisine',
+          title: 'findRestaurants cuisine',
+          type: { name: 'string' },
+        },
+        {
+          name: 'find_restaurants_price_range',
+          title: 'findRestaurants priceRange',
+          type: { name: 'string' },
+          isOptional: true,
+        },
+      ],
+    });
+    const values: Record<string, unknown> = {};
+    const state = createInitialState();
+
+    const content = `Plan: First, I will check the weather in San Francisco to determine if it's a nice day for outdoor seating. Then, I will search for restaurants in San Francisco that offer sushi, Chinese, or Indian cuisine, prioritizing outdoor seating if the weather is good. Finally, I will suggest a suitable restaurant.
+getCurrentWeather location: San Francisco
+findRestaurants location: San Francisco
+findRestaurants outdoor: true
+findRestaurants cuisine: sushi, chinese, indian
+findRestaurants priceRange: $$-$$$`;
+
+    streamingExtractValues(sig, values, state, content);
+
+    expect(values).toMatchObject({
+      plan: "First, I will check the weather in San Francisco to determine if it's a nice day for outdoor seating. Then, I will search for restaurants in San Francisco that offer sushi, Chinese, or Indian cuisine, prioritizing outdoor seating if the weather is good. Finally, I will suggest a suitable restaurant.",
+      get_current_weather_location: 'San Francisco',
+      find_restaurants_location: 'San Francisco',
+      find_restaurants_outdoor: true,
+      find_restaurants_cuisine: 'sushi, chinese, indian',
     });
   });
 });

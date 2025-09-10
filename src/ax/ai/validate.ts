@@ -2,6 +2,33 @@ import type { AxChatRequest, AxChatResponseResult } from './types.js';
 
 type AxChatRequestMessage = AxChatRequest['chatPrompt'][number];
 
+function formatForMessage(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2);
+  } catch {
+    return String(v);
+  }
+}
+
+function raiseValidationError(
+  issue: string,
+  args: {
+    item?: unknown;
+    fieldPath?: string;
+    value?: unknown;
+    note?: string;
+  } = {}
+): never {
+  const lines: string[] = [issue];
+  if (args.fieldPath !== undefined) lines.push(`Field: ${args.fieldPath}`);
+  if (args.value !== undefined)
+    lines.push(`Value: ${formatForMessage(args.value)}`);
+  if (args.note) lines.push(`Note: ${args.note}`);
+  if (args.item !== undefined)
+    lines.push(`Chat item: ${formatForMessage(args.item)}`);
+  throw new Error(lines.join('\n'));
+}
+
 /**
  * Validates a chat request message item to ensure it meets the required criteria
  * @param item - The chat request message to validate
@@ -16,7 +43,13 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
     );
   }
 
-  const role = (item as { role?: string })?.role;
+  const role =
+    typeof item === 'object' &&
+    item !== null &&
+    'role' in item &&
+    typeof item.role === 'string'
+      ? item.role
+      : undefined;
   if (!role) {
     throw new Error(
       `Chat request message must have a role, received: ${value(role)}`
@@ -25,45 +58,60 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
 
   switch (role) {
     case 'system': {
-      const systemItem = item as { role: 'system'; content: string };
-      if (!systemItem.content || systemItem.content.trim() === '') {
+      const content =
+        typeof item === 'object' &&
+        item !== null &&
+        'content' in item &&
+        typeof item.content === 'string'
+          ? item.content
+          : undefined;
+      if (!content || content.trim() === '') {
         throw new Error(
-          `System message content cannot be empty or whitespace-only, received: ${value(systemItem.content)}`
+          `System message content cannot be empty or whitespace-only, received: ${value(content)}`
         );
       }
       break;
     }
 
     case 'user': {
-      const userItem = item as { role: 'user'; content: string | object[] };
-      if (!userItem.content) {
+      const content =
+        typeof item === 'object' && item !== null && 'content' in item
+          ? (item as any).content
+          : undefined;
+      if (content === undefined) {
         throw new Error(
-          `User message content cannot be undefined, received: ${value(userItem.content)}`
+          `User message content cannot be undefined, received: ${value(content)}`
         );
       }
 
-      if (typeof userItem.content === 'string') {
-        if (userItem.content.trim() === '') {
+      if (typeof content === 'string') {
+        if (content.trim() === '') {
           throw new Error(
-            `User message content cannot be empty or whitespace-only, received: ${value(userItem.content)}`
+            `User message content cannot be empty or whitespace-only, received: ${value(content)}`
           );
         }
-      } else if (Array.isArray(userItem.content)) {
-        if (userItem.content.length === 0) {
+      } else if (Array.isArray(content)) {
+        if (content.length === 0) {
           throw new Error(
-            `User message content array cannot be empty, received: ${value(userItem.content)}`
+            `User message content array cannot be empty, received: ${value(content)}`
           );
         }
 
-        for (let index = 0; index < userItem.content.length; index++) {
-          const contentItem = userItem.content[index];
+        for (let index = 0; index < content.length; index++) {
+          const contentItem = content[index];
           if (!contentItem || typeof contentItem !== 'object') {
             throw new Error(
               `User message content item at index ${index} must be an object, received: ${value(contentItem)}`
             );
           }
 
-          const contentType = (contentItem as { type?: string })?.type;
+          const contentType =
+            typeof contentItem === 'object' &&
+            contentItem !== null &&
+            'type' in contentItem &&
+            typeof contentItem.type === 'string'
+              ? contentItem.type
+              : undefined;
           if (!contentType) {
             throw new Error(
               `User message content item at index ${index} must have a type, received: ${value(contentType)}`
@@ -72,37 +120,114 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
 
           switch (contentType) {
             case 'text': {
-              const textItem = contentItem as { type: 'text'; text: string };
-              if (!textItem.text || textItem.text.trim() === '') {
+              const text =
+                'text' in contentItem && typeof contentItem.text === 'string'
+                  ? contentItem.text
+                  : undefined;
+              if (!text || text.trim() === '') {
                 throw new Error(
-                  `User message text content at index ${index} cannot be empty or whitespace-only, received: ${value(textItem.text)}`
+                  `User message text content at index ${index} cannot be empty or whitespace-only, received: ${value(text)}`
                 );
               }
               break;
             }
             case 'image': {
-              const imageItem = contentItem as {
-                type: 'image';
-                image: string;
-                mimeType: string;
-              };
-              if (!imageItem.image || imageItem.image.trim() === '') {
+              const image =
+                'image' in contentItem && typeof contentItem.image === 'string'
+                  ? contentItem.image
+                  : undefined;
+              const mimeType =
+                'mimeType' in contentItem &&
+                typeof contentItem.mimeType === 'string'
+                  ? contentItem.mimeType
+                  : undefined;
+
+              if (!image || image.trim() === '') {
                 throw new Error(
-                  `User message image content at index ${index} cannot be empty, received: ${value(imageItem.image)}`
+                  `User message image content at index ${index} cannot be empty, received: ${value(image)}`
                 );
               }
-              if (!imageItem.mimeType || imageItem.mimeType.trim() === '') {
+              if (!mimeType || mimeType.trim() === '') {
                 throw new Error(
-                  `User message image content at index ${index} must have a mimeType, received: ${value(imageItem.mimeType)}`
+                  `User message image content at index ${index} must have a mimeType, received: ${value(mimeType)}`
                 );
               }
               break;
             }
             case 'audio': {
-              const audioItem = contentItem as { type: 'audio'; data: string };
-              if (!audioItem.data || audioItem.data.trim() === '') {
+              const data =
+                'data' in contentItem && typeof contentItem.data === 'string'
+                  ? contentItem.data
+                  : undefined;
+              if (!data || data.trim() === '') {
                 throw new Error(
-                  `User message audio content at index ${index} cannot be empty, received: ${value(audioItem.data)}`
+                  `User message audio content at index ${index} cannot be empty, received: ${value(data)}`
+                );
+              }
+              break;
+            }
+            case 'file': {
+              // Check if this is a fileUri-based file or data-based file
+              const hasFileUri =
+                'fileUri' in contentItem &&
+                typeof contentItem.fileUri === 'string';
+              const hasData =
+                'data' in contentItem && typeof contentItem.data === 'string';
+
+              // Must have either fileUri or data, but not both
+              if (!hasFileUri && !hasData) {
+                throw new Error(
+                  `User message file content at index ${index} must have either 'data' or 'fileUri', received: ${value(contentItem)}`
+                );
+              }
+
+              if (hasFileUri && hasData) {
+                throw new Error(
+                  `User message file content at index ${index} cannot have both 'data' and 'fileUri', received: ${value(contentItem)}`
+                );
+              }
+
+              // Validate fileUri if present
+              if (hasFileUri) {
+                const fileUriValue = contentItem.fileUri;
+                if (!fileUriValue || fileUriValue.trim() === '') {
+                  throw new Error(
+                    `User message file content at index ${index} fileUri cannot be empty, received: ${value(fileUriValue)}`
+                  );
+                }
+              }
+
+              // Validate data if present
+              if (hasData) {
+                const dataValue = contentItem.data;
+                if (!dataValue || dataValue.trim() === '') {
+                  throw new Error(
+                    `User message file content at index ${index} data cannot be empty, received: ${value(dataValue)}`
+                  );
+                }
+              }
+
+              // Validate mimeType (required for both cases)
+              const mimeType =
+                'mimeType' in contentItem &&
+                typeof contentItem.mimeType === 'string'
+                  ? contentItem.mimeType
+                  : null;
+              if (!mimeType || mimeType.trim() === '') {
+                throw new Error(
+                  `User message file content at index ${index} must have a mimeType, received: ${value(mimeType)}`
+                );
+              }
+              break;
+            }
+            case 'url': {
+              const url =
+                'url' in contentItem && typeof contentItem.url === 'string'
+                  ? contentItem.url
+                  : undefined;
+              if (!url || url.trim() === '') {
+                throw new Error(
+                  `User message url content at index ${index} cannot be empty, received: ${value(url)}`
                 );
               }
               break;
@@ -115,63 +240,190 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
         }
       } else {
         throw new Error(
-          `User message content must be a string or array of content objects, received: ${value(userItem.content)}`
+          `User message content must be a string or array of content objects, received: ${value(content)}`
         );
       }
       break;
     }
 
     case 'assistant': {
-      const assistantItem = item as {
-        role: 'assistant';
-        content?: string;
-        functionCalls?: object[];
-      };
-      // Assistant messages can have empty content if they have function calls
-      if (!assistantItem.content && !assistantItem.functionCalls) {
-        throw new Error(
-          `Assistant message must have either content or function calls, received content: ${value(assistantItem.content)}, functionCalls: ${value(assistantItem.functionCalls)}`
+      const content =
+        typeof item === 'object' && item !== null && 'content' in item
+          ? (item as any).content
+          : undefined;
+
+      const functionCalls =
+        typeof item === 'object' && item !== null && 'functionCalls' in item
+          ? (item as any).functionCalls
+          : undefined;
+
+      const hasNonEmptyContent =
+        typeof content === 'string' && content.trim() !== '';
+      const hasFunctionCalls =
+        Array.isArray(functionCalls) && functionCalls.length > 0;
+
+      if (!hasNonEmptyContent && !hasFunctionCalls) {
+        raiseValidationError(
+          'Assistant message must include non-empty content or at least one function call',
+          {
+            fieldPath: 'content | functionCalls',
+            value: { content, functionCalls },
+            item,
+          }
         );
       }
 
-      if (assistantItem.content && typeof assistantItem.content !== 'string') {
-        throw new Error(
-          `Assistant message content must be a string, received: ${value(assistantItem.content)}`
+      if (content !== undefined && typeof content !== 'string') {
+        raiseValidationError('Assistant message content must be a string', {
+          fieldPath: 'content',
+          value: content,
+          item,
+        });
+      }
+
+      if (functionCalls !== undefined && !Array.isArray(functionCalls)) {
+        raiseValidationError(
+          'Assistant message functionCalls must be an array when provided',
+          {
+            fieldPath: 'functionCalls',
+            value: functionCalls,
+            item,
+          }
         );
       }
 
-      if (
-        assistantItem.functionCalls &&
-        !Array.isArray(assistantItem.functionCalls)
-      ) {
-        throw new Error(
-          `Assistant message function calls must be an array, received: ${value(assistantItem.functionCalls)}`
-        );
+      if (Array.isArray(functionCalls)) {
+        for (let i = 0; i < functionCalls.length; i++) {
+          const fc = functionCalls[i];
+          if (!fc || typeof fc !== 'object') {
+            raiseValidationError('functionCalls entry must be an object', {
+              fieldPath: `functionCalls[${i}]`,
+              value: fc,
+              item,
+            });
+          }
+          if (
+            !('id' in fc) ||
+            typeof (fc as any).id !== 'string' ||
+            (fc as any).id.trim() === ''
+          ) {
+            raiseValidationError(
+              'functionCalls entry must include a non-empty string id',
+              {
+                fieldPath: `functionCalls[${i}].id`,
+                value: (fc as any).id,
+                item,
+              }
+            );
+          }
+          if (!('type' in fc) || (fc as any).type !== 'function') {
+            raiseValidationError(
+              "functionCalls entry must have type 'function'",
+              {
+                fieldPath: `functionCalls[${i}].type`,
+                value: (fc as any).type,
+                item,
+              }
+            );
+          }
+          if (!('function' in fc) || !(fc as any).function) {
+            raiseValidationError(
+              'functionCalls entry must include a function object',
+              {
+                fieldPath: `functionCalls[${i}].function`,
+                value: (fc as any).function,
+                item,
+              }
+            );
+          } else {
+            const funcObj = (fc as any).function;
+            if (
+              !('name' in funcObj) ||
+              typeof funcObj.name !== 'string' ||
+              funcObj.name.trim() === ''
+            ) {
+              raiseValidationError(
+                'functionCalls entry must include a non-empty function name',
+                {
+                  fieldPath: `functionCalls[${i}].function.name`,
+                  value: funcObj?.name,
+                  item,
+                }
+              );
+            }
+            if (funcObj.params !== undefined) {
+              if (
+                typeof funcObj.params !== 'string' &&
+                typeof funcObj.params !== 'object'
+              ) {
+                raiseValidationError(
+                  'functionCalls entry params must be a string or object when provided',
+                  {
+                    fieldPath: `functionCalls[${i}].function.params`,
+                    value: funcObj.params,
+                    item,
+                  }
+                );
+              }
+            }
+          }
+        }
+      }
+
+      if ((item as any).name !== undefined) {
+        const name = (item as any).name;
+        if (typeof name !== 'string' || name.trim() === '') {
+          raiseValidationError(
+            'Assistant message name must be a non-empty string when provided',
+            { fieldPath: 'name', value: name, item }
+          );
+        }
       }
       break;
     }
 
     case 'function': {
-      const functionItem = item as {
-        role: 'function';
-        functionId: string;
-        result: string;
-      };
-      if (!functionItem.functionId || functionItem.functionId.trim() === '') {
+      const functionId =
+        typeof item === 'object' &&
+        item !== null &&
+        'functionId' in item &&
+        typeof item.functionId === 'string'
+          ? item.functionId
+          : undefined;
+      const result =
+        typeof item === 'object' && item !== null && 'result' in item
+          ? item.result
+          : undefined;
+
+      if (!functionId || functionId.trim() === '') {
         throw new Error(
-          `Function message must have a non-empty functionId, received: ${value(functionItem.functionId)}`
+          `Function message must have a non-empty functionId, received: ${value(functionId)}`
         );
       }
 
-      if (functionItem.result === undefined || functionItem.result === null) {
+      if (result === undefined || result === null) {
         throw new Error(
-          `Function message must have a result, received: ${value(functionItem.result)}`
+          `Function message must have a result, received: ${value(result)}`
         );
       }
 
-      if (typeof functionItem.result !== 'string') {
+      if (typeof result !== 'string') {
         throw new Error(
-          `Function message result must be a string, received: ${value(functionItem.result)}`
+          `Function message result must be a string, received: ${value(result)}`
+        );
+      }
+
+      if (
+        (item as any).isError !== undefined &&
+        typeof (item as any).isError !== 'boolean'
+      ) {
+        raiseValidationError(
+          'Function message isError must be a boolean when provided',
+          {
+            fieldPath: 'isError',
+            value: (item as any).isError,
+            item,
+          }
         );
       }
       break;

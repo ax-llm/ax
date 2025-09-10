@@ -185,6 +185,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private disableSmartModelRouting?: boolean;
   private excludeFieldsFromPassthrough: string[];
   private debug?: boolean;
+  private options?: Readonly<AxAgentOptions>;
 
   private name: string;
   //   private subAgentList?: string
@@ -219,6 +220,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.disableSmartModelRouting = disableSmartModelRouting;
     this.excludeFieldsFromPassthrough = excludeFieldsFromPassthrough ?? [];
     this.debug = debug;
+    this.options = options;
 
     if (!name || name.length < 5) {
       throw new Error(
@@ -437,11 +439,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
     const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    return await this.program.forward(ai, values, {
-      ...options,
+    // Merge stored options with runtime options, with runtime taking precedence
+    const mergedOptions = {
+      ...this.options, // Agent-level options (like functionCallMode)
+      ...options, // Runtime options
       debug,
       functions,
-    });
+    };
+    return await this.program.forward(ai, values, mergedOptions);
   }
 
   public async *streamingForward<T extends Readonly<AxAIService>>(
@@ -450,11 +455,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
     const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    return yield* this.program.streamingForward(ai, values, {
-      ...options,
+    // Merge stored options with runtime options, with runtime taking precedence
+    const mergedOptions = {
+      ...this.options, // Agent-level options (like functionCallMode)
+      ...options, // Runtime options
       debug,
       functions,
-    });
+    };
+    return yield* this.program.streamingForward(ai, values, mergedOptions);
   }
 
   /**
@@ -490,6 +498,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
   ) {
     this.program.setSignature(signature);
+  }
+
+  public applyOptimization(optimizedProgram: any): void {
+    (this.program as any).applyOptimization?.(optimizedProgram);
   }
 
   private getDebug<T extends Readonly<AxAIService>>(
@@ -631,19 +643,28 @@ export interface AxAgentConfig<IN extends AxGenIn, OUT extends AxGenOut>
 }
 
 /**
- * Creates a strongly-typed AI agent from a string signature.
+ * Creates a strongly-typed AI agent from a signature.
  * This is the recommended way to create agents, providing better type inference and cleaner syntax.
+ * Supports both string signatures and AxSignature objects.
  *
- * @param signature - The input/output signature as a string (e.g., "userInput:string -> responseText:string")
+ * @param signature - The input/output signature as a string or AxSignature object
  * @param config - Configuration options for the agent
  * @returns A typed agent instance
  *
  * @example
  * ```typescript
+ * // Using string signature
  * const myAgent = agent('userInput:string -> responseText:string', {
  *   name: 'myAgent',
  *   description: 'An agent that processes user input and returns a response',
  *   definition: 'You are a helpful assistant that responds to user queries...'
+ * });
+ *
+ * // Using AxSignature object
+ * const sig = s('userInput:string -> responseText:string');
+ * const myAgent2 = agent(sig, {
+ *   name: 'myAgent2',
+ *   description: 'Same agent but using AxSignature object'
  * });
  *
  * // With child agents
@@ -664,8 +685,34 @@ export function agent<const T extends string>(
     ParseSignature<T>['inputs'],
     ParseSignature<T>['outputs']
   >
-): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
-  const typedSignature = AxSignature.create(signature);
+): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
+export function agent<
+  TInput extends Record<string, any>,
+  TOutput extends Record<string, any>,
+>(
+  signature: AxSignature<TInput, TOutput>,
+  config: AxAgentConfig<TInput, TOutput>
+): AxAgent<TInput, TOutput>;
+export function agent<
+  T extends string | AxSignature<any, any>,
+  TInput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['inputs']
+    : T extends AxSignature<infer I, any>
+      ? I
+      : never,
+  TOutput extends Record<string, any> = T extends string
+    ? ParseSignature<T>['outputs']
+    : T extends AxSignature<any, infer O>
+      ? O
+      : never,
+>(
+  signature: T,
+  config: AxAgentConfig<TInput, TOutput>
+): AxAgent<TInput, TOutput> {
+  const typedSignature =
+    typeof signature === 'string'
+      ? AxSignature.create(signature)
+      : (signature as AxSignature<TInput, TOutput>);
   const { ai, name, description, definition, agents, functions, ...options } =
     config;
 

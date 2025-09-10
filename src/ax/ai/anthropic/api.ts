@@ -217,21 +217,54 @@ class AxAIAnthropicImpl
 
     const messages = createMessages(otherMessages);
 
-    const tools: AxAIAnthropicChatRequest['tools'] = req.functions?.map(
-      (v) => ({
+    // Compose tools from request function definitions and static config tools
+    const functionToolsFromReq: AxAIAnthropicChatRequest['tools'] | undefined =
+      req.functions?.map((v) => ({
         name: v.name,
         description: v.description,
         input_schema: v.parameters
           ? cleanSchemaForAnthropic(v.parameters)
           : undefined,
-      })
-    );
+      }));
+
+    const configToolsRaw = this.config.tools ?? [];
+    const configToolsCleaned: AxAIAnthropicChatRequest['tools'] =
+      configToolsRaw.map((tool: any) => {
+        if (tool && typeof tool === 'object' && 'type' in tool) {
+          // Server tools (e.g., web_search) are passed through as-is
+          return tool;
+        }
+        // Function-style tools: ensure input_schema is cleaned
+        return {
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.input_schema
+            ? cleanSchemaForAnthropic(tool.input_schema)
+            : undefined,
+          ...(tool.cache_control ? { cache_control: tool.cache_control } : {}),
+        };
+      });
+
+    let tools: AxAIAnthropicChatRequest['tools'] | undefined = [
+      ...(functionToolsFromReq ?? []),
+      ...configToolsCleaned,
+    ];
+
+    // Anthropic Vertex does not support server tools like web_search; filter them out
+    if (this.isVertex && tools.length > 0) {
+      tools = tools.filter(
+        (t: any) => !(t && typeof t === 'object' && 'type' in t)
+      );
+    }
+    if (tools.length === 0) {
+      tools = undefined;
+    }
 
     const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens;
     const stopSequences =
       req.modelConfig?.stopSequences ?? this.config.stopSequences;
-    const temperature = req.modelConfig?.temperature ?? this.config.temperature;
-    const topP = req.modelConfig?.topP ?? this.config.topP;
+    const temperature = req.modelConfig?.temperature;
+    const topP = req.modelConfig?.topP; // do not fallback to config by default
     const topK = req.modelConfig?.topK ?? this.config.topK;
     const n = req.modelConfig?.n ?? this.config.n;
 
@@ -297,13 +330,15 @@ class AxAIAnthropicImpl
         ? { stop_sequences: stopSequences }
         : {}),
       // Only include temperature when thinking is not enabled
-      ...(temperature && !thinkingConfig ? { temperature } : {}),
+      ...(temperature !== undefined && !thinkingConfig ? { temperature } : {}),
       // Only include top_p when thinking is not enabled, or when it's >= 0.95
-      ...(topP && (!thinkingConfig || topP >= 0.95) ? { top_p: topP } : {}),
+      ...(topP !== undefined && (!thinkingConfig || topP >= 0.95)
+        ? { top_p: topP }
+        : {}),
       // Only include top_k when thinking is not enabled
       ...(topK && !thinkingConfig ? { top_k: topK } : {}),
       ...toolsChoice,
-      ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(tools ? { tools } : {}),
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
       ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
@@ -332,49 +367,71 @@ class AxAIAnthropicImpl
       this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
       this.currentPromptConfig?.showThoughts !== false;
 
-    const results = resp.content
-      .map((msg, index): AxChatResponseResult => {
-        if (msg.type === 'tool_use') {
-          return {
-            index,
-            id: msg.id,
-            functionCalls: [
-              {
-                id: msg.id,
-                type: 'function' as const,
-                function: {
-                  name: msg.name,
-                  params: msg.input,
-                },
-              },
-            ],
-            finishReason,
-          };
-        }
-        if (
-          (msg.type === 'thinking' || msg.type === 'redacted_thinking') &&
-          showThoughts
-        ) {
-          return {
-            index,
-            thought: msg.thinking,
-            id: resp.id,
-            finishReason,
-          };
-        }
-        return {
-          index,
-          content: msg.type === 'text' ? msg.text : '',
-          id: resp.id,
-          finishReason,
-        };
-      })
-      .filter(
-        (result) =>
-          result.content !== '' ||
-          result.thought !== undefined ||
-          result.functionCalls !== undefined
-      );
+    // Aggregate all content blocks into a single result to avoid mixing
+    // thinking text into the normal content while still exposing function calls.
+    let aggregatedContent = '';
+    let aggregatedThought = '';
+    const aggregatedFunctionCalls: NonNullable<
+      AxChatResponseResult['functionCalls']
+    > = [];
+
+    // Collect citations from text blocks (citations are embedded here)
+    const citations: NonNullable<AxChatResponseResult['citations']> = [];
+
+    for (const block of resp.content) {
+      switch (block.type) {
+        case 'text':
+          aggregatedContent += block.text ?? '';
+          // Map citations if present on the text block
+          if (Array.isArray((block as any).citations)) {
+            for (const c of (block as any).citations) {
+              if (c?.url) {
+                citations.push({
+                  url: String(c.url),
+                  title: typeof c.title === 'string' ? c.title : undefined,
+                  snippet:
+                    typeof c.cited_text === 'string' ? c.cited_text : undefined,
+                });
+              }
+            }
+          }
+          break;
+        case 'thinking':
+        case 'redacted_thinking':
+          if (showThoughts) {
+            aggregatedThought += block.thinking ?? '';
+          }
+          break;
+        case 'tool_use':
+          aggregatedFunctionCalls.push({
+            id: block.id,
+            type: 'function',
+            function: { name: block.name, params: block.input },
+          });
+          break;
+      }
+    }
+
+    const result: AxChatResponseResult = {
+      index: 0,
+      id: resp.id,
+      finishReason,
+    };
+
+    if (aggregatedContent) {
+      result.content = aggregatedContent;
+    }
+    if (aggregatedThought) {
+      result.thought = aggregatedThought;
+    }
+    if (aggregatedFunctionCalls.length > 0) {
+      result.functionCalls = aggregatedFunctionCalls;
+    }
+    if (citations.length > 0) {
+      result.citations = citations;
+    }
+
+    const results = [result];
 
     this.tokensUsed = {
       promptTokens: resp.usage.input_tokens,
@@ -431,8 +488,27 @@ class AxAIAnthropicImpl
         resp as unknown as AxAIAnthropicContentBlockStartEvent;
 
       if (contentBlock.type === 'text') {
+        const annos: NonNullable<AxChatResponseResult['citations']> = [];
+        if (Array.isArray((contentBlock as any).citations)) {
+          for (const c of (contentBlock as any).citations) {
+            if (c?.url) {
+              annos.push({
+                url: String(c.url),
+                title: typeof c.title === 'string' ? c.title : undefined,
+                snippet:
+                  typeof c.cited_text === 'string' ? c.cited_text : undefined,
+              });
+            }
+          }
+        }
         return {
-          results: [{ index, content: contentBlock.text }],
+          results: [
+            {
+              index,
+              content: contentBlock.text,
+              ...(annos.length ? { citations: annos } : {}),
+            },
+          ],
         };
       }
       if (contentBlock.type === 'thinking') {
@@ -471,13 +547,64 @@ class AxAIAnthropicImpl
           };
         }
       }
+      if (
+        contentBlock.type === 'web_search_tool_result' ||
+        contentBlock.type === 'server_tool_use'
+      ) {
+        return {
+          results: [{ index, content: '' }],
+        };
+      }
     }
 
     if (resp.type === 'content_block_delta') {
       const { delta } = resp as unknown as AxAIAnthropicContentBlockDeltaEvent;
+      // Emit standalone annotations when Anthropic streams citations separately
+      if ((delta as any).type === 'citations_delta') {
+        const c = (delta as any).citation;
+        if (c && typeof c.url === 'string' && c.url.length > 0) {
+          const annos: NonNullable<AxChatResponseResult['citations']> = [
+            {
+              url: String(c.url),
+              title: typeof c.title === 'string' ? c.title : undefined,
+              snippet:
+                typeof c.cited_text === 'string' ? c.cited_text : undefined,
+            },
+          ];
+          return {
+            results: [
+              {
+                index,
+                content: '',
+                citations: annos,
+              },
+            ],
+          };
+        }
+        return { results: [{ index, content: '' }] };
+      }
       if (delta.type === 'text_delta') {
+        const annos: NonNullable<AxChatResponseResult['citations']> = [];
+        if (Array.isArray((delta as any).citations)) {
+          for (const c of (delta as any).citations) {
+            if (c?.url) {
+              annos.push({
+                url: String(c.url),
+                title: typeof c.title === 'string' ? c.title : undefined,
+                snippet:
+                  typeof c.cited_text === 'string' ? c.cited_text : undefined,
+              });
+            }
+          }
+        }
         return {
-          results: [{ index, content: delta.text }],
+          results: [
+            {
+              index,
+              content: delta.text,
+              ...(annos.length ? { citations: annos } : {}),
+            },
+          ],
         };
       }
       if (delta.type === 'thinking_delta') {
@@ -504,7 +631,7 @@ class AxAIAnthropicImpl
       if (delta.type === 'input_json_delta') {
         const id = sstate.indexIdMap[resp.index];
         if (!id) {
-          throw new Error(`invalid streaming index no id found: ${resp.index}`);
+          return { results: [{ index, content: '' }] };
         }
         const functionCalls = [
           {
@@ -627,8 +754,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       return {
         functions: true,
         streaming: true,
-        hasThinkingBudget: mi?.hasThinkingBudget ?? false,
-        hasShowThoughts: mi?.hasShowThoughts ?? false,
+        hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
+        hasShowThoughts: mi?.supported?.showThoughts ?? false,
         functionCot: true,
         media: {
           images: {
@@ -662,10 +789,68 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
           supported: true,
           types: ['ephemeral'] as ('ephemeral' | 'persistent')[],
         },
-        thinking: mi?.hasThinkingBudget ?? false,
+        thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
       };
     };
+
+    // Normalize per-model presets: allow provider-specific config on each model list item
+    const normalizedModels = models?.map((item) => {
+      const anyItem = item as any;
+      const cfg = anyItem?.config as Partial<AxAIAnthropicConfig> | undefined;
+      if (!cfg) return item;
+
+      const modelConfig: Partial<AxModelConfig> = {};
+      if (cfg.maxTokens !== undefined) modelConfig.maxTokens = cfg.maxTokens;
+      if (cfg.temperature !== undefined)
+        modelConfig.temperature = cfg.temperature;
+      if (cfg.topP !== undefined) modelConfig.topP = cfg.topP as number;
+      if (cfg.topK !== undefined) modelConfig.topK = cfg.topK as number;
+      if (cfg.presencePenalty !== undefined)
+        modelConfig.presencePenalty = cfg.presencePenalty as number;
+      if (cfg.frequencyPenalty !== undefined)
+        modelConfig.frequencyPenalty = cfg.frequencyPenalty as number;
+      if (cfg.stopSequences !== undefined)
+        modelConfig.stopSequences = cfg.stopSequences as string[];
+      if ((cfg as any).endSequences !== undefined)
+        (modelConfig as any).endSequences = (cfg as any).endSequences;
+      if (cfg.stream !== undefined) modelConfig.stream = cfg.stream as boolean;
+      if (cfg.n !== undefined) modelConfig.n = cfg.n as number;
+
+      const out: any = { ...anyItem };
+      if (Object.keys(modelConfig).length > 0) {
+        out.modelConfig = { ...(anyItem.modelConfig ?? {}), ...modelConfig };
+      }
+
+      // Map numeric thinking budget to closest Ax level
+      const numericBudget = cfg.thinking?.thinkingTokenBudget;
+      if (typeof numericBudget === 'number') {
+        const levels = Config.thinkingTokenBudgetLevels;
+        const candidates = [
+          ['minimal', levels?.minimal ?? 200],
+          ['low', levels?.low ?? 800],
+          ['medium', levels?.medium ?? 5000],
+          ['high', levels?.high ?? 10000],
+          ['highest', levels?.highest ?? 24500],
+        ] as const;
+        let bestName: 'minimal' | 'low' | 'medium' | 'high' | 'highest' =
+          'minimal';
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (const [name, value] of candidates) {
+          const diff = Math.abs(numericBudget - value);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestName = name as typeof bestName;
+          }
+        }
+        out.thinkingTokenBudget = bestName;
+      }
+      if (cfg.thinking?.includeThoughts !== undefined) {
+        out.showThoughts = !!cfg.thinking.includeThoughts;
+      }
+
+      return out as typeof item;
+    });
 
     super(aiImpl, {
       name: 'Anthropic',
@@ -675,7 +860,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       defaults: { model: Config.model },
       options,
       supportFor,
-      models,
+      models: normalizedModels ?? models,
     });
   }
 }

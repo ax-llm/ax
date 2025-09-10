@@ -7,6 +7,14 @@ import type { AxAIFeatures } from './base.js';
 export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
   (AxAIModelListBase<TModelKey> & {
     isInternal?: boolean;
+    /** Optional per-model config applied when this key is used (callers still override) */
+    modelConfig?: Omit<AxModelConfig, 'model' | 'embedModel'>;
+    /** Optional per-model options applied when this key is used (callers still override) */
+    thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
+    showThoughts?: AxAIServiceOptions['showThoughts'];
+    stream?: AxAIServiceOptions['stream'];
+    debug?: AxAIServiceOptions['debug'];
+    useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
   } & ({ model: TModel } | { embedModel: TEmbedModel }))[];
 
 export type AxAIModelListBase<TModelKey> = {
@@ -24,8 +32,14 @@ export type AxModelInfo = {
   promptTokenCostPer1M?: number;
   completionTokenCostPer1M?: number;
   aliases?: string[];
-  hasThinkingBudget?: boolean;
-  hasShowThoughts?: boolean;
+  supported?: {
+    thinkingBudget?: boolean;
+    showThoughts?: boolean;
+  };
+  notSupported?: {
+    temperature?: boolean;
+    topP?: boolean;
+  };
   maxTokens?: number;
   isExpensive?: boolean;
   contextWindow?: number;
@@ -102,18 +116,7 @@ export type AxChatResponseResult = {
     type: 'function';
     function: { name: string; params?: string | object };
   }[];
-  annotations?: {
-    type: 'url_citation';
-    url_citation: {
-      url: string;
-      title?: string;
-      description?: string;
-      license?: string; // Content license information
-      publicationDate?: string; // ISO date string
-      snippet?: string; // Relevant text excerpt
-      confidenceScore?: number; // 0-1 confidence in citation
-    };
-  }[];
+  citations?: AxCitation[];
   finishReason?:
     | 'stop'
     | 'length'
@@ -129,10 +132,21 @@ export type AxChatResponseResult = {
   };
 };
 
+// Normalized citation shape used across providers
+export type AxCitation = {
+  url: string;
+  title?: string;
+  description?: string;
+  license?: string;
+  publicationDate?: string;
+  snippet?: string;
+};
+
 export type AxModelUsage = {
   ai: string;
   model: string;
   tokens?: AxTokenUsage;
+  citations?: AxCitation[];
 };
 
 export type AxChatResponse = {
@@ -187,12 +201,25 @@ export type AxChatRequest<TModel = string> = {
                   duration?: number;
                 }
               | {
-                  /** File content type */
+                  /** File content type with inline data */
                   type: 'file';
-                  /** File data as base64 or file URL */
+                  /** File data as base64 */
                   data: string;
                   /** Original filename */
-                  filename: string;
+                  filename?: string;
+                  /** MIME type of the file */
+                  mimeType: string;
+                  cache?: boolean;
+                  /** Pre-extracted text content for fallback */
+                  extractedText?: string;
+                }
+              | {
+                  /** File content type with cloud storage URI */
+                  type: 'file';
+                  /** File URI (e.g., gs:// URL) */
+                  fileUri: string;
+                  /** Original filename */
+                  filename?: string;
                   /** MIME type of the file */
                   mimeType: string;
                   cache?: boolean;
@@ -394,6 +421,14 @@ export type AxLoggerData =
         sample: number[];
         truncated: boolean;
       }[];
+    }
+  | {
+      name: 'ChatResponseUsage';
+      value: AxModelUsage;
+    }
+  | {
+      name: 'ChatResponseCitations';
+      value: AxCitation[];
     };
 
 export type AxLoggerFunction = (message: AxLoggerData) => void;
@@ -412,6 +447,7 @@ export type AxAIServiceOptions = {
   debugHideSystemPrompt?: boolean;
   traceContext?: Context;
   stream?: boolean;
+  functionCallMode?: 'auto' | 'native' | 'prompt';
   thinkingTokenBudget?:
     | 'minimal'
     | 'low'

@@ -29,6 +29,7 @@ approaches that provide better TypeScript type inference.
    type-safe
 2. **Template Literals**: ``ax```,``s``` with interpolation - Not type-safe
 3. **Field Helpers**: `f.string()`, `f.class()`, etc. - Not type-safe
+4. **AxMessage**: Current structure - Will be replaced with new design
 
 ## Migration Guide
 
@@ -120,7 +121,24 @@ const agent = agent({
 **Note**: We recommend using `const agentInstance` instead of `const agent` to
 avoid naming conflicts with the `agent()` factory function.
 
-### 6. Field Types in String Signatures
+### 6. AxMessage Structure
+
+```typescript
+// ❌ DEPRECATED: Current AxMessage structure (will be replaced)
+type AxMessage<IN> =
+  | { role: 'user'; values: IN }
+  | { role: 'assistant'; values: IN };
+
+// ⚠️  TRANSITIONAL: New design will be introduced in v14.x
+// Details will be provided when the new design is ready
+```
+
+**Migration Timeline:**
+- **v14.0.0+**: Deprecation warnings (current)
+- **v14.x**: New message design introduced alongside existing
+- **v15.0.0**: Complete replacement with new design
+
+### 7. Field Types in String Signatures
 
 | Old (Deprecated)              | New (Recommended)               |
 | ----------------------------- | ------------------------------- |
@@ -186,6 +204,7 @@ avoid naming conflicts with the `agent()` factory function.
 - Complete removal of deprecated constructors
 - Removal of template literal support
 - Removal of `f` helper functions
+- Complete replacement of AxMessage with new design
 
 ## Migration Tools and Support
 

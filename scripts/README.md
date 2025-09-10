@@ -1,6 +1,8 @@
 # initPackage Script
 
-A script to create new packages in the Ax monorepo using the `src/ax` package as a skeleton template, copying configuration files and filtering dependencies appropriately.
+A script to create new packages in the Ax monorepo using the `src/ax` package as
+a skeleton template, copying configuration files and filtering dependencies
+appropriately.
 
 ## Usage
 
@@ -25,12 +27,13 @@ npm run init-package my-extension
 npm run init-package vector-store "Vector store implementation for Ax"
 
 # Create a new package with additional dependencies
-npm run init-package ai-provider "Custom AI provider" "zod,uuid,lodash"
+npm run init-package ai-provider "Custom AI provider" "zod,uuid"
 ```
 
 ## What it creates
 
-The script creates a new package under `src/<package-name>/` with the following structure:
+The script creates a new package under `src/<package-name>/` with the following
+structure:
 
 ```
 src/<package-name>/
@@ -76,27 +79,34 @@ After creating a package, you can:
 
 The script uses the `src/ax` package as a template, ensuring consistency with:
 
-- **Package.json**: Copies structure and scripts from `src/ax`, filtering out package-specific scripts like `build:index`
-- **Configuration Files**: Copies `tsconfig.json`, `tsup.config.ts`, `.prettierignore`, and `.release-it.json` directly from `src/ax`
-- **Dependencies**: Intelligently filters dependencies, keeping only core ones (`@ax-llm/ax`) plus any additional specified dependencies
-- **Scripts**: Inherits all scripts from `src/ax` except package-specific ones, with build script simplified to just `tsup`
+- **Package.json**: Copies structure and scripts from `src/ax`, filtering out
+  package-specific scripts like `build:index`
+- **Configuration Files**: Copies `tsconfig.json`, `tsup.config.ts`,
+  `.prettierignore`, and `.release-it.json` directly from `src/ax`
+- **Dependencies**: Intelligently filters dependencies, keeping only core ones
+  (`@ax-llm/ax`) plus any additional specified dependencies
+- **Scripts**: Inherits all scripts from `src/ax` except package-specific ones,
+  with build script simplified to just `tsup`
 
 ## Dependency Management
 
 The script intelligently handles dependencies:
 
-1. **Core Dependencies**: Always includes `@ax-llm/ax` with current monorepo version
+1. **Core Dependencies**: Always includes `@ax-llm/ax` with current monorepo
+   version
 2. **Additional Dependencies**: Looks for specified dependencies in:
    - `src/ax/package.json` dependencies
-   - Root `package.json` dependencies  
+   - Root `package.json` dependencies
    - Falls back to `^latest` if not found (with warning)
-3. **Filtered Dependencies**: Removes all other dependencies from `src/ax` to keep packages lean
+3. **Filtered Dependencies**: Removes all other dependencies from `src/ax` to
+   keep packages lean
 
 ## Configuration File Copying
 
-Instead of generating configuration files, the script copies them directly from `src/ax`:
+Instead of generating configuration files, the script copies them directly from
+`src/ax`:
 
 - **tsconfig.json**: Ensures consistent TypeScript configuration
 - **tsup.config.ts**: Maintains consistent build setup
 - **.prettierignore**: Keeps formatting rules consistent
-- **.release-it.json**: Ensures proper release configuration 
+- **.release-it.json**: Ensures proper release configuration

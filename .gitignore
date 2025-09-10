@@ -23,3 +23,6 @@ site/dist
 *.ac3
 *.webm
 *.txt
+__pycache__
+
+gepa/
