@@ -30,13 +30,9 @@ import type { AxGenOut, AxProgramDemos } from './types.js';
 
 // Logger utilities are now exported from ./loggers.js
 
-// Multi-objective metric function for Pareto optimization
-export type AxMultiMetricFn = <T = any>(
-  arg0: Readonly<{ prediction: T; example: AxExample }>
-) => Record<string, number> | Promise<Record<string, number>>;
+// Multi-objective metric function for Pareto optimization is now defined in common_types.ts
 
 // Common types moved to ./common_types.ts
-
 
 // Progress tracking interface for real-time updates
 // AxOptimizationProgress moved to ./common_types.ts

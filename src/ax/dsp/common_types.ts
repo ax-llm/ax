@@ -16,7 +16,7 @@ export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
 
 export type AxMultiMetricFn = <T = any>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
-) => Record<string, number>;
+) => Record<string, number> | Promise<Record<string, number>>;
 
 export interface AxOptimizationProgress {
   round: number;
