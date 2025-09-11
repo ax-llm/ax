@@ -112,12 +112,6 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     completionTokenCostPer1M: 60,
   },
   {
-    name: AxAIOpenAIModel.O3Mini,
-    currency: 'usd',
-    promptTokenCostPer1M: 1.1,
-    completionTokenCostPer1M: 4.4,
-  },
-  {
     name: AxAIOpenAIModel.O4Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,

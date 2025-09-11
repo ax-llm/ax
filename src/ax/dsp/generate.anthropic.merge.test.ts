@@ -31,7 +31,7 @@ describe('ax.forward with Anthropic merges per-key options and config', () => {
       models: [
         {
           key: 'key1',
-          model: AxAIAnthropicModel.Claude35Haiku,
+          model: AxAIAnthropicModel.Claude37Sonnet,
           description: 'anthropic preset',
           config: {
             maxTokens: 2048,
@@ -52,7 +52,7 @@ describe('ax.forward with Anthropic merges per-key options and config', () => {
         type: 'message',
         role: 'assistant',
         content: [{ type: 'text', text: 'ok' }],
-        model: 'claude-3-5-haiku-latest',
+        model: 'claude-3-7-sonnet-latest',
         stop_reason: 'end_turn',
         usage: { input_tokens: 1, output_tokens: 1 },
       },

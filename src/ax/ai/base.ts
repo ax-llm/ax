@@ -879,14 +879,15 @@ export class AxBaseAI<
     const modelKeyEntry = this.getModelByKey(
       req.model as TModel | TEmbedModel | TModelKey
     );
+    const modelKeyThinkingTokenBudget = modelKeyEntry ? (
+      modelKeyEntry as {
+        thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
+      }
+    ).thinkingTokenBudget : undefined;
     const mergedOptions: Readonly<AxAIServiceOptions> = {
       ...(modelKeyEntry
         ? {
-            thinkingTokenBudget: (
-              modelKeyEntry as {
-                thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
-              }
-            ).thinkingTokenBudget,
+            thinkingTokenBudget: modelKeyThinkingTokenBudget,
             showThoughts: (
               modelKeyEntry as {
                 showThoughts?: AxAIServiceOptions['showThoughts'];
@@ -909,7 +910,10 @@ export class AxBaseAI<
             ).useExpensiveModel,
           }
         : undefined),
-      ...options,
+      // Filter out undefined values from options to avoid overriding model key defaults
+      ...Object.fromEntries(
+        Object.entries(options ?? {}).filter(([, value]) => value !== undefined)
+      ),
     } as AxAIServiceOptions;
 
     try {
