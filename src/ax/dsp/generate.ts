@@ -616,18 +616,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
           // On success, clean up any error-related tags from memory to keep context clean
           if (!options?.disableMemoryCleanup) {
-            try {
-              (mem as AxAIMemory).removeByTag(
-                'invalid-assistant',
-                options.sessionId
-              );
-            } catch {}
-            try {
-              (mem as AxAIMemory).removeByTag('correction', options.sessionId);
-            } catch {}
-            try {
-              (mem as AxAIMemory).removeByTag('error', options.sessionId);
-            } catch {}
+            mem.removeByTag('invalid-assistant', options.sessionId);
+            mem.removeByTag('correction', options.sessionId);
+            mem.removeByTag('error', options.sessionId);
           }
 
           // Record successful completion metrics
@@ -712,8 +703,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           }
 
           if (errorFields) {
-            // Tag the last assistant response as invalid before adding correction
-            mem.addTag('invalid-assistant', options.sessionId);
+            mem.addTag('error', options.sessionId);
             mem.addRequest(
               [
                 {

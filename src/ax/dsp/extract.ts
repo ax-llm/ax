@@ -161,6 +161,7 @@ export const streamingExtractValues = (
         xstate.inAssumedField = true;
         xstate.currField = fields[0];
         xstate.currFieldIndex = 0;
+        xstate.s = 0; // Set start position for assumed field
         if (!xstate.extractedFields.includes(fields[0])) {
           xstate.extractedFields.push(fields[0]);
         }
@@ -292,7 +293,8 @@ export const streamingExtractFinalValue = (
   }
 
   // Check for optional fields that might have been missed by streaming parser
-  parseMissedFieldsFromFullContent(sig, values, content);
+  // Also handles case where assumed field content should be corrected by proper prefixes
+  parseMissedFieldsFromFullContent(sig, values, content, xstate);
 
   // Check all previous required fields before processing current field
   // In streaming scenarios (non-strict), defer missing-required enforcement until end
@@ -321,10 +323,43 @@ export const streamingExtractFinalValue = (
 const parseMissedFieldsFromFullContent = (
   sig: Readonly<AxSignature>,
   values: Record<string, unknown>,
-  content: string
+  content: string,
+  _xstate?: extractionState
 ) => {
   const outputFields = sig.getOutputFields();
 
+  // For single-field signatures, check if there's a proper field prefix in the content
+  // This handles the case where we were in assumed field mode but proper prefix exists
+  if (outputFields.length === 1) {
+    const field = outputFields[0];
+    if (field) {
+      const prefix = `${field.title}:`;
+      const start = content.indexOf(prefix);
+      if (start !== -1) {
+        // Found proper prefix, extract value from after the prefix
+        const valueStart = start + prefix.length;
+        // Look for the next field boundary (shouldn't exist for single field, but be safe)
+        const boundary = `\n${field.title}:`;
+        const valueEnd = content.indexOf(boundary, valueStart);
+        const rawValue = content
+          .substring(valueStart, valueEnd === -1 ? content.length : valueEnd)
+          .trim();
+        if (rawValue) {
+          try {
+            const parsedValue = validateAndParseFieldValue(field, rawValue);
+            if (parsedValue !== undefined) {
+              values[field.name] = parsedValue;
+              return; // Updated the field, return early
+            }
+          } catch {
+            // Fall through to original logic if parsing fails
+          }
+        }
+      }
+    }
+  }
+
+  // Original logic for missed fields
   // Process content line by line for more precise field extraction
   const lines = content.split('\n');
 
@@ -494,7 +529,7 @@ export function* streamValues<OUT extends AxGenOut>(
 
   // If we're in assumed-field mode (single-field, non-strict, no explicit prefix yet),
   // allow streaming only when the signature has a single non-internal output field.
-  // This enables expected behavior for optional single-field scenarios in non-strict mode.
+  // This enables expected behavior for single-field scenarios in non-strict mode.
   if (xstate.inAssumedField) {
     const nonInternalOutputs = sig
       .getOutputFields()
@@ -503,12 +538,8 @@ export function* streamValues<OUT extends AxGenOut>(
     if (!isSingleFieldSignature) {
       return;
     }
-    // Only allow assumed-field streaming when the single output field is optional.
-    // This prevents leaking preface text into required fields before a proper prefix appears.
-    const onlyField = nonInternalOutputs[0];
-    if (!onlyField?.isOptional) {
-      return;
-    }
+    // For single-field signatures, allow streaming regardless of whether the field is optional
+    // since all content should belong to that single field
   }
 
   if (!xstate.currField || xstate.currField.isInternal) {

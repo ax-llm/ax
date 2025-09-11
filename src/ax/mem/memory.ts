@@ -136,9 +136,6 @@ export class MemoryImpl {
     }, []);
 
     if (indices.length === 0) {
-      if (!this.seenTags.has(name)) {
-        throw new Error(`No items found with tag "${name}"`);
-      }
       return [];
     }
 

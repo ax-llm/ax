@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AxAIOpenAIModel } from '../ai/openai/chat_types.js';
+import { AxAIOpenAIResponsesModel } from '../ai/openai/responses_types.js';
 import { ai, ax } from '../index.js';
 
 function createMockFetch(body: unknown, capture: { lastBody?: any }) {
@@ -21,10 +22,10 @@ function createMockFetch(body: unknown, capture: { lastBody?: any }) {
 describe('ax.forward with OpenAI merges per-key options and config', () => {
   it('merges modelConfig and thinkingTokenBudget mapping via model key', async () => {
     const llm = ai({
-      name: 'openai',
+      name: 'openai-responses',
       apiKey: 'key',
       // Global config that should be overridden by per-key mapping
-      config: { model: AxAIOpenAIModel.GPT5Chat, reasoningEffort: 'minimal' },
+      config: { model: AxAIOpenAIResponsesModel.GPT5Chat, reasoningEffort: 'minimal' },
       models: [
         {
           key: 'key1',
@@ -45,17 +46,18 @@ describe('ax.forward with OpenAI merges per-key options and config', () => {
     const capture: { lastBody?: any } = {};
     const fetch = createMockFetch(
       {
-        id: 'id',
-        object: 'chat.completion',
+        id: 'resp_1',
+        object: 'response',
         created: 0,
         model: 'o3-mini',
-        choices: [
+        output: [
           {
-            index: 0,
-            message: { role: 'assistant', content: 'ok' },
-            finish_reason: 'stop',
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
           },
         ],
+        status: 'completed',
       },
       capture
     );
@@ -75,13 +77,9 @@ describe('ax.forward with OpenAI merges per-key options and config', () => {
 
     const reqBody = capture.lastBody;
     expect(reqBody).toBeDefined();
-    // For non-thinking request parts, temperature may be omitted for thinking models; max tokens maps to max_completion_tokens when applicable
-    // We assert model was applied and reasoning_effort present per mapping
     expect(reqBody.model).toBe('o3-mini');
-    // thinkingTokenBudget low -> reasoning_effort 'medium' for OpenAI chat
-    expect(
-      reqBody.reasoning_effort === 'medium' ||
-        reqBody.reasoning?.effort === 'medium'
-    ).toBe(true);
+    // thinkingTokenBudget 800 -> 'low' level -> reasoning effort 'medium' for OpenAI Responses API
+    expect(reqBody.reasoning?.effort).toBeDefined();
+    expect(reqBody.reasoning.effort).toBe('medium');
   });
 });

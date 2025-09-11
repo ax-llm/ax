@@ -163,7 +163,7 @@ describe('MemoryImpl', () => {
     ]);
   });
 
-  it('removeByTag should throw for unknown tag', () => {
+  it('removeByTag should return empty array for unknown tag', () => {
     const memory = new MemoryImpl();
     const message = {
       role: 'user' as const,
@@ -171,9 +171,8 @@ describe('MemoryImpl', () => {
     };
     memory.addRequest([message], 0);
 
-    expect(() => memory.removeByTag('unknown')).toThrow(
-      'No items found with tag "unknown"'
-    );
+    const result = memory.removeByTag('unknown');
+    expect(result).toEqual([]);
   });
 
   it('addResponse should handle empty results', () => {

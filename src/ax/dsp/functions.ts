@@ -535,27 +535,11 @@ export const processFunctions = async ({
 
   // Wait for all promises to resolve
   const results = await Promise.all(promises);
-  const functionResults: AxFunctionResult[] = (
-    results as Array<AxFunctionResult | undefined>
-  ).filter((r): r is AxFunctionResult => r !== undefined);
+  const functionResults: AxFunctionResult[] = results.map((r) =>
+    r.result === undefined || r.result === '' ? { ...r, result: 'done' } : r
+  );
 
   mem.addFunctionResults(functionResults, sessionId);
-
-  // If any function returned an empty string result, add corrective user prompt
-  if (functionResults.some((r) => !r.isError && r.result.trim() === '')) {
-    mem.addTag('invalid-assistant', sessionId);
-    mem.addRequest(
-      [
-        {
-          role: 'user' as const,
-          content:
-            'The tool returned an empty result. Provide a proper value for the required field(s) and continue.',
-        },
-      ],
-      sessionId
-    );
-    mem.addTag('correction', sessionId);
-  }
 
   // Log successful function results if debug is enabled
   if (debug) {
@@ -565,10 +549,6 @@ export const processFunctions = async ({
     if (successfulResults.length > 0) {
       logFunctionResults(successfulResults, logger);
     }
-  }
-
-  if (functionResults.some((result) => result.isError)) {
-    mem.addTag('invalid-assistant', sessionId);
   }
 
   if (stopMatches.length > 0) {

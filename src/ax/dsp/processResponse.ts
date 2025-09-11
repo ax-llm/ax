@@ -107,11 +107,6 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
           throw new Error(`No state found for result (index: ${result.index})`);
         }
 
-        // Tag assistant stream chunks as invalid until validation passes (mirrors non-streaming path)
-        try {
-          args.mem.addTag('invalid-assistant', args.sessionId);
-        } catch {}
-
         yield* ProcessStreamingResponse<OUT>({
           ...args,
           result,
@@ -494,10 +489,6 @@ export async function* processResponse<OUT>({
   const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
 
   mem.addResponse(results, sessionId);
-  // Tag assistant responses as invalid until validation passes
-  try {
-    mem.addTag('invalid-assistant', sessionId);
-  } catch {}
 
   // Aggregate citations across results
   const citations: NonNullable<AxModelUsage['citations']> = [];
@@ -616,7 +607,6 @@ export async function* processResponse<OUT>({
           });
         } catch (e) {
           // On function error, tag and append correction prompt for next step
-          mem.addTag('invalid-assistant', sessionId);
           mem.addRequest(
             [
               {
@@ -647,15 +637,8 @@ export async function* processResponse<OUT>({
     await assertAssertions(asserts, state.values);
     // If assertions passed, remove invalid-assistant and correction prompts
     if (!disableMemoryCleanup) {
-      try {
-        mem.removeByTag('invalid-assistant', sessionId);
-      } catch {}
-      try {
-        mem.removeByTag('correction', sessionId);
-      } catch {}
-      try {
-        mem.removeByTag('error', sessionId);
-      } catch {}
+      mem.removeByTag('correction', sessionId);
+      mem.removeByTag('error', sessionId);
     }
 
     if (fieldProcessors.length) {

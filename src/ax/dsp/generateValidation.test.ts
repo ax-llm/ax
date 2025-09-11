@@ -537,7 +537,7 @@ describe('AxGen Validation - Function Call Failures', () => {
 
     expect(functionMessage).toBeDefined();
     expect(functionMessage?.functionId).toBe('call_1');
-    expect(functionMessage?.result).toBe('');
+    expect(functionMessage?.result).toBe('done');
   });
 
   it('should handle multiple parallel function calls with variety of return values', async () => {
@@ -714,7 +714,7 @@ describe('AxGen Validation - Function Call Failures', () => {
       (msg) => msg.functionId === 'call_1'
     );
     expect(emptyFunctionMessage).toBeDefined();
-    expect(emptyFunctionMessage?.result).toBe('');
+    expect(emptyFunctionMessage?.result).toBe('done');
 
     const textFunctionMessage = functionMessages.find(
       (msg) => msg.functionId === 'call_2'
@@ -734,7 +734,7 @@ describe('AxGen Validation - Function Call Failures', () => {
       (msg) => msg.functionId === 'call_4'
     );
     expect(nullFunctionMessage).toBeDefined();
-    expect(nullFunctionMessage?.result).toBe('');
+    expect(nullFunctionMessage?.result).toBe('done');
   });
 
   // it('should handle function that returns null or undefined', async () => {
