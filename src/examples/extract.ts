@@ -22,7 +22,10 @@ const currentDate = new Date();
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite },
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini25FlashLite,
+    thinking: { thinkingTokenBudget: 0 },
+  },
   options: { timeout: 5000 },
   models: [
     {

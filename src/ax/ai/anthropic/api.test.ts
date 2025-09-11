@@ -55,3 +55,65 @@ describe('AxAIAnthropic model key preset merging', () => {
     expect(mc?.maxTokens).toBe(512);
   });
 });
+
+describe('AxAIAnthropic trims trailing whitespace in assistant content', () => {
+  it('removes trailing whitespace from assistant string content in request body', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          try {
+            if (init?.body && typeof init.body === 'string') {
+              capture.lastBody = JSON.parse(init.body);
+            }
+          } catch {}
+          return new Response(
+            JSON.stringify({
+              id: 'id',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'ok' }],
+              model: 'claude-3-5-sonnet-latest',
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+      );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'assistant', content: 'hello  \n\t ' },
+          { role: 'user', content: 'continue' },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body).toBeDefined();
+    const assistantMsgs = (body.messages as any[]).filter(
+      (m) => m.role === 'assistant'
+    );
+    expect(assistantMsgs.length).toBeGreaterThan(0);
+    for (const m of assistantMsgs) {
+      if (typeof m.content === 'string') {
+        expect(m.content).toBe('hello');
+      }
+    }
+  });
+});

@@ -36,7 +36,7 @@
 // LIMITATIONS:
 // - TypeScript's template literal type system has recursion and complexity limits
 // - Very long signatures (>50 fields) may hit TypeScript compiler limits
-// - Internal markers (!) are not supported in type inference (runtime only)
+// - Internal markers (!) are supported in type inference for output fields and are excluded from output types
 // - Deeply nested quote escaping is not supported
 //
 // PERFORMANCE:
@@ -114,10 +114,16 @@ type Trim<S extends string> = S extends ` ${infer T}`
                 ? Trim<U>
                 : S;
 
-// Parses a single field, checking for the optional marker "?" at the end of the name
-type ParseField<S extends string> = S extends `${infer Name}?`
-  ? { name: Trim<Name>; optional: true }
-  : { name: Trim<S>; optional: false };
+// Parses a single field, checking for optional (?) and internal (!) markers in any order at the end of the name
+type ParseField<S extends string> = S extends `${infer Name}?!`
+  ? { name: Trim<Name>; optional: true; internal: true }
+  : S extends `${infer Name}!?`
+    ? { name: Trim<Name>; optional: true; internal: true }
+    : S extends `${infer Name}?`
+      ? { name: Trim<Name>; optional: true; internal: false }
+      : S extends `${infer Name}!`
+        ? { name: Trim<Name>; optional: false; internal: true }
+        : { name: Trim<S>; optional: false; internal: false };
 
 // Helper to extract type from a string, handling class with descriptions
 type ExtractType<S extends string> =
@@ -267,17 +273,26 @@ type ParseFields<S extends string> = StringArrayToFields<
  * supporting both required and optional fields.
  */
 export type BuildObject<
-  T extends readonly { name: string; type: string; optional: boolean }[],
+  T extends readonly {
+    name: string;
+    type: string;
+    optional: boolean;
+    internal?: boolean;
+  }[],
 > = {
-  // Map required properties
-  -readonly [K in T[number] as K['optional'] extends false
-    ? K['name']
-    : never]: ResolveType<K['type']>;
+  // Map required properties (exclude internal fields)
+  -readonly [K in T[number] as K['internal'] extends true
+    ? never
+    : K['optional'] extends false
+      ? K['name']
+      : never]: ResolveType<K['type']>;
 } & {
-  // Map optional properties
-  -readonly [K in T[number] as K['optional'] extends true
-    ? K['name']
-    : never]?: ResolveType<K['type']>;
+  // Map optional properties (exclude internal fields)
+  -readonly [K in T[number] as K['internal'] extends true
+    ? never
+    : K['optional'] extends true
+      ? K['name']
+      : never]?: ResolveType<K['type']>;
 };
 
 // Helper to strip signature description if present

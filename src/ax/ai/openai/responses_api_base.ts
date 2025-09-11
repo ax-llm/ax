@@ -213,12 +213,13 @@ export class AxAIOpenAIResponsesBase<
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo,
       defaults: {
-        model: config.model,
-        embedModel: config.embedModel,
+        model: (config.model ?? AxAIOpenAIResponsesModel.GPT4O) as any,
+        embedModel: (config.embedModel ??
+          AxAIOpenAIEmbedModel.TextEmbeddingAda002) as any,
       },
       options,
       supportFor,
-      models: normalizedModels,
+      models: normalizedModels ?? models,
     });
   }
 }

@@ -20,7 +20,7 @@ export function handleValidationError(
     ],
     sessionId
   );
-  mem.addTag('error', sessionId);
+  mem.addTag('correction', sessionId);
 
   // Debug logging is now handled in generate.ts through proper structured logging
 }

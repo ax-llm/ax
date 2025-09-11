@@ -330,6 +330,24 @@ class AxAIOpenAIImpl<
       }
     }
 
+    // If a per-model key mapped numeric thinking budget to an Ax level via models[],
+    // set reasoning_effort accordingly when not overridden above
+    if (!reqValue.reasoning_effort && (config as any)?.thinkingTokenBudget) {
+      switch ((config as any).thinkingTokenBudget) {
+        case 'minimal':
+          reqValue.reasoning_effort = 'minimal';
+          break;
+        case 'low':
+          reqValue.reasoning_effort = 'medium';
+          break;
+        case 'medium':
+        case 'high':
+        case 'highest':
+          reqValue.reasoning_effort = 'high';
+          break;
+      }
+    }
+
     if (this.chatReqUpdater) {
       reqValue = this.chatReqUpdater(reqValue as TChatReq);
     }

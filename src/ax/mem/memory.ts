@@ -13,6 +13,7 @@ import type { AxAIMemory, AxMemoryData } from './types.js';
 
 export class MemoryImpl {
   private data: AxMemoryData = [];
+  private seenTags = new Set<string>();
 
   addRequest(items: AxChatRequest['chatPrompt'], index: number): void {
     this.data.push(
@@ -109,12 +110,17 @@ export class MemoryImpl {
     if (!lastItem.tags.includes(name)) {
       lastItem.tags.push(name);
     }
+    this.seenTags.add(name);
   }
 
   rewindToTag(name: string): AxMemoryData {
     const tagIndex = this.data.findIndex((item) => item.tags?.includes(name));
     if (tagIndex === -1) {
-      throw new Error(`Tag "${name}" not found`);
+      // If tag was never seen in this memory, throw; otherwise return []
+      if (!this.seenTags.has(name)) {
+        throw new Error(`Tag "${name}" not found`);
+      }
+      return [];
     }
 
     // Remove and return the tagged item and everything after it
@@ -130,7 +136,10 @@ export class MemoryImpl {
     }, []);
 
     if (indices.length === 0) {
-      throw new Error(`No items found with tag "${name}"`);
+      if (!this.seenTags.has(name)) {
+        throw new Error(`No items found with tag "${name}"`);
+      }
+      return [];
     }
 
     return indices
@@ -172,6 +181,7 @@ export class MemoryImpl {
 
   reset(): void {
     this.data = [];
+    this.seenTags = new Set<string>();
   }
 }
 
@@ -230,6 +240,10 @@ export class AxMemory implements AxAIMemory {
 
   rewindToTag(name: string, sessionId?: string) {
     return this.getMemory(sessionId).rewindToTag(name);
+  }
+
+  removeByTag(name: string, sessionId?: string) {
+    return this.getMemory(sessionId).removeByTag(name);
   }
 
   history(index: number, sessionId?: string) {

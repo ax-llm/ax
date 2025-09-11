@@ -47,6 +47,7 @@ expectError(AxSignature.create(''));
 
 // Test type-safe field addition methods
 import { f } from './dsp/sig.js';
+import type { AxExamples } from './dsp/types.js';
 
 const testSig = AxSignature.create('userInput: string -> responseText: string');
 
@@ -149,6 +150,36 @@ expectType<
   >
 >(complexFluentSig);
 
+// Test fluent API with chained modifiers and internal exclusion
+const fluentChained = f()
+  .input('optionalList', f.string('Optional list').optional().array())
+  .input('requiredList', f.string('Required list').array())
+  .output('publicValue', f.number('Public value'))
+  .output('internalValue', f.string('Internal value').internal())
+  .build();
+
+expectType<
+  AxSignature<
+    { optionalList?: string[]; requiredList: string[] },
+    { publicValue: number }
+  >
+>(fluentChained);
+
+// Test fluent API boolean/number inference
+const fluentPrimitives = f()
+  .input('boolFlag', f.boolean('Flag'))
+  .input('threshold', f.number('Threshold'))
+  .output('ok', f.boolean('OK'))
+  .output('count', f.number('Count'))
+  .build();
+
+expectType<
+  AxSignature<
+    { boolFlag: boolean; threshold: number },
+    { ok: boolean; count: number }
+  >
+>(fluentPrimitives);
+
 // === AxGen (ax) Type Tests ===
 import { ax } from './index.js';
 
@@ -179,6 +210,49 @@ expectType<Function>(optionalGenerator.forward);
 // Test ax() accepts AxSignature input
 const sigBasedGenerator = ax('question:string -> answer:string');
 expectType<Function>(sigBasedGenerator.forward);
+
+// === String signature type inference parity with fluent API ===
+// Internal outputs are excluded; optional and arrays respected
+const parsedInternalSig = AxSignature.create(
+  'userText:string -> publicOut:string, hiddenOut!:number, optionalHidden?!:string, optionalList?:string[]'
+);
+expectType<
+  AxSignature<
+    { userText: string },
+    { publicOut: string; optionalList?: string[] }
+  >
+>(parsedInternalSig);
+
+// === AxExamples utility tests ===
+type ExamplesFromString =
+  AxExamples<'userInput:string -> responseText:string, score:number'>;
+expectType<ExamplesFromString>({ responseText: 'ok', score: 1 });
+// userInput should be optional in examples
+expectType<ExamplesFromString>({
+  responseText: 'ok',
+  score: 1,
+  userInput: 'x',
+});
+
+const sigFromBuilder = f()
+  .input('ctx', f.string('Context').optional())
+  .input('flag', f.boolean('Flag'))
+  .output('out', f.string('Out'))
+  .build();
+type ExamplesFromBuilder = AxExamples<typeof sigFromBuilder>;
+expectType<ExamplesFromBuilder>({ out: 'v', flag: true });
+expectType<ExamplesFromBuilder>({ out: 'v', flag: true, ctx: 'c' });
+
+// ExExamples should work with ax('...') generators
+import type { ExExamples } from './dsp/types.js';
+
+const gen = ax('userInput:string -> responseText:string, count:number');
+type ExamplesFromGen = ExExamples<typeof gen>;
+expectType<ExamplesFromGen>([{ responseText: 'a', count: 1 }]);
+expectType<ExamplesFromGen>([
+  { responseText: 'a', count: 1, userInput: 'x' },
+  { responseText: 'b', count: 2 },
+]);
 
 // === AxFlow (flow) Type Tests ===
 import { flow } from './index.js';

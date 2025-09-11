@@ -550,6 +550,7 @@ import { ax, s } from './dsp/template.js';
 import type {
   AxAIServiceActionOptions,
   AxAIServiceModelType,
+  AxExamples,
   AxFieldValue,
   AxForwardable,
   AxGenDeltaOut,
@@ -1102,6 +1103,7 @@ export type { AxEmbedResponse };
 export type { AxErrorCategory };
 export type { AxEvaluateArgs };
 export type { AxExample };
+export type { AxExamples };
 export type { AxField };
 export type { AxFieldProcessor };
 export type { AxFieldProcessorProcess };

@@ -8,9 +8,11 @@ import type {
 import type { AxAIMemory } from '../mem/types.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxInputFunctionType } from './functions.js';
+import type { AxGen } from './generate.js';
 import type { AxOptimizedProgram } from './optimizer.js';
 import type { AxPromptTemplate } from './prompt.js';
-import type { AxSignature } from './sig.js';
+import type { AxSignature, AxSignatureBuilder } from './sig.js';
+import type { ParseSignature } from './sigtypes.js';
 
 export type AxFieldValue =
   | string
@@ -43,12 +45,12 @@ export type AxMessage<IN> =
   | { role: 'assistant'; values: IN };
 
 export type AxProgramTrace<IN, OUT> = {
-  trace: OUT & IN;
+  trace: OUT & Partial<IN>;
   programId: string;
 };
 
 export type AxProgramDemos<IN, OUT> = {
-  traces: (OUT & IN)[];
+  traces: (OUT & Partial<IN>)[];
   programId: string;
 };
 
@@ -104,6 +106,8 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   fastFail?: boolean;
   showThoughts?: boolean;
   functionCallMode?: 'auto' | 'native' | 'prompt';
+  // Memory tag cleanup control
+  disableMemoryCleanup?: boolean;
 
   // Tracing and logging
   traceLabel?: string;
@@ -231,6 +235,28 @@ export interface AxProgramOptions {
 // === Signature Parsing Types ===
 // Type system moved to sigtypes.ts for better organization and features
 export type { ParseSignature } from './sigtypes.js';
+
+// === Examples Type Utility ===
+// Derives the example item type (OUT & Partial<IN>) from:
+// - An AxSignature instance
+// - An AxSignatureBuilder instance (from f())
+// - A string signature (parsed via ParseSignature)
+export type AxExamples<T> = T extends AxSignature<infer IN, infer OUT>
+  ? OUT & Partial<IN>
+  : T extends AxSignatureBuilder<infer IN2, infer OUT2>
+    ? OUT2 & Partial<IN2>
+    : T extends AxGen<infer IN4, infer OUT4>
+      ? OUT4 & Partial<IN4>
+      : T extends string
+        ? ParseSignature<T> extends {
+            inputs: infer IN3;
+            outputs: infer OUT3;
+          }
+          ? OUT3 & Partial<IN3>
+          : never
+        : never;
+
+export type ExExamples<T> = ReadonlyArray<AxExamples<T>>;
 
 // =========================
 // Optimizer shared type defs

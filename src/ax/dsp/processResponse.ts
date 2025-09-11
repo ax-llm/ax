@@ -23,6 +23,7 @@ import {
 } from './fieldProcessor.js';
 import { parseFunctionCalls, processFunctions } from './functions.js';
 import type { AxResponseHandlerArgs, InternalAxGenState } from './generate.js';
+// helper no longer used since memory removal is non-throwing
 import type { AxSignature } from './sig.js';
 import type { SignatureToolCallingManager } from './signatureToolCalling.js';
 import type { AsyncGenDeltaOut, AxGenOut, DeltaOut } from './types.js';
@@ -43,6 +44,7 @@ type ProcessStreamingResponseArgs = Readonly<
   functionResultFormatter?: (result: unknown) => string;
   signatureToolCallingManager: SignatureToolCallingManager | undefined;
   stopFunctionNames?: readonly string[];
+  disableMemoryCleanup?: boolean;
 };
 
 export async function* processStreamingResponse<OUT extends AxGenOut>({
@@ -104,6 +106,11 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
         if (!state) {
           throw new Error(`No state found for result (index: ${result.index})`);
         }
+
+        // Tag assistant stream chunks as invalid until validation passes (mirrors non-streaming path)
+        try {
+          args.mem.addTag('invalid-assistant', args.sessionId);
+        } catch {}
 
         yield* ProcessStreamingResponse<OUT>({
           ...args,
@@ -468,6 +475,7 @@ export async function* processResponse<OUT>({
   debug,
   signatureToolCallingManager,
   stopFunctionNames,
+  disableMemoryCleanup,
 }: Readonly<AxResponseHandlerArgs<AxChatResponse>> & {
   states: InternalAxGenState[];
   usage: AxModelUsage[];
@@ -480,11 +488,16 @@ export async function* processResponse<OUT>({
   functionResultFormatter?: (result: unknown) => string;
   signatureToolCallingManager?: SignatureToolCallingManager;
   stopFunctionNames?: readonly string[];
+  disableMemoryCleanup?: boolean;
 }): AsyncGenDeltaOut<OUT> {
   const results = res.results ?? [];
   const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
 
   mem.addResponse(results, sessionId);
+  // Tag assistant responses as invalid until validation passes
+  try {
+    mem.addTag('invalid-assistant', sessionId);
+  } catch {}
 
   // Aggregate citations across results
   const citations: NonNullable<AxModelUsage['citations']> = [];
@@ -584,21 +597,39 @@ export async function* processResponse<OUT>({
           throw new Error('Functions are not defined');
         }
 
-        const fx = await processFunctions({
-          ai,
-          functionList: functions,
-          functionCalls: funcs,
-          mem,
-          sessionId,
-          traceId,
-          span,
-          excludeContentFromTrace,
-          index: result.index,
-          functionResultFormatter,
-          logger,
-          debug,
-          stopFunctionNames,
-        });
+        let fx: Set<string> | undefined;
+        try {
+          fx = await processFunctions({
+            ai,
+            functionList: functions,
+            functionCalls: funcs,
+            mem,
+            sessionId,
+            traceId,
+            span,
+            excludeContentFromTrace,
+            index: result.index,
+            functionResultFormatter,
+            logger,
+            debug,
+            stopFunctionNames,
+          });
+        } catch (e) {
+          // On function error, tag and append correction prompt for next step
+          mem.addTag('invalid-assistant', sessionId);
+          mem.addRequest(
+            [
+              {
+                role: 'user' as const,
+                content:
+                  'The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.',
+              },
+            ],
+            sessionId
+          );
+          mem.addTag('correction', sessionId);
+          throw e;
+        }
 
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
       }
@@ -614,6 +645,18 @@ export async function* processResponse<OUT>({
     }
 
     await assertAssertions(asserts, state.values);
+    // If assertions passed, remove invalid-assistant and correction prompts
+    if (!disableMemoryCleanup) {
+      try {
+        mem.removeByTag('invalid-assistant', sessionId);
+      } catch {}
+      try {
+        mem.removeByTag('correction', sessionId);
+      } catch {}
+      try {
+        mem.removeByTag('error', sessionId);
+      } catch {}
+    }
 
     if (fieldProcessors.length) {
       await processFieldProcessors(

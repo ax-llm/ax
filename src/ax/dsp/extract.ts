@@ -193,30 +193,8 @@ export const streamingExtractValues = (
     }
 
     if (xstate.currField !== undefined && xstate.inAssumedField) {
-      // Preserve content assigned to the assumed field
-      const assumedFieldContent = content.substring(0, e).trim();
-      if (
-        assumedFieldContent &&
-        chosenField &&
-        xstate.currField.name === chosenField.name
-      ) {
-        const parsedValue = validateAndParseFieldValue(
-          xstate.currField,
-          assumedFieldContent
-        );
-        if (parsedValue !== undefined) {
-          values[xstate.currField.name] = parsedValue;
-        }
-      } else if (assumedFieldContent) {
-        const parsedValue = validateAndParseFieldValue(
-          xstate.currField,
-          assumedFieldContent
-        );
-        if (parsedValue !== undefined) {
-          values[xstate.currField.name] = parsedValue;
-        }
-      }
-
+      // When an explicit prefix is later found for the same field,
+      // discard previously assumed unprefixed content to avoid leaking noise
       xstate.inAssumedField = false;
       xstate.streamedIndex[xstate.currField.name] = 0;
       xstate.currField = undefined;
@@ -513,6 +491,25 @@ export function* streamValues<OUT extends AxGenOut>(
     yield* yieldDelta<OUT>(content, field, s, e, xstate, index);
   }
   xstate.prevFields = undefined;
+
+  // If we're in assumed-field mode (single-field, non-strict, no explicit prefix yet),
+  // allow streaming only when the signature has a single non-internal output field.
+  // This enables expected behavior for optional single-field scenarios in non-strict mode.
+  if (xstate.inAssumedField) {
+    const nonInternalOutputs = sig
+      .getOutputFields()
+      .filter((f) => !f.isInternal);
+    const isSingleFieldSignature = nonInternalOutputs.length === 1;
+    if (!isSingleFieldSignature) {
+      return;
+    }
+    // Only allow assumed-field streaming when the single output field is optional.
+    // This prevents leaking preface text into required fields before a proper prefix appears.
+    const onlyField = nonInternalOutputs[0];
+    if (!onlyField?.isOptional) {
+      return;
+    }
+  }
 
   if (!xstate.currField || xstate.currField.isInternal) {
     return;

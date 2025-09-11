@@ -321,6 +321,13 @@ class AxAIAnthropicImpl
       }
     }
 
+    // If per-call options selected a model via key that mapped numeric budget to a level,
+    // map that level into concrete budget here when not provided via thinkingTokenBudget.
+    if (!thinkingConfig && (config as any)?.thinkingTokenBudget === undefined) {
+      const _levels = this.config.thinkingTokenBudgetLevels;
+      // No-op: rely on defaults
+    }
+
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
         ? { anthropic_version: 'vertex-2023-10-16' }
@@ -963,7 +970,8 @@ function createMessages(
     }
   });
 
-  return mergeAssistantMessages(items);
+  const merged = mergeAssistantMessages(items);
+  return trimAssistantStringContent(merged);
 }
 
 // Anthropic and some others need this in non-streaming mode
@@ -993,6 +1001,17 @@ function mergeAssistantMessages(
   }
 
   return mergedMessages;
+}
+
+function trimAssistantStringContent(
+  messages: Readonly<AxAIAnthropicChatRequest['messages']>
+): AxAIAnthropicChatRequest['messages'] {
+  return messages.map((m) => {
+    if (m.role === 'assistant' && typeof m.content === 'string') {
+      return { ...m, content: m.content.replace(/\s+$/, '') };
+    }
+    return m;
+  });
 }
 
 function mapFinishReason(

@@ -335,6 +335,9 @@ export function mergeDeltas<OUT>(
       target[key] = deltaValue as ValueTypeOfAxGenOut;
     }
   }
+  // Always keep latest version marker
+  const entry = base.find((b) => b.index === index);
+  if (entry) entry.version = version;
   return base;
 }
 

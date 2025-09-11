@@ -24,7 +24,6 @@ import {
   AxAIRefusalError,
   AxAIServiceStreamTerminatedError,
 } from '../util/apicall.js';
-
 import {
   type AxAssertion,
   AxAssertionError,
@@ -46,6 +45,7 @@ import {
   parseFunctions,
 } from './functions.js';
 import { axGlobals } from './globals.js';
+// helper no longer used since memory removal is non-throwing
 import {
   type AxGenMetricsInstruments,
   getOrCreateGenMetricsInstruments,
@@ -413,6 +413,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         functionResultFormatter,
         signatureToolCallingManager,
         stopFunctionNames,
+        disableMemoryCleanup: options.disableMemoryCleanup,
       });
     } else {
       yield* processResponse<OUT>({
@@ -437,6 +438,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         functionResultFormatter,
         signatureToolCallingManager,
         stopFunctionNames,
+        disableMemoryCleanup: options.disableMemoryCleanup,
       });
     }
   }
@@ -612,6 +614,22 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             continue multiStepLoop;
           }
 
+          // On success, clean up any error-related tags from memory to keep context clean
+          if (!options?.disableMemoryCleanup) {
+            try {
+              (mem as AxAIMemory).removeByTag(
+                'invalid-assistant',
+                options.sessionId
+              );
+            } catch {}
+            try {
+              (mem as AxAIMemory).removeByTag('correction', options.sessionId);
+            } catch {}
+            try {
+              (mem as AxAIMemory).removeByTag('error', options.sessionId);
+            } catch {}
+          }
+
           // Record successful completion metrics
           const metricsInstruments = this.getMetricsInstruments();
           if (metricsInstruments) {
@@ -694,6 +712,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           }
 
           if (errorFields) {
+            // Tag the last assistant response as invalid before adding correction
+            mem.addTag('invalid-assistant', options.sessionId);
             mem.addRequest(
               [
                 {
@@ -703,7 +723,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               ],
               options.sessionId
             );
-            mem.addTag('error', options.sessionId);
+            mem.addTag('correction', options.sessionId);
           }
         }
       }

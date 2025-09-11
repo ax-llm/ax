@@ -39,4 +39,5 @@ export interface AxAIMemory {
 
   addTag(name: string, sessionId?: string): void;
   rewindToTag(name: string, sessionId?: string): AxMemoryData;
+  removeByTag(name: string, sessionId?: string): AxMemoryData;
 }

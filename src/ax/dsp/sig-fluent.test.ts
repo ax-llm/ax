@@ -127,6 +127,22 @@ describe('AxSignatureBuilder fluent API', () => {
     expect(inputs[3].type?.isArray).toBe(true);
   });
 
+  it('should mark internal outputs and exclude them from JSON schema required', () => {
+    const sig = f()
+      .input('userInput', f.string('Input'))
+      .output('publicOut', f.string('Public'))
+      .output('internalOut', f.string('Internal').internal())
+      .build();
+
+    const outputs = sig.getOutputFields();
+    expect(outputs.find((o) => o.name === 'internalOut')?.isInternal).toBe(
+      true
+    );
+
+    const json = sig.toJSONSchema();
+    expect(json.required).toContain('userInput');
+  });
+
   it('should validate field requirements when building', () => {
     // Should throw when no input fields
     expect(() => {

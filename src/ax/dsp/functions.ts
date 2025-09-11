@@ -151,7 +151,13 @@ export class AxFunctionProcessor {
     let args: unknown;
 
     if (typeof func.args === 'string' && func.args.length > 0) {
-      args = JSON.parse(func.args);
+      try {
+        args = JSON.parse(func.args);
+      } catch (e) {
+        throw new Error(`Invalid function arguments: ${func.args}`, {
+          cause: e,
+        });
+      }
     } else {
       args = func.args;
     }
@@ -535,6 +541,22 @@ export const processFunctions = async ({
 
   mem.addFunctionResults(functionResults, sessionId);
 
+  // If any function returned an empty string result, add corrective user prompt
+  if (functionResults.some((r) => !r.isError && r.result.trim() === '')) {
+    mem.addTag('invalid-assistant', sessionId);
+    mem.addRequest(
+      [
+        {
+          role: 'user' as const,
+          content:
+            'The tool returned an empty result. Provide a proper value for the required field(s) and continue.',
+        },
+      ],
+      sessionId
+    );
+    mem.addTag('correction', sessionId);
+  }
+
   // Log successful function results if debug is enabled
   if (debug) {
     const successfulResults = functionResults.filter(
@@ -546,7 +568,7 @@ export const processFunctions = async ({
   }
 
   if (functionResults.some((result) => result.isError)) {
-    mem.addTag('error', sessionId);
+    mem.addTag('invalid-assistant', sessionId);
   }
 
   if (stopMatches.length > 0) {
