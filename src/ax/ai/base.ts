@@ -879,11 +879,13 @@ export class AxBaseAI<
     const modelKeyEntry = this.getModelByKey(
       req.model as TModel | TEmbedModel | TModelKey
     );
-    const modelKeyThinkingTokenBudget = modelKeyEntry ? (
-      modelKeyEntry as {
-        thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
-      }
-    ).thinkingTokenBudget : undefined;
+    const modelKeyThinkingTokenBudget = modelKeyEntry
+      ? (
+          modelKeyEntry as {
+            thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
+          }
+        ).thinkingTokenBudget
+      : undefined;
     const mergedOptions: Readonly<AxAIServiceOptions> = {
       ...(modelKeyEntry
         ? {

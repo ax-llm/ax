@@ -88,4 +88,3 @@ describe('ax.forward with Google Gemini merges per-key options and config', () =
     expect(reqBody.generationConfig.thinkingConfig.includeThoughts).toBe(true);
   });
 });
-

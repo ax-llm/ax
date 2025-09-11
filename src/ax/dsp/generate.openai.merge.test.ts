@@ -25,7 +25,10 @@ describe('ax.forward with OpenAI merges per-key options and config', () => {
       name: 'openai-responses',
       apiKey: 'key',
       // Global config that should be overridden by per-key mapping
-      config: { model: AxAIOpenAIResponsesModel.GPT5Chat, reasoningEffort: 'minimal' },
+      config: {
+        model: AxAIOpenAIResponsesModel.GPT5Chat,
+        reasoningEffort: 'minimal',
+      },
       models: [
         {
           key: 'key1',

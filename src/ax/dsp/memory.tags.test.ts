@@ -1,39 +1,10 @@
-import { ReadableStream } from 'node:stream/web';
-
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
-import type { AxChatResponse, AxFunction } from '../ai/types.js';
+import type { AxFunction } from '../ai/types.js';
 import { AxMemory } from '../mem/memory.js';
 
 import { AxGen } from './generate.js';
-
-function makeStream(
-  chunks: AxChatResponse['results']
-): ReadableStream<AxChatResponse> {
-  return new ReadableStream<AxChatResponse>({
-    start(controller) {
-      let i = 0;
-      const push = () => {
-        if (i >= chunks.length) {
-          controller.close();
-          return;
-        }
-        const chunk = chunks[i++];
-        controller.enqueue({
-          results: [chunk],
-          modelUsage: {
-            ai: 'test-ai',
-            model: 'test-model',
-            tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
-          },
-        });
-        setTimeout(push, 1);
-      };
-      setTimeout(push, 1);
-    },
-  });
-}
 
 describe('Memory tags - non-streaming validation correction cleanup', () => {
   it('removes all error-tagged items after successful correction', async () => {
@@ -46,7 +17,11 @@ describe('Memory tags - non-streaming validation correction cleanup', () => {
         return call === 1
           ? {
               results: [
-                { index: 0, content: 'Some invalid response without the required field', finishReason: 'stop' as const },
+                {
+                  index: 0,
+                  content: 'Some invalid response without the required field',
+                  finishReason: 'stop' as const,
+                },
               ],
               modelUsage: {
                 ai: 'test-ai',
@@ -113,7 +88,11 @@ describe('Memory tags - non-streaming validation correction cleanup', () => {
         return call === 1
           ? {
               results: [
-                { index: 0, content: 'Some invalid response without the required field', finishReason: 'stop' as const },
+                {
+                  index: 0,
+                  content: 'Some invalid response without the required field',
+                  finishReason: 'stop' as const,
+                },
               ],
               modelUsage: {
                 ai: 'test-ai',
@@ -176,7 +155,11 @@ describe('Memory tags - streaming validation cleanup', () => {
         return call === 1
           ? {
               results: [
-                { index: 0, content: 'Some invalid response without the required field', finishReason: 'stop' as const },
+                {
+                  index: 0,
+                  content: 'Some invalid response without the required field',
+                  finishReason: 'stop' as const,
+                },
               ],
               modelUsage: {
                 ai: 'test-ai',
