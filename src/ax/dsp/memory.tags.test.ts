@@ -38,27 +38,44 @@ function makeStream(
 describe('Memory tags - non-streaming validation correction cleanup', () => {
   it('removes all error-tagged items after successful correction', async () => {
     const signature = 'promptText:string -> finalAnswer:string';
+    let call = 0;
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async () => {
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Final Answer: fixed',
-              finishReason: 'stop' as const,
-            },
-          ],
-          modelUsage: {
-            ai: 'test-ai',
-            model: 'test-model',
-            tokens: {
-              promptTokens: 1,
-              completionTokens: 1,
-              totalTokens: 2,
-            },
-          },
-        };
+        call++;
+        return call === 1
+          ? {
+              results: [
+                { index: 0, content: 'Some invalid response without the required field', finishReason: 'stop' as const },
+              ],
+              modelUsage: {
+                ai: 'test-ai',
+                model: 'test-model',
+                tokens: {
+                  promptTokens: 1,
+                  completionTokens: 10,
+                  totalTokens: 11,
+                },
+              },
+            }
+          : {
+              results: [
+                {
+                  index: 0,
+                  content: 'Final Answer: fixed',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: {
+                ai: 'test-ai',
+                model: 'test-model',
+                tokens: {
+                  promptTokens: 1,
+                  completionTokens: 1,
+                  totalTokens: 2,
+                },
+              },
+            };
       },
     });
 
@@ -76,38 +93,56 @@ describe('Memory tags - non-streaming validation correction cleanup', () => {
       }
     );
     expect(res.finalAnswer).toBe('fixed');
+    expect(call).toBe(2); // Should have made 2 calls due to validation error retry
     // After successful completion with memory cleanup, correction tags should be removed
     try {
       expect(memory.rewindToTag('correction')).toEqual([]);
     } catch (error) {
-      // If tag was never created or was cleaned up, this is expected
+      // If tag was cleaned up, this is expected
       expect((error as Error).message).toBe('Tag "correction" not found');
     }
   });
 
   it('keeps tags when disableErrorTagStripping=true', async () => {
     const signature = 'promptText:string -> finalAnswer:string';
+    let call = 0;
     const ai = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async () => {
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Final Answer: fixed',
-              finishReason: 'stop' as const,
-            },
-          ],
-          modelUsage: {
-            ai: 'test-ai',
-            model: 'test-model',
-            tokens: {
-              promptTokens: 1,
-              completionTokens: 1,
-              totalTokens: 2,
-            },
-          },
-        };
+        call++;
+        return call === 1
+          ? {
+              results: [
+                { index: 0, content: 'Some invalid response without the required field', finishReason: 'stop' as const },
+              ],
+              modelUsage: {
+                ai: 'test-ai',
+                model: 'test-model',
+                tokens: {
+                  promptTokens: 1,
+                  completionTokens: 10,
+                  totalTokens: 11,
+                },
+              },
+            }
+          : {
+              results: [
+                {
+                  index: 0,
+                  content: 'Final Answer: fixed',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: {
+                ai: 'test-ai',
+                model: 'test-model',
+                tokens: {
+                  promptTokens: 1,
+                  completionTokens: 1,
+                  totalTokens: 2,
+                },
+              },
+            };
       },
     });
 
@@ -122,27 +157,56 @@ describe('Memory tags - non-streaming validation correction cleanup', () => {
       { strictMode: true, mem: memory, disableMemoryCleanup: true }
     );
     expect(res.finalAnswer).toBe('fixed');
-    // With disableMemoryCleanup=true, correction tags should remain if they were created
-    try {
-      const correctionRemoved = memory.rewindToTag('correction');
-      expect(Array.isArray(correctionRemoved)).toBe(true);
-    } catch (error) {
-      // If no correction was needed (no validation errors occurred), tag might not exist
-      expect((error as Error).message).toBe('Tag "correction" not found');
-    }
+    expect(call).toBe(2); // Should have made 2 calls due to validation error retry
+    // With disableMemoryCleanup=true, correction tags should remain
+    const correctionRemoved = memory.rewindToTag('correction');
+    expect(Array.isArray(correctionRemoved)).toBe(true);
+    expect(correctionRemoved.length).toBeGreaterThan(0); // Should have correction-tagged items
   });
 });
 
 describe('Memory tags - streaming validation cleanup', () => {
   it('removes error tags after streamed success', async () => {
     const signature = 'inputText:string -> outputText:string';
-    const chunks: AxChatResponse['results'] = [
-      { index: 0, content: 'Output Text: ok', finishReason: 'stop' },
-    ];
-
+    let call = 0;
     const ai = new AxMockAIService({
-      features: { functions: false, streaming: true },
-      chatResponse: makeStream(chunks),
+      features: { functions: false, streaming: false }, // Use non-streaming for simpler test
+      chatResponse: async () => {
+        call++;
+        return call === 1
+          ? {
+              results: [
+                { index: 0, content: 'Some invalid response without the required field', finishReason: 'stop' as const },
+              ],
+              modelUsage: {
+                ai: 'test-ai',
+                model: 'test-model',
+                tokens: {
+                  promptTokens: 1,
+                  completionTokens: 10,
+                  totalTokens: 11,
+                },
+              },
+            }
+          : {
+              results: [
+                {
+                  index: 0,
+                  content: 'Output Text: ok',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: {
+                ai: 'test-ai',
+                model: 'test-model',
+                tokens: {
+                  promptTokens: 1,
+                  completionTokens: 1,
+                  totalTokens: 2,
+                },
+              },
+            };
+      },
     });
 
     const memory = new AxMemory();
@@ -154,17 +218,17 @@ describe('Memory tags - streaming validation cleanup', () => {
       ai,
       { inputText: 'q' },
       {
-        stream: true,
-        strictMode: false,
+        strictMode: true,
         mem: memory,
       }
     );
     expect(res.outputText).toBe('ok');
+    expect(call).toBe(2); // Should have made 2 calls due to validation error retry
     // After successful completion with memory cleanup, correction tags should be removed
     try {
       expect(memory.rewindToTag('correction')).toEqual([]);
     } catch (error) {
-      // If tag was never created or was cleaned up, this is expected
+      // If tag was cleaned up, this is expected
       expect((error as Error).message).toBe('Tag "correction" not found');
     }
   });
