@@ -1,7 +1,7 @@
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
+import type { AxGEPAAdapter } from './optimizers/gepaAdapter.js';
 import type { AxOptimizerLoggerData } from './optimizerTypes.js';
 import type { AxFieldValue, AxResultPickerFunction } from './types.js';
-import type { AxGEPAAdapter } from './optimizers/gepaAdapter.js';
 
 export type AxExample = Record<string, AxFieldValue>;
 
@@ -16,7 +16,7 @@ export type AxMetricFnArgs = Parameters<AxMetricFn>[0];
 
 export type AxMultiMetricFn = <T = any>(
   arg0: Readonly<{ prediction: T; example: AxExample }>
-) => Record<string, number>;
+) => Record<string, number> | Promise<Record<string, number>>;
 
 export interface AxOptimizationProgress {
   round: number;
