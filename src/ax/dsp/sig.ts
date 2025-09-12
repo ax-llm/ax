@@ -60,12 +60,12 @@ export class AxSignatureBuilder<
       name,
       type: {
         name: fieldInfo.type,
-        isArray: fieldInfo.isArray,
+        isArray: fieldInfo.isArray || undefined,
         options: fieldInfo.options ? [...fieldInfo.options] : undefined,
       },
       description: fieldInfo.description,
-      isOptional: fieldInfo.isOptional,
-      isInternal: fieldInfo.isInternal,
+      isOptional: fieldInfo.isOptional || undefined,
+      isInternal: fieldInfo.isInternal || undefined,
     };
 
     if (prepend) {
@@ -97,12 +97,12 @@ export class AxSignatureBuilder<
       name,
       type: {
         name: fieldInfo.type,
-        isArray: fieldInfo.isArray,
+        isArray: fieldInfo.isArray || undefined,
         options: fieldInfo.options ? [...fieldInfo.options] : undefined,
       },
       description: fieldInfo.description,
-      isOptional: fieldInfo.isOptional,
-      isInternal: fieldInfo.isInternal,
+      isOptional: fieldInfo.isOptional || undefined,
+      isInternal: fieldInfo.isInternal || undefined,
     };
 
     if (prepend) {
@@ -149,19 +149,19 @@ export class AxFluentFieldType<
 > implements AxFieldType
 {
   readonly type: TType;
-  readonly isArray?: TIsArray;
+  readonly isArray: TIsArray;
   readonly options?: TOptions;
   readonly description?: string;
-  readonly isOptional?: TIsOptional;
-  readonly isInternal?: TIsInternal;
+  readonly isOptional: TIsOptional;
+  readonly isInternal: TIsInternal;
 
   constructor(fieldType: {
     type: TType;
-    isArray?: TIsArray;
+    isArray: TIsArray;
     options?: TOptions;
     description?: string;
-    isOptional?: TIsOptional;
-    isInternal?: TIsInternal;
+    isOptional: TIsOptional;
+    isInternal: TIsInternal;
   }) {
     this.type = fieldType.type;
     this.isArray = fieldType.isArray;
@@ -204,6 +204,8 @@ export const f = Object.assign(
         type: 'string' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     number: (
@@ -213,6 +215,8 @@ export const f = Object.assign(
         type: 'number' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     boolean: (
@@ -222,6 +226,8 @@ export const f = Object.assign(
         type: 'boolean' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     json: (
@@ -231,6 +237,8 @@ export const f = Object.assign(
         type: 'json' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     datetime: (
@@ -240,6 +248,8 @@ export const f = Object.assign(
         type: 'datetime' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     date: (
@@ -249,6 +259,8 @@ export const f = Object.assign(
         type: 'date' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     class: <const TOptions extends readonly string[]>(
@@ -260,6 +272,8 @@ export const f = Object.assign(
         isArray: false as const,
         options,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     image: (
@@ -269,6 +283,8 @@ export const f = Object.assign(
         type: 'image' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     audio: (
@@ -278,6 +294,8 @@ export const f = Object.assign(
         type: 'audio' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     file: (
@@ -287,6 +305,8 @@ export const f = Object.assign(
         type: 'file' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     url: (
@@ -296,6 +316,8 @@ export const f = Object.assign(
         type: 'url' as const,
         isArray: false as const,
         description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
     code: (
@@ -306,51 +328,10 @@ export const f = Object.assign(
         type: 'code' as const,
         isArray: false as const,
         description: desc || language,
+        isOptional: false as const,
+        isInternal: false as const,
       }),
 
-    // Enhanced helper functions for fluent chaining
-    array: <T extends AxFluentFieldInfo<any, any, any, any>>(
-      baseType: T
-    ): AxFluentFieldInfo<T['type'], true, T['options'], T['isOptional']> => ({
-      ...baseType,
-      isArray: true as const,
-    }),
-
-    optional: <T extends AxFluentFieldInfo<any, any, any, any>>(
-      baseType: T
-    ): AxFluentFieldInfo<T['type'], T['isArray'], T['options'], true> => ({
-      ...baseType,
-      isOptional: true as const,
-    }),
-
-    internal: <T extends AxFluentFieldInfo<any, any, any, any>>(
-      baseType: T
-    ): T & { readonly isInternal: true } => ({
-      ...baseType,
-      isInternal: true as const,
-    }),
-
-    // Legacy helper functions for backward compatibility with AxFieldType
-    legacyArray: <T extends AxFieldType>(
-      baseType: T
-    ): T & { readonly isArray: true } => ({
-      ...baseType,
-      isArray: true,
-    }),
-
-    legacyOptional: <T extends AxFieldType>(
-      baseType: T
-    ): T & { readonly isOptional: true } => ({
-      ...baseType,
-      isOptional: true,
-    }),
-
-    legacyInternal: <T extends AxFieldType>(
-      baseType: T
-    ): T & { readonly isInternal: true } => ({
-      ...baseType,
-      isInternal: true,
-    }),
   }
 );
 
