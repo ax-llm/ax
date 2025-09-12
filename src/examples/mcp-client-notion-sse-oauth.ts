@@ -1,5 +1,5 @@
-import { agent, ai, AxMCPClient } from '@ax-llm/ax';
-import { AxMCPHTTPSSETransport } from '@ax-llm/ax/mcp/httpTransport.js';
+import { AxMCPClient, agent, ai } from '@ax-llm/ax';
+import { AxMCPHTTPSSETransport } from '@ax-llm/ax/mcp/transports/sseTransport.js';
 
 /*
 # Notion MCP configuration

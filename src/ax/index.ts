@@ -616,12 +616,11 @@ import type {
 import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import { AxMCPClient } from './mcp/client.js';
-import {
-  AxMCPHTTPSSETransport,
-  type AxMCPStreamableHTTPTransportOptions,
-  AxMCPStreambleHTTPTransport,
-} from './mcp/httpTransport.js';
+import type { AxMCPOAuthOptions } from './mcp/oauth/types.js';
 import type { AxMCPTransport } from './mcp/transport.js';
+import { AxMCPStreambleHTTPTransport } from './mcp/transports/httpStreamTransport.js';
+import type { AxMCPStreamableHTTPTransportOptions } from './mcp/transports/options.js';
+import { AxMCPHTTPSSETransport } from './mcp/transports/sseTransport.js';
 import type {
   AxMCPFunctionDescription,
   AxMCPInitializeParams,
@@ -1164,6 +1163,7 @@ export type { AxMCPJSONRPCNotification };
 export type { AxMCPJSONRPCRequest };
 export type { AxMCPJSONRPCResponse };
 export type { AxMCPJSONRPCSuccessResponse };
+export type { AxMCPOAuthOptions };
 export type { AxMCPStreamableHTTPTransportOptions };
 export type { AxMCPToolsListResult };
 export type { AxMCPTransport };

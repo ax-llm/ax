@@ -1,5 +1,5 @@
 import { AxAgent, AxAI, AxAIOpenAIModel, AxMCPClient } from '@ax-llm/ax';
-import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/httpTransport.js';
+import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
 import { createBackendClient } from '@pipedream/sdk/server';
 
 /*

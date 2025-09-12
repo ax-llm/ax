@@ -755,13 +755,16 @@ const optimizer = new AxBootstrapFewShot({
 });
 ```
 
-### 2. Multi-Objective Optimization (GEPA uses `compile`; MiPRO uses `compilePareto`)
+### 2. Multi-Objective Optimization with GEPA and GEPA-Flow
 
 **The Problem**: Sometimes you care about multiple things at once - accuracy AND
 speed AND cost. Traditional optimization only handles one objective at a time.
 
-**The Solution**: `compilePareto` finds the optimal trade-offs between multiple
-objectives using Pareto frontier analysis.
+**The Solution**: Use `AxGEPA` (single-module) or `AxGEPAFlow` (multi-module)
+with a multi-objective metric. Both use `compile(...)` and return a Pareto
+frontier of trade-offs plus hypervolume metrics.
+
+> Note: Pass `maxMetricCalls` in `compile` options to bound evaluation cost.
 
 #### What is Pareto Optimization?
 
@@ -779,7 +782,7 @@ Solutions A and B are both Pareto optimal (A is more accurate but
 slower/expensive, B is faster/cheaper but less accurate). Solution C is
 dominated by both A and B.
 
-#### When to Use `compilePareto`
+#### When to Use GEPA / GEPA-Flow
 
 ✅ **Perfect for:**
 
@@ -790,130 +793,96 @@ dominated by both A and B.
 
 ❌ **Skip for:**
 
-- Single clear objective (use regular `compile`)
+- Single clear objective (use regular `AxMiPRO.compile`)
 - When one objective is clearly most important
-- Quick prototyping (more complex than single-objective)
+- Quick prototyping (multi-objective adds complexity)
 
-#### Complete Working Example
+#### Complete Working Example (GEPA)
 
 ```typescript
-import { ai, ax, AxMiPRO } from "@ax-llm/ax";
+import { ai, ax, AxGEPA } from "@ax-llm/ax";
 
-// Content moderation with multiple objectives
-const contentModerator = ax(`
-  userPost:string "User-generated content" ->
-  isSafe:class "safe, unsafe" "Content safety",
-  confidence:number "Confidence 0-1",
-  reason:string "Explanation if unsafe"
+// Two-objective demo: accuracy (classification) + brevity (short rationale)
+const moderator = ax(`
+  userPost:string "User content" ->
+  isSafe:class "safe, unsafe" "Safety",
+  rationale:string "One concise sentence"
 `);
 
-// Training examples
-const examples = [
-  {
-    userPost: "Great weather today!",
-    isSafe: "safe",
-    confidence: 0.95,
-    reason: "",
-  },
-  {
-    userPost: "This product sucks and the company is terrible!",
-    isSafe: "unsafe",
-    confidence: 0.8,
-    reason: "Aggressive language",
-  },
-  // ... more examples
+const train = [
+  { userPost: "Great weather today!", isSafe: "safe" },
+  { userPost: "This product sucks and the company is terrible!", isSafe: "unsafe" },
+  // ...
 ];
 
-// Multi-objective metric function
-const multiMetric = ({ prediction, example }) => {
-  // Calculate multiple scores
-  const accuracy = prediction.isSafe === example.isSafe ? 1 : 0;
+const val = [
+  { userPost: "Reminder: submit timesheets", isSafe: "safe" },
+  { userPost: "Data breach follow-up actions required", isSafe: "unsafe" },
+  // ...
+];
 
-  // Reward high confidence when correct, penalize when wrong
-  const confidenceScore = prediction.isSafe === example.isSafe
-    ? (prediction.confidence || 0)
-    : (1 - (prediction.confidence || 0));
-
-  // Reward explanations for unsafe content
-  const explanationScore = example.isSafe === "unsafe"
-    ? (prediction.reason && prediction.reason.length > 10 ? 1 : 0)
-    : 1; // No penalty for safe content
-
-  // Return multiple objectives
-  return {
-    accuracy, // Correctness of safety classification
-    confidence: confidenceScore, // Quality of confidence calibration
-    explanation: explanationScore, // Quality of reasoning
-  };
+// Multi-objective metric
+const multiMetric = ({ prediction, example }: any) => {
+  const accuracy = prediction?.isSafe === example?.isSafe ? 1 : 0;
+  const rationale: string = typeof prediction?.rationale === 'string' ? prediction.rationale : '';
+  const len = rationale.length;
+  const brevity = len <= 30 ? 1 : len <= 60 ? 0.7 : len <= 100 ? 0.4 : 0.1;
+  return { accuracy, brevity } as Record<string, number>;
 };
 
-// Set up optimizer
-const optimizer = new AxMiPRO({
-  studentAI: ai({
-    name: "openai",
-    apiKey: process.env.OPENAI_APIKEY!,
-    config: { model: "gpt-4o-mini" },
-  }),
-  examples,
-  options: { verbose: true },
-});
+const student = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: 'gpt-4o-mini' } });
+const optimizer = new AxGEPA({ studentAI: student, numTrials: 16, minibatch: true, minibatchSize: 6, seed: 42, verbose: true });
 
-// Run multi-objective optimization
-console.log("🔄 Finding optimal trade-offs...");
-const result = await optimizer.compilePareto(
-  contentModerator,
-  examples,
-  multiMetric,
+console.log("🔄 Finding Pareto trade-offs...");
+const result = await optimizer.compile(
+  moderator as any,
+  train,
+  multiMetric as any,
+  {
+    validationExamples: val,
+    // Required to bound evaluation cost
+    maxMetricCalls: 200,
+    // Optional: provide a tie-break scalarizer for selection logic
+    // paretoMetricKey: 'accuracy',
+    // or
+    // paretoScalarize: (s) => 0.7*s.accuracy + 0.3*s.brevity,
+  } as any
 );
 
-console.log(`✅ Found ${result.paretoFrontSize} optimal solutions!`);
-console.log(`📊 Hypervolume: ${result.hypervolume?.toFixed(4) || "N/A"}`);
+console.log(`✅ Found ${result.paretoFrontSize} Pareto points`);
+console.log(`📊 Hypervolume (2D): ${result.hypervolume ?? 'N/A'}`);
 
-// Explore the Pareto frontier
-result.paretoFront.forEach((solution, index) => {
-  console.log(`\n🎯 Solution ${index + 1}:`);
-  console.log(`  Accuracy: ${(solution.scores.accuracy * 100).toFixed(1)}%`);
-  console.log(
-    `  Confidence: ${(solution.scores.confidence * 100).toFixed(1)}%`,
-  );
-  console.log(
-    `  Explanation: ${(solution.scores.explanation * 100).toFixed(1)}%`,
-  );
-  console.log(`  Strategy: ${solution.configuration.strategy}`);
-  console.log(`  Dominates: ${solution.dominatedSolutions} other solutions`);
+// Inspect a few points
+for (const [i, p] of [...result.paretoFront].entries()) {
+  if (i >= 3) break;
+  console.log(`  #${i+1}: acc=${(p.scores as any).accuracy?.toFixed(3)}, brev=${(p.scores as any).brevity?.toFixed(3)}, config=${JSON.stringify(p.configuration)}`);
+}
+
+// Choose a compromise by weighted sum (example)
+const weights = { accuracy: 0.7, brevity: 0.3 };
+const best = result.paretoFront.reduce((best, cur) => {
+  const s = weights.accuracy * ((cur.scores as any).accuracy ?? 0) + weights.brevity * ((cur.scores as any).brevity ?? 0);
+  const b = weights.accuracy * ((best.scores as any).accuracy ?? 0) + weights.brevity * ((best.scores as any).brevity ?? 0);
+  return s > b ? cur : best;
 });
+console.log(`🎯 Chosen config: ${JSON.stringify(best.configuration)}`);
 ```
 
-#### Choosing the Best Solution
+#### GEPA-Flow (Multi-Module)
 
 ```typescript
-// Option 1: Pick the solution that dominates the most others
-const mostDominant = result.paretoFront.reduce((best, current) =>
-  current.dominatedSolutions > best.dominatedSolutions ? current : best
-);
+import { AxGEPAFlow, flow, ai } from "@ax-llm/ax";
 
-// Option 2: Pick based on your priorities (weighted combination)
-const priorities = { accuracy: 0.6, confidence: 0.3, explanation: 0.1 };
-const bestWeighted = result.paretoFront.reduce((best, current) => {
-  const currentScore = Object.entries(current.scores)
-    .reduce((sum, [obj, score]) => sum + score * (priorities[obj] || 0), 0);
-  const bestScore = Object.entries(best.scores)
-    .reduce((sum, [obj, score]) => sum + score * (priorities[obj] || 0), 0);
-  return currentScore > bestScore ? current : best;
-});
+const pipeline = flow<{ emailText: string }>()
+  .n('classifier', 'emailText:string -> priority:class "high, normal, low"')
+  .n('rationale', 'emailText:string, priority:string -> rationale:string "One concise sentence"')
+  .e('classifier', (s) => ({ emailText: s.emailText }))
+  .e('rationale', (s) => ({ emailText: s.emailText, priority: s.classifierResult.priority }))
+  .m((s) => ({ priority: s.classifierResult.priority, rationale: s.rationaleResult.rationale }));
 
-// Option 3: Interactive selection based on business requirements
-const businessOptimal = result.paretoFront.find((solution) =>
-  solution.scores.accuracy >= 0.85 && // Must be at least 85% accurate
-  solution.scores.confidence >= 0.7 && // Must be well-calibrated
-  solution.scores.explanation >= 0.8 // Must explain unsafe content well
-);
-
-// Apply the chosen solution
-if (businessOptimal?.demos) {
-  contentModerator.setDemos(businessOptimal.demos);
-  console.log("🎯 Applied business-optimal solution");
-}
+const optimizer = new AxGEPAFlow({ studentAI: ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: 'gpt-4o-mini' } }), numTrials: 16 });
+const result = await optimizer.compile(pipeline as any, train, multiMetric as any, { validationExamples: val, maxMetricCalls: 240 } as any);
+console.log(`Front size: ${result.paretoFrontSize}, Hypervolume: ${result.hypervolume}`);
 ```
 
 #### Advanced Multi-Objective Patterns
@@ -971,45 +940,36 @@ const multiMetric = ({ prediction, example }) => ({
 #### Understanding the Results
 
 ```typescript
-const result = await optimizer.compilePareto(program, multiMetric);
+const result = await optimizer.compile(program, examples, multiMetric, { maxMetricCalls: 200 } as any);
 
 // Key properties of AxParetoResult:
 console.log(`Pareto frontier size: ${result.paretoFrontSize}`);
-console.log(
-  `Total solutions generated: ${result.finalConfiguration?.numSolutions}`,
-);
-console.log(`Best single score: ${result.bestScore}`);
+console.log(`Best scalarized score on frontier: ${result.bestScore}`);
 console.log(`Hypervolume (2D only): ${result.hypervolume}`);
+console.log(`Total candidates evaluated: ${result.finalConfiguration?.candidates}`);
 
-// Each solution on the frontier contains:
+// Each frontier solution contains:
 result.paretoFront.forEach((solution) => {
-  solution.demos; // Optimized examples for this solution
   solution.scores; // Scores for each objective
-  solution.configuration; // How this solution was generated
-  solution.dominatedSolutions; // How many other solutions this beats
+  solution.configuration; // Candidate identifier for this solution
+  solution.dominatedSolutions; // How many others this point dominates
 });
 ```
 
 #### Performance Considerations
 
-- **Runtime**: `compilePareto` runs multiple single-objective optimizations, so
-  it takes 3-10x longer than regular `compile`
-- **Cost**: Uses more API calls due to multiple optimization runs
-- **Complexity**: Only use when you genuinely need multiple objectives
-- **Scalability**: Works best with 2-4 objectives; more objectives =
-  exponentially more solutions
+- **Runtime**: GEPA/GEPA-Flow perform reflective evolution with Pareto sampling; time scales with `numTrials`, validation size, and `maxMetricCalls`.
+- **Cost**: Bound evaluations with `maxMetricCalls`; consider minibatching.
+- **Scalability**: Works best with 2–4 objectives; hypervolume reporting is 2D.
+- **Determinism**: Provide `seed` for reproducibility; `tieEpsilon` resolves near-ties.
 
 #### Tips for Success
 
-1. **Start with 2-3 objectives**: More objectives make it harder to choose
-   solutions
-2. **Make objectives independent**: Avoid highly correlated objectives
-3. **Scale objectives similarly**: Ensure all objectives range 0-1 for fair
-   comparison
-4. **Use business constraints**: Filter the Pareto frontier by minimum
-   requirements
-5. **Validate solutions**: Test multiple Pareto-optimal solutions in practice
-
+1. **Start with 2-3 objectives**: More objectives make selection harder.
+2. **Scale objectives similarly (0–1)** for fair comparison.
+3. **Use `paretoMetricKey` or `paretoScalarize`** to guide selection/tie-breaks.
+4. **Validate chosen trade-offs** on a holdout set aligned to business constraints.
+5. **Keep validation small** to control cost; use `validationExamples` and `feedbackExamples` splits.
 ### 3. Chain Multiple Programs
 
 ```typescript

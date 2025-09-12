@@ -18,6 +18,7 @@
     "build:index": "node --import=tsx ../../scripts/generateIndex.ts",
     "clean": "rm -rf dist",
     "test": "run-s test:*",
+    "test:index": "node --import=tsx ../../scripts/generateIndex.ts",
     "test:type-check": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:lint": "biome lint .",
