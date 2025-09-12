@@ -1,5 +1,38 @@
 # Changelog
 
+## [14.0.22] (2025-09-11)
+
+### BREAKING CHANGES
+
+* **fluent API**: Remove nested helper functions from fluent signature API
+  - `f.array(f.string())` → Use `f.string().array()`
+  - `f.optional(f.string())` → Use `f.string().optional()`  
+  - `f.internal(f.string())` → Use `f.string().internal()`
+  - API is now purely fluent with only `.optional()`, `.array()`, `.internal()` method chaining
+  - Proper TypeScript type inference for arrays: `f.string().array()` correctly maps to `string[]`
+  - Method chaining works in any order: `.optional().array()` === `.array().optional()`
+
+### Features
+
+* **type safety**: Enhanced type inference for fluent field arrays and optional fields
+* **API consistency**: Fluent API now purely fluent without nested function calls
+* **documentation**: Updated comprehensive guides for pure fluent API usage
+
+### Migration Guide
+
+See [MIGRATION.md](./MIGRATION.md) for detailed migration instructions.
+
+Quick migration patterns:
+```typescript
+// Before (removed)
+f.array(f.string('desc'))     → f.string('desc').array()
+f.optional(f.string('desc'))  → f.string('desc').optional()
+f.internal(f.string('desc'))  → f.string('desc').internal()
+
+// Complex combinations now possible
+f.string('desc').optional().array().internal()
+```
+
 ## [14.0.14](https://github.com/ax-llm/ax/compare/14.0.12...14.0.13) (2025-08-12)
 
 ### Features

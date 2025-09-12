@@ -52,10 +52,11 @@ import type { AxExamples } from './dsp/types.js';
 const testSig = AxSignature.create('userInput: string -> responseText: string');
 
 // Test appendInputField type inference
-const withAppendedInput = testSig.appendInputField(
-  'contextInfo',
-  f.optional(f.string('Context'))
-);
+const withAppendedInput = testSig.appendInputField('contextInfo', {
+  type: 'string',
+  description: 'Context',
+  isOptional: true,
+});
 expectType<
   AxSignature<
     { userInput: string; contextInfo?: string },
@@ -101,7 +102,11 @@ expectType<
 
 // Test chaining type inference
 const chainedSig = testSig
-  .appendInputField('metadata', f.optional(f.json('Metadata')))
+  .appendInputField('metadata', {
+    type: 'json',
+    description: 'Metadata',
+    isOptional: true,
+  })
   .prependOutputField('status', f.class(['success', 'error'], 'Status'))
   .appendOutputField('timestamp', f.datetime('Timestamp'));
 
@@ -114,8 +119,16 @@ expectType<
 
 // Test array type inference
 const arraySig = testSig
-  .appendInputField('tags', f.array(f.string('Tag names')))
-  .appendOutputField('suggestions', f.array(f.string('Suggestions')));
+  .appendInputField('tags', {
+    type: 'string',
+    description: 'Tag names',
+    isArray: true,
+  })
+  .appendOutputField('suggestions', {
+    type: 'string',
+    description: 'Suggestions',
+    isArray: true,
+  });
 
 expectType<
   AxSignature<
@@ -136,11 +149,11 @@ expectType<AxSignature<{ query: string }, { context: string }>>(fluentSig);
 // Test fluent API with complex types
 const complexFluentSig = f()
   .input('userInput', f.string('User input'))
-  .input('metadata', f.optional(f.json('Optional metadata')))
-  .input('tags', f.array(f.string('Tag list')))
+  .input('metadata', f.json('Optional metadata').optional())
+  .input('tags', f.string('Tag list').array())
   .output('responseText', f.string('Response text'))
   .output('confidence', f.number('Confidence score'))
-  .output('categories', f.array(f.string('Categories')))
+  .output('categories', f.string('Categories').array())
   .build();
 
 expectType<

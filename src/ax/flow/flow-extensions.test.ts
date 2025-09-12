@@ -13,7 +13,7 @@ describe('AxFlow nodeExtended method', () => {
         prependOutputs: [
           {
             name: 'reasoning',
-            type: f.internal(f.string('Step-by-step reasoning')),
+            type: f.string('Step-by-step reasoning').internal(),
           },
         ],
       }
@@ -65,7 +65,7 @@ describe('AxFlow nodeExtended method', () => {
           { name: 'document', type: f.string('Source document') },
           {
             name: 'history',
-            type: f.optional(f.array(f.string('Previous questions'))),
+            type: f.string('Previous questions').array().optional(),
           },
         ],
       }
@@ -91,7 +91,7 @@ describe('AxFlow nodeExtended method', () => {
         appendInputs: [
           {
             name: 'context',
-            type: f.optional(f.string('Additional context')),
+            type: f.string('Additional context').optional(),
           },
         ],
         prependOutputs: [
@@ -152,7 +152,7 @@ describe('AxFlow nodeExtended method', () => {
       prependOutputs: [
         {
           name: 'reasoning',
-          type: f.internal(f.string('Reasoning')),
+          type: f.string('Reasoning').internal(),
         },
       ],
     });
@@ -172,7 +172,7 @@ describe('AxFlow nodeExtended method', () => {
         prependOutputs: [
           {
             name: 'reasoning',
-            type: f.internal(f.string('Reasoning')),
+            type: f.string('Reasoning').internal(),
           },
         ],
       })
@@ -223,7 +223,7 @@ describe('AxFlow nodeExtended method', () => {
       prependOutputs: [
         {
           name: 'reasoning',
-          type: f.internal(f.string('Step-by-step reasoning')),
+          type: f.string('Step-by-step reasoning').internal(),
         },
       ],
     });

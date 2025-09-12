@@ -167,17 +167,20 @@ const sig = s('query:string -> response:string');
 const gen = ax(sig.toString());
 ```
 
-### 2. Programmatic Builder API
+### 2. Pure Fluent Builder API
 
 ```typescript
 import { f } from '@ax-llm/ax';
 
-// Using the fluent builder
+// Using the pure fluent builder - only supports .optional(), .array(), .internal()
 const signature = f()
   .input('userMessage', f.string('User input'))
-  .input('context', f.optional(f.string('Additional context')))
-  .output('response', f.string('AI response'))
-  .output('confidence', f.number('Confidence score 0-1'))
+  .input('contextData', f.string('Additional context').optional())
+  .input('tags', f.string('Keywords').array())
+  .input('categories', f.string('Categories').optional().array())
+  .output('responseText', f.string('AI response'))
+  .output('confidenceScore', f.number('Confidence score 0-1'))
+  .output('debugInfo', f.string('Debug information').internal())
   .build();
 ```
 
@@ -190,6 +193,104 @@ import { s, f } from '@ax-llm/ax';
 const sig = s('base:string -> result:string')
   .appendInputField('extra', f.optional(f.json('Metadata')))
   .appendOutputField('score', f.number('Quality score'));
+```
+
+## Pure Fluent API Reference
+
+The fluent API has been redesigned to be purely fluent, meaning you can only use method chaining with `.optional()`, `.array()`, and `.internal()` methods. Nested function calls are no longer supported.
+
+### ✅ Pure Fluent Syntax (Current)
+
+```typescript
+import { f } from '@ax-llm/ax';
+
+// Basic field types
+const stringField = f.string('description');
+const numberField = f.number('description');
+const booleanField = f.boolean('description');
+
+// Array types - use .array() method chaining
+const stringArray = f.string('array description').array();
+const numberArray = f.number('array description').array();
+const booleanArray = f.boolean('array description').array();
+
+// Optional fields - use .optional() method chaining
+const optionalString = f.string('optional description').optional();
+const optionalArray = f.string('optional array').optional().array();
+const arrayOptional = f.string('array optional').array().optional(); // Same as above
+
+// Internal fields (output only) - use .internal() method chaining
+const internalField = f.string('internal description').internal();
+const internalArray = f.string('internal array').array().internal();
+
+// Complex combinations
+const complexField = f.string('complex field')
+  .optional()  // Make it optional
+  .array()     // Make it an array
+  .internal(); // Mark as internal (output only)
+```
+
+### ❌ Deprecated Nested Syntax (Removed)
+
+```typescript
+// These no longer work and will cause compilation errors
+const badArray = f.array(f.string('description'));      // ❌ Removed
+const badOptional = f.optional(f.string('description')); // ❌ Removed  
+const badInternal = f.internal(f.string('description')); // ❌ Removed
+```
+
+### String vs Fluent API Equivalence
+
+Both approaches create identical signatures:
+
+```typescript
+// String syntax
+const stringSig = AxSignature.create(`
+  userMessages:string[] "User messages",
+  maxTokens?:number "Max tokens",
+  enableDebug:boolean "Debug mode",
+  categories?:string[] "Optional categories"
+  ->
+  responseText:string "Response",
+  debugInfo!:string "Debug info"
+`);
+
+// Equivalent fluent syntax  
+const fluentSig = f()
+  .input('userMessages', f.string('User messages').array())
+  .input('maxTokens', f.number('Max tokens').optional())
+  .input('enableDebug', f.boolean('Debug mode'))
+  .input('categories', f.string('Optional categories').optional().array())
+  .output('responseText', f.string('Response'))
+  .output('debugInfo', f.string('Debug info').internal())
+  .build();
+
+// Both create identical runtime structures and TypeScript types
+console.log(stringSig.toString() === fluentSig.toString()); // true
+```
+
+### Type Inference and Arrays
+
+The fluent API properly maps to TypeScript array types:
+
+```typescript
+// These all correctly infer TypeScript types
+const sig = f()
+  .input('strings', f.string('strings').array())           // string[]
+  .input('numbers', f.number('numbers').array())           // number[]
+  .input('booleans', f.boolean('booleans').array())        // boolean[]
+  .input('optionalStrings', f.string('optional').optional().array()) // string[] | undefined
+  .output('responseText', f.string('response'))            // string
+  .build();
+
+// TypeScript knows the exact types at compile time
+type InputType = {
+  strings: string[];
+  numbers: number[];  
+  booleans: boolean[];
+  optionalStrings?: string[];
+  responseText: string;
+};
 ```
 
 ## Field Naming Best Practices
@@ -273,6 +374,44 @@ const extractor = ax(`
   lineItems:json[] "Array of {description, quantity, price}",
   vendor:json "{ name, address, taxId }"
 `);
+```
+
+### Pure Fluent API Example
+
+```typescript
+import { f, ax } from '@ax-llm/ax';
+
+// Complex signature using pure fluent API
+const contentAnalyzer = f()
+  .input('articleText', f.string('Article content to analyze'))
+  .input('authorInfo', f.json('Author metadata').optional())
+  .input('keywords', f.string('Target keywords').array())
+  .input('checkFactuality', f.boolean('Enable fact-checking'))
+  .output('mainThemes', f.string('Key themes').array())
+  .output('sentimentScore', f.number('Sentiment score -1 to 1'))
+  .output('readabilityLevel', f.class(['elementary', 'middle', 'high', 'college'], 'Reading level'))
+  .output('factChecks', f.json('Fact checking results').array().optional())
+  .output('processingTime', f.number('Analysis time in ms').internal())
+  .description('Comprehensive article analysis with optional fact-checking')
+  .build();
+
+// Create generator from fluent signature
+const generator = ax(contentAnalyzer.toString());
+
+// Usage with typed inputs/outputs
+const result = await generator.forward(llm, {
+  articleText: 'Sample article content...',
+  keywords: ['AI', 'machine learning', 'technology'],
+  checkFactuality: true,
+  // authorInfo is optional
+});
+
+// TypeScript knows exact types
+console.log(result.mainThemes);        // string[]
+console.log(result.sentimentScore);    // number
+console.log(result.readabilityLevel);  // 'elementary' | 'middle' | 'high' | 'college'
+console.log(result.factChecks);        // json[] | undefined (optional)
+// result.processingTime is undefined (internal field)
 ```
 
 ## Streaming Support

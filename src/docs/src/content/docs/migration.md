@@ -46,8 +46,16 @@ they remain available in the fluent signature creation API
    - `f.string()`, `f.number()`, `f.class()`, etc. - still work in fluent
      signatures
    - `f().input().output().build()` pattern remains fully supported
+   - Pure fluent methods: `.optional()`, `.array()`, `.internal()` 
 
 2. **All current functionality** - just accessed through new patterns
+
+### ❌ Removed in v14.0.0+
+
+1. **Nested fluent helper functions**:
+   - `f.array(f.string())` → Use `f.string().array()`
+   - `f.optional(f.string())` → Use `f.string().optional()`  
+   - `f.internal(f.string())` → Use `f.string().internal()`
 
 ## Detailed Migration Instructions
 
@@ -174,21 +182,61 @@ When using `s()` or `ax()` functions, use string-based field definitions:
 | **Code**           | `field:code "description"`               | `script:code "Python code"`                       |
 | **Media**          | `field:image/audio/file/url`             | `photo:image "Profile picture"`                   |
 
-### Fluent API Field Helpers (Still Available)
+### Pure Fluent API (Updated in v14.0.0+)
 
-When using the fluent API with `f().input().output().build()`, all field helpers
-remain available:
+The fluent API has been redesigned to be purely fluent, removing nested function calls:
 
 ```typescript
+// ✅ Pure fluent syntax (current)
 const sig = f()
-  .input("text", f.string("Input text"))
-  .input("options", f.array(f.string("Option")).optional())
-  .input("metadata", f.json("Extra data"))
-  .output("result", f.string("Processed result"))
-  .output("category", f.class(["A", "B", "C"], "Classification"))
-  .output("confidence", f.number("Confidence score"))
+  .input("textInput", f.string("Input text"))
+  .input("optionsList", f.string("Option").array().optional())
+  .input("metadataInfo", f.json("Extra data"))
+  .output("processedResult", f.string("Processed result"))
+  .output("categoryType", f.class(["A", "B", "C"], "Classification"))
+  .output("confidenceScore", f.number("Confidence score"))
+
+// ❌ Deprecated nested syntax (removed in v14.0.0+)
+// .input("options", f.array(f.string("Option")).optional()) // No longer works
+// .input("optional", f.optional(f.string("Field")))         // No longer works
+// .output("internal", f.internal(f.string("Field")))        // No longer works
+  .build();
+
+// Key differences:
+// 1. f.array(f.string()) → f.string().array()
+// 2. f.optional(f.string()) → f.string().optional()  
+// 3. f.internal(f.string()) → f.string().internal()
+// 4. Method chaining works in any order: .optional().array() === .array().optional()
+```
+
+### Migration: Fluent API Nested Functions
+
+**Before (v13.x - Nested Functions)**:
+```typescript
+const oldSig = f()
+  .input("items", f.array(f.string("Item description")))
+  .input("config", f.optional(f.json("Configuration")))
+  .output("result", f.string("Processing result"))
+  .output("debug", f.internal(f.string("Debug info")))
   .build();
 ```
+
+**After (v14.0+ - Pure Fluent)**:
+```typescript
+const newSig = f()
+  .input("itemsList", f.string("Item description").array())
+  .input("configData", f.json("Configuration").optional())
+  .output("processedResult", f.string("Processing result"))
+  .output("debugInfo", f.string("Debug info").internal())
+  .build();
+```
+
+**Migration Steps**:
+1. Replace `f.array(f.TYPE())` with `f.TYPE().array()`
+2. Replace `f.optional(f.TYPE())` with `f.TYPE().optional()`
+3. Replace `f.internal(f.TYPE())` with `f.TYPE().internal()`
+4. Update field names to be more descriptive (recommended)
+5. Combine modifiers: `.optional().array()`, `.array().internal()`, etc.
 
 ## Complete Migration Examples
 

@@ -331,7 +331,6 @@ export const f = Object.assign(
         isOptional: false as const,
         isInternal: false as const,
       }),
-
   }
 );
 
