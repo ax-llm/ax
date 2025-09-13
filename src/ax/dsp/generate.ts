@@ -491,6 +491,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       );
 
     let err: ValidationError | AxAssertionError | undefined;
+    let lastError: Error | undefined;
 
     const promptTemplateClass =
       this.options?.promptTemplate ?? AxPromptTemplate;
@@ -662,6 +663,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
           return;
         } catch (e) {
+          lastError = e as Error;
           let errorFields: AxIField[] | undefined;
           const debug = this.isDebug(ai, options);
           const logger = this.getLogger(ai, options);
@@ -731,7 +733,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
 
       throw enhanceError(
-        new Error(`Unable to fix validation error: ${err?.toString()}`),
+        new Error(
+          `Unable to fix validation error: ${
+            (err ?? lastError)?.message ??
+            (err ?? lastError)?.toString() ??
+            'unknown error'
+          }`
+        ),
         ai,
         this.signature
       );
