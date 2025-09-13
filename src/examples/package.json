@@ -21,8 +21,8 @@
     "tsx": "node --env-file=.env --import=tsx"
   },
   "dependencies": {
-    "@ax-llm/ax": "14.0.23",
-    "@ax-llm/ax-tools": "14.0.23",
+    "@ax-llm/ax": "14.0.24",
+    "@ax-llm/ax-tools": "14.0.24",
     "@opentelemetry/auto-instrumentations-node": "^0.60.1",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.203.0",
     "@opentelemetry/exporter-prometheus": "^0.202.0",
