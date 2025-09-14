@@ -8,7 +8,11 @@ import type {
   AxTypedExample,
 } from '../common_types.js';
 import type { AxGen } from '../generate.js';
-import { AxBaseOptimizer, type AxParetoResult } from '../optimizer.js';
+import {
+  AxBaseOptimizer,
+  type AxParetoResult,
+  AxOptimizedProgramImpl,
+} from '../optimizer.js';
 import type { AxGenOut } from '../types.js';
 import { ax } from '../template.js';
 import {
@@ -743,6 +747,19 @@ export class AxGEPA extends AxBaseOptimizer {
         ? Math.max(...pareto.map((p) => scalarize(p.scores)))
         : 0;
 
+    // Identify best candidate on the front (by scalarized score)
+    let bestCandidateIdx: number | undefined;
+    if (pareto.length > 0) {
+      let maxS = Number.NEGATIVE_INFINITY;
+      for (const p of pareto) {
+        const s = scalarize(p.scores);
+        if (s > maxS) {
+          maxS = s;
+          bestCandidateIdx = p.idx;
+        }
+      }
+    }
+
     // Compute hypervolume (2D only)
     const hv = hypervolume2D(pareto.map((p) => p.scores));
 
@@ -750,6 +767,24 @@ export class AxGEPA extends AxBaseOptimizer {
 
     // Record metrics for monitoring
     this.recordParetoMetrics(pareto.length, candidates.length, 'GEPA', hv);
+
+    // Build a unified optimized program (mirrors MiPRO) for the selected best candidate
+    const optimizationTime = Date.now() - _startTime;
+    const optimizedProgram =
+      typeof bestCandidateIdx === 'number'
+        ? new AxOptimizedProgramImpl<OUT>({
+            bestScore,
+            stats: this.stats,
+            instruction: candidates[bestCandidateIdx]!.instruction,
+            demos: [],
+            examples: examples as unknown as any[],
+            modelConfig: undefined,
+            optimizerType: 'GEPA',
+            optimizationTime,
+            totalRounds: this.numTrials,
+            converged: this.stats.convergenceInfo.converged,
+          })
+        : undefined;
 
     return {
       demos: [],
@@ -767,6 +802,8 @@ export class AxGEPA extends AxBaseOptimizer {
         strategy: 'gepa',
         candidates: candidates.length,
       },
+      // Extra field (not part of AxParetoResult): unified optimized program for easy save/apply
+      optimizedProgram,
     } as AxParetoResult<OUT>;
   }
 
