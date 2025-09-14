@@ -764,6 +764,8 @@ speed AND cost. Traditional optimization only handles one objective at a time.
 with a multi-objective metric. Both use `compile(...)` and return a Pareto
 frontier of trade-offs plus hypervolume metrics.
 
+**NEW in v14.0.24+**: GEPA now returns the same unified `optimizedProgram` interface as MiPRO, enabling consistent save/load/apply workflows across all optimizers.
+
 > Note: Pass `maxMetricCalls` in `compile` options to bound evaluation cost.
 
 #### What is Pareto Optimization?
@@ -799,8 +801,10 @@ dominated by both A and B.
 
 #### Complete Working Example (GEPA)
 
+**GEPA now returns the same unified `optimizedProgram` interface as MiPRO**, making save/load/apply workflows consistent across optimizers.
+
 ```typescript
-import { ai, ax, AxGEPA } from "@ax-llm/ax";
+import { ai, ax, AxGEPA, AxOptimizedProgramImpl } from "@ax-llm/ax";
 
 // Two-objective demo: accuracy (classification) + brevity (short rationale)
 const moderator = ax(`
@@ -858,14 +862,49 @@ for (const [i, p] of [...result.paretoFront].entries()) {
   console.log(`  #${i+1}: acc=${(p.scores as any).accuracy?.toFixed(3)}, brev=${(p.scores as any).brevity?.toFixed(3)}, config=${JSON.stringify(p.configuration)}`);
 }
 
-// Choose a compromise by weighted sum (example)
-const weights = { accuracy: 0.7, brevity: 0.3 };
-const best = result.paretoFront.reduce((best, cur) => {
-  const s = weights.accuracy * ((cur.scores as any).accuracy ?? 0) + weights.brevity * ((cur.scores as any).brevity ?? 0);
-  const b = weights.accuracy * ((best.scores as any).accuracy ?? 0) + weights.brevity * ((best.scores as any).brevity ?? 0);
-  return s > b ? cur : best;
-});
-console.log(`🎯 Chosen config: ${JSON.stringify(best.configuration)}`);
+// **NEW: GEPA now provides unified optimizedProgram interface**
+if (result.optimizedProgram) {
+  // Apply optimization using the same pattern as MiPRO
+  moderator.applyOptimization(result.optimizedProgram);
+
+  console.log(`✨ Applied GEPA optimization:`);
+  console.log(`   Score: ${result.optimizedProgram.bestScore.toFixed(3)}`);
+  console.log(`   Optimizer: ${result.optimizedProgram.optimizerType}`); // "GEPA"
+  console.log(`   Converged: ${result.optimizedProgram.converged ? "✅" : "❌"}`);
+
+  // Save the complete GEPA optimization (same as MiPRO format)
+  await fs.writeFile(
+    "gepa-optimization.json",
+    JSON.stringify({
+      version: "2.0",
+      bestScore: result.optimizedProgram.bestScore,
+      instruction: result.optimizedProgram.instruction,
+      demos: result.optimizedProgram.demos,
+      examples: result.optimizedProgram.examples, // GEPA includes training examples
+      modelConfig: result.optimizedProgram.modelConfig,
+      optimizerType: result.optimizedProgram.optimizerType,
+      optimizationTime: result.optimizedProgram.optimizationTime,
+      totalRounds: result.optimizedProgram.totalRounds,
+      converged: result.optimizedProgram.converged,
+      stats: result.optimizedProgram.stats,
+      timestamp: new Date().toISOString(),
+    }, null, 2)
+  );
+
+  // Load and apply later (same pattern as MiPRO)
+  // const savedData = JSON.parse(await fs.readFile('gepa-optimization.json', 'utf8'));
+  // const optimizedProgram = new AxOptimizedProgramImpl(savedData);
+  // moderator.applyOptimization(optimizedProgram);
+} else {
+  // Fallback: choose a compromise by weighted sum
+  const weights = { accuracy: 0.7, brevity: 0.3 };
+  const best = result.paretoFront.reduce((best, cur) => {
+    const s = weights.accuracy * ((cur.scores as any).accuracy ?? 0) + weights.brevity * ((cur.scores as any).brevity ?? 0);
+    const b = weights.accuracy * ((best.scores as any).accuracy ?? 0) + weights.brevity * ((best.scores as any).brevity ?? 0);
+    return s > b ? cur : best;
+  });
+  console.log(`🎯 Chosen config: ${JSON.stringify(best.configuration)}`);
+}
 ```
 
 #### GEPA-Flow (Multi-Module)
