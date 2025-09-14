@@ -4,7 +4,7 @@ import {
   AxGEPA,
   AxOptimizedProgramImpl,
   ax,
-} from '@ax-llm/ax'
+} from '@ax-llm/ax';
 
 // GEPA Train + Inference example
 // - Trains with a multi-objective metric (accuracy + brevity)
@@ -13,14 +13,14 @@ import {
 
 async function main() {
   if (!process.env.OPENAI_APIKEY) {
-    console.error('❌ OPENAI_APIKEY is required')
-    process.exit(1)
+    console.error('❌ OPENAI_APIKEY is required');
+    process.exit(1);
   }
 
   // Define a simple program: classify priority with a concise rationale
   const program = ax(
     'emailText:string "Email content" -> priority:class "high, normal, low" "Priority", rationale:string "One concise sentence"'
-  )
+  );
 
   // Small train/validation datasets
   const train = [
@@ -35,7 +35,7 @@ async function main() {
     { emailText: 'Team offsite agenda attached', priority: 'normal' },
     { emailText: 'Discount code for loyal customers', priority: 'low' },
     { emailText: 'All-hands meeting cancelled', priority: 'normal' },
-  ]
+  ];
 
   const val = [
     { emailText: 'Server CPU spiking—investigation needed', priority: 'high' },
@@ -44,37 +44,37 @@ async function main() {
     { emailText: 'Data breach follow-up actions required', priority: 'high' },
     { emailText: 'Happy birthday to our teammate!', priority: 'low' },
     { emailText: 'Office closed next Monday', priority: 'normal' },
-  ]
+  ];
 
   // Multi-objective metric: accuracy + brevity of rationale
   const metric = async ({
     prediction,
     example,
   }: {
-    prediction: any
-    example: any
+    prediction: any;
+    example: any;
   }): Promise<Record<string, number>> => {
-    const acc = prediction?.priority === example?.priority ? 1 : 0
+    const acc = prediction?.priority === example?.priority ? 1 : 0;
     const rationale: string =
-      typeof prediction?.rationale === 'string' ? prediction.rationale : ''
-    const len = rationale.length
+      typeof prediction?.rationale === 'string' ? prediction.rationale : '';
+    const len = rationale.length;
     // Piecewise brevity: reward short, penalize long
-    const brevity = len <= 30 ? 1 : len <= 60 ? 0.7 : len <= 100 ? 0.4 : 0.1
-    return { accuracy: acc, brevity }
-  }
+    const brevity = len <= 30 ? 1 : len <= 60 ? 0.7 : len <= 100 ? 0.4 : 0.1;
+    return { accuracy: acc, brevity };
+  };
 
   // Student/Teacher AIs
   const student = new AxAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4OMini },
-  })
+  });
 
   const teacher = new AxAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4O },
-  })
+  });
 
   // Optimizer
   const optimizer = new AxGEPA({
@@ -89,9 +89,9 @@ async function main() {
     verbose: true,
     debugOptimizer: false,
     seed: 42,
-  })
+  });
 
-  console.log('🔧 Running GEPA Pareto optimization (accuracy + brevity)...')
+  console.log('🔧 Running GEPA Pareto optimization (accuracy + brevity)...');
   const result = await optimizer.compile(
     program as any,
     train,
@@ -104,76 +104,76 @@ async function main() {
       // Optionally guide scalarization with a specific metric key
       // paretoMetricKey: 'accuracy',
     } as any
-  )
+  );
 
-  console.log(`\n✅ Pareto optimization complete`)
-  console.log(`Front size: ${result.paretoFrontSize}`)
-  console.log(`Hypervolume (2D): ${result.hypervolume ?? 'N/A'}`)
+  console.log(`\n✅ Pareto optimization complete`);
+  console.log(`Front size: ${result.paretoFrontSize}`);
+  console.log(`Hypervolume (2D): ${result.hypervolume ?? 'N/A'}`);
 
   // Show top frontier points (by dominatedSolutions)
   const frontier = [...result.paretoFront]
     .sort((a, b) => (b.dominatedSolutions || 0) - (a.dominatedSolutions || 0))
-    .slice(0, 5)
+    .slice(0, 5);
 
-  console.log('\nTop Pareto points:')
+  console.log('\nTop Pareto points:');
   for (const [i, p] of frontier.entries()) {
-    const acc = (p.scores as any).accuracy ?? 0
-    const brev = (p.scores as any).brevity ?? 0
+    const acc = (p.scores as any).accuracy ?? 0;
+    const brev = (p.scores as any).brevity ?? 0;
     console.log(
       `  #${i + 1}: accuracy=${acc.toFixed(3)}, brevity=${brev.toFixed(
         3
       )}, config=${JSON.stringify(p.configuration)}`
-    )
+    );
   }
 
   // Apply optimized configuration if available (mirrors MiPRO unified approach)
   const optimizedProgram = (result as any).optimizedProgram as
     | InstanceType<typeof AxOptimizedProgramImpl>
-    | undefined
+    | undefined;
 
   if (optimizedProgram) {
-    program.applyOptimization(optimizedProgram as any)
-    console.log('\n✅ Applied optimized configuration to program')
+    program.applyOptimization(optimizedProgram as any);
+    console.log('\n✅ Applied optimized configuration to program');
 
     // Save complete optimization to JSON
-    const fs = await import('node:fs/promises')
-    const savePath = 'gepa_optimized.json'
+    const fs = await import('node:fs/promises');
+    const savePath = 'gepa_optimized.json';
     await fs.writeFile(
       savePath,
       JSON.stringify(optimizedProgram, null, 2),
       'utf8'
-    )
-    console.log(`💾 Saved GEPA optimization to ${savePath}`)
+    );
+    console.log(`💾 Saved GEPA optimization to ${savePath}`);
 
     // Load and test the optimization (simulating production usage)
-    const savedData = JSON.parse(await fs.readFile(savePath, 'utf8'))
-    const loadedOptimization = new AxOptimizedProgramImpl(savedData)
+    const savedData = JSON.parse(await fs.readFile(savePath, 'utf8'));
+    const loadedOptimization = new AxOptimizedProgramImpl(savedData);
 
     // Create a fresh program and apply the loaded optimization
     const testProgram = ax(
       'emailText:string "Email content" -> priority:class "high, normal, low" "Priority", rationale:string "One concise sentence"'
-    )
-    testProgram.applyOptimization(loadedOptimization)
+    );
+    testProgram.applyOptimization(loadedOptimization);
 
     // Inference: quick test
     const testInput = {
       emailText: 'Prod incident: checkout returning 500 for EU users',
-    }
-    const testResult = await testProgram.forward(student, testInput)
-    console.log(`\n🔎 Inference on fresh program:`)
+    };
+    const testResult = await testProgram.forward(student, testInput);
+    console.log(`\n🔎 Inference on fresh program:`);
     console.log(
       `priority=${(testResult as any).priority}, rationale="${
         (testResult as any).rationale
       }"`
-    )
+    );
   } else {
     console.log(
       '\n⚠️ No optimizedProgram returned; choose a Pareto point manually if desired.'
-    )
+    );
   }
 }
 
 main().catch((err) => {
-  console.error('💥 GEPA Train+Inference example failed:', err)
-  process.exit(1)
-})
+  console.error('💥 GEPA Train+Inference example failed:', err);
+  process.exit(1);
+});
