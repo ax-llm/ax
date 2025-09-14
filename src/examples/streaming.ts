@@ -5,19 +5,28 @@ const gen = ax(
   'movieTitle:string -> rating:number, genres:string[], strengths:string[], weaknesses:string[], recommendedAudience:string, verdict:string'
 );
 
-// Assert rating is between 1 and 10
+// Assert rating is between 1 and 10 with custom error message
 gen.addAssert(({ rating }: Readonly<{ rating: number }>) => {
   if (!rating) return undefined;
-  return rating >= 1 && rating <= 10;
-}, 'Rating must be between 1 and 10');
+  if (rating < 1 || rating > 10) {
+    return `Rating ${rating} is out of range. Must be between 1 and 10.`;
+  }
+  return true;
+});
 
-// Assert there are between 1-3 genres
+// Assert there are between 1-3 genres with detailed feedback
 gen.addAssert(({ genres }: Readonly<{ genres: string[] }>) => {
   if (!genres) return undefined;
-  return genres.length >= 1 && genres.length <= 3;
-}, 'Must specify between 1-3 genres');
+  if (genres.length < 1) {
+    return 'At least 1 genre must be specified';
+  }
+  if (genres.length > 3) {
+    return `Too many genres specified: ${genres.length}. Maximum is 3 genres.`;
+  }
+  return true;
+});
 
-// Assert strengths and weaknesses are balanced (similar length arrays)
+// Assert strengths and weaknesses are balanced with detailed analysis
 gen.addAssert(
   ({
     strengths,
@@ -25,24 +34,31 @@ gen.addAssert(
   }: Readonly<{ strengths: string[]; weaknesses: string[] }>) => {
     if (!strengths || !weaknesses) return undefined;
     const diff = Math.abs(strengths.length - weaknesses.length);
-    return diff <= 1;
-  },
-  'Review should be balanced with similar number of strengths and weaknesses'
+    if (diff > 1) {
+      return `Review is unbalanced: ${strengths.length} strengths vs ${weaknesses.length} weaknesses. Difference should be ≤ 1.`;
+    }
+    return true;
+  }
 );
 
-// Assert verdict is not too short
+// Assert verdict length with character count feedback
 gen.addAssert(({ verdict }: Readonly<{ verdict: string }>) => {
   if (!verdict) return undefined;
-  return verdict.length >= 50;
-}, 'Verdict must be at least 50 characters');
+  if (verdict.length < 50) {
+    return `Verdict too short: ${verdict.length} characters (minimum 50 required)`;
+  }
+  return true;
+});
 
-// Assert recommended audience doesn't mention specific age numbers
+// Assert recommended audience format with helpful guidance
 gen.addAssert(
   ({ recommendedAudience }: Readonly<{ recommendedAudience: string }>) => {
     if (!recommendedAudience) return undefined;
-    return !/\d+/.test(recommendedAudience);
-  },
-  'Use age groups (e.g. "teens", "adults") instead of specific ages'
+    if (/\d+/.test(recommendedAudience)) {
+      return `Recommended audience "${recommendedAudience}" contains specific ages. Use age groups like "teens", "adults", "families" instead.`;
+    }
+    return true;
+  }
 );
 
 const ai = new AxAI({

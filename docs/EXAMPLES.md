@@ -87,28 +87,78 @@ console.log(result);
 
 ### 3. Adding Validation with Assertions
 
-Ensure outputs meet your business rules with assertions.
+Ensure outputs meet your business rules with assertions. Assertions provide multiple ways to signal failures:
 
 ```typescript
 import { ax, ai } from '@ax-llm/ax';
 
-const gen = ax('startNumber:number -> next10Numbers:number[]');
+const gen = ax('startNumber:number -> next10Numbers:number[], summary:string');
 
-// Add business rules
+// Method 1: Return false with a fallback message
 gen.addAssert(
   ({ next10Numbers }) => next10Numbers?.length === 10,
   'Must generate exactly 10 numbers'
 );
 
-gen.addAssert(
-  ({ next10Numbers }) => next10Numbers?.every(n => n > 0),
-  'All numbers must be positive'
-);
-
-// Ax will automatically retry if assertions fail
-const result = await gen.forward(ai({ name: 'openai' }), { 
-  startNumber: 1 
+// Method 2: Return a custom error string (recommended)
+gen.addAssert(({ next10Numbers }) => {
+  if (!next10Numbers) return undefined; // Skip validation if undefined
+  if (next10Numbers.length !== 10) {
+    return `Generated ${next10Numbers.length} numbers, expected exactly 10`;
+  }
+  return true; // Pass validation
 });
+
+// Method 3: Throw custom errors for immediate failure
+gen.addAssert(({ next10Numbers }) => {
+  if (next10Numbers?.some(n => n <= 0)) {
+    throw new Error(`Invalid numbers found: ${next10Numbers.filter(n => n <= 0)}`);
+  }
+  return true;
+});
+
+// Method 4: Conditional validation with undefined return
+gen.addAssert(({ summary }) => {
+  if (!summary) return undefined; // Skip if summary not provided
+  return summary.length >= 20; // Only validate if present
+}, 'Summary must be at least 20 characters when provided');
+
+// Ax will automatically retry if assertions fail (up to maxRetries)
+const result = await gen.forward(ai({ name: 'openai' }), {
+  startNumber: 1
+});
+```
+
+**Assertion Return Values:**
+- `true`: Assertion passes, continue generation
+- `false`: Assertion fails, use provided message parameter
+- `string`: Assertion fails, use the returned string as error message
+- `undefined`: Skip this assertion (useful for conditional validation)
+- `throw Error()`: Immediate failure with custom error (no retries)
+
+**Streaming Assertions:**
+
+```typescript
+const streamingGen = ax('topic:string -> article:string, title:string');
+
+// Validate streaming content as it's generated
+streamingGen.addStreamingAssert('article', (content, done) => {
+  // Only validate complete content
+  if (!done) return undefined;
+
+  if (content.length < 100) {
+    return 'Article must be at least 100 characters long';
+  }
+
+  return true;
+});
+
+// Stream with validation
+for await (const chunk of streamingGen.streamingForward(ai({ name: 'openai' }), {
+  topic: 'TypeScript best practices'
+})) {
+  console.log(chunk.article || chunk.title || '');
+}
 ```
 
 ## Core Concepts

@@ -116,7 +116,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   description?: string;
   thoughtFieldName?: string;
   promptTemplate?: typeof AxPromptTemplate;
-  asserts?: AxAssertion[];
+  asserts?: AxAssertion<any>[];
   streamingAsserts?: AxStreamingAssertion[];
   excludeContentFromTrace?: boolean;
 
@@ -257,6 +257,38 @@ export type AxExamples<T> = T extends AxSignature<infer IN, infer OUT>
         : never;
 
 export type ExExamples<T> = ReadonlyArray<AxExamples<T>>;
+
+// === AxGen Helper Types ===
+// Similar to AxExamples, these extract input/output types from AxGen signatures
+export type AxGenInput<T> = T extends AxGen<infer IN, any>
+  ? IN
+  : T extends AxSignature<infer IN2, any>
+    ? IN2
+    : T extends AxSignatureBuilder<infer IN3, any>
+      ? IN3
+      : T extends string
+        ? ParseSignature<T> extends {
+            inputs: infer IN4;
+            outputs: any;
+          }
+          ? IN4
+          : never
+        : never;
+
+export type AxGenOutput<T> = T extends AxGen<any, infer OUT>
+  ? OUT
+  : T extends AxSignature<any, infer OUT2>
+    ? OUT2
+    : T extends AxSignatureBuilder<any, infer OUT3>
+      ? OUT3
+      : T extends string
+        ? ParseSignature<T> extends {
+            inputs: any;
+            outputs: infer OUT4;
+          }
+          ? OUT4
+          : never
+        : never;
 
 // =========================
 // Optimizer shared type defs

@@ -555,7 +555,9 @@ import type {
   AxForwardable,
   AxGenDeltaOut,
   AxGenIn,
+  AxGenInput,
   AxGenOut,
+  AxGenOutput,
   AxGenStreamingOut,
   AxMessage,
   AxProgramDemos,
@@ -1144,8 +1146,10 @@ export type { AxGEPAAdapter };
 export type { AxGEPAEvaluationBatch };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
+export type { AxGenInput };
 export type { AxGenMetricsInstruments };
 export type { AxGenOut };
+export type { AxGenOutput };
 export type { AxGenStreamingOut };
 export type { AxGenerateErrorDetails };
 export type { AxGenerateResult };

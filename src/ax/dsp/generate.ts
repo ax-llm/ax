@@ -126,7 +126,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   implements AxProgrammable<IN, OUT>
 {
   private promptTemplate: AxPromptTemplate;
-  private asserts: AxAssertion[];
+  private asserts: AxAssertion<OUT>[];
   private streamingAsserts: AxStreamingAssertion[];
   private options?: Omit<AxProgramForwardOptions<any>, 'functions'>;
   private functions: AxFunction[];
@@ -194,16 +194,37 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }));
   }
 
-  public addAssert = (fn: AxAssertion['fn'], message?: string) => {
+  public addAssert = (fn: AxAssertion<OUT>['fn'], message?: string) => {
     this.asserts.push({ fn, message });
   };
 
   public addStreamingAssert = (
-    fieldName: string,
+    fieldName: keyof OUT,
     fn: AxStreamingAssertion['fn'],
     message?: string
   ) => {
-    this.streamingAsserts.push({ fieldName, fn, message });
+    // Validate that the field name exists in the output signature
+    const outputField = this.signature
+      .getOutputFields()
+      .find((f) => f.name === fieldName);
+
+    if (!outputField) {
+      throw new Error(
+        `addStreamingAssert: field ${String(fieldName)} not found in output signature`
+      );
+    }
+
+    // Ensure the field is a string field for streaming assertions
+    const ft = outputField.type?.name;
+    const isStringField = !ft || ft === 'string' || ft === 'code';
+
+    if (!isStringField) {
+      throw new Error(
+        `addStreamingAssert: field ${String(fieldName)} must be a string field for streaming assertions`
+      );
+    }
+
+    this.streamingAsserts.push({ fieldName: String(fieldName), fn, message });
   };
 
   private addFieldProcessorInternal = (
@@ -235,17 +256,31 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   };
 
   public addStreamingFieldProcessor = (
-    fieldName: string,
-    fn: AxFieldProcessor['process']
+    fieldName: keyof OUT,
+    fn: (
+      value: string,
+      context?: { values?: OUT; sessionId?: string; done?: boolean }
+    ) => unknown | Promise<unknown>
   ) => {
-    this.addFieldProcessorInternal(fieldName, fn, true);
+    this.addFieldProcessorInternal(
+      String(fieldName),
+      fn as AxFieldProcessor['process'],
+      true
+    );
   };
 
   public addFieldProcessor = (
-    fieldName: string,
-    fn: AxFieldProcessor['process']
+    fieldName: keyof OUT,
+    fn: (
+      value: OUT[keyof OUT],
+      context?: { values?: OUT; sessionId?: string; done?: boolean }
+    ) => unknown | Promise<unknown>
   ) => {
-    this.addFieldProcessorInternal(fieldName, fn, false);
+    this.addFieldProcessorInternal(
+      String(fieldName),
+      fn as AxFieldProcessor['process'],
+      false
+    );
   };
 
   private async forwardSendRequest({

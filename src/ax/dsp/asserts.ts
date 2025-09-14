@@ -1,15 +1,15 @@
 import type { extractionState } from './extract.js';
 
-export interface AxAssertion {
+export interface AxAssertion<T = Record<string, unknown>> {
   fn(
-    values: Record<string, unknown>
-  ): Promise<boolean | undefined> | boolean | undefined;
+    values: T
+  ): Promise<boolean | string | undefined> | boolean | string | undefined;
   message?: string;
 }
 
 export interface AxStreamingAssertion {
   fieldName: string;
-  fn(content: string, done?: boolean): boolean | undefined;
+  fn(content: string, done?: boolean): boolean | string | undefined;
   message?: string;
 }
 
@@ -50,9 +50,9 @@ export class AxAssertionError extends Error {
   }
 }
 
-export const assertAssertions = async (
-  asserts: readonly AxAssertion[],
-  values: Record<string, unknown>
+export const assertAssertions = async <T = Record<string, unknown>>(
+  asserts: readonly AxAssertion<T>[],
+  values: T
 ) => {
   for (const assert of asserts) {
     const { fn, message } = assert;
@@ -62,6 +62,12 @@ export const assertAssertions = async (
       continue;
     }
 
+    // Handle string returns as failures with custom message
+    if (typeof res === 'string') {
+      throw new AxAssertionError({ message: res });
+    }
+
+    // Handle boolean returns
     if (!res) {
       if (!message) {
         throw new Error('Assertion Failed: No message provided for assertion');
@@ -104,6 +110,12 @@ export const assertStreamingAssertions = async (
       continue;
     }
 
+    // Handle string returns as failures with custom message
+    if (typeof res === 'string') {
+      throw new AxAssertionError({ message: res });
+    }
+
+    // Handle boolean returns
     if (!res && message) {
       throw new AxAssertionError({ message });
     }
