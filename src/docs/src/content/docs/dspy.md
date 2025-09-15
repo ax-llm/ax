@@ -59,10 +59,35 @@ await gen.forward(llm, { question: "Hello" }, { stream: true });
 Add assertions that run during generation. Catch issues before they reach users.
 
 ```typescript
+const gen = ax("question:string -> answer:string, confidence:number");
+
+// Method 1: Return error string for custom messages (recommended)
+gen.addAssert(({ answer }) => {
+  if (answer.length < 10) {
+    return `Answer too short: ${answer.length} characters (minimum 10)`;
+  }
+  return true;
+});
+
+// Method 2: Return false with fallback message
 gen.addAssert(
-  ({ answer }) => answer.length > 10,
-  "Answer must be detailed"
+  ({ confidence }) => confidence > 0.7,
+  "Confidence must be above 70%"
 );
+
+// Method 3: Throw for immediate failure
+gen.addAssert(({ answer }) => {
+  if (answer.includes('offensive-term')) {
+    throw new Error('Content moderation failed');
+  }
+  return true;
+});
+
+// Streaming assertions for real-time validation
+gen.addStreamingAssert('answer', (content, done) => {
+  if (!done) return undefined; // Wait for complete content
+  return content.length >= 10 ? true : 'Answer too brief';
+});
 ```
 
 ### 4. 🚀 **Automatic Optimization**

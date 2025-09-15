@@ -148,7 +148,7 @@ export class AxBaseAI<
   TModelKey,
 > implements AxAIService<TModel, TEmbedModel, TModelKey>
 {
-  private debug = false;
+  #debug = false;
 
   private rt?: AxAIServiceOptions['rateLimiter'];
   private fetch?: AxAIServiceOptions['fetch'];
@@ -279,8 +279,12 @@ export class AxBaseAI<
     this.headers = headers;
   }
 
+  get debug(): boolean {
+    return this.#debug;
+  }
+
   setOptions(options: Readonly<AxAIServiceOptions>): void {
-    this.debug = options.debug ?? false;
+    this.#debug = options.debug ?? axGlobals.debug ?? false;
     this.rt = options.rateLimiter;
     this.fetch = options.fetch;
     this.timeout = options.timeout;
@@ -294,7 +298,7 @@ export class AxBaseAI<
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return {
-      debug: this.debug,
+      debug: this.#debug,
       rateLimiter: this.rt,
       fetch: this.fetch,
       tracer: this.tracer,
@@ -1108,7 +1112,7 @@ export class AxBaseAI<
       throw new Error('createChatReq not implemented');
     }
 
-    const debug = options?.debug ?? this.debug;
+    const debug = options?.debug ?? this.#debug;
 
     let functions: NonNullable<AxChatRequest['functions']> | undefined;
 
@@ -1508,7 +1512,7 @@ export class AxBaseAI<
 
     // Bind provider implementation method to preserve `this` and satisfy TS
     const createEmbedReq = this.aiImpl.createEmbedReq!.bind(this.aiImpl);
-    const debug = options?.debug ?? this.debug;
+    const debug = options?.debug ?? this.#debug;
 
     const req = {
       ...embedReq,

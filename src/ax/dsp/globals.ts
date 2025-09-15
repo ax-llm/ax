@@ -11,6 +11,7 @@ export const axGlobals = {
   meter: undefined as Meter | undefined, // Global OpenTelemetry meter for metrics collection
   logger: undefined as AxLoggerFunction | undefined, // Global logger for all AI operations
   optimizerLogger: undefined as AxOptimizerLoggerFunction | undefined, // Global optimizer logger for all optimizer operations
+  debug: undefined as boolean | undefined, // Global debug setting for all AI operations
   functionResultFormatter: ((result: unknown) => {
     return typeof result === 'string'
       ? result
