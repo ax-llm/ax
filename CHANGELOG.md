@@ -1,5 +1,18 @@
 # Changelog
 
+## [14.0.26](https://github.com/ax-llm/ax/compare/14.0.24...14.0.25) (2025-09-15)
+
+### Features
+
+* enhance debug handling in AxBaseAI and global settings ([355640b](https://github.com/ax-llm/ax/commit/355640bd6a47730f8a05bb535d8f03b43d2f8f7f))
+## [14.0.25](https://github.com/ax-llm/ax/compare/14.0.24...14.0.25) (2025-09-14)
+
+### Features
+
+* enhance assertion capabilities in AxGen and documentation updates ([2770a07](https://github.com/ax-llm/ax/commit/2770a074adc883b55dfc655d3d46143dbf00c017))
+* GEPA: enable optimizedProgram interface to mirror MiPRO ([#350](https://github.com/ax-llm/ax/issues/350)) ([9b1ae9a](https://github.com/ax-llm/ax/commit/9b1ae9a21c62ec913bad5dc38481a271e3facac2))
+* unify GEPA and MiPRO interfaces for consistent optimization workflows ([7cf8e28](https://github.com/ax-llm/ax/commit/7cf8e289dbc38af57cb08e6e92b0ebbbcb2516bb))
+
 ## [14.0.25](https://github.com/ax-llm/ax/compare/14.0.23...14.0.24) (2025-09-14)
 
 ### Features
