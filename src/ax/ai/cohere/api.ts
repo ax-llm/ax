@@ -29,6 +29,10 @@ import {
   AxAICohereModel,
 } from './types.js';
 
+/**
+ * Creates the default configuration for Cohere AI service
+ * @returns A deep clone of the default Cohere configuration with CommandRPlus model and EmbedEnglishV30 embed model
+ */
 export const axAICohereDefaultConfig = (): AxAICohereConfig =>
   structuredClone({
     model: AxAICohereModel.CommandRPlus,
@@ -36,6 +40,10 @@ export const axAICohereDefaultConfig = (): AxAICohereConfig =>
     ...axBaseAIDefaultConfig(),
   });
 
+/**
+ * Creates a creative configuration for Cohere AI service with more flexible parameters
+ * @returns A deep clone of the creative Cohere configuration with CommandR model and EmbedEnglishV30 embed model
+ */
 export const axAICohereCreativeConfig = (): AxAICohereConfig =>
   structuredClone({
     model: AxAICohereModel.CommandR,
@@ -43,6 +51,10 @@ export const axAICohereCreativeConfig = (): AxAICohereConfig =>
     ...axBaseAIDefaultCreativeConfig(),
   });
 
+/**
+ * Configuration arguments for initializing the Cohere AI service
+ * @template TModelKey - The type of model keys supported
+ */
 export interface AxAICohereArgs<TModelKey> {
   name: 'cohere';
   apiKey: string;
@@ -51,6 +63,9 @@ export interface AxAICohereArgs<TModelKey> {
   models?: AxAIInputModelList<AxAICohereModel, AxAICohereEmbedModel, TModelKey>;
 }
 
+/**
+ * Implementation class for Cohere AI service that handles API requests and responses
+ */
 class AxAICohereImpl
   implements
     AxAIServiceImpl<
@@ -65,12 +80,24 @@ class AxAICohereImpl
 {
   private tokensUsed: AxTokenUsage | undefined;
 
+  /**
+   * Creates a new instance of AxAICohereImpl
+   * @param config - The configuration object for the Cohere AI service
+   */
   constructor(private config: AxAICohereConfig) {}
 
+  /**
+   * Returns the token usage information from the last API call
+   * @returns Token usage data or undefined if no tokens have been used
+   */
   getTokenUsage(): AxTokenUsage | undefined {
     return this.tokensUsed;
   }
 
+  /**
+   * Extracts and returns the model configuration parameters
+   * @returns Model configuration object with parameters like maxTokens, temperature, etc.
+   */
   getModelConfig(): AxModelConfig {
     const { config } = this;
     return {
@@ -87,6 +114,11 @@ class AxAICohereImpl
     } as AxModelConfig;
   }
 
+  /**
+   * Creates a chat request in Cohere API format from internal request format
+   * @param req - The internal chat request object
+   * @returns A tuple containing API configuration and the formatted Cohere chat request
+   */
   createChatReq(
     req: Readonly<AxInternalChatRequest<AxAICohereModel>>
   ): [AxAPI, AxAICohereChatRequest] {
@@ -177,6 +209,11 @@ class AxAICohereImpl
     return [apiConfig, reqValue];
   }
 
+  /**
+   * Creates an embedding request in Cohere API format from internal request format
+   * @param req - The internal embed request object
+   * @returns A tuple containing API configuration and the formatted Cohere embed request
+   */
   createEmbedReq = (
     req: Readonly<AxInternalEmbedRequest<AxAICohereEmbedModel>>
   ): [AxAPI, AxAICohereEmbedRequest] => {
@@ -204,6 +241,11 @@ class AxAICohereImpl
     return [apiConfig, reqValue];
   };
 
+  /**
+   * Converts Cohere chat response to internal chat response format
+   * @param resp - The Cohere chat response object
+   * @returns Formatted internal chat response
+   */
   createChatResp = (resp: Readonly<AxAICohereChatResponse>): AxChatResponse => {
     this.tokensUsed = resp.meta.billed_units
       ? {
@@ -261,6 +303,12 @@ class AxAICohereImpl
     return { results, remoteId: resp.response_id };
   };
 
+  /**
+   * Converts Cohere streaming chat response to internal chat response format
+   * @param resp - The Cohere streaming chat response delta
+   * @param state - State object to maintain across streaming chunks
+   * @returns Formatted internal chat response for streaming
+   */
   createChatStreamResp = (
     resp: Readonly<AxAICohereChatResponseDelta>,
     state: object
@@ -289,6 +337,11 @@ class AxAICohereImpl
     return { results };
   };
 
+  /**
+   * Converts Cohere embedding response to internal embedding response format
+   * @param resp - The Cohere embedding response object
+   * @returns Formatted internal embedding response
+   */
   createEmbedResp(resp: Readonly<AxAICohereEmbedResponse>): AxEmbedResponse {
     return {
       remoteId: resp.id,
@@ -297,6 +350,10 @@ class AxAICohereImpl
   }
 }
 
+/**
+ * Main Cohere AI service class that extends the base AI implementation
+ * @template TModelKey - The type of model keys supported
+ */
 export class AxAICohere<TModelKey> extends AxBaseAI<
   AxAICohereModel,
   AxAICohereEmbedModel,
@@ -307,6 +364,10 @@ export class AxAICohere<TModelKey> extends AxBaseAI<
   AxAICohereEmbedResponse,
   TModelKey
 > {
+  /**
+   * Creates a new instance of AxAICohere
+   * @param args - Configuration arguments including API key, config, options, and models
+   */
   constructor({
     apiKey,
     config,
@@ -398,6 +459,12 @@ export class AxAICohere<TModelKey> extends AxBaseAI<
     });
   }
 }
+
+/**
+ * Converts internal chat prompt format to Cohere chat history format
+ * @param chatPrompt - Array of chat messages in internal format
+ * @returns Formatted chat history for Cohere API
+ */
 function createHistory(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>
 ): AxAICohereChatRequest['chat_history'] {
@@ -461,6 +528,12 @@ function createHistory(
     }
   });
 }
+
+/**
+ * Converts function calls from internal format to Cohere tool call format
+ * @param functionCalls - Array of function calls from assistant messages
+ * @returns Formatted tool calls for Cohere API or undefined if no function calls
+ */
 function createToolCall(
   functionCalls: Readonly<
     Extract<

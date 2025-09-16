@@ -1,5 +1,13 @@
 import type { AutocompleteItem, EditorPosition } from '../types/editor';
 
+/**
+ * Gets autocomplete items based on the current content and cursor position.
+ * Analyzes the context around the cursor to determine what type of completions to offer.
+ * 
+ * @param content - The full content of the editor
+ * @param cursorPosition - The current position of the cursor in the content
+ * @returns Array of autocomplete items relevant to the current context
+ */
 export function getAutocompleteItems(
   content: string,
   cursorPosition: number
@@ -27,6 +35,13 @@ export function getAutocompleteItems(
   }
 }
 
+/**
+ * Analyzes the text before the cursor to determine the current editing context.
+ * This helps determine what type of autocomplete suggestions should be shown.
+ * 
+ * @param beforeCursor - The text content before the current cursor position
+ * @returns Object containing the context type and optional partial text being typed
+ */
 function analyzeContext(beforeCursor: string): {
   type: string;
   partial?: string;
@@ -85,6 +100,12 @@ function analyzeContext(beforeCursor: string): {
   return { type: 'general' };
 }
 
+/**
+ * Returns autocomplete items for field type completions.
+ * Includes all available field types like string, number, boolean, etc.
+ * 
+ * @returns Array of autocomplete items for field types
+ */
 function getFieldTypeCompletions(): AutocompleteItem[] {
   return [
     {
@@ -162,6 +183,12 @@ function getFieldTypeCompletions(): AutocompleteItem[] {
   ];
 }
 
+/**
+ * Returns autocomplete items for field modifiers.
+ * Includes optional (?), internal (!), and array ([]) modifiers.
+ * 
+ * @returns Array of autocomplete items for field modifiers
+ */
 function getModifierCompletions(): AutocompleteItem[] {
   return [
     {
@@ -188,6 +215,12 @@ function getModifierCompletions(): AutocompleteItem[] {
   ];
 }
 
+/**
+ * Returns autocomplete items for arrow separators.
+ * Provides the arrow (->) that separates input fields from output fields.
+ * 
+ * @returns Array containing the arrow separator autocomplete item
+ */
 function getArrowCompletions(): AutocompleteItem[] {
   return [
     {
@@ -200,6 +233,12 @@ function getArrowCompletions(): AutocompleteItem[] {
   ];
 }
 
+/**
+ * Returns autocomplete items for common template patterns.
+ * Provides pre-built templates for common use cases like sentiment analysis, code generation, etc.
+ * 
+ * @returns Array of autocomplete items for template patterns
+ */
 function getTemplateCompletions(): AutocompleteItem[] {
   return [
     {
@@ -253,6 +292,12 @@ function getTemplateCompletions(): AutocompleteItem[] {
   ];
 }
 
+/**
+ * Returns autocomplete items for common class option patterns.
+ * Provides pre-defined sets of classification options for common use cases.
+ * 
+ * @returns Array of autocomplete items for class option templates
+ */
 function getClassOptionCompletions(): AutocompleteItem[] {
   return [
     {
@@ -286,6 +331,12 @@ function getClassOptionCompletions(): AutocompleteItem[] {
   ];
 }
 
+/**
+ * Returns autocomplete items for programming language options in code fields.
+ * Provides common programming languages that can be used with code field types.
+ * 
+ * @returns Array of autocomplete items for code language options
+ */
 function getCodeLanguageCompletions(): AutocompleteItem[] {
   return [
     {
@@ -324,6 +375,12 @@ function getCodeLanguageCompletions(): AutocompleteItem[] {
   ];
 }
 
+/**
+ * Returns general autocomplete items that combine multiple completion types.
+ * Used as a fallback when the context doesn't match specific completion types.
+ * 
+ * @returns Array of general autocomplete items including field types, modifiers, and arrows
+ */
 function getGeneralCompletions(): AutocompleteItem[] {
   return [
     ...getFieldTypeCompletions(),
@@ -332,6 +389,14 @@ function getGeneralCompletions(): AutocompleteItem[] {
   ];
 }
 
+/**
+ * Calculates the position for displaying autocomplete suggestions.
+ * Currently returns a simple position based on cursor position.
+ * 
+ * @param _element - The HTML element (currently unused)
+ * @param cursorPosition - The current cursor position in the editor
+ * @returns Editor position object with line, column, and offset information
+ */
 export function calculateAutocompletePosition(
   _element: HTMLElement,
   cursorPosition: number
