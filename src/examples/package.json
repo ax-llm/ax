@@ -24,7 +24,7 @@
     "@ax-llm/ax": "14.0.26",
     "@ax-llm/ax-tools": "14.0.26",
     "@opentelemetry/auto-instrumentations-node": "^0.60.1",
-    "@opentelemetry/exporter-metrics-otlp-http": "^0.203.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.205.0",
     "@opentelemetry/exporter-prometheus": "^0.202.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
     "@opentelemetry/resources": "^2.0.1",
