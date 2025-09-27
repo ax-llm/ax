@@ -73,4 +73,25 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
   },
+  {
+    name: AxAIGoogleGeminiModel.GeminiFlashLatest,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.075,
+    completionTokenCostPer1M: 0.3,
+  },
+  {
+    name: AxAIGoogleGeminiModel.GeminiFlashLiteLatest,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.0,
+    completionTokenCostPer1M: 0.0,
+  },
+  {
+    name: AxAIGoogleGeminiModel.GeminiProLatest,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 1.25,
+    completionTokenCostPer1M: 5.0,
+  },
 ];

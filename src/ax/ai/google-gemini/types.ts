@@ -11,6 +11,9 @@ export enum AxAIGoogleGeminiModel {
   Gemini15Flash002 = 'gemini-1.5-flash-002',
   Gemini15Flash8B = 'gemini-1.5-flash-8b',
   Gemini15Pro = 'gemini-1.5-pro',
+  GeminiFlashLatest = 'gemini-flash-latest',
+  GeminiFlashLiteLatest = 'gemini-flash-lite-latest',
+  GeminiProLatest = 'gemini-pro-latest',
 }
 
 export enum AxAIGoogleGeminiEmbedModel {

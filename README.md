@@ -198,6 +198,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
   optimization
 - [mipro-python-optimizer.ts](src/examples/mipro-python-optimizer.ts) - Advanced
   MIPRO optimization
+- [gepa-quality-vs-speed-optimization.ts](src/examples/gepa-quality-vs-speed-optimization.ts) - Multi-objective GEPA optimization (quality vs speed trade-offs)
 - [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex
   workflows
 

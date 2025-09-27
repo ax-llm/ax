@@ -798,6 +798,8 @@ dominated by both A and B.
 
 **GEPA now returns the same unified `optimizedProgram` interface as MiPRO**, making save/load/apply workflows consistent across optimizers.
 
+> **📖 Full Example**: For a comprehensive multi-objective optimization demonstration, see `src/examples/gepa-quality-vs-speed-optimization.ts` which shows GEPA optimizing code review quality vs speed trade-offs with detailed Pareto frontier analysis.
+
 ```typescript
 import { ai, ax, AxGEPA, AxOptimizedProgramImpl } from "@ax-llm/ax";
 
