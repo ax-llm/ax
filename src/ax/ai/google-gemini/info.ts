@@ -79,6 +79,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 0.075,
     completionTokenCostPer1M: 0.3,
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIGoogleGeminiModel.GeminiFlashLiteLatest,
@@ -86,6 +87,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 0.0,
     completionTokenCostPer1M: 0.0,
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIGoogleGeminiModel.GeminiProLatest,
@@ -93,5 +95,6 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 1.25,
     completionTokenCostPer1M: 5.0,
+    supported: { thinkingBudget: true, showThoughts: true },
   },
 ];
