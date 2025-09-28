@@ -1,5 +1,21 @@
 # Changelog
 
+## [14.0.28](https://github.com/ax-llm/ax/compare/14.0.26...14.0.27) (2025-09-28)
+
+### Features
+
+* add support flags for Google Gemini models ([5e785f0](https://github.com/ax-llm/ax/commit/5e785f0691c3d9e85adb63ef5e974acca6201d3a))
+## [14.0.27](https://github.com/ax-llm/ax/compare/14.0.26...14.0.27) (2025-09-28)
+
+### Features
+
+* add GEPA multi-objective optimization example and enhance documentation ([f64189c](https://github.com/ax-llm/ax/commit/f64189c45844ae7149f0d35a4aa7f7b792ba0a5d))
+* integrate Vercel AI SDK v5 support and update dependencies ([3acb408](https://github.com/ax-llm/ax/commit/3acb4085e14b8845f075c84bdd55c5e9277b6b71))
+
+### Bug Fixes
+
+* clean up code formatting and improve consistency in examples ([f4af653](https://github.com/ax-llm/ax/commit/f4af653a737b7c0532c0e7d06066c6c5bfcb045e))
+
 ## [14.0.27](https://github.com/ax-llm/ax/compare/14.0.25...14.0.26) (2025-09-28)
 
 ### Features
