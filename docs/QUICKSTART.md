@@ -247,6 +247,52 @@ Now that you have the basics:
 - 📖 [Read the docs](https://github.com/ax-llm/ax)
 - 🐦 [Follow on Twitter](https://twitter.com/dosco)
 
+## 🔗 Integration with Vercel AI SDK v5
+
+Ax provides seamless integration with the Vercel AI SDK through `@ax-llm/ax-ai-sdk-provider`:
+
+### Installation
+
+```bash
+npm install @ax-llm/ax-ai-sdk-provider
+```
+
+### Basic Usage
+
+```typescript
+import { ai } from "@ax-llm/ax";
+import { AxAIProvider } from "@ax-llm/ax-ai-sdk-provider";
+import { streamUI } from "ai/rsc";
+
+// Create Ax AI instance
+const axAI = ai({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!
+});
+
+// Create AI SDK v5 compatible provider
+const model = new AxAIProvider(axAI);
+
+// Use with AI SDK functions
+const result = await streamUI({
+  model,
+  messages: [
+    { role: "user", content: "Hello!" }
+  ],
+  text: ({ content }) => content,
+});
+```
+
+### Features
+
+- ✅ **AI SDK v5 Compatible**: Implements `LanguageModelV2` specification
+- ✅ **Full Tool Support**: Function calling with proper serialization
+- ✅ **Streaming**: Enhanced streaming with lifecycle events
+- ✅ **Multi-modal**: Text, images, and file inputs
+- ✅ **Type Safety**: Full TypeScript support
+
+> **Note**: This allows you to use Ax's powerful AI provider ecosystem with any AI SDK v5 application, giving you access to 15+ LLM providers through a single interface.
+
 ---
 
 Remember: **You're not writing prompts, you're declaring capabilities.** Let the framework handle the complexity while you focus on building.

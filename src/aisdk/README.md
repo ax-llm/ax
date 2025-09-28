@@ -6,8 +6,21 @@ Install the ax provider package
 npm i @ax-llm/ax-ai-sdk-provider
 ```
 
-Then use it with the AI SDK, you can either use the AI provider or the Agent
-Provider
+### AI SDK v5 Compatibility
+
+This provider is fully compatible with **AI SDK v5** and implements the `LanguageModelV2` specification. It supports:
+
+- ✅ **Text Generation**: Standard text completion and chat functionality
+- ✅ **Tool Calling**: Function calls with proper serialization/deserialization
+- ✅ **Streaming**: Enhanced streaming with proper lifecycle events (`stream-start`, `text-start`, `text-delta`, `text-end`, `finish`)
+- ✅ **Multi-modal**: Support for text and file inputs (images, documents)
+- ✅ **Token Usage**: Accurate tracking with `inputTokens`, `outputTokens`, and `totalTokens`
+
+> **Note**: If you're upgrading from AI SDK v4, this provider handles all the necessary conversions between v1 and v2 specification formats automatically.
+
+## Usage
+
+You can use it with the AI SDK, either with the AI provider or the Agent Provider
 
 ```typescript
 const ai = new AxAI({

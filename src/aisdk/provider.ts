@@ -6,13 +6,17 @@ import {
   type TransformStreamDefaultController,
 } from 'node:stream/web';
 import type {
-  LanguageModelV1,
-  LanguageModelV1CallWarning,
-  LanguageModelV1FinishReason,
-  LanguageModelV1FunctionTool,
-  LanguageModelV1FunctionToolCall,
-  LanguageModelV1Prompt,
-  LanguageModelV1StreamPart,
+  LanguageModelV2,
+  LanguageModelV2CallOptions,
+  LanguageModelV2FinishReason,
+  LanguageModelV2FunctionTool,
+  LanguageModelV2ToolCall,
+  LanguageModelV2Prompt,
+  LanguageModelV2StreamPart,
+  LanguageModelV2Usage,
+  LanguageModelV2Content,
+  LanguageModelV2ToolChoice,
+  LanguageModelV2CallWarning,
 } from '@ai-sdk/provider';
 import type {
   AxAIService,
@@ -99,7 +103,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
               type: 'tool-call',
               toolName: this.funcInfo.name,
               toolCallId,
-              args: input,
+              input: input,
             },
           ],
         },
@@ -110,7 +114,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
               type: 'tool-result',
               toolName: this.funcInfo.name,
               toolCallId,
-              result: res,
+              output: { type: 'text' as const, value: JSON.stringify(res) },
             },
           ],
         },
@@ -122,9 +126,9 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
   }
 }
 
-export class AxAIProvider implements LanguageModelV1 {
-  readonly specificationVersion = 'v1';
-  readonly defaultObjectGenerationMode = 'json';
+export class AxAIProvider implements LanguageModelV2 {
+  readonly specificationVersion = 'v2' as const;
+  readonly supportedUrls: Record<string, RegExp[]> = {};
 
   private readonly ai: AxAIService;
   private readonly config?: AxConfig;
@@ -142,9 +146,9 @@ export class AxAIProvider implements LanguageModelV1 {
   }
 
   async doGenerate(
-    options: Readonly<Parameters<LanguageModelV1['doGenerate']>[0]>
-  ): Promise<Awaited<ReturnType<LanguageModelV1['doGenerate']>>> {
-    const { req, warnings } = createChatRequest(options);
+    options: LanguageModelV2CallOptions
+  ): Promise<Awaited<ReturnType<LanguageModelV2['doGenerate']>>> {
+    const req = createChatRequest(options);
     const res = (await this.ai.chat(req)) as AxChatResponse;
     const choice = res.results.at(0);
 
@@ -152,31 +156,44 @@ export class AxAIProvider implements LanguageModelV1 {
       throw new Error('No choice returned');
     }
 
+    const content: LanguageModelV2Content[] = [];
+
+    if (choice.content) {
+      content.push({ type: 'text', text: choice.content });
+    }
+
+    if (choice.functionCalls) {
+      for (const tc of choice.functionCalls) {
+        content.push({
+          type: 'tool-call',
+          toolCallId: tc.id,
+          toolName: tc.function.name,
+          input:
+            typeof tc.function.params === 'string'
+              ? tc.function.params
+              : JSON.stringify(tc.function.params),
+        });
+      }
+    }
+
     return {
-      text: choice.content ?? undefined,
-      toolCalls: choice.functionCalls?.map((tc) => ({
-        toolCallType: 'function',
-        toolCallId: tc.id,
-        toolName: tc.function.name,
-        args:
-          typeof tc.function.params === 'string'
-            ? tc.function.params
-            : JSON.stringify(tc.function.params),
-      })),
+      content,
       finishReason: mapAxFinishReason(choice.finishReason),
       usage: {
-        promptTokens: res.modelUsage?.tokens?.promptTokens ?? 0,
-        completionTokens: res.modelUsage?.tokens?.completionTokens ?? 0,
+        inputTokens: res.modelUsage?.tokens?.promptTokens ?? 0,
+        outputTokens: res.modelUsage?.tokens?.completionTokens ?? 0,
+        totalTokens:
+          (res.modelUsage?.tokens?.promptTokens ?? 0) +
+          (res.modelUsage?.tokens?.completionTokens ?? 0),
       },
-      rawCall: { rawPrompt: '', rawSettings: req.modelConfig ?? {} },
-      warnings,
+      warnings: [] as LanguageModelV2CallWarning[],
     };
   }
 
   async doStream(
-    options: Readonly<Parameters<LanguageModelV1['doStream']>[0]>
-  ): Promise<Awaited<ReturnType<LanguageModelV1['doStream']>>> {
-    const { req, warnings } = createChatRequest(options);
+    options: LanguageModelV2CallOptions
+  ): Promise<Awaited<ReturnType<LanguageModelV2['doStream']>>> {
+    const req = createChatRequest(options);
 
     const res = (await this.ai.chat(req, {
       stream: true,
@@ -184,30 +201,24 @@ export class AxAIProvider implements LanguageModelV1 {
 
     return {
       stream: res.pipeThrough(new AxToSDKTransformer()) as any,
-      rawCall: { rawPrompt: '', rawSettings: req.modelConfig ?? {} },
-      warnings,
     };
   }
 }
 
 function prepareToolsAndToolChoice(
-  mode: Readonly<
-    Parameters<LanguageModelV1['doGenerate']>[0]['mode'] & { type: 'regular' }
-  >
+  tools: Array<LanguageModelV2FunctionTool>,
+  toolChoice?: LanguageModelV2ToolChoice
 ): Pick<AxChatRequest, 'functions' | 'functionCall'> {
   // when the tools array is empty, change it to undefined to prevent errors:
-  if (!mode.tools || mode.tools.length === 0) {
+  if (!tools || tools.length === 0) {
     return {};
   }
-
-  const tools = mode.tools as Array<LanguageModelV1FunctionTool>;
   const functions = tools.map((f) => ({
     name: f.name,
-    description: 'description' in f ? (f.description ?? '') : '',
-    parameters: f.parameters as AxFunctionJSONSchema,
+    description: f.description ?? '',
+    parameters: f.inputSchema as AxFunctionJSONSchema,
   }));
 
-  const toolChoice = mode.toolChoice;
   if (!toolChoice) {
     return { functions };
   }
@@ -237,7 +248,7 @@ function prepareToolsAndToolChoice(
 }
 
 function convertToAxChatPrompt(
-  prompt: Readonly<LanguageModelV1Prompt>
+  prompt: Readonly<LanguageModelV2Prompt>
 ): AxChatRequest['chatPrompt'] {
   const messages: AxChatRequest['chatPrompt'] = [];
 
@@ -256,18 +267,22 @@ function convertToAxChatPrompt(
               case 'text': {
                 return { type: 'text', text: part.text };
               }
-              case 'image': {
-                if (!part.mimeType) {
-                  throw new Error('Image part must have a mimeType');
+              case 'file': {
+                if (!part.mediaType) {
+                  throw new Error('File part must have a mediaType');
                 }
-                if (!ArrayBuffer.isView(part.image)) {
-                  throw new Error('Image part must have an ArrayBuffer');
+                let dataContent: string;
+                if (typeof part.data === 'string') {
+                  dataContent = part.data;
+                } else if (part.data instanceof URL) {
+                  dataContent = part.data.toString();
+                } else {
+                  dataContent = Buffer.from(part.data).toString('base64');
                 }
-                const image = Buffer.from(part.image).toString('base64');
                 return {
                   type: 'image',
-                  mimeType: part.mimeType,
-                  image,
+                  mimeType: part.mediaType,
+                  image: dataContent,
                 };
               }
               default:
@@ -311,7 +326,10 @@ function convertToAxChatPrompt(
                 type: 'function',
                 function: {
                   name: part.toolName,
-                  params: part.args as Record<string, unknown>,
+                  params:
+                    typeof part.input === 'string'
+                      ? JSON.parse(part.input)
+                      : part.input,
                 },
               });
               break;
@@ -341,7 +359,10 @@ function convertToAxChatPrompt(
           messages.push({
             role: 'function' as const,
             functionId: part.toolCallId,
-            result: JSON.stringify(part.result, null, 2),
+            result:
+              typeof part.output === 'object' && part.output?.type === 'text'
+                ? part.output.value
+                : JSON.stringify(part.output, null, 2),
           });
         }
         break;
@@ -358,7 +379,7 @@ function convertToAxChatPrompt(
 
 function mapAxFinishReason(
   finishReason: AxChatResponseResult['finishReason']
-): LanguageModelV1FinishReason {
+): LanguageModelV2FinishReason {
   switch (finishReason) {
     case 'stop':
       return 'stop';
@@ -372,91 +393,76 @@ function mapAxFinishReason(
 }
 
 function createChatRequest({
-  mode,
+  tools,
+  toolChoice,
   prompt,
-  maxTokens,
+  maxOutputTokens,
   temperature,
   topP,
   frequencyPenalty,
   presencePenalty,
   //seed,
-}: Readonly<Parameters<LanguageModelV1['doGenerate']>[0]>): {
-  req: AxChatRequest;
-  warnings: LanguageModelV1CallWarning[];
-} {
+}: Readonly<LanguageModelV2CallOptions>): AxChatRequest {
   const req: AxChatRequest = {
     chatPrompt: convertToAxChatPrompt(prompt),
     ...(frequencyPenalty != null ? { frequencyPenalty } : {}),
     ...(presencePenalty != null ? { presencePenalty } : {}),
-    ...(maxTokens != null ? { maxTokens } : {}),
+    ...(maxOutputTokens != null ? { maxTokens: maxOutputTokens } : {}),
     ...(temperature != null ? { temperature } : {}),
     ...(topP != null ? { topP } : {}),
   };
 
-  const warnings: LanguageModelV1CallWarning[] = [];
-
-  switch (mode.type) {
-    case 'regular': {
-      return {
-        req: { ...req, ...prepareToolsAndToolChoice(mode) },
-        warnings,
-      };
-    }
-
-    case 'object-json': {
-      return {
-        req,
-        warnings,
-      };
-    }
-
-    case 'object-tool': {
-      const tool = {
-        type: 'function',
-        function: {
-          name: mode.tool.name,
-          params: mode.tool.parameters,
-        },
-      };
-      return {
-        req: { ...req, ...tool },
-        warnings,
-      };
-    }
-
-    default: {
-      throw new Error('Unsupported type');
-    }
+  if (tools && tools.length > 0) {
+    const functionTools = tools.filter(
+      (tool): tool is LanguageModelV2FunctionTool => tool.type === 'function'
+    );
+    return { ...req, ...prepareToolsAndToolChoice(functionTools, toolChoice) };
   }
+
+  return req;
 }
 
 class AxToSDKTransformer extends TransformStream<
   AxChatResponse,
-  LanguageModelV1StreamPart
+  LanguageModelV2StreamPart
 > {
-  private usage: Extract<
-    LanguageModelV1StreamPart,
-    { type: 'finish' }
-  >['usage'] = {
-    promptTokens: 0,
-    completionTokens: 0,
+  private usage: LanguageModelV2Usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
   };
 
-  private finishReason: Extract<
-    LanguageModelV1StreamPart,
-    { type: 'finish' }
-  >['finishReason'] = 'other';
+  private finishReason: LanguageModelV2FinishReason = 'other';
 
-  private functionCalls: LanguageModelV1FunctionToolCall[] = [];
+  private functionCalls: LanguageModelV2ToolCall[] = [];
+  private hasStarted = false;
+  private textStarted = false;
 
   constructor() {
     const transformer = {
       transform: (
         chunk: Readonly<AxChatResponse>,
-        controller: TransformStreamDefaultController<LanguageModelV1StreamPart>
+        controller: TransformStreamDefaultController<LanguageModelV2StreamPart>
       ) => {
+        // Emit stream-start event only once
+        if (!this.hasStarted) {
+          controller.enqueue({
+            type: 'stream-start',
+            warnings: [] as LanguageModelV2CallWarning[],
+          });
+          this.hasStarted = true;
+        }
+
         const choice = chunk.results.at(0);
         if (!choice) {
+          // End text if it was started
+          if (this.textStarted) {
+            controller.enqueue({
+              type: 'text-end',
+              id: 'text-content',
+            });
+          }
+
           const val = {
             type: 'finish' as const,
             finishReason: this.finishReason,
@@ -468,11 +474,15 @@ class AxToSDKTransformer extends TransformStream<
 
         if (chunk.modelUsage) {
           this.usage = {
-            promptTokens:
-              this.usage.promptTokens +
+            inputTokens:
+              (this.usage.inputTokens ?? 0) +
               (chunk.modelUsage?.tokens?.promptTokens ?? 0),
-            completionTokens:
-              this.usage.completionTokens +
+            outputTokens:
+              (this.usage.outputTokens ?? 0) +
+              (chunk.modelUsage.tokens?.completionTokens ?? 0),
+            totalTokens:
+              (this.usage.totalTokens ?? 0) +
+              (chunk.modelUsage?.tokens?.promptTokens ?? 0) +
               (chunk.modelUsage.tokens?.completionTokens ?? 0),
           };
         }
@@ -484,10 +494,10 @@ class AxToSDKTransformer extends TransformStream<
             );
             if (index === -1) {
               this.functionCalls.push({
-                toolCallType: 'function' as const,
+                type: 'tool-call' as const,
                 toolCallId: fc.id,
                 toolName: fc.function.name,
-                args:
+                input:
                   typeof fc.function.params === 'string'
                     ? fc.function.params
                     : JSON.stringify(fc.function.params),
@@ -498,9 +508,9 @@ class AxToSDKTransformer extends TransformStream<
                 continue;
               }
               if (typeof fc.function.params === 'string') {
-                obj.args = (obj.args ?? '') + fc.function.params;
+                obj.input = ((obj.input as string) || '') + fc.function.params;
               } else {
-                obj.args = JSON.stringify(fc.function.params);
+                obj.input = JSON.stringify(fc.function.params);
               }
             }
             this.finishReason = 'tool-calls';
@@ -508,22 +518,36 @@ class AxToSDKTransformer extends TransformStream<
         }
 
         if (choice.content && choice.content.length > 0) {
+          // Start text stream if not started
+          if (!this.textStarted) {
+            controller.enqueue({
+              type: 'text-start',
+              id: 'text-content',
+            });
+            this.textStarted = true;
+          }
+
           controller.enqueue({
             type: 'text-delta',
-            textDelta: choice.content ?? '',
+            id: 'text-content',
+            delta: choice.content ?? '',
           });
           this.finishReason = mapAxFinishReason(choice.finishReason);
         }
       },
       flush: (
-        controller: TransformStreamDefaultController<LanguageModelV1StreamPart>
+        controller: TransformStreamDefaultController<LanguageModelV2StreamPart>
       ) => {
+        // End text stream if it was started
+        if (this.textStarted) {
+          controller.enqueue({
+            type: 'text-end',
+            id: 'text-content',
+          });
+        }
+
         for (const fc of this.functionCalls) {
-          const tc = {
-            type: 'tool-call' as const,
-            ...fc,
-          };
-          controller.enqueue(tc);
+          controller.enqueue(fc);
         }
 
         const val = {
