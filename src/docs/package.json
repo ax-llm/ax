@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
-    "@astrojs/react": "^4.3.0",
+    "@astrojs/react": "^4.4.0",
     "@astrojs/tailwind": "^6.0.2",
     "@ax-llm/ax": "file:../ax",
     "@mlc-ai/web-llm": "^0.2.79",
