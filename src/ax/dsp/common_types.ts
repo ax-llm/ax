@@ -176,6 +176,11 @@ export interface AxCompileOptions {
   saveCheckpointOnComplete?: boolean;
   // GEPA core options (adapter-based)
   gepaAdapter?: AxGEPAAdapter<any, any, any>;
+  validationExamples?: readonly AxTypedExample<any>[];
+  feedbackExamples?: readonly AxTypedExample<any>[];
+  feedbackFn?: (
+    args: Readonly<{ prediction: unknown; example: AxExample }>
+  ) => string | string[] | undefined;
   skipPerfectScore?: boolean;
   perfectScore?: number;
   maxMetricCalls?: number;

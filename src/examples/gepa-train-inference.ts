@@ -103,7 +103,7 @@ async function main() {
       maxMetricCalls: 200, // required to bound evaluation cost
       // Optionally guide scalarization with a specific metric key
       // paretoMetricKey: 'accuracy',
-    } as any
+    }
   );
 
   console.log(`\n✅ Pareto optimization complete`);
