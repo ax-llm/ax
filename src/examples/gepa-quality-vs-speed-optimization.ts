@@ -324,7 +324,7 @@ async function demonstrateGEPAOptimization() {
       auto: 'medium',
       verbose: true,
       maxMetricCalls: 150,
-    } as any
+    }
   );
 
   console.log('\n✅ GEPA optimization completed!');

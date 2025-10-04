@@ -88,7 +88,7 @@ async function main() {
       verbose: true,
       validationExamples: val,
       maxMetricCalls: 200,
-    } as any
+    }
   );
 
   console.log('\n✅ Pareto optimization complete');

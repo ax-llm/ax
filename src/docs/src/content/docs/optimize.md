@@ -846,13 +846,21 @@ const result = await optimizer.compile(
   multiMetric as any,
   {
     validationExamples: val,
+    feedbackExamples: val,
+    feedbackFn: ({ prediction, example }) =>
+      prediction?.isSafe === example?.isSafe
+        ? '✅ Matched label'
+        : [
+            `Expected: ${example?.isSafe ?? 'unknown'}`,
+            `Received: ${prediction?.isSafe ?? 'unknown'}`,
+          ],
     // Required to bound evaluation cost
     maxMetricCalls: 200,
     // Optional: provide a tie-break scalarizer for selection logic
     // paretoMetricKey: 'accuracy',
     // or
     // paretoScalarize: (s) => 0.7*s.accuracy + 0.3*s.brevity,
-  } as any
+  }
 );
 
 console.log(`✅ Found ${result.paretoFrontSize} Pareto points`);
@@ -909,6 +917,10 @@ if (result.optimizedProgram) {
 }
 ```
 
+> 💡 **Feedback hook**: `feedbackFn` lets you surface rich guidance for each evaluation, whether it's a short string or multiple
+> bullet points. The hook receives the raw `prediction` and original `example`, making it easy to emit reviewer-style comments
+> alongside scores. Pair it with `feedbackExamples` to keep cost-efficient review sets separate from validation metrics.
+
 #### GEPA-Flow (Multi-Module)
 
 ```typescript
@@ -922,7 +934,7 @@ const pipeline = flow<{ emailText: string }>()
   .m((s) => ({ priority: s.classifierResult.priority, rationale: s.rationaleResult.rationale }));
 
 const optimizer = new AxGEPAFlow({ studentAI: ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: 'gpt-4o-mini' } }), numTrials: 16 });
-const result = await optimizer.compile(pipeline as any, train, multiMetric as any, { validationExamples: val, maxMetricCalls: 240 } as any);
+const result = await optimizer.compile(pipeline as any, train, multiMetric as any, { validationExamples: val, maxMetricCalls: 240 });
 console.log(`Front size: ${result.paretoFrontSize}, Hypervolume: ${result.hypervolume}`);
 ```
 
@@ -981,7 +993,7 @@ const multiMetric = ({ prediction, example }) => ({
 #### Understanding the Results
 
 ```typescript
-const result = await optimizer.compile(program, examples, multiMetric, { maxMetricCalls: 200 } as any);
+const result = await optimizer.compile(program, examples, multiMetric, { maxMetricCalls: 200 });
 
 // Key properties of AxParetoResult:
 console.log(`Pareto frontier size: ${result.paretoFrontSize}`);

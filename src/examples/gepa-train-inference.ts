@@ -92,19 +92,14 @@ async function main() {
   });
 
   console.log('🔧 Running GEPA Pareto optimization (accuracy + brevity)...');
-  const result = await optimizer.compile(
-    program as any,
-    train,
-    metric as any,
-    {
-      auto: 'medium',
-      verbose: true,
-      validationExamples: val,
-      maxMetricCalls: 200, // required to bound evaluation cost
-      // Optionally guide scalarization with a specific metric key
-      // paretoMetricKey: 'accuracy',
-    } as any
-  );
+  const result = await optimizer.compile(program as any, train, metric as any, {
+    auto: 'medium',
+    verbose: true,
+    validationExamples: val,
+    maxMetricCalls: 200, // required to bound evaluation cost
+    // Optionally guide scalarization with a specific metric key
+    // paretoMetricKey: 'accuracy',
+  });
 
   console.log(`\n✅ Pareto optimization complete`);
   console.log(`Front size: ${result.paretoFrontSize}`);
