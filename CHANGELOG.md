@@ -1,5 +1,16 @@
 # Changelog
 
+## [14.0.29](https://github.com/ax-llm/ax/compare/14.0.27...14.0.28) (2025-10-04)
+
+### Bug Fixes
+
+* add GEPA feedback type hooks to AxCompileOptions ([#376](https://github.com/ax-llm/ax/issues/376)) ([4700c7e](https://github.com/ax-llm/ax/commit/4700c7e8e92ea3c52d9dd34020d466501dbef6bc))
+## [14.0.28](https://github.com/ax-llm/ax/compare/14.0.27...14.0.28) (2025-09-28)
+
+### Features
+
+* add support flags for Google Gemini models ([5e785f0](https://github.com/ax-llm/ax/commit/5e785f0691c3d9e85adb63ef5e974acca6201d3a))
+
 ## [14.0.28](https://github.com/ax-llm/ax/compare/14.0.26...14.0.27) (2025-09-28)
 
 ### Features
