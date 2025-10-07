@@ -215,8 +215,6 @@ class AxAIAnthropicImpl
 
     const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
 
-    const messages = createMessages(otherMessages);
-
     // Compose tools from request function definitions and static config tools
     const functionToolsFromReq: AxAIAnthropicChatRequest['tools'] | undefined =
       req.functions?.map((v) => ({
@@ -327,6 +325,8 @@ class AxAIAnthropicImpl
       const _levels = this.config.thinkingTokenBudgetLevels;
       // No-op: rely on defaults
     }
+
+    const messages = createMessages(otherMessages, !!thinkingConfig);
 
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
@@ -880,7 +880,8 @@ type AnthropicMsgRoleUserToolResult = Extract<
 >;
 
 function createMessages(
-  chatPrompt: Readonly<AxChatRequest['chatPrompt']>
+  chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
+  thinkingEnabled?: boolean
 ): AxAIAnthropicChatRequest['messages'] {
   const items: AxAIAnthropicChatRequest['messages'] = chatPrompt.map((msg) => {
     switch (msg.role) {
@@ -959,6 +960,21 @@ function createMessages(
               ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
             };
           });
+          if (
+            thinkingEnabled &&
+            Array.isArray(content) &&
+            content.length > 0 &&
+            (content[0] as any)?.type !== 'thinking' &&
+            (content[0] as any)?.type !== 'redacted_thinking'
+          ) {
+            content = [
+              { type: 'redacted_thinking' as const, thinking: '' },
+              ...(content as Extract<
+                AxAIAnthropicChatRequest['messages'][0],
+                { role: 'assistant' }
+              >['content'] as any[]),
+            ];
+          }
         }
         return {
           role: 'assistant' as const,
