@@ -1,5 +1,16 @@
 # Changelog
 
+## [14.0.30](https://github.com/ax-llm/ax/compare/14.0.28...14.0.29) (2025-10-07)
+
+### Features
+
+* enhance README with new examples and Fluent Signature API ([5cd30db](https://github.com/ax-llm/ax/commit/5cd30db98271646f3119d2fd96a734063928cc80))
+## [14.0.29](https://github.com/ax-llm/ax/compare/14.0.28...14.0.29) (2025-10-04)
+
+### Bug Fixes
+
+* add GEPA feedback type hooks to AxCompileOptions ([#376](https://github.com/ax-llm/ax/issues/376)) ([4700c7e](https://github.com/ax-llm/ax/commit/4700c7e8e92ea3c52d9dd34020d466501dbef6bc))
+
 ## [14.0.29](https://github.com/ax-llm/ax/compare/14.0.27...14.0.28) (2025-10-04)
 
 ### Bug Fixes

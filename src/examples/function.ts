@@ -116,7 +116,11 @@ const gen = new AxAgent<
 const ai = new AxAI({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY as string,
-  config: { stream: true, model: AxAIAnthropicModel.Claude35Haiku },
+  config: {
+    stream: true,
+    model: AxAIAnthropicModel.Claude35Haiku,
+    maxTokens: 3000,
+  },
 });
 
 // const ai = new AxAI({
