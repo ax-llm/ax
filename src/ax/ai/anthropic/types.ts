@@ -133,7 +133,8 @@ export type AxAIAnthropicChatRequest = {
               | { type: 'thinking'; thinking: string; signature?: string }
               | {
                   type: 'redacted_thinking';
-                  thinking: string;
+                  // Anthropic requires `data` for redacted_thinking blocks in requests
+                  data: string;
                   signature?: string;
                 }
             )[];
@@ -182,7 +183,9 @@ export type AxAIAnthropicChatResponse = {
       }
     | {
         type: 'redacted_thinking';
-        thinking: string;
+        // Responses may surface either `thinking` or `data` depending on API version
+        thinking?: string;
+        data?: string;
         signature?: string;
       }
   )[];

@@ -109,6 +109,8 @@ export type AxChatResponseResult = {
   index: number;
   content?: string;
   thought?: string;
+  /** Provider-agnostic thinking block with encryption flag */
+  thoughtBlock?: { data: string; encrypted: boolean; signature?: string };
   name?: string;
   id?: string;
   functionCalls?: {

@@ -124,16 +124,33 @@ export const axCreateDefaultColorLogger = (
       case 'ChatResponseResults':
         formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n`;
         typedData.value.forEach((result, i) => {
-          formattedMessage += cl.cyan(result.content || '[No content]');
+          const lines: string[] = [];
+          if (result.thoughtBlock?.data || result.thought) {
+            lines.push(
+              cl.gray(
+                `[thought${result.thoughtBlock?.encrypted ? ' (redacted)' : ''}] ` +
+                  (result.thoughtBlock?.data ?? result.thought ?? '')
+              )
+            );
+          }
+          if (result.content) {
+            lines.push(cl.cyan(result.content));
+          }
+          if (lines.length === 0) {
+            lines.push(cl.gray('[No content]'));
+          }
+          formattedMessage += lines.join('\n');
           if (i < typedData.value.length - 1)
             formattedMessage += `\n${divider}\n`;
         });
         break;
       case 'ChatResponseStreamingResult': {
+        const thought = typedData.value.thought;
         const streamingContent =
-          typedData.value.delta || typedData.value.content || '';
-        // Add newline prefix if this is actual content (not just a delta)
-        formattedMessage = cl.cyanBright(streamingContent);
+          thought || typedData.value.delta || typedData.value.content || '';
+        formattedMessage = thought
+          ? cl.gray(`[thought] ${thought}`)
+          : cl.cyanBright(streamingContent);
         return;
       }
       case 'ChatResponseStreamingDoneResult': {

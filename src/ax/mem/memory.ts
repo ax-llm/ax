@@ -54,6 +54,8 @@ export class MemoryImpl {
     content,
     name,
     functionCalls,
+    thought,
+    thoughtBlock,
     index,
   }: Readonly<AxChatResponseResult & { index: number }>): void {
     const lastItem = this.data.at(-1);
@@ -67,7 +69,16 @@ export class MemoryImpl {
         role: 'assistant',
         updatable: true,
         chat: [
-          { index, value: structuredClone({ content, name, functionCalls }) },
+          {
+            index,
+            value: structuredClone({
+              content,
+              name,
+              functionCalls,
+              thought,
+              thoughtBlock,
+            }),
+          },
         ],
       });
       return;
@@ -78,7 +89,13 @@ export class MemoryImpl {
     if (!chat) {
       lastItem.chat.push({
         index,
-        value: structuredClone({ content, name, functionCalls }),
+        value: structuredClone({
+          content,
+          name,
+          functionCalls,
+          thought,
+          thoughtBlock,
+        }),
       });
       return;
     }
@@ -94,6 +111,28 @@ export class MemoryImpl {
     if (Array.isArray(functionCalls) && functionCalls.length > 0) {
       (chat.value as { functionCalls: typeof functionCalls }).functionCalls =
         functionCalls;
+    }
+
+    if (typeof thought === 'string' && thought.trim() !== '') {
+      const existing = (chat.value as any).thought;
+      (chat.value as any).thought =
+        typeof existing === 'string' ? existing + thought : thought;
+    }
+
+    if (thoughtBlock && typeof thoughtBlock === 'object') {
+      const cur = ((chat.value as any).thoughtBlock ?? {}) as {
+        data?: string;
+        encrypted?: boolean;
+        signature?: string;
+      };
+      const merged = {
+        data: (cur.data ?? '') + (thoughtBlock.data ?? ''),
+        encrypted: Boolean(cur.encrypted) || Boolean(thoughtBlock.encrypted),
+        ...(thoughtBlock.signature
+          ? { signature: thoughtBlock.signature }
+          : {}),
+      } as { data: string; encrypted: boolean; signature?: string };
+      (chat.value as any).thoughtBlock = merged;
     }
   }
 

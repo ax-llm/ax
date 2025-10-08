@@ -328,6 +328,22 @@ class AxAIAnthropicImpl
 
     const messages = createMessages(otherMessages, !!thinkingConfig);
 
+    // If the outgoing messages include an assistant message that starts with a tool_use
+    // block (i.e., we are pre-supplying a function call), Anthropic requires the final
+    // assistant message to start with a thinking/redacted_thinking block when thinking
+    // is enabled. Since we do not have a prior thinking block to echo here, disable thinking
+    // for this request to comply with their requirement.
+    const hasAssistantStartingWithToolUse = messages.some(
+      (m) =>
+        m.role === 'assistant' &&
+        Array.isArray(m.content) &&
+        m.content.length > 0 &&
+        (m.content[0] as any)?.type === 'tool_use'
+    );
+    if (hasAssistantStartingWithToolUse) {
+      thinkingConfig = undefined;
+    }
+
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
         ? { anthropic_version: 'vertex-2023-10-16' }
@@ -378,6 +394,8 @@ class AxAIAnthropicImpl
     // thinking text into the normal content while still exposing function calls.
     let aggregatedContent = '';
     let aggregatedThought = '';
+    let anyRedacted = false;
+    let lastSignature: string | undefined;
     const aggregatedFunctionCalls: NonNullable<
       AxChatResponseResult['functionCalls']
     > = [];
@@ -406,7 +424,12 @@ class AxAIAnthropicImpl
         case 'thinking':
         case 'redacted_thinking':
           if (showThoughts) {
-            aggregatedThought += block.thinking ?? '';
+            aggregatedThought +=
+              (block as any).thinking ?? (block as any).data ?? '';
+          }
+          if (block.type === 'redacted_thinking') anyRedacted = true;
+          if (typeof (block as any).signature === 'string') {
+            lastSignature = (block as any).signature as string;
           }
           break;
         case 'tool_use':
@@ -430,6 +453,11 @@ class AxAIAnthropicImpl
     }
     if (aggregatedThought) {
       result.thought = aggregatedThought;
+      result.thoughtBlock = {
+        data: aggregatedThought,
+        encrypted: anyRedacted,
+        ...(lastSignature ? { signature: lastSignature } : {}),
+      };
     }
     if (aggregatedFunctionCalls.length > 0) {
       result.functionCalls = aggregatedFunctionCalls;
@@ -525,7 +553,16 @@ class AxAIAnthropicImpl
           this.currentPromptConfig?.showThoughts !== false;
         if (showThoughts) {
           return {
-            results: [{ index, thought: contentBlock.thinking }],
+            results: [
+              {
+                index,
+                thought: contentBlock.thinking,
+                thoughtBlock: {
+                  data: contentBlock.thinking,
+                  encrypted: false,
+                },
+              },
+            ],
           };
         }
         return {
@@ -621,7 +658,13 @@ class AxAIAnthropicImpl
           this.currentPromptConfig?.showThoughts !== false;
         if (showThoughts) {
           return {
-            results: [{ index, thought: delta.thinking }],
+            results: [
+              {
+                index,
+                thought: delta.thinking,
+                thoughtBlock: { data: delta.thinking, encrypted: false },
+              },
+            ],
           };
         }
         return {
@@ -881,7 +924,7 @@ type AnthropicMsgRoleUserToolResult = Extract<
 
 function createMessages(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
-  thinkingEnabled?: boolean
+  _thinkingEnabled?: boolean
 ): AxAIAnthropicChatRequest['messages'] {
   const items: AxAIAnthropicChatRequest['messages'] = chatPrompt.map((msg) => {
     switch (msg.role) {
@@ -941,8 +984,46 @@ function createMessages(
           { role: 'assistant' }
         >['content'] = '';
 
+        // Preserve prior thinking blocks from memory when available
+        const preservedThinkingBlocks: (
+          | { type: 'thinking'; thinking: string; signature?: string }
+          | { type: 'redacted_thinking'; data: string; signature?: string }
+        )[] = [];
+        const tb: any = (msg as any).thoughtBlock;
+        if (tb && typeof tb.data === 'string' && tb.data.length > 0) {
+          if (tb.encrypted) {
+            preservedThinkingBlocks.push(
+              tb.signature
+                ? {
+                    type: 'redacted_thinking',
+                    data: tb.data,
+                    signature: tb.signature,
+                  }
+                : { type: 'redacted_thinking', data: tb.data }
+            );
+          } else {
+            preservedThinkingBlocks.push(
+              tb.signature
+                ? {
+                    type: 'thinking',
+                    thinking: tb.data,
+                    signature: tb.signature,
+                  }
+                : { type: 'thinking', thinking: tb.data }
+            );
+          }
+        }
+
         if (typeof msg.content === 'string') {
-          content = msg.content;
+          // If we have preserved thinking, convert to block array and append text
+          if (preservedThinkingBlocks.length > 0) {
+            content = [
+              ...preservedThinkingBlocks,
+              { type: 'text' as const, text: msg.content },
+            ];
+          } else {
+            content = msg.content;
+          }
         }
         if (typeof msg.functionCalls !== 'undefined') {
           content = msg.functionCalls.map((v) => {
@@ -960,15 +1041,9 @@ function createMessages(
               ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
             };
           });
-          if (
-            thinkingEnabled &&
-            Array.isArray(content) &&
-            content.length > 0 &&
-            (content[0] as any)?.type !== 'thinking' &&
-            (content[0] as any)?.type !== 'redacted_thinking'
-          ) {
+          if (Array.isArray(content) && preservedThinkingBlocks.length > 0) {
             content = [
-              { type: 'redacted_thinking' as const, thinking: '' },
+              ...preservedThinkingBlocks,
               ...(content as Extract<
                 AxAIAnthropicChatRequest['messages'][0],
                 { role: 'assistant' }

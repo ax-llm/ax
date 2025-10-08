@@ -476,6 +476,7 @@ export function axValidateChatResponseResult(
     if (
       !result.content &&
       !result.thought &&
+      !result.thoughtBlock &&
       !result.functionCalls &&
       !result.finishReason
     ) {
@@ -496,6 +497,34 @@ export function axValidateChatResponseResult(
       throw new Error(
         `Chat response result thought at index ${arrayIndex} must be a string, received: ${value(result.thought)}`
       );
+    }
+
+    // Validate thoughtBlock if present
+    if (result.thoughtBlock !== undefined) {
+      if (
+        typeof result.thoughtBlock !== 'object' ||
+        result.thoughtBlock === null
+      ) {
+        throw new Error(
+          `Chat response result thoughtBlock at index ${arrayIndex} must be an object, received: ${value(result.thoughtBlock)}`
+        );
+      }
+      const tb: any = result.thoughtBlock;
+      if (typeof tb.data !== 'string') {
+        throw new Error(
+          `Chat response result thoughtBlock.data at index ${arrayIndex} must be a string, received: ${value(tb.data)}`
+        );
+      }
+      if (typeof tb.encrypted !== 'boolean') {
+        throw new Error(
+          `Chat response result thoughtBlock.encrypted at index ${arrayIndex} must be a boolean, received: ${value(tb.encrypted)}`
+        );
+      }
+      if (tb.signature !== undefined && typeof tb.signature !== 'string') {
+        throw new Error(
+          `Chat response result thoughtBlock.signature at index ${arrayIndex} must be a string when provided, received: ${value(tb.signature)}`
+        );
+      }
     }
 
     // Validate name if present

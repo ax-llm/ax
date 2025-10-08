@@ -70,18 +70,11 @@ describe('Anthropic assistant content ordering with thinking and tool_use', () =
     );
     expect(assistantMsgs.length).toBeGreaterThan(0);
 
+    // We no longer inject synthetic redacted_thinking. Ensure tool_use exists.
     for (const m of assistantMsgs) {
       if (Array.isArray(m.content)) {
-        // First block must be thinking or redacted_thinking
-        expect(
-          m.content[0]?.type === 'thinking' ||
-            m.content[0]?.type === 'redacted_thinking'
-        ).toBe(true);
-        // And tool_use should appear after
-        const hasToolUseAfter = m.content
-          .slice(1)
-          .some((b: any) => b.type === 'tool_use');
-        expect(hasToolUseAfter).toBe(true);
+        const hasToolUse = m.content.some((b: any) => b.type === 'tool_use');
+        expect(hasToolUse).toBe(true);
       }
     }
   });
