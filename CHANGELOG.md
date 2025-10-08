@@ -1,5 +1,16 @@
 # Changelog
 
+## [14.0.31](https://github.com/ax-llm/ax/compare/14.0.29...14.0.30) (2025-10-08)
+
+### Features
+
+* add thoughtBlock to AxChatResponseResult and enhance validation ([7b49f65](https://github.com/ax-llm/ax/commit/7b49f65bf5474fb1c9e337e76e231c74ad21da98))
+## [14.0.30](https://github.com/ax-llm/ax/compare/14.0.29...14.0.30) (2025-10-07)
+
+### Features
+
+* enhance README with new examples and Fluent Signature API ([5cd30db](https://github.com/ax-llm/ax/commit/5cd30db98271646f3119d2fd96a734063928cc80))
+
 ## [14.0.30](https://github.com/ax-llm/ax/compare/14.0.28...14.0.29) (2025-10-07)
 
 ### Features
