@@ -53,10 +53,9 @@ try {
       functions: [],
     }
   );
-  const r1 = turn1.results?.[0];
   console.log('Turn1', {
-    thought: r1?.thoughtBlock?.data ?? r1?.thought ?? '',
-    encrypted: r1?.thoughtBlock?.encrypted ?? false,
+    responseText: turn1.responseText,
+    rationale: turn1.rationale,
   });
 
   // Turn 2: perform tool use with thinking still enabled; adapter will prepend preserved thinking
@@ -72,11 +71,9 @@ try {
       functionCall: 'auto',
     }
   );
-  const r2 = turn2.results?.[0];
   console.log('Turn2', {
-    responseText: r2?.content ?? r2?.name ?? '',
-    thought: r2?.thoughtBlock?.data ?? r2?.thought ?? '',
-    encrypted: r2?.thoughtBlock?.encrypted ?? false,
+    responseText: turn2.responseText,
+    rationale: turn2.rationale,
   });
 } catch (err) {
   console.error('Example failed:', err);
