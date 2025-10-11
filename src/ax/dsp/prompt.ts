@@ -22,7 +22,7 @@ type ChatRequestUserMessage = Exclude<
 
 const functionCallInstructions = `
 ## Function Call Instructions
-- Complete the task, using the functions defined earlier in this prompt. 
+- Complete the task, using the functions defined earlier in this prompt.
 - Output fields should only be generated after all functions have been called.
 - Use the function results to generate the output fields.`;
 
@@ -795,6 +795,10 @@ const isEmptyValue = (
   }
 ) => {
   if (typeof value === 'boolean') {
+    return false;
+  }
+
+  if (field?.type?.name === 'number' && typeof value === 'number') {
     return false;
   }
 
