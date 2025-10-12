@@ -58,6 +58,54 @@ describe('AxPromptTemplate.render', () => {
     });
   });
 
+  describe('number fields with zero values', () => {
+    it('should handle zero values correctly for number fields', () => {
+      const signature = new AxSignature(
+        'query:string, priority:number -> responseText:string, score:number'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const result = template.render({ query: 'test', priority: 0 }, {});
+
+      expect(result).toHaveLength(2);
+      expect(result[1]?.role).toBe('user');
+      const userMessage = result[1] as { role: 'user'; content: string };
+      expect(userMessage?.content).toContain('Priority: 0');
+    });
+
+    it('should handle zero in examples correctly', () => {
+      const signature = new AxSignature(
+        'query:string -> score:number, confidence:number'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ query: 'test', score: 0, confidence: 0.5 }];
+
+      const result = template.render({ query: 'hello' }, { examples });
+
+      expect(result).toHaveLength(2);
+      expect(result[0]?.role).toBe('system');
+      const systemMessage = result[0] as
+        | { role: 'system'; content: string }
+        | undefined;
+      expect(systemMessage?.content).toContain('Score: 0');
+      expect(systemMessage?.content).toContain('Confidence: 0.5');
+    });
+
+    it('should handle negative numbers and special numeric values', () => {
+      const signature = new AxSignature(
+        'query:string, offset:number -> processedText:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const result = template.render({ query: 'test', offset: -1 }, {});
+
+      expect(result).toHaveLength(2);
+      const userMessage = result[1] as { role: 'user'; content: string };
+      expect(userMessage?.content).toContain('Offset: -1');
+    });
+  });
+
   describe('examples with missing fields', () => {
     it('should allow missing input fields in examples', () => {
       const signature = new AxSignature(
