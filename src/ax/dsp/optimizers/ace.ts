@@ -232,151 +232,168 @@ export class AxACE extends AxBaseOptimizer {
     const epochs = Math.max(this.aceConfig.maxEpochs, 1);
     const totalRoundsTarget = epochs * examples.length;
 
-    for (let epoch = 0; epoch < epochs; epoch++) {
-      for (let index = 0; index < examples.length; index++) {
-        const example = examples[index]!;
+    try {
+      for (let epoch = 0; epoch < epochs; epoch++) {
+        for (let index = 0; index < examples.length; index++) {
+          const example = examples[index]!;
 
-        // Compose prompt with current playbook
-        const composedInstruction = this.composeInstruction(
-          baseInstruction ?? originalDescription,
-          this.playbook
-        );
-        (program as any).setDescription?.(composedInstruction);
+          // Compose prompt with current playbook
+          const composedInstruction = this.composeInstruction(
+            baseInstruction ?? originalDescription,
+            this.playbook
+          );
+          (program as any).setDescription?.(composedInstruction);
 
-        const prediction = await program.forward(this.studentAI, example as IN);
-        this.stats.totalCalls += 1;
+          const prediction = await program.forward(
+            this.studentAI,
+            example as IN
+          );
+          this.stats.totalCalls += 1;
 
-        const score = await metricFn({
-          prediction,
-          example: example as AxExample,
-        });
+          const score = await metricFn({
+            prediction,
+            example: example as AxExample,
+          });
 
-        if (typeof score === 'number') {
-          this.stats.bestScore = Math.max(this.stats.bestScore, score);
-          bestScore = Math.max(bestScore, score);
-        }
+          if (typeof score === 'number') {
+            this.stats.bestScore = Math.max(this.stats.bestScore, score);
+            bestScore = Math.max(bestScore, score);
+          }
 
-        const predictedSeverity = (prediction as { severity?: string })
-          ?.severity;
-        const expectedSeverity = (example as { severity?: string })?.severity;
+          const predictedSeverity = (prediction as { severity?: string })
+            ?.severity;
+          const expectedSeverity = (example as { severity?: string })?.severity;
 
-        const generatorOutput = this.createGeneratorOutput(prediction, example);
+          const generatorOutput = this.createGeneratorOutput(
+            prediction,
+            example
+          );
 
-        const severityMismatch =
-          expectedSeverity &&
-          predictedSeverity &&
-          expectedSeverity !== predictedSeverity;
-
-        const reflection = await this.runReflector({
-          example,
-          generatorOutput,
-          feedback:
+          const severityMismatch =
             expectedSeverity &&
             predictedSeverity &&
-            expectedSeverity !== predictedSeverity
-              ? `Expected severity "${expectedSeverity}" but model predicted "${predictedSeverity}".`
-              : undefined,
-        });
+            expectedSeverity !== predictedSeverity;
 
-        const rawCurator = await this.runCurator({
-          example,
-          reflection,
-          playbook: this.playbook,
-        });
+          const reflection = await this.runReflectionRounds({
+            example,
+            generatorOutput,
+            feedback:
+              expectedSeverity &&
+              predictedSeverity &&
+              expectedSeverity !== predictedSeverity
+                ? `Expected severity "${expectedSeverity}" but model predicted "${predictedSeverity}".`
+                : undefined,
+          });
 
-        let operations = this.normalizeCuratorOperations(
-          rawCurator?.operations
-        );
-        if (operations.length === 0 && severityMismatch) {
-          operations = this.inferOperationsFromReflection(reflection);
-        }
+          const rawCurator = await this.runCurator({
+            example,
+            reflection,
+            playbook: this.playbook,
+          });
 
-        const curatorResult =
-          rawCurator || operations.length > 0
-            ? ({
-                ...(rawCurator ?? {}),
-                operations,
-              } as AxACECuratorOutput)
-            : undefined;
-
-        const appliedDeltaIds =
-          operations.length > 0
-            ? applyCuratorOperations(this.playbook, operations, {
-                maxSectionSize: this.aceConfig.maxSectionSize,
-                allowDynamicSections: this.aceConfig.allowDynamicSections,
-              }).updatedBulletIds
-            : [];
-
-        if (reflection?.bulletTags) {
-          for (const tag of reflection.bulletTags) {
-            updateBulletFeedback(this.playbook, tag.id, tag.tag);
+          let operations = this.normalizeCuratorOperations(
+            rawCurator?.operations
+          );
+          if (operations.length === 0 && severityMismatch) {
+            operations = this.inferOperationsFromReflection(reflection);
           }
-        }
+          if (operations.length > 0) {
+            this.resolveCuratorOperationTargets(
+              operations,
+              reflection,
+              generatorOutput
+            );
+          }
 
-        if (operations.length > 0 && appliedDeltaIds.length > 0) {
-          dedupePlaybookByContent(
-            this.playbook,
-            this.aceConfig.similarityThreshold
+          const curatorResult =
+            rawCurator || operations.length > 0
+              ? ({
+                  ...(rawCurator ?? {}),
+                  operations,
+                } as AxACECuratorOutput)
+              : undefined;
+
+          const appliedDeltaIds =
+            operations.length > 0
+              ? applyCuratorOperations(this.playbook, operations, {
+                  maxSectionSize: this.aceConfig.maxSectionSize,
+                  allowDynamicSections: this.aceConfig.allowDynamicSections,
+                }).updatedBulletIds
+              : [];
+
+          if (reflection?.bulletTags) {
+            for (const tag of reflection.bulletTags) {
+              updateBulletFeedback(this.playbook, tag.id, tag.tag);
+            }
+          }
+
+          if (operations.length > 0 && appliedDeltaIds.length > 0) {
+            dedupePlaybookByContent(
+              this.playbook,
+              this.aceConfig.similarityThreshold
+            );
+          }
+
+          const feedbackEvent: AxACEFeedbackEvent = {
+            example: example as AxExample,
+            prediction,
+            score: typeof score === 'number' ? score : 0,
+            generatorOutput,
+            reflection,
+            curator: curatorResult,
+            timestamp: new Date().toISOString(),
+          };
+
+          this.generatorHistory.push(feedbackEvent);
+
+          if (appliedDeltaIds.length > 0 && curatorResult?.operations?.length) {
+            this.deltaHistory.push({
+              epoch,
+              exampleIndex: index,
+              operations: curatorResult.operations,
+            });
+          }
+
+          round += 1;
+          this.currentRound = round;
+
+          const numericScore =
+            typeof score === 'number' && Number.isFinite(score) ? score : 0;
+          const bestScoreForProgress = Number.isFinite(bestScore)
+            ? bestScore
+            : numericScore;
+
+          const progressOptions: AxACECompileOptions = {
+            ...(options ?? {}),
+            maxIterations: totalRoundsTarget,
+          };
+
+          await this.updateOptimizationProgress(
+            round,
+            numericScore,
+            {
+              epoch,
+              exampleIndex: index,
+              playbookBullets: this.playbook.stats.bulletCount,
+            },
+            'ACE',
+            { epochs, totalRounds: totalRoundsTarget },
+            bestScoreForProgress,
+            {
+              playbookBullets: this.playbook.stats.bulletCount,
+            },
+            undefined,
+            progressOptions
+          );
+
+          this.stats.convergenceInfo.finalImprovement = Math.max(
+            this.stats.convergenceInfo.finalImprovement,
+            numericScore
           );
         }
-
-        const feedbackEvent: AxACEFeedbackEvent = {
-          example: example as AxExample,
-          prediction,
-          score: typeof score === 'number' ? score : 0,
-          generatorOutput,
-          reflection,
-          curator: curatorResult,
-          timestamp: new Date().toISOString(),
-        };
-
-        this.generatorHistory.push(feedbackEvent);
-
-        if (appliedDeltaIds.length > 0 && curatorResult?.operations?.length) {
-          this.deltaHistory.push({
-            epoch,
-            exampleIndex: index,
-            operations: curatorResult.operations,
-          });
-        }
-
-        round += 1;
-        this.currentRound = round;
-
-        const numericScore =
-          typeof score === 'number' && Number.isFinite(score) ? score : 0;
-        const bestScoreForProgress = Number.isFinite(bestScore)
-          ? bestScore
-          : numericScore;
-
-        const progressOptions: AxACECompileOptions = {
-          ...(options ?? {}),
-          maxIterations: totalRoundsTarget,
-        };
-
-        await this.updateOptimizationProgress(
-          round,
-          numericScore,
-          {
-            epoch,
-            exampleIndex: index,
-            playbookBullets: this.playbook.stats.bulletCount,
-          },
-          'ACE',
-          { epochs },
-          bestScoreForProgress,
-          {
-            playbookBullets: this.playbook.stats.bulletCount,
-          },
-          undefined,
-          progressOptions
-        );
-
-        this.stats.convergenceInfo.finalImprovement = Math.max(
-          this.stats.convergenceInfo.finalImprovement,
-          numericScore
-        );
       }
+    } finally {
+      (program as any).setDescription?.(originalDescription);
     }
 
     const optimizationTime = Date.now() - startTime;
@@ -401,9 +418,6 @@ export class AxACE extends AxBaseOptimizer {
       totalRounds: round,
       converged: this.stats.convergenceInfo.converged,
     });
-
-    // Restore original description to avoid mutating caller program after compile
-    (program as any).setDescription?.(originalDescription);
 
     const result: AxACEResult<OUT> = {
       stats: this.stats,
@@ -439,7 +453,7 @@ export class AxACE extends AxBaseOptimizer {
       ?.severity;
     const expectedSeverity = (args.example as { severity?: string })?.severity;
 
-    const reflection = await this.runReflector({
+    const reflection = await this.runReflectionRounds({
       example: args.example,
       generatorOutput,
       feedback:
@@ -464,6 +478,13 @@ export class AxACE extends AxBaseOptimizer {
       expectedSeverity !== predictedSeverity;
     if (operations.length === 0 && severityMismatch) {
       operations = this.inferOperationsFromReflection(reflection);
+    }
+    if (operations.length > 0) {
+      this.resolveCuratorOperationTargets(
+        operations,
+        reflection,
+        generatorOutput
+      );
     }
 
     const curatorResult =
@@ -558,6 +579,57 @@ export class AxACE extends AxBaseOptimizer {
     };
   }
 
+  private resolveCuratorOperationTargets(
+    operations: AxACECuratorOperation[],
+    reflection?: AxACEReflectionOutput,
+    generatorOutput?: AxACEGeneratorOutput
+  ): void {
+    if (!operations.length) {
+      return;
+    }
+
+    const queue: string[] = [];
+    const reflectionTags = reflection?.bulletTags ?? [];
+
+    const harmfulFirst = reflectionTags
+      .filter((tag) => tag.tag === 'harmful')
+      .map((tag) => tag.id);
+    const remaining = reflectionTags
+      .filter((tag) => tag.tag !== 'harmful')
+      .map((tag) => tag.id);
+
+    for (const id of [...harmfulFirst, ...remaining]) {
+      if (!queue.includes(id)) {
+        queue.push(id);
+      }
+    }
+
+    if (
+      generatorOutput?.bulletIds &&
+      Array.isArray(generatorOutput.bulletIds)
+    ) {
+      for (const id of generatorOutput.bulletIds) {
+        if (!queue.includes(id)) {
+          queue.push(id);
+        }
+      }
+    }
+
+    let fallbackIndex = 0;
+    for (const operation of operations) {
+      if (
+        (operation.type === 'UPDATE' || operation.type === 'REMOVE') &&
+        !operation.bulletId
+      ) {
+        if (queue.length > 0) {
+          const candidate = queue[Math.min(fallbackIndex, queue.length - 1)];
+          operation.bulletId = candidate;
+          fallbackIndex = Math.min(fallbackIndex + 1, queue.length - 1);
+        }
+      }
+    }
+  }
+
   private normalizeCuratorOperations(
     operations: unknown
   ): AxACECuratorOperation[] {
@@ -598,7 +670,16 @@ export class AxACE extends AxBaseOptimizer {
           continue;
         }
 
-        const key = `${type}:${section}:${content}`;
+        const bulletIdRaw =
+          (entry as { bulletId?: string }).bulletId ??
+          (entry as { id?: string }).id;
+        const bulletId =
+          typeof bulletIdRaw === 'string' && bulletIdRaw.trim().length > 0
+            ? bulletIdRaw.trim()
+            : undefined;
+
+        const keyParts = [type, section, content, bulletId ?? ''];
+        const key = keyParts.join(':');
         if (seen.has(key)) {
           continue;
         }
@@ -611,6 +692,9 @@ export class AxACE extends AxBaseOptimizer {
 
         if (type !== 'REMOVE') {
           normalizedEntry.content = content;
+        }
+        if (bulletId) {
+          normalizedEntry.bulletId = bulletId;
         }
 
         const metadataRaw = (entry as { metadata?: Record<string, unknown> })
@@ -695,7 +779,7 @@ export class AxACE extends AxBaseOptimizer {
     return operations;
   }
 
-  private async runReflector({
+  private async runReflectionRounds({
     example,
     generatorOutput,
     feedback,
@@ -703,6 +787,53 @@ export class AxACE extends AxBaseOptimizer {
     example: AxExample;
     generatorOutput: AxACEGeneratorOutput;
     feedback?: string;
+  }>): Promise<AxACEReflectionOutput | undefined> {
+    const rounds = Math.max(this.aceConfig.maxReflectorRounds, 1);
+    let previous: AxACEReflectionOutput | undefined;
+
+    for (let round = 0; round < rounds; round++) {
+      const reflection = await this.runReflector({
+        example,
+        generatorOutput,
+        feedback,
+        previousReflection: previous,
+      });
+
+      if (!reflection) {
+        break;
+      }
+
+      previous = reflection;
+
+      const errorText =
+        reflection.errorIdentification?.toLowerCase().trim() ?? '';
+      const resolved = (
+        reflection.metadata as { resolved?: boolean } | undefined
+      )?.resolved;
+
+      if (
+        resolved === true ||
+        errorText.length === 0 ||
+        errorText.startsWith('no error') ||
+        errorText.startsWith('resolved')
+      ) {
+        break;
+      }
+    }
+
+    return previous;
+  }
+
+  private async runReflector({
+    example,
+    generatorOutput,
+    feedback,
+    previousReflection,
+  }: Readonly<{
+    example: AxExample;
+    generatorOutput: AxACEGeneratorOutput;
+    feedback?: string;
+    previousReflection?: AxACEReflectionOutput;
   }>): Promise<AxACEReflectionOutput | undefined> {
     const reflector = this.getOrCreateReflectorProgram();
     const reflectorAI = this.teacherAI ?? this.studentAI;
@@ -725,6 +856,9 @@ export class AxACE extends AxBaseOptimizer {
             ? JSON.stringify(expectedAnswer)
             : undefined,
         feedback,
+        previous_reflection: previousReflection
+          ? JSON.stringify(previousReflection)
+          : undefined,
       });
       return reflectionRaw as AxACEReflectionOutput;
     } catch (error) {
@@ -800,6 +934,14 @@ export class AxACE extends AxBaseOptimizer {
         .input(
           'feedback',
           f.string('External feedback or reward signal').optional()
+        )
+        .input(
+          'previous_reflection',
+          f
+            .string(
+              'Most recent reflection JSON when running multi-round refinement'
+            )
+            .optional()
         )
         .output(
           'reasoning',

@@ -259,7 +259,8 @@ Ignore contractual risk, VIP status, or policy hints. Always justify the severit
       ? total / evaluationSet.length
       : Number.NaN;
     console.log(
-      `${label}: ${(average * 100).toFixed(1)} average score over ${evaluationSet.length
+      `${label}: ${(average * 100).toFixed(1)} average score over ${
+        evaluationSet.length
       } cases`
     );
     return average;
