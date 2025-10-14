@@ -750,7 +750,87 @@ const optimizer = new AxBootstrapFewShot({
 });
 ```
 
-### 2. Multi-Objective Optimization with GEPA and GEPA-Flow
+### 2. Agentic Context Engineering (ACE)
+
+**The Problem**: Iteratively rewriting a giant system prompt causes brevity bias and context collapse—hard-won strategies disappear after a few updates. You need a way to grow and refine a durable playbook both offline and online.
+
+**The Solution**: Use `AxACE`, an optimizer that mirrors the ACE paper's Generator → Reflector → Curator loop. It represents context as structured bullets, applies incremental deltas, and returns a serialized playbook you can save, load, and keep updating at inference time.
+
+```typescript
+import fs from "node:fs/promises";
+
+import { ax, AxAI, AxACE } from "@ax-llm/ax";
+
+const student = new AxAI({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  config: { model: "gpt-4o-mini" },
+});
+
+const teacher = new AxAI({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  config: { model: "gpt-4o" },
+});
+
+const classifier = ax(
+  'ticket:string "Support ticket text" -> severity:class "low, medium, high" "Incident severity"'
+);
+
+classifier.setDescription(
+  "Classify the severity of the support ticket and explain your reasoning."
+);
+
+const examples = [
+  { ticket: "Billing portal returns 502 errors globally.", severity: "high" },
+  { ticket: "UI misaligned on Safari but usable.", severity: "low" },
+  { ticket: "Checkout intermittently drops vouchers.", severity: "medium" },
+];
+
+const metric = ({ prediction, example }) =>
+  prediction.severity === example.severity ? 1 : 0;
+
+const optimizer = new AxACE(
+  { studentAI: student, teacherAI: teacher, verbose: true },
+  { maxEpochs: 2 }
+);
+
+const result = await optimizer.compile(classifier, examples, metric);
+result.optimizedProgram?.applyTo(classifier);
+
+// Save the structured playbook for future sessions
+await fs.writeFile(
+  "ace-playbook.json",
+  JSON.stringify(result.artifact.playbook, null, 2)
+);
+
+// Later, load the playbook and keep adapting online
+const loadedPlaybook = JSON.parse(
+  await fs.readFile("ace-playbook.json", "utf8")
+);
+const onlineOptimizer = new AxACE(
+  { studentAI: student, teacherAI: teacher },
+  { initialPlaybook: loadedPlaybook }
+);
+const onlineCuratorDelta = await onlineOptimizer.applyOnlineUpdate({
+  example: { ticket: "Orders failing globally", severity: "high" },
+  prediction: await classifier.forward(student, {
+    ticket: "Orders failing globally",
+  }),
+  feedback: "Production telemetry confirmed a P1 outage.",
+});
+```
+
+**Why it matters**:
+
+- **Structured memory** – Playbooks of tagged bullets persist across runs.
+- **Incremental updates** – Curator operations apply as deltas, so context never collapses.
+- **Offline + Online** – Same optimizer supports batch training and per-sample updates.
+- **Unified artifacts** – `AxACEOptimizedProgram` extends `AxOptimizedProgramImpl`, so you can save/load/apply like MiPRO or GEPA.
+
+> **📖 Full Example**: `src/examples/ace-train-inference.ts` demonstrates offline training plus an online adaptation pass.
+
+### 3. Multi-Objective Optimization with GEPA and GEPA-Flow
 
 **The Problem**: Sometimes you care about multiple things at once - accuracy AND
 speed AND cost. Traditional optimization only handles one objective at a time.

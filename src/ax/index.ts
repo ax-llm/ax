@@ -514,6 +514,23 @@ import {
   axCreateDefaultOptimizerTextLogger,
   axDefaultOptimizerLogger,
 } from './dsp/optimizerLogging.js';
+import {
+  AxACE,
+  AxACEOptimizedProgram,
+  type AxACEResult,
+} from './dsp/optimizers/ace.js';
+import type {
+  AxACEBullet,
+  AxACECuratorOperation,
+  AxACECuratorOperationType,
+  AxACECuratorOutput,
+  AxACEFeedbackEvent,
+  AxACEGeneratorOutput,
+  AxACEOptimizationArtifact,
+  AxACEOptions,
+  AxACEPlaybook,
+  AxACEReflectionOutput,
+} from './dsp/optimizers/aceTypes.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
 import { AxGEPA } from './dsp/optimizers/gepa.js';
 import type {
@@ -672,6 +689,8 @@ import {
 } from './util/rate-limit.js';
 
 // Value exports
+export { AxACE };
+export { AxACEOptimizedProgram };
 export { AxAI };
 export { AxAIAnthropic };
 export { AxAIAnthropicModel };
@@ -866,6 +885,17 @@ export { flow };
 export { s };
 
 // Type exports
+export type { AxACEBullet };
+export type { AxACECuratorOperation };
+export type { AxACECuratorOperationType };
+export type { AxACECuratorOutput };
+export type { AxACEFeedbackEvent };
+export type { AxACEGeneratorOutput };
+export type { AxACEOptimizationArtifact };
+export type { AxACEOptions };
+export type { AxACEPlaybook };
+export type { AxACEReflectionOutput };
+export type { AxACEResult };
 export type { AxAIAnthropicArgs };
 export type { AxAIAnthropicChatError };
 export type { AxAIAnthropicChatRequest };
