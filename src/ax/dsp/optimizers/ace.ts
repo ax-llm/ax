@@ -26,6 +26,7 @@ import {
 } from './acePlaybook.js';
 import { f } from '../sig.js';
 import type {
+  AxACEBullet,
   AxACECuratorOperation,
   AxACECuratorOutput,
   AxACEFeedbackEvent,
@@ -297,13 +298,12 @@ export class AxACE extends AxBaseOptimizer {
           if (operations.length === 0 && severityMismatch) {
             operations = this.inferOperationsFromReflection(reflection);
           }
-          if (operations.length > 0) {
-            this.resolveCuratorOperationTargets(
-              operations,
-              reflection,
-              generatorOutput
-            );
-          }
+          operations = this.resolveCuratorOperationTargets(
+            operations,
+            this.playbook,
+            reflection,
+            generatorOutput
+          );
 
           const curatorResult =
             rawCurator || operations.length > 0
@@ -313,13 +313,27 @@ export class AxACE extends AxBaseOptimizer {
                 } as AxACECuratorOutput)
               : undefined;
 
-          const appliedDeltaIds =
-            operations.length > 0
-              ? applyCuratorOperations(this.playbook, operations, {
-                  maxSectionSize: this.aceConfig.maxSectionSize,
-                  allowDynamicSections: this.aceConfig.allowDynamicSections,
-                }).updatedBulletIds
-              : [];
+          let appliedDeltaIds: string[] = [];
+          if (operations.length > 0) {
+            const protectedIds = this.collectProtectedBulletIds(operations);
+            const applicationResult = applyCuratorOperations(
+              this.playbook,
+              operations,
+              {
+                maxSectionSize: this.aceConfig.maxSectionSize,
+                allowDynamicSections: this.aceConfig.allowDynamicSections,
+                enableAutoPrune: true,
+                protectedBulletIds: protectedIds,
+              }
+            );
+            appliedDeltaIds = applicationResult.updatedBulletIds;
+            if (applicationResult.autoRemoved.length > 0) {
+              operations.push(...applicationResult.autoRemoved);
+              if (curatorResult) {
+                curatorResult.operations = operations;
+              }
+            }
+          }
 
           if (reflection?.bulletTags) {
             for (const tag of reflection.bulletTags) {
@@ -479,13 +493,12 @@ export class AxACE extends AxBaseOptimizer {
     if (operations.length === 0 && severityMismatch) {
       operations = this.inferOperationsFromReflection(reflection);
     }
-    if (operations.length > 0) {
-      this.resolveCuratorOperationTargets(
-        operations,
-        reflection,
-        generatorOutput
-      );
-    }
+    operations = this.resolveCuratorOperationTargets(
+      operations,
+      this.playbook,
+      reflection,
+      generatorOutput
+    );
 
     const curatorResult =
       rawCurator || operations.length > 0
@@ -502,10 +515,19 @@ export class AxACE extends AxBaseOptimizer {
     }
 
     if (operations.length > 0) {
-      applyCuratorOperations(this.playbook, operations, {
+      const protectedIds = this.collectProtectedBulletIds(operations);
+      const result = applyCuratorOperations(this.playbook, operations, {
         maxSectionSize: this.aceConfig.maxSectionSize,
         allowDynamicSections: this.aceConfig.allowDynamicSections,
+        enableAutoPrune: true,
+        protectedBulletIds: protectedIds,
       });
+      if (result.autoRemoved.length > 0) {
+        operations.push(...result.autoRemoved);
+        if (curatorResult) {
+          curatorResult.operations = operations;
+        }
+      }
       dedupePlaybookByContent(
         this.playbook,
         this.aceConfig.similarityThreshold
@@ -581,53 +603,151 @@ export class AxACE extends AxBaseOptimizer {
 
   private resolveCuratorOperationTargets(
     operations: AxACECuratorOperation[],
+    playbook: AxACEPlaybook,
     reflection?: AxACEReflectionOutput,
     generatorOutput?: AxACEGeneratorOutput
-  ): void {
+  ): AxACECuratorOperation[] {
     if (!operations.length) {
-      return;
+      return operations;
     }
 
-    const queue: string[] = [];
-    const reflectionTags = reflection?.bulletTags ?? [];
+    const resolved: AxACECuratorOperation[] = [];
+    const usedIds = new Set<string>(
+      operations
+        .map((op) => op.bulletId)
+        .filter((id): id is string => typeof id === 'string')
+    );
 
-    const harmfulFirst = reflectionTags
-      .filter((tag) => tag.tag === 'harmful')
-      .map((tag) => tag.id);
-    const remaining = reflectionTags
-      .filter((tag) => tag.tag !== 'harmful')
-      .map((tag) => tag.id);
+    interface SectionQueues {
+      harmful: string[];
+      primary: string[];
+      generator: string[];
+    }
 
-    for (const id of [...harmfulFirst, ...remaining]) {
-      if (!queue.includes(id)) {
-        queue.push(id);
+    const sectionQueues = new Map<string, SectionQueues>();
+
+    const enqueueCandidate = (
+      bulletId: string,
+      priority: keyof SectionQueues
+    ): void => {
+      if (usedIds.has(bulletId)) {
+        return;
+      }
+      const located = this.locateBullet(playbook, bulletId);
+      if (!located) {
+        return;
+      }
+      const queues = sectionQueues.get(located.section) ?? {
+        harmful: [],
+        primary: [],
+        generator: [],
+      };
+      queues[priority].push(located.id);
+      sectionQueues.set(located.section, queues);
+    };
+
+    for (const tag of reflection?.bulletTags ?? []) {
+      const priority = tag.tag === 'harmful' ? 'harmful' : 'primary';
+      enqueueCandidate(tag.id, priority);
+    }
+
+    if (generatorOutput?.bulletIds) {
+      for (const bulletId of generatorOutput.bulletIds) {
+        enqueueCandidate(bulletId, 'generator');
       }
     }
 
-    if (
-      generatorOutput?.bulletIds &&
-      Array.isArray(generatorOutput.bulletIds)
-    ) {
-      for (const id of generatorOutput.bulletIds) {
-        if (!queue.includes(id)) {
-          queue.push(id);
+    const dequeueForSection = (section: string): string | undefined => {
+      const queues = sectionQueues.get(section);
+      if (!queues) {
+        return this.locateFallbackBullet(playbook, section, usedIds);
+      }
+
+      const shift = (list: string[]): string | undefined => {
+        while (list.length > 0) {
+          const candidate = list.shift()!;
+          if (!usedIds.has(candidate)) {
+            return candidate;
+          }
         }
-      }
-    }
+        return undefined;
+      };
 
-    let fallbackIndex = 0;
+      const candidate =
+        shift(queues.harmful) ??
+        shift(queues.primary) ??
+        shift(queues.generator);
+
+      if (candidate) {
+        return candidate;
+      }
+
+      return this.locateFallbackBullet(playbook, section, usedIds);
+    };
+
     for (const operation of operations) {
       if (
         (operation.type === 'UPDATE' || operation.type === 'REMOVE') &&
         !operation.bulletId
       ) {
-        if (queue.length > 0) {
-          const candidate = queue[Math.min(fallbackIndex, queue.length - 1)];
+        const candidate = dequeueForSection(operation.section);
+        if (candidate) {
           operation.bulletId = candidate;
-          fallbackIndex = Math.min(fallbackIndex + 1, queue.length - 1);
+          usedIds.add(candidate);
         }
       }
+
+      if (
+        (operation.type === 'UPDATE' || operation.type === 'REMOVE') &&
+        !operation.bulletId
+      ) {
+        // No viable target; drop this operation.
+        continue;
+      }
+
+      resolved.push(operation);
     }
+
+    return resolved;
+  }
+
+  private locateBullet(
+    playbook: AxACEPlaybook,
+    bulletId: string
+  ): AxACEBullet | undefined {
+    for (const sectionBullets of Object.values(playbook.sections)) {
+      const bullet = sectionBullets.find((entry) => entry.id === bulletId);
+      if (bullet) {
+        return bullet;
+      }
+    }
+    return undefined;
+  }
+
+  private locateFallbackBullet(
+    playbook: AxACEPlaybook,
+    section: string,
+    usedIds: ReadonlySet<string>
+  ): string | undefined {
+    const bullets = playbook.sections[section] ?? [];
+    for (const bullet of bullets) {
+      if (!usedIds.has(bullet.id)) {
+        return bullet.id;
+      }
+    }
+    return undefined;
+  }
+
+  private collectProtectedBulletIds(
+    operations: readonly AxACECuratorOperation[]
+  ): Set<string> {
+    const protectedIds = new Set<string>();
+    for (const operation of operations) {
+      if (operation.type === 'UPDATE' && operation.bulletId) {
+        protectedIds.add(operation.bulletId);
+      }
+    }
+    return protectedIds;
   }
 
   private normalizeCuratorOperations(

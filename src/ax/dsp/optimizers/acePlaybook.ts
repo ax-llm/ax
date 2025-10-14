@@ -9,6 +9,8 @@ import type {
 interface ApplyOperationsOptions {
   maxSectionSize?: number;
   allowDynamicSections?: boolean;
+  enableAutoPrune?: boolean;
+  protectedBulletIds?: ReadonlySet<string>;
 }
 
 /**
@@ -56,14 +58,19 @@ export function applyCuratorOperations(
   playbook: AxACEPlaybook,
   operations: readonly AxACECuratorOperation[],
   options?: Readonly<ApplyOperationsOptions>
-): { updatedBulletIds: string[] } {
+): { updatedBulletIds: string[]; autoRemoved: AxACECuratorOperation[] } {
   const updatedBullets: string[] = [];
+  const autoRemoved: AxACECuratorOperation[] = [];
   const {
     maxSectionSize = Number.POSITIVE_INFINITY,
     allowDynamicSections = true,
+    enableAutoPrune = false,
+    protectedBulletIds,
   } = options ?? {};
 
   const now = new Date().toISOString();
+
+  const protectedIds = protectedBulletIds ?? new Set<string>();
 
   for (const op of operations) {
     if (!op.section) {
@@ -82,8 +89,24 @@ export function applyCuratorOperations(
     switch (op.type) {
       case 'ADD': {
         if (section.length >= maxSectionSize) {
-          // Skip addition if exceeding cap; caller may decide to prune first.
-          continue;
+          if (!enableAutoPrune) {
+            continue;
+          }
+          const pruned = pruneSectionForAddition(section, protectedIds);
+          if (!pruned) {
+            continue;
+          }
+          updatedBullets.push(pruned.id);
+          autoRemoved.push({
+            type: 'REMOVE',
+            section: op.section,
+            bulletId: pruned.id,
+            metadata: {
+              ...(pruned.metadata ?? {}),
+              autoPruned: true,
+              removedAt: now,
+            },
+          });
         }
 
         const id = op.bulletId ?? generateBulletId(op.section);
@@ -135,7 +158,7 @@ export function applyCuratorOperations(
   recomputePlaybookStats(playbook);
   playbook.updatedAt = now;
 
-  return { updatedBulletIds: updatedBullets };
+  return { updatedBulletIds: updatedBullets, autoRemoved };
 }
 
 /**
@@ -196,6 +219,71 @@ export function generateBulletId(section: string): string {
     .slice(0, 6);
   const randomHex = crypto.randomBytes(4).toString('hex');
   return `${normalized || 'ctx'}-${randomHex}`;
+}
+
+function pruneSectionForAddition(
+  section: AxACEBullet[],
+  protectedIds: ReadonlySet<string>
+): AxACEBullet | undefined {
+  let candidateIndex = -1;
+  let candidateScore: [number, number, number] | undefined;
+
+  for (let index = 0; index < section.length; index += 1) {
+    const bullet = section[index]!;
+    if (protectedIds.has(bullet.id)) {
+      continue;
+    }
+
+    const helpful = bullet.helpfulCount ?? 0;
+    const harmful = bullet.harmfulCount ?? 0;
+    const netScore = helpful - harmful * 2;
+    const recency = Date.parse(bullet.updatedAt ?? bullet.createdAt);
+
+    const score: [number, number, number] = [
+      netScore,
+      helpful,
+      Number.isFinite(recency) ? recency : Number.POSITIVE_INFINITY,
+    ];
+
+    if (!candidateScore) {
+      candidateIndex = index;
+      candidateScore = score;
+      continue;
+    }
+
+    const candidateBullet = section[candidateIndex]!;
+    const candidateHelpful = candidateBullet.helpfulCount ?? 0;
+    const candidateHarmful = candidateBullet.harmfulCount ?? 0;
+    const candidateNet = candidateHelpful - candidateHarmful * 2;
+    const candidateRecency = Date.parse(
+      candidateBullet.updatedAt ?? candidateBullet.createdAt
+    );
+    const candidateVector: [number, number, number] = [
+      candidateNet,
+      candidateHelpful,
+      Number.isFinite(candidateRecency)
+        ? candidateRecency
+        : Number.POSITIVE_INFINITY,
+    ];
+
+    if (
+      score[0] < candidateVector[0] ||
+      (score[0] === candidateVector[0] && score[1] < candidateVector[1]) ||
+      (score[0] === candidateVector[0] &&
+        score[1] === candidateVector[1] &&
+        score[2] < candidateVector[2])
+    ) {
+      candidateIndex = index;
+      candidateScore = score;
+    }
+  }
+
+  if (candidateIndex === -1) {
+    return undefined;
+  }
+
+  const [removed] = section.splice(candidateIndex, 1);
+  return removed;
 }
 
 /**
