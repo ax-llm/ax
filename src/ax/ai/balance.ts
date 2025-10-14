@@ -203,7 +203,7 @@ export class AxBalancer<
     return timeSinceLastFailure >= backoffMs;
   }
 
-  private handleFailure(): boolean {
+  private handleFailure(e: AxAIServiceError): boolean {
     const failure = this.serviceFailures.get(this.currentService.getId());
     const retries = (failure?.retries ?? 0) + 1;
 
@@ -214,7 +214,8 @@ export class AxBalancer<
 
     if (this.debug) {
       console.warn(
-        `AxBalancer: Service ${this.currentService.getName()} failed (retry ${retries}/${this.maxRetries})`
+        `AxBalancer: Service ${this.currentService.getName()} failed (retry ${retries}/${this.maxRetries})`,
+        e
       );
     }
 
@@ -222,7 +223,8 @@ export class AxBalancer<
       const gotNextService = this.getNextService();
       if (this.debug) {
         console.warn(
-          `AxBalancer: Switching to service ${this.currentService.getName()}`
+          `AxBalancer: Switching to service ${this.currentService.getName()}`,
+          e
         );
       }
       return gotNextService;
@@ -288,7 +290,7 @@ export class AxBalancer<
           // Handle unexpected AxAIServiceErrors
         }
 
-        if (!this.handleFailure()) {
+        if (!this.handleFailure(e)) {
           throw e;
         }
       }
@@ -314,7 +316,7 @@ export class AxBalancer<
         this.handleSuccess();
         return response;
       } catch (e) {
-        if (!this.handleFailure()) {
+        if (!(e instanceof AxAIServiceError) || !this.handleFailure(e)) {
           throw e;
         }
       }
