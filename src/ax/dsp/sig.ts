@@ -14,8 +14,10 @@ import type { ParseSignature } from './types.js';
 import {
   type InferZodInput,
   type InferZodOutput,
+  type ZodConversionIssue,
   zodObjectToSignatureFields,
 } from './zodToSignature.js';
+export type { ZodConversionIssue } from './zodToSignature.js';
 // Interface for programmatically defining field types
 export interface AxFieldType {
   readonly type:
@@ -558,6 +560,21 @@ export interface AxSignatureConfig {
   outputs: readonly AxField[];
 }
 
+export type AxSignatureFromZodOptions = {
+  /**
+   * When true, the conversion throws if any field must fall back to json or downgrade.
+   */
+  readonly strict?: boolean;
+  /**
+   * When true (default), a warning is emitted to the console if any fields are downgraded.
+   */
+  readonly warnOnFallback?: boolean;
+  /**
+   * Receives detailed downgrade information for custom handling.
+   */
+  readonly onIssues?: (issues: readonly ZodConversionIssue[]) => void;
+};
+
 export class AxSignature<
   _TInput extends Record<string, any> = Record<string, any>,
   _TOutput extends Record<string, any> = Record<string, any>,
@@ -703,13 +720,39 @@ export class AxSignature<
     description?: string;
     input?: TInputSchema;
     output?: TOutputSchema;
-  }): AxSignature<InferZodInput<TInputSchema>, InferZodOutput<TOutputSchema>> {
+  }, options?: AxSignatureFromZodOptions): AxSignature<
+    InferZodInput<TInputSchema>,
+    InferZodOutput<TOutputSchema>
+  > {
+    const issues: ZodConversionIssue[] = [];
     const inputs = config.input
-      ? zodObjectToSignatureFields(config.input, 'input')
+      ? zodObjectToSignatureFields(config.input, 'input', {
+          issues,
+          basePath: ['input'],
+        })
       : [];
     const outputs = config.output
-      ? zodObjectToSignatureFields(config.output, 'output')
+      ? zodObjectToSignatureFields(config.output, 'output', {
+          issues,
+          basePath: ['output'],
+        })
       : [];
+
+    if (issues.length) {
+      options?.onIssues?.(issues);
+
+      if (options?.strict) {
+        throw new AxSignatureValidationError(
+          'Unsupported Zod schema elements encountered during conversion',
+          undefined,
+          AxSignature.formatZodIssuesForSuggestion(issues)
+        );
+      }
+
+      if (options?.warnOnFallback !== false) {
+        AxSignature.warnAboutZodIssues(issues);
+      }
+    }
 
     try {
       return new AxSignature({
@@ -729,6 +772,32 @@ export class AxSignature<
         `Failed to create signature from Zod schema: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+  }
+
+  private static formatZodIssuesForSuggestion(
+    issues: ReadonlyArray<ZodConversionIssue>
+  ): string {
+    const details = issues.map((issue) => {
+      const target = issue.path.join('.');
+      const severity =
+        issue.severity === 'downgraded' ? 'downgraded' : 'unsupported';
+      return `[${issue.context}] ${target} → ${issue.fallbackType} (${severity}: ${issue.reason})`;
+    });
+    return `Review the following conversions:\n${details.join('\n')}`;
+  }
+
+  private static warnAboutZodIssues(
+    issues: ReadonlyArray<ZodConversionIssue>
+  ): void {
+    const messageLines = issues.map((issue) => {
+      const target = issue.path.join('.');
+      return `  - [${issue.context}] ${target} → ${issue.fallbackType}${issue.schemaType ? ` (${issue.schemaType})` : ''}: ${issue.reason}`;
+    });
+    const message = [
+      '[AxSignature.fromZod] Some schema fields were downgraded or fell back to json.',
+      ...messageLines,
+    ].join('\n');
+    console.warn(message);
   }
 
   private parseParsedField = (

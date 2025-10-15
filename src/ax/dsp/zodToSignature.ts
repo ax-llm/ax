@@ -27,6 +27,17 @@ type FieldTypeResult = {
   forceOptional?: boolean;
 };
 
+export type ZodConversionSeverity = 'downgraded' | 'unsupported';
+
+export type ZodConversionIssue = {
+  readonly path: readonly string[];
+  readonly context: 'input' | 'output';
+  readonly schemaType?: string;
+  readonly fallbackType: FieldTypeName;
+  readonly reason: string;
+  readonly severity: ZodConversionSeverity;
+};
+
 type UnwrappedSchema = {
   schema: ZodTypeAny;
   optional: boolean;
@@ -44,6 +55,8 @@ type ZodDef = {
   value?: unknown;
   values?: readonly string[] | Record<string, string | number>;
   options?: ZodTypeAny[];
+  entries?: Record<string, string | number>;
+  checks?: unknown[];
 };
 
 function getDef(schema: ZodTypeAny): ZodDef {
@@ -206,6 +219,71 @@ function toUniqueStrings(
   return [...seen];
 }
 
+function recordIssue(
+  issues: ZodConversionIssue[] | undefined,
+  context: 'input' | 'output',
+  path: readonly string[],
+  schemaType: string | undefined,
+  fallbackType: FieldTypeName,
+  reason: string,
+  severity: ZodConversionSeverity = 'unsupported'
+): void {
+  if (!issues) return;
+  issues.push({
+    context,
+    fallbackType,
+    path: [...path],
+    reason,
+    schemaType,
+    severity,
+  });
+}
+
+export type ZodObjectToSignatureOptions = {
+  readonly issues?: ZodConversionIssue[];
+  readonly basePath?: readonly string[];
+};
+
+function extractEnumValues(def: ZodDef): Array<string | number> | undefined {
+  const values = def.values;
+  if (Array.isArray(values)) {
+    return [...values];
+  }
+  if (values && typeof values === 'object') {
+    return Object.values(values as Record<string, string | number>);
+  }
+  if (def.entries && typeof def.entries === 'object') {
+    return Object.values(def.entries);
+  }
+  return undefined;
+}
+
+function hasStringCheck(def: ZodDef, keyword: string): boolean {
+  if (!Array.isArray(def.checks)) {
+    return false;
+  }
+  const lowerKeyword = keyword.toLowerCase();
+  return def.checks.some((rawCheck) => {
+    if (!rawCheck || typeof rawCheck !== 'object') {
+      return false;
+    }
+
+    const check = rawCheck as Record<string, unknown>;
+    const candidates = [
+      check.kind,
+      check.format,
+      check.type,
+      check.name,
+      (rawCheck as { constructor?: { name?: string } }).constructor?.name,
+    ];
+    return candidates.some(
+      (value) =>
+        typeof value === 'string' &&
+        value.toLowerCase().includes(lowerKeyword)
+    );
+  });
+}
+
 function mapLiteralUnion(
   values: (string | number | boolean)[]
 ): FieldTypeResult {
@@ -227,12 +305,21 @@ function mapLiteralUnion(
 
 function getFieldType(
   schema: ZodTypeAny,
-  context: 'input' | 'output'
+  context: 'input' | 'output',
+  path: readonly string[],
+  issues?: ZodConversionIssue[]
 ): FieldTypeResult {
   const typeToken = getTypeToken(schema);
+  const schemaDef = getDef(schema);
 
   switch (typeToken) {
     case 'string':
+      if (hasStringCheck(schemaDef, 'datetime')) {
+        return { type: { name: 'datetime' } };
+      }
+      if (hasStringCheck(schemaDef, 'url')) {
+        return { type: { name: 'url' } };
+      }
       return { type: { name: 'string' } };
     case 'number':
     case 'bigint':
@@ -248,6 +335,14 @@ function getFieldType(
         return { type: { name: 'boolean' } };
       }
       if (value === null || value === undefined) {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Literal unions containing null or undefined map to json'
+        );
         return { type: { name: 'json' } };
       }
       if (typeof value === 'string' || typeof value === 'number') {
@@ -261,8 +356,18 @@ function getFieldType(
       return { type: { name: 'json' } };
     }
     case 'enum': {
-      const values = getDef(schema).values as readonly string[] | undefined;
-      if (!values) {
+      const values = extractEnumValues(schemaDef)?.filter(
+        (value): value is string => typeof value === 'string'
+      );
+      if (!values || values.length === 0) {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Enum without values falls back to json'
+        );
         return { type: { name: 'json' } };
       }
       const options = toUniqueStrings(values);
@@ -277,19 +382,43 @@ function getFieldType(
       };
     }
     case 'nativeEnum': {
-      const rawValues = Object.values(
-        (getDef(schema).values ?? {}) as Record<string, string | number>
+      const enumValues =
+        extractEnumValues(schemaDef) ??
+        Object.values(
+          (schemaDef.values ?? schemaDef.entries ?? {}) as Record<
+            string,
+            string | number
+          >
+        );
+      if (!enumValues || enumValues.length === 0) {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Native enum with mixed or empty values falls back to json'
+        );
+        return { type: { name: 'json' } };
+      }
+      const stringValues = enumValues.filter(
+        (value): value is string => typeof value === 'string'
       );
-      const stringValues = rawValues.filter(
-        (value) => typeof value === 'string'
-      ) as string[];
-      const numberValues = rawValues.filter(
-        (value) => typeof value === 'number'
-      ) as number[];
+      const numberValues = enumValues.filter(
+        (value): value is number => typeof value === 'number'
+      );
       const options = stringValues.length
         ? toUniqueStrings(stringValues)
         : toUniqueStrings(numberValues);
       if (!options.length) {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Native enum with mixed or empty values falls back to json'
+        );
         return { type: { name: 'json' } };
       }
       if (context === 'input') {
@@ -332,6 +461,14 @@ function getFieldType(
               typeof literalValue !== 'number' &&
               typeof literalValue !== 'boolean')
           ) {
+            recordIssue(
+              issues,
+              context,
+              path,
+              typeToken,
+              'json',
+              'Union includes non-stringifiable literal, falling back to json'
+            );
             return { type: { name: 'json' }, forceOptional };
           }
           literalValues.push(literalValue as string | number | boolean);
@@ -339,12 +476,39 @@ function getFieldType(
           continue;
         }
 
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Union members beyond literals fall back to json'
+        );
         return { type: { name: 'json' }, forceOptional };
       }
 
       const mapped = mapLiteralUnion(literalValues);
       mapped.forceOptional ||= forceOptional;
+      if (mapped.type.name === 'json') {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Union with no literal members falls back to json'
+        );
+      }
       if (context === 'input' && mapped.type.name === 'class') {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'string',
+          'Ax inputs do not support class fields; downgraded to string',
+          'downgraded'
+        );
         return {
           type: {
             name: 'string',
@@ -366,13 +530,34 @@ function getFieldType(
           : undefined)) as ZodTypeAny | undefined;
 
       if (!rawElement) {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Array element type missing; falling back to json'
+        );
         return { type: { name: 'json' } };
       }
 
       const elementSchema = unwrapSchema(rawElement);
-      const elementType = getFieldType(elementSchema.schema, context);
+      const elementType = getFieldType(
+        elementSchema.schema,
+        context,
+        [...path, '*'],
+        issues
+      );
 
       if (elementType.type.isArray) {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Nested arrays are not supported; falling back to json'
+        );
         return {
           type: { name: 'json', isArray: true },
           forceOptional: elementType.forceOptional,
@@ -389,6 +574,15 @@ function getFieldType(
       };
 
       if (context === 'input' && result.type.name === 'class') {
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'string',
+          'Ax inputs do not support class fields; downgraded to string',
+          'downgraded'
+        );
         return {
           type: {
             name: 'string',
@@ -411,8 +605,24 @@ function getFieldType(
     case 'promise':
     case 'discriminatedUnion':
     case 'intersection':
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken,
+        'json',
+        `${typeToken ?? 'unknown'} schemas map to json`
+      );
       return { type: { name: 'json' } };
     default:
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken ?? 'unknown',
+        'json',
+        `${typeToken ?? 'unknown'} schemas map to json`
+      );
       return { type: { name: 'json' } };
   }
 }
@@ -432,14 +642,21 @@ function getObjectShape(schema: ZodObjectLike): Record<string, ZodTypeAny> {
 
 export function zodObjectToSignatureFields(
   schema: ZodObjectLike,
-  context: 'input' | 'output'
+  context: 'input' | 'output',
+  options?: ZodObjectToSignatureOptions
 ): AxField[] {
   const shape = getObjectShape(schema);
   const fields: AxField[] = [];
+  const basePath = options?.basePath ?? [];
 
   for (const [name, childSchema] of Object.entries(shape)) {
     const unwrapped = unwrapSchema(childSchema);
-    const fieldType = getFieldType(unwrapped.schema, context);
+    const fieldType = getFieldType(
+      unwrapped.schema,
+      context,
+      [...basePath, name],
+      options?.issues
+    );
 
     const description = unwrapped.description ?? childSchema.description;
     const isOptional = unwrapped.optional || fieldType.forceOptional;

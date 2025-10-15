@@ -219,14 +219,36 @@ const signature = AxSignature.fromZod({
 });
 ```
 
-> `AxSignature.fromZod` ships with full Zod v4 support. Inputs are inferred from `z.input<>`, outputs from `z.output<>`, so you keep end-to-end type safety without duplicating schema definitions.
+> `AxSignature.fromZod` covers the common Zod v4 primitives and warns whenever a field must be downgraded (for example, to `json`). Inputs use `z.input<>`, outputs use `z.output<>`, so you keep end-to-end type safety without duplicating schema definitions.
 
 **Mapping highlights**
 
-- `z.string()`, `z.number()`, `z.boolean()`, `z.date()` map to matching Ax field types.
+- `z.string()`, `z.number()`, `z.boolean()`, `z.date()` map to matching Ax field types. String refinements such as `.url()` and `.datetime()` become `url`/`datetime` field types.
 - `z.array()` becomes Ax arrays; nested arrays fall back to `json`.
-- Literal unions/`z.enum` values become classifications; input unions are exposed as `string` fields with `options` metadata (Ax intentionally disallows `class` inputs).
+- Literal unions/`z.enum`/`z.nativeEnum` values become classifications; input unions are exposed as `string` fields with `options` metadata (Ax intentionally disallows `class` inputs).
 - Optional/nullable/default/catch wrappers automatically mark the field optional.
+
+**Downgrades & strict mode**
+
+- Ax emits a console warning (once per conversion) when a field cannot be represented exactly. Pass `{ warnOnFallback: false }` to silence the warning.
+- Use `{ strict: true }` to throw if any field would be downgraded. The optional `onIssues` callback receives detailed metadata for custom logging or metrics.
+
+```typescript
+const signature = AxSignature.fromZod(
+  {
+    input: inputSchema,
+    output: outputSchema,
+  },
+  {
+    strict: false,
+    onIssues: (issues) => {
+      if (issues.length > 0) {
+        console.warn('Downgraded Zod fields', issues);
+      }
+    },
+  }
+);
+```
 
 **Standard Schema?**
 

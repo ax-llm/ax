@@ -18,11 +18,20 @@ const bugReportOutput = z.object({
   requiresHotfix: z.boolean(),
 });
 
-const bugReportSignature = AxSignature.fromZod({
-  description: 'Classify user bug reports and propose a triage plan',
-  input: bugReportInput,
-  output: bugReportOutput,
-});
+const bugReportSignature = AxSignature.fromZod(
+  {
+    description: 'Classify user bug reports and propose a triage plan',
+    input: bugReportInput,
+    output: bugReportOutput,
+  },
+  {
+    onIssues: (issues) => {
+      if (issues.length > 0) {
+        console.warn('[zod-signature-example] downgraded fields', issues);
+      }
+    },
+  }
+);
 
 const triageAgent = ax(bugReportSignature);
 

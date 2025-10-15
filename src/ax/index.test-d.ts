@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 // === Typesafe Signature Tests ===
 import { AxSignature } from './dsp/sig.js';
+import type { ZodConversionIssue } from './dsp/zodToSignature.js';
 
 // Test basic signature type inference
 const basicSig = AxSignature.create('question: string -> answer: string');
@@ -57,6 +58,22 @@ const zodInputOnly = AxSignature.fromZod({
   }),
 });
 expectType<AxSignature<{ search: string }, { result: string }>>(zodInputOnly);
+
+const strictZod = AxSignature.fromZod(
+  {
+    input: z.object({
+      query: z.string(),
+    }),
+  },
+  {
+    strict: true,
+    warnOnFallback: false,
+    onIssues: (issues) => {
+      expectType<readonly ZodConversionIssue[]>(issues);
+    },
+  }
+);
+expectType<AxSignature<{ query: string }, Record<string, never>>>(strictZod);
 
 // Test signature with missing types (should default to string)
 const missingTypesSig = AxSignature.create(

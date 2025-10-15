@@ -188,7 +188,7 @@ const summarize = ax(schema);
   more
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
-- ✅ **Zod v4 Ready** - Convert object schemas straight into signatures
+- ✅ **Zod-Friendly** - Convert schemas with automatic fallbacks and warnings
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
 - ✅ **Agentic Context Engineering** - ACE generator → reflector → curator loops
