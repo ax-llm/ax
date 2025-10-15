@@ -8,9 +8,8 @@ import {
   type ParsedSignature,
   parseSignature,
 } from './parser.js';
-import type { ZodObject } from 'zod';
-
 import type { ParseSignature } from './types.js';
+import type { ZodTypeAny } from 'zod';
 import {
   type InferZodInput,
   type InferZodOutput,
@@ -718,29 +717,34 @@ export class AxSignature<
     >;
   }
 
-  public static fromZod<
-    TInputSchema extends ZodObject<any, any> | undefined,
-    TOutputSchema extends ZodObject<any, any> | undefined,
-  >(config: {
-    description?: string;
-    input?: TInputSchema;
-    output?: TOutputSchema;
-  }, options?: AxSignatureFromZodOptions): AxSignature<
-    InferZodInput<TInputSchema>,
-    InferZodOutput<TOutputSchema>
-  > {
+  public static fromZod<TInputSchema, TOutputSchema>(
+    config: {
+      description?: string;
+      input?: TInputSchema;
+      output?: TOutputSchema;
+    },
+    options?: AxSignatureFromZodOptions
+  ): AxSignature<InferZodInput<TInputSchema>, InferZodOutput<TOutputSchema>> {
     const issues: ZodConversionIssue[] = [];
     const inputs = config.input
-      ? zodObjectToSignatureFields(config.input, 'input', {
-          issues,
-          basePath: ['input'],
-        })
+      ? zodObjectToSignatureFields(
+          config.input as unknown as ZodTypeAny,
+          'input',
+          {
+            issues,
+            basePath: ['input'],
+          }
+        )
       : [];
     const outputs = config.output
-      ? zodObjectToSignatureFields(config.output, 'output', {
-          issues,
-          basePath: ['output'],
-        })
+      ? zodObjectToSignatureFields(
+          config.output as unknown as ZodTypeAny,
+          'output',
+          {
+            issues,
+            basePath: ['output'],
+          }
+        )
       : [];
 
     if (issues.length) {
@@ -807,10 +811,7 @@ export class AxSignature<
     console.warn(message);
   }
 
-  public static debugZodConversion<
-    TInputSchema extends ZodObject<any, any> | undefined,
-    TOutputSchema extends ZodObject<any, any> | undefined,
-  >(
+  public static debugZodConversion<TInputSchema, TOutputSchema>(
     config: {
       description?: string;
       input?: TInputSchema;
@@ -849,7 +850,9 @@ export class AxSignature<
       options?.warnOnFallback !== false &&
       !collected.length
     ) {
-      console.info('[AxSignature.debugZodConversion] No Zod downgrades detected.');
+      console.info(
+        '[AxSignature.debugZodConversion] No Zod downgrades detected.'
+      );
     }
 
     return {
@@ -862,8 +865,9 @@ export class AxSignature<
     this.zodConversionIssues;
 
   public reportZodConversionIssues = (
-    logger: (issues: readonly ZodConversionIssue[]) => void =
-      AxSignature.warnAboutZodIssues
+    logger: (
+      issues: readonly ZodConversionIssue[]
+    ) => void = AxSignature.warnAboutZodIssues
   ): void => {
     const issues = this.getZodConversionIssues();
     if (issues.length === 0) {

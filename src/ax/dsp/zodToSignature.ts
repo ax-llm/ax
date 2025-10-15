@@ -1,8 +1,6 @@
-import type { z, ZodObject, ZodTypeAny } from 'zod';
+import type { ZodTypeAny } from 'zod';
 
 import type { AxField } from './sig.js';
-
-type ZodObjectLike = ZodObject<any, any>;
 
 type FieldTypeName =
   | 'string'
@@ -278,8 +276,7 @@ function hasStringCheck(def: ZodDef, keyword: string): boolean {
     ];
     return candidates.some(
       (value) =>
-        typeof value === 'string' &&
-        value.toLowerCase().includes(lowerKeyword)
+        typeof value === 'string' && value.toLowerCase().includes(lowerKeyword)
     );
   });
 }
@@ -346,10 +343,28 @@ function getFieldType(
         return { type: { name: 'json' } };
       }
       if (typeof value === 'string' || typeof value === 'number') {
+        const literalOptions = [String(value)];
+        if (context === 'input') {
+          recordIssue(
+            issues,
+            context,
+            path,
+            typeToken,
+            'string',
+            'Ax inputs do not support class fields; downgraded to string',
+            'downgraded'
+          );
+          return {
+            type: {
+              name: 'string',
+              options: literalOptions,
+            },
+          };
+        }
         return {
           type: {
             name: 'class',
-            options: [String(value)],
+            options: literalOptions,
           },
         };
       }
@@ -474,17 +489,17 @@ function getFieldType(
               typeof literalValue !== 'number' &&
               typeof literalValue !== 'boolean')
           ) {
-        recordIssue(
-          issues,
-          context,
-          path,
-          typeToken,
-          'json',
-          'Union includes non-stringifiable literal, falling back to json',
-          'downgraded'
-        );
-        return { type: { name: 'json' }, forceOptional };
-      }
+            recordIssue(
+              issues,
+              context,
+              path,
+              typeToken,
+              'json',
+              'Union includes literal that cannot be stringified, falling back to json',
+              'downgraded'
+            );
+            return { type: { name: 'json' }, forceOptional };
+          }
           literalValues.push(literalValue as string | number | boolean);
           forceOptional = forceOptional || unwrapped.optional;
           continue;
@@ -614,7 +629,7 @@ function getFieldType(
     }
     case 'record': {
       const keySchema = (schemaDef as { keyType?: ZodTypeAny }).keyType;
-      const valueSchema = (schemaDef as { valueType?: ZodTypeAny }).valueType;
+      const _valueSchema = (schemaDef as { valueType?: ZodTypeAny }).valueType;
       const keyToken = keySchema ? getTypeToken(keySchema) : undefined;
       const severity: ZodConversionSeverity =
         keyToken === 'string' ? 'downgraded' : 'unsupported';
@@ -622,15 +637,7 @@ function getFieldType(
         keyToken === 'string'
           ? 'Records with string keys remain json to preserve dynamic maps'
           : 'Records with non-string keys map to json';
-      recordIssue(
-        issues,
-        context,
-        path,
-        typeToken,
-        'json',
-        reason,
-        severity
-      );
+      recordIssue(issues, context, path, typeToken, 'json', reason, severity);
       return { type: { name: 'json' } };
     }
     case 'map': {
@@ -642,15 +649,7 @@ function getFieldType(
         keyToken === 'string'
           ? 'Maps convert to json objects with dynamic keys'
           : 'Maps with non-string keys map to json';
-      recordIssue(
-        issues,
-        context,
-        path,
-        typeToken,
-        'json',
-        reason,
-        severity
-      );
+      recordIssue(issues, context, path, typeToken, 'json', reason, severity);
       return { type: { name: 'json' } };
     }
     case 'set': {
@@ -660,7 +659,7 @@ function getFieldType(
         path,
         typeToken,
         'json',
-        'Sets are serialised as arrays; using json representation',
+        'Sets are serialized as arrays; using json representation',
         'downgraded'
       );
       return { type: { name: 'json' } };
@@ -716,13 +715,21 @@ function getFieldType(
   }
 }
 
-function getObjectShape(schema: ZodObjectLike): Record<string, ZodTypeAny> {
+function getObjectShape(schema: ZodTypeAny): Record<string, ZodTypeAny> {
   if (typeof (schema as { shape?: unknown }).shape === 'function') {
-    return (schema as { shape: () => Record<string, ZodTypeAny> }).shape();
+    return (
+      schema as unknown as {
+        shape: () => Record<string, ZodTypeAny>;
+      }
+    ).shape();
   }
 
   if ((schema as unknown as { shape?: Record<string, ZodTypeAny> }).shape) {
-    return (schema as unknown as { shape: Record<string, ZodTypeAny> }).shape;
+    return (
+      schema as unknown as {
+        shape: Record<string, ZodTypeAny>;
+      }
+    ).shape;
   }
 
   return (schema as unknown as { _def: { shape: Record<string, ZodTypeAny> } })
@@ -730,10 +737,17 @@ function getObjectShape(schema: ZodObjectLike): Record<string, ZodTypeAny> {
 }
 
 export function zodObjectToSignatureFields(
-  schema: ZodObjectLike,
+  schema: ZodTypeAny,
   context: 'input' | 'output',
   options?: ZodObjectToSignatureOptions
 ): AxField[] {
+  const typeToken = getTypeToken(schema);
+  if (typeToken !== 'object') {
+    throw new TypeError(
+      `Expected a Zod object schema for ${context}, received ${typeToken ?? 'unknown'}`
+    );
+  }
+
   const shape = getObjectShape(schema);
   const fields: AxField[] = [];
   const basePath = options?.basePath ?? [];
@@ -779,8 +793,22 @@ export function zodObjectToSignatureFields(
   return fields;
 }
 
-export type InferZodInput<T extends ZodObjectLike | undefined> =
-  T extends ZodObjectLike ? z.input<T> : Record<string, never>;
+type ZodInputType<T> = T extends { _input: infer U } ? U : never;
+type ZodOutputType<T> = T extends { _output: infer U } ? U : never;
+type NormalizeSchema<T> = T extends { _input: any; _output: any } ? T : never;
 
-export type InferZodOutput<T extends ZodObjectLike | undefined> =
-  T extends ZodObjectLike ? z.output<T> : Record<string, never>;
+export type InferZodInput<T> = NormalizeSchema<T> extends infer S
+  ? S extends { _input: any; _output: any }
+    ? ZodInputType<S> extends Record<string, any>
+      ? ZodInputType<S>
+      : Record<string, never>
+    : Record<string, never>
+  : never;
+
+export type InferZodOutput<T> = NormalizeSchema<T> extends infer S
+  ? S extends { _input: any; _output: any }
+    ? ZodOutputType<S> extends Record<string, any>
+      ? ZodOutputType<S>
+      : Record<string, never>
+    : Record<string, never>
+  : never;

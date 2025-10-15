@@ -193,7 +193,7 @@ AxSignature.debugZodConversion({
 // Emit a warning-style report when issues exist
 ticketSignature.reportZodConversionIssues();
 
-const summarize = ax(schema);
+const summarize = ax(ticketSignature);
 ```
 
 ## Powerful Features, Zero Complexity

@@ -125,7 +125,11 @@ describe('AxSignature.fromZod', () => {
       {
         name: 'tags',
         title: 'Tags',
-        type: { name: 'string', isArray: true, options: ['bug', 'feature', 'question'] },
+        type: {
+          name: 'string',
+          isArray: true,
+          options: ['bug', 'feature', 'question'],
+        },
       },
     ]);
 
@@ -143,12 +147,70 @@ describe('AxSignature.fromZod', () => {
     ]);
 
     expect(collected).toMatchObject([
-      { path: ['input', 'tone'], reason: expect.stringContaining('Ax inputs do not support class fields') },
+      {
+        path: ['input', 'tone'],
+        reason: expect.stringContaining(
+          'Ax inputs do not support class fields'
+        ),
+      },
     ]);
     expect(signature.getZodConversionIssues()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           path: ['input', 'tone'],
+        }),
+      ])
+    );
+  });
+
+  it('downgrades literal inputs to string metadata and records issues', () => {
+    const signature = AxSignature.fromZod(
+      {
+        input: z.object({
+          state: z.literal('ready'),
+          attempts: z.literal(3),
+        }),
+        output: z.object({
+          outcome: z.literal('success'),
+        }),
+      },
+      { warnOnFallback: false }
+    );
+
+    expect(signature.getInputFields()).toEqual([
+      {
+        name: 'state',
+        title: 'State',
+        type: { name: 'string', options: ['ready'] },
+      },
+      {
+        name: 'attempts',
+        title: 'Attempts',
+        type: { name: 'string', options: ['3'] },
+      },
+    ]);
+
+    expect(signature.getOutputFields()).toEqual([
+      {
+        name: 'outcome',
+        title: 'Outcome',
+        type: { name: 'class', options: ['success'] },
+      },
+    ]);
+
+    expect(signature.getZodConversionIssues()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ['input', 'state'],
+          fallbackType: 'string',
+          severity: 'downgraded',
+          reason: expect.stringContaining('downgraded to string'),
+        }),
+        expect.objectContaining({
+          path: ['input', 'attempts'],
+          fallbackType: 'string',
+          severity: 'downgraded',
+          reason: expect.stringContaining('downgraded to string'),
         }),
       ])
     );
@@ -339,7 +401,6 @@ describe('AxSignature.fromZod', () => {
         type: { name: 'date' },
       },
     ]);
-
   });
 
   it('warns on fallback by default and throws in strict mode', () => {
@@ -371,7 +432,9 @@ describe('AxSignature.fromZod', () => {
         },
         { strict: true }
       )
-    ).toThrowError(/Unsupported Zod schema elements encountered during conversion/);
+    ).toThrowError(
+      /Unsupported Zod schema elements encountered during conversion/
+    );
   });
 
   it('exposes conversion issues and debug helper output', () => {

@@ -1,4 +1,4 @@
-import { AxSignature, ax } from '@ax-llm/ax';
+import { AxSignature } from '@ax-llm/ax';
 import { z } from 'zod';
 
 const bugReportInput = z.object({
@@ -35,10 +35,11 @@ const bugReportSignature = AxSignature.fromZod(
 
 const conversionIssues = bugReportSignature.getZodConversionIssues();
 if (conversionIssues.length > 0) {
-  console.warn('[zod-signature-example] conversion issues stored on signature', conversionIssues);
+  console.warn(
+    '[zod-signature-example] conversion issues stored on signature',
+    conversionIssues
+  );
 }
-
-const triageAgent = ax(bugReportSignature);
 
 async function main() {
   console.log('Bug report signature inputs:');
