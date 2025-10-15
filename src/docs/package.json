@@ -22,7 +22,7 @@
     "@astrojs/tailwind": "^6.0.2",
     "@ax-llm/ax": "file:../ax",
     "@mlc-ai/web-llm": "^0.2.79",
-    "@tailwindcss/typography": "^0.5.16",
+    "@tailwindcss/typography": "^0.5.19",
     "astro": "^5.14.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
