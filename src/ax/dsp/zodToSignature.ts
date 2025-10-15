@@ -157,24 +157,15 @@ function unwrapSchema(schema: ZodTypeAny): UnwrappedSchema {
       continue;
     }
 
-    if (typeToken === 'effects') {
-      const next = getDef(current).schema;
-      if (!next || typeof next !== 'object') {
-        break;
-      }
-      current = next as ZodTypeAny;
-      description ??= current.description;
-      continue;
-    }
-
-    if (typeToken === 'pipeline') {
-      const next = getDef(current).out;
-      if (!next || typeof next !== 'object') {
-        break;
-      }
-      current = next as ZodTypeAny;
-      description ??= current.description;
-      continue;
+    if (
+      typeToken === 'effects' ||
+      typeToken === 'pipeline' ||
+      typeToken === 'pipe'
+    ) {
+      // Zod effects/pipeline nodes wrap transformations/refinements that can
+      // change runtime data. We keep the wrapper intact so the caller can
+      // detect the downgrade (handled in getFieldType).
+      break;
     }
 
     if (typeToken === 'branded') {
@@ -662,6 +653,20 @@ function getFieldType(
         typeToken,
         'json',
         'Sets are serialized as arrays; using json representation',
+        'downgraded'
+      );
+      return { type: { name: 'json' } };
+    }
+    case 'effects':
+    case 'pipeline':
+    case 'pipe': {
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken,
+        'json',
+        'Zod transformations (effects/pipe) may alter runtime types; falling back to json',
         'downgraded'
       );
       return { type: { name: 'json' } };

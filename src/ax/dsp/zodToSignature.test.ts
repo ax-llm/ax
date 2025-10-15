@@ -111,6 +111,18 @@ describe('AxSignature.fromZod', () => {
 
     const inputFields = signature.getInputFields();
 
+    if (process.env.DEBUG_ZOD_TRANSFORMS) {
+      // eslint-disable-next-line no-console
+      console.log('nullable/default input', inputFields);
+      // eslint-disable-next-line no-console
+      console.log('nullable/default output', outputFields);
+      // eslint-disable-next-line no-console
+      console.log(
+        'nullable/default issues',
+        signature.getZodConversionIssues()
+      );
+    }
+
     expect(inputFields).toEqual([
       {
         name: 'tone',
@@ -265,6 +277,64 @@ describe('AxSignature.fromZod', () => {
         type: { name: 'string' },
       },
     ]);
+
+    expect(signature.getZodConversionIssues()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ['input', 'pipeline'],
+          fallbackType: 'json',
+          severity: 'downgraded',
+        }),
+      ])
+    );
+  });
+
+  it('downgrades Zod transforms to json fields with issues', () => {
+    const signature = AxSignature.fromZod(
+      {
+        input: z.object({
+          transformed: z.string().transform((value) => value.length),
+        }),
+        output: z.object({
+          converted: z
+            .string()
+            .transform((value) => ({ length: value.length })),
+        }),
+      },
+      { warnOnFallback: false }
+    );
+
+    expect(signature.getInputFields()).toEqual([
+      {
+        name: 'transformed',
+        title: 'Transformed',
+        type: { name: 'json' },
+      },
+    ]);
+
+    expect(signature.getOutputFields()).toEqual([
+      {
+        name: 'converted',
+        title: 'Converted',
+        type: { name: 'json' },
+      },
+    ]);
+
+    expect(signature.getZodConversionIssues()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ['input', 'transformed'],
+          fallbackType: 'json',
+          severity: 'downgraded',
+        }),
+        expect.objectContaining({
+          path: ['output', 'converted'],
+          fallbackType: 'json',
+          severity: 'downgraded',
+          schemaType: expect.any(String),
+        }),
+      ])
+    );
   });
 
   it('handles arrays and nested objects by falling back to json where needed', () => {
