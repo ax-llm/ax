@@ -221,7 +221,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 
 ## License
 
-MIT - Use it anywhere, build anything.
+Apache 2 - Use it anywhere, build anything.
 
 ---
 

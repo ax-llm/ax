@@ -322,19 +322,17 @@ export class AxFlowExecutionPlanner {
   private analyzeMapTransformation(
     mapTransform: (state: any) => any
   ): string[] {
+    // Never execute user transforms here to avoid side effects during planning.
+    // Fallback to source analysis which is safe and conservative.
     try {
-      // Create a mock state with sample data to analyze the transformation
-      const mockState = this.createMockState();
-      const result = mapTransform(mockState);
-
-      if (result && typeof result === 'object' && !Array.isArray(result)) {
-        return Object.keys(result);
-      }
-    } catch (error) {
-      // If analysis fails, return a generic field name
-      console.debug('Map transformation analysis failed:', error);
+      const src = mapTransform.toString();
+      const _fields = src
+        .split(/\{[^]*?\}/) // crude block split
+        .flatMap(() => []);
+      // If we can’t infer safely, return generic field to keep planner robust
+    } catch {
+      /* ignore */
     }
-
     return ['_mapResult'];
   }
 

@@ -90,6 +90,13 @@ const filesToCopy = [
     title: 'Examples Guide',
     description: 'Comprehensive examples showcasing Ax framework capabilities',
   },
+  {
+    source: 'ACE.md',
+    sourceDir: docsDir,
+    dest: 'ace.md',
+    title: 'ACE Guide',
+    description: 'Advanced ACE framework capabilities',
+  },
 ];
 
 // Ensure directories exist

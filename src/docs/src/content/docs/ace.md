@@ -1,3 +1,8 @@
+---
+title: "ACE Guide"
+description: "Advanced ACE framework capabilities"
+---
+
 # Agentic Context Engineering (ACE)
 
 ACE (Agentic Context Engineering) provides a structured approach to evolving AI program context through iterative refinement loops. Unlike traditional prompt optimization, ACE maintains a persistent, structured "playbook" that grows and adapts over time.
@@ -429,7 +434,7 @@ const delta = await optimizer.applyOnlineUpdate({ example, prediction, feedback 
 
 ## See Also
 
-- [OPTIMIZE.md](OPTIMIZE.md) - Main optimization guide
-- [MIPRO.md](MIPRO.md) - MiPRO optimizer documentation
-- [GEPA.md](GEPA.md) - Multi-objective optimization
+- [OPTIMIZE.md](/optimize/) - Main optimization guide
+- [MIPRO.md](/mipro/) - MiPRO optimizer documentation
+- [GEPA.md](/gepa/) - Multi-objective optimization
 - `src/examples/ace-train-inference.ts` - Complete working example

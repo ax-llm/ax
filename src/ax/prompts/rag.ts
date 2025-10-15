@@ -235,10 +235,13 @@ export const axRAG = (
 
       // Synthesize evidence from current iteration
       .execute('evidenceSynthesizer', (state) => {
-        const evidence = [
-          ...(state.allEvidence || []),
-          ...(state.retrievalResults || []),
-        ].filter(Boolean);
+        const priorEvidence = Array.isArray(state.allEvidence)
+          ? state.allEvidence
+          : [];
+        const newRetrievals = Array.isArray((state as any).retrievalResults)
+          ? (state as any).retrievalResults
+          : [];
+        const evidence = [...priorEvidence, ...newRetrievals].filter(Boolean);
 
         return {
           collectedEvidence:
@@ -258,9 +261,18 @@ export const axRAG = (
       // Update state with new evidence and gap analysis
       .map((state) => ({
         ...state,
-        allEvidence: [...state.allEvidence, ...state.retrievalResults],
+        allEvidence: [
+          ...((Array.isArray(state.allEvidence)
+            ? state.allEvidence
+            : []) as string[]),
+          ...(Array.isArray((state as any).retrievalResults)
+            ? ((state as any).retrievalResults as string[])
+            : []),
+        ],
         evidenceSources: [
-          ...state.evidenceSources,
+          ...((Array.isArray(state.evidenceSources)
+            ? state.evidenceSources
+            : []) as string[]),
           `Iteration ${state.iteration} sources`,
         ],
         needsMoreInfo: state.gapAnalyzerResult.needsMoreInfo,
@@ -272,10 +284,19 @@ export const axRAG = (
 
       // Phase 3: Generate initial comprehensive answer
       .execute('answerGenerator', (state) => ({
-        finalContext:
-          state.accumulatedContext ||
-          state.synthesizedEvidence ||
-          state.allEvidence.join('\n'),
+        finalContext: (() => {
+          const fromAccumulated = (state.accumulatedContext || '')
+            .toString()
+            .trim();
+          if (fromAccumulated.length > 0) return fromAccumulated;
+          const fromSynth = (state.synthesizedEvidence || '').toString().trim();
+          if (fromSynth.length > 0) return fromSynth;
+          const fromAll = Array.isArray(state.allEvidence)
+            ? (state.allEvidence as string[]).filter(Boolean).join('\n')
+            : '';
+          const fallback = fromAll.toString().trim();
+          return fallback.length > 0 ? fallback : 'No context available.';
+        })(),
         originalQuestion: state.originalQuestion,
       }))
 

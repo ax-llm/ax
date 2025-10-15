@@ -18,6 +18,14 @@ through automatic optimization. **Time to first results**: 5 minutes
 - [📖 Complete Working Example](#-complete-working-example)
 - [🎯 Key Takeaways](#-key-takeaways)
 
+## 📚 Detailed Optimizer Guides
+
+For in-depth documentation on specific optimizers, see:
+
+- **[MiPRO](MIPRO.md)** - Multi-Prompt Optimization (recommended for most use cases)
+- **[GEPA](GEPA.md)** - Multi-objective optimization with Pareto frontiers
+- **[ACE](ACE.md)** - Agentic Context Engineering for structured, evolving playbooks
+
 ---
 
 ## What is LLM Optimization?
@@ -752,6 +760,8 @@ const optimizer = new AxBootstrapFewShot({
 
 ### 2. Agentic Context Engineering (ACE)
 
+> **📖 Full Documentation**: See [ACE.md](ACE.md) for complete ACE guide
+
 **The Problem**: Iteratively rewriting a giant system prompt causes brevity bias and context collapse—hard-won strategies disappear after a few updates. You need a way to grow and refine a durable playbook both offline and online.
 
 **The Solution**: Use `AxACE`, an optimizer that mirrors the ACE paper's Generator → Reflector → Curator loop. It represents context as structured bullets, applies incremental deltas, and returns a serialized playbook you can save, load, and keep updating at inference time.
@@ -831,6 +841,8 @@ const onlineCuratorDelta = await onlineOptimizer.applyOnlineUpdate({
 > **📖 Full Example**: `src/examples/ace-train-inference.ts` demonstrates offline training plus an online adaptation pass.
 
 ### 3. Multi-Objective Optimization with GEPA and GEPA-Flow
+
+> **📖 Full Documentation**: See [GEPA.md](GEPA.md) for complete GEPA guide
 
 **The Problem**: Sometimes you care about multiple things at once - accuracy AND
 speed AND cost. Traditional optimization only handles one objective at a time.

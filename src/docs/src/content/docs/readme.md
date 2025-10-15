@@ -65,6 +65,8 @@ expertise needed.
 ### Extract Structured Data from Customer Emails
 
 ```typescript
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+
 const extractor = ax(`
   customerEmail:string, currentDate:datetime -> 
   priority:class "high, normal, low",
@@ -74,7 +76,7 @@ const extractor = ax(`
   estimatedResponseTime:string
 `);
 
-const result = await extractor.forward(ai, {
+const result = await extractor.forward(llm, {
   customerEmail: "Order #12345 hasn't arrived. Need this resolved immediately!",
   currentDate: new Date(),
 });
@@ -84,6 +86,8 @@ const result = await extractor.forward(ai, {
 ### Build Agents That Use Tools (ReAct Pattern)
 
 ```typescript
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+
 const assistant = ax(
   "question:string -> answer:string",
   {
@@ -94,7 +98,7 @@ const assistant = ax(
   },
 );
 
-const result = await assistant.forward(ai, {
+const result = await assistant.forward(llm, {
   question: "What's the weather in Tokyo and any news about it?",
 });
 // AI automatically calls both functions and combines results
@@ -141,6 +145,24 @@ const result = await translator.forward(llm, {
 console.log(result.translation); // "Hola mundo"
 ```
 
+### Fluent Signature API
+
+```typescript
+import { ai, ax, f } from "@ax-llm/ax";
+
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+
+const signature = f()
+  .input("userQuestion", f.string("User question"))
+  .output("responseText", f.string("AI response"))
+  .output("confidenceScore", f.number("Confidence 0-1"))
+  .build();
+
+const generator = ax(signature.toString());
+const result = await generator.forward(llm, { userQuestion: "What is Ax?" });
+console.log(result.responseText, result.confidenceScore);
+```
+
 ## Powerful Features, Zero Complexity
 
 - ✅ **15+ LLM Providers** - OpenAI, Anthropic, Google, Mistral, Ollama, and
@@ -149,6 +171,8 @@ console.log(result.translation); // "Hola mundo"
 - ✅ **Streaming First** - Real-time responses with validation
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
+- ✅ **Agentic Context Engineering** - ACE generator → reflector → curator loops
+- ✅ **Multi-Objective Optimization** - GEPA and GEPA-Flow (Pareto frontier)
 - ✅ **Production Observability** - OpenTelemetry tracing built-in
 - ✅ **Advanced Workflows** - Compose complex pipelines with AxFlow
 - ✅ **Enterprise RAG** - Multi-hop retrieval with quality loops
@@ -165,12 +189,14 @@ console.log(result.translation); // "Hola mundo"
   Comprehensive examples with explanations
 - [**DSPy Concepts**](/dspy/) -
   Understand the revolutionary approach
+- [**Signatures Guide**](/signatures/) -
+  Design expressive, type-safe signatures
 
 ### 📚 Deep Dives
 
 - [**AxFlow Workflows**](/axflow/) -
   Build complex AI systems
-- [**Optimization Guide**](/optimize/) -
+- [**Optimization Guide (MiPRO, ACE, GEPA, GEPA-Flow)**](/optimize/) -
   Make your programs smarter
 - [**Advanced RAG**](/axrag/) -
   Production search & retrieval
@@ -203,6 +229,10 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
   optimization
 - [mipro-python-optimizer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mipro-python-optimizer.ts) - Advanced
   MIPRO optimization
+- [gepa-quality-vs-speed-optimization.ts](https://github.com/ax-llm/ax/blob/main/src/examples/gepa-quality-vs-speed-optimization.ts) -
+  Multi-objective GEPA optimization (quality vs speed trade-offs)
+- [ace-train-inference.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ace-train-inference.ts) - ACE playbook
+  growth with offline + online updates
 - [ax-flow-enhanced-demo.ts](https://github.com/ax-llm/ax/blob/main/src/examples/ax-flow-enhanced-demo.ts) - Complex
   workflows
 
@@ -224,9 +254,15 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 - ✅ **OpenTelemetry** - Built-in observability
 - ✅ **TypeScript first** - Type-safe by design
 
+## Contributors
+
+- Author: [@dosco](https://github.com/dosco)
+- GEPA and ACE optimizer implementations:
+  [@monotykamary](https://github.com/monotykamary)
+
 ## License
 
-MIT - Use it anywhere, build anything.
+Apache 2 - Use it anywhere, build anything.
 
 ---
 

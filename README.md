@@ -226,7 +226,8 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
   MIPRO optimization
 - [gepa-quality-vs-speed-optimization.ts](src/examples/gepa-quality-vs-speed-optimization.ts) -
   Multi-objective GEPA optimization (quality vs speed trade-offs)
-- [ace-train-inference.ts](src/examples/ace-train-inference.ts) - ACE playbook growth with offline + online updates
+- [ace-train-inference.ts](src/examples/ace-train-inference.ts) - ACE playbook
+  growth with offline + online updates
 - [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex
   workflows
 
@@ -248,9 +249,15 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 - ✅ **OpenTelemetry** - Built-in observability
 - ✅ **TypeScript first** - Type-safe by design
 
+## Contributors
+
+- Author: [@dosco](https://github.com/dosco)
+- GEPA and ACE optimizer implementations:
+  [@monotykamary](https://github.com/monotykamary)
+
 ## License
 
-MIT - Use it anywhere, build anything.
+Apache 2 - Use it anywhere, build anything.
 
 ---
 
