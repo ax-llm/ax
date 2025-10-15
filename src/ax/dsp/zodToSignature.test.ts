@@ -310,6 +310,30 @@ describe('AxSignature.fromZod', () => {
     ]);
   });
 
+  it('keeps array fields required when only the elements are optional', () => {
+    const signature = AxSignature.fromZod(
+      {
+        input: z.object({
+          tags: z.array(z.string().optional()),
+        }),
+        output: z.object({
+          ok: z.boolean(),
+        }),
+      },
+      { warnOnFallback: false }
+    );
+
+    expect(signature.getInputFields()).toEqual([
+      {
+        name: 'tags',
+        title: 'Tags',
+        type: { name: 'string', isArray: true },
+      },
+    ]);
+
+    expect(signature.getZodConversionIssues()).toEqual([]);
+  });
+
   it('falls back to json for unsupported schema constructions', () => {
     const signature = AxSignature.fromZod(
       {

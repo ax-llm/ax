@@ -596,13 +596,15 @@ function getFieldType(
         };
       }
 
-      const result = {
+      // Array optionality should be controlled by wrappers on the array schema
+      // itself (handled via unwrapSchema). Optional element schemas must not
+      // leak up and mark the entire array field as optional.
+      const result: FieldTypeResult = {
         type: {
           name: elementType.type.name,
           isArray: true,
           options: elementType.type.options,
         },
-        forceOptional: elementSchema.optional || elementType.forceOptional,
       };
 
       if (context === 'input' && result.type.name === 'class') {
