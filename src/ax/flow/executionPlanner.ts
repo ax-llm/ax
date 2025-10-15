@@ -327,7 +327,7 @@ export class AxFlowExecutionPlanner {
     try {
       const src = mapTransform.toString();
       const _fields = src
-        .split(/\{[^]*?\}/) // crude block split
+        .split(/\{[\s\S]*?\}/) // crude block split
         .flatMap(() => []);
       // If we can’t infer safely, return generic field to keep planner robust
     } catch {
