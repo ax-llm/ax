@@ -1,5 +1,23 @@
 # Changelog
 
+## [14.0.32](https://github.com/ax-llm/ax/compare/14.0.30...14.0.31) (2025-10-15)
+
+### Features
+
+* **ace:** implement agentic context engineering ([#386](https://github.com/ax-llm/ax/issues/386)) ([a54eb50](https://github.com/ax-llm/ax/commit/a54eb50b9069eae5e00d02c683cdce459e7d596c))
+
+### Bug Fixes
+
+* **flow/planner:** update regex for block splitting to handle whitespace correctly ([7e8ad09](https://github.com/ax-llm/ax/commit/7e8ad09ff599c8660f0754c4b71c28bee2026774))
+* handle numeric zero values in prompt field rendering ([#382](https://github.com/ax-llm/ax/issues/382)) ([d06849c](https://github.com/ax-llm/ax/commit/d06849c70c1cc2d61f5ab82c435fbbc3b027e190))
+* log originating error in balancer ([#385](https://github.com/ax-llm/ax/issues/385)) ([70ca5e5](https://github.com/ax-llm/ax/commit/70ca5e563f706a00d9a858dbdae5f4b047b94c8f))
+* **rag): guard undefined retrievalResults and guarantee non-empty finalContext; fix(flow/planner:** avoid executing map transforms during analysis to prevent mock side effects; build: green across workspaces; closes [#323](https://github.com/ax-llm/ax/issues/323) ([d1bce5b](https://github.com/ax-llm/ax/commit/d1bce5b5f2bb32100a8fb2c90041ff0979d30a8b))
+## [14.0.31](https://github.com/ax-llm/ax/compare/14.0.30...14.0.31) (2025-10-08)
+
+### Features
+
+* add thoughtBlock to AxChatResponseResult and enhance validation ([7b49f65](https://github.com/ax-llm/ax/commit/7b49f65bf5474fb1c9e337e76e231c74ad21da98))
+
 ## [14.0.31](https://github.com/ax-llm/ax/compare/14.0.29...14.0.30) (2025-10-08)
 
 ### Features
