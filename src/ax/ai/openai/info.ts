@@ -27,6 +27,12 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     completionTokenCostPer1M: 1.6,
   },
   {
+    name: AxAIOpenAIModel.GPT41Nano,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.1,
+    completionTokenCostPer1M: 0.4,
+  },
+  {
     name: AxAIOpenAIModel.GPT4O,
     currency: 'usd',
     promptTokenCostPer1M: 5,
@@ -160,6 +166,12 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 0.4,
     completionTokenCostPer1M: 1.6,
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT41Nano,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.1,
+    completionTokenCostPer1M: 0.4,
   },
   {
     name: AxAIOpenAIResponsesModel.GPT4O,
