@@ -1,4 +1,9 @@
-import { AxMockAIService, AxSignature, flow } from '@ax-llm/ax';
+import {
+  AxMockAIService,
+  AxSignature,
+  flow,
+  type AxChatResponse,
+} from '@ax-llm/ax';
 import { z } from 'zod';
 
 const ticketInputSchema = z.object({
@@ -54,22 +59,28 @@ const triageFlow = flow<TicketInput, TicketOutput>()
     suggestedOwners: state.triageResult.suggestedOwners,
   }));
 
-const mockAI = new AxMockAIService({
-  chatResponse: async () => ({
-    results: [
-      {
-        index: 0,
-        content:
-          'Recommended Action: escalate\nPriority: P1\nSuggested Owners: ["incident-response","platform-oncall"]',
-        finishReason: 'stop',
-      },
-    ],
-    modelUsage: {
-      ai: 'mock',
-      model: 'zod-flow-mock',
-      tokens: { promptTokens: 42, completionTokens: 58, totalTokens: 100 },
+const mockResponse: AxChatResponse = {
+  results: [
+    {
+      index: 0,
+      content:
+        'Recommended Action: escalate\nPriority: P1\nSuggested Owners: ["incident-response","platform-oncall"]',
+      finishReason: 'stop',
     },
-  }),
+  ],
+  modelUsage: {
+    ai: 'mock',
+    model: 'zod-flow-mock',
+    tokens: {
+      promptTokens: 42,
+      completionTokens: 58,
+      totalTokens: 100,
+    },
+  },
+};
+
+const mockAI = new AxMockAIService<string>({
+  chatResponse: async () => mockResponse,
 });
 
 const sampleTicket: TicketInput = {
@@ -81,7 +92,10 @@ const sampleTicket: TicketInput = {
 };
 
 async function main() {
-  console.log('[zod-flow-example] ticket signature:', ticketSignature.toString());
+  console.log(
+    '[zod-flow-example] ticket signature:',
+    ticketSignature.toString()
+  );
   if (issues.length > 0) {
     console.warn('[zod-flow-example] stored issues:', issues);
   }
