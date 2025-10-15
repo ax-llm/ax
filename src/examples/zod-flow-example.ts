@@ -1,4 +1,4 @@
-import { AxFlow, AxMockAIService, AxSignature } from '@ax-llm/ax';
+import { AxMockAIService, AxSignature, flow } from '@ax-llm/ax';
 import { z } from 'zod';
 
 const ticketInputSchema = z.object({
@@ -45,7 +45,7 @@ const { signature: ticketSignature, issues } = AxSignature.debugZodConversion(
 type TicketInput = z.input<typeof ticketInputSchema>;
 type TicketOutput = z.output<typeof ticketOutputSchema>;
 
-const triageFlow = AxFlow.create<TicketInput, TicketOutput>()
+const triageFlow = flow<TicketInput, TicketOutput>()
   .node('triage', ticketSignature)
   .execute('triage', (state) => state)
   .map((state) => ({
