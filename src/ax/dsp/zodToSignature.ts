@@ -52,9 +52,52 @@ function getDef(schema: ZodTypeAny): ZodDef {
     {}) as ZodDef;
 }
 
+const TYPE_TOKEN_MAP: Record<string, string> = {
+  ZodString: 'string',
+  ZodNumber: 'number',
+  ZodBigInt: 'bigint',
+  ZodNaN: 'nan',
+  ZodBoolean: 'boolean',
+  ZodDate: 'date',
+  ZodLiteral: 'literal',
+  ZodEnum: 'enum',
+  ZodNativeEnum: 'nativeEnum',
+  ZodUnion: 'union',
+  ZodDiscriminatedUnion: 'discriminatedUnion',
+  ZodIntersection: 'intersection',
+  ZodArray: 'array',
+  ZodTuple: 'tuple',
+  ZodRecord: 'record',
+  ZodMap: 'map',
+  ZodSet: 'set',
+  ZodObject: 'object',
+  ZodFunction: 'function',
+  ZodLazy: 'lazy',
+  ZodPromise: 'promise',
+  ZodOptional: 'optional',
+  ZodNullable: 'nullable',
+  ZodDefault: 'default',
+  ZodCatch: 'catch',
+  ZodEffects: 'effects',
+  ZodPipeline: 'pipeline',
+  ZodBranded: 'branded',
+  ZodReadonly: 'readonly',
+  ZodAny: 'any',
+  ZodUnknown: 'unknown',
+  ZodNever: 'never',
+  ZodVoid: 'void',
+  ZodUndefined: 'undefined',
+  ZodNull: 'null',
+  ZodSymbol: 'symbol',
+};
+
 function getTypeToken(schema: ZodTypeAny): string | undefined {
   const def = getDef(schema);
-  return def.typeName ?? def.type;
+  const raw = def.typeName ?? def.type;
+  if (!raw) {
+    return raw;
+  }
+  return TYPE_TOKEN_MAP[raw] ?? raw;
 }
 
 function getLiteralValue(schema: ZodTypeAny): unknown {
@@ -222,10 +265,14 @@ function getFieldType(
       if (!values) {
         return { type: { name: 'json' } };
       }
+      const options = toUniqueStrings(values);
+      if (context === 'input') {
+        return { type: { name: 'string', options } };
+      }
       return {
         type: {
           name: 'class',
-          options: toUniqueStrings(values),
+          options,
         },
       };
     }
@@ -244,6 +291,9 @@ function getFieldType(
         : toUniqueStrings(numberValues);
       if (!options.length) {
         return { type: { name: 'json' } };
+      }
+      if (context === 'input') {
+        return { type: { name: 'string', options } };
       }
       return {
         type: {
