@@ -158,12 +158,37 @@ const result = await generator.forward(llm, { userQuestion: "What is Ax?" });
 console.log(result.responseText, result.confidenceScore);
 ```
 
+### Bring Your Own Zod Schemas
+
+Reuse existing validation schemas without rewriting them:
+
+```typescript
+import { AxSignature, ax } from "@ax-llm/ax";
+import { z } from "zod";
+
+const schema = AxSignature.fromZod({
+  description: "Summarize support tickets",
+  input: z.object({
+    subject: z.string(),
+    body: z.string(),
+    urgency: z.enum(["low", "normal", "high"]).optional(),
+  }),
+  output: z.object({
+    summary: z.string(),
+    sentiment: z.enum(["positive", "neutral", "negative"]),
+  }),
+});
+
+const summarize = ax(schema);
+```
+
 ## Powerful Features, Zero Complexity
 
 - ✅ **15+ LLM Providers** - OpenAI, Anthropic, Google, Mistral, Ollama, and
   more
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
+- ✅ **Zod v4 Ready** - Convert object schemas straight into signatures
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
 - ✅ **Agentic Context Engineering** - ACE generator → reflector → curator loops

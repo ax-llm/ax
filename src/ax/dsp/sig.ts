@@ -8,7 +8,14 @@ import {
   type ParsedSignature,
   parseSignature,
 } from './parser.js';
+import type { ZodObject } from 'zod';
+
 import type { ParseSignature } from './types.js';
+import {
+  type InferZodInput,
+  type InferZodOutput,
+  zodObjectToSignatureFields,
+} from './zodToSignature.js';
 // Interface for programmatically defining field types
 export interface AxFieldType {
   readonly type:
@@ -687,6 +694,41 @@ export class AxSignature<
       ParseSignature<T>['inputs'],
       ParseSignature<T>['outputs']
     >;
+  }
+
+  public static fromZod<
+    TInputSchema extends ZodObject<any, any> | undefined,
+    TOutputSchema extends ZodObject<any, any> | undefined,
+  >(config: {
+    description?: string;
+    input?: TInputSchema;
+    output?: TOutputSchema;
+  }): AxSignature<InferZodInput<TInputSchema>, InferZodOutput<TOutputSchema>> {
+    const inputs = config.input
+      ? zodObjectToSignatureFields(config.input, 'input')
+      : [];
+    const outputs = config.output
+      ? zodObjectToSignatureFields(config.output, 'output')
+      : [];
+
+    try {
+      return new AxSignature({
+        description: config.description,
+        inputs,
+        outputs,
+      }) as AxSignature<
+        InferZodInput<TInputSchema>,
+        InferZodOutput<TOutputSchema>
+      >;
+    } catch (error) {
+      if (error instanceof AxSignatureValidationError) {
+        throw error;
+      }
+
+      throw new AxSignatureValidationError(
+        `Failed to create signature from Zod schema: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
   private parseParsedField = (

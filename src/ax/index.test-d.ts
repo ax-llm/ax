@@ -1,5 +1,6 @@
 // index.test-d.ts
 import { expectError, expectType } from 'tsd';
+import { z } from 'zod';
 
 // === Typesafe Signature Tests ===
 import { AxSignature } from './dsp/sig.js';
@@ -29,6 +30,33 @@ expectType<
     { analysisResult: string; score: number }
   >
 >(multiTypeSig);
+
+const zodSig = AxSignature.fromZod({
+  input: z.object({
+    title: z.string(),
+    count: z.number().optional(),
+  }),
+  output: z.object({
+    summary: z.string(),
+    tags: z.array(z.string()),
+  }),
+});
+expectType<
+  AxSignature<
+    { title: string; count?: number },
+    { summary: string; tags: string[] }
+  >
+>(zodSig);
+
+const zodInputOnly = AxSignature.fromZod({
+  input: z.object({
+    search: z.string(),
+  }),
+  output: z.object({
+    result: z.string(),
+  }),
+});
+expectType<AxSignature<{ search: string }, { result: string }>>(zodInputOnly);
 
 // Test signature with missing types (should default to string)
 const missingTypesSig = AxSignature.create(

@@ -190,6 +190,48 @@ const sig = s('base:string -> result:string')
   .appendOutputField('score', f.number('Quality score'));
 ```
 
+### 4. Reusing Zod Schemas
+
+```typescript
+import { AxSignature } from '@ax-llm/ax';
+import { z } from 'zod';
+
+const inputSchema = z.object({
+  query: z.string().describe('Search query text'),
+  limit: z.number().int().max(10).optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+const outputSchema = z.object({
+  results: z.array(
+    z.object({
+      title: z.string(),
+      url: z.string().url(),
+    })
+  ),
+  status: z.enum(['success', 'failure']),
+});
+
+const signature = AxSignature.fromZod({
+  description: 'Search knowledge base documents',
+  input: inputSchema,
+  output: outputSchema,
+});
+```
+
+> `AxSignature.fromZod` ships with full Zod v4 support. Inputs are inferred from `z.input<>`, outputs from `z.output<>`, so you keep end-to-end type safety without duplicating schema definitions.
+
+**Mapping highlights**
+
+- `z.string()`, `z.number()`, `z.boolean()`, `z.date()` map to matching Ax field types.
+- `z.array()` becomes Ax arrays; nested arrays fall back to `json`.
+- Literal unions/`z.enum` values become classifications; input unions are exposed as `string` fields with `options` metadata (Ax intentionally disallows `class` inputs).
+- Optional/nullable/default/catch wrappers automatically mark the field optional.
+
+**Standard Schema?**
+
+Standard Schema libraries (Effect Schema, Valibot, ArkType, etc.) publish adapters to Zod or JSON Schema. Convert with your preferred tool (for example [`xsschema`](https://xsai.js.org/docs/packages-top/xsschema)) and feed the resulting Zod schema into `AxSignature.fromZod`.
+
 ## Pure Fluent API Reference
 
 The fluent API has been redesigned to be purely fluent, meaning you can only use method chaining with `.optional()`, `.array()`, and `.internal()` methods. Nested function calls are no longer supported.
