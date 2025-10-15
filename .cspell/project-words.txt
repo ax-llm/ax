@@ -76,6 +76,7 @@ retryable
 retval
 sandboxed
 sdata
+guidel
 shadcn
 Signture
 sstate
@@ -162,3 +163,5 @@ Cand
 arrs
 PKCE
 MCPO
+tiktoken
+deduper

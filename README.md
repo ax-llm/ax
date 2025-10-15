@@ -166,6 +166,7 @@ console.log(result.responseText, result.confidenceScore);
 - ✅ **Streaming First** - Real-time responses with validation
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
+- ✅ **Agentic Context Engineering** - ACE generator → reflector → curator loops
 - ✅ **Multi-Objective Optimization** - GEPA and GEPA-Flow (Pareto frontier)
 - ✅ **Production Observability** - OpenTelemetry tracing built-in
 - ✅ **Advanced Workflows** - Compose complex pipelines with AxFlow
@@ -190,7 +191,7 @@ console.log(result.responseText, result.confidenceScore);
 
 - [**AxFlow Workflows**](https://github.com/ax-llm/ax/blob/main/docs/AXFLOW.md) -
   Build complex AI systems
-- [**Optimization Guide (MiPRO, GEPA, GEPA-Flow)**](https://github.com/ax-llm/ax/blob/main/docs/OPTIMIZE.md) -
+- [**Optimization Guide (MiPRO, ACE, GEPA, GEPA-Flow)**](https://github.com/ax-llm/ax/blob/main/docs/OPTIMIZE.md) -
   Make your programs smarter
 - [**Advanced RAG**](https://github.com/ax-llm/ax/blob/main/docs/AXRAG.md) -
   Production search & retrieval
@@ -225,6 +226,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
   MIPRO optimization
 - [gepa-quality-vs-speed-optimization.ts](src/examples/gepa-quality-vs-speed-optimization.ts) -
   Multi-objective GEPA optimization (quality vs speed trade-offs)
+- [ace-train-inference.ts](src/examples/ace-train-inference.ts) - ACE playbook growth with offline + online updates
 - [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex
   workflows
 

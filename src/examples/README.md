@@ -18,6 +18,18 @@ npm run tsx src/examples/gepa-quality-vs-speed-optimization.ts
 
 **Prerequisites:** OpenAI API key (`OPENAI_APIKEY` environment variable)
 
+## Agentic Context Engineering (ACE) Example
+
+End-to-end walkthrough of the ACE optimizer that grows a structured playbook through generator → reflector → curator loops. The example trains offline on support ticket severities and then performs an online update after a new incident.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/ace-train-inference.ts
+```
+
+**Prerequisites:** OpenAI API key (`OPENAI_APIKEY` environment variable)
+
 ### Quick Start
 
 1. **Automated Setup** (Recommended):
