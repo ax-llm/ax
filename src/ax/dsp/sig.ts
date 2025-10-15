@@ -588,6 +588,7 @@ export class AxSignature<
 
   // Validation caching - stores hash when validation last passed
   private validatedAtHash?: string;
+  private zodConversionIssues: readonly ZodConversionIssue[] = [];
 
   /**
    * @deprecated Use `AxSignature.create()` for better type safety instead of the constructor.
@@ -610,6 +611,7 @@ export class AxSignature<
       this.outputFields = [];
       this.sigHash = '';
       this.sigString = '';
+      this.zodConversionIssues = [];
       return;
     }
 
@@ -641,6 +643,7 @@ export class AxSignature<
       this.inputFields = sig.inputs.map((v) => this.parseParsedField(v));
       this.outputFields = sig.outputs.map((v) => this.parseParsedField(v));
       [this.sigHash, this.sigString] = this.updateHash();
+      this.zodConversionIssues = [];
     } else if (signature instanceof AxSignature) {
       this.description = signature.getDescription();
       this.inputFields = structuredClone(
@@ -655,6 +658,7 @@ export class AxSignature<
       if (signature.validatedAtHash === this.sigHash) {
         this.validatedAtHash = this.sigHash;
       }
+      this.zodConversionIssues = signature.getZodConversionIssues();
     } else if (typeof signature === 'object' && signature !== null) {
       // Handle AxSignatureConfig object
       if (!('inputs' in signature) || !('outputs' in signature)) {
@@ -681,6 +685,7 @@ export class AxSignature<
         this.inputFields = signature.inputs.map((v) => this.parseField(v));
         this.outputFields = signature.outputs.map((v) => this.parseField(v));
         [this.sigHash, this.sigString] = this.updateHash();
+        this.zodConversionIssues = [];
       } catch (error) {
         if (error instanceof AxSignatureValidationError) {
           throw error;
@@ -755,7 +760,7 @@ export class AxSignature<
     }
 
     try {
-      return new AxSignature({
+      const signature = new AxSignature({
         description: config.description,
         inputs,
         outputs,
@@ -763,6 +768,8 @@ export class AxSignature<
         InferZodInput<TInputSchema>,
         InferZodOutput<TOutputSchema>
       >;
+      signature.setZodConversionIssues(issues);
+      return signature;
     } catch (error) {
       if (error instanceof AxSignatureValidationError) {
         throw error;
@@ -798,6 +805,58 @@ export class AxSignature<
       ...messageLines,
     ].join('\n');
     console.warn(message);
+  }
+
+  public static debugZodConversion<
+    TInputSchema extends ZodObject<any, any> | undefined,
+    TOutputSchema extends ZodObject<any, any> | undefined,
+  >(
+    config: {
+      description?: string;
+      input?: TInputSchema;
+      output?: TOutputSchema;
+    },
+    options?: AxSignatureFromZodOptions & {
+      readonly logger?: (issues: readonly ZodConversionIssue[]) => void;
+    }
+  ): {
+    readonly signature: AxSignature<
+      InferZodInput<TInputSchema>,
+      InferZodOutput<TOutputSchema>
+    >;
+    readonly issues: readonly ZodConversionIssue[];
+  } {
+    const collected: ZodConversionIssue[] = [];
+    const signature = AxSignature.fromZod(config, {
+      ...options,
+      warnOnFallback: options?.warnOnFallback ?? false,
+      onIssues: (issues) => {
+        collected.push(...issues);
+        options?.onIssues?.(issues);
+      },
+    });
+
+    if (collected.length > 0) {
+      const logger = options?.logger ?? AxSignature.warnAboutZodIssues;
+      logger(collected);
+    } else if (!options?.logger && options?.warnOnFallback !== false) {
+      console.info('[AxSignature.debugZodConversion] No Zod downgrades detected.');
+    }
+
+    return {
+      signature,
+      issues: Object.freeze([...collected]),
+    };
+  }
+
+  public getZodConversionIssues = (): readonly ZodConversionIssue[] =>
+    this.zodConversionIssues;
+
+  private setZodConversionIssues(
+    issues: ReadonlyArray<ZodConversionIssue>
+  ): void {
+    this.zodConversionIssues =
+      issues.length > 0 ? Object.freeze([...issues]) : [];
   }
 
   private parseParsedField = (

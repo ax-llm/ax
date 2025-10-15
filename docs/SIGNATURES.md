@@ -248,7 +248,14 @@ const signature = AxSignature.fromZod(
     },
   }
 );
+
+// Issues are stored on the signature instance for later inspection.
+signature.getZodConversionIssues();
 ```
+
+Need a quick readout before wiring it in? Call
+`AxSignature.debugZodConversion({ input, output })` to get both the signature
+and a ready-made downgrade report.
 
 **Standard Schema?**
 

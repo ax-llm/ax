@@ -166,7 +166,7 @@ Reuse existing validation schemas without rewriting them:
 import { AxSignature, ax } from "@ax-llm/ax";
 import { z } from "zod";
 
-const schema = AxSignature.fromZod({
+const ticketSignature = AxSignature.fromZod({
   description: "Summarize support tickets",
   input: z.object({
     subject: z.string(),
@@ -176,6 +176,17 @@ const schema = AxSignature.fromZod({
   output: z.object({
     summary: z.string(),
     sentiment: z.enum(["positive", "neutral", "negative"]),
+  }),
+});
+
+// Inspect any downgrades programmatically
+console.log(ticketSignature.getZodConversionIssues());
+
+// Quickly audit a schema
+AxSignature.debugZodConversion({
+  input: z.object({
+    subject: z.string(),
+    body: z.string(),
   }),
 });
 

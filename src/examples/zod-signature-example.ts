@@ -33,6 +33,11 @@ const bugReportSignature = AxSignature.fromZod(
   }
 );
 
+const conversionIssues = bugReportSignature.getZodConversionIssues();
+if (conversionIssues.length > 0) {
+  console.warn('[zod-signature-example] conversion issues stored on signature', conversionIssues);
+}
+
 const triageAgent = ax(bugReportSignature);
 
 async function main() {

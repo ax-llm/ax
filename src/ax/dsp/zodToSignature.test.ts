@@ -145,6 +145,13 @@ describe('AxSignature.fromZod', () => {
     expect(collected).toMatchObject([
       { path: ['input', 'tone'], reason: expect.stringContaining('Ax inputs do not support class fields') },
     ]);
+    expect(signature.getZodConversionIssues()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ['input', 'tone'],
+        }),
+      ])
+    );
   });
 
   it('marks nullable, default, and catch wrappers as optional', () => {
@@ -365,5 +372,24 @@ describe('AxSignature.fromZod', () => {
         { strict: true }
       )
     ).toThrowError(/Unsupported Zod schema elements encountered during conversion/);
+  });
+
+  it('exposes conversion issues and debug helper output', () => {
+    const logger = vi.fn();
+    const { signature, issues } = AxSignature.debugZodConversion(
+      {
+        input: z.object({
+          nested: z.object({ id: z.string() }),
+        }),
+        output: z.object({
+          ok: z.boolean(),
+        }),
+      },
+      { logger }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(logger).toHaveBeenCalledWith(issues);
+    expect(signature.getZodConversionIssues()).toEqual(issues);
   });
 });
