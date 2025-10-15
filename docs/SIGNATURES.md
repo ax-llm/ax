@@ -227,6 +227,7 @@ const signature = AxSignature.fromZod({
 - `z.array()` becomes Ax arrays; nested arrays fall back to `json`.
 - Literal unions/`z.enum`/`z.nativeEnum` values become classifications; input unions are exposed as `string` fields with `options` metadata (Ax intentionally disallows `class` inputs).
 - Optional/nullable/default/catch wrappers automatically mark the field optional.
+- Records, maps, discriminated unions, and other dynamic structures stay as `json`, but Ax marks them as **downgraded** so you can adjust the schema (or rely on `strict: true`).
 
 **Downgrades & strict mode**
 
@@ -251,6 +252,9 @@ const signature = AxSignature.fromZod(
 
 // Issues are stored on the signature instance for later inspection.
 signature.getZodConversionIssues();
+
+// Emit a human-friendly summary (console.warn by default)
+signature.reportZodConversionIssues();
 ```
 
 Need a quick readout before wiring it in? Call

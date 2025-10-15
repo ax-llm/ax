@@ -433,6 +433,19 @@ function getFieldType(
     }
     case 'union': {
       const options = (getDef(schema).options ?? []) as ZodTypeAny[];
+      const optionsMap = (schemaDef as { optionsMap?: unknown }).optionsMap;
+      if (optionsMap && typeof optionsMap === 'object') {
+        recordIssue(
+          issues,
+          context,
+          path,
+          'discriminatedUnion',
+          'json',
+          'Discriminated unions flatten to json objects in Ax signatures',
+          'downgraded'
+        );
+        return { type: { name: 'json' } };
+      }
       const literalValues: (string | number | boolean)[] = [];
       let forceOptional = false;
 
@@ -461,16 +474,17 @@ function getFieldType(
               typeof literalValue !== 'number' &&
               typeof literalValue !== 'boolean')
           ) {
-            recordIssue(
-              issues,
-              context,
-              path,
-              typeToken,
-              'json',
-              'Union includes non-stringifiable literal, falling back to json'
-            );
-            return { type: { name: 'json' }, forceOptional };
-          }
+        recordIssue(
+          issues,
+          context,
+          path,
+          typeToken,
+          'json',
+          'Union includes non-stringifiable literal, falling back to json',
+          'downgraded'
+        );
+        return { type: { name: 'json' }, forceOptional };
+      }
           literalValues.push(literalValue as string | number | boolean);
           forceOptional = forceOptional || unwrapped.optional;
           continue;
@@ -482,7 +496,8 @@ function getFieldType(
           path,
           typeToken,
           'json',
-          'Union members beyond literals fall back to json'
+          'Union members beyond literals fall back to json',
+          'downgraded'
         );
         return { type: { name: 'json' }, forceOptional };
       }
@@ -496,7 +511,8 @@ function getFieldType(
           path,
           typeToken,
           'json',
-          'Union with no literal members falls back to json'
+          'Union with no literal members falls back to json',
+          'downgraded'
         );
       }
       if (context === 'input' && mapped.type.name === 'class') {
@@ -556,7 +572,8 @@ function getFieldType(
           path,
           typeToken,
           'json',
-          'Nested arrays are not supported; falling back to json'
+          'Nested arrays are not supported; falling back to json',
+          'downgraded'
         );
         return {
           type: { name: 'json', isArray: true },
@@ -595,16 +612,88 @@ function getFieldType(
 
       return result;
     }
+    case 'record': {
+      const keySchema = (schemaDef as { keyType?: ZodTypeAny }).keyType;
+      const valueSchema = (schemaDef as { valueType?: ZodTypeAny }).valueType;
+      const keyToken = keySchema ? getTypeToken(keySchema) : undefined;
+      const severity: ZodConversionSeverity =
+        keyToken === 'string' ? 'downgraded' : 'unsupported';
+      const reason =
+        keyToken === 'string'
+          ? 'Records with string keys remain json to preserve dynamic maps'
+          : 'Records with non-string keys map to json';
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken,
+        'json',
+        reason,
+        severity
+      );
+      return { type: { name: 'json' } };
+    }
+    case 'map': {
+      const keySchema = (schemaDef as { keyType?: ZodTypeAny }).keyType;
+      const keyToken = keySchema ? getTypeToken(keySchema) : undefined;
+      const severity: ZodConversionSeverity =
+        keyToken && keyToken !== 'unknown' ? 'downgraded' : 'unsupported';
+      const reason =
+        keyToken === 'string'
+          ? 'Maps convert to json objects with dynamic keys'
+          : 'Maps with non-string keys map to json';
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken,
+        'json',
+        reason,
+        severity
+      );
+      return { type: { name: 'json' } };
+    }
+    case 'set': {
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken,
+        'json',
+        'Sets are serialised as arrays; using json representation',
+        'downgraded'
+      );
+      return { type: { name: 'json' } };
+    }
+    case 'discriminatedUnion': {
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken,
+        'json',
+        'Discriminated unions flatten to json objects in Ax signatures',
+        'downgraded'
+      );
+      return { type: { name: 'json' } };
+    }
+    case 'intersection': {
+      recordIssue(
+        issues,
+        context,
+        path,
+        typeToken,
+        'json',
+        'Intersections are merged as json objects',
+        'downgraded'
+      );
+      return { type: { name: 'json' } };
+    }
     case 'object':
     case 'tuple':
-    case 'record':
-    case 'map':
-    case 'set':
     case 'function':
     case 'lazy':
     case 'promise':
-    case 'discriminatedUnion':
-    case 'intersection':
       recordIssue(
         issues,
         context,

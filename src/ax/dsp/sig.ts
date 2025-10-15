@@ -837,9 +837,18 @@ export class AxSignature<
     });
 
     if (collected.length > 0) {
-      const logger = options?.logger ?? AxSignature.warnAboutZodIssues;
-      logger(collected);
-    } else if (!options?.logger && options?.warnOnFallback !== false) {
+      const shouldWarn = options?.warnOnFallback !== false;
+      const logger =
+        options?.logger ??
+        (shouldWarn ? AxSignature.warnAboutZodIssues : undefined);
+      if (logger) {
+        logger(collected);
+      }
+    } else if (
+      !options?.logger &&
+      options?.warnOnFallback !== false &&
+      !collected.length
+    ) {
       console.info('[AxSignature.debugZodConversion] No Zod downgrades detected.');
     }
 
@@ -851,6 +860,17 @@ export class AxSignature<
 
   public getZodConversionIssues = (): readonly ZodConversionIssue[] =>
     this.zodConversionIssues;
+
+  public reportZodConversionIssues = (
+    logger: (issues: readonly ZodConversionIssue[]) => void =
+      AxSignature.warnAboutZodIssues
+  ): void => {
+    const issues = this.getZodConversionIssues();
+    if (issues.length === 0) {
+      return;
+    }
+    logger(issues);
+  };
 
   private setZodConversionIssues(
     issues: ReadonlyArray<ZodConversionIssue>

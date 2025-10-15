@@ -190,6 +190,9 @@ AxSignature.debugZodConversion({
   }),
 });
 
+// Emit a warning-style report when issues exist
+ticketSignature.reportZodConversionIssues();
+
 const summarize = ax(schema);
 ```
 
@@ -200,6 +203,7 @@ const summarize = ax(schema);
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
 - ✅ **Zod-Friendly** - Convert schemas with automatic fallbacks and warnings
+- ✅ **Downgrade Awareness** - Records/maps/unions stay `json` but are flagged so you can adjust early
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
 - ✅ **Agentic Context Engineering** - ACE generator → reflector → curator loops

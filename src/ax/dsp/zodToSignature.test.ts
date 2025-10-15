@@ -392,4 +392,133 @@ describe('AxSignature.fromZod', () => {
     expect(logger).toHaveBeenCalledWith(issues);
     expect(signature.getZodConversionIssues()).toEqual(issues);
   });
+
+  it('reports stored conversion issues via helper', () => {
+    const signature = AxSignature.fromZod(
+      {
+        input: z.object({
+          metadata: z.record(z.string(), z.string()),
+        }),
+        output: z.object({ ok: z.boolean() }),
+      },
+      { warnOnFallback: false }
+    );
+
+    const logger = vi.fn();
+    signature.reportZodConversionIssues(logger);
+
+    expect(logger).toHaveBeenCalledWith(signature.getZodConversionIssues());
+  });
+
+  it('flags record structures as downgraded json', () => {
+    const { signature, issues } = AxSignature.debugZodConversion(
+      {
+        input: z.object({
+          metadata: z.record(z.string(), z.number()),
+        }),
+        output: z.object({ ok: z.boolean() }),
+      },
+      { warnOnFallback: false }
+    );
+
+    expect(signature.getInputFields()).toEqual([
+      {
+        name: 'metadata',
+        title: 'Metadata',
+        type: { name: 'json' },
+      },
+    ]);
+
+    expect(issues).toEqual([
+      expect.objectContaining({
+        path: ['input', 'metadata'],
+        severity: 'downgraded',
+      }),
+    ]);
+  });
+
+  it('flags discriminated unions as downgraded json', () => {
+    const { signature, issues } = AxSignature.debugZodConversion(
+      {
+        input: z.object({
+          payload: z.discriminatedUnion('kind', [
+            z.object({ kind: z.literal('text'), value: z.string() }),
+            z.object({ kind: z.literal('count'), value: z.number() }),
+          ]),
+        }),
+        output: z.object({ ok: z.boolean() }),
+      },
+      { warnOnFallback: false }
+    );
+
+    expect(signature.getInputFields()).toEqual([
+      {
+        name: 'payload',
+        title: 'Payload',
+        type: { name: 'json' },
+      },
+    ]);
+
+    expect(issues).toEqual([
+      expect.objectContaining({
+        path: ['input', 'payload'],
+        severity: 'downgraded',
+      }),
+    ]);
+  });
+
+  it('unwraps branded schemas to their base types', () => {
+    const signature = AxSignature.fromZod(
+      {
+        input: z.object({
+          userId: z.string().brand<'userId'>(),
+          tagIds: z.array(z.string().brand<'tagId'>()),
+        }),
+        output: z.object({ ok: z.boolean() }),
+      },
+      { warnOnFallback: false }
+    );
+
+    expect(signature.getInputFields()).toEqual([
+      {
+        name: 'userId',
+        title: 'User Id',
+        type: { name: 'string' },
+      },
+      {
+        name: 'tagIds',
+        title: 'Tag Ids',
+        type: { name: 'string', isArray: true },
+      },
+    ]);
+
+    expect(signature.getZodConversionIssues()).toEqual([]);
+  });
+
+  it('treats deeply nested arrays as downgraded json', () => {
+    const { signature, issues } = AxSignature.debugZodConversion(
+      {
+        input: z.object({
+          matrix: z.array(z.array(z.number())),
+        }),
+        output: z.object({ ok: z.boolean() }),
+      },
+      { warnOnFallback: false }
+    );
+
+    expect(signature.getInputFields()).toEqual([
+      {
+        name: 'matrix',
+        title: 'Matrix',
+        type: { name: 'json', isArray: true },
+      },
+    ]);
+
+    expect(issues).toEqual([
+      expect.objectContaining({
+        path: ['input', 'matrix'],
+        severity: 'downgraded',
+      }),
+    ]);
+  });
 });
