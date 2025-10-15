@@ -224,7 +224,7 @@ const signature = AxSignature.fromZod({
 **Mapping highlights**
 
 - `z.string()`, `z.number()`, `z.boolean()`, `z.date()` map to matching Ax field types. String refinements such as `.url()` and `.datetime()` become `url`/`datetime` field types.
-- `z.array()` becomes Ax arrays; nested arrays fall back to `json`.
+- `z.array()` becomes Ax arrays; nested arrays fall back to `json`. Optionality flows from wrappers on the array schema (`z.array(...).optional()`), while optional elements (`z.array(z.string().optional())`) still produce required arrays at runtime.
 - Literal unions/`z.enum`/`z.nativeEnum` values become classifications; input unions are exposed as `string` fields with `options` metadata (Ax intentionally disallows `class` inputs).
 - Optional/nullable/default/catch wrappers automatically mark the field optional.
 - Records, maps, discriminated unions, and other dynamic structures stay as `json`, but Ax marks them as **downgraded** so you can adjust the schema (or rely on `strict: true`).
@@ -259,7 +259,8 @@ signature.reportZodConversionIssues();
 
 Need a quick readout before wiring it in? Call
 `AxSignature.debugZodConversion({ input, output })` to get both the signature
-and a ready-made downgrade report.
+and a ready-made downgrade report. You can pass `{ logger: yourTelemetry }` to
+pipe the downgrade issues into custom observability tooling.
 
 **Standard Schema?**
 
