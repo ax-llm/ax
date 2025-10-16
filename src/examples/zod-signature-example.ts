@@ -48,6 +48,23 @@ async function main() {
   console.log('\nBug report signature outputs:');
   console.table(bugReportSignature.getOutputFields());
 
+  const {
+    input: zodInputSchema,
+    output: zodOutputSchema,
+    issues,
+  } = bugReportSignature.toZod({ warnOnFallback: false });
+
+  if (issues.length > 0) {
+    console.warn('[zod-signature-example] signature → Zod issues', issues);
+  }
+
+  if (zodInputSchema && zodOutputSchema) {
+    console.log('\nRound-tripped Zod schemas:', {
+      inputShape: Object.keys(zodInputSchema.shape),
+      outputShape: Object.keys(zodOutputSchema.shape),
+    });
+  }
+
   // In a real flow you would pass an AxAI instance here.
   // This example just shows the structure defined by the schema.
   const fakeReport = {

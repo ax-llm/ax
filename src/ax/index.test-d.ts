@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 // === Typesafe Signature Tests ===
 import { AxSignature } from './dsp/sig.js';
+import type { SignatureToZodIssue } from './dsp/sig.js';
 import type { ZodConversionIssue } from './dsp/zodToSignature.js';
 
 // Test basic signature type inference
@@ -95,6 +96,14 @@ import { f } from './dsp/sig.js';
 import type { AxExamples } from './dsp/types.js';
 
 const testSig = AxSignature.create('userInput: string -> responseText: string');
+
+const toZodResult = testSig.toZod({
+  onIssues: (issues) => {
+    expectType<readonly SignatureToZodIssue[]>(issues);
+  },
+  warnOnFallback: false,
+});
+expectType<readonly SignatureToZodIssue[]>(toZodResult.issues);
 
 // Test appendInputField type inference
 const withAppendedInput = testSig.appendInputField('contextInfo', {

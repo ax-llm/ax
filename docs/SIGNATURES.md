@@ -262,6 +262,35 @@ Need a quick readout before wiring it in? Call
 and a ready-made downgrade report. You can pass `{ logger: yourTelemetry }` to
 pipe the downgrade issues into custom observability tooling.
 
+**Round-trip back to Zod**
+
+Already have a signature and need Zod validators (for adapters, loaders, or
+form tooling)? Call `signature.toZod()` to reconstruct the schemas:
+
+```typescript
+import { z } from 'zod';
+
+const { input: zodInput, output: zodOutput, issues } = signature.toZod({
+  warnOnFallback: false,
+});
+
+if (zodInput) {
+  type InputPayload = z.input<typeof zodInput>;
+}
+if (zodOutput) {
+  type OutputPayload = z.output<typeof zodOutput>;
+}
+
+if (issues.length > 0) {
+  console.warn('Some fields were widened for Zod conversion', issues);
+}
+```
+
+Most Ax field types map cleanly (`string`, `number`, `boolean`, `image`, `file`,
+etc.). We fall back to permissive schemas such as `z.any()` for types without a
+direct Zod equivalent and report them through the `issues` array (or throw when
+`strict: true`).
+
 **Standard Schema?**
 
 Standard Schema libraries (Effect Schema, Valibot, ArkType, etc.) publish adapters to Zod or JSON Schema. Convert with your preferred tool (for example [`xsschema`](https://xsai.js.org/docs/packages-top/xsschema)) and feed the resulting Zod schema into `AxSignature.fromZod`.

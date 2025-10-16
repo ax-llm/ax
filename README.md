@@ -193,6 +193,15 @@ AxSignature.debugZodConversion({
 // Emit a warning-style report when issues exist
 ticketSignature.reportZodConversionIssues();
 
+// Need the Zod schemas back out (e.g. for adapters)?
+const { input: inputSchema, output: outputSchema } = ticketSignature.toZod({
+  warnOnFallback: false,
+});
+if (inputSchema && outputSchema) {
+  type TicketInput = z.input<typeof inputSchema>;
+  type TicketOutput = z.output<typeof outputSchema>;
+}
+
 const summarize = ax(ticketSignature);
 ```
 
@@ -203,6 +212,7 @@ const summarize = ax(ticketSignature);
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
 - ✅ **Zod-Friendly** - Convert schemas with automatic fallbacks and warnings
+- ✅ **Round-Trip Friendly** - Regenerate Zod objects from signatures when you need adapters
 - ✅ **Downgrade Awareness** - Records/maps/unions stay `json` but are flagged so you can adjust early
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO

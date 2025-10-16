@@ -17,6 +17,11 @@ import {
   zodObjectToSignatureFields,
 } from './zodToSignature.js';
 export type { ZodConversionIssue } from './zodToSignature.js';
+import {
+  signatureFieldsToZodObject,
+  type SignatureToZodIssue,
+} from './signatureToZod.js';
+export type { SignatureToZodIssue } from './signatureToZod.js';
 // Interface for programmatically defining field types
 export interface AxFieldType {
   readonly type:
@@ -574,6 +579,21 @@ export type AxSignatureFromZodOptions = {
   readonly onIssues?: (issues: readonly ZodConversionIssue[]) => void;
 };
 
+export type AxSignatureToZodOptions = {
+  /**
+   * When true, throw if any field must fall back to a permissive Zod schema.
+   */
+  readonly strict?: boolean;
+  /**
+   * When true (default), emit a console warning when downgrade issues occur.
+   */
+  readonly warnOnFallback?: boolean;
+  /**
+   * Receives downgrade metadata for custom handling.
+   */
+  readonly onIssues?: (issues: readonly SignatureToZodIssue[]) => void;
+};
+
 export class AxSignature<
   _TInput extends Record<string, any> = Record<string, any>,
   _TOutput extends Record<string, any> = Record<string, any>,
@@ -811,6 +831,30 @@ export class AxSignature<
     console.warn(message);
   }
 
+  private static formatSignatureToZodIssues(
+    issues: ReadonlyArray<SignatureToZodIssue>
+  ): string {
+    const details = issues.map((issue) => {
+      const target = issue.path.join('.');
+      return `[${issue.context}] ${target} → ${issue.fallback} (${issue.severity}: ${issue.reason})`;
+    });
+    return `Review the following conversions:\n${details.join('\n')}`;
+  }
+
+  private static warnAboutSignatureToZodIssues(
+    issues: ReadonlyArray<SignatureToZodIssue>
+  ): void {
+    const messageLines = issues.map((issue) => {
+      const target = issue.path.join('.');
+      return `  - [${issue.context}] ${target} → ${issue.fallback}: ${issue.reason}`;
+    });
+    const message = [
+      '[AxSignature.toZod] Some fields were downgraded to permissive Zod schemas.',
+      ...messageLines,
+    ].join('\n');
+    console.warn(message);
+  }
+
   public static debugZodConversion<TInputSchema, TOutputSchema>(
     config: {
       description?: string;
@@ -858,6 +902,50 @@ export class AxSignature<
     return {
       signature,
       issues: Object.freeze([...collected]),
+    };
+  }
+
+  public toZod(options?: AxSignatureToZodOptions): {
+    readonly input?: ReturnType<typeof signatureFieldsToZodObject>;
+    readonly output?: ReturnType<typeof signatureFieldsToZodObject>;
+    readonly issues: readonly SignatureToZodIssue[];
+  } {
+    const issues: SignatureToZodIssue[] = [];
+
+    const input = this.inputFields.length
+      ? signatureFieldsToZodObject(this.inputFields, 'input', {
+          issues,
+          basePath: ['input'],
+        })
+      : undefined;
+
+    const output = this.outputFields.length
+      ? signatureFieldsToZodObject(this.outputFields, 'output', {
+          issues,
+          basePath: ['output'],
+        })
+      : undefined;
+
+    if (issues.length > 0) {
+      options?.onIssues?.(issues);
+
+      if (options?.strict) {
+        throw new AxSignatureValidationError(
+          'Unsupported Ax field types encountered during Zod conversion',
+          undefined,
+          AxSignature.formatSignatureToZodIssues(issues)
+        );
+      }
+
+      if (options?.warnOnFallback !== false) {
+        AxSignature.warnAboutSignatureToZodIssues(issues);
+      }
+    }
+
+    return {
+      input,
+      output,
+      issues: Object.freeze([...issues]),
     };
   }
 
