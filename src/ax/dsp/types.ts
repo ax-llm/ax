@@ -106,6 +106,8 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   fastFail?: boolean;
   showThoughts?: boolean;
   functionCallMode?: 'auto' | 'native' | 'prompt';
+  cacheSystemPrompt?: boolean;
+
   // Memory tag cleanup control
   disableMemoryCleanup?: boolean;
 
