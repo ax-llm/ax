@@ -210,7 +210,7 @@ class AxAIAnthropicImpl
       .map((msg) => ({
         type: 'text' as const,
         text: msg.content,
-        ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
+        ...(msg.cache ? { cache_control: { type: 'ephemeral' as const } } : {}),
       }));
 
     const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
@@ -472,6 +472,8 @@ class AxAIAnthropicImpl
       promptTokens: resp.usage.input_tokens,
       completionTokens: resp.usage.output_tokens,
       totalTokens: resp.usage.input_tokens + resp.usage.output_tokens,
+      cacheCreationTokens: resp.usage.cache_creation_input_tokens,
+      cacheReadTokens: resp.usage.cache_read_input_tokens,
     };
 
     return { results, remoteId: resp.id };

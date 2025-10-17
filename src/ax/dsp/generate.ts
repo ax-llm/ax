@@ -152,6 +152,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const promptTemplateOptions = {
       functions: options?.functions,
       thoughtFieldName: this.thoughtFieldName,
+      cacheSystemPrompt: options?.cacheSystemPrompt,
     };
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
@@ -508,6 +509,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const functionCallMode =
       options.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
 
+    const cacheSystemPrompt =
+      options.cacheSystemPrompt ?? this.options?.cacheSystemPrompt;
+
     // Handle prompt mode
     if (hasFunctions && functionCallMode === 'prompt') {
       this.signatureToolCallingManager = new SignatureToolCallingManager(
@@ -543,6 +547,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       // Prefer per-call functions; fall back to parsed functions from constructor
       functions: this.signatureToolCallingManager ? [] : functions,
       thoughtFieldName: this.thoughtFieldName,
+      cacheSystemPrompt,
     };
 
     this.promptTemplate = new promptTemplateClass(

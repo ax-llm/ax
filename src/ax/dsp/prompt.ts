@@ -12,6 +12,7 @@ type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 export interface AxPromptTemplateOptions {
   functions?: Readonly<AxInputFunctionType>;
   thoughtFieldName?: string;
+  cacheSystemPrompt?: boolean;
 }
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
 
@@ -46,6 +47,7 @@ export class AxPromptTemplate {
   private task: { type: 'text'; text: string };
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
+  private readonly cacheSystemPrompt?: boolean;
 
   constructor(
     sig: Readonly<AxSignature>,
@@ -56,6 +58,7 @@ export class AxPromptTemplate {
     this.fieldTemplates = fieldTemplates;
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought';
     this.functions = options?.functions;
+    this.cacheSystemPrompt = options?.cacheSystemPrompt;
 
     const task = [];
 
@@ -166,6 +169,7 @@ export class AxPromptTemplate {
     const systemPrompt = {
       role: 'system' as const,
       content: systemContent,
+      cache: this.cacheSystemPrompt,
     };
 
     if (Array.isArray(values)) {
