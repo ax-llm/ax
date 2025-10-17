@@ -1,5 +1,13 @@
 # Changelog
 
+## [14.0.33](https://github.com/ax-llm/ax/compare/14.0.32...14.0.33) (2025-10-17)
+
+### Features
+
+* Add support for caching the system prompt in Anthropic models ([#391](https://github.com/ax-llm/ax/pull/391)) ([92afffc](https://github.com/ax-llm/ax/commit/92afffcf1a60edecd0c0804eae2c0d6deda8d508))
+* docs: Created docs/ARCHITECTURE.md ([#390](https://github.com/ax-llm/ax/pull/390)) ([61ac71b](https://github.com/ax-llm/ax/commit/61ac71b6a61fda7e91c18460f8482fd2267a2e29))
+* feat: add GPT-4.1 nano model support ([#387](https://github.com/ax-llm/ax/pull/387)) ([0aa4aa2](https://github.com/ax-llm/ax/commit/0aa4aa2ceed1ba61106711baed6ce962cf2eb604))
+
 ## [14.0.32](https://github.com/ax-llm/ax/compare/14.0.30...14.0.31) (2025-10-15)
 
 ### Features
