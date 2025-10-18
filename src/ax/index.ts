@@ -689,6 +689,15 @@ import {
   AxRateLimiterTokenUsage,
   type AxRateLimiterTokenUsageOptions,
 } from './util/rate-limit.js';
+import { AxZodRegistry } from './zod/metadata.js';
+import type {
+  AxZodAssertionLevel,
+  AxZodConversionIssue,
+  AxZodIssueSeverity,
+  AxZodMetadata,
+  AxZodParsingMode,
+  AxZodSignatureOptions,
+} from './zod/types.js';
 
 // Value exports
 export { AxACE };
@@ -799,6 +808,7 @@ export { AxSpanKindValues };
 export { AxStopFunctionCallException };
 export { AxStringUtil };
 export { AxTestPrompt };
+export { AxZodRegistry };
 export { agent };
 export { ai };
 export { ax };
@@ -1264,3 +1274,9 @@ export type { AxTokenUsage };
 export type { AxTunable };
 export type { AxTypedExample };
 export type { AxUsable };
+export type { AxZodAssertionLevel };
+export type { AxZodConversionIssue };
+export type { AxZodIssueSeverity };
+export type { AxZodMetadata };
+export type { AxZodParsingMode };
+export type { AxZodSignatureOptions };
