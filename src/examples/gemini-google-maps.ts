@@ -11,10 +11,9 @@ const llm = ai({
   apiKey: process.env.GOOGLE_APIKEY!,
   model: AxAIGoogleGeminiModel.Gemini25FlashLite,
   options: {
-    googleMaps: true,
-    googleMapsRetrieval: {
+    googleMaps: { enableWidget: true },
+    retrievalConfig: {
       latLng: { latitude: 34.050481, longitude: -118.248526 },
-      enableWidget: true,
     },
   },
 });
@@ -25,3 +24,7 @@ const res = await mapsDemo.forward(llm, {
 });
 
 console.log(res.responseText);
+
+// Optional: print contextual widget token if returned
+const token = (res as any).providerMetadata?.google?.mapsWidgetContextToken;
+if (token) console.log('mapsWidgetContextToken:', token);
