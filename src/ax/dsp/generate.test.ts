@@ -10,6 +10,8 @@ import type { AxChatResponse } from '../ai/types.js';
 import { AxStopFunctionCallException } from './functions.js';
 import { AxGen, type AxGenerateError } from './generate.js';
 import { AxSignature } from './sig.js';
+import { getZodMetadata } from '../zod/metadata.js';
+import { ax } from './template.js';
 import type { AxProgramForwardOptions } from './types.js';
 
 function createStreamingResponse(
@@ -732,6 +734,47 @@ describe('AxGen Message Validation', () => {
 });
 
 describe('AxGen with Zod signatures', () => {
+  it('constructs directly from a Zod schema with custom options', () => {
+    const schema = z.object({
+      title: z.string().min(3),
+      tags: z.array(z.string()).default([]),
+    });
+
+    const gen = new AxGen(schema, {
+      zod: {
+        assertionLevel: 'none',
+        mode: 'parse',
+      },
+    });
+
+    const signature = gen.getSignature();
+    const metadata = getZodMetadata(signature);
+    expect(metadata?.options.mode).toBe('parse');
+    expect(metadata?.options.assertionLevel).toBe('none');
+    const asserts = (gen as any).asserts as unknown[];
+    expect(asserts?.length ?? 0).toBe(0);
+  });
+
+  it('creates a generator via ax() helper when given a Zod schema', () => {
+    const schema = z.object({
+      topic: z.string(),
+      summary: z.string().catch('summary unavailable'),
+    });
+
+    const gen = ax(schema, {
+      zod: {
+        assertionLevel: 'final',
+        mode: 'safeParse',
+      },
+    });
+
+    expect(gen).toBeInstanceOf(AxGen);
+    const asserts = (gen as any).asserts as unknown[];
+    expect(asserts.length).toBeGreaterThan(0);
+    const metadata = getZodMetadata(gen.getSignature());
+    expect(metadata?.schema).toBe(schema);
+  });
+
   it('applies final Zod assertions and default values', async () => {
     const schema = z.object({
       name: z.string().min(1),

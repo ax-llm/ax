@@ -1,5 +1,7 @@
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
+import type { ZodTypeAny } from 'zod';
+
 import {
   type Context,
   context,
@@ -141,13 +143,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   constructor(
     signature:
-      | NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-      | AxSignature<any, any>,
+      | ConstructorParameters<typeof AxSignature>[0]
+      | AxSignature<any, any>
+      | ZodTypeAny,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     super(signature, {
       description: options?.description,
       traceLabel: options?.traceLabel,
+      zod: options?.zod,
     });
 
     this.options = options;

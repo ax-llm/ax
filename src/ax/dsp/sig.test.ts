@@ -965,6 +965,28 @@ describe('Zod integration', () => {
     );
   });
 
+  it('preserves array element types when inner schemas are optional', () => {
+    const schema = z.object({
+      tags: z.array(z.string().optional()),
+    });
+
+    const signature = AxSignature.fromZod(schema);
+    const tagsField = signature
+      .getOutputFields()
+      .find((field) => field.name === 'tags');
+
+    expect(tagsField?.type?.name).toBe('string');
+    expect(tagsField?.type?.isArray).toBe(true);
+
+    const metadata = getZodMetadata(signature);
+    const hasArrayDowngrade = metadata?.issues.some(
+      (issue) =>
+        issue.kind === 'unsupported' &&
+        issue.path.toLowerCase().includes('tags')
+    );
+    expect(hasArrayDowngrade).toBe(false);
+  });
+
   it('tracks downgrade telemetry for unions and maps them to json outputs', () => {
     const schema = z.object({
       payload: z.union([z.string(), z.number()]),

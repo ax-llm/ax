@@ -188,8 +188,15 @@ const mapZodToAxFieldType = (
   issues: AxZodConversionIssue[]
 ): Omit<AxField, 'name'> => {
   if (schema instanceof ZodArray) {
+    const elementPath = `${path}[]`;
+    const unwrapped = unwrapSchema(schema.element, elementPath);
+    issues.push(...unwrapped.notes);
     const innerIssues: AxZodConversionIssue[] = [];
-    const inner = mapZodToAxFieldType(schema.element, `${path}[]`, innerIssues);
+    const inner = mapZodToAxFieldType(
+      unwrapped.schema,
+      elementPath,
+      innerIssues
+    );
     issues.push(...innerIssues);
     return {
       ...inner,

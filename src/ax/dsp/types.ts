@@ -125,6 +125,9 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
 
   // Field prefix is required for single output field programs
   strictMode?: boolean;
+
+  // Schema conversions
+  zod?: AxZodSignatureOptions;
 };
 
 export type AxAIServiceActionOptions<
