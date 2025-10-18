@@ -1,5 +1,12 @@
 # Changelog
 
+## [14.0.34](https://github.com/ax-llm/ax/compare/14.0.32...14.0.33) (2025-10-18)
+## [14.0.33](https://github.com/ax-llm/ax/compare/14.0.32...14.0.33) (2025-10-17)
+
+### Features
+
+* add GPT-4.1 nano model support ([#387](https://github.com/ax-llm/ax/issues/387)) ([0aa4aa2](https://github.com/ax-llm/ax/commit/0aa4aa2ceed1ba61106711baed6ce962cf2eb604))
+
 ## [14.0.33](https://github.com/ax-llm/ax/compare/14.0.32...14.0.33) (2025-10-17)
 
 ### Features
