@@ -424,6 +424,16 @@ class AxAIGoogleGeminiImpl
         }
       | undefined;
 
+    // Detect if we declared any functions for Gemini (function_declarations tool)
+    const hasFunctionDeclarations = Array.isArray(tools)
+      ? tools.some(
+          (t: any) =>
+            t &&
+            Array.isArray(t.function_declarations) &&
+            t.function_declarations.length > 0
+        )
+      : false;
+
     if (req.functionCall) {
       if (req.functionCall === 'none') {
         toolConfig = { function_calling_config: { mode: 'NONE' as const } };
@@ -444,7 +454,8 @@ class AxAIGoogleGeminiImpl
           ...allowedFunctionNames,
         };
       }
-    } else if (tools && tools.length > 0) {
+    } else if (hasFunctionDeclarations) {
+      // Only set default function_calling_config when we actually provide function_declarations
       toolConfig = {
         function_calling_config: { mode: 'AUTO' as const },
       } as any;
@@ -453,9 +464,7 @@ class AxAIGoogleGeminiImpl
     // Merge Maps retrieval_config if provided (snake_case to follow request shape)
     if (this.options?.googleMapsRetrieval) {
       toolConfig = {
-        ...(toolConfig ?? {
-          function_calling_config: { mode: 'AUTO' as const },
-        }),
+        ...(toolConfig ?? {}),
         retrieval_config: {
           ...(this.options.googleMapsRetrieval.latLng
             ? { lat_lng: this.options.googleMapsRetrieval.latLng }
