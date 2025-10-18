@@ -190,6 +190,111 @@ const sig = s('base:string -> result:string')
   .appendOutputField('score', f.number('Quality score'));
 ```
 
+### 4. Reusing Zod Schemas
+
+```typescript
+import { AxSignature } from '@ax-llm/ax';
+import { z } from 'zod';
+
+const inputSchema = z.object({
+  query: z.string().describe('Search query text'),
+  limit: z.number().int().max(10).optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+const outputSchema = z.object({
+  results: z.array(
+    z.object({
+      title: z.string(),
+      url: z.string().url(),
+    })
+  ),
+  status: z.enum(['success', 'failure']),
+});
+
+const signature = AxSignature.fromZod({
+  description: 'Search knowledge base documents',
+  input: inputSchema,
+  output: outputSchema,
+});
+```
+
+> `AxSignature.fromZod` covers the common Zod v4 primitives and warns whenever a field must be downgraded (for example, to `json`). Inputs use `z.input<>`, outputs use `z.output<>`, so you keep end-to-end type safety without duplicating schema definitions.
+
+**Mapping highlights**
+
+- `z.string()`, `z.number()`, `z.boolean()`, `z.date()` map to matching Ax field types. String refinements such as `.url()` and `.datetime()` become `url`/`datetime` field types.
+- `z.array()` becomes Ax arrays; nested arrays fall back to `json`. Optionality flows from wrappers on the array schema (`z.array(...).optional()`), while optional elements (`z.array(z.string().optional())`) still produce required arrays at runtime.
+- Literal unions/`z.enum`/`z.nativeEnum` values become classifications; input unions are exposed as `string` fields with `options` metadata (Ax intentionally disallows `class` inputs).
+- Optional/nullable/default/catch wrappers automatically mark the field optional.
+- Records, maps, discriminated unions, and other dynamic structures stay as `json`, but Ax marks them as **downgraded** so you can adjust the schema (or rely on `strict: true`).
+
+**Downgrades & strict mode**
+
+- Ax emits a console warning (once per conversion) when a field cannot be represented exactly. Pass `{ warnOnFallback: false }` to silence the warning.
+- Use `{ strict: true }` to throw if any field would be downgraded. The optional `onIssues` callback receives detailed metadata for custom logging or metrics.
+
+```typescript
+const signature = AxSignature.fromZod(
+  {
+    input: inputSchema,
+    output: outputSchema,
+  },
+  {
+    strict: false,
+    onIssues: (issues) => {
+      if (issues.length > 0) {
+        console.warn('Downgraded Zod fields', issues);
+      }
+    },
+  }
+);
+
+// Issues are stored on the signature instance for later inspection.
+signature.getZodConversionIssues();
+
+// Emit a human-friendly summary (console.warn by default)
+signature.reportZodConversionIssues();
+```
+
+Need a quick readout before wiring it in? Call
+`AxSignature.debugZodConversion({ input, output })` to get both the signature
+and a ready-made downgrade report. You can pass `{ logger: yourTelemetry }` to
+pipe the downgrade issues into custom observability tooling.
+
+**Round-trip back to Zod**
+
+Already have a signature and need Zod validators (for adapters, loaders, or
+form tooling)? Call `signature.toZod()` to reconstruct the schemas:
+
+```typescript
+import { z } from 'zod';
+
+const { input: zodInput, output: zodOutput, issues } = signature.toZod({
+  warnOnFallback: false,
+});
+
+if (zodInput) {
+  type InputPayload = z.input<typeof zodInput>;
+}
+if (zodOutput) {
+  type OutputPayload = z.output<typeof zodOutput>;
+}
+
+if (issues.length > 0) {
+  console.warn('Some fields were widened for Zod conversion', issues);
+}
+```
+
+Most Ax field types map cleanly (`string`, `number`, `boolean`, `image`, `file`,
+etc.). We fall back to permissive schemas such as `z.any()` for types without a
+direct Zod equivalent and report them through the `issues` array (or throw when
+`strict: true`).
+
+**Standard Schema?**
+
+Standard Schema libraries (Effect Schema, Valibot, ArkType, etc.) publish adapters to Zod or JSON Schema. Convert with your preferred tool (for example [`xsschema`](https://xsai.js.org/docs/packages-top/xsschema)) and feed the resulting Zod schema into `AxSignature.fromZod`.
+
 ## Pure Fluent API Reference
 
 The fluent API has been redesigned to be purely fluent, meaning you can only use method chaining with `.optional()`, `.array()`, and `.internal()` methods. Nested function calls are no longer supported.

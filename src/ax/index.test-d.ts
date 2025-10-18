@@ -1,8 +1,11 @@
 // index.test-d.ts
 import { expectError, expectType } from 'tsd';
+import { z } from 'zod';
 
 // === Typesafe Signature Tests ===
 import { AxSignature } from './dsp/sig.js';
+import type { SignatureToZodIssue } from './dsp/sig.js';
+import type { ZodConversionIssue } from './dsp/zodToSignature.js';
 
 // Test basic signature type inference
 const basicSig = AxSignature.create('question: string -> answer: string');
@@ -30,6 +33,49 @@ expectType<
   >
 >(multiTypeSig);
 
+const zodSig = AxSignature.fromZod({
+  input: z.object({
+    title: z.string(),
+    count: z.number().optional(),
+  }),
+  output: z.object({
+    summary: z.string(),
+    tags: z.array(z.string()),
+  }),
+});
+expectType<
+  AxSignature<
+    { title: string; count?: number },
+    { summary: string; tags: string[] }
+  >
+>(zodSig);
+
+const zodInputOnly = AxSignature.fromZod({
+  input: z.object({
+    search: z.string(),
+  }),
+  output: z.object({
+    result: z.string(),
+  }),
+});
+expectType<AxSignature<{ search: string }, { result: string }>>(zodInputOnly);
+
+const strictZod = AxSignature.fromZod(
+  {
+    input: z.object({
+      query: z.string(),
+    }),
+  },
+  {
+    strict: true,
+    warnOnFallback: false,
+    onIssues: (issues) => {
+      expectType<readonly ZodConversionIssue[]>(issues);
+    },
+  }
+);
+expectType<AxSignature<{ query: string }, Record<string, never>>>(strictZod);
+
 // Test signature with missing types (should default to string)
 const missingTypesSig = AxSignature.create(
   'question, animalImage: image -> answer'
@@ -50,6 +96,14 @@ import { f } from './dsp/sig.js';
 import type { AxExamples } from './dsp/types.js';
 
 const testSig = AxSignature.create('userInput: string -> responseText: string');
+
+const toZodResult = testSig.toZod({
+  onIssues: (issues) => {
+    expectType<readonly SignatureToZodIssue[]>(issues);
+  },
+  warnOnFallback: false,
+});
+expectType<readonly SignatureToZodIssue[]>(toZodResult.issues);
 
 // Test appendInputField type inference
 const withAppendedInput = testSig.appendInputField('contextInfo', {
