@@ -138,6 +138,11 @@ export interface AxAIGoogleGeminiOptionsTools {
   };
   googleSearch?: boolean;
   urlContext?: boolean;
+  googleMaps?: boolean;
+  googleMapsRetrieval?: {
+    latLng?: { latitude: number; longitude: number };
+    enableWidget?: boolean;
+  };
 }
 
 export interface AxAIGoogleGeminiArgs<TModelKey> {
@@ -390,6 +395,14 @@ class AxAIGoogleGeminiImpl
       tools.push({ google_search: {} });
     }
 
+    if (this.options?.googleMaps) {
+      const mapsToolCfg =
+        this.options.googleMapsRetrieval?.enableWidget !== undefined
+          ? { enable_widget: this.options.googleMapsRetrieval.enableWidget }
+          : {};
+      tools.push({ google_maps: mapsToolCfg } as any);
+    }
+
     if (this.options?.urlContext) {
       tools.push({ url_context: {} });
     }
@@ -403,6 +416,10 @@ class AxAIGoogleGeminiImpl
           function_calling_config: {
             mode: 'NONE' | 'AUTO' | 'ANY';
             allowedFunctionNames?: string[];
+          };
+          retrieval_config?: {
+            lat_lng?: { latitude: number; longitude: number };
+            enable_widget?: boolean;
           };
         }
       | undefined;
@@ -428,7 +445,23 @@ class AxAIGoogleGeminiImpl
         };
       }
     } else if (tools && tools.length > 0) {
-      toolConfig = { function_calling_config: { mode: 'AUTO' as const } };
+      toolConfig = {
+        function_calling_config: { mode: 'AUTO' as const },
+      } as any;
+    }
+
+    // Merge Maps retrieval_config if provided (snake_case to follow request shape)
+    if (this.options?.googleMapsRetrieval) {
+      toolConfig = {
+        ...(toolConfig ?? {
+          function_calling_config: { mode: 'AUTO' as const },
+        }),
+        retrieval_config: {
+          ...(this.options.googleMapsRetrieval.latLng
+            ? { lat_lng: this.options.googleMapsRetrieval.latLng }
+            : {}),
+        },
+      } as any;
     }
 
     const thinkingConfig: AxAIGoogleGeminiGenerationConfig['thinkingConfig'] =
@@ -577,6 +610,7 @@ class AxAIGoogleGeminiImpl
   createChatResp = (
     resp: Readonly<AxAIGoogleGeminiChatResponse>
   ): AxChatResponse => {
+    let mapsWidgetToken: string | undefined;
     const results: AxChatResponseResult[] = resp.candidates?.map(
       (candidate) => {
         const result: AxChatResponseResult = { index: 0 };
@@ -687,6 +721,28 @@ class AxAIGoogleGeminiImpl
               publicationDate: toIso(c.publicationDate),
             }));
         }
+        // Map Google Maps grounding metadata
+        const gm = (candidate as any).groundingMetadata;
+        if (gm) {
+          if (Array.isArray(gm.groundingChunks)) {
+            const mapsCitations = gm.groundingChunks
+              .map((ch: any) => ch?.maps)
+              .filter((m: any) => m && typeof m.uri === 'string')
+              .map((m: any) => ({
+                url: m.uri as string,
+                title: m.title as string | undefined,
+              }));
+            if (mapsCitations.length) {
+              result.citations = [
+                ...(result.citations ?? []),
+                ...mapsCitations,
+              ];
+            }
+          }
+          if (typeof gm.googleMapsWidgetContextToken === 'string') {
+            mapsWidgetToken = gm.googleMapsWidgetContextToken;
+          }
+        }
         return result;
       }
     );
@@ -699,7 +755,17 @@ class AxAIGoogleGeminiImpl
         thoughtsTokens: resp.usageMetadata.thoughtsTokenCount,
       };
     }
-    return { results };
+    const response: AxChatResponse = { results };
+    if (mapsWidgetToken) {
+      (response as any).providerMetadata = {
+        ...(response as any).providerMetadata,
+        google: {
+          ...((response as any).providerMetadata?.google ?? {}),
+          mapsWidgetContextToken: mapsWidgetToken,
+        },
+      };
+    }
+    return response;
   };
 
   createChatStreamResp = (
