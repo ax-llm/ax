@@ -1,0 +1,23 @@
+# Package files are formatted by package managers
+package.json
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs and distributions
+dist
+build
+
+# Generated indexes
+index.ts
+
+# Dependencies
+node_modules
+.pnpm-store
+
+# Documentation
+docs
+
+# Cache directories
+.cache
+.temp
