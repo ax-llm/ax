@@ -113,6 +113,8 @@ import {
   type AxAIGoogleGeminiTool,
   type AxAIGoogleGeminiToolConfig,
   type AxAIGoogleGeminiToolFunctionDeclaration,
+  type AxAIGoogleGeminiToolGoogleMaps,
+  type AxAIGoogleGeminiToolGoogleMapsRetrieval,
   type AxAIGoogleGeminiToolGoogleSearchRetrieval,
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
@@ -948,6 +950,8 @@ export type { AxAIGoogleGeminiThinkingTokenBudgetLevels };
 export type { AxAIGoogleGeminiTool };
 export type { AxAIGoogleGeminiToolConfig };
 export type { AxAIGoogleGeminiToolFunctionDeclaration };
+export type { AxAIGoogleGeminiToolGoogleMaps };
+export type { AxAIGoogleGeminiToolGoogleMapsRetrieval };
 export type { AxAIGoogleGeminiToolGoogleSearchRetrieval };
 export type { AxAIGoogleVertexBatchEmbedRequest };
 export type { AxAIGoogleVertexBatchEmbedResponse };

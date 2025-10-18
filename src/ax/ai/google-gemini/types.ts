@@ -101,18 +101,34 @@ export type AxAIGoogleGeminiToolGoogleSearchRetrieval = {
   };
 };
 
+export type AxAIGoogleGeminiToolGoogleMapsRetrieval = {
+  retrieval_config: {
+    lat_lng?: { latitude: number; longitude: number };
+  };
+};
+
+export type AxAIGoogleGeminiToolGoogleMaps = {
+  enable_widget?: boolean;
+};
+
 export type AxAIGoogleGeminiTool = {
   function_declarations?: AxAIGoogleGeminiToolFunctionDeclaration[];
   code_execution?: object;
   google_search_retrieval?: AxAIGoogleGeminiToolGoogleSearchRetrieval;
   google_search?: object;
   url_context?: object;
+  google_maps?: AxAIGoogleGeminiToolGoogleMaps;
+  google_maps_retrieval?: AxAIGoogleGeminiToolGoogleMapsRetrieval;
 };
 
 export type AxAIGoogleGeminiToolConfig = {
   function_calling_config: {
     mode: 'ANY' | 'NONE' | 'AUTO';
     allowed_function_names?: string[];
+  };
+  retrieval_config?: {
+    lat_lng?: { latitude: number; longitude: number };
+    enable_widget?: boolean;
   };
 };
 
@@ -174,6 +190,15 @@ export type AxAIGoogleGeminiChatResponse = {
           day: number;
         };
       }[];
+    };
+    groundingMetadata?: {
+      groundingChunks?: {
+        maps?: {
+          title?: string;
+          uri?: string;
+        };
+      }[];
+      googleMapsWidgetContextToken?: string;
     };
   }[];
   usageMetadata: {
