@@ -1,5 +1,10 @@
+import type { ZodTypeAny } from 'zod';
+
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { createHash } from '../util/crypto.js';
+import { signatureFieldsToZod, zodToSignatureConfig } from '../zod/convert.js';
+import { getZodMetadata, setZodMetadata } from '../zod/metadata.js';
+import type { AxZodSignatureOptions } from '../zod/types.js';
 
 import { axGlobals } from './globals.js';
 import {
@@ -631,6 +636,10 @@ export class AxSignature<
       if (signature.validatedAtHash === this.sigHash) {
         this.validatedAtHash = this.sigHash;
       }
+      const zodMeta = getZodMetadata(signature);
+      if (zodMeta) {
+        setZodMetadata(this, zodMeta);
+      }
     } else if (typeof signature === 'object' && signature !== null) {
       // Handle AxSignatureConfig object
       if (!('inputs' in signature) || !('outputs' in signature)) {
@@ -687,6 +696,66 @@ export class AxSignature<
       ParseSignature<T>['inputs'],
       ParseSignature<T>['outputs']
     >;
+  }
+
+  public static fromZod(
+    schema: ZodTypeAny,
+    options?: AxZodSignatureOptions
+  ): AxSignature {
+    const normalizedInputs =
+      options?.inputs && options.inputs.length > 0
+        ? [...options.inputs]
+        : [
+            {
+              name: 'prompt',
+              type: { name: 'string' as const },
+            },
+          ];
+
+    const effectiveOptions = {
+      strict: options?.strict ?? false,
+      streaming: options?.streaming ?? false,
+      mode: options?.mode ?? 'safeParse',
+      assertionLevel: options?.assertionLevel ?? 'final',
+      inputs: normalizedInputs,
+    } as const;
+
+    const { config, issues, fieldNames } = zodToSignatureConfig(schema);
+
+    if (effectiveOptions.strict) {
+      const blockingIssues = issues.filter(
+        (issue) => issue.kind === 'unsupported' || issue.kind === 'downgrade'
+      );
+      if (blockingIssues.length > 0) {
+        const summary = blockingIssues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join('; ');
+        throw new AxSignatureValidationError(
+          `Zod schema includes unsupported constructs: ${summary}`
+        );
+      }
+    }
+
+    const signature = new AxSignature({
+      ...config,
+      inputs: effectiveOptions.inputs,
+    });
+    signature.validate();
+
+    setZodMetadata(signature, {
+      schema,
+      issues,
+      fieldNames,
+      options: {
+        strict: effectiveOptions.strict,
+        streaming: effectiveOptions.streaming,
+        mode: effectiveOptions.mode,
+        assertionLevel: effectiveOptions.assertionLevel,
+        inputs: effectiveOptions.inputs,
+      },
+    });
+
+    return signature;
   }
 
   private parseParsedField = (
@@ -1052,6 +1121,15 @@ export class AxSignature<
     };
 
     return schema as AxFunctionJSONSchema;
+  };
+
+  public toZod = (): ZodTypeAny => {
+    const meta = getZodMetadata(this);
+    if (meta) {
+      return meta.schema;
+    }
+
+    return signatureFieldsToZod(this.getOutputFields());
   };
 
   private updateHashLight = (): [string, string] => {

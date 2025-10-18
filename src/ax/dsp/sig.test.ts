@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { extractValues } from './extract.js';
 import { parseSignature } from './parser.js';
 import { type AxField, AxSignature } from './sig.js';
+import { getZodMetadata } from '../zod/metadata.js';
 
 describe('signature parsing', () => {
   it('parses signature correctly', () => {
@@ -873,7 +875,7 @@ describe('Type-safe field addition methods', () => {
 
   it('should handle multiline signatures with proper whitespace trimming in type inference', () => {
     // Test the specific case that was reported - field names should not include whitespace
-    const sig = AxSignature.create(`searchQuery:string -> 
+    const sig = AxSignature.create(`searchQuery:string ->
     relevantContext:string,
     sources:string[]`);
 
@@ -887,6 +889,100 @@ describe('Type-safe field addition methods', () => {
     // Verify no whitespace characters in field names
     expect(outputFields[0].name).not.toMatch(/[\s\n\t\r]/);
     expect(outputFields[1].name).not.toMatch(/[\s\n\t\r]/);
+  });
+});
+
+describe('Zod integration', () => {
+  it('creates signatures from zod schemas with metadata', () => {
+    const schema = z.object({
+      name: z.string().min(1),
+      age: z.number().int().optional(),
+      tags: z.array(z.string()).default([]),
+    });
+
+    const signature = AxSignature.fromZod(schema, { mode: 'safeParse' });
+    const outputs = signature.getOutputFields();
+    expect(outputs).toHaveLength(3);
+    expect(outputs.map((field) => field.name)).toEqual(['name', 'age', 'tags']);
+    expect(outputs[0].type?.name).toBe('string');
+    expect(outputs[1].isOptional).toBe(true);
+    expect(outputs[2].type?.isArray).toBe(true);
+
+    const inputs = signature.getInputFields();
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].name).toBe('prompt');
+    expect(inputs[0].type?.name).toBe('string');
+
+    const metadata = getZodMetadata(signature);
+    expect(metadata?.schema).toBe(schema);
+    expect(metadata?.fieldNames).toEqual(['name', 'age', 'tags']);
+    expect(metadata?.options.mode).toBe('safeParse');
+  });
+
+  it('round trips to the original zod schema', () => {
+    const schema = z.object({
+      id: z.string().uuid(),
+      isActive: z.boolean().catch(true),
+    });
+
+    const signature = AxSignature.fromZod(schema);
+    const back = signature.toZod();
+    expect(back).toBe(schema);
+  });
+
+  it('throws in strict mode when conversion downgrades features', () => {
+    const schema = z
+      .object({
+        payload: z.union([z.string(), z.number()]),
+      })
+      .describe('union payload');
+
+    expect(() => AxSignature.fromZod(schema, { strict: true })).toThrow(
+      /unsupported constructs/i
+    );
+  });
+
+  it('records validation guidance for default and catch fallbacks', () => {
+    const schema = z.object({
+      status: z.enum(['ok', 'error']).catch('error'),
+      attempts: z.number().min(1).max(5).default(3),
+    });
+
+    const signature = AxSignature.fromZod(schema);
+    const metadata = getZodMetadata(signature);
+    expect(metadata).toBeDefined();
+    expect(
+      metadata?.issues.filter((issue) => issue.kind === 'validation')
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining('default value'),
+        }),
+        expect.objectContaining({
+          message: expect.stringContaining('catch()'),
+        }),
+      ])
+    );
+  });
+
+  it('tracks downgrade telemetry for unions and maps them to json outputs', () => {
+    const schema = z.object({
+      payload: z.union([z.string(), z.number()]),
+    });
+
+    const signature = AxSignature.fromZod(schema);
+    const outputs = signature.getOutputFields();
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]?.type?.name).toBe('json');
+
+    const metadata = getZodMetadata(signature);
+    expect(metadata).toBeDefined();
+    expect(
+      metadata?.issues.some(
+        (issue) =>
+          issue.kind === 'downgrade' && /union schema/i.test(issue.message)
+      )
+    ).toBe(true);
   });
 });
 

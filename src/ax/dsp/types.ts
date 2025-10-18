@@ -6,6 +6,7 @@ import type {
   AxModelConfig,
 } from '../ai/types.js';
 import type { AxAIMemory } from '../mem/types.js';
+import type { AxZodSignatureOptions } from '../zod/types.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxGen } from './generate.js';
@@ -232,6 +233,7 @@ export type AxProgramUsage = AxChatResponse['modelUsage'] & {
 export interface AxProgramOptions {
   description?: string;
   traceLabel?: string;
+  zod?: AxZodSignatureOptions;
 }
 
 // === Signature Parsing Types ===

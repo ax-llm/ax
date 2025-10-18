@@ -265,6 +265,8 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       );
     }
 
+    await assertAssertions(asserts, state.values);
+
     yield* streamValues<OUT>(
       signature,
       state.content,
@@ -272,8 +274,6 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       state.xstate,
       result.index
     );
-
-    await assertAssertions(asserts, state.values);
   } else if (result.thought && result.thought.length > 0) {
     state.values[thoughtFieldName] =
       (state.values[thoughtFieldName] ?? '') + result.thought;
