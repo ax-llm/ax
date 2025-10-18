@@ -32,6 +32,8 @@ import {
   type AxAIGoogleGeminiContentPart,
   AxAIGoogleGeminiEmbedModel,
   type AxAIGoogleGeminiGenerationConfig,
+  type AxAIGoogleGeminiToolGoogleMaps,
+  type AxAIGoogleGeminiRetrievalConfig,
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiSafetyCategory,
   type AxAIGoogleGeminiSafetySettings,
@@ -138,11 +140,8 @@ export interface AxAIGoogleGeminiOptionsTools {
   };
   googleSearch?: boolean;
   urlContext?: boolean;
-  googleMaps?: boolean;
-  googleMapsRetrieval?: {
-    latLng?: { latitude: number; longitude: number };
-    enableWidget?: boolean;
-  };
+  googleMaps?: AxAIGoogleGeminiToolGoogleMaps;
+  retrievalConfig?: AxAIGoogleGeminiRetrievalConfig;
 }
 
 export interface AxAIGoogleGeminiArgs<TModelKey> {
@@ -396,10 +395,9 @@ class AxAIGoogleGeminiImpl
     }
 
     if (this.options?.googleMaps) {
+      const gm = this.options.googleMaps;
       const mapsToolCfg =
-        this.options.googleMapsRetrieval?.enableWidget !== undefined
-          ? { enable_widget: this.options.googleMapsRetrieval.enableWidget }
-          : {};
+        gm?.enableWidget !== undefined ? { enableWidget: gm.enableWidget } : {};
       tools.push({ google_maps: mapsToolCfg } as any);
     }
 
@@ -461,13 +459,13 @@ class AxAIGoogleGeminiImpl
       } as any;
     }
 
-    // Merge Maps retrieval_config if provided (snake_case to follow request shape)
-    if (this.options?.googleMapsRetrieval) {
+    // Merge retrievalConfig if provided
+    if (this.options?.retrievalConfig) {
       toolConfig = {
         ...(toolConfig ?? {}),
-        retrieval_config: {
-          ...(this.options.googleMapsRetrieval.latLng
-            ? { lat_lng: this.options.googleMapsRetrieval.latLng }
+        retrievalConfig: {
+          ...(this.options.retrievalConfig.latLng
+            ? { latLng: this.options.retrievalConfig.latLng }
             : {}),
         },
       } as any;

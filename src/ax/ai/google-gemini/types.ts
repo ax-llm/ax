@@ -101,14 +101,8 @@ export type AxAIGoogleGeminiToolGoogleSearchRetrieval = {
   };
 };
 
-export type AxAIGoogleGeminiToolGoogleMapsRetrieval = {
-  retrieval_config: {
-    lat_lng?: { latitude: number; longitude: number };
-  };
-};
-
 export type AxAIGoogleGeminiToolGoogleMaps = {
-  enable_widget?: boolean;
+  enableWidget?: boolean;
 };
 
 export type AxAIGoogleGeminiTool = {
@@ -118,7 +112,6 @@ export type AxAIGoogleGeminiTool = {
   google_search?: object;
   url_context?: object;
   google_maps?: AxAIGoogleGeminiToolGoogleMaps;
-  google_maps_retrieval?: AxAIGoogleGeminiToolGoogleMapsRetrieval;
 };
 
 export type AxAIGoogleGeminiToolConfig = {
@@ -126,10 +119,7 @@ export type AxAIGoogleGeminiToolConfig = {
     mode: 'ANY' | 'NONE' | 'AUTO';
     allowed_function_names?: string[];
   };
-  retrieval_config?: {
-    lat_lng?: { latitude: number; longitude: number };
-    enable_widget?: boolean;
-  };
+  retrievalConfig?: AxAIGoogleGeminiRetrievalConfig;
 };
 
 export type AxAIGoogleGeminiGenerationConfig = {
@@ -145,6 +135,10 @@ export type AxAIGoogleGeminiGenerationConfig = {
     thinkingBudget?: number;
     includeThoughts?: boolean;
   };
+};
+
+export type AxAIGoogleGeminiRetrievalConfig = {
+  latLng?: { latitude: number; longitude: number };
 };
 
 export type AxAIGoogleGeminiSafetySettings = {

@@ -105,6 +105,7 @@ import {
   AxAIGoogleGeminiEmbedTypes,
   type AxAIGoogleGeminiGenerationConfig,
   AxAIGoogleGeminiModel,
+  type AxAIGoogleGeminiRetrievalConfig,
   AxAIGoogleGeminiSafetyCategory,
   type AxAIGoogleGeminiSafetySettings,
   AxAIGoogleGeminiSafetyThreshold,
@@ -114,7 +115,6 @@ import {
   type AxAIGoogleGeminiToolConfig,
   type AxAIGoogleGeminiToolFunctionDeclaration,
   type AxAIGoogleGeminiToolGoogleMaps,
-  type AxAIGoogleGeminiToolGoogleMapsRetrieval,
   type AxAIGoogleGeminiToolGoogleSearchRetrieval,
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
@@ -944,6 +944,7 @@ export type { AxAIGoogleGeminiContent };
 export type { AxAIGoogleGeminiContentPart };
 export type { AxAIGoogleGeminiGenerationConfig };
 export type { AxAIGoogleGeminiOptionsTools };
+export type { AxAIGoogleGeminiRetrievalConfig };
 export type { AxAIGoogleGeminiSafetySettings };
 export type { AxAIGoogleGeminiThinkingConfig };
 export type { AxAIGoogleGeminiThinkingTokenBudgetLevels };
@@ -951,7 +952,6 @@ export type { AxAIGoogleGeminiTool };
 export type { AxAIGoogleGeminiToolConfig };
 export type { AxAIGoogleGeminiToolFunctionDeclaration };
 export type { AxAIGoogleGeminiToolGoogleMaps };
-export type { AxAIGoogleGeminiToolGoogleMapsRetrieval };
 export type { AxAIGoogleGeminiToolGoogleSearchRetrieval };
 export type { AxAIGoogleVertexBatchEmbedRequest };
 export type { AxAIGoogleVertexBatchEmbedResponse };
