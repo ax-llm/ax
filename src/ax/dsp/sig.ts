@@ -9,6 +9,19 @@ import {
   parseSignature,
 } from './parser.js';
 import type { ParseSignature } from './types.js';
+import type { ZodTypeAny } from 'zod';
+import {
+  type InferZodInput,
+  type InferZodOutput,
+  type ZodConversionIssue,
+  zodObjectToSignatureFields,
+} from './zodToSignature.js';
+export type { ZodConversionIssue } from './zodToSignature.js';
+import {
+  signatureFieldsToZodObject,
+  type SignatureToZodIssue,
+} from './signatureToZod.js';
+export type { SignatureToZodIssue } from './signatureToZod.js';
 // Interface for programmatically defining field types
 export interface AxFieldType {
   readonly type:
@@ -551,6 +564,36 @@ export interface AxSignatureConfig {
   outputs: readonly AxField[];
 }
 
+export type AxSignatureFromZodOptions = {
+  /**
+   * When true, the conversion throws if any field must fall back to json or downgrade.
+   */
+  readonly strict?: boolean;
+  /**
+   * When true (default), a warning is emitted to the console if any fields are downgraded.
+   */
+  readonly warnOnFallback?: boolean;
+  /**
+   * Receives detailed downgrade information for custom handling.
+   */
+  readonly onIssues?: (issues: readonly ZodConversionIssue[]) => void;
+};
+
+export type AxSignatureToZodOptions = {
+  /**
+   * When true, throw if any field must fall back to a permissive Zod schema.
+   */
+  readonly strict?: boolean;
+  /**
+   * When true (default), emit a console warning when downgrade issues occur.
+   */
+  readonly warnOnFallback?: boolean;
+  /**
+   * Receives downgrade metadata for custom handling.
+   */
+  readonly onIssues?: (issues: readonly SignatureToZodIssue[]) => void;
+};
+
 export class AxSignature<
   _TInput extends Record<string, any> = Record<string, any>,
   _TOutput extends Record<string, any> = Record<string, any>,
@@ -564,6 +607,7 @@ export class AxSignature<
 
   // Validation caching - stores hash when validation last passed
   private validatedAtHash?: string;
+  private zodConversionIssues: readonly ZodConversionIssue[] = [];
 
   /**
    * @deprecated Use `AxSignature.create()` for better type safety instead of the constructor.
@@ -586,6 +630,7 @@ export class AxSignature<
       this.outputFields = [];
       this.sigHash = '';
       this.sigString = '';
+      this.zodConversionIssues = [];
       return;
     }
 
@@ -617,6 +662,7 @@ export class AxSignature<
       this.inputFields = sig.inputs.map((v) => this.parseParsedField(v));
       this.outputFields = sig.outputs.map((v) => this.parseParsedField(v));
       [this.sigHash, this.sigString] = this.updateHash();
+      this.zodConversionIssues = [];
     } else if (signature instanceof AxSignature) {
       this.description = signature.getDescription();
       this.inputFields = structuredClone(
@@ -631,6 +677,7 @@ export class AxSignature<
       if (signature.validatedAtHash === this.sigHash) {
         this.validatedAtHash = this.sigHash;
       }
+      this.zodConversionIssues = signature.getZodConversionIssues();
     } else if (typeof signature === 'object' && signature !== null) {
       // Handle AxSignatureConfig object
       if (!('inputs' in signature) || !('outputs' in signature)) {
@@ -657,6 +704,7 @@ export class AxSignature<
         this.inputFields = signature.inputs.map((v) => this.parseField(v));
         this.outputFields = signature.outputs.map((v) => this.parseField(v));
         [this.sigHash, this.sigString] = this.updateHash();
+        this.zodConversionIssues = [];
       } catch (error) {
         if (error instanceof AxSignatureValidationError) {
           throw error;
@@ -687,6 +735,240 @@ export class AxSignature<
       ParseSignature<T>['inputs'],
       ParseSignature<T>['outputs']
     >;
+  }
+
+  public static fromZod<TInputSchema, TOutputSchema>(
+    config: {
+      description?: string;
+      input?: TInputSchema;
+      output?: TOutputSchema;
+    },
+    options?: AxSignatureFromZodOptions
+  ): AxSignature<InferZodInput<TInputSchema>, InferZodOutput<TOutputSchema>> {
+    const issues: ZodConversionIssue[] = [];
+    const inputs = config.input
+      ? zodObjectToSignatureFields(
+          config.input as unknown as ZodTypeAny,
+          'input',
+          {
+            issues,
+            basePath: ['input'],
+          }
+        )
+      : [];
+    const outputs = config.output
+      ? zodObjectToSignatureFields(
+          config.output as unknown as ZodTypeAny,
+          'output',
+          {
+            issues,
+            basePath: ['output'],
+          }
+        )
+      : [];
+
+    if (issues.length) {
+      options?.onIssues?.(issues);
+
+      if (options?.strict) {
+        throw new AxSignatureValidationError(
+          'Unsupported Zod schema elements encountered during conversion',
+          undefined,
+          AxSignature.formatZodIssuesForSuggestion(issues)
+        );
+      }
+
+      if (options?.warnOnFallback !== false) {
+        AxSignature.warnAboutZodIssues(issues);
+      }
+    }
+
+    try {
+      const signature = new AxSignature({
+        description: config.description,
+        inputs,
+        outputs,
+      }) as AxSignature<
+        InferZodInput<TInputSchema>,
+        InferZodOutput<TOutputSchema>
+      >;
+      signature.setZodConversionIssues(issues);
+      return signature;
+    } catch (error) {
+      if (error instanceof AxSignatureValidationError) {
+        throw error;
+      }
+
+      throw new AxSignatureValidationError(
+        `Failed to create signature from Zod schema: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private static formatZodIssuesForSuggestion(
+    issues: ReadonlyArray<ZodConversionIssue>
+  ): string {
+    const details = issues.map((issue) => {
+      const target = issue.path.join('.');
+      const severity =
+        issue.severity === 'downgraded' ? 'downgraded' : 'unsupported';
+      return `[${issue.context}] ${target} → ${issue.fallbackType} (${severity}: ${issue.reason})`;
+    });
+    return `Review the following conversions:\n${details.join('\n')}`;
+  }
+
+  private static warnAboutZodIssues(
+    issues: ReadonlyArray<ZodConversionIssue>
+  ): void {
+    const messageLines = issues.map((issue) => {
+      const target = issue.path.join('.');
+      return `  - [${issue.context}] ${target} → ${issue.fallbackType}${issue.schemaType ? ` (${issue.schemaType})` : ''}: ${issue.reason}`;
+    });
+    const message = [
+      '[AxSignature.fromZod] Some schema fields were downgraded or fell back to json.',
+      ...messageLines,
+    ].join('\n');
+    console.warn(message);
+  }
+
+  private static formatSignatureToZodIssues(
+    issues: ReadonlyArray<SignatureToZodIssue>
+  ): string {
+    const details = issues.map((issue) => {
+      const target = issue.path.join('.');
+      return `[${issue.context}] ${target} → ${issue.fallback} (${issue.severity}: ${issue.reason})`;
+    });
+    return `Review the following conversions:\n${details.join('\n')}`;
+  }
+
+  private static warnAboutSignatureToZodIssues(
+    issues: ReadonlyArray<SignatureToZodIssue>
+  ): void {
+    const messageLines = issues.map((issue) => {
+      const target = issue.path.join('.');
+      return `  - [${issue.context}] ${target} → ${issue.fallback}: ${issue.reason}`;
+    });
+    const message = [
+      '[AxSignature.toZod] Some fields were downgraded to permissive Zod schemas.',
+      ...messageLines,
+    ].join('\n');
+    console.warn(message);
+  }
+
+  public static debugZodConversion<TInputSchema, TOutputSchema>(
+    config: {
+      description?: string;
+      input?: TInputSchema;
+      output?: TOutputSchema;
+    },
+    options?: AxSignatureFromZodOptions & {
+      readonly logger?: (issues: readonly ZodConversionIssue[]) => void;
+    }
+  ): {
+    readonly signature: AxSignature<
+      InferZodInput<TInputSchema>,
+      InferZodOutput<TOutputSchema>
+    >;
+    readonly issues: readonly ZodConversionIssue[];
+  } {
+    const collected: ZodConversionIssue[] = [];
+    const signature = AxSignature.fromZod(config, {
+      ...options,
+      warnOnFallback: options?.warnOnFallback ?? false,
+      onIssues: (issues) => {
+        collected.push(...issues);
+        options?.onIssues?.(issues);
+      },
+    });
+
+    if (collected.length > 0) {
+      const shouldWarn = options?.warnOnFallback !== false;
+      const logger =
+        options?.logger ??
+        (shouldWarn ? AxSignature.warnAboutZodIssues : undefined);
+      if (logger) {
+        logger(collected);
+      }
+    } else if (
+      !options?.logger &&
+      options?.warnOnFallback !== false &&
+      !collected.length
+    ) {
+      console.info(
+        '[AxSignature.debugZodConversion] No Zod downgrades detected.'
+      );
+    }
+
+    return {
+      signature,
+      issues: Object.freeze([...collected]),
+    };
+  }
+
+  public toZod(options?: AxSignatureToZodOptions): {
+    readonly input?: ReturnType<typeof signatureFieldsToZodObject>;
+    readonly output?: ReturnType<typeof signatureFieldsToZodObject>;
+    readonly issues: readonly SignatureToZodIssue[];
+  } {
+    const issues: SignatureToZodIssue[] = [];
+
+    const input = this.inputFields.length
+      ? signatureFieldsToZodObject(this.inputFields, 'input', {
+          issues,
+          basePath: ['input'],
+        })
+      : undefined;
+
+    const output = this.outputFields.length
+      ? signatureFieldsToZodObject(this.outputFields, 'output', {
+          issues,
+          basePath: ['output'],
+        })
+      : undefined;
+
+    if (issues.length > 0) {
+      options?.onIssues?.(issues);
+
+      if (options?.strict) {
+        throw new AxSignatureValidationError(
+          'Unsupported Ax field types encountered during Zod conversion',
+          undefined,
+          AxSignature.formatSignatureToZodIssues(issues)
+        );
+      }
+
+      if (options?.warnOnFallback !== false) {
+        AxSignature.warnAboutSignatureToZodIssues(issues);
+      }
+    }
+
+    return {
+      input,
+      output,
+      issues: Object.freeze([...issues]),
+    };
+  }
+
+  public getZodConversionIssues = (): readonly ZodConversionIssue[] =>
+    this.zodConversionIssues;
+
+  public reportZodConversionIssues = (
+    logger: (
+      issues: readonly ZodConversionIssue[]
+    ) => void = AxSignature.warnAboutZodIssues
+  ): void => {
+    const issues = this.getZodConversionIssues();
+    if (issues.length === 0) {
+      return;
+    }
+    logger(issues);
+  };
+
+  private setZodConversionIssues(
+    issues: ReadonlyArray<ZodConversionIssue>
+  ): void {
+    this.zodConversionIssues =
+      issues.length > 0 ? Object.freeze([...issues]) : [];
   }
 
   private parseParsedField = (

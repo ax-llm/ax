@@ -562,6 +562,8 @@ import {
   AxSignature,
   AxSignatureBuilder,
   type AxSignatureConfig,
+  type AxSignatureFromZodOptions,
+  type AxSignatureToZodOptions,
   f,
 } from './dsp/sig.js';
 import { AxStringUtil } from './dsp/strutil.js';
@@ -1256,6 +1258,8 @@ export type { AxRoutingResult };
 export type { AxSamplePickerOptions };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };
+export type { AxSignatureFromZodOptions };
+export type { AxSignatureToZodOptions };
 export type { AxSimpleClassifierForwardOptions };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };

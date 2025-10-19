@@ -564,13 +564,7 @@ class AxToSDKTransformer extends TransformStream<
   }
 }
 
-type AnyZod =
-  | z.AnyZodObject
-  | z.ZodString
-  | z.ZodNumber
-  | z.ZodBoolean
-  | z.ZodArray<AnyZod>
-  | z.ZodOptional<AnyZod>;
+type AnyZod = z.ZodTypeAny;
 
 function convertToZodSchema(
   jsonSchema: Readonly<AxFunctionJSONSchema>

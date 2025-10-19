@@ -1,13 +1,7 @@
 import type { AxFunctionJSONSchema } from '@ax-llm/ax/index.js';
 import { z } from 'zod';
 
-type AnyZod =
-  | z.AnyZodObject
-  | z.ZodString
-  | z.ZodNumber
-  | z.ZodBoolean
-  | z.ZodArray<AnyZod>
-  | z.ZodOptional<AnyZod>;
+type AnyZod = z.ZodTypeAny;
 
 export function convertToZodSchema(
   jsonSchema: Readonly<AxFunctionJSONSchema>

@@ -158,12 +158,62 @@ const result = await generator.forward(llm, { userQuestion: "What is Ax?" });
 console.log(result.responseText, result.confidenceScore);
 ```
 
+### Bring Your Own Zod Schemas
+
+Reuse existing validation schemas without rewriting them:
+
+```typescript
+import { AxSignature, ax } from "@ax-llm/ax";
+import { z } from "zod";
+
+const ticketSignature = AxSignature.fromZod({
+  description: "Summarize support tickets",
+  input: z.object({
+    subject: z.string(),
+    body: z.string(),
+    urgency: z.enum(["low", "normal", "high"]).optional(),
+  }),
+  output: z.object({
+    summary: z.string(),
+    sentiment: z.enum(["positive", "neutral", "negative"]),
+  }),
+});
+
+// Inspect any downgrades programmatically
+console.log(ticketSignature.getZodConversionIssues());
+
+// Quickly audit a schema
+AxSignature.debugZodConversion({
+  input: z.object({
+    subject: z.string(),
+    body: z.string(),
+  }),
+});
+
+// Emit a warning-style report when issues exist
+ticketSignature.reportZodConversionIssues();
+
+// Need the Zod schemas back out (e.g. for adapters)?
+const { input: inputSchema, output: outputSchema } = ticketSignature.toZod({
+  warnOnFallback: false,
+});
+if (inputSchema && outputSchema) {
+  type TicketInput = z.input<typeof inputSchema>;
+  type TicketOutput = z.output<typeof outputSchema>;
+}
+
+const summarize = ax(ticketSignature);
+```
+
 ## Powerful Features, Zero Complexity
 
 - ✅ **15+ LLM Providers** - OpenAI, Anthropic, Google, Mistral, Ollama, and
   more
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
+- ✅ **Zod-Friendly** - Convert schemas with automatic fallbacks and warnings
+- ✅ **Round-Trip Friendly** - Regenerate Zod objects from signatures when you need adapters
+- ✅ **Downgrade Awareness** - Records/maps/unions stay `json` but are flagged so you can adjust early
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
 - ✅ **Agentic Context Engineering** - ACE generator → reflector → curator loops
