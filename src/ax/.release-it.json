@@ -19,6 +19,10 @@
           "path": ["dependencies.@ax-llm/ax"]
         },
         {
+          "file": "../aws-bedrock/package.json",
+          "path": ["dependencies.@ax-llm/ax"]
+        },
+        {
           "file": "../tools/package.json",
           "path": ["dependencies.@ax-llm/ax"]
         }

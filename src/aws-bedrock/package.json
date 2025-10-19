@@ -1,0 +1,54 @@
+{
+  "name": "@ax-llm/ax-ai-aws-bedrock",
+  "version": "14.0.31",
+  "type": "module",
+  "description": "AWS Bedrock Provider for AX - supports Claude, GPT OSS, and Titan Embed models",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ax-llm/ax.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "ax",
+    "aws",
+    "bedrock",
+    "claude",
+    "gpt",
+    "llm",
+    "ai"
+  ],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "test": "run-s test:*",
+    "test:type-check": "tsc --noEmit",
+    "test:lint": "biome lint .",
+    "test:format": "biome format .",
+    "fix": "run-s fix:*",
+    "fix:lint": "biome lint --write .",
+    "fix:format": "biome format --write .",
+    "tsx": "node --env-file=.env --import=tsx",
+    "release": "release-it",
+    "publish": "npm run build && cd dist && npm publish",
+    "postbuild": "node ../../scripts/postbuild.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.709.0",
+    "@ax-llm/ax": "14.0.31"
+  },
+  "peerDependencies": {
+    "@ax-llm/ax": "14.0.31"
+  },
+  "bugs": {
+    "url": "https://github.com/@ax-llm/ax/issues"
+  },
+  "homepage": "https://github.com/ax-llm/ax#readme",
+  "author": "Vikram <https://twitter.com/dosco>",
+  "files": [
+    "**/*"
+  ]
+}
