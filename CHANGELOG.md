@@ -1,5 +1,16 @@
 # Changelog
 
+## [14.0.35](https://github.com/ax-llm/ax/compare/14.0.33...14.0.34) (2025-10-19)
+
+### Features
+
+* add AWS Bedrock provider integration ([#395](https://github.com/ax-llm/ax/issues/395)) ([6ce7eb3](https://github.com/ax-llm/ax/commit/6ce7eb3219c9936bec0916ca0572be9fe17c670c))
+
+### Bug Fixes
+
+* **google-gemini:** align Google Maps grounding types/options and retrievalConfig with Gemini api ([#393](https://github.com/ax-llm/ax/issues/393)) ([b44f534](https://github.com/ax-llm/ax/commit/b44f5340a603475728179e75baa7415767eec1e9))
+## [14.0.34](https://github.com/ax-llm/ax/compare/14.0.33...14.0.34) (2025-10-18)
+
 ## [14.0.34](https://github.com/ax-llm/ax/compare/14.0.32...14.0.33) (2025-10-18)
 ## [14.0.33](https://github.com/ax-llm/ax/compare/14.0.32...14.0.33) (2025-10-17)
 
