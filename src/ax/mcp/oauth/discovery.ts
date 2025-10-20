@@ -1,5 +1,11 @@
 import { fetchJSON, stripTrailingSlash } from '../util/http.js';
 
+/**
+ * Extracts the resource_metadata URL from a WWW-Authenticate header value.
+ * Supports both quoted and unquoted parameter formats.
+ * @param www - The WWW-Authenticate header value to parse
+ * @returns The extracted resource_metadata URL, or null if not found
+ */
 export function parseWWWAuthenticateForResourceMetadata(
   www: string | null
 ): string | null {
@@ -10,6 +16,16 @@ export function parseWWWAuthenticateForResourceMetadata(
   return match ? match[1] : null;
 }
 
+/**
+ * Discovers the protected resource identifier and its authorization servers.
+ * First attempts to use the resource_metadata URL from the WWW-Authenticate header.
+ * If not available, falls back to trying well-known endpoints with and without path components.
+ * Validates that the discovered resource matches the requested URL and that authorization servers are advertised.
+ * @param requestedUrl - The URL of the protected resource being accessed
+ * @param wwwAuthenticate - The WWW-Authenticate header value from the response
+ * @returns An object containing the resource identifier and array of issuer URLs
+ * @throws {Error} If resource metadata cannot be discovered or validation fails
+ */
 export async function discoverResourceAndAS(
   requestedUrl: string,
   wwwAuthenticate: string | null
@@ -82,6 +98,14 @@ export async function discoverResourceAndAS(
   );
 }
 
+/**
+ * Discovers authorization server metadata by attempting multiple well-known endpoint patterns.
+ * Tries OAuth authorization server and OpenID configuration endpoints with various path combinations.
+ * Validates that the metadata includes required endpoints and PKCE S256 support.
+ * @param issuer - The authorization server issuer URL
+ * @returns The authorization server metadata object
+ * @throws {Error} If metadata cannot be discovered or validation fails
+ */
 export async function discoverASMetadata(issuer: string): Promise<any> {
   const u = new URL(issuer);
   const path = u.pathname.replace(/^\/+/, '');
