@@ -503,11 +503,9 @@ Example:
 Streaming validation fails with array fields.
 
 ## Steps to Reproduce
-```typescript
 const gen = ax('input:string -> items:string[]');
 const stream = await gen.streamingForward(ai, { input: 'test' });
 // Error occurs here
-```
 
 ## Environment
 - Node.js: v20.10.0
@@ -515,9 +513,7 @@ const stream = await gen.streamingForward(ai, { input: 'test' });
 - OS: macOS 14.0
 
 ## Error Message
-```
 TypeError: Cannot read property 'length' of undefined
-```
 ```
 
 ### Feature Requests
