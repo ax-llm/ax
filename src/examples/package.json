@@ -28,7 +28,7 @@
     "@opentelemetry/exporter-prometheus": "^0.202.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
     "@opentelemetry/resources": "^2.0.1",
-    "@opentelemetry/sdk-metrics": "^2.0.1",
+    "@opentelemetry/sdk-metrics": "^2.1.0",
     "@opentelemetry/sdk-trace-base": "^2.0.1",
     "@pipedream/sdk": "^1.6.4",
     "google-auth-library": "^9.15.1"
