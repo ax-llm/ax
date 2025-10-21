@@ -7,13 +7,13 @@ export const reasoningGen = ax(
   'userQuestion:string "User question" -> responseText:string "Final answer", thought?:string "Reasoning tokens (if available)"'
 );
 
-console.log('=== Anthropic thinking separation demo ===');
+console.log('=== Anthropic thinking  demo ===');
 
 const llmWithThoughts = ai({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY!,
   config: {
-    model: AxAIAnthropicModel.Claude37Sonnet,
+    model: AxAIAnthropicModel.Claude4Sonnet,
     stream: false,
     temperature: 0.1,
   },
@@ -23,33 +23,15 @@ const llmWithThoughts = ai({
   },
 });
 
-const withThoughts = await reasoningGen.forward(llmWithThoughts, {
-  userQuestion:
-    'In one sentence, explain why the sky appears blue on a clear day.',
-});
-
-console.log('[showThoughts=true] answer:', withThoughts.responseText);
-if (withThoughts.thought)
-  console.log('[showThoughts=true] thought:', withThoughts.thought);
-
-const llmNoThoughts = ai({
-  name: 'anthropic',
-  apiKey: process.env.ANTHROPIC_APIKEY!,
-  config: {
-    model: AxAIAnthropicModel.Claude37Sonnet,
-    stream: false,
-    temperature: 0.1,
+await reasoningGen.forward(
+  llmWithThoughts,
+  {
+    userQuestion:
+      'In one sentence, explain why the sky appears blue on a clear day.',
   },
-  options: {
+  {
+    showThoughts: true,
     thinkingTokenBudget: 'low',
-    showThoughts: false,
-  },
-});
-
-const noThoughts = await reasoningGen.forward(llmNoThoughts, {
-  userQuestion:
-    'In one sentence, explain why the sky appears blue on a clear day.',
-});
-
-console.log('[showThoughts=false] answer:', noThoughts.responseText);
-console.log('[showThoughts=false] thought:', String(noThoughts.thought ?? ''));
+    debug: true,
+  }
+);

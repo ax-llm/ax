@@ -128,7 +128,7 @@ export const axCreateDefaultColorLogger = (
           if (result.thoughtBlock?.data || result.thought) {
             lines.push(
               cl.gray(
-                `[thought${result.thoughtBlock?.encrypted ? ' (redacted)' : ''}] ` +
+                `[THOUGHT${result.thoughtBlock?.encrypted ? ' (redacted)' : ''}]\n` +
                   (result.thoughtBlock?.data ?? result.thought ?? '')
               )
             );
@@ -149,14 +149,23 @@ export const axCreateDefaultColorLogger = (
         const streamingContent =
           thought || typedData.value.delta || typedData.value.content || '';
         formattedMessage = thought
-          ? cl.gray(`[thought] ${thought}`)
+          ? cl.gray(`[THOUGHT]\n${thought}`)
           : cl.cyanBright(streamingContent);
-        return;
+        break;
       }
       case 'ChatResponseStreamingDoneResult': {
         formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n${divider}\n`;
         if (typedData.value.content) {
           formattedMessage += cl.cyanBright(typedData.value.content);
+        }
+        if (typedData.value.thoughtBlock?.data || typedData.value.thought) {
+          formattedMessage += `\n`;
+          formattedMessage += cl.gray(
+            `[THOUGHT${typedData.value.thoughtBlock?.encrypted ? ' (redacted)' : ''}]\n` +
+              (typedData.value.thoughtBlock?.data ??
+                typedData.value.thought ??
+                '')
+          );
         }
         if (typedData.value.functionCalls) {
           formattedMessage += cl.cyanBright(
@@ -279,7 +288,20 @@ export const axCreateDefaultTextLogger = (
       case 'ChatResponseResults':
         formattedMessage = '\n[ CHAT RESPONSE ]\n';
         typedData.value.forEach((result, i) => {
-          formattedMessage += result.content || '[No content]';
+          const lines: string[] = [];
+          if (result.thoughtBlock?.data || result.thought) {
+            lines.push(
+              `[thought${result.thoughtBlock?.encrypted ? ' (redacted)' : ''}] ` +
+                (result.thoughtBlock?.data ?? result.thought ?? '')
+            );
+          }
+          if (result.content) {
+            lines.push(result.content);
+          }
+          if (lines.length === 0) {
+            lines.push('[No content]');
+          }
+          formattedMessage += lines.join('\n');
           if (i < typedData.value.length - 1)
             formattedMessage += `\n${divider}\n`;
         });
@@ -295,6 +317,14 @@ export const axCreateDefaultTextLogger = (
         formattedMessage = '\n[ CHAT RESPONSE ]\n';
         if (typedData.value.content) {
           formattedMessage += typedData.value.content;
+        }
+        if (typedData.value.thoughtBlock?.data || typedData.value.thought) {
+          formattedMessage += `\n`;
+          formattedMessage +=
+            `[thought${typedData.value.thoughtBlock?.encrypted ? ' (redacted)' : ''}] ` +
+            (typedData.value.thoughtBlock?.data ??
+              typedData.value.thought ??
+              '');
         }
         if (typedData.value.functionCalls) {
           formattedMessage += JSON.stringify(

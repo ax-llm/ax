@@ -3,6 +3,16 @@ import type { AxModelInfo } from '../types.js';
 import { AxAIAnthropicModel } from './types.js';
 
 export const axModelInfoAnthropic: AxModelInfo[] = [
+  // 4.5 Haiku (2025-10)
+  {
+    name: AxAIAnthropicModel.Claude45Haiku,
+    currency: 'usd',
+    // Pricing per Anthropic announcement: $1 input / $5 output per 1M tokens
+    promptTokenCostPer1M: 1.0,
+    completionTokenCostPer1M: 5.0,
+    maxTokens: 200000, // match modern context window similar to Sonnet 4.5 era
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
   // 4
   {
     name: AxAIAnthropicModel.Claude41Opus,
