@@ -3,6 +3,16 @@ import type { AxModelInfo } from '../types.js';
 import { AxAIAnthropicModel } from './types.js';
 
 export const axModelInfoAnthropic: AxModelInfo[] = [
+  // 4.5 Sonnet (2025-09)
+  {
+    name: AxAIAnthropicModel.Claude45Sonnet,
+    currency: 'usd',
+    // Estimated/prior pricing aligned with Sonnet tier
+    promptTokenCostPer1M: 3.0,
+    completionTokenCostPer1M: 15.0,
+    maxTokens: 200000,
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
   // 4.5 Haiku (2025-10)
   {
     name: AxAIAnthropicModel.Claude45Haiku,
