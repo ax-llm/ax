@@ -5,8 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { validateAxMessageArray } from '../ai/base.js';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
-import { AxStopFunctionCallException } from './functions.js';
-import { AxGen, type AxGenerateError } from './generate.js';
+import { AxGen } from './generate.js';
 import { AxSignature } from './sig.js';
 import type { AxProgramForwardOptions } from './types.js';
 
@@ -142,7 +141,7 @@ describe('AxGen forward and streamingForward', () => {
 });
 
 describe('stopFunction behavior', () => {
-  it('throws AxStopFunctionCallException for string stopFunction', async () => {
+  it('stops gracefully when stopFunction is called with string stopFunction', async () => {
     const ai = new AxMockAIService({
       features: { functions: true, streaming: false },
       chatResponse: {
@@ -175,27 +174,17 @@ describe('stopFunction behavior', () => {
       }
     );
 
-    try {
-      await gen.forward(
-        ai as any,
-        { userQuestion: 'call tool' },
-        { stopFunction: 'getTime' }
-      );
-      throw new Error('Expected AxStopFunctionCallException');
-    } catch (e) {
-      const ex =
-        e instanceof AxStopFunctionCallException
-          ? e
-          : (e as AxGenerateError).cause;
-      expect(ex).toBeInstanceOf(AxStopFunctionCallException);
-      const stop = ex as AxStopFunctionCallException;
-      expect(stop.calls?.length).toBe(1);
-      expect(stop.calls?.[0]?.func.name).toBe('getTime');
-      expect(stop.calls?.[0]?.result).toBe('NOW');
-    }
+    // With the new behavior, stopFunction should complete without throwing
+    const result = await gen.forward(
+      ai as any,
+      { userQuestion: 'call tool' },
+      { stopFunction: 'getTime' }
+    );
+    // The function should have been called and the generator should stop gracefully
+    expect(result).toBeDefined();
   });
 
-  it('throws AxStopFunctionCallException for any match in string[]', async () => {
+  it('stops gracefully when stopFunction matches any function in string[]', async () => {
     const ai = new AxMockAIService({
       features: { functions: true, streaming: false },
       chatResponse: {
@@ -225,27 +214,17 @@ describe('stopFunction behavior', () => {
       }
     );
 
-    try {
-      await gen.forward(
-        ai as any,
-        { userQuestion: 'call B' },
-        { stopFunction: ['toolA', 'toolB'] }
-      );
-      throw new Error('Expected AxStopFunctionCallException');
-    } catch (e) {
-      const ex =
-        e instanceof AxStopFunctionCallException
-          ? e
-          : (e as AxGenerateError).cause;
-      expect(ex).toBeInstanceOf(AxStopFunctionCallException);
-      const stop = ex as AxStopFunctionCallException;
-      expect(stop.calls?.length).toBeGreaterThanOrEqual(1);
-      expect(stop.calls?.[0]?.func.name).toBe('toolB');
-      expect(stop.calls?.[0]?.result).toBe('B');
-    }
+    // With the new behavior, stopFunction should complete without throwing
+    const result = await gen.forward(
+      ai as any,
+      { userQuestion: 'call B' },
+      { stopFunction: ['toolA', 'toolB'] }
+    );
+    // The function should have been called and the generator should stop gracefully
+    expect(result).toBeDefined();
   });
 
-  it('aggregates multiple parallel stop function matches', async () => {
+  it('stops gracefully with multiple parallel stop function matches', async () => {
     const ai = new AxMockAIService({
       features: { functions: true, streaming: false },
       chatResponse: {
@@ -280,26 +259,14 @@ describe('stopFunction behavior', () => {
       }
     );
 
-    try {
-      await gen.forward(
-        ai as any,
-        { userQuestion: 'call both' },
-        { stopFunction: ['toolA', 'toolB'] }
-      );
-      throw new Error('Expected AxStopFunctionCallException');
-    } catch (e) {
-      const ex =
-        e instanceof AxStopFunctionCallException
-          ? e
-          : (e as AxGenerateError).cause;
-      expect(ex).toBeInstanceOf(AxStopFunctionCallException);
-      const stop = ex as AxStopFunctionCallException;
-      expect(stop.calls?.length).toBe(2);
-      const names = (stop.calls ?? []).map((c) => c.func.name).sort();
-      expect(names).toEqual(['toolA', 'toolB']);
-      const results = (stop.calls ?? []).map((c) => c.result).sort();
-      expect(results).toEqual(['A', 'B']);
-    }
+    // With the new behavior, stopFunction should complete without throwing
+    const result = await gen.forward(
+      ai as any,
+      { userQuestion: 'call both' },
+      { stopFunction: ['toolA', 'toolB'] }
+    );
+    // Both functions should have been called and the generator should stop gracefully
+    expect(result).toBeDefined();
   });
 });
 

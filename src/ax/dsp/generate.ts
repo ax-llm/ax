@@ -624,22 +624,33 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             stopFunctionNames,
           });
 
-          for await (const result of generator) {
-            if (result !== undefined) {
-              yield {
-                version: errCount,
-                index: result.index,
-                delta: result.delta,
-              };
+          let stopFunctionTriggered = false;
+          try {
+            for await (const result of generator) {
+              if (result !== undefined) {
+                yield {
+                  version: errCount,
+                  index: result.index,
+                  delta: result.delta,
+                };
+              }
+            }
+          } catch (e) {
+            if (e instanceof AxStopFunctionCallException) {
+              stopFunctionTriggered = true;
+            } else {
+              throw e;
             }
           }
 
-          const shouldContinue = shouldContinueSteps(
-            mem,
-            stopFunctionNames,
-            states,
-            options?.sessionId
-          );
+          const shouldContinue = stopFunctionTriggered
+            ? false
+            : shouldContinueSteps(
+                mem,
+                stopFunctionNames,
+                states,
+                options?.sessionId
+              );
 
           if (shouldContinue) {
             // Record multi-step generation metric
@@ -736,8 +747,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             handleRefusalErrorForGenerate(
               args as HandleErrorForGenerateArgs<AxAIRefusalError>
             );
-          } else if (e instanceof AxStopFunctionCallException) {
-            throw e;
           } else if (e instanceof AxAIServiceStreamTerminatedError) {
             // Do nothing allow error correction to happen
           } else {
