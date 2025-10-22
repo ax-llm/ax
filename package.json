@@ -69,7 +69,8 @@
     "example": "examples"
   },
   "workspaces": [
-    "src/*"
+    "src/*",
+    "!src/data"
   ],
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",

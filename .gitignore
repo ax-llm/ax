@@ -24,5 +24,6 @@ site/dist
 *.webm
 *.txt
 __pycache__
-
+*.jsonl
 gepa/
+src/data
