@@ -1,5 +1,13 @@
 # Changelog
 
+## [14.0.37](https://github.com/ax-llm/ax/compare/14.0.35...14.0.36) (2025-10-22)
+## [14.0.36](https://github.com/ax-llm/ax/compare/14.0.35...14.0.36) (2025-10-22)
+
+### Features
+
+* **anthropic:** add Claude 4.5 Haiku model and update logging for thought display ([2d84bc2](https://github.com/ax-llm/ax/commit/2d84bc266d26b3338d68fc24a86e6faaf78288b0))
+* **anthropic:** add Claude 4.5 Sonnet model with pricing and token limits ([af101b4](https://github.com/ax-llm/ax/commit/af101b42593abc668877099fed474421d81de6a5))
+
 ## [14.0.36](https://github.com/ax-llm/ax/compare/14.0.34...14.0.35) (2025-10-22)
 
 ### Features
