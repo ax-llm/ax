@@ -7,7 +7,11 @@ import {
   SpanKind,
   trace,
 } from '@opentelemetry/api';
-import type { AxAIService } from '../ai/types.js';
+import type {
+  AxAIService,
+  AxFunction,
+  AxFunctionHandler,
+} from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
 import type { AxOptimizedProgram } from '../dsp/optimizer.js';
 import { AxProgram } from '../dsp/program.js';
@@ -104,6 +108,9 @@ export class AxFlow<
 
   // Program field that gets initialized when something is added to the graph
   private program?: AxProgram<IN, OUT>;
+
+  // Optional flow-level name used by toFunction()
+  private flowName?: string;
 
   // Node-level usage tracking
   private nodeUsage: Map<string, AxProgramUsage[]> = new Map();
@@ -711,6 +718,50 @@ export class AxFlow<
   public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]): void {
     this.ensureProgram();
     this.program!.setDemos(demos);
+  }
+
+  public description(name: string, description: string): this {
+    this.ensureProgram();
+    this.flowName = name;
+    this.program!.setDescription(description);
+    return this;
+  }
+
+  public toFunction(): AxFunction {
+    this.ensureProgram();
+    const sig = this.program!.getSignature();
+
+    const baseName =
+      this.flowName ??
+      (sig.getDescription()?.trim().split('\n')[0] || 'axFlow');
+    const safe = baseName.replace(/\s+/g, '_');
+    const name = this.toCamelCase(safe);
+
+    const handler: AxFunctionHandler = async (args?: any, extra?) => {
+      const ai = extra?.ai;
+      if (!ai) throw new Error('AI service is required to run the flow');
+
+      const ret = await this.forward(ai, (args ?? {}) as IN);
+      const outFields = sig.getOutputFields();
+
+      const resultObj = (ret ?? {}) as Record<string, unknown>;
+      return Object.keys(resultObj)
+        .map((k) => {
+          const f = outFields.find((of) => of.name === k);
+          if (f && (f as any).title) {
+            return `${(f as any).title}: ${resultObj[k]}`;
+          }
+          return `${k}: ${resultObj[k]}`;
+        })
+        .join('\n');
+    };
+
+    return {
+      name,
+      description: sig.getDescription() ?? 'Execute this AxFlow',
+      parameters: sig.toJSONSchema(),
+      func: handler,
+    };
   }
 
   public getUsage(): AxProgramUsage[] {

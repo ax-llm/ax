@@ -2,6 +2,10 @@ import { AxAI, AxAIOpenAIModel, AxGEPAFlow, flow } from '@ax-llm/ax';
 
 // Two-objective flow: classify priority and produce a brief rationale
 const flowEmail = flow<{ emailText: string }>()
+  .description(
+    'Email Priority Classifier',
+    'Classifies an email priority and produces a concise rationale.'
+  )
   .n('classifier', 'emailText:string -> priority:class "high, normal, low"')
   .n(
     'rationale',

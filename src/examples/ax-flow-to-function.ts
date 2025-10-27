@@ -38,26 +38,20 @@ console.log('3. Named flow with function conversion:');
 const namedFlow = new AxFlow<
   { userQuestion: string },
   { responseText: string }
->();
+>().description(
+  'Question Answerer',
+  'Answers user questions concisely using the configured AI model.'
+);
 
 // Test function conversion
-try {
-  // toFunction method is not available in the current implementation
-  const flowAsFunction = {
-    name: 'Question Answerer',
-    description: 'Not available',
-    parameters: { properties: {} },
-  };
-  console.log('Function conversion successful:');
-  console.log('- Name:', flowAsFunction.name);
-  console.log('- Description:', flowAsFunction.description);
-  console.log(
-    '- Parameters schema keys:',
-    Object.keys(flowAsFunction.parameters?.properties || {})
-  );
-} catch (error) {
-  console.error('Function conversion failed:', error);
-}
+const flowAsFunction = namedFlow.toFunction();
+console.log('Function conversion successful:');
+console.log('- Name:', flowAsFunction.name);
+console.log('- Description:', flowAsFunction.description);
+console.log(
+  '- Parameters schema keys:',
+  Object.keys(flowAsFunction.parameters?.properties || {})
+);
 
 // Test direct execution of named flow
 const namedResult = await namedFlow.forward(ai, {

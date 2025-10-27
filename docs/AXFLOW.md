@@ -305,6 +305,42 @@ flow.r((state) => ({ output: state.value }));
   format
 - When building reusable flows that need clear output contracts
 
+#### `description(name: string, description: string)`
+
+Set a flow-level name and description. The description is stored on the flow's
+inferred signature, and the name/description are used by `toFunction()` for the
+exported function metadata.
+
+```typescript
+const wf = flow<{ userQuestion: string }, { responseText: string }>()
+  .node("qa", "userQuestion:string -> responseText:string")
+  .description(
+    "Question Answerer",
+    "Answers user questions concisely using the configured AI model.",
+  );
+```
+
+#### `toFunction()`
+
+Convert the flow into an AxFunction using the flow's inferred signature. The
+function's `name` prefers the name set via `description(name, ...)` and falls
+back to the first line of the signature description. The `parameters` are
+generated from the inferred input fields as JSON Schema.
+
+```typescript
+const wf = flow<{ userQuestion: string }, { responseText: string }>()
+  .node("qa", "userQuestion:string -> responseText:string")
+  .description(
+    "Question Answerer",
+    "Answers user questions concisely using the configured AI model.",
+  );
+
+const fn = wf.toFunction();
+console.log(fn.name); // "questionAnswerer"
+console.log(fn.parameters); // JSON Schema from inferred input
+// You can call fn.func with args and { ai } to execute the flow
+```
+
 ### Control Flow Methods
 
 #### `while(condition: Function)` / `endWhile()`

@@ -8,6 +8,10 @@ const documentAnalysisWorkflow = flow<{ userDocument: string }>({
   debug: true, // Enable logging to see the flow execution
   autoParallel: true, // Enable automatic parallelization
 })
+  .description(
+    'Fluent Document Analysis',
+    'Summarizes a document, analyzes sentiment, and extracts key topics.'
+  )
   // Step 1: Summarize the document
   .node(
     'summarizer',
@@ -62,6 +66,10 @@ console.log(
 
 // Example of a simpler workflow for comparison
 const _simpleWorkflow = flow<{ rawInput: string }>()
+  .description(
+    'Simple Processor',
+    'Processes a rawInput value through a single node and returns the result.'
+  )
   .node('processor', 'userInput:string -> processedOutput:string')
   .execute('processor', (state) => ({ userInput: state.rawInput || 'default' }))
   .map((state) => ({
@@ -72,6 +80,10 @@ console.log('\nSimple workflow also created successfully!');
 
 // Example showing different node creation methods
 const _advancedWorkflow = flow<{ inputDocument: string }>()
+  .description(
+    'Advanced Text Analyzer',
+    'Analyzes text and returns a final analysis using multiple steps.'
+  )
   // Basic string signature
   .node('textAnalyzer', 'documentText:string -> analysisResult:string')
 
@@ -97,6 +109,10 @@ console.log('✅ Automatic parallelization and optimization');
 
 // Show how to extend workflows
 const _extendedWorkflow = flow<{ sourceData: string }>()
+  .description(
+    'Extended Workflow',
+    'Demonstrates chaining, execution, and mapping across multiple steps.'
+  )
   .node('step1', 'userInput:string -> intermediateResult:string')
   .execute('step1', (state) => ({ userInput: state.sourceData || 'test' }))
 

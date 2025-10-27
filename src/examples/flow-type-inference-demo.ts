@@ -9,6 +9,10 @@ const _basicFlow = flow<{ userQuestion: string }>().map((state) => ({
 
 // Example 2: Complex input type - Full type safety with multiple fields!
 const typedFlow = flow<{ userQuestion: string; context: string }>()
+  .description(
+    'Type Inference Demo',
+    'Demonstrates input typing, state evolution, and final typed outputs.'
+  )
   .map((state) => ({
     ...state,
     // TypeScript knows these fields exist!

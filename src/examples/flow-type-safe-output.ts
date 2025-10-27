@@ -8,6 +8,10 @@ const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Example: Building a type-safe document analysis workflow
 const documentAnalyzer = flow<{ documentText: string }>()
+  .description(
+    'Type-safe Document Analyzer',
+    'Summarizes, analyzes sentiment, and extracts keywords with typed output.'
+  )
   // Define reusable nodes
   .node('summarizer', 'documentText:string -> summaryText:string')
   .node(

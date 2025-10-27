@@ -11,6 +11,10 @@ const llm = ai({
 const flowFull = AxFlow.create<{ documentContent: string }>({
   autoParallel: true,
 })
+  .description(
+    'Document Analysis Pipeline',
+    'Summarizes a document, extracts keywords, and analyzes sentiment.'
+  )
   .node('summarizer', 'documentContent:string -> documentSummary:string')
   .node('keywordExtractor', 'documentSummary:string -> keywords:string[]')
   .node(
@@ -37,6 +41,10 @@ const flowFull = AxFlow.create<{ documentContent: string }>({
 
 // Aliases example 1 - Customer support ticket processing with error handling
 const flowAlias1 = AxFlow.create<{ ticketMessage: string }>()
+  .description(
+    'Support Ticket Processor',
+    'Classifies incoming support messages and generates a suggested response.'
+  )
   .n(
     'classifier',
     'customerMessage:string -> ticketCategory:string, urgencyLevel:string'
@@ -59,6 +67,10 @@ const flowAlias2 = AxFlow.create<
 >({
   autoParallel: true,
 })
+  .description(
+    'Code Review Assistant',
+    'Analyzes a code snippet and produces a concise review with quality score.'
+  )
   .n(
     'codeAnalyzer',
     'sourceCode:string -> codeAnalysis:string, qualityScore:number'
@@ -79,6 +91,10 @@ const flowBranch = AxFlow.create<
   { userPost: string; postType: string },
   { moderationAction: string }
 >()
+  .description(
+    'Content Moderation Router',
+    'Routes content to the appropriate moderator and returns the moderation action.'
+  )
   .node(
     'socialMediaModerator',
     'postContent:string -> moderationDecision:string, reasoning:string'
@@ -102,6 +118,10 @@ const flowBranch = AxFlow.create<
 
 // Parallel example - Research paper analysis with manual parallelization
 const flowParallel = flow<{ paperAbstract: string }>()
+  .description(
+    'Research Paper Scorer',
+    'Scores novelty and clarity in parallel and computes a combined score.'
+  )
   .node('noveltyScorer', 'researchAbstract:string -> noveltyScore:number')
   .node('clarityScorer', 'researchAbstract:string -> clarityScore:number')
   .parallel([
@@ -134,6 +154,10 @@ const flowParallel = flow<{ paperAbstract: string }>()
 
 // While example - Iterative writing improvement with circuit breaker
 const flowWhile = AxFlow.create<{ draftArticle: string }>()
+  .description(
+    'Iterative Writing Improver',
+    'Loops to improve article quality until the target is reached.'
+  )
   .node(
     'qualityEvaluator',
     'articleDraft:string -> qualityScore:number, qualityFeedback:string'
@@ -160,6 +184,10 @@ const flowWhile = AxFlow.create<{ draftArticle: string }>()
 
 // Multi-hop RAG example - Research question answering with concurrency control
 const flowRAG = AxFlow.create<{ researchQuestion: string }>()
+  .description(
+    'Multi-hop Research QA',
+    'Generates a query, retrieves context, and answers a research question.'
+  )
   .node('queryGenerator', 'researchQuestion:string -> searchQuery:string')
   .node('retriever', 'searchQuery:string -> retrievedDocument:string')
   .node(
@@ -182,6 +210,10 @@ const flowRAG = AxFlow.create<{ researchQuestion: string }>()
 
 // Batched parallel example - Processing multiple documents with concurrency control
 const flowBatchedParallel = flow<{ documentBatch: string }>()
+  .description(
+    'Batched Parallel Processor',
+    'Processes a batch through multiple processors with limited concurrency.'
+  )
   .node('processor1', 'batchData:string -> processedResult1:string')
   .node('processor2', 'batchData:string -> processedResult2:string')
   .node('processor3', 'batchData:string -> processedResult3:string')
