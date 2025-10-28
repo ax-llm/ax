@@ -24,6 +24,7 @@ import {
   AxAIRefusalError,
   AxAIServiceStreamTerminatedError,
 } from '../util/apicall.js';
+import { createHash } from '../util/crypto.js';
 import {
   type AxAssertion,
   AxAssertionError,
@@ -358,7 +359,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         thinkingTokenBudget,
         showThoughts,
         traceContext,
-        abortSignal: options?.abortSignal,
+        abortSignal: options?.abortSignal ?? axGlobals.abortSignal,
         stepIndex,
         logger,
         functionCallMode:
@@ -914,6 +915,23 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
+    // Caching pre-check: if cachingFunction provided and returns a value, short-circuit
+    const cachingFunction =
+      options?.cachingFunction ??
+      this.options?.cachingFunction ??
+      axGlobals.cachingFunction;
+    const cacheKey = (() => {
+      if (!cachingFunction) return undefined;
+      const inputNames = this.signature.getInputFields().map((f) => f.name);
+      return this.computeCacheKey(values, inputNames);
+    })();
+    if (cachingFunction && cacheKey) {
+      const cached = await cachingFunction(cacheKey);
+      if (cached !== undefined) {
+        return cached as unknown as OUT;
+      }
+    }
+
     const startTime = performance.now();
     const signatureName = this.getSignatureName();
     const isStreaming = options?.stream ?? false;
@@ -1012,6 +1030,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         );
       }
 
+      // Caching post-store: call cachingFunction again with value if provided
+      if (cachingFunction && cacheKey) {
+        try {
+          await cachingFunction(cacheKey, result as unknown as AxGenOut);
+        } catch {}
+      }
+
       return result as unknown as OUT;
     } catch (error) {
       success = false;
@@ -1052,6 +1077,31 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
+    // Caching pre-check for streaming
+    const cachingFunction =
+      options?.cachingFunction ??
+      this.options?.cachingFunction ??
+      axGlobals.cachingFunction;
+    const cacheKey = (() => {
+      if (!cachingFunction) return undefined;
+      const inputNames = this.signature.getInputFields().map((f) => f.name);
+      return this.computeCacheKey(values, inputNames);
+    })();
+    if (cachingFunction && cacheKey) {
+      let cached: unknown;
+      try {
+        cached = await cachingFunction(cacheKey);
+      } catch {}
+      if (cached !== undefined) {
+        yield {
+          version: 0,
+          index: 0,
+          delta: cached as OUT,
+        };
+        return;
+      }
+    }
+
     // If no result picker, use normal streaming
     if (!options?.resultPicker) {
       yield* this._forward1(ai, values, {
@@ -1094,6 +1144,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // Yield the selected result
     const selectedResult = buffer[selectedIndex];
     if (selectedResult) {
+      // Post-store cache
+      if (cachingFunction && cacheKey) {
+        try {
+          await cachingFunction(
+            cacheKey,
+            selectedResult.delta as unknown as AxGenOut
+          );
+        } catch {}
+      }
       yield {
         version: currentVersion,
         index: selectedIndex,
@@ -1129,6 +1188,70 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       axGlobals.logger ??
       ai.getLogger()
     );
+  }
+
+  private computeCacheKey(
+    values: IN | AxMessage<IN>[],
+    inputNames: readonly string[]
+  ): string {
+    const hasher = createHash('sha256');
+    hasher.update(this.signature.hash() ?? '');
+
+    const updateWithValue = (v: unknown): void => {
+      const t = typeof v;
+      hasher.update(`|${t}|`);
+      if (v === null || v === undefined) {
+        hasher.update('null');
+        return;
+      }
+      if (t === 'string' || t === 'number' || t === 'boolean') {
+        hasher.update(String(v));
+        return;
+      }
+      if (Array.isArray(v)) {
+        hasher.update('[');
+        for (const item of v) updateWithValue(item);
+        hasher.update(']');
+        return;
+      }
+      if (
+        typeof v === 'object' &&
+        v !== null &&
+        'mimeType' in (v as Record<string, unknown>) &&
+        'data' in (v as Record<string, unknown>)
+      ) {
+        const mv = v as { mimeType?: string; data?: string };
+        hasher.update(mv.mimeType ?? '');
+        const dataDigest = createHash('sha256')
+          .update(mv.data ?? '')
+          .digest('hex');
+        hasher.update(dataDigest);
+        return;
+      }
+      if (typeof v === 'object') {
+        const obj = v as Record<string, unknown>;
+        const keys = Object.keys(obj).sort();
+        for (const k of keys) {
+          hasher.update(`{${k}}`);
+          updateWithValue(obj[k]);
+        }
+        return;
+      }
+      hasher.update(String(v));
+    };
+
+    if (Array.isArray(values)) {
+      for (const m of values as AxMessage<IN>[]) {
+        hasher.update(`role:${m.role}`);
+        const row = inputNames.map((n) => (m as any).values?.[n]);
+        for (const val of row) updateWithValue(val);
+      }
+    } else {
+      const row = inputNames.map((n) => (values as any)?.[n]);
+      for (const val of row) updateWithValue(val);
+    }
+
+    return hasher.digest('hex');
   }
 }
 

@@ -108,6 +108,12 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   functionCallMode?: 'auto' | 'native' | 'prompt';
   cacheSystemPrompt?: boolean;
 
+  // Caching hook
+  cachingFunction?: (
+    key: string,
+    value?: AxGenOut
+  ) => AxGenOut | undefined | Promise<AxGenOut | undefined>;
+
   // Memory tag cleanup control
   disableMemoryCleanup?: boolean;
 

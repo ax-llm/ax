@@ -13,6 +13,7 @@ import type {
   AxFunctionHandler,
 } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
+import { axGlobals } from '../dsp/globals.js';
 import type { AxOptimizedProgram } from '../dsp/optimizer.js';
 import { AxProgram } from '../dsp/program.js';
 import type { AxFieldType } from '../dsp/sig.js';
@@ -34,6 +35,7 @@ import type {
   AxSetExamplesOptions,
 } from '../dsp/types.js';
 import { mergeProgramUsage } from '../dsp/util.js';
+import { createHash } from '../util/crypto.js';
 import { processBatches } from './batchUtil.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
 import {
@@ -877,17 +879,88 @@ export class AxFlow<
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
+    // Optional caching pre-check mirroring forward()
+    const cachingFunction =
+      (options as any)?.cachingFunction ?? axGlobals.cachingFunction;
+    const cacheKey = (() => {
+      if (!cachingFunction) return undefined;
+      this.ensureProgram();
+      const sig = this.program!.getSignature();
+      const inputNames = sig.getInputFields().map((f) => f.name);
+      const inputValues = Array.isArray(values)
+        ? (values as AxMessage<IN>[]).filter((m) => m.role === 'user').pop()!
+            .values
+        : (values as IN);
+      const hasher = createHash('sha256');
+      hasher.update(sig.hash() ?? '');
+      const updateWithValue = (v: unknown): void => {
+        const t = typeof v;
+        hasher.update(`|${t}|`);
+        if (v === null || v === undefined) {
+          hasher.update('null');
+          return;
+        }
+        if (t === 'string' || t === 'number' || t === 'boolean') {
+          hasher.update(String(v));
+          return;
+        }
+        if (Array.isArray(v)) {
+          hasher.update('[');
+          for (const item of v) updateWithValue(item);
+          hasher.update(']');
+          return;
+        }
+        if (
+          typeof v === 'object' &&
+          v !== null &&
+          'mimeType' in (v as Record<string, unknown>) &&
+          'data' in (v as Record<string, unknown>)
+        ) {
+          const mv = v as { mimeType?: string; data?: string };
+          hasher.update(mv.mimeType ?? '');
+          const dataDigest = createHash('sha256')
+            .update(mv.data ?? '')
+            .digest('hex');
+          hasher.update(dataDigest);
+          return;
+        }
+        if (typeof v === 'object') {
+          const obj = v as Record<string, unknown>;
+          const keys = Object.keys(obj).sort();
+          for (const k of keys) {
+            hasher.update(`{${k}}`);
+            updateWithValue(obj[k]);
+          }
+          return;
+        }
+        hasher.update(String(v));
+      };
+      for (const n of inputNames) updateWithValue((inputValues as any)?.[n]);
+      return hasher.digest('hex');
+    })();
+    if (cachingFunction && cacheKey) {
+      let cached: unknown;
+      try {
+        cached = await cachingFunction(cacheKey);
+      } catch {}
+      if (cached !== undefined) {
+        yield { version: 0, index: 0, delta: cached as OUT };
+        return;
+      }
+    }
+
     // For now, we'll implement streaming by converting the regular forward result
-    // This is a simplified implementation - full streaming would require more work
-    // Note: forward() will handle the resetUsage() call
-    const result = await this.forward(ai, values, options);
+    const result = await this.forward(ai, values, options as any);
+
+    // Post-store cache
+    if (cachingFunction && cacheKey) {
+      try {
+        await cachingFunction(cacheKey, result as unknown as OUT);
+      } catch {}
+    }
 
     // Yield the final result with correct AxGenDeltaOut structure
-    yield {
-      version: 1,
-      index: 0,
-      delta: result,
-    };
+    yield { version: 1, index: 0, delta: result };
   }
 
   /**
@@ -927,6 +1000,73 @@ export class AxFlow<
       AxProgramForwardOptionsWithModels<T> & { autoParallel?: boolean }
     >
   ): Promise<OUT> {
+    // Optional caching pre-check using ordered inputs by inferred signature
+    const cachingFunction =
+      (options as any)?.cachingFunction ?? axGlobals.cachingFunction;
+    const cacheKey = (() => {
+      if (!cachingFunction) return undefined;
+      // Ensure program exists to infer current signature
+      this.ensureProgram();
+      const sig = this.program!.getSignature();
+      const inputNames = sig.getInputFields().map((f) => f.name);
+      // Align the key with actual execution: use the same inputValues used below
+      const inputValues = Array.isArray(values)
+        ? (values as AxMessage<IN>[]).filter((m) => m.role === 'user').pop()!
+            .values
+        : (values as IN);
+      const hasher = createHash('sha256');
+      hasher.update(sig.hash() ?? '');
+      const updateWithValue = (v: unknown): void => {
+        const t = typeof v;
+        hasher.update(`|${t}|`);
+        if (v === null || v === undefined) {
+          hasher.update('null');
+          return;
+        }
+        if (t === 'string' || t === 'number' || t === 'boolean') {
+          hasher.update(String(v));
+          return;
+        }
+        if (Array.isArray(v)) {
+          hasher.update('[');
+          for (const item of v) updateWithValue(item);
+          hasher.update(']');
+          return;
+        }
+        if (
+          typeof v === 'object' &&
+          v !== null &&
+          'mimeType' in (v as Record<string, unknown>) &&
+          'data' in (v as Record<string, unknown>)
+        ) {
+          const mv = v as { mimeType?: string; data?: string };
+          hasher.update(mv.mimeType ?? '');
+          const dataDigest = createHash('sha256')
+            .update(mv.data ?? '')
+            .digest('hex');
+          hasher.update(dataDigest);
+          return;
+        }
+        if (typeof v === 'object') {
+          const obj = v as Record<string, unknown>;
+          const keys = Object.keys(obj).sort();
+          for (const k of keys) {
+            hasher.update(`{${k}}`);
+            updateWithValue(obj[k]);
+          }
+          return;
+        }
+        hasher.update(String(v));
+      };
+      for (const n of inputNames) updateWithValue((inputValues as any)?.[n]);
+      return hasher.digest('hex');
+    })();
+    if (cachingFunction && cacheKey) {
+      const cached = await cachingFunction(cacheKey);
+      if (cached !== undefined) {
+        return cached as unknown as OUT;
+      }
+    }
     // Start flow timing
     const flowStartTime = Date.now();
     this.timingLogger?.startTiming('flow-execution');
@@ -1092,6 +1232,12 @@ export class AxFlow<
 
       // Return the final state cast to the expected output type
       // The type system ensures this is safe based on the signature inference
+      // Post-store cache
+      if (cachingFunction && cacheKey) {
+        try {
+          await cachingFunction(cacheKey, state as unknown as AxGenOut);
+        } catch {}
+      }
       return state as any;
     } catch (error) {
       // Log flow error
