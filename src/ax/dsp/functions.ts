@@ -44,7 +44,7 @@ export class AxFunctionError extends Error {
     }[]
   ) {
     super();
-    this.name = this.constructor.name;
+    this.name = 'AxFunctionError';
   }
 
   getFields = () => this.fields;

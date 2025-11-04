@@ -20,7 +20,7 @@ export class AxAssertionError extends Error {
     message: string;
   }>) {
     super(message);
-    this.name = this.constructor.name;
+    this.name = 'AxAssertionError';
   }
 
   public getFixingInstructions = () => {
