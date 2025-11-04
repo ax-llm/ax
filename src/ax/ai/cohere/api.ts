@@ -543,10 +543,20 @@ function createToolCall(
   >
 ) {
   return functionCalls?.map((v) => {
-    const parameters =
-      typeof v.function.params === 'string'
-        ? JSON.parse(v.function.params)
-        : v.function.params;
+    let parameters: any;
+    if (typeof v.function.params === 'string') {
+      const raw = v.function.params;
+      if (raw.trim().length === 0) {
+        throw new Error('Function params is an empty string');
+      }
+      try {
+        parameters = JSON.parse(raw);
+      } catch {
+        throw new Error(`Failed to parse function params JSON: ${raw}`);
+      }
+    } else {
+      parameters = v.function.params;
+    }
     return { name: v.function.name, parameters };
   });
 }

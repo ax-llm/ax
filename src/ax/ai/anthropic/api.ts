@@ -217,13 +217,55 @@ class AxAIAnthropicImpl
 
     // Compose tools from request function definitions and static config tools
     const functionToolsFromReq: AxAIAnthropicChatRequest['tools'] | undefined =
-      req.functions?.map((v) => ({
-        name: v.name,
-        description: v.description,
-        input_schema: v.parameters
+      req.functions?.map((v) => {
+        const dummyParameters = {
+          type: 'object',
+          properties: {
+            dummy: {
+              type: 'string',
+              description: 'An optional dummy paramter, do not use',
+            },
+          },
+          required: [],
+        } as const;
+
+        let input_schema = v.parameters
           ? cleanSchemaForAnthropic(v.parameters)
-          : undefined,
-      }));
+          : undefined;
+
+        if (
+          input_schema === undefined ||
+          (input_schema &&
+            typeof input_schema === 'object' &&
+            Object.keys(input_schema).length === 0)
+        ) {
+          input_schema = { ...dummyParameters } as any;
+        } else if (
+          input_schema &&
+          typeof input_schema === 'object' &&
+          (input_schema as any).type === 'object' &&
+          (!('properties' in (input_schema as any)) ||
+            !(input_schema as any).properties ||
+            Object.keys((input_schema as any).properties).length === 0)
+        ) {
+          input_schema = {
+            ...(input_schema as any),
+            properties: {
+              dummy: {
+                type: 'string',
+                description: 'An optional dummy paramter, do not use',
+              },
+            },
+            required: [],
+          } as any;
+        }
+
+        return {
+          name: v.name,
+          description: v.description,
+          input_schema,
+        };
+      });
 
     const configToolsRaw = this.config.tools ?? [];
     const configToolsCleaned: AxAIAnthropicChatRequest['tools'] =
@@ -1031,7 +1073,15 @@ function createMessages(
           content = msg.functionCalls.map((v) => {
             let input: object = {};
             if (typeof v.function.params === 'string') {
-              input = JSON.parse(v.function.params);
+              const raw = v.function.params;
+              if (raw.trim().length === 0) {
+                throw new Error('Function params is an empty string');
+              }
+              try {
+                input = JSON.parse(raw);
+              } catch {
+                throw new Error(`Failed to parse function params JSON: ${raw}`);
+              }
             } else if (typeof v.function.params === 'object') {
               input = v.function.params as object;
             }

@@ -32,12 +32,12 @@ import {
   type AxAIGoogleGeminiContentPart,
   AxAIGoogleGeminiEmbedModel,
   type AxAIGoogleGeminiGenerationConfig,
-  type AxAIGoogleGeminiToolGoogleMaps,
-  type AxAIGoogleGeminiRetrievalConfig,
   AxAIGoogleGeminiModel,
+  type AxAIGoogleGeminiRetrievalConfig,
   AxAIGoogleGeminiSafetyCategory,
   type AxAIGoogleGeminiSafetySettings,
   AxAIGoogleGeminiSafetyThreshold,
+  type AxAIGoogleGeminiToolGoogleMaps,
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './types.js';
@@ -306,10 +306,22 @@ class AxAIGoogleGeminiImpl
 
             if (msg.functionCalls) {
               parts = msg.functionCalls.map((f) => {
-                const args =
-                  typeof f.function.params === 'string'
-                    ? JSON.parse(f.function.params)
-                    : f.function.params;
+                let args: any;
+                if (typeof f.function.params === 'string') {
+                  const raw = f.function.params;
+                  if (raw.trim().length === 0) {
+                    throw new Error('Function params is an empty string');
+                  }
+                  try {
+                    args = JSON.parse(raw);
+                  } catch {
+                    throw new Error(
+                      `Failed to parse function params JSON: ${raw}`
+                    );
+                  }
+                } else {
+                  args = f.function.params;
+                }
                 return {
                   functionCall: {
                     name: f.function.name,
@@ -369,12 +381,56 @@ class AxAIGoogleGeminiImpl
 
     if (req.functions && req.functions.length > 0) {
       // Clean function schemas for Gemini compatibility
-      const cleanedFunctions = req.functions.map((fn) => ({
-        ...fn,
-        parameters: fn.parameters
+      const cleanedFunctions = req.functions.map((fn) => {
+        const dummyParameters = {
+          type: 'object',
+          properties: {
+            dummy: {
+              type: 'string',
+              description: 'An optional dummy paramter, do not use',
+            },
+          },
+          required: [],
+        } as const;
+
+        let parameters = fn.parameters
           ? cleanSchemaForGemini(fn.parameters)
-          : undefined,
-      }));
+          : undefined;
+
+        // If parameters are missing or an empty object, supply a dummy parameter
+        if (
+          parameters === undefined ||
+          (parameters &&
+            typeof parameters === 'object' &&
+            Object.keys(parameters).length === 0)
+        ) {
+          parameters = { ...dummyParameters } as any;
+        } else if (
+          parameters &&
+          typeof parameters === 'object' &&
+          (parameters as any).type === 'object' &&
+          (!('properties' in (parameters as any)) ||
+            !(parameters as any).properties ||
+            Object.keys((parameters as any).properties).length === 0)
+        ) {
+          // If parameters exist but have empty properties, add a dummy property
+          parameters = {
+            ...(parameters as any),
+            properties: {
+              dummy: {
+                type: 'string',
+                description: 'An optional dummy paramter, do not use',
+              },
+            },
+            required: [],
+          } as any;
+        }
+
+        return {
+          ...fn,
+          parameters,
+        };
+      });
       tools.push({ function_declarations: cleanedFunctions });
     }
 

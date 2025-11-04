@@ -117,6 +117,13 @@ const functions: AxFunction[] = [
       required: ['location', 'outdoor', 'cuisine', 'priceRange'],
     },
   },
+  {
+    name: 'getDateTimestamp',
+    description: 'Get the current date and time',
+    func: async () => {
+      return new Date().toISOString();
+    },
+  },
 ];
 
 // const ai = new AxAI({
