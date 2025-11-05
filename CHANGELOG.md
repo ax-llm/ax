@@ -1,5 +1,18 @@
 # Changelog
 
+## [14.0.38](https://github.com/ax-llm/ax/compare/14.0.36...14.0.37) (2025-11-05)
+
+### Features
+
+* **api:** enhance function parameter handling and schema validation across multiple AI integrations ([e593e75](https://github.com/ax-llm/ax/commit/e593e7521ec231f2e9841babe8cb4dfb13bd2512))
+* **caching:** implement caching functionality in AxGen and AxFlow for improved performance ([18158d9](https://github.com/ax-llm/ax/commit/18158d9ba17f749e98a7814072743911131b84a1))
+* **flow:** add description and toFunction methods for enhanced flow metadata ([54dfaca](https://github.com/ax-llm/ax/commit/54dfacac6f609016f2306a02f76d28cfd726028a))
+
+### Bug Fixes
+
+* Hardcode error class names to prevent minification issues ([#421](https://github.com/ax-llm/ax/issues/421)) ([5267340](https://github.com/ax-llm/ax/commit/5267340459564a576b6f1c9fddff785588e78af5))
+## [14.0.37](https://github.com/ax-llm/ax/compare/14.0.36...14.0.37) (2025-10-22)
+
 ## [14.0.37](https://github.com/ax-llm/ax/compare/14.0.35...14.0.36) (2025-10-22)
 ## [14.0.36](https://github.com/ax-llm/ax/compare/14.0.35...14.0.36) (2025-10-22)
 
