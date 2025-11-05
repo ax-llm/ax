@@ -86,7 +86,7 @@ export class AxAIServiceError extends Error {
     context: Record<string, unknown> = {}
   ) {
     super(message);
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceError';
     this.timestamp = new Date().toISOString();
     this.errorId = randomUUID();
     this.context = context;
@@ -132,7 +132,7 @@ export class AxAIServiceStatusError extends AxAIServiceError {
       responseBody,
       ...context,
     });
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceStatusError';
   }
 }
 
@@ -155,7 +155,7 @@ export class AxAIServiceNetworkError extends AxAIServiceError {
         ...context,
       }
     );
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceNetworkError';
     this.stack = originalError.stack;
   }
 }
@@ -168,7 +168,7 @@ export class AxAIServiceResponseError extends AxAIServiceError {
     context?: Record<string, unknown>
   ) {
     super(message, url, requestBody, undefined, context);
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceResponseError';
   }
 }
 
@@ -189,7 +189,7 @@ export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
         ...context,
       }
     );
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceStreamTerminatedError';
   }
 }
 
@@ -207,7 +207,7 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
       undefined,
       { timeoutMs, ...context }
     );
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceTimeoutError';
   }
 }
 
@@ -225,7 +225,7 @@ export class AxAIServiceAbortedError extends AxAIServiceError {
       undefined,
       { abortReason: reason, ...context }
     );
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceAbortedError';
   }
 }
 
@@ -237,7 +237,7 @@ export class AxAIServiceAuthenticationError extends AxAIServiceError {
     context?: Record<string, unknown>
   ) {
     super('Authentication failed', url, requestBody, responseBody, context);
-    this.name = this.constructor.name;
+    this.name = 'AxAIServiceAuthenticationError';
   }
 }
 
