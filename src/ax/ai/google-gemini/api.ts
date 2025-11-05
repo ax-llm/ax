@@ -310,14 +310,15 @@ class AxAIGoogleGeminiImpl
                 if (typeof f.function.params === 'string') {
                   const raw = f.function.params;
                   if (raw.trim().length === 0) {
-                    throw new Error('Function params is an empty string');
-                  }
-                  try {
-                    args = JSON.parse(raw);
-                  } catch {
-                    throw new Error(
-                      `Failed to parse function params JSON: ${raw}`
-                    );
+                    args = {};
+                  } else {
+                    try {
+                      args = JSON.parse(raw);
+                    } catch {
+                      throw new Error(
+                        `Failed to parse function params JSON: ${raw}`
+                      );
+                    }
                   }
                 } else {
                   args = f.function.params;

@@ -547,12 +547,13 @@ function createToolCall(
     if (typeof v.function.params === 'string') {
       const raw = v.function.params;
       if (raw.trim().length === 0) {
-        throw new Error('Function params is an empty string');
-      }
-      try {
-        parameters = JSON.parse(raw);
-      } catch {
-        throw new Error(`Failed to parse function params JSON: ${raw}`);
+        parameters = {};
+      } else {
+        try {
+          parameters = JSON.parse(raw);
+        } catch {
+          throw new Error(`Failed to parse function params JSON: ${raw}`);
+        }
       }
     } else {
       parameters = v.function.params;

@@ -1075,12 +1075,15 @@ function createMessages(
             if (typeof v.function.params === 'string') {
               const raw = v.function.params;
               if (raw.trim().length === 0) {
-                throw new Error('Function params is an empty string');
-              }
-              try {
-                input = JSON.parse(raw);
-              } catch {
-                throw new Error(`Failed to parse function params JSON: ${raw}`);
+                input = {};
+              } else {
+                try {
+                  input = JSON.parse(raw);
+                } catch {
+                  throw new Error(
+                    `Failed to parse function params JSON: ${raw}`
+                  );
+                }
               }
             } else if (typeof v.function.params === 'object') {
               input = v.function.params as object;

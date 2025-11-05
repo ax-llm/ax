@@ -1,7 +1,7 @@
 import { AxAIGoogleGeminiModel, ai, ax } from '@ax-llm/ax';
 
 export const gen = ax(
-  'userQuestion:string "You must call the pingService function to answer." -> assistantResponse:string "Final answer after calling the function"',
+  'userQuestion:string "You must call the pingService and then the getSecretWord function to answer." -> assistantResponse:string "Final answer after calling the function"',
   {
     functions: [
       {
