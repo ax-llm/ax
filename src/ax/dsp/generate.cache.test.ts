@@ -26,7 +26,7 @@ describe('AxGen caching via axGlobals', () => {
   });
 
   it('produces the same cache key regardless of input object key order', async () => {
-    const gen = ax('a:string, b:string -> responseText:string');
+    const gen = ax('firstName:string, lastName:string -> responseText:string');
     const keys: string[] = [];
     axGlobals.cachingFunction = vi
       .fn()
@@ -34,8 +34,8 @@ describe('AxGen caching via axGlobals', () => {
         keys.push(key);
         return { responseText: 'cached' } as any;
       });
-    await gen.forward(ai as any, { b: '2', a: '1' } as any);
-    await gen.forward(ai as any, { a: '1', b: '2' } as any);
+    await gen.forward(ai as any, { lastName: '2', firstName: '1' } as any);
+    await gen.forward(ai as any, { firstName: '1', lastName: '2' } as any);
     expect(keys.length).toBe(2);
     expect(keys[0]).toBe(keys[1]);
   });

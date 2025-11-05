@@ -223,7 +223,7 @@ class AxAIAnthropicImpl
           properties: {
             dummy: {
               type: 'string',
-              description: 'An optional dummy paramter, do not use',
+              description: 'An optional dummy parameter, do not use',
             },
           },
           required: [],
@@ -253,7 +253,7 @@ class AxAIAnthropicImpl
             properties: {
               dummy: {
                 type: 'string',
-                description: 'An optional dummy paramter, do not use',
+                description: 'An optional dummy parameter, do not use',
               },
             },
             required: [],

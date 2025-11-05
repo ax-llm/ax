@@ -249,7 +249,7 @@ export type { ParseSignature } from './sigtypes.js';
 // - An AxSignature instance
 // - An AxSignatureBuilder instance (from f())
 // - A string signature (parsed via ParseSignature)
-export type AxExamples<T> = T extends AxSignature<infer IN, infer OUT>
+export type AxExample<T> = T extends AxSignature<infer IN, infer OUT>
   ? OUT & Partial<IN>
   : T extends AxSignatureBuilder<infer IN2, infer OUT2>
     ? OUT2 & Partial<IN2>
@@ -264,7 +264,7 @@ export type AxExamples<T> = T extends AxSignature<infer IN, infer OUT>
           : never
         : never;
 
-export type ExExamples<T> = ReadonlyArray<AxExamples<T>>;
+export type AxExamples<T> = ReadonlyArray<AxExample<T>>;
 
 // === AxGen Helper Types ===
 // Similar to AxExamples, these extract input/output types from AxGen signatures

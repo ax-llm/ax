@@ -311,15 +311,39 @@ function generateIndexContent(exportMap: Map<string, ExportInfo[]>): string {
   let content =
     '/* eslint import/order: 0 sort-imports: 0 */\n// Auto-generated index file - Do not edit\n\n';
 
-  // Generate and sort imports
-  const imports = Array.from(exportMap.entries())
+  // Deduplicate exports across files by name+kind, preferring dsp/types over others
+  const used = new Set<string>();
+  const selectedByFile = new Map<string, ExportInfo[]>();
+
+  const entries = Array.from(exportMap.entries()).sort(([a], [b]) => {
+    const aIsTypes = a.includes('/dsp/types');
+    const bIsTypes = b.includes('/dsp/types');
+    if (aIsTypes && !bIsTypes) return -1;
+    if (!aIsTypes && bIsTypes) return 1;
+    return a.localeCompare(b);
+  });
+
+  for (const [filePath, exports] of entries) {
+    for (const exp of exports) {
+      const key = `${exp.kind}:${exp.originalName}`;
+      if (used.has(key)) continue;
+      used.add(key);
+      const arr = selectedByFile.get(filePath) || [];
+      arr.push(exp);
+      selectedByFile.set(filePath, arr);
+    }
+  }
+
+  // Generate and sort imports from selected exports only
+  const imports = Array.from(selectedByFile.entries())
     .map(([filePath, exports]) => generateImportStatement(filePath, exports))
     .filter(Boolean)
     .sort();
   content = `${content}${imports.join('\n')}\n\n`;
 
-  // Generate exports
-  const { valueExports, typeExports } = generateExportStatements(exportMap);
+  // Generate exports from selected set
+  const selectedMap = new Map<string, ExportInfo[]>(selectedByFile);
+  const { valueExports, typeExports } = generateExportStatements(selectedMap);
 
   if (valueExports.length > 0) {
     content = `${content}// Value exports\n${valueExports.join('\n')}\n\n`;

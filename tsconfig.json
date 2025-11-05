@@ -16,5 +16,11 @@
       "@ax-llm/*": ["src/*"]
     }
   },
-  "exclude": ["node_modules/**", "dist/**", "src/*/dist/**", "src/**/*.test.ts"]
+  "exclude": [
+    "node_modules/**",
+    "dist/**",
+    "src/*/dist/**",
+    "src/**/*.test.ts",
+    "src/**/*.test-d.ts"
+  ]
 }

@@ -256,11 +256,8 @@ type ExamplesFromBuilder = AxExamples<typeof sigFromBuilder>;
 expectType<ExamplesFromBuilder>({ out: 'v', flag: true });
 expectType<ExamplesFromBuilder>({ out: 'v', flag: true, ctx: 'c' });
 
-// ExExamples should work with ax('...') generators
-import type { ExExamples } from './dsp/types.js';
-
 const gen = ax('userInput:string -> responseText:string, count:number');
-type ExamplesFromGen = ExExamples<typeof gen>;
+type ExamplesFromGen = AxExamples<typeof gen>;
 expectType<ExamplesFromGen>([{ responseText: 'a', count: 1 }]);
 expectType<ExamplesFromGen>([
   { responseText: 'a', count: 1, userInput: 'x' },

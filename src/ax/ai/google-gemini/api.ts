@@ -387,7 +387,7 @@ class AxAIGoogleGeminiImpl
           properties: {
             dummy: {
               type: 'string',
-              description: 'An optional dummy paramter, do not use',
+              description: 'An optional dummy parameter, do not use',
             },
           },
           required: [],
@@ -419,7 +419,7 @@ class AxAIGoogleGeminiImpl
             properties: {
               dummy: {
                 type: 'string',
-                description: 'An optional dummy paramter, do not use',
+                description: 'An optional dummy parameter, do not use',
               },
             },
             required: [],

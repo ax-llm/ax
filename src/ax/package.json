@@ -12,6 +12,7 @@
   },
   "license": "Apache-2.0",
   "keywords": [],
+  "types": "./dist/index.d.ts",
   "scripts": {
     "dev": "tsup --watch",
     "build": "npm run build:index && tsup",
