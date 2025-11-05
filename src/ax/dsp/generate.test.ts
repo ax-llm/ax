@@ -1,12 +1,16 @@
+// cspell:ignore summarising neutralpositive
 import { ReadableStream } from 'node:stream/web';
 
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { validateAxMessageArray } from '../ai/base.js';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxGen } from './generate.js';
 import { AxSignature } from './sig.js';
+import { getZodMetadata } from '../zod/metadata.js';
+import { ax } from './template.js';
 import type { AxProgramForwardOptions } from './types.js';
 
 function createStreamingResponse(
@@ -693,6 +697,183 @@ describe('AxGen Message Validation', () => {
         { role: 'user', content: [{ type: 'text', text: 'hello' }] },
       ])
     ).not.toThrow();
+  });
+});
+
+describe('AxGen with Zod signatures', () => {
+  it('constructs directly from a Zod schema with custom options', () => {
+    const schema = z.object({
+      title: z.string().min(3),
+      tags: z.array(z.string()).default([]),
+    });
+
+    const gen = new AxGen(schema, {
+      zod: {
+        assertionLevel: 'none',
+        mode: 'parse',
+      },
+    });
+
+    const signature = gen.getSignature();
+    const metadata = getZodMetadata(signature);
+    expect(metadata?.options.mode).toBe('parse');
+    expect(metadata?.options.assertionLevel).toBe('none');
+    const asserts = (gen as any).asserts as unknown[];
+    expect(asserts?.length ?? 0).toBe(0);
+  });
+
+  it('creates a generator via ax() helper when given a Zod schema', () => {
+    const schema = z.object({
+      topic: z.string(),
+      summary: z.string().catch('summary unavailable'),
+    });
+
+    const gen = ax(schema, {
+      zod: {
+        assertionLevel: 'final',
+        mode: 'safeParse',
+      },
+    });
+
+    expect(gen).toBeInstanceOf(AxGen);
+    const asserts = (gen as any).asserts as unknown[];
+    expect(asserts.length).toBeGreaterThan(0);
+    const metadata = getZodMetadata(gen.getSignature());
+    expect(metadata?.schema).toBe(schema);
+  });
+
+  it('applies final Zod assertions and default values', async () => {
+    const schema = z.object({
+      name: z.string().min(1),
+      count: z.number().int().default(1),
+    });
+
+    const signature = AxSignature.fromZod(schema);
+    const gen = new AxGen(signature);
+    const asserts = (gen as any).asserts as Array<{
+      fn: (values: Record<string, unknown>) => Promise<unknown>;
+    }>;
+
+    expect(asserts.length).toBeGreaterThan(0);
+    const zodAssert = asserts[asserts.length - 1];
+
+    const values: Record<string, unknown> = { name: 'Ada' };
+    await expect(zodAssert.fn(values)).resolves.toBe(true);
+    expect(values.count).toBe(1);
+
+    const failure = await zodAssert.fn({ name: '' });
+    expect(typeof failure).toBe('string');
+    expect(failure).toContain('Zod validation failed');
+  });
+
+  it('honors catch, default, min, and max constraints', async () => {
+    const schema = z.object({
+      status: z.enum(['ok', 'warn', 'error']).catch('error'),
+      attempts: z.number().int().min(1).max(5).default(3),
+    });
+
+    const signature = AxSignature.fromZod(schema);
+    const gen = new AxGen(signature);
+    const asserts = (gen as any).asserts as Array<{
+      fn: (values: Record<string, unknown>) => Promise<unknown>;
+    }>;
+
+    const zodAssert = asserts[asserts.length - 1];
+
+    const withFallback: Record<string, unknown> = {
+      status: 'unexpected',
+    };
+    await expect(zodAssert.fn(withFallback)).resolves.toBe(true);
+    expect(withFallback.status).toBe('error');
+    expect(withFallback.attempts).toBe(3);
+
+    await expect(zodAssert.fn({ status: 'ok', attempts: 0 })).resolves.toMatch(
+      /greater than or equal to 1/i
+    );
+
+    await expect(zodAssert.fn({ status: 'ok', attempts: 10 })).resolves.toMatch(
+      /less than or equal to 5/i
+    );
+  });
+
+  it('emits repaired values after streaming assertions mutate the payload', async () => {
+    const schema = z.object({
+      summary: z
+        .string()
+        .min(
+          40,
+          'Provide a short paragraph summarising the topic in at least 40 characters.'
+        )
+        .catch(
+          'Summary unavailable from the model output — manual review recommended to craft a compliant paragraph.'
+        ),
+      sentiment: z.enum(['positive', 'neutral', 'negative']).catch('neutral'),
+      confidence: z
+        .number()
+        .min(0, 'Confidence must be between 0 and 1.')
+        .max(1, 'Confidence must be between 0 and 1.')
+        .catch(0.65),
+      highlights: z
+        .array(z.string().min(10, 'Each highlight should be a full thought.'))
+        .min(2, 'Provide at least two highlights.')
+        .max(4, 'Keep the highlight list focused.')
+        .catch([
+          'The model response did not supply valid highlights. Highlight that human review is required.',
+          'Flag the output for review because automatic repair was triggered.',
+        ]),
+      actionPlan: z
+        .string()
+        .min(10, 'Provide concrete guidance.')
+        .default('No immediate action required.'),
+    });
+
+    const signature = AxSignature.fromZod(schema, { mode: 'safeParse' });
+    const gen = new AxGen(signature);
+
+    const malformedPayload = [
+      'Summary: Too short.',
+      'Sentiment: neutralpositive',
+      'Confidence: 2.0',
+      'Highlights:',
+      '- tiny',
+      '- also tiny',
+    ].join('\n');
+
+    const chunks: AxChatResponse['results'] = [
+      {
+        index: 0,
+        content: malformedPayload,
+      },
+      {
+        index: 0,
+        content: '',
+        finishReason: 'stop',
+      },
+    ];
+
+    const streamingResponse = createStreamingResponse(chunks);
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: true },
+      chatResponse: streamingResponse as any,
+    });
+
+    const result = await gen.forward(
+      ai,
+      { prompt: 'Provide a structured analysis.' },
+      { stream: true }
+    );
+
+    expect(result).toEqual({
+      summary:
+        'Summary unavailable from the model output — manual review recommended to craft a compliant paragraph.',
+      sentiment: 'neutral',
+      confidence: 0.65,
+      highlights: [
+        'The model response did not supply valid highlights. Highlight that human review is required.',
+        'Flag the output for review because automatic repair was triggered.',
+      ],
+      actionPlan: 'No immediate action required.',
+    });
   });
 });
 

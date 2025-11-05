@@ -1,5 +1,7 @@
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
+import type { ZodTypeAny } from 'zod';
+
 import {
   type Context,
   context,
@@ -26,6 +28,7 @@ import {
 } from '../util/apicall.js';
 import { createHash } from '../util/crypto.js';
 import {
+  assertAssertions,
   type AxAssertion,
   AxAssertionError,
   type AxStreamingAssertion,
@@ -85,6 +88,8 @@ import type {
   AxSetExamplesOptions,
 } from './types.js';
 import { mergeDeltas } from './util.js';
+import { createFinalZodAssertion } from '../zod/assertion.js';
+import { getZodMetadata } from '../zod/metadata.js';
 
 export type AxGenerateResult<OUT> = OUT & {
   thought?: string;
@@ -139,13 +144,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   constructor(
     signature:
-      | NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-      | AxSignature<any, any>,
+      | ConstructorParameters<typeof AxSignature>[0]
+      | AxSignature<any, any>
+      | ZodTypeAny,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     super(signature, {
       description: options?.description,
       traceLabel: options?.traceLabel,
+      zod: options?.zod,
     });
 
     this.options = options;
@@ -159,13 +166,31 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.signature,
       promptTemplateOptions
     );
-    this.asserts = this.options?.asserts ?? [];
-    this.streamingAsserts = this.options?.streamingAsserts ?? [];
+    this.asserts = this.options?.asserts ? [...this.options.asserts] : [];
+    this.streamingAsserts = this.options?.streamingAsserts
+      ? [...this.options.streamingAsserts]
+      : [];
     this.excludeContentFromTrace = options?.excludeContentFromTrace ?? false;
     this.functions = options?.functions
       ? parseFunctions(options.functions)
       : [];
     this.usage = [];
+
+    const zodMeta = getZodMetadata(this.signature);
+    if (zodMeta) {
+      if (
+        zodMeta.options.assertionLevel === 'final' ||
+        zodMeta.options.assertionLevel === 'both'
+      ) {
+        this.asserts.push(createFinalZodAssertion(zodMeta));
+      }
+      if (
+        zodMeta.options.assertionLevel === 'streaming' ||
+        zodMeta.options.assertionLevel === 'both'
+      ) {
+        // Streaming integration is pending implementation; fall back to final assertions for now.
+      }
+    }
   }
 
   private getSignatureName(): string {
@@ -991,6 +1016,18 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       const selectedResult = buffer[selectedIndex];
       const result = selectedResult?.delta ?? {};
+
+      const zodMeta = getZodMetadata(this.signature);
+      if (
+        zodMeta &&
+        (zodMeta.options.assertionLevel === 'final' ||
+          zodMeta.options.assertionLevel === 'both')
+      ) {
+        await assertAssertions(
+          [createFinalZodAssertion(zodMeta)],
+          result as Record<string, unknown>
+        );
+      }
 
       // When values is an AxMessage array, do not spread it into trace; only include result
       const baseTrace = Array.isArray(values)

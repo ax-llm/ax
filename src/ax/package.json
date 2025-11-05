@@ -37,7 +37,8 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "dayjs": "^1.11.13"
+    "dayjs": "^1.11.13",
+    "zod": "^3.23.8 || ^4.0.0"
   },
   "ava": {
     "failFast": true,

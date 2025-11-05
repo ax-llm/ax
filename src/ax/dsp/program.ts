@@ -1,3 +1,5 @@
+import type { ZodTypeAny } from 'zod';
+
 import type { AxOptimizedProgram } from './optimizer.js';
 import { AxInstanceRegistry } from './registry.js';
 import { AxSignature } from './sig.js';
@@ -14,6 +16,8 @@ import type {
 } from './types.js';
 
 import { mergeProgramUsage, validateValue } from './util.js';
+import { isZodSchema } from '../zod/util.js';
+import type { AxZodSignatureOptions } from '../zod/types.js';
 
 export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
   protected signature: AxSignature;
@@ -28,12 +32,15 @@ export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
 
   private key: { id: string; custom?: boolean };
   private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT>>, IN, OUT>;
+  private zodOptions?: AxZodSignatureOptions;
 
   constructor(
-    signature: ConstructorParameters<typeof AxSignature>[0],
+    signature: ConstructorParameters<typeof AxSignature>[0] | ZodTypeAny,
     options?: Readonly<AxProgramOptions>
   ) {
-    this.signature = new AxSignature(signature);
+    this.zodOptions = options?.zod;
+    const isZod = isZodSchema(signature);
+    this.signature = this.resolveSignature(signature, this.zodOptions);
 
     if (options?.description) {
       this.signature.setDescription(options.description);
@@ -44,7 +51,7 @@ export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
     }
 
     // Only validate if signature is provided
-    if (signature) {
+    if (!isZod && signature) {
       this.signature.validate();
     }
 
@@ -53,17 +60,34 @@ export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
     this.key = { id: this.signature.hash() };
   }
 
+  private resolveSignature(
+    signature: ConstructorParameters<typeof AxSignature>[0] | ZodTypeAny,
+    zodOptions?: AxZodSignatureOptions
+  ): AxSignature {
+    if (isZodSchema(signature)) {
+      return AxSignature.fromZod(signature, zodOptions);
+    }
+
+    return new AxSignature(signature);
+  }
+
   public getSignature(): AxSignature {
     return new AxSignature(this.signature);
   }
 
   public setSignature(
-    signature: ConstructorParameters<typeof AxSignature>[0]
+    signature: ConstructorParameters<typeof AxSignature>[0] | ZodTypeAny,
+    options?: AxZodSignatureOptions
   ): void {
-    this.signature = new AxSignature(signature);
+    if (options) {
+      this.zodOptions = options;
+    }
+
+    const isZod = isZodSchema(signature);
+    this.signature = this.resolveSignature(signature, this.zodOptions);
 
     // Validate the new signature if it's provided
-    if (signature) {
+    if (!isZod && signature) {
       this.signature.validate();
     }
 
