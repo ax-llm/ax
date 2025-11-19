@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **ai:** add `openai-compatible` adapter + docs/tests for generic OpenAI-compatible gateways (Groq, Cerebras, Vercel AI Gateway) and pin Vitest configs per workspace.
+
 ## [14.0.39](https://github.com/ax-llm/ax/compare/14.0.37...14.0.38) (2025-11-05)
 
 ### Bug Fixes

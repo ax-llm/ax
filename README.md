@@ -198,6 +198,29 @@ console.log(result.responseText, result.confidenceScore);
 - [**API Reference**](https://github.com/ax-llm/ax/blob/main/docs/API.md) -
   Complete documentation
 
+## OpenAI-Compatible Providers
+
+Many platforms expose an OpenAI-compatible API (Groq, Cerebras, Fireworks, Vercel AI Gateway, custom proxies, etc.). Configure them with the new `openai-compatible` provider:
+
+```typescript
+const llm = ai({
+  name: "openai-compatible",
+  apiKey: process.env.AI_COMPAT_API_KEY!,
+  endpoint: process.env.AI_COMPAT_API_URL!, // e.g. https://api.groq.com/openai/v1
+  headers: { "x-gateway-name": "prod-cluster" }, // optional vendor headers
+  config: {
+    model: process.env.AI_COMPAT_MODEL ?? "groq/llama3-70b-8192",
+    stream: false,
+  },
+});
+```
+
+- **Groq:** set `endpoint` to `https://api.groq.com/openai/v1` and avoid unsupported params such as `logit_bias`, `logprobs`, `messages[].name`, or `n` values other than `1`.
+- **Cerebras:** use `https://api.cerebras.ai/v1` and omit `frequency_penalty`, `presence_penalty`, `logit_bias`, and `service_tier`. Pass vendor-specific flags via `extra_body` (see their docs).
+- **Vercel AI Gateway / custom proxies:** point `endpoint` at the gateway URL (e.g., `https://gateway.ai.cloudflare.com/.../openai`) and add any routing headers required by your setup.
+
+Set `AI_COMPAT_API_KEY` (or reuse `AI_GATEWAY_API_KEY`) plus `AI_COMPAT_API_URL` before running examples like `npm run tsx src/examples/openai-compatible.ts`.
+
 ## Examples
 
 Run any example:
@@ -213,6 +236,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 - [agent.ts](src/examples/agent.ts) - Multi-agent collaboration
 - [streaming1.ts](src/examples/streaming1.ts) - Real-time streaming responses
 - [multi-modal.ts](src/examples/multi-modal.ts) - Image + text processing
+- [openai-compatible.ts](src/examples/openai-compatible.ts) - Connect to Groq, Cerebras, Vercel AI Gateway, or custom OpenAI-compatible endpoints
 
 ### Production Patterns
 
