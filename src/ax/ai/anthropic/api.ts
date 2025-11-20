@@ -290,12 +290,6 @@ class AxAIAnthropicImpl
       ...configToolsCleaned,
     ];
 
-    // Anthropic Vertex does not support server tools like web_search; filter them out
-    if (this.isVertex && tools.length > 0) {
-      tools = tools.filter(
-        (t: any) => !(t && typeof t === 'object' && 'type' in t)
-      );
-    }
     if (tools.length === 0) {
       tools = undefined;
     }
