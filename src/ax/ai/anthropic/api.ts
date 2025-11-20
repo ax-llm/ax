@@ -1029,7 +1029,9 @@ function createMessages(
               return {
                 type: 'text' as const,
                 text: v.text,
-                ...(v.cache ? { cache: { type: 'ephemeral' } } : {}),
+                ...(v.cache
+                  ? { cache_control: { type: 'ephemeral' as const } }
+                  : {}),
               };
             case 'image':
               return {
@@ -1039,7 +1041,9 @@ function createMessages(
                   media_type: v.mimeType,
                   data: v.image,
                 },
-                ...(v.cache ? { cache: { type: 'ephemeral' } } : {}),
+                ...(v.cache
+                  ? { cache_control: { type: 'ephemeral' as const } }
+                  : {}),
               };
             default:
               throw new Error('Invalid content type');
@@ -1121,7 +1125,9 @@ function createMessages(
               id: v.id,
               name: v.function.name,
               input,
-              ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
+              ...(msg.cache
+                ? { cache_control: { type: 'ephemeral' as const } }
+                : {}),
             };
           });
           if (Array.isArray(content) && preservedThinkingBlocks.length > 0) {
