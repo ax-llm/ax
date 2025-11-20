@@ -810,7 +810,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
           'Anthropic Vertex API key must be a function for token-based authentication'
         );
       }
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
+      const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
+      apiURL = `https://${tld}.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
       headers = async () => ({
         Authorization: `Bearer ${await apiKey()}`,
       });
