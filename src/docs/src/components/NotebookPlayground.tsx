@@ -1,4 +1,4 @@
-import { type AxAIWebLLMModel, ai } from '@ax-llm/ax';
+import { ai } from '@ax-llm/ax';
 import { Loader2, Menu, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import NotebookCell from './NotebookCell';
@@ -266,7 +266,7 @@ export default function NotebookPlayground() {
         const llm = ai({
           name: 'webllm',
           engine,
-          config: { model: selectedModel as AxAIWebLLMModel, stream: false },
+          config: { model: selectedModel as any, stream: false },
           options: { debug: true },
         });
         setLoadedEngine(engine);

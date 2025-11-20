@@ -17,13 +17,13 @@
     "fix:format": "biome format --write ."
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.4",
-    "@astrojs/react": "^4.4.0",
+    "@astrojs/check": "^0.9.5",
+    "@astrojs/react": "^4.4.2",
     "@astrojs/tailwind": "^6.0.2",
     "@ax-llm/ax": "file:../ax",
     "@mlc-ai/web-llm": "^0.2.79",
     "@tailwindcss/typography": "^0.5.16",
-    "astro": "^5.14.5",
+    "astro": "^5.15.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.525.0",

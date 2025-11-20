@@ -300,7 +300,7 @@ export default function SignatureBuilder() {
       if (field.type === 'class' && field.classOptions) {
         fieldDef = `${field.name}:\${f.class([${field.classOptions.map((opt) => `'${opt}'`).join(', ')}], '${field.description}')}`;
       } else if (field.type === 'array' && field.arrayElementType) {
-        fieldDef = `${field.name}:\${f.array(f.${field.arrayElementType}('${field.description}'))}`;
+        fieldDef = `${field.name}:\${f.${field.arrayElementType}('${field.description}').array()}`;
       } else if (field.type === 'code' && field.codeLanguage) {
         fieldDef = `${field.name}:\${f.code('${field.codeLanguage}', '${field.description}')}`;
       }
@@ -321,7 +321,7 @@ export default function SignatureBuilder() {
       if (field.type === 'class' && field.classOptions) {
         fieldDef = `${field.name}:\${f.class([${field.classOptions.map((opt) => `'${opt}'`).join(', ')}], '${field.description}')}`;
       } else if (field.type === 'array' && field.arrayElementType) {
-        fieldDef = `${field.name}:\${f.array(f.${field.arrayElementType}('${field.description}'))}`;
+        fieldDef = `${field.name}:\${f.${field.arrayElementType}('${field.description}').array()}`;
       } else if (field.type === 'code' && field.codeLanguage) {
         fieldDef = `${field.name}:\${f.code('${field.codeLanguage}', '${field.description}')}`;
       }

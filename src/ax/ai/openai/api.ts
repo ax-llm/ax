@@ -213,9 +213,19 @@ class AxAIOpenAIImpl<
     let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
       messages,
-      ...(this.config?.responseFormat
-        ? { response_format: { type: this.config.responseFormat } }
-        : {}),
+      ...(req.responseFormat
+        ? {
+            response_format:
+              req.responseFormat.type === 'json_schema'
+                ? {
+                    type: 'json_schema',
+                    json_schema: req.responseFormat.schema,
+                  }
+                : req.responseFormat,
+          }
+        : this.config?.responseFormat
+          ? { response_format: { type: this.config.responseFormat } }
+          : {}),
       ...(tools ? { tools } : {}),
       ...(toolsChoice ? { tool_choice: toolsChoice } : {}),
       // For thinking models, don't set these parameters as they're not supported

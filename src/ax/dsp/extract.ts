@@ -12,6 +12,11 @@ import {
 import type { AxField, AxSignature } from './sig.js';
 import type { AxGenOut, GenDeltaOut } from './types.js';
 import { matchesContent, parseMarkdownList } from './util.js';
+import {
+  validateURL,
+  validateStringConstraints,
+  validateNumberConstraints,
+} from './validators.js';
 
 export const extractValues = (
   sig: Readonly<AxSignature>,
@@ -575,9 +580,20 @@ export function* streamValues<OUT extends AxGenOut>(
       continue;
     }
 
+    const stringValue = (typeof value === 'string' ? value : undefined) as
+      | string
+      | undefined;
+
     if (!xstate.streamedIndex[key]) {
       yield { index, delta: { [key]: value } as unknown as Partial<OUT> };
-      xstate.streamedIndex[key] = 1;
+      xstate.streamedIndex[key] = stringValue ? stringValue.length : 1;
+    } else if (stringValue) {
+      const s = xstate.streamedIndex[key] as number;
+      if (stringValue.length > s) {
+        const delta = stringValue.substring(s);
+        yield { index, delta: { [key]: delta } as unknown as Partial<OUT> };
+        xstate.streamedIndex[key] = stringValue.length;
+      }
     }
   }
 }
@@ -644,7 +660,219 @@ function validateAndParseFieldValue(
     return undefined;
   }
 
+  // Validate constraints after type conversion
+  const type = field.type;
+  if (type && value !== undefined) {
+    // Validate URL type
+    if (type.name === 'url') {
+      validateURL(value, field);
+    }
+
+    // Validate string constraints
+    if (type.name === 'string' || type.name === 'code') {
+      validateStringConstraints(value, field);
+    }
+
+    // Validate number constraints
+    if (type.name === 'number') {
+      validateNumberConstraints(value, field);
+    }
+
+    // Validate array elements
+    if (type.isArray && Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined) {
+          if (type.name === 'string' || type.name === 'code') {
+            validateStringConstraints(item, field);
+          } else if (type.name === 'number') {
+            validateNumberConstraints(item, field);
+          }
+        }
+      }
+    }
+  }
+
   return value;
+}
+
+/**
+ * Validate structured output values (from JSON parsing) against field constraints
+ * @throws ValidationError if constraints are violated
+ */
+export function validateStructuredOutputValues(
+  signature: Readonly<AxSignature>,
+  values: Record<string, unknown>
+): void {
+  const outputFields = signature.getOutputFields();
+
+  for (const field of outputFields) {
+    const value = values[field.name];
+
+    // Check required fields
+    if (value === undefined || value === null) {
+      if (!field.isOptional) {
+        throw createRequiredFieldMissingError(field);
+      }
+      continue;
+    }
+
+    const type = field.type;
+    if (!type) continue;
+
+    // Validate URL type
+    if (type.name === 'url') {
+      validateURL(value, field);
+    }
+
+    // Validate string constraints
+    if (type.name === 'string' || type.name === 'code') {
+      validateStringConstraints(value, field);
+    }
+
+    // Validate number constraints
+    if (type.name === 'number') {
+      validateNumberConstraints(value, field);
+    }
+
+    // Validate array elements
+    if (type.isArray && Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined && item !== null) {
+          if (type.name === 'url') {
+            validateURL(item, field);
+          } else if (type.name === 'string' || type.name === 'code') {
+            validateStringConstraints(item, field);
+          } else if (type.name === 'number') {
+            validateNumberConstraints(item, field);
+          }
+        }
+      }
+    }
+
+    // Recursively validate nested object fields
+    if (type.name === 'object' && type.fields && typeof value === 'object') {
+      validateNestedObjectFields(field, value as Record<string, unknown>);
+    }
+
+    // Validate array of objects
+    if (
+      type.isArray &&
+      type.fields &&
+      Array.isArray(value) &&
+      type.name === 'object'
+    ) {
+      for (const item of value) {
+        if (item && typeof item === 'object') {
+          validateNestedObjectFields(field, item as Record<string, unknown>);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Recursively validate nested object fields
+ */
+function validateNestedObjectFields(
+  parentField: Readonly<AxField>,
+  obj: Record<string, unknown>
+): void {
+  const fields = parentField.type?.fields;
+  if (!fields || typeof fields !== 'object') return;
+
+  // Convert Record<string, AxFieldType> to array of AxField-like objects
+  for (const [fieldName, fieldType] of Object.entries(fields)) {
+    const nestedField: AxField = {
+      name: fieldName,
+      title: fieldName,
+      description: fieldType.description,
+      type: {
+        name: fieldType.type,
+        isArray: fieldType.isArray,
+        options: fieldType.options as string[] | undefined,
+        fields: fieldType.fields,
+        minLength: fieldType.minLength,
+        maxLength: fieldType.maxLength,
+        minimum: fieldType.minimum,
+        maximum: fieldType.maximum,
+        pattern: fieldType.pattern,
+        patternDescription: fieldType.patternDescription,
+        format: fieldType.format,
+      },
+      isOptional: fieldType.isOptional ?? false,
+      isInternal: fieldType.isInternal ?? false,
+    };
+
+    const value = obj[nestedField.name];
+
+    // Check required fields
+    if (value === undefined || value === null) {
+      if (!nestedField.isOptional) {
+        throw createRequiredFieldMissingError(nestedField);
+      }
+      continue;
+    }
+
+    const type = nestedField.type;
+    if (!type) continue;
+
+    // Validate URL type
+    if (type.name === 'url') {
+      validateURL(value, nestedField);
+    }
+
+    // Validate string constraints
+    if (type.name === 'string' || type.name === 'code') {
+      validateStringConstraints(value, nestedField);
+    }
+
+    // Validate number constraints
+    if (type.name === 'number') {
+      validateNumberConstraints(value, nestedField);
+    }
+
+    // Validate array elements
+    if (type.isArray && Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined && item !== null) {
+          if (type.name === 'url') {
+            validateURL(item, nestedField);
+          } else if (type.name === 'string' || type.name === 'code') {
+            validateStringConstraints(item, nestedField);
+          } else if (type.name === 'number') {
+            validateNumberConstraints(item, nestedField);
+          }
+        }
+      }
+    }
+
+    // Recursively validate nested objects
+    if (
+      type.name === 'object' &&
+      type.fields &&
+      typeof value === 'object' &&
+      !Array.isArray(value)
+    ) {
+      validateNestedObjectFields(nestedField, value as Record<string, unknown>);
+    }
+
+    // Validate array of objects
+    if (
+      type.isArray &&
+      type.fields &&
+      Array.isArray(value) &&
+      type.name === 'object'
+    ) {
+      for (const item of value) {
+        if (item && typeof item === 'object') {
+          validateNestedObjectFields(
+            nestedField,
+            item as Record<string, unknown>
+          );
+        }
+      }
+    }
+  }
 }
 
 export const extractBlock = (input: string): string => {

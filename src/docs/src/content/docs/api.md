@@ -101,9 +101,11 @@ f.date(description?: string)
 f.datetime(description?: string)
 f.code(description?: string)
 f.url(description?: string)
-f.file(description?: string)
 
-// Media types
+f.file(description?: string)
+f.object(fields: Record<string, AxField>, description?: string)
+
+// Media types (input only, not allowed in nested objects)
 f.image(description?: string)
 f.audio(description?: string)
 
@@ -118,6 +120,57 @@ f()  // Returns fluent builder for complex signatures
   .output(name: string, field: AxField)
   .build()
 ```
+
+### Field Validation Constraints (New!)
+
+All field types support chainable validation methods:
+
+```typescript
+// String constraints
+f.string()
+  .min(length: number)           // Minimum string length
+  .max(length: number)           // Maximum string length
+  .email()                       // Email format validation
+  .url()                         // URL format validation
+  .regex(pattern: string)        // Custom regex pattern
+  .optional()                    // Make field optional
+
+// Number constraints
+f.number()
+  .min(value: number)            // Minimum numeric value
+  .max(value: number)            // Maximum numeric value
+  .optional()                    // Make field optional
+
+// Examples
+const emailField = f.string().email();
+const ageField = f.number().min(18).max(120);
+const passwordField = f.string().min(8).regex("^(?=.*[A-Za-z])(?=.*\\d)");
+const websiteField = f.string().url().optional();
+
+// Use in signatures
+const userSignature = f()
+  .input("userData", f.string())
+  .output("user", f.object({
+    username: f.string().min(3).max(20),
+    email: f.string().email(),
+    age: f.number().min(18).max(120),
+    website: f.string().url().optional(),
+    bio: f.string().max(500).optional()
+  }))
+  .build();
+```
+
+**Validation Behavior:**
+- **Input validation**: Runs before LLM calls in `forward()` method
+- **Output validation**: Runs after LLM responses during extraction
+- **Streaming validation**: Incremental validation as fields complete
+- **Auto-retry**: ValidationError automatically triggers retry with correction instructions
+- **Nested validation**: Recursively validates objects and arrays
+
+**Media Type Restrictions:**
+- `f.image()`, `f.audio()`, `f.file()` can only be used as top-level **input** fields
+- These media types are NOT allowed in nested objects created with `f.object()`
+- TypeScript compile-time protection + runtime validation enforce this restriction
 
 ## Generator Methods
 

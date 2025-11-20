@@ -11,7 +11,7 @@ import type {
 } from '../ai/types.js';
 import type { AxMemory } from '../mem/memory.js';
 import { axGlobals } from './globals.js';
-import { validateJSONSchema } from './jsonschema.js';
+import { validateJSONSchema } from './jsonSchema.js';
 import type { AxProgramForwardOptions } from './types.js';
 
 export class AxStopFunctionCallException extends Error {

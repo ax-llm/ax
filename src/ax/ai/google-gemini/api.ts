@@ -593,6 +593,26 @@ class AxAIGoogleGeminiImpl
       ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     };
 
+    // Handle structured output
+    if (req.responseFormat) {
+      generationConfig.responseMimeType = 'application/json';
+      if (
+        req.responseFormat.type === 'json_schema' &&
+        req.responseFormat.schema
+      ) {
+        // Gemini expects the schema directly, not wrapped in { type: 'json_schema', schema: ... } like OpenAI
+        // Also need to clean it for Gemini compatibility
+        const schema =
+          req.responseFormat.schema.schema || req.responseFormat.schema;
+        generationConfig.responseSchema = cleanSchemaForGemini(schema);
+      }
+    } else if (this.config.responseFormat) {
+      // Fallback to config-level response format if present
+      if (this.config.responseFormat === 'json_object') {
+        generationConfig.responseMimeType = 'application/json';
+      }
+    }
+
     const safetySettings = this.config.safetySettings;
 
     const reqValue: AxAIGoogleGeminiChatRequest = {

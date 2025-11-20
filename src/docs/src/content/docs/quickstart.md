@@ -132,6 +132,49 @@ console.log(`Key Points: ${result.keyPoints.join(", ")}`);
 console.log(`Sentiment: ${result.sentiment}`);
 ```
 
+## Next: Add Validation
+
+Ensure data quality with built-in validators:
+
+```typescript
+import { f, ax } from "@ax-llm/ax";
+
+const contactForm = f()
+  .input("formData", f.string())
+  .output("contact", f.object({
+    name: f.string().min(2).max(100),
+    email: f.string().email(),
+    age: f.number().min(18).max(120),
+    website: f.string().url().optional(),
+    message: f.string().min(10).max(500)
+  }))
+  .build();
+
+const generator = ax(contactForm);
+const result = await generator.forward(llm, {
+  formData: "Name: John Doe, Email: john@example.com, Age: 30..."
+});
+
+// All fields are automatically validated:
+// - name: 2-100 characters
+// - email: valid email format
+// - age: between 18-120
+// - website: valid URL if provided
+// - message: 10-500 characters
+```
+
+**Available Constraints:**
+- `.min(n)` / `.max(n)` - String length or number range
+- `.email()` - Email format validation
+- `.url()` - URL format validation
+- `.regex(pattern)` - Custom regex pattern
+- `.optional()` - Make field optional
+
+Validation runs automatically:
+- ✅ **Before LLM calls** - Input validation ensures clean data
+- ✅ **After LLM responses** - Output validation with auto-retry on errors
+- ✅ **During streaming** - Incremental validation as fields complete
+
 ## Using Different Providers
 
 ### OpenAI

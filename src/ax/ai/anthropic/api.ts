@@ -126,6 +126,7 @@ class AxAIAnthropicImpl
 {
   private tokensUsed: AxTokenUsage | undefined;
   private currentPromptConfig?: AxAIServiceOptions;
+  private usedStructuredOutput: boolean = false;
 
   constructor(
     private config: AxAIAnthropicConfig,
@@ -386,6 +387,26 @@ class AxAIAnthropicImpl
       thinkingConfig = undefined;
     }
 
+    // Handle structured output using native output_format parameter
+    let outputFormat: { type: 'json_schema'; schema: any } | undefined;
+    this.usedStructuredOutput = false;
+    if (req.responseFormat) {
+      if (
+        req.responseFormat.type === 'json_schema' &&
+        req.responseFormat.schema
+      ) {
+        // Anthropic supports structured output natively via output_format parameter
+        const schema =
+          req.responseFormat.schema.schema || req.responseFormat.schema;
+
+        outputFormat = {
+          type: 'json_schema',
+          schema: cleanSchemaForAnthropic(schema),
+        };
+        this.usedStructuredOutput = true;
+      }
+    }
+
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
         ? { anthropic_version: 'vertex-2023-10-16' }
@@ -407,6 +428,7 @@ class AxAIAnthropicImpl
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
       ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
+      ...(outputFormat ? { output_format: outputFormat } : {}),
       messages,
     };
 
@@ -504,6 +526,11 @@ class AxAIAnthropicImpl
     if (aggregatedFunctionCalls.length > 0) {
       result.functionCalls = aggregatedFunctionCalls;
     }
+
+    // When using native structured outputs via output_format parameter,
+    // the JSON response is returned in text content (not as a function call).
+    // The text content is guaranteed to be valid JSON matching the schema.
+    // The framework's processResponse will parse this JSON content automatically.
     if (citations.length > 0) {
       result.citations = citations;
     }
@@ -821,7 +848,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       apiURL = 'https://api.anthropic.com/v1';
       headers = async () => ({
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31',
+        'anthropic-beta':
+          'prompt-caching-2024-07-31,structured-outputs-2025-11-13',
         'x-api-key': typeof apiKey === 'function' ? await apiKey() : apiKey,
       });
     }

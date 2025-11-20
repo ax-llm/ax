@@ -142,6 +142,53 @@ export const createInvalidDateTimeError = (
     `Invalid date/time for '${field.title}': ${detail}. Use the format YYYY-MM-DD HH:mm or YYYY-MM-DD HH:mm:ss followed by a valid timezone (e.g., America/New_York). You provided: ${dateStr}.`
   );
 
+export const createInvalidURLError = (
+  field: Readonly<AxField>,
+  urlStr: string,
+  detail: string
+) =>
+  new ValidationError(
+    `Invalid URL for '${field.title}': ${detail}. Use a valid URL format (e.g., https://example.com). You provided: ${urlStr}.`
+  );
+
+export const createStringConstraintError = (
+  field: Readonly<AxField>,
+  value: string,
+  constraint: string,
+  expected: number | string
+) => {
+  let message = `Field '${field.title}' failed validation: `;
+
+  if (constraint === 'minLength') {
+    message += `String must be at least ${expected} characters long. You provided: "${value}" (${value.length} characters).`;
+  } else if (constraint === 'maxLength') {
+    message += `String must be at most ${expected} characters long. You provided: "${value}" (${value.length} characters).`;
+  } else if (constraint === 'pattern') {
+    message += `String must match pattern /${expected}/. You provided: "${value}".`;
+  } else if (constraint === 'format') {
+    message += `String must be a ${expected}. You provided: "${value}".`;
+  }
+
+  return new ValidationError(message);
+};
+
+export const createNumberConstraintError = (
+  field: Readonly<AxField>,
+  value: number,
+  constraint: string,
+  expected: number
+) => {
+  let message = `Field '${field.title}' failed validation: `;
+
+  if (constraint === 'minimum') {
+    message += `Number must be at least ${expected}. You provided: ${value}.`;
+  } else if (constraint === 'maximum') {
+    message += `Number must be at most ${expected}. You provided: ${value}.`;
+  }
+
+  return new ValidationError(message);
+};
+
 export const createMissingToolArgumentsError = (
   toolName: string,
   missingFields: readonly AxField[]

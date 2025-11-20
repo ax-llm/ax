@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { extractValues } from './extract.js';
 import { parseSignature } from './parser.js';
-import { type AxField, AxSignature } from './sig.js';
+import { type AxField, AxSignature, f } from './sig.js';
 
 describe('signature parsing', () => {
   it('parses signature correctly', () => {
@@ -914,5 +914,179 @@ describe('File type union support', () => {
     expect(inputFields[0].name).toBe('fileInputs');
     expect(inputFields[0].type?.name).toBe('file');
     expect(inputFields[0].type?.isArray).toBe(true);
+  });
+});
+
+describe('Media type restrictions', () => {
+  describe('Runtime validation', () => {
+    it('should throw error for image type in nested object output', () => {
+      expect(() => {
+        f()
+          .output(
+            'user',
+            f.object({
+              photo: f.image('Profile photo'),
+            })
+          )
+          .build();
+      }).toThrow(/image type is not allowed in nested object fields/);
+    });
+
+    it('should throw error for audio type in nested object output', () => {
+      expect(() => {
+        f()
+          .output(
+            'audioData',
+            f.object({
+              recording: f.audio('Voice recording'),
+            })
+          )
+          .build();
+      }).toThrow(/audio type is not allowed in nested object fields/);
+    });
+
+    it('should throw error for file type in nested object output', () => {
+      expect(() => {
+        f()
+          .output(
+            'document',
+            f.object({
+              attachment: f.file('Attached file'),
+            })
+          )
+          .build();
+      }).toThrow(/file type is not allowed in nested object fields/);
+    });
+
+    it('should throw error for media types in deeply nested objects', () => {
+      expect(() => {
+        f()
+          .output(
+            'profile',
+            f.object({
+              details: f.object({
+                avatar: f.image('User avatar'),
+              }),
+            })
+          )
+          .build();
+      }).toThrow(/image type is not allowed in nested object fields/);
+    });
+
+    it('should throw error for media types in array of objects', () => {
+      expect(() => {
+        f()
+          .output(
+            'gallery',
+            f
+              .object({
+                photo: f.image('Gallery photo'),
+              })
+              .array()
+          )
+          .build();
+      }).toThrow(/image type is not allowed in nested object fields/);
+    });
+
+    it('should allow media types as top-level input fields', () => {
+      expect(() => {
+        f()
+          .input('photo', f.image('User photo'))
+          .input('recording', f.audio('Voice recording'))
+          .input('document', f.file('Uploaded file'))
+          .output('analysis', f.string())
+          .build();
+      }).not.toThrow();
+    });
+
+    it('should throw error for media types as output fields', () => {
+      // The error is thrown during build, not toJSONSchema
+      expect(() => {
+        f()
+          .input('prompt', f.string())
+          .output('generatedImage', f.image('Generated image'))
+          .build();
+      }).toThrow(/image type is not supported in output fields/);
+    });
+
+    it('should include helpful error message for nested media types', () => {
+      try {
+        f()
+          .output(
+            'userData',
+            f.object({
+              profilePicture: f.image('Profile picture'),
+            })
+          )
+          .build();
+        throw new Error('Should have thrown');
+      } catch (error) {
+        const message = (error as Error).message;
+        expect(message).toContain('image');
+        expect(message).toContain('nested object fields');
+      }
+    });
+  });
+
+  describe('Valid media type usage', () => {
+    it('should allow image as top-level input', () => {
+      const sig = f()
+        .input('photo', f.image('User photo'))
+        .output('description', f.string())
+        .build();
+
+      expect(sig.getInputFields()[0].type?.name).toBe('image');
+    });
+
+    it('should allow audio as top-level input', () => {
+      const sig = f()
+        .input('recording', f.audio('Audio recording'))
+        .output('transcription', f.string())
+        .build();
+
+      expect(sig.getInputFields()[0].type?.name).toBe('audio');
+    });
+
+    it('should allow file as top-level input', () => {
+      const sig = f()
+        .input('document', f.file('Document file'))
+        .output('summary', f.string())
+        .build();
+
+      expect(sig.getInputFields()[0].type?.name).toBe('file');
+    });
+
+    it('should allow multiple media types as top-level inputs', () => {
+      const sig = f()
+        .input('photo', f.image())
+        .input('audio', f.audio())
+        .input('file', f.file())
+        .output('analysis', f.string())
+        .build();
+
+      const inputFields = sig.getInputFields();
+      expect(inputFields).toHaveLength(3);
+      expect(inputFields[0].type?.name).toBe('image');
+      expect(inputFields[1].type?.name).toBe('audio');
+      expect(inputFields[2].type?.name).toBe('file');
+    });
+  });
+
+  describe('String-based signature validation', () => {
+    it('should allow media types in string-based input signatures', () => {
+      expect(() => {
+        new AxSignature(
+          'photo:image, recording:audio -> analysisResult:string'
+        );
+      }).not.toThrow();
+    });
+
+    it('should handle media types correctly in toJSONSchema for string-based sigs', () => {
+      const sig = new AxSignature('photo:image -> analysis:string');
+      const schema = sig.toJSONSchema();
+
+      // Image input should not be in schema (media types are handled separately)
+      expect(schema.properties?.analysis).toBeDefined();
+    });
   });
 });

@@ -131,6 +131,7 @@ export type AxAIGoogleGeminiGenerationConfig = {
   maxOutputTokens?: number;
   stopSequences?: readonly string[];
   responseMimeType?: string;
+  responseSchema?: object;
   thinkingConfig?: {
     thinkingBudget?: number;
     includeThoughts?: boolean;
@@ -231,6 +232,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   thinking?: AxAIGoogleGeminiThinkingConfig;
   thinkingTokenBudgetLevels?: AxAIGoogleGeminiThinkingTokenBudgetLevels;
   urlContext?: string;
+  responseFormat?: 'json_object';
 };
 
 /**

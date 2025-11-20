@@ -847,14 +847,8 @@ describe('AxGen DSPy field prefix format', () => {
       throw new Error('Test should have failed but did not.');
     } catch (e) {
       const error = e as Error;
-      expect(error.message).toContain('Generate failed');
-      // Check if the original validation error is available as the cause
-      expect((error as unknown as { cause?: Error }).cause).toBeInstanceOf(
-        Error
-      );
-      expect(
-        ((error as unknown as { cause?: Error }).cause as Error).message
-      ).toContain('Expected (Required) field not found');
+      // Validation errors are now thrown directly without wrapping
+      expect(error.message).toMatch(/Expected.*field not found|required/i);
     }
   });
 

@@ -158,6 +158,10 @@ export type AxAIAnthropicChatRequest = {
   top_p?: number; // Nucleus sampling probability
   top_k?: number; // Sample from the top K options
   thinking?: AxAIAnthropicThinkingConfig; // Extended thinking configuration
+  output_format?: {
+    type: 'json_schema';
+    schema: object;
+  }; // Structured output configuration
   metadata?: {
     user_id: string;
   };

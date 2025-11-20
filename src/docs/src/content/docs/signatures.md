@@ -307,6 +307,183 @@ Ax enforces descriptive field names to improve LLM understanding:
 - `a`, `x`, `val` (too short)
 - `1field`, `123name` (starts with number)
 
+## Validation and Constraints (New!)
+
+Ax now supports Zod-like validation constraints for ensuring data quality and format compliance. These constraints work automatically across input validation, output validation, and streaming scenarios.
+
+### Available Constraints
+
+#### String Constraints
+
+```typescript
+import { f } from '@ax-llm/ax';
+
+// String length constraints
+f.string('username').min(3).max(20)
+f.string('password').min(8).max(128)
+
+// Format validation
+f.string('email').email()               // Email format
+f.string('website').url()               // URL format
+f.string('pattern').regex('^[A-Z0-9]') // Custom regex
+
+// Combinations
+f.string('bio').max(500).optional()
+f.string('contact').email().optional()
+```
+
+#### Number Constraints
+
+```typescript
+// Numeric range constraints
+f.number('age').min(18).max(120)
+f.number('score').min(0).max(100)
+f.number('price').min(0)        // No maximum
+f.number('rating').max(5)       // No minimum
+```
+
+### Complete Example
+
+```typescript
+import { ax, f } from '@ax-llm/ax';
+
+const userRegistration = f()
+  .input('formData', f.string('Raw form data'))
+  .output('user', f.object({
+    username: f.string('Username').min(3).max(20),
+    email: f.string('Email address').email(),
+    age: f.number('User age').min(18).max(120),
+    password: f.string('Password').min(8).regex('^(?=.*[A-Za-z])(?=.*\\d)'),
+    bio: f.string('Biography').max(500).optional(),
+    website: f.string('Personal website').url().optional(),
+    tags: f.string('Interest tag').min(2).max(30).array()
+  }))
+  .build();
+
+const generator = ax(userRegistration);
+const result = await generator.forward(llm, {
+  formData: 'Name: John, Email: john@example.com, Age: 25...'
+});
+
+// All fields are automatically validated:
+// - username: 3-20 characters
+// - email: valid email format
+// - age: between 18-120
+// - password: min 8 chars with letter and number
+// - website: valid URL if provided
+// - tags: each tag 2-30 characters
+```
+
+### Validation Behavior
+
+**Input Validation (Before LLM):**
+- Runs automatically before `forward()` calls
+- Validates user-provided data against constraints
+- Throws `ValidationError` if constraints are violated
+- Includes nested object and array validation
+
+**Output Validation (After LLM):**
+- Runs automatically during response extraction
+- Validates LLM-generated data against constraints
+- Triggers automatic retry with correction instructions on validation errors
+- Works seamlessly with streaming
+
+**Streaming Validation:**
+- Validates each field as it completes during streaming
+- Provides incremental validation feedback
+- Maintains type safety throughout the stream
+
+### TypeScript Integration
+
+Validation constraints are fully integrated with TypeScript's type system:
+
+```typescript
+const sig = f()
+  .output('contact', f.object({
+    email: f.string().email(),
+    age: f.number().min(0).max(150)
+  }))
+  .build();
+
+const gen = ax(sig);
+const result = await gen.forward(llm, input);
+
+// TypeScript knows exact types with runtime guarantees
+result.contact.email  // string (guaranteed valid email format)
+result.contact.age    // number (guaranteed 0-150 range)
+```
+
+### Media Type Restrictions
+
+Media types (`f.image()`, `f.audio()`, `f.file()`) have special restrictions:
+
+```typescript
+// ✅ Allowed: Top-level input fields
+const validSig = f()
+  .input('photo', f.image('Profile picture'))
+  .input('recording', f.audio('Voice message'))
+  .output('result', f.string('Analysis result'))
+  .build();
+
+// ❌ Not allowed: Media types in nested objects
+const invalidSig = f()
+  .output('user', f.object({
+    photo: f.image('Profile')  // TypeScript error + runtime error
+  }))
+  .build();
+
+// ❌ Not allowed: Media types as outputs
+const invalidSig2 = f()
+  .output('photo', f.image('Generated image'))  // Runtime validation error
+  .build();
+```
+
+**Media types are restricted to top-level input fields only** for security and practical reasons. This is enforced at both:
+- **Compile time**: TypeScript will show errors for invalid usage
+- **Runtime**: Validation throws descriptive errors if restrictions are violated
+
+### Advanced Validation Patterns
+
+```typescript
+// Complex nested validation
+const productExtractor = f()
+  .input('productPage', f.string('HTML content'))
+  .output('product', f.object({
+    name: f.string('Product name').min(1).max(200),
+    price: f.number('Price in USD').min(0),
+    specs: f.object({
+      dimensions: f.object({
+        width: f.number('Width in cm').min(0),
+        height: f.number('Height in cm').min(0)
+      }),
+      materials: f.string('Material').min(1).array()
+    }),
+    reviews: f.object({
+      rating: f.number('Rating').min(1).max(5),
+      comment: f.string('Review text').min(10).max(1000)
+    }).array()
+  }))
+  .build();
+
+// Validation runs recursively through all nested levels
+```
+
+### Error Handling
+
+```typescript
+try {
+  const result = await generator.forward(llm, { formData: 'invalid' });
+} catch (error) {
+  if (error instanceof ValidationError) {
+    // Validation failed - error contains detailed constraint violation info
+    console.error('Validation failed:', error.message);
+    // Example: "Field 'email' failed validation: Invalid email format"
+  }
+}
+```
+
+Validation errors automatically trigger retries with correction instructions, making the LLM aware of the constraint violations and improving output quality.
+
 ## Real-World Examples
 
 ### Email Classifier

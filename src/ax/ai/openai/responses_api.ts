@@ -426,7 +426,17 @@ export class AxAIOpenAIResponsesImpl<
     if (this.config.user) mutableReq.user = this.config.user;
     if (this.config.parallelToolCalls !== undefined)
       mutableReq.parallel_tool_calls = this.config.parallelToolCalls;
-    if (this.config.responseFormat)
+    if (req.responseFormat) {
+      mutableReq.text = {
+        format:
+          req.responseFormat.type === 'json_schema'
+            ? {
+                type: 'json_schema',
+                json_schema: req.responseFormat.schema,
+              }
+            : { type: req.responseFormat.type as 'text' | 'json_object' },
+      };
+    } else if (this.config.responseFormat)
       mutableReq.text = {
         format: {
           type: this.config.responseFormat as

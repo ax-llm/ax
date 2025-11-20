@@ -474,7 +474,7 @@ export default function AdvancedSignatureBuilder() {
         name: 'webllm',
         engine: engine,
         config: {
-          model: selectedModel as import('@ax-llm/ax').AxAIWebLLMModel,
+          model: selectedModel as any,
           stream: false,
         },
       });
