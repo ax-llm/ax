@@ -806,7 +806,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       }
       apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
       headers = async () => ({
-        Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
+        Authorization: `Bearer ${await apiKey()}`,
         'anthropic-beta': 'web-search-2025-03-05',
       });
     } else {
