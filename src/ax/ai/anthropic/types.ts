@@ -20,12 +20,17 @@ export enum AxAIAnthropicModel {
 }
 
 export enum AxAIAnthropicVertexModel {
-  Claude37Sonnet = 'claude-3-7-sonnet',
-  Claude35Haiku = 'claude-3-5-haiku',
-  Claude35Sonnet = 'claude-3-5-sonnet',
-  Claude35SonnetV2 = 'claude-3-5-sonnet-v2',
-  Claude3Haiku = 'claude-3-haiku',
-  Claude3Opus = 'claude-3-opus',
+  Claude41Opus = 'claude-opus-4-1@20250805',
+  Claude4Opus = 'claude-opus-4@20250514',
+  Claude45Sonnet = 'claude-sonnet-4-5@20250929',
+  Claude4Sonnet = 'claude-sonnet-4@20250514',
+  Claude37Sonnet = 'claude-3-7-sonnet@20250219',
+  Claude35SonnetV2 = 'claude-3-5-sonnet-v2@20241022',
+  Claude45Haiku = 'claude-haiku-4.5@20251001',
+  Claude35Haiku = 'claude-3-5-haiku@20241022',
+  Claude35Sonnet = 'claude-3-5-sonnet@20240620',
+  Claude3Opus = 'claude-3-opus@20240229',
+  Claude3Haiku = 'claude-3-haiku@20240307',
 }
 
 export type AxAIAnthropicThinkingConfig = {
