@@ -302,10 +302,27 @@ class AxAIGoogleGeminiImpl
           }
 
           case 'assistant': {
-            let parts: AxAIGoogleGeminiContentPart[] = [];
+            const parts: AxAIGoogleGeminiContentPart[] = [];
+
+            // Handle thought blocks
+            const thoughtBlock = (msg as any).thoughtBlock;
+            let signatureHandled = false;
+
+            if (thoughtBlock?.data) {
+              parts.push({
+                thought: true,
+                text: thoughtBlock.data,
+                ...(thoughtBlock.signature
+                  ? { thoughtSignature: thoughtBlock.signature }
+                  : {}),
+              });
+              if (thoughtBlock.signature) {
+                signatureHandled = true;
+              }
+            }
 
             if (msg.functionCalls) {
-              parts = msg.functionCalls.map((f) => {
+              const fcParts = msg.functionCalls.map((f, index) => {
                 let args: any;
                 if (typeof f.function.params === 'string') {
                   const raw = f.function.params;
@@ -323,29 +340,38 @@ class AxAIGoogleGeminiImpl
                 } else {
                   args = f.function.params;
                 }
-                return {
+
+                // Attach signature to the first function call if not already handled in a thought block
+                const part: AxAIGoogleGeminiContentPart = {
                   functionCall: {
                     name: f.function.name,
                     args: args,
                   },
                 };
+
+                if (
+                  index === 0 &&
+                  !signatureHandled &&
+                  thoughtBlock &&
+                  thoughtBlock.signature
+                ) {
+                  part.thoughtSignature = thoughtBlock.signature;
+                  signatureHandled = true;
+                }
+
+                return part;
               });
-
-              if (!parts) {
-                throw new Error('Function call is empty');
-              }
-
-              return {
-                role: 'model' as const,
-                parts,
-              };
+              parts.push(...fcParts);
             }
 
-            if (!msg.content) {
+            if (msg.content) {
+              parts.push({ text: msg.content });
+            }
+
+            if (parts.length === 0) {
               throw new Error('Assistant content is empty');
             }
 
-            parts = [{ text: msg.content }];
             return {
               role: 'model' as const,
               parts,
@@ -538,33 +564,48 @@ class AxAIGoogleGeminiImpl
     if (this.config.thinking?.thinkingTokenBudget) {
       thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget;
     }
+    if (this.config.thinking?.thinkingLevel) {
+      thinkingConfig.thinkingLevel = this.config.thinking.thinkingLevel;
+    }
 
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
       const levels = this.config.thinkingTokenBudgetLevels;
+      const isGemini3 = model.includes('gemini-3');
 
       switch (config.thinkingTokenBudget) {
         case 'none':
           thinkingConfig.thinkingBudget = 0; // Explicitly set to 0
           thinkingConfig.includeThoughts = false; // When thinkingTokenBudget is 'none', disable showThoughts
+          delete thinkingConfig.thinkingLevel;
           break;
         case 'minimal':
           thinkingConfig.thinkingBudget = levels?.minimal ?? 200;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'low';
           break;
         case 'low':
           thinkingConfig.thinkingBudget = levels?.low ?? 800;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'low';
           break;
         case 'medium':
           thinkingConfig.thinkingBudget = levels?.medium ?? 5000;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
           break;
         case 'high':
           thinkingConfig.thinkingBudget = levels?.high ?? 10000;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
           break;
         case 'highest':
           thinkingConfig.thinkingBudget = levels?.highest ?? 24500;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
           break;
       }
+    }
+
+    // If thinkingLevel is set, remove thinkingBudget as they cannot be used together in Gemini 3
+    if (thinkingConfig.thinkingLevel) {
+      delete thinkingConfig.thinkingBudget;
     }
 
     if (config?.showThoughts !== undefined) {
@@ -768,8 +809,18 @@ class AxAIGoogleGeminiImpl
 
         for (const part of candidate.content.parts) {
           if ('text' in part) {
-            if ('thought' in part && part.thought) {
+            if (
+              ('thought' in part && part.thought) ||
+              (part as any).thought === true
+            ) {
               result.thought = part.text;
+              result.thoughtBlock = {
+                data: part.text,
+                encrypted: false,
+                ...(part.thoughtSignature
+                  ? { signature: part.thoughtSignature }
+                  : {}),
+              };
             } else {
               result.content = part.text;
             }
@@ -777,7 +828,24 @@ class AxAIGoogleGeminiImpl
           }
 
           if ('functionCall' in part) {
+            // Check for thought signature on function call part
+            if (part.thoughtSignature) {
+              if (!result.thoughtBlock) {
+                result.thoughtBlock = {
+                  data: '', // No text data for signature-only thought
+                  encrypted: false,
+                  signature: part.thoughtSignature,
+                };
+              } else {
+                // If thought block exists, just update signature if missing?
+                // Or assume the text part handled it.
+                // For now, ensure signature is captured.
+                result.thoughtBlock.signature = part.thoughtSignature;
+              }
+            }
+
             result.functionCalls = [
+              ...(result.functionCalls ?? []),
               {
                 id: randomUUID(),
                 type: 'function',
