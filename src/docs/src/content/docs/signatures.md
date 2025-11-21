@@ -322,15 +322,30 @@ import { f } from '@ax-llm/ax';
 f.string('username').min(3).max(20)
 f.string('password').min(8).max(128)
 
-// Format validation
-f.string('email').email()               // Email format
-f.string('website').url()               // URL format
-f.string('pattern').regex('^[A-Z0-9]') // Custom regex
+// Format validation (two equivalent syntaxes available)
+f.string('email').email()               // Email format (or f.email())
+f.string('website').url()               // URL format (or f.url())
+f.string('birthDate').date()            // Date format (or f.date())
+f.string('timestamp').datetime()        // DateTime format (or f.datetime())
+f.string('pattern').regex('^[A-Z0-9]')  // Custom regex
+
+// Alternative syntax using dedicated types
+f.email('email')                        // Equivalent to f.string().email()
+f.url('website')                        // Equivalent to f.string().url()
+f.date('birthDate')                     // Equivalent to f.string().date()
+f.datetime('timestamp')                 // Equivalent to f.string().datetime()
 
 // Combinations
 f.string('bio').max(500).optional()
 f.string('contact').email().optional()
+f.url('homepage').optional()            // Also works with dedicated types
 ```
+
+**Note:** For email, url, date, and datetime, you can use either:
+- **Validator syntax**: `f.string().email()` - chain validators on strings
+- **Dedicated type syntax**: `f.email()` - use dedicated type directly
+
+Both syntaxes work consistently in all contexts (input fields, output fields, nested objects)!
 
 #### Number Constraints
 
