@@ -407,6 +407,46 @@ export class AxFluentFieldType<
     }
     return this;
   }
+
+  /**
+   * Set date format validation for strings
+   */
+  date(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        format: 'date',
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Set datetime format validation for strings
+   */
+  datetime(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        format: 'date-time',
+      });
+    }
+    return this;
+  }
 }
 
 // Helper type to validate that no media types (image, audio, file) are used in nested objects
@@ -564,6 +604,18 @@ export const f = Object.assign(
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+      }),
+
+    email: (
+      desc?: string
+    ): AxFluentFieldType<'string', false, undefined, false, false, undefined> =>
+      new AxFluentFieldType({
+        type: 'string' as const,
+        isArray: false as const,
+        description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
+        format: 'email',
       }),
 
     code: (
@@ -1656,12 +1708,9 @@ function validateFieldType(
 
   const { type } = field;
 
-  if (
-    type.name === 'image' ||
-    type.name === 'audio' ||
-    type.name === 'file' ||
-    type.name === 'url'
-  ) {
+  // Only media types (image, audio, file) are restricted to input fields
+  // url, email, date, datetime can be used in both input and output
+  if (type.name === 'image' || type.name === 'audio' || type.name === 'file') {
     if (context === 'output') {
       throw new AxSignatureValidationError(
         `${type.name} type is not supported in output fields`,

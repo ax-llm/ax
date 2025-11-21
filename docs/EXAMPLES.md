@@ -218,6 +218,17 @@ console.log(result.user);
 // ✅ tags: each 2-30 characters
 ```
 
+**Available Validators:**
+- `.min(n)` / `.max(n)` - String length or number range
+- `.email()` - Email format (or use `f.email()`)
+- `.url()` - URL format (or use `f.url()`)
+- `.date()` - Date format (or use `f.date()`)
+- `.datetime()` - DateTime format (or use `f.datetime()`)
+- `.regex(pattern, description)` - Custom regex pattern
+- `.optional()` - Make field optional
+
+**Note:** For email, url, date, and datetime, you can use either the validator syntax (`f.string().email()`) or the dedicated type syntax (`f.email()`). Both work consistently everywhere!
+
 #### Contact Form with Regex Patterns
 
 ```typescript

@@ -148,10 +148,14 @@ const result = await generator.forward(llm, {
 
 **Available Constraints:**
 - `.min(n)` / `.max(n)` - String length or number range
-- `.email()` - Email format validation
-- `.url()` - URL format validation
+- `.email()` - Email format validation (or use `f.email()`)
+- `.url()` - URL format validation (or use `f.url()`)
+- `.date()` - Date format validation (or use `f.date()`)
+- `.datetime()` - Datetime format validation (or use `f.datetime()`)
 - `.regex(pattern, description)` - Custom regex pattern with human-readable description
 - `.optional()` - Make field optional
+
+**Note:** For email, url, date, and datetime, you can use either the validator syntax (`f.string().email()`) or the dedicated type syntax (`f.email()`). Both work consistently in all contexts!
 
 **Automatic Features:**
 - ✅ Input validation before sending to LLM
