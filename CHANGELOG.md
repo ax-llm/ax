@@ -1,5 +1,26 @@
 # Changelog
 
+## [14.0.41](///compare/14.0.39...14.0.40) (2025-11-21)
+
+### Features
+
+* Add date and datetime field types and clarify dual syntax for format validators across documentation. f1abcab
+* Introduce date and datetime format validators, add dedicated email type factory, and clarify format validation syntax in documentation. c9b16a6
+## [14.0.40](///compare/14.0.39...14.0.40) (2025-11-21)
+
+### Features
+
+* **anthropic:** implement extended thinking signature handling in streaming mode c73646f
+* **gemini:** add Gemini 3 support with thought signatures and function calling 7b6a499
+* **validation:** introduce Zod-like validation constraints for structured outputs a15e5b6
+
+### Bug Fixes
+
+* **anthropic:** correct prompt caching property to cache_control 20606c7
+* **anthropic:** support streaming cache usage and remove beta header 8fe2bfc
+* buid issues 571b775
+* build issues 3fa583c
+
 ## [14.0.40](///compare/14.0.38...14.0.39) (2025-11-21)
 
 ### Features
