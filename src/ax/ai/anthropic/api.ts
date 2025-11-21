@@ -751,10 +751,17 @@ class AxAIAnthropicImpl
         };
       }
       if (delta.type === 'signature_delta') {
-        // Signature deltas are handled internally by Anthropic,
-        // we don't need to expose them in the response
         return {
-          results: [{ index, content: '' }],
+          results: [
+            {
+              index,
+              thoughtBlock: {
+                data: '',
+                encrypted: false,
+                signature: delta.signature,
+              },
+            },
+          ],
         };
       }
       if (delta.type === 'input_json_delta') {

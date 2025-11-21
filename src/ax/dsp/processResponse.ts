@@ -99,6 +99,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
         if (
           (!result.content || result.content === '') &&
           (!result.thought || result.thought === '') &&
+          !result.thoughtBlock &&
           (!result.functionCalls || result.functionCalls.length === 0)
         ) {
           continue;
@@ -330,6 +331,31 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       index: result.index,
       delta: { [thoughtFieldName]: result.thought } as Partial<OUT>,
     };
+
+    // Update memory with thought and thoughtBlock
+    mem.updateResult(
+      {
+        name: result.name,
+        content: state.content,
+        delta: '',
+        index: result.index,
+        thought: result.thought,
+        thoughtBlock: result.thoughtBlock,
+      },
+      sessionId
+    );
+  } else if (result.thoughtBlock) {
+    // Handle case where we only have thoughtBlock (e.g. signature delta)
+    mem.updateResult(
+      {
+        name: result.name,
+        content: state.content,
+        delta: '',
+        index: result.index,
+        thoughtBlock: result.thoughtBlock,
+      },
+      sessionId
+    );
   }
 
   if (result.finishReason === 'length') {
