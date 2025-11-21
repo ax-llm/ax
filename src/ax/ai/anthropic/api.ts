@@ -540,7 +540,11 @@ class AxAIAnthropicImpl
     this.tokensUsed = {
       promptTokens: resp.usage.input_tokens,
       completionTokens: resp.usage.output_tokens,
-      totalTokens: resp.usage.input_tokens + resp.usage.output_tokens,
+      totalTokens:
+        resp.usage.input_tokens +
+        resp.usage.output_tokens +
+        (resp.usage.cache_creation_input_tokens || 0) +
+        (resp.usage.cache_read_input_tokens || 0),
       cacheCreationTokens: resp.usage.cache_creation_input_tokens,
       cacheReadTokens: resp.usage.cache_read_input_tokens,
     };
@@ -584,7 +588,11 @@ class AxAIAnthropicImpl
         completionTokens: message.usage?.output_tokens ?? 0,
         totalTokens:
           (message.usage?.input_tokens ?? 0) +
-          (message.usage?.output_tokens ?? 0),
+          (message.usage?.output_tokens ?? 0) +
+          (message.usage?.cache_creation_input_tokens ?? 0) +
+          (message.usage?.cache_read_input_tokens ?? 0),
+        cacheCreationTokens: message.usage?.cache_creation_input_tokens,
+        cacheReadTokens: message.usage?.cache_read_input_tokens,
       };
       return { results };
     }
@@ -775,9 +783,15 @@ class AxAIAnthropicImpl
         resp as unknown as AxAIAnthropicMessageDeltaEvent;
 
       this.tokensUsed = {
-        promptTokens: 0,
+        promptTokens: this.tokensUsed?.promptTokens ?? 0,
         completionTokens: usage.output_tokens,
-        totalTokens: usage.output_tokens,
+        totalTokens:
+          (this.tokensUsed?.promptTokens ?? 0) +
+          usage.output_tokens +
+          (this.tokensUsed?.cacheCreationTokens ?? 0) +
+          (this.tokensUsed?.cacheReadTokens ?? 0),
+        cacheCreationTokens: this.tokensUsed?.cacheCreationTokens,
+        cacheReadTokens: this.tokensUsed?.cacheReadTokens,
       };
 
       const results = [
@@ -848,8 +862,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       apiURL = 'https://api.anthropic.com/v1';
       headers = async () => ({
         'anthropic-version': '2023-06-01',
-        'anthropic-beta':
-          'prompt-caching-2024-07-31,structured-outputs-2025-11-13',
+        'anthropic-beta': 'structured-outputs-2025-11-13',
         'x-api-key': typeof apiKey === 'function' ? await apiKey() : apiKey,
       });
     }

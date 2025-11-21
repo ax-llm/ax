@@ -1,12 +1,11 @@
 import { AxAIAnthropic } from '../ax/ai/anthropic/api.js';
-import type { AxChatResponse } from '../ax/ai/types.js';
 
 const ai = new AxAIAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_APIKEY || '',
   config: {
     model: 'claude-3-haiku-20240307',
     maxTokens: 1000,
-    stream: false,
+    stream: true,
   },
 });
 
@@ -34,14 +33,24 @@ const req = {
 
 async function run() {
   console.log('Sending request 1...');
-  const res1 = (await ai.chat(req)) as AxChatResponse;
-  console.log('Response 1:', JSON.stringify(res1, null, 2));
-  console.log('Response 1 Usage:', res1.modelUsage?.tokens);
+  const stream1 = await ai.chat(req);
+  let usage1;
+  for await (const chunk of stream1) {
+    if (chunk.modelUsage) {
+      usage1 = chunk.modelUsage;
+    }
+  }
+  console.log('Response 1 Usage:', usage1?.tokens);
 
   console.log('Sending request 2 (should hit cache)...');
-  const res2 = (await ai.chat(req)) as AxChatResponse;
-  console.log('Response 2:', JSON.stringify(res2, null, 2));
-  console.log('Response 2 Usage:', res2.modelUsage?.tokens);
+  const stream2 = await ai.chat(req);
+  let usage2;
+  for await (const chunk of stream2) {
+    if (chunk.modelUsage) {
+      usage2 = chunk.modelUsage;
+    }
+  }
+  console.log('Response 2 Usage:', usage2?.tokens);
 }
 
 run().catch(console.error);
