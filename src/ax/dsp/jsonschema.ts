@@ -2,52 +2,6 @@ import type { AxFunctionJSONSchema } from '../ai/types.js';
 import type { AxField } from './sig.js';
 
 /**
- * Convert common regex patterns to human-readable descriptions
- */
-function getPatternDescription(pattern: string): string | undefined {
-  // ISO 639-1 language codes
-  if (pattern === '^[a-z]{2}$') {
-    return 'Must be a 2-letter lowercase language code (e.g., "en", "es")';
-  }
-
-  // Username patterns
-  if (pattern === '^[a-z0-9_]+$') {
-    return 'Must contain only lowercase letters, numbers, and underscores';
-  }
-  if (pattern === '^[A-Z0-9]+$') {
-    return 'Must contain only uppercase letters and numbers';
-  }
-  if (pattern === '^[a-zA-Z0-9_]+$') {
-    return 'Must contain only letters, numbers, and underscores';
-  }
-
-  // Common alphanumeric patterns
-  if (pattern === '^[a-z]+$') {
-    return 'Must contain only lowercase letters';
-  }
-  if (pattern === '^[A-Z]+$') {
-    return 'Must contain only uppercase letters';
-  }
-  if (pattern === '^[0-9]+$' || pattern === '^\\d+$') {
-    return 'Must contain only digits';
-  }
-
-  // Hex color codes
-  if (pattern === '^#[0-9a-fA-F]{6}$' || pattern === '^#[0-9A-F]{6}$') {
-    return 'Must be a valid hex color code (e.g., #FF5733)';
-  }
-
-  // UUID patterns
-  if (
-    pattern === '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-  ) {
-    return 'Must be a valid UUID format';
-  }
-
-  return undefined;
-}
-
-/**
  * Enhances field description with validation constraint information
  * so the LLM understands the requirements
  */
@@ -101,20 +55,14 @@ function enhanceDescriptionWithValidation(
     }
   }
 
-  // Regex pattern with custom description
+  // Regex pattern - patternDescription is required
   if (type.pattern !== undefined) {
-    // Use custom pattern description if provided
-    if (type.patternDescription) {
-      constraints.push(type.patternDescription);
-    } else {
-      // Fall back to friendly description or raw pattern
-      const patternDesc = getPatternDescription(type.pattern);
-      if (patternDesc) {
-        constraints.push(patternDesc);
-      } else {
-        constraints.push(`Must match pattern: ${type.pattern}`);
-      }
+    if (!type.patternDescription) {
+      throw new Error(
+        `Field with pattern '${type.pattern}' must include a patternDescription to explain the pattern to the LLM`
+      );
     }
+    constraints.push(type.patternDescription);
   }
 
   // Date/DateTime format hints

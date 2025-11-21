@@ -200,7 +200,12 @@ describe('Structured Outputs', () => {
         .output(
           'user',
           f.object({
-            code: f.string().regex('^[A-Z0-9]+$'),
+            code: f
+              .string()
+              .regex(
+                '^[A-Z0-9]+$',
+                'Must contain only uppercase letters and numbers'
+              ),
           })
         )
         .build();
