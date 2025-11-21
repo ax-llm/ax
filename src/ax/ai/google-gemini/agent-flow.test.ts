@@ -21,7 +21,6 @@ function createMockFetch(responses: any[]) {
       if (init?.body && typeof init.body === 'string') {
         const body = JSON.parse(init.body);
         (response as any)._capturedRequest = body;
-        console.error(`Request ${count + 1}:`, JSON.stringify(body, null, 2));
       }
       return new Response(JSON.stringify(response), {
         status: 200,
