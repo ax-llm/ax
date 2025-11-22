@@ -61,7 +61,7 @@ export type AxAIGoogleGeminiContent = {
 // Part type with common fields intersected with a union of data fields
 export type AxAIGoogleGeminiContentPart = {
   thought?: boolean;
-  thoughtSignature?: string;
+  thought_signature?: string;
   metadata?: { videoMetadata: object };
 } & (
   | { text: string; thought?: boolean }

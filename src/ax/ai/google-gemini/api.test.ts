@@ -251,6 +251,6 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     const assistantMsg = reqBody.contents[1];
     expect(assistantMsg.role).toBe('model');
     expect(assistantMsg.parts[0].functionCall.name).toBe('foo');
-    expect(assistantMsg.parts[0].thoughtSignature).toBe('sig123');
+    expect(assistantMsg.parts[0].thought_signature).toBe('sig123');
   });
 });

@@ -209,6 +209,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
         name: result.name,
         content: result.content,
         functionCalls: state.functionCalls,
+        thoughtBlock: result.thoughtBlock,
         delta: result.functionCalls?.[0]?.function?.params as string,
         index: result.index,
       },
@@ -227,6 +228,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       {
         name: result.name,
         content: state.content,
+        thoughtBlock: result.thoughtBlock,
         delta: result.content,
         index: result.index,
       },

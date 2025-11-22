@@ -254,6 +254,11 @@ export type AxChatRequest<TModel = string> = {
           type: 'function';
           function: { name: string; params?: string | object };
         }[];
+        thoughtBlock?: {
+          data: string;
+          signature?: string;
+          encrypted?: boolean;
+        };
         cache?: boolean;
       }
     | {

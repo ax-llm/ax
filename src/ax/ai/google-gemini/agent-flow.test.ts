@@ -186,7 +186,7 @@ describe('Gemini 3 Agent Flow Verification', () => {
     const modelMsg1 = req2.contents.find((c: any) => c.role === 'model');
     expect(modelMsg1).toBeDefined();
     expect(modelMsg1.parts[0].functionCall.name).toBe('getCurrentWeather');
-    expect(modelMsg1.parts[0].thoughtSignature).toBe('signature_turn_1');
+    expect(modelMsg1.parts[0].thought_signature).toBe('signature_turn_1');
 
     // Request 3: Sending back restaurant result. Should include signature from Response 2.
     const req3 = (response3 as any)._capturedRequest;
@@ -199,10 +199,10 @@ describe('Gemini 3 Agent Flow Verification', () => {
     const modelMsgs = req3.contents.filter((c: any) => c.role === 'model');
     const lastModelMsg = modelMsgs[modelMsgs.length - 1];
     expect(lastModelMsg.parts[0].functionCall.name).toBe('findRestaurants');
-    expect(lastModelMsg.parts[0].thoughtSignature).toBe('signature_turn_2');
+    expect(lastModelMsg.parts[0].thought_signature).toBe('signature_turn_2');
 
     // Also verify the first signature is still there in the history
     const firstModelMsg = modelMsgs[0];
-    expect(firstModelMsg.parts[0].thoughtSignature).toBe('signature_turn_1');
+    expect(firstModelMsg.parts[0].thought_signature).toBe('signature_turn_1');
   }, 20000);
 });

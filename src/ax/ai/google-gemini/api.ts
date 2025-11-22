@@ -306,19 +306,19 @@ class AxAIGoogleGeminiImpl
 
             // Handle thought blocks
             const thoughtBlock = (msg as any).thoughtBlock;
-            let signatureHandled = false;
+            const hasFunctionCalls =
+              msg.functionCalls && msg.functionCalls.length > 0;
 
             if (thoughtBlock?.data) {
               parts.push({
                 thought: true,
                 text: thoughtBlock.data,
-                ...(thoughtBlock.signature
-                  ? { thoughtSignature: thoughtBlock.signature }
+                // Only attach signature to text if there are no function calls
+                // Gemini requires signature on the first function call if present
+                ...(thoughtBlock.signature && !hasFunctionCalls
+                  ? { thought_signature: thoughtBlock.signature }
                   : {}),
               });
-              if (thoughtBlock.signature) {
-                signatureHandled = true;
-              }
             }
 
             if (msg.functionCalls) {
@@ -341,7 +341,6 @@ class AxAIGoogleGeminiImpl
                   args = f.function.params;
                 }
 
-                // Attach signature to the first function call if not already handled in a thought block
                 const part: AxAIGoogleGeminiContentPart = {
                   functionCall: {
                     name: f.function.name,
@@ -349,14 +348,9 @@ class AxAIGoogleGeminiImpl
                   },
                 };
 
-                if (
-                  index === 0 &&
-                  !signatureHandled &&
-                  thoughtBlock &&
-                  thoughtBlock.signature
-                ) {
-                  part.thoughtSignature = thoughtBlock.signature;
-                  signatureHandled = true;
+                // Attach signature ONLY to the first function call
+                if (thoughtBlock?.signature && index === 0) {
+                  part.thought_signature = thoughtBlock.signature;
                 }
 
                 return part;
@@ -814,12 +808,13 @@ class AxAIGoogleGeminiImpl
               (part as any).thought === true
             ) {
               result.thought = part.text;
+              // Google returns thoughtSignature in camelCase
+              const thoughtSignature =
+                (part as any).thoughtSignature || part.thought_signature;
               result.thoughtBlock = {
                 data: part.text,
                 encrypted: false,
-                ...(part.thoughtSignature
-                  ? { signature: part.thoughtSignature }
-                  : {}),
+                ...(thoughtSignature ? { signature: thoughtSignature } : {}),
               };
             } else {
               result.content = part.text;
@@ -829,18 +824,21 @@ class AxAIGoogleGeminiImpl
 
           if ('functionCall' in part) {
             // Check for thought signature on function call part
-            if (part.thoughtSignature) {
+            // Google returns thoughtSignature in camelCase
+            const thoughtSignature =
+              (part as any).thoughtSignature || part.thought_signature;
+            if (thoughtSignature) {
               if (!result.thoughtBlock) {
                 result.thoughtBlock = {
                   data: '', // No text data for signature-only thought
                   encrypted: false,
-                  signature: part.thoughtSignature,
+                  signature: thoughtSignature,
                 };
               } else {
                 // If thought block exists, just update signature if missing?
                 // Or assume the text part handled it.
                 // For now, ensure signature is captured.
-                result.thoughtBlock.signature = part.thoughtSignature;
+                result.thoughtBlock.signature = thoughtSignature;
               }
             }
 
