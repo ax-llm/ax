@@ -291,12 +291,6 @@ class AxAIAnthropicImpl
       ...configToolsCleaned,
     ];
 
-    // Anthropic Vertex does not support server tools like web_search; filter them out
-    if (this.isVertex && tools.length > 0) {
-      tools = tools.filter(
-        (t: any) => !(t && typeof t === 'object' && 'type' in t)
-      );
-    }
     if (tools.length === 0) {
       tools = undefined;
     }
@@ -870,7 +864,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       apiURL = 'https://api.anthropic.com/v1';
       headers = async () => ({
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'structured-outputs-2025-11-13',
+        'anthropic-beta':
+          'structured-outputs-2025-11-13, web-search-2025-03-05',
         'x-api-key': typeof apiKey === 'function' ? await apiKey() : apiKey,
       });
     }

@@ -48,11 +48,6 @@ import {
 import { axGlobals } from './globals.js';
 import { toJsonSchema } from './jsonSchema.js';
 import {
-  validateURL,
-  validateStringConstraints,
-  validateNumberConstraints,
-} from './validators.js';
-import {
   type AxGenMetricsInstruments,
   getOrCreateGenMetricsInstruments,
   recordErrorCorrectionMetric,
@@ -90,6 +85,11 @@ import type {
   AxSetExamplesOptions,
 } from './types.js';
 import { mergeDeltas } from './util.js';
+import {
+  validateNumberConstraints,
+  validateStringConstraints,
+  validateURL,
+} from './validators.js';
 
 export type AxGenerateResult<OUT> = OUT & {
   thought?: string;
