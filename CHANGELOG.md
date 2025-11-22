@@ -1,5 +1,16 @@
 # Changelog
 
+## [14.0.43](///compare/14.0.41...14.0.42) (2025-11-22)
+
+### Features
+
+* Enable Anthropic web search by updating beta headers and removing tool filtering, and reorder validator imports. 60a5663
+
+### Bug Fixes
+
+* **vertex:** use correct Vertex AI endpoint for global region ([#428](undefined/undefined/undefined/issues/428)) 1466bc7
+## [14.0.42](///compare/14.0.41...14.0.42) (2025-11-22)
+
 ## [14.0.42](///compare/14.0.40...14.0.41) (2025-11-22)
 ## [14.0.41](///compare/14.0.40...14.0.41) (2025-11-21)
 
