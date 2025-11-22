@@ -253,7 +253,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       if (!isText) {
         throw new Error(
-          `addFieldProcessor: field ${fieldName} is must be a text field`
+          `addFieldProcessor: field ${fieldName} must be a text field`
         );
       }
       this.streamingFieldProcessors.push({ field, process: fn });
