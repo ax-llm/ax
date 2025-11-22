@@ -105,11 +105,7 @@ export class AxPromptTemplate {
       task.push(functionCallInstructions.trim());
     }
 
-    const hasComplexFields = this.sig
-      .getOutputFields()
-      .some(
-        (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
-      );
+    const hasComplexFields = this.sig.hasComplexFields();
 
     if (!hasComplexFields) {
       task.push(formattingRules.trim());
@@ -235,11 +231,7 @@ export class AxPromptTemplate {
    * Build formatting rules section with protection
    */
   private buildFormattingRulesSection(): string {
-    const hasComplexFields = this.sig
-      .getOutputFields()
-      .some(
-        (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
-      );
+    const hasComplexFields = this.sig.hasComplexFields();
 
     if (hasComplexFields) {
       return `**CRITICAL - Structured Output Format**:

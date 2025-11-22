@@ -13,9 +13,9 @@ import type { AxField, AxSignature } from './sig.js';
 import type { AxGenOut, GenDeltaOut } from './types.js';
 import { matchesContent, parseMarkdownList } from './util.js';
 import {
-  validateURL,
-  validateStringConstraints,
   validateNumberConstraints,
+  validateStringConstraints,
+  validateURL,
 } from './validators.js';
 
 export const extractValues = (
@@ -750,7 +750,12 @@ export function validateStructuredOutputValues(
     }
 
     // Recursively validate nested object fields
-    if (type.name === 'object' && type.fields && typeof value === 'object') {
+    if (
+      type.name === 'object' &&
+      type.fields &&
+      typeof value === 'object' &&
+      !Array.isArray(value)
+    ) {
       validateNestedObjectFields(field, value as Record<string, unknown>);
     }
 

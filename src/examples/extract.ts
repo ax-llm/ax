@@ -66,6 +66,7 @@ const res = await gen.forward(
   { chatMessage, currentDate },
   {
     model: 'model-a',
+    debug: true,
   }
 );
 console.log('>', res);

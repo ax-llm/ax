@@ -692,6 +692,45 @@ Thought Process: I am thinking.`;
   });
 });
 
+describe('AxSignature hasComplexFields', () => {
+  it('should return false for simple signature', () => {
+    const sig = f().input('in', f.string()).output('out', f.string()).build();
+    expect(sig.hasComplexFields()).toBe(false);
+  });
+
+  it('should return true for complex output', () => {
+    const sig = f()
+      .input('in', f.string())
+      .output('out', f.object({ field: f.string() }))
+      .build();
+    expect(sig.hasComplexFields()).toBe(true);
+  });
+
+  it('should return true for complex input', () => {
+    const sig = f()
+      .input('in', f.object({ field: f.string() }))
+      .output('out', f.string())
+      .build();
+    expect(sig.hasComplexFields()).toBe(true);
+  });
+
+  it('should return true for array of objects in input', () => {
+    const sig = f()
+      .input('in', f.object({ field: f.string() }).array())
+      .output('out', f.string())
+      .build();
+    expect(sig.hasComplexFields()).toBe(true);
+  });
+
+  it('should return true for array of objects in output', () => {
+    const sig = f()
+      .input('in', f.string())
+      .output('out', f.object({ field: f.string() }).array())
+      .build();
+    expect(sig.hasComplexFields()).toBe(true);
+  });
+});
+
 describe('Type-safe field addition methods', () => {
   it('should append input field with type safety', () => {
     const baseSig = AxSignature.create(
