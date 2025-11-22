@@ -1,5 +1,13 @@
 # Changelog
 
+## [14.0.42](///compare/14.0.40...14.0.41) (2025-11-22)
+## [14.0.41](///compare/14.0.40...14.0.41) (2025-11-21)
+
+### Features
+
+* Add date and datetime field types and clarify dual syntax for format validators across documentation. f1abcab
+* Introduce date and datetime format validators, add dedicated email type factory, and clarify format validation syntax in documentation. c9b16a6
+
 ## [14.0.41](///compare/14.0.39...14.0.40) (2025-11-21)
 
 ### Features
