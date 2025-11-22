@@ -1,5 +1,16 @@
 # Changelog
 
+## [15.0.0](///compare/14.0.43...14.0.44) (2025-11-22)
+
+### Features
+
+* Introduce structured (XML) prompt generation with format protection and tests, and remove individual streaming result logging. f04c787
+## [14.0.44](///compare/14.0.43...14.0.44) (2025-11-22)
+
+### Features
+
+* **anthropic:** update and align Vertex AI model maxTokens values ([#426](undefined/undefined/undefined/issues/426)) f042d7b
+
 ## [14.0.44](///compare/14.0.42...14.0.43) (2025-11-22)
 
 ### Features
