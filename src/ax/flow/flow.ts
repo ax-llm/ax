@@ -2680,13 +2680,13 @@ export class AxFlow<
    * // Create a chain-of-thought node
    * flow.nodeExtended('reasoner', 'question:string -> answer:string', {
    *   prependOutputs: [
-   *     { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) }
+   *     { name: 'reasoning', type: f.string('Step-by-step reasoning').internal() }
    *   ]
    * })
    *
    * // Create a node with context and confidence
    * flow.nodeExtended('analyzer', 'input:string -> output:string', {
-   *   appendInputs: [{ name: 'context', type: f.optional(f.string('Context')) }],
+   *   appendInputs: [{ name: 'context', type: f.string('Context').optional() }],
    *   appendOutputs: [{ name: 'confidence', type: f.number('Confidence score') }]
    * })
    * ```

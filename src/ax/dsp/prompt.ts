@@ -91,7 +91,15 @@ export class AxPromptTemplate {
       task.push(functionCallInstructions.trim());
     }
 
-    task.push(formattingRules.trim());
+    const hasComplexFields = this.sig
+      .getOutputFields()
+      .some(
+        (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
+      );
+
+    if (!hasComplexFields) {
+      task.push(formattingRules.trim());
+    }
 
     const desc = this.sig.getDescription();
     if (desc) {
@@ -766,6 +774,8 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
         return 'file (with filename, mimeType, and data)';
       case 'url':
         return 'URL (string or object with url, title, description)';
+      case 'object':
+        return 'object';
       default:
         return 'string';
     }

@@ -5,6 +5,65 @@
 ### Features
 
 - **ai:** add `openai-compatible` adapter + docs/tests for generic OpenAI-compatible gateways (Groq, Cerebras, Vercel AI Gateway) and pin Vitest configs per workspace.
+## [14.0.43](///compare/14.0.41...14.0.42) (2025-11-22)
+
+### Features
+
+* Enable Anthropic web search by updating beta headers and removing tool filtering, and reorder validator imports. 60a5663
+
+### Bug Fixes
+
+* **vertex:** use correct Vertex AI endpoint for global region ([#428](undefined/undefined/undefined/issues/428)) 1466bc7
+## [14.0.42](///compare/14.0.41...14.0.42) (2025-11-22)
+
+## [14.0.42](///compare/14.0.40...14.0.41) (2025-11-22)
+## [14.0.41](///compare/14.0.40...14.0.41) (2025-11-21)
+
+### Features
+
+* Add date and datetime field types and clarify dual syntax for format validators across documentation. f1abcab
+* Introduce date and datetime format validators, add dedicated email type factory, and clarify format validation syntax in documentation. c9b16a6
+
+## [14.0.41](///compare/14.0.39...14.0.40) (2025-11-21)
+
+### Features
+
+* Add date and datetime field types and clarify dual syntax for format validators across documentation. f1abcab
+* Introduce date and datetime format validators, add dedicated email type factory, and clarify format validation syntax in documentation. c9b16a6
+## [14.0.40](///compare/14.0.39...14.0.40) (2025-11-21)
+
+### Features
+
+* **anthropic:** implement extended thinking signature handling in streaming mode c73646f
+* **gemini:** add Gemini 3 support with thought signatures and function calling 7b6a499
+* **validation:** introduce Zod-like validation constraints for structured outputs a15e5b6
+
+### Bug Fixes
+
+* **anthropic:** correct prompt caching property to cache_control 20606c7
+* **anthropic:** support streaming cache usage and remove beta header 8fe2bfc
+* buid issues 571b775
+* build issues 3fa583c
+
+## [14.0.40](///compare/14.0.38...14.0.39) (2025-11-21)
+
+### Features
+
+* **anthropic:** implement extended thinking signature handling in streaming mode c73646f
+* **gemini:** add Gemini 3 support with thought signatures and function calling 7b6a499
+* **validation:** introduce Zod-like validation constraints for structured outputs a15e5b6
+
+### Bug Fixes
+
+* **anthropic:** correct prompt caching property to cache_control 20606c7
+* **anthropic:** support streaming cache usage and remove beta header 8fe2bfc
+* buid issues 571b775
+* build issues 3fa583c
+## [14.0.39](///compare/14.0.38...14.0.39) (2025-11-05)
+
+### Bug Fixes
+
+* **api:** improve handling of empty function parameters in Anthropic, Cohere, and Google Gemini APIs e901fdc
 
 ## [14.0.39](https://github.com/ax-llm/ax/compare/14.0.37...14.0.38) (2025-11-05)
 

@@ -1,4 +1,10 @@
-import { type AxFunction, agent, ai, s } from '@ax-llm/ax';
+import {
+  AxAIGoogleGeminiModel,
+  type AxFunction,
+  agent,
+  ai,
+  s,
+} from '../ax/index.js';
 
 const goodDay = {
   temperature: '27C',
@@ -136,8 +142,8 @@ const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    // model: AxAIGoogleGeminiModel.Gemini25Pro,
-    thinking: { thinkingTokenBudget: 200 },
+    model: AxAIGoogleGeminiModel.Gemini3ProPreview,
+    thinking: { thinkingLevel: 'high', thinkingTokenBudget: 200 },
   },
 });
 

@@ -83,6 +83,92 @@ const result = await extractor.forward(llm, {
 // Automatically extracts all fields with proper types and validation
 ```
 
+### Complex Structured Outputs (New!)
+
+Define deeply nested objects with full type safety using the fluent API:
+
+```typescript
+import { f, ax } from "@ax-llm/ax";
+
+const productExtractor = f()
+  .input("productPage", f.string())
+  .output("product", f.object({
+    name: f.string(),
+    price: f.number(),
+    specs: f.object({
+      dimensions: f.object({
+        width: f.number(),
+        height: f.number()
+      }),
+      materials: f.array(f.string())
+    }),
+    reviews: f.array(f.object({
+      rating: f.number(),
+      comment: f.string()
+    }))
+  }))
+  .build();
+
+const generator = ax(productExtractor);
+const result = await generator.forward(llm, { productPage: "..." });
+
+// Full TypeScript inference for nested fields
+console.log(result.product.specs.dimensions.width); // number
+console.log(result.product.reviews[0].comment);     // string
+```
+
+### Validation & Constraints (New!)
+
+Add Zod-like validation constraints to ensure data quality and format:
+
+```typescript
+import { f, ax } from "@ax-llm/ax";
+
+const userRegistration = f()
+  .input("userData", f.string())
+  .output("user", f.object({
+    username: f.string().min(3).max(20),
+    email: f.string().email(),
+    age: f.number().min(18).max(120),
+    password: f.string().min(8).regex("^(?=.*[A-Za-z])(?=.*\\d)", "Must contain at least one letter and one digit"),
+    bio: f.string().max(500).optional(),
+    website: f.string().url().optional(),
+    tags: f.string().min(2).max(30).array()
+  }))
+  .build();
+
+const generator = ax(userRegistration);
+const result = await generator.forward(llm, {
+  userData: "Name: John, Email: john@example.com, Age: 25..."
+});
+
+// All fields are automatically validated:
+// - username: 3-20 characters
+// - email: valid email format
+// - age: between 18-120
+// - password: min 8 chars with letter and number
+// - website: valid URL format if provided
+// - tags: each 2-30 characters
+```
+
+**Available Constraints:**
+- `.min(n)` / `.max(n)` - String length or number range
+- `.email()` - Email format validation (or use `f.email()`)
+- `.url()` - URL format validation (or use `f.url()`)
+- `.date()` - Date format validation (or use `f.date()`)
+- `.datetime()` - Datetime format validation (or use `f.datetime()`)
+- `.regex(pattern, description)` - Custom regex pattern with human-readable description
+- `.optional()` - Make field optional
+
+**Note:** For email, url, date, and datetime, you can use either the validator syntax (`f.string().email()`) or the dedicated type syntax (`f.email()`). Both work consistently in all contexts!
+
+**Automatic Features:**
+- ✅ Input validation before sending to LLM
+- ✅ Output validation after LLM response
+- ✅ JSON Schema constraints in structured outputs
+- ✅ Automatic retry with corrections on validation errors
+- ✅ TypeScript compile-time protection
+
 ### Build Agents That Use Tools (ReAct Pattern)
 
 ```typescript

@@ -26,36 +26,36 @@ flexible control flow patterns.
 ### Basic Flow
 
 ```typescript
-import { ai, AxFlow } from "@ax-llm/ax";
+import { ai, flow } from "@ax-llm/ax";
 
 // Create AI instance
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
 
-// Create a simple flow
-const flow = new AxFlow<{ userInput: string }, { responseText: string }>()
+// Create a simple flow (factory function)
+const wf = flow<{ userInput: string }, { responseText: string }>()
   .node("testNode", "userInput:string -> responseText:string")
   .execute("testNode", (state) => ({ userInput: state.userInput }))
-  .map((state) => ({ responseText: state.testNodeResult.responseText }));
+  .returns((state) => ({ responseText: state.testNodeResult.responseText }));
 
 // Execute the flow
-const result = await flow.forward(llm, { userInput: "Hello world" });
+const result = await wf.forward(llm, { userInput: "Hello world" });
 console.log(result.responseText);
 ```
 
-### Constructor Options
+### Factory Options
 
 ```typescript
-// Basic constructor
-const flow = new AxFlow();
+// Basic factory
+const wf = flow();
 
 // With options
-const flow = new AxFlow({ autoParallel: false });
+const wf = flow({ autoParallel: false });
 
 // With explicit typing
-const flow = new AxFlow<InputType, OutputType>();
+const wf = flow<InputType, OutputType>();
 
 // With options and typing
-const flow = new AxFlow<InputType, OutputType>({
+const wf = flow<InputType, OutputType>({
   autoParallel: true,
   batchSize: 5,
 });
@@ -310,6 +310,42 @@ flow.r((state) => ({ output: state.value }));
   format
 - When building reusable flows that need clear output contracts
 
+#### `description(name: string, description: string)`
+
+Set a flow-level name and description. The description is stored on the flow's
+inferred signature, and the name/description are used by `toFunction()` for the
+exported function metadata.
+
+```typescript
+const wf = flow<{ userQuestion: string }, { responseText: string }>()
+  .node("qa", "userQuestion:string -> responseText:string")
+  .description(
+    "Question Answerer",
+    "Answers user questions concisely using the configured AI model.",
+  );
+```
+
+#### `toFunction()`
+
+Convert the flow into an AxFunction using the flow's inferred signature. The
+function's `name` prefers the name set via `description(name, ...)` and falls
+back to the first line of the signature description. The `parameters` are
+generated from the inferred input fields as JSON Schema.
+
+```typescript
+const wf = flow<{ userQuestion: string }, { responseText: string }>()
+  .node("qa", "userQuestion:string -> responseText:string")
+  .description(
+    "Question Answerer",
+    "Answers user questions concisely using the configured AI model.",
+  );
+
+const fn = wf.toFunction();
+console.log(fn.name); // "questionAnswerer"
+console.log(fn.parameters); // JSON Schema from inferred input
+// You can call fn.func with args and { ai } to execute the flow
+```
+
 ### Control Flow Methods
 
 #### `while(condition: Function)` / `endWhile()`
@@ -408,7 +444,7 @@ flow.derive("upperText", "inputText", (text) => text.toUpperCase());
 ### 1. Sequential Processing
 
 ```typescript
-const sequentialFlow = new AxFlow<{ input: string }, { finalResult: string }>()
+const sequentialFlow = flow<{ input: string }, { finalResult: string }>()
   .node("step1", "input:string -> intermediate:string")
   .node("step2", "intermediate:string -> output:string")
   .execute("step1", (state) => ({ input: state.input }))
@@ -422,7 +458,7 @@ const sequentialFlow = new AxFlow<{ input: string }, { finalResult: string }>()
 ### 2. Conditional Processing
 
 ```typescript
-const conditionalFlow = new AxFlow<
+const conditionalFlow = flow<
   { query: string; isComplex: boolean },
   { response: string }
 >()
@@ -443,7 +479,7 @@ const conditionalFlow = new AxFlow<
 ### 3. Iterative Processing
 
 ```typescript
-const iterativeFlow = new AxFlow<
+const iterativeFlow = flow<
   { content: string },
   { finalContent: string }
 >()
@@ -471,7 +507,7 @@ const iterativeFlow = new AxFlow<
 AxFlow automatically detects independent operations and runs them in parallel:
 
 ```typescript
-const autoParallelFlow = new AxFlow<
+const autoParallelFlow = flow<
   { text: string },
   { combinedAnalysis: string }
 >()
@@ -503,7 +539,7 @@ AxFlow supports asynchronous transformations in map operations, enabling API
 calls, database queries, and other async operations within your flow:
 
 ```typescript
-const asyncFlow = new AxFlow<
+const asyncFlow = flow<
   { userQuery: string },
   { enrichedData: string; apiCallTime: number }
 >()
@@ -548,7 +584,7 @@ const asyncFlow = new AxFlow<
 You can mix synchronous and asynchronous operations seamlessly:
 
 ```typescript
-const mixedFlow = new AxFlow<{ rawData: string }, { result: string }>()
+const mixedFlow = flow<{ rawData: string }, { result: string }>()
   // Sync preprocessing
   .map((state) => ({
     ...state,
@@ -594,7 +630,7 @@ flow
 ### 6. Self-Healing with Feedback Loops
 
 ```typescript
-const selfHealingFlow = new AxFlow<{ input: string }, { output: string }>()
+const selfHealingFlow = flow<{ input: string }, { output: string }>()
   .node("processor", "input:string -> output:string, confidence:number")
   .node("validator", "output:string -> isValid:boolean, issues:string[]")
   .node("fixer", "output:string, issues:string[] -> fixedOutput:string")
@@ -674,7 +710,7 @@ parallel:
 
 ```typescript
 // Disable auto-parallelization globally
-const sequentialFlow = new AxFlow({ autoParallel: false });
+const sequentialFlow = flow({ autoParallel: false });
 
 // Disable for specific execution
 const result = await flow.forward(llm, input, { autoParallel: false });
@@ -700,7 +736,7 @@ flow
 ### 3. Batch Processing with Derive
 
 ```typescript
-const batchFlow = new AxFlow<{ items: string[] }, { processedItems: string[] }>(
+const batchFlow = flow<{ items: string[] }, { processedItems: string[] }>(
   {
     autoParallel: true,
     batchSize: 3, // Process 3 items at a time
@@ -833,15 +869,175 @@ flow
   }));
 ```
 
+## When to Use Each Feature
+
+### Data shaping vs. AI calls: map() vs execute()
+
+Use `map()` for synchronous/async data transformations without calling AI; use
+`execute()` to invoke a previously defined AI node.
+
+```typescript
+const wf = flow<{ raw: string }, { answer: string }>()
+  // Preprocess user input (no AI call)
+  .map((s) => ({ cleaned: s.raw.trim().toLowerCase() }))
+  // Call an AI node you defined earlier (requires execute)
+  .node("qa", "question:string -> answer:string")
+  .execute("qa", (s) => ({ question: s.cleaned }))
+  .map((s) => ({ answer: s.qaResult.answer }));
+```
+
+### Conditional routing: branch()/when()/merge()
+
+Use when you need different paths for different conditions, then converge.
+
+```typescript
+const wf = flow<{ query: string; expertMode: boolean }, { response: string }>()
+  .node("simple", "query:string -> response:string")
+  .node("expert", "query:string -> response:string")
+  .branch((s) => s.expertMode)
+  .when(true)
+  .execute("expert", (s) => ({ query: s.query }))
+  .when(false)
+  .execute("simple", (s) => ({ query: s.query }))
+  .merge()
+  .map((s) => ({
+    response: s.expertResult?.response ?? s.simpleResult?.response,
+  }));
+```
+
+### Iteration/retries: while()/endWhile()
+
+Use to repeat work until a goal is met or a cap is hit.
+
+```typescript
+const wf = flow<{ draft: string }, { final: string }>()
+  .node("grader", "text:string -> score:number")
+  .node("improver", "text:string -> improved:string")
+  .map((s) => ({ current: s.draft, attempts: 0 }))
+  .while((s) => s.attempts < 3)
+  .execute("grader", (s) => ({ text: s.current }))
+  .branch((s) => s.graderResult.score >= 0.8)
+  .when(true)
+  .map((s) => ({ attempts: 3 }))
+  .when(false)
+  .execute("improver", (s) => ({ text: s.current }))
+  .map((s) => ({
+    current: s.improverResult.improved,
+    attempts: s.attempts + 1,
+  }))
+  .merge()
+  .endWhile()
+  .map((s) => ({ final: s.current }));
+```
+
+### Extend node contracts: nx()
+
+Use `nx()` to augment inputs/outputs (e.g., add internal reasoning or
+confidence) without changing original signature text.
+
+```typescript
+const wf = flow<{ question: string }, { answer: string; confidence: number }>()
+  .nx("answerer", "question:string -> answer:string", {
+    appendOutputs: [{ name: "confidence", type: f.number("0-1") }],
+  })
+  .execute("answerer", (s) => ({ question: s.question }))
+  .map((s) => ({
+    answer: s.answererResult.answer,
+    confidence: s.answererResult.confidence,
+  }));
+```
+
+### Batch/array processing: derive()
+
+Use to fan out work over arrays with built-in batching and merging.
+
+```typescript
+const wf = flow<{ items: string[] }, { processed: string[] }>({ batchSize: 3 })
+  .derive("processed", "items", (item) => item.toUpperCase(), { batchSize: 2 });
+```
+
+### Free speedups: auto-parallelization
+
+Independent executes run in parallel automatically. Avoid creating unnecessary
+dependencies.
+
+```typescript
+const wf = flow<{ text: string }, { combined: string }>()
+  .node("a", "text:string -> x:string")
+  .node("b", "text:string -> y:string")
+  .execute("a", (s) => ({ text: s.text }))
+  .execute("b", (s) => ({ text: s.text }))
+  .map((s) => ({ combined: `${s.aResult.x}|${s.bResult.y}` }));
+```
+
+### Multi-model strategy: dynamic AI context
+
+Override AI per execute to route tasks to the best model.
+
+```typescript
+const wf = flow<{ text: string }, { out: string }>()
+  .node("fast", "text:string -> out:string")
+  .node("smart", "text:string -> out:string")
+  .execute("fast", (s) => ({ text: s.text }), { ai: ai({ name: "groq" }) })
+  .execute("smart", (s) => ({ text: s.text }), {
+    ai: ai({ name: "anthropic" }),
+  })
+  .map((s) => ({ out: s.smartResult?.out ?? s.fastResult.out }));
+```
+
+### Final typing and shape: returns()/r()
+
+Use to lock in the exact output type and get full TypeScript inference.
+
+```typescript
+const wf = flow<{ input: string }>()
+  .map((s) => ({ upper: s.input.toUpperCase(), length: s.input.length }))
+  .returns((s) => ({ upper: s.upper, isLong: s.length > 20 }));
+```
+
+### Quality loops: label()/feedback()
+
+Use to jump back to a label when a condition holds, with optional caps.
+
+```typescript
+const wf = flow<{ prompt: string }, { result: string }>()
+  .node("gen", "prompt:string -> result:string, quality:number")
+  .map((s) => ({ tries: 0 }))
+  .label("retry")
+  .execute("gen", (s) => ({ prompt: s.prompt }))
+  .feedback((s) => s.genResult.quality < 0.9 && s.tries < 2, "retry")
+  .map((s) => ({ result: s.genResult.result }));
+```
+
+### Parallel async transforms: map([...], { parallel: true })
+
+Use to run multiple independent async transforms concurrently.
+
+```typescript
+const wf = flow<{ url: string }, { title: string; sentiment: string }>()
+  .map([
+    async (s) => ({ html: await fetchHTML(s.url) }),
+    async (s) => ({ meta: await fetchMetadata(s.url) }),
+  ], { parallel: true })
+  .node("title", "html:string -> title:string")
+  .node("sent", "html:string -> sentiment:string")
+  .execute("title", (s) => ({ html: s.html }))
+  .execute("sent", (s) => ({ html: s.html }))
+  .returns((s) => ({
+    title: s.titleResult.title,
+    sentiment: s.sentResult.sentiment,
+  }));
+```
+
 ## Examples
 
 ### Extended Node Patterns with `nx`
 
 ```typescript
-import { AxFlow, f } from "@ax-llm/ax";
+import { f, flow } from "@ax-llm/ax";
 
 // Chain-of-thought reasoning pattern
-const reasoningFlow = new AxFlow<{ question: string }, { answer: string }>()
+const reasoningFlow = flow<{ question: string }, { answer: string }>()
   .nx("reasoner", "question:string -> answer:string", {
     prependOutputs: [
       {
@@ -854,7 +1050,7 @@ const reasoningFlow = new AxFlow<{ question: string }, { answer: string }>()
   .map((state) => ({ answer: state.reasonerResult.answer }));
 
 // Confidence scoring pattern
-const confidenceFlow = new AxFlow<
+const confidenceFlow = flow<
   { input: string },
   { result: string; confidence: number }
 >()
@@ -870,7 +1066,7 @@ const confidenceFlow = new AxFlow<
   }));
 
 // Contextual processing pattern
-const contextualFlow = new AxFlow<
+const contextualFlow = flow<
   { query: string; context?: string },
   { response: string }
 >()
@@ -915,7 +1111,7 @@ console.log(result.keywords); // Fully typed
 ### Quality-Driven Content Creation
 
 ```typescript
-const contentCreator = new AxFlow<
+const contentCreator = flow<
   { topic: string; targetQuality: number },
   { finalContent: string; iterations: number }
 >()
@@ -960,7 +1156,7 @@ const contentCreator = new AxFlow<
 ### Async Data Enrichment Pipeline
 
 ```typescript
-const enrichmentPipeline = new AxFlow<
+const enrichmentPipeline = flow<
   { userQuery: string },
   { finalResult: string; metadata: object }
 >()
@@ -1012,7 +1208,7 @@ const enrichmentPipeline = new AxFlow<
 ### Real-time Data Processing with Async Maps
 
 ```typescript
-const realTimeProcessor = new AxFlow<
+const realTimeProcessor = flow<
   { streamData: string[] },
   { processedResults: string[]; stats: object }
 >()
@@ -1071,7 +1267,7 @@ const realTimeProcessor = new AxFlow<
 ### Multi-Model Research System
 
 ```typescript
-const researchSystem = new AxFlow<
+const researchSystem = flow<
   { query: string },
   { answer: string; sources: string[]; confidence: number }
 >()

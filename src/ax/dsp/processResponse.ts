@@ -3,6 +3,7 @@
 import type { AxChatResponse, AxModelUsage } from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
 import type { AxAIMemory } from '../mem/types.js';
+import { parsePartialJson } from '../util/partialJson.js';
 
 import {
   type AxAssertion,
@@ -15,6 +16,7 @@ import {
   streamingExtractFinalValue,
   streamingExtractValues,
   streamValues,
+  validateStructuredOutputValues,
 } from './extract.js';
 import {
   type AxFieldProcessor,
@@ -97,6 +99,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
         if (
           (!result.content || result.content === '') &&
           (!result.thought || result.thought === '') &&
+          !result.thoughtBlock &&
           (!result.functionCalls || result.functionCalls.length === 0)
         ) {
           continue;
@@ -206,6 +209,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
         name: result.name,
         content: result.content,
         functionCalls: state.functionCalls,
+        thoughtBlock: result.thoughtBlock,
         delta: result.functionCalls?.[0]?.function?.params as string,
         index: result.index,
       },
@@ -224,11 +228,58 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       {
         name: result.name,
         content: state.content,
+        thoughtBlock: result.thoughtBlock,
         delta: result.content,
         index: result.index,
       },
       sessionId
     );
+
+    // Check if we should use the partial JSON parser for structured outputs
+    const outputFields = signature.getOutputFields();
+    const hasComplexFields = outputFields.some(
+      (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
+    );
+
+    if (hasComplexFields) {
+      // Try to parse partial JSON
+      const partial = parsePartialJson(state.content);
+
+      if (partial && typeof partial === 'object') {
+        // If we have a valid object, yield it
+        // Assuming the response schema matches the output fields structure
+        // For 'json_schema' response format, the API usually returns the object directly matching the schema
+        // We need to map this back to our fields if we used a wrapping object in schema generation
+
+        // In generate.ts, we wrapped fields in a parent object if there were multiple output fields
+        // If there was only one, we might still have wrapped it or not.
+        // The current toJsonSchema usage in generate.ts wraps all fields in a root object properties.
+        // So 'partial' corresponds to Record<string, any> where keys are field names.
+
+        const delta: Partial<OUT> = {};
+        for (const key of Object.keys(partial)) {
+          // Only include fields that are part of the signature
+          if (outputFields.some((f) => f.name === key)) {
+            (delta as any)[key] = (partial as any)[key];
+          }
+        }
+
+        // Validate structured output values against field constraints
+        validateStructuredOutputValues(
+          signature,
+          delta as Record<string, unknown>
+        );
+
+        // Update state values
+        Object.assign(state.values, delta);
+
+        yield {
+          index: result.index,
+          delta: delta as Partial<OUT>,
+        };
+        return;
+      }
+    }
 
     const skip = streamingExtractValues(
       signature,
@@ -282,6 +333,31 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       index: result.index,
       delta: { [thoughtFieldName]: result.thought } as Partial<OUT>,
     };
+
+    // Update memory with thought and thoughtBlock
+    mem.updateResult(
+      {
+        name: result.name,
+        content: state.content,
+        delta: '',
+        index: result.index,
+        thought: result.thought,
+        thoughtBlock: result.thoughtBlock,
+      },
+      sessionId
+    );
+  } else if (result.thoughtBlock) {
+    // Handle case where we only have thoughtBlock (e.g. signature delta)
+    mem.updateResult(
+      {
+        name: result.name,
+        content: state.content,
+        delta: '',
+        index: result.index,
+        thoughtBlock: result.thoughtBlock,
+      },
+      sessionId
+    );
   }
 
   if (result.finishReason === 'length') {
@@ -348,19 +424,70 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
     // in subsequent steps (prevents duplicate function results and loops)
     state.functionCalls = [];
   } else {
-    const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
-    streamingExtractFinalValue(
-      signature,
-      state.values,
-      state.xstate,
-      state.content,
-      {
-        strictMode,
-        treatAllFieldsOptional,
-        deferRequiredCheckForStreaming: true,
-        forceFinalize: true,
-      }
+    const outputFields = signature.getOutputFields();
+    const hasComplexFields = outputFields.some(
+      (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
     );
+
+    let jsonParsed = false;
+    if (hasComplexFields) {
+      // For structured outputs, we try to parse the full JSON one last time
+      // This ensures we catch any final closing braces that might have been missing in the stream
+      try {
+        const finalJson = JSON.parse(state.content);
+        const delta: Partial<OUT> = {};
+        for (const key of Object.keys(finalJson)) {
+          if (outputFields.some((f) => f.name === key)) {
+            (delta as any)[key] = finalJson[key];
+          }
+        }
+
+        // Validate structured output values against field constraints
+        validateStructuredOutputValues(
+          signature,
+          delta as Record<string, unknown>
+        );
+
+        Object.assign(state.values, delta);
+        yield {
+          index: state.index,
+          delta: delta as Partial<OUT>,
+        };
+        jsonParsed = true;
+      } catch (e) {
+        // Re-throw validation errors
+        const errorMsg = ((e as Error).message || '').toLowerCase();
+        if (
+          errorMsg.includes('at least') ||
+          errorMsg.includes('at most') ||
+          errorMsg.includes('must match pattern') ||
+          errorMsg.includes('invalid url') ||
+          errorMsg.includes('required') ||
+          errorMsg.includes('missing') ||
+          errorMsg.includes('valid email') ||
+          errorMsg.includes('number must be')
+        ) {
+          throw e;
+        }
+        // If JSON parse fails, we rely on partial parsing done during streaming
+      }
+    }
+
+    if (!jsonParsed) {
+      const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
+      streamingExtractFinalValue(
+        signature,
+        state.values,
+        state.xstate,
+        state.content,
+        {
+          strictMode,
+          treatAllFieldsOptional,
+          deferRequiredCheckForStreaming: true,
+          forceFinalize: true,
+        }
+      );
+    }
 
     // If no native function calls and prompt-mode is enabled, parse from text content
     if (signatureToolCallingManager) {
@@ -628,10 +755,58 @@ export async function* processResponse<OUT>({
         state.values[thoughtFieldName] = result.thought;
       }
 
-      extractValues(signature, state.values, result.content, {
-        strictMode,
-        treatAllFieldsOptional,
-      });
+      const outputFields = signature.getOutputFields();
+      const hasComplexFields = outputFields.some(
+        (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
+      );
+
+      if (hasComplexFields) {
+        try {
+          const json = JSON.parse(result.content);
+          const delta: Record<string, unknown> = {};
+          for (const key of Object.keys(json)) {
+            if (outputFields.some((f) => f.name === key)) {
+              delta[key] = json[key];
+            }
+          }
+
+          // Validate structured output values against field constraints
+          validateStructuredOutputValues(signature, delta);
+
+          Object.assign(state.values, delta);
+        } catch (e) {
+          // Re-throw validation errors - don't fallback for validation failures
+          if (
+            (e as Error).name?.includes('ValidationError') ||
+            (e as Error).name?.includes('Error')
+          ) {
+            // Check if it's a validation error by looking at the error message patterns
+            const errorMsg = ((e as Error).message || '').toLowerCase();
+            if (
+              errorMsg.includes('at least') ||
+              errorMsg.includes('at most') ||
+              errorMsg.includes('must match pattern') ||
+              errorMsg.includes('invalid url') ||
+              errorMsg.includes('required') ||
+              errorMsg.includes('missing') ||
+              errorMsg.includes('valid email') ||
+              errorMsg.includes('number must be')
+            ) {
+              throw e;
+            }
+          }
+          // fallback to extraction if JSON parse fails (shouldn't happen with strict mode)
+          extractValues(signature, state.values, result.content, {
+            strictMode,
+            treatAllFieldsOptional,
+          });
+        }
+      } else {
+        extractValues(signature, state.values, result.content, {
+          strictMode,
+          treatAllFieldsOptional,
+        });
+      }
     }
 
     await assertAssertions(asserts, state.values);

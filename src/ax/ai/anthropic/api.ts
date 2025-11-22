@@ -126,6 +126,7 @@ class AxAIAnthropicImpl
 {
   private tokensUsed: AxTokenUsage | undefined;
   private currentPromptConfig?: AxAIServiceOptions;
+  private usedStructuredOutput: boolean = false;
 
   constructor(
     private config: AxAIAnthropicConfig,
@@ -290,12 +291,6 @@ class AxAIAnthropicImpl
       ...configToolsCleaned,
     ];
 
-    // Anthropic Vertex does not support server tools like web_search; filter them out
-    if (this.isVertex && tools.length > 0) {
-      tools = tools.filter(
-        (t: any) => !(t && typeof t === 'object' && 'type' in t)
-      );
-    }
     if (tools.length === 0) {
       tools = undefined;
     }
@@ -386,6 +381,26 @@ class AxAIAnthropicImpl
       thinkingConfig = undefined;
     }
 
+    // Handle structured output using native output_format parameter
+    let outputFormat: { type: 'json_schema'; schema: any } | undefined;
+    this.usedStructuredOutput = false;
+    if (req.responseFormat) {
+      if (
+        req.responseFormat.type === 'json_schema' &&
+        req.responseFormat.schema
+      ) {
+        // Anthropic supports structured output natively via output_format parameter
+        const schema =
+          req.responseFormat.schema.schema || req.responseFormat.schema;
+
+        outputFormat = {
+          type: 'json_schema',
+          schema: cleanSchemaForAnthropic(schema),
+        };
+        this.usedStructuredOutput = true;
+      }
+    }
+
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
         ? { anthropic_version: 'vertex-2023-10-16' }
@@ -407,6 +422,7 @@ class AxAIAnthropicImpl
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
       ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
+      ...(outputFormat ? { output_format: outputFormat } : {}),
       messages,
     };
 
@@ -504,6 +520,11 @@ class AxAIAnthropicImpl
     if (aggregatedFunctionCalls.length > 0) {
       result.functionCalls = aggregatedFunctionCalls;
     }
+
+    // When using native structured outputs via output_format parameter,
+    // the JSON response is returned in text content (not as a function call).
+    // The text content is guaranteed to be valid JSON matching the schema.
+    // The framework's processResponse will parse this JSON content automatically.
     if (citations.length > 0) {
       result.citations = citations;
     }
@@ -513,7 +534,11 @@ class AxAIAnthropicImpl
     this.tokensUsed = {
       promptTokens: resp.usage.input_tokens,
       completionTokens: resp.usage.output_tokens,
-      totalTokens: resp.usage.input_tokens + resp.usage.output_tokens,
+      totalTokens:
+        resp.usage.input_tokens +
+        resp.usage.output_tokens +
+        (resp.usage.cache_creation_input_tokens || 0) +
+        (resp.usage.cache_read_input_tokens || 0),
       cacheCreationTokens: resp.usage.cache_creation_input_tokens,
       cacheReadTokens: resp.usage.cache_read_input_tokens,
     };
@@ -557,7 +582,11 @@ class AxAIAnthropicImpl
         completionTokens: message.usage?.output_tokens ?? 0,
         totalTokens:
           (message.usage?.input_tokens ?? 0) +
-          (message.usage?.output_tokens ?? 0),
+          (message.usage?.output_tokens ?? 0) +
+          (message.usage?.cache_creation_input_tokens ?? 0) +
+          (message.usage?.cache_read_input_tokens ?? 0),
+        cacheCreationTokens: message.usage?.cache_creation_input_tokens,
+        cacheReadTokens: message.usage?.cache_read_input_tokens,
       };
       return { results };
     }
@@ -716,10 +745,17 @@ class AxAIAnthropicImpl
         };
       }
       if (delta.type === 'signature_delta') {
-        // Signature deltas are handled internally by Anthropic,
-        // we don't need to expose them in the response
         return {
-          results: [{ index, content: '' }],
+          results: [
+            {
+              index,
+              thoughtBlock: {
+                data: '',
+                encrypted: false,
+                signature: delta.signature,
+              },
+            },
+          ],
         };
       }
       if (delta.type === 'input_json_delta') {
@@ -748,9 +784,15 @@ class AxAIAnthropicImpl
         resp as unknown as AxAIAnthropicMessageDeltaEvent;
 
       this.tokensUsed = {
-        promptTokens: 0,
+        promptTokens: this.tokensUsed?.promptTokens ?? 0,
         completionTokens: usage.output_tokens,
-        totalTokens: usage.output_tokens,
+        totalTokens:
+          (this.tokensUsed?.promptTokens ?? 0) +
+          usage.output_tokens +
+          (this.tokensUsed?.cacheCreationTokens ?? 0) +
+          (this.tokensUsed?.cacheReadTokens ?? 0),
+        cacheCreationTokens: this.tokensUsed?.cacheCreationTokens,
+        cacheReadTokens: this.tokensUsed?.cacheReadTokens,
       };
 
       const results = [
@@ -810,7 +852,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
           'Anthropic Vertex API key must be a function for token-based authentication'
         );
       }
-      apiURL = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
+      const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
+      apiURL = `https://${tld}.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
       headers = async () => ({
         Authorization: `Bearer ${await apiKey()}`,
       });
@@ -821,7 +864,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       apiURL = 'https://api.anthropic.com/v1';
       headers = async () => ({
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31',
+        'anthropic-beta':
+          'structured-outputs-2025-11-13, web-search-2025-03-05',
         'x-api-key': typeof apiKey === 'function' ? await apiKey() : apiKey,
       });
     }
@@ -1001,7 +1045,9 @@ function createMessages(
               return {
                 type: 'text' as const,
                 text: v.text,
-                ...(v.cache ? { cache: { type: 'ephemeral' } } : {}),
+                ...(v.cache
+                  ? { cache_control: { type: 'ephemeral' as const } }
+                  : {}),
               };
             case 'image':
               return {
@@ -1011,7 +1057,9 @@ function createMessages(
                   media_type: v.mimeType,
                   data: v.image,
                 },
-                ...(v.cache ? { cache: { type: 'ephemeral' } } : {}),
+                ...(v.cache
+                  ? { cache_control: { type: 'ephemeral' as const } }
+                  : {}),
               };
             default:
               throw new Error('Invalid content type');
@@ -1093,7 +1141,9 @@ function createMessages(
               id: v.id,
               name: v.function.name,
               input,
-              ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
+              ...(msg.cache
+                ? { cache_control: { type: 'ephemeral' as const } }
+                : {}),
             };
           });
           if (Array.isArray(content) && preservedThinkingBlocks.length > 0) {

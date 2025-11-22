@@ -181,7 +181,9 @@ export type AxAIOpenAIChatRequest<TModel> = {
     | 'auto'
     | 'required'
     | { type: 'function'; function: { name: string } };
-  response_format?: { type: string };
+  response_format?:
+    | { type: string }
+    | { type: 'json_schema'; json_schema: any };
   max_completion_tokens?: number;
   temperature?: number;
   top_p?: number;

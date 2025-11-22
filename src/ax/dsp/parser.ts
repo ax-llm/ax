@@ -1,17 +1,40 @@
-// Updated type definitions
+// ============================================================================
+// STRING SIGNATURE PARSER - TYPE DEFINITIONS
+// ============================================================================
+//
+// IMPORTANT LIMITATION: String signatures support FLAT field structures only.
+// They do NOT support nested object types with structured fields.
+//
+// ✅ Supported:
+//   - Primitives: string, number, boolean
+//   - Arrays: string[], number[], boolean[]
+//   - Special types: json, date, datetime, url, code, file, image, audio
+//   - Class enums: class "option1, option2, option3"
+//
+// ❌ NOT Supported:
+//   - Nested objects: { user: { name: string, age: number } }
+//   - Structured object types with defined fields
+//   - Arrays of complex objects with type inference
+//
+// For complex nested objects, use the fluent API (f().input().output().build())
+// See: STRING_SIGNATURE_LIMITATIONS.md for details
+//
+// ============================================================================
 
 export type TypeNotClass =
   | 'string'
   | 'number'
   | 'boolean'
-  | 'json'
+  | 'json' // Flexible type - inferred as 'any', accepts any JSON
   | 'image'
   | 'audio'
   | 'file'
   | 'url'
   | 'datetime'
   | 'date'
-  | 'code';
+  | 'code'
+  | 'object'; // Flexible type - inferred as 'any', same as 'json'
+
 export type Type = TypeNotClass | 'class';
 export type ParsedIdentifier = string;
 export type ParsedString = string;
@@ -22,6 +45,8 @@ export type ParsedSignature = {
   outputs: OutputParsedField[];
 };
 
+// Input field structure - FLAT ONLY
+// Note: No 'fields' property for nested objects - not supported in string signatures
 export type InputParsedField = {
   name: ParsedIdentifier;
   desc?: string;
@@ -29,6 +54,8 @@ export type InputParsedField = {
   isOptional?: boolean;
 };
 
+// Output field structure - FLAT ONLY
+// Note: No 'fields' property for nested objects - not supported in string signatures
 export type OutputParsedField = {
   name: ParsedIdentifier;
   desc?: string;
@@ -590,6 +617,7 @@ class SignatureParser {
       'datetime',
       'date',
       'code',
+      'object',
     ];
 
     const foundType = types.find((type) => this.match(type));

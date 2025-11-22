@@ -302,10 +302,27 @@ class AxAIGoogleGeminiImpl
           }
 
           case 'assistant': {
-            let parts: AxAIGoogleGeminiContentPart[] = [];
+            const parts: AxAIGoogleGeminiContentPart[] = [];
+
+            // Handle thought blocks
+            const thoughtBlock = (msg as any).thoughtBlock;
+            const hasFunctionCalls =
+              msg.functionCalls && msg.functionCalls.length > 0;
+
+            if (thoughtBlock?.data) {
+              parts.push({
+                thought: true,
+                text: thoughtBlock.data,
+                // Only attach signature to text if there are no function calls
+                // Gemini requires signature on the first function call if present
+                ...(thoughtBlock.signature && !hasFunctionCalls
+                  ? { thought_signature: thoughtBlock.signature }
+                  : {}),
+              });
+            }
 
             if (msg.functionCalls) {
-              parts = msg.functionCalls.map((f) => {
+              const fcParts = msg.functionCalls.map((f, index) => {
                 let args: any;
                 if (typeof f.function.params === 'string') {
                   const raw = f.function.params;
@@ -323,29 +340,32 @@ class AxAIGoogleGeminiImpl
                 } else {
                   args = f.function.params;
                 }
-                return {
+
+                const part: AxAIGoogleGeminiContentPart = {
                   functionCall: {
                     name: f.function.name,
                     args: args,
                   },
                 };
+
+                // Attach signature ONLY to the first function call
+                if (thoughtBlock?.signature && index === 0) {
+                  part.thought_signature = thoughtBlock.signature;
+                }
+
+                return part;
               });
-
-              if (!parts) {
-                throw new Error('Function call is empty');
-              }
-
-              return {
-                role: 'model' as const,
-                parts,
-              };
+              parts.push(...fcParts);
             }
 
-            if (!msg.content) {
+            if (msg.content) {
+              parts.push({ text: msg.content });
+            }
+
+            if (parts.length === 0) {
               throw new Error('Assistant content is empty');
             }
 
-            parts = [{ text: msg.content }];
             return {
               role: 'model' as const,
               parts,
@@ -538,33 +558,48 @@ class AxAIGoogleGeminiImpl
     if (this.config.thinking?.thinkingTokenBudget) {
       thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget;
     }
+    if (this.config.thinking?.thinkingLevel) {
+      thinkingConfig.thinkingLevel = this.config.thinking.thinkingLevel;
+    }
 
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
       const levels = this.config.thinkingTokenBudgetLevels;
+      const isGemini3 = model.includes('gemini-3');
 
       switch (config.thinkingTokenBudget) {
         case 'none':
           thinkingConfig.thinkingBudget = 0; // Explicitly set to 0
           thinkingConfig.includeThoughts = false; // When thinkingTokenBudget is 'none', disable showThoughts
+          delete thinkingConfig.thinkingLevel;
           break;
         case 'minimal':
           thinkingConfig.thinkingBudget = levels?.minimal ?? 200;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'low';
           break;
         case 'low':
           thinkingConfig.thinkingBudget = levels?.low ?? 800;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'low';
           break;
         case 'medium':
           thinkingConfig.thinkingBudget = levels?.medium ?? 5000;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
           break;
         case 'high':
           thinkingConfig.thinkingBudget = levels?.high ?? 10000;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
           break;
         case 'highest':
           thinkingConfig.thinkingBudget = levels?.highest ?? 24500;
+          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
           break;
       }
+    }
+
+    // If thinkingLevel is set, remove thinkingBudget as they cannot be used together in Gemini 3
+    if (thinkingConfig.thinkingLevel) {
+      delete thinkingConfig.thinkingBudget;
     }
 
     if (config?.showThoughts !== undefined) {
@@ -592,6 +627,26 @@ class AxAIGoogleGeminiImpl
 
       ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     };
+
+    // Handle structured output
+    if (req.responseFormat) {
+      generationConfig.responseMimeType = 'application/json';
+      if (
+        req.responseFormat.type === 'json_schema' &&
+        req.responseFormat.schema
+      ) {
+        // Gemini expects the schema directly, not wrapped in { type: 'json_schema', schema: ... } like OpenAI
+        // Also need to clean it for Gemini compatibility
+        const schema =
+          req.responseFormat.schema.schema || req.responseFormat.schema;
+        generationConfig.responseSchema = cleanSchemaForGemini(schema);
+      }
+    } else if (this.config.responseFormat) {
+      // Fallback to config-level response format if present
+      if (this.config.responseFormat === 'json_object') {
+        generationConfig.responseMimeType = 'application/json';
+      }
+    }
 
     const safetySettings = this.config.safetySettings;
 
@@ -748,8 +803,19 @@ class AxAIGoogleGeminiImpl
 
         for (const part of candidate.content.parts) {
           if ('text' in part) {
-            if ('thought' in part && part.thought) {
+            if (
+              ('thought' in part && part.thought) ||
+              (part as any).thought === true
+            ) {
               result.thought = part.text;
+              // Google returns thoughtSignature in camelCase
+              const thoughtSignature =
+                (part as any).thoughtSignature || part.thought_signature;
+              result.thoughtBlock = {
+                data: part.text,
+                encrypted: false,
+                ...(thoughtSignature ? { signature: thoughtSignature } : {}),
+              };
             } else {
               result.content = part.text;
             }
@@ -757,7 +823,27 @@ class AxAIGoogleGeminiImpl
           }
 
           if ('functionCall' in part) {
+            // Check for thought signature on function call part
+            // Google returns thoughtSignature in camelCase
+            const thoughtSignature =
+              (part as any).thoughtSignature || part.thought_signature;
+            if (thoughtSignature) {
+              if (!result.thoughtBlock) {
+                result.thoughtBlock = {
+                  data: '', // No text data for signature-only thought
+                  encrypted: false,
+                  signature: thoughtSignature,
+                };
+              } else {
+                // If thought block exists, just update signature if missing?
+                // Or assume the text part handled it.
+                // For now, ensure signature is captured.
+                result.thoughtBlock.signature = thoughtSignature;
+              }
+            }
+
             result.functionCalls = [
+              ...(result.functionCalls ?? []),
               {
                 id: randomUUID(),
                 type: 'function',

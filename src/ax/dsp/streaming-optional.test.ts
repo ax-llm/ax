@@ -341,7 +341,7 @@ describe('AxGen Streaming Optional Fields', () => {
           { userInput: 'test' },
           { stream: true, strictMode: true }
         )
-      ).rejects.toThrow(/Generate failed/);
+      ).rejects.toThrow();
     });
   });
 

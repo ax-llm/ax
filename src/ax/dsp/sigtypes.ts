@@ -51,12 +51,21 @@
 /**
  * A map of string type names to their corresponding TypeScript types.
  * Maps signature type strings to actual TypeScript types for type inference.
+ *
+ * IMPORTANT: The 'object' type is NOT included in this map because string signatures
+ * cannot define structured object types. When 'object' appears in a string signature,
+ * it's treated the same as 'json' and inferred as 'any'.
+ *
+ * For structured object types with proper type inference, use the fluent API:
+ * f().output('user', f.object({ name: f.string(), age: f.number() }))
+ *
+ * See: STRING_SIGNATURE_LIMITATIONS.md
  */
 export interface TypeMap {
   string: string;
   number: number;
   boolean: boolean;
-  json: any;
+  json: any; // Flexible type - accepts any JSON value
   date: Date;
   datetime: Date;
   image: { mimeType: string; data: string };
@@ -66,6 +75,7 @@ export interface TypeMap {
     | { mimeType: string; fileUri: string };
   url: string;
   code: string;
+  // Note: 'object' is intentionally NOT here - it maps to 'any' like 'json'
 }
 
 // Helper type to parse class options from a string like "option1, option2, option3" or "option1 | option2 | option3"

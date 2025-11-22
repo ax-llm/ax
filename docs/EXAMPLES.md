@@ -161,6 +161,165 @@ for await (const chunk of streamingGen.streamingForward(ai({ name: 'openai' }), 
 }
 ```
 
+### 3.5. Field Validation & Constraints (New!)
+
+Ensure data quality with built-in Zod-like validation constraints. These run automatically on both inputs and outputs.
+
+#### Data Quality with Built-in Validators
+
+```typescript
+import { ax, f, ai } from '@ax-llm/ax';
+
+const userRegistration = f()
+  .input('formData', f.string('Raw registration form data'))
+  .output('user', f.object({
+    username: f.string('Username').min(3).max(20),
+    email: f.string('Email address').email(),
+    age: f.number('User age').min(18).max(120),
+    password: f.string('Password').min(8).regex('^(?=.*[A-Za-z])(?=.*\\d)'),
+    bio: f.string('User biography').max(500).optional(),
+    website: f.string('Personal website').url().optional(),
+    tags: f.string('Interest tag').min(2).max(30).array()
+  }))
+  .build();
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const generator = ax(userRegistration);
+
+const result = await generator.forward(llm, {
+  formData: `
+    Name: johndoe
+    Email: john@example.com
+    Age: 25
+    Password: secure123
+    Bio: Software developer passionate about TypeScript and AI
+    Website: https://johndoe.dev
+    Tags: typescript, ai, web development
+  `
+});
+
+console.log(result.user);
+// {
+//   username: "johndoe",
+//   email: "john@example.com",
+//   age: 25,
+//   password: "secure123",
+//   bio: "Software developer passionate about TypeScript and AI",
+//   website: "https://johndoe.dev",
+//   tags: ["typescript", "ai", "web development"]
+// }
+
+// All constraints are validated:
+// ✅ username: 3-20 characters
+// ✅ email: valid email format
+// ✅ age: between 18-120
+// ✅ password: min 8 chars with letter and number
+// ✅ website: valid URL format
+// ✅ tags: each 2-30 characters
+```
+
+**Available Validators:**
+- `.min(n)` / `.max(n)` - String length or number range
+- `.email()` - Email format (or use `f.email()`)
+- `.url()` - URL format (or use `f.url()`)
+- `.date()` - Date format (or use `f.date()`)
+- `.datetime()` - DateTime format (or use `f.datetime()`)
+- `.regex(pattern, description)` - Custom regex pattern
+- `.optional()` - Make field optional
+
+**Note:** For email, url, date, and datetime, you can use either the validator syntax (`f.string().email()`) or the dedicated type syntax (`f.email()`). Both work consistently everywhere!
+
+#### Contact Form with Regex Patterns
+
+```typescript
+import { ax, f } from '@ax-llm/ax';
+
+const contactFormParser = f()
+  .input('formSubmission', f.string('Raw form data'))
+  .output('contact', f.object({
+    fullName: f.string('Full name').min(2).max(100),
+    email: f.string('Email address').email(),
+    phone: f.string('Phone number').regex('^\\+?[1-9]\\d{1,14}$'),
+    subject: f.string('Subject line').min(5).max(200),
+    message: f.string('Message content').min(20).max(2000),
+    urgency: f.string('Urgency level').optional()
+  }))
+  .build();
+
+const result = await ax(contactFormParser).forward(llm, {
+  formSubmission: `
+    Name: Jane Smith
+    Email: jane.smith@company.com
+    Phone: +1234567890
+    Subject: Product inquiry about Enterprise plan
+    Message: I'm interested in learning more about your Enterprise plan for our team of 50 developers. Could you provide pricing and feature details?
+    Urgency: High
+  `
+});
+
+// Validation ensures:
+// ✅ Phone matches international format
+// ✅ Email is properly formatted
+// ✅ Message has sufficient detail (20+ chars)
+// ✅ Subject is descriptive (5-200 chars)
+```
+
+#### E-Commerce Product Validation
+
+```typescript
+import { ax, f } from '@ax-llm/ax';
+
+const productExtractor = f()
+  .input('productPage', f.string('Product page HTML'))
+  .output('product', f.object({
+    name: f.string('Product name').min(1).max(200),
+    price: f.number('Price in USD').min(0),
+    specifications: f.object({
+      dimensions: f.object({
+        width: f.number('Width in cm').min(0),
+        height: f.number('Height in cm').min(0),
+        depth: f.number('Depth in cm').min(0)
+      }),
+      weight: f.number('Weight in kg').min(0),
+      materials: f.string('Material name').min(1).array()
+    }),
+    availability: f.object({
+      inStock: f.boolean('Stock status'),
+      quantity: f.number('Available quantity').min(0),
+      restockDate: f.string('Restock date').optional()
+    }),
+    images: f.object({
+      url: f.string('Image URL').url(),
+      alt: f.string('Alt text').min(1).max(100)
+    }).array(),
+    reviews: f.object({
+      rating: f.number('Rating').min(1).max(5),
+      comment: f.string('Review text').min(10).max(1000),
+      verified: f.boolean('Verified purchase')
+    }).array()
+  }))
+  .build();
+
+const result = await ax(productExtractor).forward(llm, {
+  productPage: '<html>...</html>'  // Real product page HTML
+});
+
+// Deep validation ensures:
+// ✅ All dimensions are non-negative numbers
+// ✅ Rating is between 1-5
+// ✅ Image URLs are valid
+// ✅ Review comments have meaningful length
+// ✅ Nested object structure is correct
+```
+
+**Key Features:**
+- **Automatic Input Validation**: Validates before sending to LLM
+- **Automatic Output Validation**: Validates LLM responses
+- **Auto-Retry**: ValidationError triggers retry with corrections
+- **Streaming Support**: Incremental validation during streaming
+- **Nested Validation**: Works recursively through objects and arrays
+- **TypeScript Safety**: Full compile-time + runtime validation
+
 ## Core Concepts
 
 ### 4. Function Calling (ReAct Pattern)

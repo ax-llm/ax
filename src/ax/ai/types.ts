@@ -91,6 +91,8 @@ export type AxFunctionJSONSchema = {
   >;
   required?: string[];
   items?: AxFunctionJSONSchema;
+  title?: string;
+  additionalProperties?: boolean;
 };
 
 export type AxFunction = {
@@ -252,6 +254,11 @@ export type AxChatRequest<TModel = string> = {
           type: 'function';
           function: { name: string; params?: string | object };
         }[];
+        thoughtBlock?: {
+          data: string;
+          signature?: string;
+          encrypted?: boolean;
+        };
         cache?: boolean;
       }
     | {
@@ -299,6 +306,10 @@ export type AxChatRequest<TModel = string> = {
     | 'auto'
     | 'required'
     | { type: 'function'; function: { name: string } };
+  responseFormat?: {
+    type: 'json_object' | 'json_schema';
+    schema?: any;
+  };
   modelConfig?: AxModelConfig;
   model?: TModel;
 };

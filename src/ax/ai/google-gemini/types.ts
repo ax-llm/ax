@@ -1,11 +1,15 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
+  Gemini3ProPreview = 'gemini-3-pro-preview',
+  Gemini3ProImagePreview = 'gemini-3-pro-image-preview',
   Gemini25Pro = 'gemini-2.5-pro',
   Gemini25Flash = 'gemini-2.5-flash',
   Gemini25FlashLite = 'gemini-2.5-flash-lite',
   Gemini20Flash = 'gemini-2.0-flash',
   Gemini20FlashLite = 'gemini-2.0-flash-lite',
+  Gemini20ProExp = 'gemini-2.0-pro-exp-02-05',
+  Gemini20FlashThinkingExp = 'gemini-2.0-flash-thinking-exp-01-21',
   Gemini1Pro = 'gemini-1.0-pro',
   Gemini15Flash = 'gemini-1.5-flash',
   Gemini15Flash002 = 'gemini-1.5-flash-002',
@@ -57,9 +61,11 @@ export type AxAIGoogleGeminiContent = {
 // Part type with common fields intersected with a union of data fields
 export type AxAIGoogleGeminiContentPart = {
   thought?: boolean;
+  thought_signature?: string;
   metadata?: { videoMetadata: object };
 } & (
-  | { text: string }
+  | { text: string; thought?: boolean }
+  | { thought: string }
   | {
       inlineData: {
         mimeType: string;
@@ -131,8 +137,10 @@ export type AxAIGoogleGeminiGenerationConfig = {
   maxOutputTokens?: number;
   stopSequences?: readonly string[];
   responseMimeType?: string;
+  responseSchema?: object;
   thinkingConfig?: {
     thinkingBudget?: number;
+    thinkingLevel?: 'low' | 'high';
     includeThoughts?: boolean;
   };
 };
@@ -207,6 +215,7 @@ export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse;
 
 export type AxAIGoogleGeminiThinkingConfig = {
   thinkingTokenBudget?: number;
+  thinkingLevel?: 'low' | 'high';
   includeThoughts?: boolean;
 };
 
@@ -231,6 +240,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   thinking?: AxAIGoogleGeminiThinkingConfig;
   thinkingTokenBudgetLevels?: AxAIGoogleGeminiThinkingTokenBudgetLevels;
   urlContext?: string;
+  responseFormat?: 'json_object';
 };
 
 /**

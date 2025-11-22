@@ -169,6 +169,7 @@ export type AxGenDeltaOut<OUT> = {
   version: number;
   index: number;
   delta: Partial<OUT>;
+  partial?: OUT;
 };
 
 export type AxGenStreamingOut<OUT> = AsyncGenerator<

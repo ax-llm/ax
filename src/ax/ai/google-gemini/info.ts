@@ -7,11 +7,43 @@ import { AxAIGoogleGeminiModel } from './types.js';
  */
 export const axModelInfoGoogleGemini: AxModelInfo[] = [
   {
+    name: AxAIGoogleGeminiModel.Gemini3ProPreview,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 2.0,
+    completionTokenCostPer1M: 12.0,
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini3ProImagePreview,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 2.0,
+    completionTokenCostPer1M: 0.134, // Per image output, approximate
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
+  {
     name: AxAIGoogleGeminiModel.Gemini25Pro,
     currency: 'usd',
     characterIsToken: false,
     promptTokenCostPer1M: 2.5,
     completionTokenCostPer1M: 15.0,
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini20ProExp,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.0,
+    completionTokenCostPer1M: 0.0,
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini20FlashThinkingExp,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.0,
+    completionTokenCostPer1M: 0.0,
     supported: { thinkingBudget: true, showThoughts: true },
   },
   {

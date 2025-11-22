@@ -2,6 +2,7 @@ import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { createHash } from '../util/crypto.js';
 
 import { axGlobals } from './globals.js';
+import { toJsonSchema } from './jsonSchema.js';
 import {
   type InputParsedField,
   type OutputParsedField,
@@ -23,12 +24,22 @@ export interface AxFieldType {
     | 'date'
     | 'datetime'
     | 'class'
-    | 'code';
+    | 'code'
+    | 'object';
   readonly isArray?: boolean;
   readonly options?: readonly string[];
+  readonly fields?: Record<string, AxFieldType>;
   readonly description?: string;
   readonly isOptional?: boolean;
   readonly isInternal?: boolean;
+  // Validation constraints
+  readonly minLength?: number; // String minimum length
+  readonly maxLength?: number; // String maximum length
+  readonly minimum?: number; // Number minimum value
+  readonly maximum?: number; // Number maximum value
+  readonly pattern?: string; // String regex pattern
+  readonly patternDescription?: string; // Human-readable description of the pattern
+  readonly format?: string; // String format (email, uri, uuid, etc.)
 }
 
 // Improved SignatureBuilder class for fluent API with better type inference
@@ -49,8 +60,8 @@ export class AxSignatureBuilder<
   public input<
     K extends string,
     T extends
-      | AxFluentFieldInfo<any, any, any, any>
-      | AxFluentFieldType<any, any, any, any, any>,
+      | AxFluentFieldInfo<any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any>,
   >(
     name: K,
     fieldInfo: T,
@@ -62,6 +73,23 @@ export class AxSignatureBuilder<
         name: fieldInfo.type,
         isArray: fieldInfo.isArray || undefined,
         options: fieldInfo.options ? [...fieldInfo.options] : undefined,
+        minLength: fieldInfo.minLength,
+        maxLength: fieldInfo.maxLength,
+        minimum: fieldInfo.minimum,
+        maximum: fieldInfo.maximum,
+        pattern: fieldInfo.pattern,
+        patternDescription: fieldInfo.patternDescription,
+        format: fieldInfo.format,
+        fields: fieldInfo.fields
+          ? Object.fromEntries(
+              Object.entries(fieldInfo.fields).map(([k, v]) => [
+                k,
+                convertFluentToAxFieldType(
+                  v as AxFluentFieldInfo | AxFluentFieldType
+                ),
+              ])
+            )
+          : undefined,
       },
       description: fieldInfo.description,
       isOptional: fieldInfo.isOptional || undefined,
@@ -86,8 +114,8 @@ export class AxSignatureBuilder<
   public output<
     K extends string,
     T extends
-      | AxFluentFieldInfo<any, any, any, any>
-      | AxFluentFieldType<any, any, any, any, any>,
+      | AxFluentFieldInfo<any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any>,
   >(
     name: K,
     fieldInfo: T,
@@ -99,6 +127,23 @@ export class AxSignatureBuilder<
         name: fieldInfo.type,
         isArray: fieldInfo.isArray || undefined,
         options: fieldInfo.options ? [...fieldInfo.options] : undefined,
+        minLength: fieldInfo.minLength,
+        maxLength: fieldInfo.maxLength,
+        minimum: fieldInfo.minimum,
+        maximum: fieldInfo.maximum,
+        pattern: fieldInfo.pattern,
+        patternDescription: fieldInfo.patternDescription,
+        format: fieldInfo.format,
+        fields: fieldInfo.fields
+          ? Object.fromEntries(
+              Object.entries(fieldInfo.fields).map(([k, v]) => [
+                k,
+                convertFluentToAxFieldType(
+                  v as AxFluentFieldInfo | AxFluentFieldType
+                ),
+              ])
+            )
+          : undefined,
       },
       description: fieldInfo.description,
       isOptional: fieldInfo.isOptional || undefined,
@@ -146,6 +191,9 @@ export class AxFluentFieldType<
   TOptions extends readonly string[] | undefined = undefined,
   TIsOptional extends boolean = false,
   TIsInternal extends boolean = false,
+  TFields extends
+    | Record<string, AxFluentFieldInfo | AxFluentFieldType>
+    | undefined = undefined,
 > implements AxFieldType
 {
   readonly type: TType;
@@ -154,6 +202,14 @@ export class AxFluentFieldType<
   readonly description?: string;
   readonly isOptional: TIsOptional;
   readonly isInternal: TIsInternal;
+  readonly fields?: any;
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly pattern?: string;
+  readonly patternDescription?: string;
+  readonly format?: string;
 
   constructor(fieldType: {
     type: TType;
@@ -162,6 +218,14 @@ export class AxFluentFieldType<
     description?: string;
     isOptional: TIsOptional;
     isInternal: TIsInternal;
+    fields?: TFields;
+    minLength?: number;
+    maxLength?: number;
+    minimum?: number;
+    maximum?: number;
+    pattern?: string;
+    patternDescription?: string;
+    format?: string;
   }) {
     this.type = fieldType.type;
     this.isArray = fieldType.isArray;
@@ -169,29 +233,237 @@ export class AxFluentFieldType<
     this.description = fieldType.description;
     this.isOptional = fieldType.isOptional;
     this.isInternal = fieldType.isInternal;
+    this.fields = fieldType.fields;
+    this.minLength = fieldType.minLength;
+    this.maxLength = fieldType.maxLength;
+    this.minimum = fieldType.minimum;
+    this.maximum = fieldType.maximum;
+    this.pattern = fieldType.pattern;
+    this.patternDescription = fieldType.patternDescription;
+    this.format = fieldType.format;
   }
 
-  optional(): AxFluentFieldType<TType, TIsArray, TOptions, true, TIsInternal> {
+  optional(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    true,
+    TIsInternal,
+    TFields
+  > {
     return new AxFluentFieldType({
       ...this,
       isOptional: true as const,
     });
   }
 
-  array(): AxFluentFieldType<TType, true, TOptions, TIsOptional, TIsInternal> {
+  array(
+    desc?: string
+  ): AxFluentFieldType<
+    TType,
+    true,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
     return new AxFluentFieldType({
       ...this,
       isArray: true as const,
+      description: desc || this.description,
     });
   }
 
-  internal(): AxFluentFieldType<TType, TIsArray, TOptions, TIsOptional, true> {
+  internal(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    true,
+    TFields
+  > {
     return new AxFluentFieldType({
       ...this,
       isInternal: true as const,
     });
   }
+
+  /**
+   * Set minimum value for numbers or minimum length for strings
+   */
+  min(
+    value: number
+  ): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        minLength: value,
+      });
+    } else if (this.type === 'number') {
+      return new AxFluentFieldType({
+        ...this,
+        minimum: value,
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Set maximum value for numbers or maximum length for strings
+   */
+  max(
+    value: number
+  ): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        maxLength: value,
+      });
+    } else if (this.type === 'number') {
+      return new AxFluentFieldType({
+        ...this,
+        maximum: value,
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Set email format validation for strings
+   */
+  email(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        format: 'email',
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Set URL/URI format validation for strings
+   */
+  url(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        format: 'uri',
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Set regex pattern validation for strings
+   * @param pattern - Regular expression pattern to match
+   * @param description - Human-readable description of what the pattern validates (e.g., "Must be a valid username with only lowercase letters, numbers, and underscores")
+   */
+  regex(
+    pattern: string,
+    description: string
+  ): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        pattern,
+        patternDescription: description,
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Set date format validation for strings
+   */
+  date(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        format: 'date',
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Set datetime format validation for strings
+   */
+  datetime(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields
+  > {
+    if (this.type === 'string') {
+      return new AxFluentFieldType({
+        ...this,
+        format: 'date-time',
+      });
+    }
+    return this;
+  }
 }
+
+// Helper type to validate that no media types (image, audio, file) are used in nested objects
+type ValidateNoMediaTypes<TFields> = {
+  [K in keyof TFields]: TFields[K] extends { type: infer T }
+    ? T extends 'image' | 'audio' | 'file'
+      ? {
+          __error: `Type '${T extends string ? T : never}' cannot be used in f.object(). Media types (image, audio, file) are only allowed as top-level input fields, not within nested objects.`;
+          __suggestion: 'Use string, number, boolean, or nested f.object() instead.';
+        }
+      : TFields[K] extends { fields: infer TNestedFields }
+        ? TNestedFields extends Record<string, any>
+          ? TFields[K] & { fields: ValidateNoMediaTypes<TNestedFields> }
+          : TFields[K]
+        : TFields[K]
+    : TFields[K];
+};
 
 // Improved helper functions for creating strongly-typed field info
 export const f = Object.assign(
@@ -199,7 +471,7 @@ export const f = Object.assign(
   {
     string: (
       desc?: string
-    ): AxFluentFieldType<'string', false, undefined, false, false> =>
+    ): AxFluentFieldType<'string', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'string' as const,
         isArray: false as const,
@@ -210,7 +482,7 @@ export const f = Object.assign(
 
     number: (
       desc?: string
-    ): AxFluentFieldType<'number', false, undefined, false, false> =>
+    ): AxFluentFieldType<'number', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'number' as const,
         isArray: false as const,
@@ -221,7 +493,14 @@ export const f = Object.assign(
 
     boolean: (
       desc?: string
-    ): AxFluentFieldType<'boolean', false, undefined, false, false> =>
+    ): AxFluentFieldType<
+      'boolean',
+      false,
+      undefined,
+      false,
+      false,
+      undefined
+    > =>
       new AxFluentFieldType({
         type: 'boolean' as const,
         isArray: false as const,
@@ -232,7 +511,7 @@ export const f = Object.assign(
 
     json: (
       desc?: string
-    ): AxFluentFieldType<'json', false, undefined, false, false> =>
+    ): AxFluentFieldType<'json', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'json' as const,
         isArray: false as const,
@@ -243,7 +522,14 @@ export const f = Object.assign(
 
     datetime: (
       desc?: string
-    ): AxFluentFieldType<'datetime', false, undefined, false, false> =>
+    ): AxFluentFieldType<
+      'datetime',
+      false,
+      undefined,
+      false,
+      false,
+      undefined
+    > =>
       new AxFluentFieldType({
         type: 'datetime' as const,
         isArray: false as const,
@@ -254,7 +540,7 @@ export const f = Object.assign(
 
     date: (
       desc?: string
-    ): AxFluentFieldType<'date', false, undefined, false, false> =>
+    ): AxFluentFieldType<'date', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'date' as const,
         isArray: false as const,
@@ -266,7 +552,7 @@ export const f = Object.assign(
     class: <const TOptions extends readonly string[]>(
       options: TOptions,
       desc?: string
-    ): AxFluentFieldType<'class', false, TOptions, false, false> =>
+    ): AxFluentFieldType<'class', false, TOptions, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'class' as const,
         isArray: false as const,
@@ -278,7 +564,7 @@ export const f = Object.assign(
 
     image: (
       desc?: string
-    ): AxFluentFieldType<'image', false, undefined, false, false> =>
+    ): AxFluentFieldType<'image', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'image' as const,
         isArray: false as const,
@@ -289,7 +575,7 @@ export const f = Object.assign(
 
     audio: (
       desc?: string
-    ): AxFluentFieldType<'audio', false, undefined, false, false> =>
+    ): AxFluentFieldType<'audio', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'audio' as const,
         isArray: false as const,
@@ -300,7 +586,7 @@ export const f = Object.assign(
 
     file: (
       desc?: string
-    ): AxFluentFieldType<'file', false, undefined, false, false> =>
+    ): AxFluentFieldType<'file', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'file' as const,
         isArray: false as const,
@@ -311,7 +597,7 @@ export const f = Object.assign(
 
     url: (
       desc?: string
-    ): AxFluentFieldType<'url', false, undefined, false, false> =>
+    ): AxFluentFieldType<'url', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'url' as const,
         isArray: false as const,
@@ -320,14 +606,45 @@ export const f = Object.assign(
         isInternal: false as const,
       }),
 
+    email: (
+      desc?: string
+    ): AxFluentFieldType<'string', false, undefined, false, false, undefined> =>
+      new AxFluentFieldType({
+        type: 'string' as const,
+        isArray: false as const,
+        description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
+        format: 'email',
+      }),
+
     code: (
       language?: string,
       desc?: string
-    ): AxFluentFieldType<'code', false, undefined, false, false> =>
+    ): AxFluentFieldType<'code', false, undefined, false, false, undefined> =>
       new AxFluentFieldType({
         type: 'code' as const,
         isArray: false as const,
         description: desc || language,
+        isOptional: false as const,
+        isInternal: false as const,
+      }),
+
+    object: <
+      TFields extends Record<
+        string,
+        | AxFluentFieldInfo<any, any, any, any, any, any>
+        | AxFluentFieldType<any, any, any, any, any, any>
+      >,
+    >(
+      fields: TFields & ValidateNoMediaTypes<TFields>,
+      desc?: string
+    ): AxFluentFieldType<'object', false, undefined, false, false, TFields> =>
+      new AxFluentFieldType({
+        type: 'object' as const,
+        isArray: false as const,
+        fields,
+        description: desc,
         isOptional: false as const,
         isInternal: false as const,
       }),
@@ -354,9 +671,18 @@ export interface AxField {
       | 'date'
       | 'datetime'
       | 'class'
-      | 'code';
+      | 'code'
+      | 'object';
     isArray?: boolean;
     options?: string[];
+    fields?: Record<string, AxFieldType>;
+    minLength?: number;
+    maxLength?: number;
+    minimum?: number;
+    maximum?: number;
+    pattern?: string;
+    patternDescription?: string;
+    format?: string;
   };
   isOptional?: boolean;
   isInternal?: boolean;
@@ -423,7 +749,15 @@ type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
                             : T['isArray'] extends true
                               ? string[]
                               : string
-                          : any
+                          : T['type'] extends 'object'
+                            ? T extends { fields: infer F }
+                              ? F extends Record<string, any>
+                                ? T['isArray'] extends true
+                                  ? { [K in keyof F]: InferFluentType<F[K]> }[]
+                                  : { [K in keyof F]: InferFluentType<F[K]> }
+                                : any
+                              : any
+                            : any
   : any;
 
 // Improved fluent field type that preserves exact type information for better inference
@@ -432,13 +766,56 @@ export interface AxFluentFieldInfo<
   TIsArray extends boolean = false,
   TOptions extends readonly string[] = readonly string[],
   TIsOptional extends boolean = false,
+  _TIsInternal extends boolean = false,
+  TFields extends
+    | Record<string, AxFluentFieldInfo | AxFluentFieldType>
+    | undefined = undefined,
 > {
   readonly type: TType;
   readonly isArray?: TIsArray;
   readonly options?: TOptions;
+  readonly fields?: TFields;
   readonly description?: string;
   readonly isOptional?: TIsOptional;
   readonly isInternal?: boolean;
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly pattern?: string;
+  readonly patternDescription?: string;
+  readonly format?: string;
+}
+
+// Helper function to convert AxFluentFieldInfo to AxFieldType
+function convertFluentToAxFieldType(
+  fluent: AxFluentFieldInfo<any, any, any, any, any, any> | AxFluentFieldType
+): AxFieldType {
+  return {
+    type: fluent.type,
+    isArray: fluent.isArray,
+    options: fluent.options,
+    description: fluent.description,
+    isOptional: fluent.isOptional,
+    isInternal: fluent.isInternal,
+    minLength: fluent.minLength,
+    maxLength: fluent.maxLength,
+    minimum: fluent.minimum,
+    maximum: fluent.maximum,
+    pattern: fluent.pattern,
+    patternDescription: fluent.patternDescription,
+    format: fluent.format,
+    fields: fluent.fields
+      ? Object.fromEntries(
+          Object.entries(fluent.fields).map(([k, v]) => [
+            k,
+            convertFluentToAxFieldType(
+              v as AxFluentFieldInfo | AxFluentFieldType
+            ),
+          ])
+        )
+      : undefined,
+  };
 }
 
 // Helper type to infer TypeScript type from fluent field info
@@ -501,7 +878,15 @@ type InferFluentType<
                           : T['isArray'] extends true
                             ? string[]
                             : string
-                        : any;
+                        : T['type'] extends 'object'
+                          ? T extends { fields: infer F }
+                            ? F extends Record<string, any>
+                              ? T['isArray'] extends true
+                                ? { [K in keyof F]: InferFluentType<F[K]> }[]
+                                : { [K in keyof F]: InferFluentType<F[K]> }
+                              : any
+                            : any
+                          : any;
 
 // Helper flags for fluent type modifiers
 type _IsInternal<T> = T extends { readonly isInternal: true } ? true : false;
@@ -527,6 +912,7 @@ function convertFieldTypeToAxField(
       name: fieldType.type,
       isArray: fieldType.isArray,
       options: fieldType.options ? [...fieldType.options] : undefined,
+      fields: fieldType.fields,
     },
     description: fieldType.description,
     isOptional: fieldType.isOptional,
@@ -1018,42 +1404,6 @@ export class AxSignature<
     return result.charAt(0).toUpperCase() + result.slice(1);
   };
 
-  public toJSONSchema = (): AxFunctionJSONSchema => {
-    const properties: Record<string, unknown> = {};
-    const required: Array<string> = [];
-
-    for (const f of this.inputFields) {
-      const type = f.type ? f.type.name : 'string';
-      if (f.type?.isArray) {
-        properties[f.name] = {
-          description: f.description,
-          type: 'array' as const,
-          items: {
-            type: type,
-            description: f.description,
-          },
-        };
-      } else {
-        properties[f.name] = {
-          description: f.description,
-          type: type,
-        };
-      }
-
-      if (!f.isOptional) {
-        required.push(f.name);
-      }
-    }
-
-    const schema = {
-      type: 'object',
-      properties: properties,
-      required: required,
-    };
-
-    return schema as AxFunctionJSONSchema;
-  };
-
   private updateHashLight = (): [string, string] => {
     try {
       // Light validation - only validate individual fields, not full signature consistency
@@ -1205,6 +1555,12 @@ export class AxSignature<
       outputFields: this.outputFields,
     };
   };
+
+  public toJSONSchema = (): AxFunctionJSONSchema => {
+    // Combine input and output fields for the JSON schema
+    const allFields = [...this.inputFields, ...this.outputFields];
+    return toJsonSchema(allFields, this.description ?? 'Schema');
+  };
 }
 
 function renderField(field: Readonly<AxField>): string {
@@ -1352,12 +1708,9 @@ function validateFieldType(
 
   const { type } = field;
 
-  if (
-    type.name === 'image' ||
-    type.name === 'audio' ||
-    type.name === 'file' ||
-    type.name === 'url'
-  ) {
+  // Only media types (image, audio, file) are restricted to input fields
+  // url, email, date, datetime can be used in both input and output
+  if (type.name === 'image' || type.name === 'audio' || type.name === 'file') {
     if (context === 'output') {
       throw new AxSignatureValidationError(
         `${type.name} type is not supported in output fields`,
@@ -1429,5 +1782,53 @@ function validateFieldType(
       field.name,
       'Internal markers are only allowed on output fields'
     );
+  }
+
+  // Recursively validate nested object fields
+  if (type.name === 'object' && type.fields) {
+    validateNestedFields(type.fields, field.name, context);
+  }
+}
+
+/**
+ * Recursively validate nested object fields
+ * Prevents media types (image, audio, file) from being used in nested objects
+ */
+function validateNestedFields(
+  fields: Record<string, AxFieldType>,
+  parentFieldName: string,
+  context: 'input' | 'output',
+  depth = 1
+): void {
+  for (const [fieldName, fieldType] of Object.entries(fields)) {
+    const fullFieldName = `${parentFieldName}.${fieldName}`;
+
+    // Check for forbidden media types in nested objects
+    if (
+      fieldType.type === 'image' ||
+      fieldType.type === 'audio' ||
+      fieldType.type === 'file'
+    ) {
+      throw new AxSignatureValidationError(
+        `${fieldType.type} type is not allowed in nested object fields`,
+        fullFieldName,
+        `Media types (image, audio, file) can only be used as top-level input fields, not within objects. Found at depth ${depth}.`
+      );
+    }
+
+    // Recursively validate nested objects
+    if (fieldType.type === 'object' && fieldType.fields) {
+      validateNestedFields(fieldType.fields, fullFieldName, context, depth + 1);
+    }
+
+    // Validate arrays of objects
+    if (fieldType.isArray && fieldType.fields) {
+      validateNestedFields(
+        fieldType.fields,
+        `${fullFieldName}[]`,
+        context,
+        depth + 1
+      );
+    }
   }
 }

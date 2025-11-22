@@ -46,7 +46,7 @@ import {
   parseFunctions,
 } from './functions.js';
 import { axGlobals } from './globals.js';
-// helper no longer used since memory removal is non-throwing
+import { toJsonSchema } from './jsonSchema.js';
 import {
   type AxGenMetricsInstruments,
   getOrCreateGenMetricsInstruments,
@@ -85,6 +85,11 @@ import type {
   AxSetExamplesOptions,
 } from './types.js';
 import { mergeDeltas } from './util.js';
+import {
+  validateNumberConstraints,
+  validateStringConstraints,
+  validateURL,
+} from './validators.js';
 
 export type AxGenerateResult<OUT> = OUT & {
   thought?: string;
@@ -248,7 +253,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       if (!isText) {
         throw new Error(
-          `addFieldProcessor: field ${fieldName} is must be a text field`
+          `addFieldProcessor: field ${fieldName} must be a text field`
         );
       }
       this.streamingFieldProcessors.push({ field, process: fn });
@@ -340,6 +345,29 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // Do not send native functions to the provider when emulating via prompt mode
     functions = this.signatureToolCallingManager ? [] : functions;
 
+    let responseFormat: AxChatRequest['responseFormat'];
+
+    const outputFields = this.signature.getOutputFields();
+    const hasComplexFields = outputFields.some(
+      (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
+    );
+
+    // Auto-detect structured output requirement
+    // If we have object types in output or array of objects, we use structured outputs
+    if (hasComplexFields) {
+      // Use the signature-to-schema converter we implemented
+      const schema = toJsonSchema(outputFields);
+
+      responseFormat = {
+        type: 'json_schema',
+        schema: {
+          name: 'output',
+          strict: true,
+          schema,
+        },
+      };
+    }
+
     const res = await ai.chat(
       {
         chatPrompt,
@@ -348,6 +376,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         functionCall,
         modelConfig,
         model,
+        responseFormat,
       },
       {
         sessionId,
@@ -812,11 +841,170 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     );
   }
 
+  /**
+   * Validate input values against field constraints
+   * @throws ValidationError if any input value fails validation
+   */
+  private validateInputs(values: IN): void {
+    const inputFields = this.signature.getInputFields();
+
+    for (const field of inputFields) {
+      if (field.isInternal) continue;
+
+      const value = values[field.name as keyof IN];
+
+      // Skip validation for optional fields with undefined values
+      if (field.isOptional && value === undefined) {
+        continue;
+      }
+
+      const type = field.type;
+      if (!type) continue;
+
+      // Validate based on field type
+      if (type.name === 'url') {
+        validateURL(value, field);
+      }
+
+      if (type.name === 'date') {
+        // Date validation is already handled by existing parseLLMFriendlyDate
+        // which is called during extraction - we'll rely on that
+      }
+
+      if (type.name === 'datetime') {
+        // DateTime validation is already handled by existing parseLLMFriendlyDateTime
+        // which is called during extraction - we'll rely on that
+      }
+
+      if (type.name === 'string' || type.name === 'code') {
+        validateStringConstraints(value, field);
+      }
+
+      if (type.name === 'number') {
+        validateNumberConstraints(value, field);
+      }
+
+      // Recursively validate object fields
+      if (
+        type.name === 'object' &&
+        type.fields &&
+        typeof value === 'object' &&
+        value !== null
+      ) {
+        this.validateObjectFields(
+          value as Record<string, unknown>,
+          type.fields,
+          field.name
+        );
+      }
+
+      // Validate array elements
+      if (type.isArray && Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+          const item = value[i];
+
+          if (type.name === 'string' || type.name === 'code') {
+            validateStringConstraints(item, field);
+          } else if (type.name === 'number') {
+            validateNumberConstraints(item, field);
+          } else if (type.fields && typeof item === 'object' && item !== null) {
+            this.validateObjectFields(
+              item as Record<string, unknown>,
+              type.fields,
+              `${field.name}[${i}]`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Recursively validate object field values
+   */
+  private validateObjectFields(
+    obj: Record<string, unknown>,
+    fields: Record<string, import('./sig.js').AxFieldType>,
+    parentFieldName: string
+  ): void {
+    for (const [fieldName, fieldType] of Object.entries(fields)) {
+      const value = obj[fieldName];
+
+      // Skip optional fields with undefined values
+      if (fieldType.isOptional && value === undefined) {
+        continue;
+      }
+
+      const syntheticField: import('./sig.js').AxField = {
+        name: `${parentFieldName}.${fieldName}`,
+        type: {
+          name: fieldType.type,
+          isArray: fieldType.isArray,
+          options: fieldType.options ? [...fieldType.options] : undefined,
+          fields: fieldType.fields,
+          minLength: fieldType.minLength,
+          maxLength: fieldType.maxLength,
+          minimum: fieldType.minimum,
+          maximum: fieldType.maximum,
+          pattern: fieldType.pattern,
+          format: fieldType.format,
+        },
+        description: fieldType.description,
+        isOptional: fieldType.isOptional,
+      };
+
+      if (fieldType.type === 'string' || fieldType.type === 'code') {
+        validateStringConstraints(value, syntheticField);
+      } else if (fieldType.type === 'number') {
+        validateNumberConstraints(value, syntheticField);
+      } else if (
+        fieldType.type === 'object' &&
+        fieldType.fields &&
+        typeof value === 'object' &&
+        value !== null
+      ) {
+        this.validateObjectFields(
+          value as Record<string, unknown>,
+          fieldType.fields,
+          syntheticField.name
+        );
+      }
+
+      // Validate arrays
+      if (fieldType.isArray && Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+          const item = value[i];
+
+          if (fieldType.type === 'string' || fieldType.type === 'code') {
+            validateStringConstraints(item, syntheticField);
+          } else if (fieldType.type === 'number') {
+            validateNumberConstraints(item, syntheticField);
+          } else if (
+            fieldType.fields &&
+            typeof item === 'object' &&
+            item !== null
+          ) {
+            this.validateObjectFields(
+              item as Record<string, unknown>,
+              fieldType.fields,
+              `${syntheticField.name}[${i}]`
+            );
+          }
+        }
+      }
+    }
+  }
+
   public async *_forward1(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions<any>>
   ): AxGenStreamingOut<OUT> {
+    // Validate input values before processing
+    if (!Array.isArray(values) || !values.every((v) => 'role' in v)) {
+      this.validateInputs(values as IN);
+    }
+
     // Track state creation performance
     const stateCreationStart = performance.now();
     const states = this.createStates(options.sampleCount ?? 1);
@@ -1292,6 +1480,28 @@ function enhanceError(
   signature: Readonly<AxSignature>
 ): Error {
   const originalError = e instanceof Error ? e : new Error(String(e));
+
+  // Don't wrap validation errors or assertion errors - let them propagate directly
+  const errorMsg = (originalError.message || '').toLowerCase();
+  const isValidationOrAssertionError =
+    errorMsg.includes('at least') ||
+    errorMsg.includes('at most') ||
+    errorMsg.includes('must match pattern') ||
+    errorMsg.includes('invalid url') ||
+    errorMsg.includes('required') ||
+    errorMsg.includes('missing') ||
+    errorMsg.includes('valid email') ||
+    errorMsg.includes('number must be') ||
+    originalError.name === 'ValidationError' ||
+    originalError.name === 'AssertionError' ||
+    originalError.name === 'AxAssertionError' ||
+    // Check if error was thrown from an assertion (stack trace includes 'asserts.ts')
+    originalError.stack?.includes('asserts.ts');
+
+  if (isValidationOrAssertionError) {
+    return originalError;
+  }
+
   const model = ai.getLastUsedChatModel() as string | undefined;
   const modelConfig = ai.getLastUsedModelConfig();
 
