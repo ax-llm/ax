@@ -380,6 +380,54 @@ console.log(result.answer);
 // "The current weather in Tokyo is 72°F and sunny. Recent news about Tokyo includes..."
 ```
 
+### 4.5. Parallel Function Calling
+
+Execute multiple tools in parallel for complex queries.
+
+```typescript
+import { ax, ai, type AxFunction } from '@ax-llm/ax';
+
+const functions: AxFunction[] = [
+  {
+    name: 'getCurrentWeather',
+    description: 'get the current weather for a location',
+    func: async ({ location }) => ({ temperature: '22C', condition: 'Sunny' }),
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string' }
+      },
+      required: ['location']
+    }
+  },
+  {
+    name: 'getCurrentTime',
+    description: 'get the current time for a location',
+    func: async ({ location }) => ({ time: '14:30' }),
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string' }
+      },
+      required: ['location']
+    }
+  }
+];
+
+const agent = ax(
+  'query:string -> report:string "Comprehensive report"',
+  { functions }
+);
+
+const result = await agent.forward(
+  ai({ name: 'google-gemini', config: { model: 'gemini-1.5-pro-latest' } }),
+  { query: "Compare the weather and time in Tokyo, New York, and London." }
+);
+
+// The AI will call weather and time functions for all 3 cities in parallel
+console.log(result.report);
+```
+
 ### 5. Streaming Responses
 
 Stream responses for real-time user feedback.

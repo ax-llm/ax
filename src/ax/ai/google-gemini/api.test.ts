@@ -253,4 +253,106 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(assistantMsg.parts[0].functionCall.name).toBe('foo');
     expect(assistantMsg.parts[0].thought_signature).toBe('sig123');
   });
+
+  it('groups parallel function responses into a single user turn', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini3ProPreview },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+      },
+      capture
+    );
+    ai.setOptions({ fetch });
+
+    const history: any[] = [
+      { role: 'user', content: 'call parallel' },
+      {
+        role: 'assistant',
+        functionCalls: [
+          {
+            function: { name: 'f1', params: '{}' },
+            id: 'id1',
+            type: 'function',
+          },
+          {
+            function: { name: 'f2', params: '{}' },
+            id: 'id2',
+            type: 'function',
+          },
+        ],
+      },
+      { role: 'function', functionId: 'f1', result: 'r1' },
+      { role: 'function', functionId: 'f2', result: 'r2' },
+    ];
+
+    await ai.chat({ chatPrompt: history }, { stream: false });
+
+    const reqBody = capture.lastBody;
+    // Expected: User, Model, User (with 2 parts)
+    expect(reqBody.contents).toHaveLength(3);
+    const lastUserMsg = reqBody.contents[2];
+    expect(lastUserMsg.role).toBe('user');
+    expect(lastUserMsg.parts).toHaveLength(2);
+    expect(lastUserMsg.parts[0].functionResponse.name).toBe('f1');
+    expect(lastUserMsg.parts[1].functionResponse.name).toBe('f2');
+  });
+
+  it('does not set thought: true on text part when function calls are present', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini3ProPreview },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+      },
+      capture
+    );
+    ai.setOptions({ fetch });
+
+    const history: any[] = [
+      { role: 'user', content: 'call with thought' },
+      {
+        role: 'assistant',
+        thoughtBlock: { data: 'Thinking...', signature: 'sig1' },
+        functionCalls: [
+          {
+            function: { name: 'f1', params: '{}' },
+            id: 'id1',
+            type: 'function',
+          },
+        ],
+      },
+      { role: 'function', functionId: 'f1', result: 'r1' },
+    ];
+
+    await ai.chat({ chatPrompt: history }, { stream: false });
+
+    const reqBody = capture.lastBody;
+    const assistantMsg = reqBody.contents[1];
+    expect(assistantMsg.role).toBe('model');
+    expect(assistantMsg.parts).toHaveLength(2);
+
+    // Part 0: Text (Thought) - Should NOT have thought: true
+    expect(assistantMsg.parts[0].text).toBe('Thinking...');
+    expect(assistantMsg.parts[0].thought).toBeUndefined();
+    expect(assistantMsg.parts[0].thought_signature).toBeUndefined();
+
+    // Part 1: Function Call - Should have signature
+    expect(assistantMsg.parts[1].functionCall.name).toBe('f1');
+    expect(assistantMsg.parts[1].thought_signature).toBe('sig1');
+  });
 });
