@@ -251,152 +251,181 @@ class AxAIGoogleGeminiImpl
           }
         : undefined;
 
-    const contents: AxAIGoogleGeminiContent[] = req.chatPrompt
-      .filter((p) => p.role !== 'system')
-      .map((msg, i) => {
-        switch (msg.role) {
-          case 'user': {
-            const parts: AxAIGoogleGeminiContentPart[] = Array.isArray(
-              msg.content
-            )
-              ? msg.content.map((c, i) => {
-                  switch (c.type) {
-                    case 'text':
-                      return { text: c.text };
-                    case 'image':
+    const contents: AxAIGoogleGeminiContent[] = [];
+    const chatPrompt = req.chatPrompt.filter((p) => p.role !== 'system');
+
+    for (let i = 0; i < chatPrompt.length; i++) {
+      const msg = chatPrompt[i];
+      switch (msg.role) {
+        case 'user': {
+          const parts: AxAIGoogleGeminiContentPart[] = Array.isArray(
+            msg.content
+          )
+            ? msg.content.map((c, idx) => {
+                switch (c.type) {
+                  case 'text':
+                    return { text: c.text };
+                  case 'image':
+                    return {
+                      inlineData: { mimeType: c.mimeType, data: c.image },
+                    };
+                  case 'audio':
+                    return {
+                      inlineData: {
+                        mimeType: `audio/${c.format ?? 'mp3'}`,
+                        data: c.data,
+                      },
+                    };
+                  case 'file':
+                    // Support both inline data and fileUri formats
+                    if ('fileUri' in c) {
                       return {
-                        inlineData: { mimeType: c.mimeType, data: c.image },
-                      };
-                    case 'audio':
-                      return {
-                        inlineData: {
-                          mimeType: `audio/${c.format ?? 'mp3'}`,
-                          data: c.data,
+                        fileData: {
+                          mimeType: c.mimeType,
+                          fileUri: c.fileUri,
                         },
                       };
-                    case 'file':
-                      // Support both inline data and fileUri formats
-                      if ('fileUri' in c) {
-                        return {
-                          fileData: {
-                            mimeType: c.mimeType,
-                            fileUri: c.fileUri,
-                          },
-                        };
-                      } else {
-                        return {
-                          inlineData: { mimeType: c.mimeType, data: c.data },
-                        };
-                      }
-                    default:
-                      throw new Error(
-                        `Chat prompt content type not supported (index: ${i})`
-                      );
-                  }
-                })
-              : [{ text: msg.content }];
-            return {
-              role: 'user' as const,
-              parts,
-            };
-          }
-
-          case 'assistant': {
-            const parts: AxAIGoogleGeminiContentPart[] = [];
-
-            // Handle thought blocks
-            const thoughtBlock = (msg as any).thoughtBlock;
-            const hasFunctionCalls =
-              msg.functionCalls && msg.functionCalls.length > 0;
-
-            if (thoughtBlock?.data) {
-              parts.push({
-                thought: true,
-                text: thoughtBlock.data,
-                // Only attach signature to text if there are no function calls
-                // Gemini requires signature on the first function call if present
-                ...(thoughtBlock.signature && !hasFunctionCalls
-                  ? { thought_signature: thoughtBlock.signature }
-                  : {}),
-              });
-            }
-
-            if (msg.functionCalls) {
-              const fcParts = msg.functionCalls.map((f, index) => {
-                let args: any;
-                if (typeof f.function.params === 'string') {
-                  const raw = f.function.params;
-                  if (raw.trim().length === 0) {
-                    args = {};
-                  } else {
-                    try {
-                      args = JSON.parse(raw);
-                    } catch {
-                      throw new Error(
-                        `Failed to parse function params JSON: ${raw}`
-                      );
+                    } else {
+                      return {
+                        inlineData: { mimeType: c.mimeType, data: c.data },
+                      };
                     }
-                  }
-                } else {
-                  args = f.function.params;
+                  default:
+                    throw new Error(
+                      `Chat prompt content type not supported (index: ${idx})`
+                    );
                 }
-
-                const part: AxAIGoogleGeminiContentPart = {
-                  functionCall: {
-                    name: f.function.name,
-                    args: args,
-                  },
-                };
-
-                // Attach signature ONLY to the first function call
-                if (thoughtBlock?.signature && index === 0) {
-                  part.thought_signature = thoughtBlock.signature;
-                }
-
-                return part;
-              });
-              parts.push(...fcParts);
-            }
-
-            if (msg.content) {
-              parts.push({ text: msg.content });
-            }
-
-            if (parts.length === 0) {
-              throw new Error('Assistant content is empty');
-            }
-
-            return {
-              role: 'model' as const,
-              parts,
-            };
-          }
-
-          case 'function': {
-            if (!('functionId' in msg)) {
-              throw new Error(`Chat prompt functionId is empty (index: ${i})`);
-            }
-            const parts: AxAIGoogleGeminiContentPart[] = [
-              {
-                functionResponse: {
-                  name: msg.functionId,
-                  response: { result: msg.result },
-                },
-              },
-            ];
-
-            return {
-              role: 'user' as const,
-              parts,
-            };
-          }
-
-          default:
-            throw new Error(
-              `Invalid role: ${JSON.stringify(msg)} (index: ${i})`
-            );
+              })
+            : [{ text: msg.content }];
+          contents.push({
+            role: 'user' as const,
+            parts,
+          });
+          break;
         }
-      });
+
+        case 'assistant': {
+          const parts: AxAIGoogleGeminiContentPart[] = [];
+
+          // Handle thought blocks
+          const thoughtBlock = (msg as any).thoughtBlock;
+          const hasFunctionCalls =
+            msg.functionCalls && msg.functionCalls.length > 0;
+
+          if (thoughtBlock?.data) {
+            parts.push({
+              // Only mark as thought if there are no function calls
+              // Otherwise it's just text context for the function call
+              ...(hasFunctionCalls ? {} : { thought: true }),
+              text: thoughtBlock.data,
+              // Only attach signature to text if there are no function calls
+              // Gemini requires signature on the first function call if present
+              ...(thoughtBlock.signature && !hasFunctionCalls
+                ? { thought_signature: thoughtBlock.signature }
+                : {}),
+            });
+          }
+
+          if (msg.functionCalls) {
+            const fcParts = msg.functionCalls.map((f, index) => {
+              let args: any;
+              if (typeof f.function.params === 'string') {
+                const raw = f.function.params;
+                if (raw.trim().length === 0) {
+                  args = {};
+                } else {
+                  try {
+                    args = JSON.parse(raw);
+                  } catch {
+                    throw new Error(
+                      `Failed to parse function params JSON: ${raw}`
+                    );
+                  }
+                }
+              } else {
+                args = f.function.params;
+              }
+
+              const part: AxAIGoogleGeminiContentPart = {
+                functionCall: {
+                  name: f.function.name,
+                  args: args,
+                },
+              };
+
+              // Attach signature ONLY to the first function call
+              if (thoughtBlock?.signature && index === 0) {
+                part.thought_signature = thoughtBlock.signature;
+              }
+
+              return part;
+            });
+            parts.push(...fcParts);
+          }
+
+          if (msg.content) {
+            parts.push({ text: msg.content });
+          }
+
+          if (parts.length === 0) {
+            throw new Error('Assistant content is empty');
+          }
+
+          contents.push({
+            role: 'model' as const,
+            parts,
+          });
+          break;
+        }
+
+        case 'function': {
+          const parts: AxAIGoogleGeminiContentPart[] = [];
+
+          // Handle consecutive function responses
+          // We need to group them into a single user turn
+          let currentMsg = msg as any;
+          let currentIndex = i;
+
+          while (true) {
+            if (!('functionId' in currentMsg)) {
+              throw new Error(
+                `Chat prompt functionId is empty (index: ${currentIndex})`
+              );
+            }
+
+            parts.push({
+              functionResponse: {
+                name: currentMsg.functionId,
+                response: { result: currentMsg.result },
+              },
+            });
+
+            // Check next message
+            if (
+              currentIndex + 1 < chatPrompt.length &&
+              chatPrompt[currentIndex + 1].role === 'function'
+            ) {
+              currentIndex++;
+              currentMsg = chatPrompt[currentIndex];
+            } else {
+              break;
+            }
+          }
+
+          // Update outer loop index
+          i = currentIndex;
+
+          contents.push({
+            role: 'user' as const,
+            parts,
+          });
+          break;
+        }
+
+        default:
+          throw new Error(`Invalid role: ${JSON.stringify(msg)} (index: ${i})`);
+      }
+    }
 
     let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
 

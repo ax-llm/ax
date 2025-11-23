@@ -257,17 +257,26 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
           ? (item as any).functionCalls
           : undefined;
 
+      const thoughtBlock =
+        typeof item === 'object' && item !== null && 'thoughtBlock' in item
+          ? (item as any).thoughtBlock
+          : undefined;
+
       const hasNonEmptyContent =
         typeof content === 'string' && content.trim() !== '';
       const hasFunctionCalls =
         Array.isArray(functionCalls) && functionCalls.length > 0;
+      const hasThoughtBlock =
+        thoughtBlock &&
+        typeof thoughtBlock === 'object' &&
+        Object.keys(thoughtBlock).length > 0;
 
-      if (!hasNonEmptyContent && !hasFunctionCalls) {
+      if (!hasNonEmptyContent && !hasFunctionCalls && !hasThoughtBlock) {
         raiseValidationError(
-          'Assistant message must include non-empty content or at least one function call',
+          'Assistant message must include non-empty content, at least one function call, or a thought block',
           {
-            fieldPath: 'content | functionCalls',
-            value: { content, functionCalls },
+            fieldPath: 'content | functionCalls | thoughtBlock',
+            value: { content, functionCalls, thoughtBlock },
             item,
           }
         );

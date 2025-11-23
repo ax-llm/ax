@@ -8,6 +8,7 @@ export type AxFunctionResultFormatter = (result: unknown) => string;
 
 export const axGlobals = {
   signatureStrict: true, // Controls reservedNames enforcement in signature parsing/validation
+  useStructuredPrompt: true, // Use XML-structured prompts with format protection (default: true)
   tracer: undefined as Tracer | undefined, // Global OpenTelemetry tracer for all AI operations
   meter: undefined as Meter | undefined, // Global OpenTelemetry meter for metrics collection
   logger: undefined as AxLoggerFunction | undefined, // Global logger for all AI operations

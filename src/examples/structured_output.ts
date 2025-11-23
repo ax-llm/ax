@@ -130,6 +130,32 @@ async function main() {
   console.log('    • Regex pattern matching');
   console.log('    • Nested object and array constraints');
 
+  // Example 4: Top-level array output (Issue #432 fix demonstration)
+  console.log('\n\n4. Testing Top-Level Array Output (Issue #432 fix)...\n');
+  const arraySig = f()
+    .input('inputText', f.string())
+    .output(
+      'items',
+      f
+        .object({
+          id: f.number(),
+          label: f.string(),
+        })
+        .array()
+    );
+
+  const extractArray = ax(arraySig.build());
+
+  try {
+    const arrayResult = await extractArray.forward(llm, {
+      inputText: 'Item 1: Apple, Item 2: Banana, Item 3: Cherry',
+    });
+    console.log('✓ Array extraction successful!');
+    console.log(JSON.stringify(arrayResult, null, 2));
+  } catch (error) {
+    console.error('✗ Array extraction failed:', (error as Error).message);
+  }
+
   console.log('\n✓ All validation examples completed!');
 }
 

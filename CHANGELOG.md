@@ -5,6 +5,51 @@
 ### Features
 
 - **ai:** add `openai-compatible` adapter + docs/tests for generic OpenAI-compatible gateways (Groq, Cerebras, Vercel AI Gateway) and pin Vitest configs per workspace.
+
+## [15.0.2](///compare/15.0.0...15.0.1) (2025-11-23)
+
+### Features
+
+* Implement and document parallel function calling for Google Gemini. cb1a310
+## [15.0.1](///compare/15.0.0...15.0.1) (2025-11-22)
+
+### Features
+
+* Introduce `AxSignature.hasComplexFields()` for consistent complex type detection and update example documentation. b1dc107
+
+## [15.0.1](///compare/14.0.44...15.0.0) (2025-11-22)
+
+### Features
+
+* Introduce `AxSignature.hasComplexFields()` for consistent complex type detection and update example documentation. b1dc107
+* Introduce structured (XML) prompt generation with format protection and tests, and remove individual streaming result logging. f04c787
+
+## [15.0.0](///compare/14.0.43...14.0.44) (2025-11-22)
+
+### Features
+
+* Introduce structured (XML) prompt generation with format protection and tests, and remove individual streaming result logging. f04c787
+## [14.0.44](///compare/14.0.43...14.0.44) (2025-11-22)
+
+### Features
+
+* **anthropic:** update and align Vertex AI model maxTokens values ([#426](undefined/undefined/undefined/issues/426)) f042d7b
+
+## [14.0.44](///compare/14.0.42...14.0.43) (2025-11-22)
+
+### Features
+
+* **anthropic:** update and align Vertex AI model maxTokens values ([#426](undefined/undefined/undefined/issues/426)) f042d7b
+## [14.0.43](///compare/14.0.42...14.0.43) (2025-11-22)
+
+### Features
+
+* Enable Anthropic web search by updating beta headers and removing tool filtering, and reorder validator imports. 60a5663
+
+### Bug Fixes
+
+* **vertex:** use correct Vertex AI endpoint for global region ([#428](undefined/undefined/undefined/issues/428)) 1466bc7
+
 ## [14.0.43](///compare/14.0.41...14.0.42) (2025-11-22)
 
 ### Features

@@ -391,4 +391,43 @@ Model Answer:`;
       modelAnswer1: 'Only field one is present',
     });
   });
+
+  test('Issue #432: correctly extracts top level array of objects', () => {
+    const sig = new AxSignature({
+      inputs: [{ name: 'document', type: { name: 'string' } }],
+      outputs: [
+        {
+          name: 'people',
+          type: {
+            name: 'object',
+            isArray: true,
+            fields: {
+              name: { type: 'string', description: 'Person name' },
+              age: { type: 'number', description: 'Person age', maximum: 80 },
+              gender: {
+                type: 'class',
+                options: ['male', 'female'],
+                description: 'Person gender',
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const values: Record<string, unknown> = {};
+    const content = JSON.stringify([
+      { name: 'John', age: 29, gender: 'male' },
+      { name: 'Sarah', age: 34, gender: 'female' },
+    ]);
+
+    extractValues(sig, values, content);
+
+    expect(values).toEqual({
+      people: [
+        { name: 'John', age: 29, gender: 'male' },
+        { name: 'Sarah', age: 34, gender: 'female' },
+      ],
+    });
+  });
 });

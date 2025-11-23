@@ -1522,6 +1522,16 @@ export class AxSignature<
     }
   }
 
+  public hasComplexFields = (): boolean => {
+    const check = (fields: readonly AxField[]) =>
+      fields.some(
+        (f) =>
+          f.type?.name === 'object' ||
+          (f.type?.isArray && f.type.fields !== undefined)
+      );
+    return check(this.inputFields) || check(this.outputFields);
+  };
+
   public validate = (): boolean => {
     // Check if already validated at current hash
     if (this.validatedAtHash === this.sigHash) {

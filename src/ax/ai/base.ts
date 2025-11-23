@@ -12,7 +12,6 @@ import {
   logEmbedResponse,
   logResponse,
   logResponseStreamingDoneResult,
-  logResponseStreamingResult,
 } from './debug.js';
 import {
   type AxAIMetricsInstruments,
@@ -1234,16 +1233,6 @@ export class AxBaseAI<
             setChatResponseEvents(res, span, this.excludeContentFromTrace);
           }
 
-          if (debug) {
-            // Log individual streaming results
-            for (const result of res.results) {
-              logResponseStreamingResult(
-                result,
-                result.index,
-                options?.logger ?? this.logger
-              );
-            }
-          }
           return res;
         };
 

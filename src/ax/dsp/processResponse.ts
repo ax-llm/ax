@@ -237,9 +237,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
 
     // Check if we should use the partial JSON parser for structured outputs
     const outputFields = signature.getOutputFields();
-    const hasComplexFields = outputFields.some(
-      (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
-    );
+    const hasComplexFields = signature.hasComplexFields();
 
     if (hasComplexFields) {
       // Try to parse partial JSON
@@ -425,9 +423,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
     state.functionCalls = [];
   } else {
     const outputFields = signature.getOutputFields();
-    const hasComplexFields = outputFields.some(
-      (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
-    );
+    const hasComplexFields = signature.hasComplexFields();
 
     let jsonParsed = false;
     if (hasComplexFields) {
@@ -756,9 +752,7 @@ export async function* processResponse<OUT>({
       }
 
       const outputFields = signature.getOutputFields();
-      const hasComplexFields = outputFields.some(
-        (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
-      );
+      const hasComplexFields = signature.hasComplexFields();
 
       if (hasComplexFields) {
         try {

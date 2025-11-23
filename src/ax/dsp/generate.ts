@@ -348,9 +348,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     let responseFormat: AxChatRequest['responseFormat'];
 
     const outputFields = this.signature.getOutputFields();
-    const hasComplexFields = outputFields.some(
-      (f) => f.type?.name === 'object' || (f.type?.isArray && f.type.fields)
-    );
+    const hasComplexFields = this.signature.hasComplexFields();
 
     // Auto-detect structured output requirement
     // If we have object types in output or array of objects, we use structured outputs
