@@ -30,6 +30,10 @@ import { AxAIMistral, type AxAIMistralArgs } from './mistral/api.js';
 import type { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOllama, type AxAIOllamaArgs } from './ollama/api.js';
 import { AxAIOpenAI, type AxAIOpenAIArgs } from './openai/api.js';
+import {
+  AxAIOpenAICompatible,
+  type AxAIOpenAICompatibleArgs,
+} from './openai-compatible/api.js';
 import type {
   AxAIOpenAIEmbedModel,
   AxAIOpenAIModel,
@@ -60,6 +64,7 @@ import type { AxAIGrokModel } from './x-grok/types.js';
 
 export type AxAIArgs<TModelKey> =
   | AxAIOpenAIArgs<'openai', AxAIOpenAIModel, AxAIOpenAIEmbedModel, TModelKey>
+  | AxAIOpenAICompatibleArgs<TModelKey>
   | AxAIOpenAIResponsesArgs<
       'openai-responses',
       AxAIOpenAIResponsesModel,
@@ -164,6 +169,9 @@ export class AxAI<TModelKey = string>
     switch (options.name) {
       case 'openai':
         this.ai = new AxAIOpenAI<TModelKey>(options);
+        break;
+      case 'openai-compatible':
+        this.ai = new AxAIOpenAICompatible<TModelKey>(options);
         break;
       case 'openai-responses':
         this.ai = new AxAIOpenAIResponses<TModelKey>(options);

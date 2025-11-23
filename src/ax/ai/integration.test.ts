@@ -42,4 +42,20 @@ describe('AI Factory Integration', () => {
       expect((llm as any).ai.apiURL).toBe('https://api.openai.com/v1');
     });
   });
+
+  describe('OpenAI-compatible provider', () => {
+    it('configures endpoint and headers', async () => {
+      const llm = ai({
+        name: 'openai-compatible',
+        apiKey: 'compat-key',
+        endpoint: 'https://api.compat.test/v1',
+        headers: { 'x-compat-provider': 'demo' },
+      });
+
+      expect((llm as any).ai.apiURL).toBe('https://api.compat.test/v1');
+      expect((llm as any).ai.getName()).toBe('OpenAI-Compatible');
+      const headers = await (llm as any).ai.headers();
+      expect(headers['x-compat-provider']).toBe('demo');
+    });
+  });
 });

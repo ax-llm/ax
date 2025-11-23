@@ -276,6 +276,11 @@ import {
   type AxAIOpenAIResponsesWebSearchToolCall,
 } from './ai/openai/responses_types.js';
 import {
+  AxAIOpenAICompatible,
+  type AxAIOpenAICompatibleArgs,
+  type AxAIOpenAICompatibleConfig,
+} from './ai/openai-compatible/api.js';
+import {
   AxAIOpenRouter,
   type AxAIOpenRouterArgs,
   axAIOpenRouterDefaultConfig,
@@ -722,6 +727,7 @@ export { AxAIMistralModel };
 export { AxAIOllama };
 export { AxAIOpenAI };
 export { AxAIOpenAIBase };
+export { AxAIOpenAICompatible };
 export { AxAIOpenAIEmbedModel };
 export { AxAIOpenAIModel };
 export { AxAIOpenAIResponses };
@@ -980,6 +986,8 @@ export type { AxAIOpenAIBaseArgs };
 export type { AxAIOpenAIChatRequest };
 export type { AxAIOpenAIChatResponse };
 export type { AxAIOpenAIChatResponseDelta };
+export type { AxAIOpenAICompatibleArgs };
+export type { AxAIOpenAICompatibleConfig };
 export type { AxAIOpenAIConfig };
 export type { AxAIOpenAIEmbedRequest };
 export type { AxAIOpenAIEmbedResponse };

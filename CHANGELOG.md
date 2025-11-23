@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **ai:** add `openai-compatible` adapter + docs/tests for generic OpenAI-compatible gateways (Groq, Cerebras, Vercel AI Gateway) and pin Vitest configs per workspace.
+
 ## [15.0.2](///compare/15.0.0...15.0.1) (2025-11-23)
 
 ### Features
