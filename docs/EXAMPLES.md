@@ -109,15 +109,27 @@ gen.addAssert(({ next10Numbers }) => {
   return true; // Pass validation
 });
 
-// Method 3: Throw custom errors for immediate failure
+// Method 3: Throw AxAssertionError to trigger retry
+import { AxAssertionError } from '@ax-llm/ax';
+
 gen.addAssert(({ next10Numbers }) => {
   if (next10Numbers?.some(n => n <= 0)) {
-    throw new Error(`Invalid numbers found: ${next10Numbers.filter(n => n <= 0)}`);
+    throw new AxAssertionError({
+      message: `Invalid numbers found: ${next10Numbers.filter(n => n <= 0)}`
+    });
   }
   return true;
 });
 
-// Method 4: Conditional validation with undefined return
+// Method 4: Throw standard Error for immediate failure (no retries)
+gen.addAssert(({ next10Numbers }) => {
+  if (!next10Numbers) {
+    throw new Error('Critical: Numbers missing entirely!');
+  }
+  return true;
+});
+
+// Method 5: Conditional validation with undefined return
 gen.addAssert(({ summary }) => {
   if (!summary) return undefined; // Skip if summary not provided
   return summary.length >= 20; // Only validate if present
@@ -131,10 +143,11 @@ const result = await gen.forward(ai({ name: 'openai' }), {
 
 **Assertion Return Values:**
 - `true`: Assertion passes, continue generation
-- `false`: Assertion fails, use provided message parameter
-- `string`: Assertion fails, use the returned string as error message
+- `false`: Assertion fails, triggers retry with provided message
+- `string`: Assertion fails, triggers retry with returned string as error message
 - `undefined`: Skip this assertion (useful for conditional validation)
-- `throw Error()`: Immediate failure with custom error (no retries)
+- `throw new AxAssertionError(...)`: Assertion fails, triggers retry
+- `throw new Error(...)`: Immediate failure (crashes program, no retries)
 
 **Streaming Assertions:**
 
