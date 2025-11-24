@@ -1,5 +1,16 @@
 # Changelog
 
+## [15.0.3](///compare/15.0.1...15.0.2) (2025-11-24)
+
+### Features
+
+* Update Anthropic schema cleaning to preserve `default`, `oneOf`, `anyOf`, `allOf` and conditionally remove `additionalProperties`. dbc419c
+## [15.0.2](///compare/15.0.1...15.0.2) (2025-11-23)
+
+### Features
+
+* Implement and document parallel function calling for Google Gemini. cb1a310
+
 ## [15.0.2](///compare/15.0.0...15.0.1) (2025-11-23)
 
 ### Features
