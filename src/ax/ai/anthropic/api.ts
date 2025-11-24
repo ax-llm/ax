@@ -34,7 +34,10 @@ import {
  * Clean function schema for Anthropic API compatibility
  * Anthropic uses input_schema and may not support certain JSON Schema fields
  */
-const cleanSchemaForAnthropic = (schema: any): any => {
+const cleanSchemaForAnthropic = (
+  schema: any,
+  preserveAdditionalProperties: boolean = false
+): any => {
   if (!schema || typeof schema !== 'object') {
     return schema;
   }
@@ -42,26 +45,51 @@ const cleanSchemaForAnthropic = (schema: any): any => {
   const cleaned = { ...schema };
 
   // Remove fields that might cause issues with Anthropic
-  delete cleaned.additionalProperties;
-  delete cleaned.default;
+  if (!preserveAdditionalProperties) {
+    delete cleaned.additionalProperties;
+  }
+
+  // Anthropic supports default, anyOf, allOf, const, enum.
+  // We only remove fields that are definitely not supported or non-standard.
   delete cleaned.optional;
-  delete cleaned.oneOf;
-  delete cleaned.anyOf;
-  delete cleaned.allOf;
+  // delete cleaned.default; // Supported
+  // delete cleaned.oneOf; // Supported
+  // delete cleaned.anyOf; // Supported
+  // delete cleaned.allOf; // Supported
 
   // Recursively clean properties
   if (cleaned.properties && typeof cleaned.properties === 'object') {
     cleaned.properties = Object.fromEntries(
       Object.entries(cleaned.properties).map(([key, value]) => [
         key,
-        cleanSchemaForAnthropic(value),
+        cleanSchemaForAnthropic(value, preserveAdditionalProperties),
       ])
     );
   }
 
   // Recursively clean items (for arrays)
   if (cleaned.items) {
-    cleaned.items = cleanSchemaForAnthropic(cleaned.items);
+    cleaned.items = cleanSchemaForAnthropic(
+      cleaned.items,
+      preserveAdditionalProperties
+    );
+  }
+
+  // Recursively clean anyOf, allOf, oneOf
+  if (Array.isArray(cleaned.anyOf)) {
+    cleaned.anyOf = cleaned.anyOf.map((s: any) =>
+      cleanSchemaForAnthropic(s, preserveAdditionalProperties)
+    );
+  }
+  if (Array.isArray(cleaned.allOf)) {
+    cleaned.allOf = cleaned.allOf.map((s: any) =>
+      cleanSchemaForAnthropic(s, preserveAdditionalProperties)
+    );
+  }
+  if (Array.isArray(cleaned.oneOf)) {
+    cleaned.oneOf = cleaned.oneOf.map((s: any) =>
+      cleanSchemaForAnthropic(s, preserveAdditionalProperties)
+    );
   }
 
   return cleaned;
@@ -395,7 +423,7 @@ class AxAIAnthropicImpl
 
         outputFormat = {
           type: 'json_schema',
-          schema: cleanSchemaForAnthropic(schema),
+          schema: cleanSchemaForAnthropic(schema, true),
         };
         this.usedStructuredOutput = true;
       }
