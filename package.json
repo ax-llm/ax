@@ -18,6 +18,7 @@
     "doc:build": "run-s doc:build:markdown doc:build:html",
     "doc:build:markdown": "npm run doc:build:markdown --workspaces --if-present",
     "doc:build:html": "npm run build --workspace=@ax-llm/ax-docs",
+    "docs:dev": "npm run dev --workspace=@ax-llm/ax-docs",
     "version": "standard-version",
     "prepare": "npm run test",
     "release": "npm run release --workspaces --if-present && release-it --no-increment",

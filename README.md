@@ -341,6 +341,14 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 - GEPA and ACE optimizer implementations:
   [@monotykamary](https://github.com/monotykamary)
 
+## Development
+
+To run the documentation server locally, use the following command:
+
+```bash
+npm run docs:dev
+```
+
 ## License
 
 Apache 2 - Use it anywhere, build anything.
