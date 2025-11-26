@@ -34,6 +34,12 @@ export const axModelInfoMistral: AxModelInfo[] = [
     currency: 'USD',
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 6,
+    media: {
+      images: {
+        supported: true,
+        formats: ['png', 'jpeg', 'jpg', 'webp', 'gif'],
+      },
+    },
   },
   {
     name: AxAIMistralModel.Codestral,

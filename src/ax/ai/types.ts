@@ -32,6 +32,12 @@ export type AxModelInfo = {
   promptTokenCostPer1M?: number;
   completionTokenCostPer1M?: number;
   aliases?: string[];
+  media?: {
+    images?: {
+      supported: boolean;
+      formats: string[];
+    };
+  };
   supported?: {
     thinkingBudget?: boolean;
     showThoughts?: boolean;
