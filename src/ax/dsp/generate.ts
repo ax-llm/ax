@@ -173,6 +173,48 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     this.usage = [];
   }
 
+  public toJSON(): Record<string, unknown> {
+    return {
+      signature: this.signature.toString(),
+      options: this.options,
+      examples: this.examples,
+      demos: this.demos,
+      trace: this.trace,
+      traceLabel: this.traceLabel,
+      asserts: this.asserts,
+      streamingAsserts: this.streamingAsserts,
+      fieldProcessors: this.fieldProcessors,
+      streamingFieldProcessors: this.streamingFieldProcessors,
+      excludeContentFromTrace: this.excludeContentFromTrace,
+      thoughtFieldName: this.thoughtFieldName,
+    };
+  }
+
+  public clone(): AxGen<IN, OUT> {
+    const newInstance = new AxGen<IN, OUT>(this.signature, this.options);
+    newInstance.examples = this.examples ? [...this.examples] : undefined;
+    newInstance.examplesOptions = this.examplesOptions
+      ? { ...this.examplesOptions }
+      : undefined;
+    newInstance.demos = this.demos ? [...this.demos] : undefined;
+    newInstance.trace = this.trace;
+    newInstance.usage = this.usage ? [...this.usage] : [];
+    newInstance.traceLabel = this.traceLabel;
+    newInstance.asserts = this.asserts ? [...this.asserts] : [];
+    newInstance.streamingAsserts = this.streamingAsserts
+      ? [...this.streamingAsserts]
+      : [];
+    newInstance.fieldProcessors = this.fieldProcessors
+      ? [...this.fieldProcessors]
+      : [];
+    newInstance.streamingFieldProcessors = this.streamingFieldProcessors
+      ? [...this.streamingFieldProcessors]
+      : [];
+    newInstance.excludeContentFromTrace = this.excludeContentFromTrace;
+    newInstance.thoughtFieldName = this.thoughtFieldName;
+    return newInstance;
+  }
+
   private getSignatureName(): string {
     return this.signature.getDescription() || 'unknown_signature';
   }

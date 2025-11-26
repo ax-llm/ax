@@ -168,31 +168,60 @@ export class AxMiPRO extends AxBaseOptimizer {
     return counts.get(bestKey)?.firstIndex ?? 0;
   };
 
+  private _setNumTrialsFromNumCandidates<IN, OUT extends AxGenOut>(
+    program: Readonly<AxGen<IN, OUT>>,
+    zeroshotOpt: boolean,
+    numCandidates: number
+  ): number {
+    const signature = program.getSignature().toString();
+    // This is a bit fragile, but it's the best I can do without more access to the program's structure.
+    const numPredictors = signature.split('->').length - 1;
+    let numVars = numPredictors;
+
+    if (!zeroshotOpt) {
+      numVars *= 2; // Account for few-shot examples + instruction variables
+    }
+
+    // Formula from DSPy MIPROv2
+    const numTrials = Math.floor(
+      Math.max(2 * numVars * Math.log2(numCandidates), 1.5 * numCandidates)
+    );
+
+    return numTrials;
+  }
+
   /**
    * Configures the optimizer for light, medium, or heavy optimization
    * @param level The optimization level: "light", "medium", or "heavy"
    */
-  public configureAuto(level: 'light' | 'medium' | 'heavy'): void {
-    switch (level) {
-      case 'light':
-        this.numCandidates = 3;
-        this.numTrials = 10;
-        this.minibatch = true;
-        this.minibatchSize = 20;
-        break;
-      case 'medium':
-        this.numCandidates = 5;
-        this.numTrials = 20;
-        this.minibatch = true;
-        this.minibatchSize = 25;
-        break;
-      case 'heavy':
-        this.numCandidates = 7;
-        this.numTrials = 30;
-        this.minibatch = true;
-        this.minibatchSize = 30;
-        break;
-    }
+  public configureAuto<IN, OUT extends AxGenOut>(
+    level: 'light' | 'medium' | 'heavy',
+    program: Readonly<AxGen<IN, OUT>>
+  ): void {
+    const zeroshotOpt =
+      this.maxBootstrappedDemos === 0 && this.maxLabeledDemos === 0;
+
+    const AUTO_RUN_SETTINGS = {
+      light: { n: 6 },
+      medium: { n: 12 },
+      heavy: { n: 18 },
+    };
+    const autoSettings = AUTO_RUN_SETTINGS[level];
+
+    // In python:
+    // num_instruct_candidates = auto_settings["n"] if zeroshot_opt else int(auto_settings["n"] * 0.5)
+    // In TS, this.numCandidates is for instructions.
+    this.numCandidates = zeroshotOpt
+      ? autoSettings.n
+      : Math.floor(autoSettings.n * 0.5);
+
+    this.numTrials = this._setNumTrialsFromNumCandidates(
+      program,
+      zeroshotOpt,
+      autoSettings.n // python uses the base 'n' for calculating trials.
+    );
+    this.minibatch = true;
+    this.minibatchSize = 35; // A reasonable default from python version.
   }
 
   /**
@@ -526,7 +555,7 @@ Instruction:`;
     program: Readonly<AxGen<IN, OUT>>,
     examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
-    options?: AxCompileOptions
+    options?: AxCompileOptions & { teacher?: Readonly<AxGen<IN, OUT>> }
   ): Promise<AxMiPROResult<IN, OUT>> {
     const _startTime = Date.now();
 
@@ -538,7 +567,7 @@ Instruction:`;
 
     // Configure auto settings if provided
     if (options?.auto) {
-      this.configureAuto(options.auto);
+      this.configureAuto(options.auto, program);
     }
 
     // Python optimizer is REQUIRED for MiPRO v2
@@ -692,6 +721,67 @@ Instruction:`;
 
   // JS surrogate model and acquisition functions removed
 
+  private _log_minibatch_eval<IN, OUT extends AxGenOut>(
+    score: number,
+    bestScore: number,
+    batchSize: number,
+    chosenParams: Record<string, unknown>,
+    scoreData: Readonly<
+      Array<{ score: number; program: Readonly<AxGen<IN, OUT>>; full_eval: boolean }>
+    >,
+    trialNum: number,
+    totalTrials: number,
+    trial_logs: Record<number, Record<string, unknown>>,
+    candidate_program: Readonly<AxGen<IN, OUT>>,
+    total_eval_calls: number
+  ) {
+    trial_logs[trialNum] = {
+      ...(trial_logs[trialNum] ?? {}),
+      mb_score: score,
+      total_eval_calls_so_far: total_eval_calls,
+      mb_program: candidate_program.toJSON(), // a serializable representation
+    };
+
+    const logger = this.getLogger();
+    logger?.({
+      name: 'MiPRO Trial Log',
+      id: `trial_${trialNum}`,
+      value: `Score: ${score} on minibatch of size ${batchSize} with parameters ${JSON.stringify(
+        chosenParams
+      )}.`,
+    });
+
+    const minibatch_scores = scoreData
+      .filter((s) => !s.full_eval)
+      .map((s) => s.score.toFixed(3))
+      .join(', ');
+
+    logger?.({
+      name: 'MiPRO Trial Log',
+      id: `trial_${trialNum}`,
+      value: `Minibatch scores so far: [${minibatch_scores}]`,
+    });
+
+    const full_eval_scores = scoreData
+      .filter((s) => s.full_eval)
+      .map((s) => s.score.toFixed(3))
+      .join(', ');
+    logger?.({
+      name: 'MiPRO Trial Log',
+      id: `trial_${trialNum}`,
+      value: `Full eval scores so far: [${full_eval_scores}]`,
+    });
+    logger?.({
+      name: 'MiPRO Trial Log',
+      id: `trial_${trialNum}`,
+      value: `Best full score so far: ${bestScore.toFixed(3)}`,
+    });
+
+    console.log(
+      `\n== Trial ${trialNum} / ${totalTrials} - Minibatch Evaluation ==\n`
+    );
+  }
+
   /**
    * Python-based compilation method
    *
@@ -703,7 +793,7 @@ Instruction:`;
     program: Readonly<AxGen<IN, OUT>>,
     examples: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
-    _options?: AxCompileOptions
+    _options?: AxCompileOptions & { teacher?: Readonly<AxGen<IN, OUT>> }
   ): Promise<AxMiPROResult<IN, OUT>> {
     if (!this.pythonClient) {
       throw new Error('Python client not initialized');
@@ -806,9 +896,21 @@ Instruction:`;
     let totalTrials = 0;
     let stagnationRounds = 0;
 
+    const trial_logs: Record<
+      number,
+      Record<string, string | number | object>
+    > = {};
+
+    const scoreData: Array<{
+      score: number;
+      program: Readonly<AxGen<IN, OUT>>;
+      full_eval: boolean;
+    }> = [];
+
     // Run optimization trials
     for (let trial = 0; trial < this.numTrials; trial++) {
       try {
+        const trialNum = trial + 1;
         // Get parameter suggestion from Python service
         const suggestion = await this.pythonClient.suggestParameters(studyName);
 
@@ -855,9 +957,11 @@ Instruction:`;
               return Array.from(indices).map((i) => examples[i]!);
             })();
 
+        const candidate_program = program.clone();
+
         // Evaluate with the suggested parameters
         const score = await this.evaluateConfiguration(
-          program,
+          candidate_program,
           metricFn,
           {
             temperature: temperature as number,
@@ -871,12 +975,33 @@ Instruction:`;
 
         totalTrials++;
 
+        scoreData.push({
+          score,
+          program: candidate_program,
+          full_eval: useFullEval,
+        });
+
         // Report the result back to Python optimizer
         await this.pythonClient.evaluateTrial({
           study_name: studyName,
           trial_number: suggestion.trial_number,
           value: score,
         });
+
+        if (this.minibatch) {
+          this._log_minibatch_eval(
+            score,
+            bestScore,
+            evalSet.length,
+            suggestion.params,
+            scoreData,
+            trialNum,
+            this.numTrials,
+            trial_logs,
+            candidate_program,
+            totalTrials
+          );
+        }
 
         // Update best result and early stopping accounting
         if (score > bestScore + this.minImprovementThreshold) {
@@ -944,6 +1069,12 @@ Instruction:`;
         }
       } catch (_error) {
         // Continue with next trial - skip failed trials
+        const logger = this.getLogger();
+        logger?.({
+          name: 'MiPRO Trial Error',
+          id: `trial_${trial}`,
+          value: _error instanceof Error ? _error.message : String(_error),
+        });
       }
     }
 
@@ -1049,6 +1180,7 @@ Instruction:`;
       converged: this.stats.convergenceInfo.converged,
       scoreHistory: [...this.localScoreHistory],
       configurationHistory: [...this.localConfigurationHistory],
+      trialLogs: trial_logs,
     });
 
     // Generate optimization insights report
@@ -1119,7 +1251,7 @@ Instruction:`;
    * Simplified evaluation method for Python optimization
    */
   private async evaluateConfiguration<IN, OUT extends AxGenOut>(
-    program: Readonly<AxGen<IN, OUT>>,
+    program: AxGen<IN, OUT>,
     metricFn: AxMetricFn,
     config: {
       temperature: number;
