@@ -24,7 +24,7 @@ import {
   renderPlaybook,
   updateBulletFeedback,
 } from './acePlaybook.js';
-import { f } from '../sig.js';
+import { f, type AxSignature } from '../sig.js';
 import type {
   AxACEBullet,
   AxACECuratorOperation,
@@ -143,6 +143,7 @@ export class AxACE extends AxBaseOptimizer {
   private playbook: AxACEPlaybook;
   private generatorHistory: AxACEFeedbackEvent[] = [];
   private deltaHistory: AxACEOptimizationArtifact['history'] = [];
+  private signature?: AxSignature;
 
   private reflectorProgram?: AxGen<any, any>;
 
@@ -173,6 +174,7 @@ export class AxACE extends AxBaseOptimizer {
         : createEmptyPlaybook();
     this.generatorHistory = [];
     this.deltaHistory = [];
+    this.signature = undefined;
   }
 
   public configureAuto(level: 'light' | 'medium' | 'heavy'): void {
@@ -220,6 +222,9 @@ export class AxACE extends AxBaseOptimizer {
 
     const startTime = Date.now();
     this.validateExamples(examples);
+
+    const signature = program.getSignature();
+    this.signature = signature;
 
     const baseInstruction = await this.extractProgramInstruction(program);
     const originalDescription = program.getSignature().getDescription() ?? '';
@@ -284,12 +289,14 @@ export class AxACE extends AxBaseOptimizer {
               expectedSeverity !== predictedSeverity
                 ? `Expected severity "${expectedSeverity}" but model predicted "${predictedSeverity}".`
                 : undefined,
+            signature,
           });
 
           const rawCurator = await this.runCurator({
             example,
             reflection,
             playbook: this.playbook,
+            signature,
           });
 
           let operations = this.normalizeCuratorOperations(
@@ -458,6 +465,12 @@ export class AxACE extends AxBaseOptimizer {
       feedback?: string;
     }>
   ): Promise<AxACECuratorOutput | undefined> {
+    if (!this.signature) {
+      throw new Error(
+        'Optimizer has not been compiled yet. Please call compile() first.'
+      );
+    }
+
     const generatorOutput = this.createGeneratorOutput(
       args.prediction,
       args.example
@@ -477,12 +490,14 @@ export class AxACE extends AxBaseOptimizer {
         expectedSeverity !== predictedSeverity
           ? `Expected severity "${expectedSeverity}" but model predicted "${predictedSeverity}".`
           : undefined),
+      signature: this.signature,
     });
 
     const rawCurator = await this.runCurator({
       example: args.example,
       reflection,
       playbook: this.playbook,
+      signature: this.signature,
     });
 
     let operations = this.normalizeCuratorOperations(rawCurator?.operations);
@@ -903,10 +918,12 @@ export class AxACE extends AxBaseOptimizer {
     example,
     generatorOutput,
     feedback,
+    signature,
   }: Readonly<{
     example: AxExample;
     generatorOutput: AxACEGeneratorOutput;
     feedback?: string;
+    signature: AxSignature;
   }>): Promise<AxACEReflectionOutput | undefined> {
     const rounds = Math.max(this.aceConfig.maxReflectorRounds, 1);
     let previous: AxACEReflectionOutput | undefined;
@@ -917,6 +934,7 @@ export class AxACE extends AxBaseOptimizer {
         generatorOutput,
         feedback,
         previousReflection: previous,
+        signature,
       });
 
       if (!reflection) {
@@ -949,22 +967,30 @@ export class AxACE extends AxBaseOptimizer {
     generatorOutput,
     feedback,
     previousReflection,
+    signature,
   }: Readonly<{
     example: AxExample;
     generatorOutput: AxACEGeneratorOutput;
     feedback?: string;
     previousReflection?: AxACEReflectionOutput;
+    signature: AxSignature;
   }>): Promise<AxACEReflectionOutput | undefined> {
     const reflector = this.getOrCreateReflectorProgram();
     const reflectorAI = this.teacherAI ?? this.studentAI;
 
     try {
+      const inputFields = signature.getInputFields().map((f) => f.name);
+      const questionContext = Object.fromEntries(
+        Object.entries(example).filter(([key]) => inputFields.includes(key))
+      );
+
       const expectedAnswer = {
         severity: (example as { severity?: string })?.severity,
         policyHint: (example as { policyHint?: string })?.policyHint,
       };
       const reflectionRaw = await reflector.forward(reflectorAI, {
         question: JSON.stringify(example),
+        question_context: JSON.stringify(questionContext),
         generator_answer: JSON.stringify(generatorOutput.answer),
         generator_reasoning: generatorOutput.reasoning,
         playbook: JSON.stringify({
@@ -996,10 +1022,12 @@ export class AxACE extends AxBaseOptimizer {
     example,
     reflection,
     playbook,
+    signature,
   }: Readonly<{
     example: AxExample;
     reflection?: AxACEReflectionOutput;
     playbook: AxACEPlaybook;
+    signature: AxSignature;
   }>): Promise<AxACECuratorOutput | undefined> {
     if (!reflection) {
       return undefined;
@@ -1009,13 +1037,18 @@ export class AxACE extends AxBaseOptimizer {
     const curatorAI = this.teacherAI ?? this.studentAI;
 
     try {
+      const inputFields = signature.getInputFields().map((f) => f.name);
+      const questionContext = Object.fromEntries(
+        Object.entries(example).filter(([key]) => inputFields.includes(key))
+      );
+
       const outputRaw = await curator.forward(curatorAI, {
         playbook: JSON.stringify({
           markdown: renderPlaybook(playbook),
           structured: playbook,
         }),
         reflection: JSON.stringify(reflection),
-        question_context: JSON.stringify(example),
+        question_context: JSON.stringify(questionContext),
         token_budget: 1024,
       });
 
@@ -1035,6 +1068,10 @@ export class AxACE extends AxBaseOptimizer {
     if (!this.reflectorProgram) {
       const signature = f()
         .input('question', f.string('Original task input serialized as JSON'))
+        .input(
+          'question_context',
+          f.string('Original task input fields serialized as JSON').optional()
+        )
         .input(
           'generator_answer',
           f.string('Generator output serialized as JSON')
