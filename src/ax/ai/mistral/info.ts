@@ -28,6 +28,12 @@ export const axModelInfoMistral: AxModelInfo[] = [
     currency: 'USD',
     promptTokenCostPer1M: 0.2,
     completionTokenCostPer1M: 0.6,
+    media: {
+      images: {
+        supported: true,
+        formats: ['png', 'jpeg', 'jpg'],
+      },
+    },
   },
   {
     name: AxAIMistralModel.MistralLarge,
@@ -37,7 +43,7 @@ export const axModelInfoMistral: AxModelInfo[] = [
     media: {
       images: {
         supported: true,
-        formats: ['png', 'jpeg', 'jpg', 'webp', 'gif'],
+        formats: ['png', 'jpeg', 'jpg'],
       },
     },
   },
