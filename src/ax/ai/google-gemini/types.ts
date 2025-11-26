@@ -21,6 +21,7 @@ export enum AxAIGoogleGeminiModel {
 }
 
 export enum AxAIGoogleGeminiEmbedModel {
+  GeminiEmbedding001 = 'gemini-embedding-001',
   GeminiEmbedding = 'gemini-embedding-exp',
   TextEmbeddingLarge = 'text-embedding-large-exp-03-07',
   TextEmbedding004 = 'text-embedding-004',
