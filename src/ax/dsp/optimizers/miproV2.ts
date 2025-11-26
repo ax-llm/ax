@@ -720,6 +720,23 @@ Instruction:`;
       .toString(36)
       .substr(2, 9)}`;
 
+    // Propose instruction candidates
+    const instructionCandidates = await this.proposeInstructionCandidates(
+      program,
+      _options,
+      examples
+    );
+
+    const labeledDemosParams =
+      this.maxLabeledDemos > 0 && examples.length > 0
+        ? Array.from({ length: this.maxLabeledDemos }, (_, i) => ({
+            name: `example_idx_${i}`,
+            type: 'int' as const,
+            low: 0,
+            high: examples.length - 1,
+          }))
+        : [];
+
     // Create optimization request - simplified parameter set for now
     const optimizationRequest = {
       study_name: studyName,
@@ -736,6 +753,18 @@ Instruction:`;
           low: 0,
           high: this.maxBootstrappedDemos,
         },
+        // Add instruction parameter if candidates are available
+        ...(instructionCandidates.length > 0
+          ? ([
+              {
+                name: 'instruction',
+                type: 'categorical' as const,
+                choices: instructionCandidates,
+              },
+            ] as const)
+          : []),
+        // Add labeled demo selection parameters
+        ...labeledDemosParams,
         // Optionally include topP as a conservative sampling knob
         ...(this.optimizeTopP
           ? ([
@@ -784,11 +813,13 @@ Instruction:`;
         const suggestion = await this.pythonClient.suggestParameters(studyName);
 
         // Apply the suggested parameters - throw error if missing
-        const temperature = suggestion.params.temperature as number;
-        const bootstrappedDemos = suggestion.params.bootstrappedDemos as number;
-        const topP = this.optimizeTopP
-          ? (suggestion.params.topP as number | undefined)
-          : undefined;
+        const { temperature, bootstrappedDemos, instruction, topP, ...rest } =
+          suggestion.params;
+
+        const exampleIndices = Object.keys(rest)
+          .filter((key) => key.startsWith('example_idx_'))
+          .map((key) => rest[key] as number)
+          .filter((v) => typeof v === 'number');
 
         if (temperature === undefined) {
           throw new Error(
@@ -828,7 +859,13 @@ Instruction:`;
         const score = await this.evaluateConfiguration(
           program,
           metricFn,
-          { temperature, bootstrappedDemos, topP },
+          {
+            temperature: temperature as number,
+            bootstrappedDemos: bootstrappedDemos as number,
+            instruction: instruction as string | undefined,
+            exampleIndices,
+            topP: topP as number | undefined,
+          },
           evalSet
         );
 
@@ -845,9 +882,7 @@ Instruction:`;
         if (score > bestScore + this.minImprovementThreshold) {
           bestScore = score;
           bestConfiguration = {
-            temperature,
-            bootstrappedDemos,
-            ...(topP !== undefined ? { topP } : {}),
+            ...suggestion.params,
             trialNumber: suggestion.trial_number,
           };
           stagnationRounds = 0;
@@ -860,9 +895,7 @@ Instruction:`;
 
         // Persist histories locally and via base helper (also emits logger + checkpoints)
         const configuration = {
-          temperature,
-          bootstrappedDemos,
-          ...(topP !== undefined ? { topP } : {}),
+          ...suggestion.params,
           trialNumber: suggestion.trial_number,
         };
         this.localScoreHistory.push(score);
@@ -1003,7 +1036,7 @@ Instruction:`;
     const optimizedProgram = new AxOptimizedProgramImpl<OUT>({
       bestScore: finalBestScore,
       stats: this.stats,
-      instruction: undefined, // Python path doesn't optimize instructions yet
+      instruction: (finalBestConfig as any).instruction,
       demos: bestDemos,
       examples: [],
       modelConfig: {
@@ -1088,7 +1121,13 @@ Instruction:`;
   private async evaluateConfiguration<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
     metricFn: AxMetricFn,
-    config: { temperature: number; bootstrappedDemos: number; topP?: number },
+    config: {
+      temperature: number;
+      bootstrappedDemos: number;
+      instruction?: string;
+      exampleIndices?: number[];
+      topP?: number;
+    },
     examples: readonly AxExample[]
   ): Promise<number> {
     let totalScore = 0;
@@ -1097,6 +1136,20 @@ Instruction:`;
 
     // Use provided examples set (already mini-batched/full-selected by caller)
     const evaluationExamples = examples as readonly AxTypedExample<IN>[];
+
+    // Apply instruction if provided
+    if (config.instruction) {
+      (program as any).setInstruction?.(config.instruction);
+    }
+
+    // Select labeled examples from the full set if indices are provided
+    const labeledExamples = (config.exampleIndices ?? [])
+      .map((i) => evaluationExamples[i])
+      .filter((ex): ex is AxTypedExample<IN> => !!ex);
+
+    if (labeledExamples.length > 0) {
+      (program as any).setExamples?.(labeledExamples);
+    }
 
     // Optional: Pre-bootstrap demos once and reuse for this configuration
     let demosForConfig: AxProgramDemos<any, OUT>[] = [];
