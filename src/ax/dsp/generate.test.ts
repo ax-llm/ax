@@ -6,7 +6,7 @@ import { validateAxMessageArray } from '../ai/base.js';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxGen } from './generate.js';
-import { AxSignature } from './sig.js';
+import { f, AxSignature } from './sig.js';
 import type { AxProgramForwardOptions } from './types.js';
 
 function createStreamingResponse(
@@ -892,5 +892,60 @@ describe('AxGen DSPy field prefix format', () => {
     expect(response).toEqual({
       agentOutput: 'This is the agent response with proper field prefix',
     });
+  });
+});
+
+describe('AxGen input validation', () => {
+  it('should not throw validation error for f.object().array()', async () => {
+    const sig = f()
+      .input(
+        'items',
+        f
+          .object(
+            {
+              id: f.number(),
+              name: f.string(),
+            },
+            'Item'
+          )
+          .array()
+      )
+      .output(
+        'classifiedItems',
+        f
+          .object(
+            {
+              id: f.number(),
+              label: f.string(),
+            },
+            'Classification'
+          )
+          .array()
+      )
+      .build();
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: '{"classifiedItems": []}',
+            finishReason: 'stop',
+          },
+        ],
+      },
+    });
+
+    const gen = new AxGen(sig);
+
+    await expect(
+      gen.forward(ai, {
+        items: [
+          { id: 0, name: 'Foo' },
+          { id: 1, name: 'Bar' },
+        ],
+      })
+    ).resolves.not.toThrow();
   });
 });

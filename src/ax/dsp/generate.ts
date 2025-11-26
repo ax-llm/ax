@@ -905,7 +905,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             validateStringConstraints(item, field);
           } else if (type.name === 'number') {
             validateNumberConstraints(item, field);
-          } else if (type.fields && typeof item === 'object' && item !== null) {
+          } else if (
+            type.name === 'object' &&
+            type.fields &&
+            typeof item === 'object' &&
+            item !== null
+          ) {
             this.validateObjectFields(
               item as Record<string, unknown>,
               type.fields,
