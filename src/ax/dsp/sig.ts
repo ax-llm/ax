@@ -1571,6 +1571,10 @@ export class AxSignature<
     const allFields = [...this.inputFields, ...this.outputFields];
     return toJsonSchema(allFields, this.description ?? 'Schema');
   };
+
+  public clone = (): AxSignature<_TInput, _TOutput> => {
+    return new AxSignature(this);
+  };
 }
 
 function renderField(field: Readonly<AxField>): string {

@@ -17,6 +17,7 @@ import { ax } from '../template.js';
 import type {
   AxGenOut,
   AxProgramDemos,
+  AxProgramExamples,
   AxResultPickerFunction,
 } from '../types.js';
 
@@ -727,7 +728,11 @@ Instruction:`;
     batchSize: number,
     chosenParams: Record<string, unknown>,
     scoreData: Readonly<
-      Array<{ score: number; program: Readonly<AxGen<IN, OUT>>; full_eval: boolean }>
+      Array<{
+        score: number;
+        program: Readonly<AxGen<IN, OUT>>;
+        full_eval: boolean;
+      }>
     >,
     trialNum: number,
     totalTrials: number,
@@ -854,7 +859,7 @@ Instruction:`;
             ] as const)
           : []),
         // Add labeled demo selection parameters
-        ...labeledDemosParams,
+        ...(this.maxLabeledDemos > 0 ? labeledDemosParams : []),
         // Optionally include topP as a conservative sampling knob
         ...(this.optimizeTopP
           ? ([
@@ -918,10 +923,13 @@ Instruction:`;
         const { temperature, bootstrappedDemos, instruction, topP, ...rest } =
           suggestion.params;
 
-        const exampleIndices = Object.keys(rest)
-          .filter((key) => key.startsWith('example_idx_'))
-          .map((key) => rest[key] as number)
-          .filter((v) => typeof v === 'number');
+        const exampleIndices =
+          this.maxLabeledDemos > 0
+            ? Object.keys(rest)
+                .filter((key) => key.startsWith('example_idx_'))
+                .map((key) => rest[key] as number)
+                .filter((v) => typeof v === 'number')
+            : [];
 
         if (temperature === undefined) {
           throw new Error(
@@ -1271,7 +1279,7 @@ Instruction:`;
 
     // Apply instruction if provided
     if (config.instruction) {
-      (program as any).setInstruction?.(config.instruction);
+      program.setInstruction(config.instruction);
     }
 
     // Select labeled examples from the full set if indices are provided
@@ -1279,8 +1287,10 @@ Instruction:`;
       .map((i) => evaluationExamples[i])
       .filter((ex): ex is AxTypedExample<IN> => !!ex);
 
-    if (labeledExamples.length > 0) {
-      (program as any).setExamples?.(labeledExamples);
+    if (this.maxLabeledDemos > 0 && labeledExamples.length > 0) {
+      program.setExamples(
+        labeledExamples as unknown as Readonly<AxProgramExamples<IN, OUT>>
+      );
     }
 
     // Optional: Pre-bootstrap demos once and reuse for this configuration

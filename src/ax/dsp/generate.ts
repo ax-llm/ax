@@ -191,7 +191,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   }
 
   public clone(): AxGen<IN, OUT> {
-    const newInstance = new AxGen<IN, OUT>(this.signature, this.options);
+    const newInstance = new AxGen<IN, OUT>(this.signature.clone(), this.options);
     newInstance.examples = this.examples ? [...this.examples] : undefined;
     newInstance.examplesOptions = this.examplesOptions
       ? { ...this.examplesOptions }
@@ -317,6 +317,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       true
     );
   };
+
+  public setInstruction(instruction: string): void {
+    this.signature.setDescription(instruction);
+  }
 
   public addFieldProcessor = (
     fieldName: keyof OUT,

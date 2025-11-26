@@ -442,6 +442,16 @@ export type AxLoggerData =
   | {
       name: 'ChatResponseCitations';
       value: AxCitation[];
+    }
+  | {
+      name: 'MiPRO Trial Log';
+      id: string;
+      value: string;
+    }
+  | {
+      name: 'MiPRO Trial Error';
+      id: string;
+      value: string;
     };
 
 export type AxLoggerFunction = (message: AxLoggerData) => void;

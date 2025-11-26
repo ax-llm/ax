@@ -1,11 +1,11 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { AxGen } from '../generate';
-import { AxMiPRO } from './miproV2';
-import { AxAIService } from '../../ai';
+import type { AxAIService } from '../../ai';
 import { AxAIHuggingFace } from '../../ai/huggingface/api';
+import { AxMiPRO } from './miproV2';
 
 // Mock AI Service
-const mockAIService = {
+const _mockAIService = {
   chat: vi.fn().mockResolvedValue({
     results: [{ content: 'mocked response' }],
   }),
@@ -66,6 +66,11 @@ describe('AxMiPRO', () => {
   });
 
   it('should run compilePython and optimize instructions and examples', async () => {
+    const clonedProgram = program.clone();
+    const setInstructionSpy = vi.spyOn(clonedProgram, 'setInstruction');
+    const setExamplesSpy = vi.spyOn(clonedProgram, 'setExamples');
+    vi.spyOn(program, 'clone').mockReturnValue(clonedProgram);
+
     const result = await optimizer.compile(program, examples, metricFn);
 
     expect(mockPythonClient.createOptimizationJob).toHaveBeenCalled();
@@ -74,5 +79,7 @@ describe('AxMiPRO', () => {
     expect(mockPythonClient.getStudyResults).toHaveBeenCalled();
     expect(result.bestScore).toBe(0.9);
     expect(result.finalConfiguration?.instruction).toBe('test instruction');
+    expect(setInstructionSpy).toHaveBeenCalledWith('test instruction');
+    expect(setExamplesSpy).toHaveBeenCalledWith([examples[0]]);
   });
 });
