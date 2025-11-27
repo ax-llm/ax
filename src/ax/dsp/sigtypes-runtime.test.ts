@@ -69,10 +69,6 @@ describe('TypeScript Parser Parity with JS Parser', () => {
         expect(parsed.outputs.length).toBeGreaterThan(0);
       }).not.toThrow(`JS Parser failed for: "${signature}"`);
     }
-
-    console.log(
-      `✅ JS Parser successfully handled ${testCases.length} test cases`
-    );
   });
 
   test('should demonstrate TypeScript type inference capabilities', () => {
@@ -97,7 +93,5 @@ describe('TypeScript Parser Parity with JS Parser', () => {
     };
 
     expect(simpleClassExample.outputs.category).toBe('positive');
-
-    console.log('✅ TypeScript type inference working for supported cases');
   });
 });
