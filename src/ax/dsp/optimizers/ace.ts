@@ -148,7 +148,7 @@ export class AxACE extends AxBaseOptimizer {
 
   private curatorProgram?: AxGen<any, any>;
 
-  private program?: AxGen<any, any>;
+  private program?: Readonly<AxGen<any, any>>;
 
   constructor(
     args: Readonly<AxOptimizerArgs>,
