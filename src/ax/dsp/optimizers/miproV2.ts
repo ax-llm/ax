@@ -716,6 +716,13 @@ Instruction:`;
     this.localScoreHistory = [];
     this.localConfigurationHistory = [];
 
+    // Propose instruction candidates
+    const instructionCandidates = await this.proposeInstructionCandidates(
+      program,
+      _options,
+      examples
+    );
+
     const studyName = `mipro_${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 9)}`;
@@ -735,6 +742,19 @@ Instruction:`;
           type: 'int' as const,
           low: 0,
           high: this.maxBootstrappedDemos,
+        },
+        // Add instruction candidates
+        {
+          name: 'instruction',
+          type: 'categorical' as const,
+          choices: instructionCandidates,
+        },
+        // Add labeled examples
+        {
+          name: 'labeledExamples',
+          type: 'int' as const,
+          low: 0,
+          high: this.maxLabeledDemos,
         },
         // Optionally include topP as a conservative sampling knob
         ...(this.optimizeTopP
@@ -786,6 +806,9 @@ Instruction:`;
         // Apply the suggested parameters - throw error if missing
         const temperature = suggestion.params.temperature as number;
         const bootstrappedDemos = suggestion.params.bootstrappedDemos as number;
+        const instruction = suggestion.params.instruction as string;
+        const labeledExamples = suggestion.params.labeledExamples as number;
+
         const topP = this.optimizeTopP
           ? (suggestion.params.topP as number | undefined)
           : undefined;
@@ -804,6 +827,30 @@ Instruction:`;
             )}`
           );
         }
+        if (instruction === undefined) {
+          throw new Error(
+            `Missing instruction parameter in suggestion: ${JSON.stringify(
+              suggestion
+            )}`
+          );
+        }
+        if (labeledExamples === undefined) {
+          throw new Error(
+            `Missing labeledExamples parameter in suggestion: ${JSON.stringify(
+              suggestion
+            )}`
+          );
+        }
+
+        // Clone the program to apply the new instruction
+        const programForEval = program.clone();
+        programForEval.setInstruction(instruction);
+        programForEval.setExamples(
+          this.selectLabeledExamples(examples).slice(
+            0,
+            labeledExamples
+          ) as unknown as readonly (OUT & Partial<IN>)[]
+        );
 
         // Choose evaluation set: minibatch vs full
         const useFullEval =
@@ -826,7 +873,7 @@ Instruction:`;
 
         // Evaluate with the suggested parameters
         const score = await this.evaluateConfiguration(
-          program,
+          programForEval,
           metricFn,
           { temperature, bootstrappedDemos, topP },
           evalSet
@@ -989,6 +1036,9 @@ Instruction:`;
 
     // Create optimized generator with best configuration
     const optimizedGen = new AxGen(program.getSignature());
+    if ((finalBestConfig as any).instruction) {
+      optimizedGen.setInstruction((finalBestConfig as any).instruction);
+    }
     if (bestDemos.length > 0) {
       optimizedGen.setDemos(bestDemos);
     }
@@ -1003,7 +1053,7 @@ Instruction:`;
     const optimizedProgram = new AxOptimizedProgramImpl<OUT>({
       bestScore: finalBestScore,
       stats: this.stats,
-      instruction: undefined, // Python path doesn't optimize instructions yet
+      instruction: (finalBestConfig as any).instruction,
       demos: bestDemos,
       examples: [],
       modelConfig: {
@@ -1098,30 +1148,8 @@ Instruction:`;
     // Use provided examples set (already mini-batched/full-selected by caller)
     const evaluationExamples = examples as readonly AxTypedExample<IN>[];
 
-    // Optional: Pre-bootstrap demos once and reuse for this configuration
-    let demosForConfig: AxProgramDemos<any, OUT>[] = [];
-    if (config.bootstrappedDemos > 0) {
-      try {
-        const bootstrapped = await this.bootstrapFewShotExamples(
-          program,
-          metricFn,
-          evaluationExamples
-        );
-        demosForConfig = bootstrapped.slice(0, config.bootstrappedDemos);
-      } catch {
-        // If bootstrap fails, continue without demos
-        demosForConfig = [];
-      }
-    }
-
     for (const example of evaluationExamples) {
       try {
-        // Apply bootstrapped demos for this configuration if any were generated
-        if (demosForConfig.length > 0) {
-          // Best-effort application; program is Readonly in type but supports runtime mutation
-          (program as any).setDemos?.(demosForConfig);
-        }
-
         // Apply the optimized configuration (temperature) during evaluation
         const prediction = await program.forward(
           this.studentAI,

@@ -46,6 +46,10 @@ export class AxPromptTemplate {
   private sig: Readonly<AxSignature>;
   private fieldTemplates?: Record<string, AxFieldTemplateFn>;
   private task: { type: 'text'; text: string };
+
+  public setInstruction(instruction: string): void {
+    this.task = { type: 'text', text: instruction };
+  }
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
   private readonly cacheSystemPrompt?: boolean;
